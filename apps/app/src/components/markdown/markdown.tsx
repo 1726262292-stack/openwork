@@ -409,6 +409,11 @@ function MarkdownBlockInner({
 
   const html = !streaming && highlightedHtml?.text === text ? highlightedHtml.html : syncHtml;
 
+  // Re-apply search highlights after EVERY render (no dependency array on
+  // purpose): motion.div re-sets dangerouslySetInnerHTML on unrelated
+  // re-renders (e.g. open-target context updates), silently wiping the
+  // <mark> nodes without `html`/`highlightQuery` changing. With no active
+  // query this is a single querySelector fast path.
   useEffect(() => {
     const root = rootRef.current;
 
@@ -423,7 +428,7 @@ function MarkdownBlockInner({
 
       applyTextHighlights(root, highlightQuery ?? "");
     });
-  }, [html, highlightQuery]);
+  });
 
   useEffect(() => {
     const root = rootRef.current;

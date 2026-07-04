@@ -1,8 +1,9 @@
 const SEARCH_HIGHLIGHT_MARK_ATTR = "data-search-highlight";
+export const SEARCH_HIGHLIGHT_SELECTOR = `mark[${SEARCH_HIGHLIGHT_MARK_ATTR}="true"]`;
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function clearTextHighlights(root: HTMLElement) {
-  const marks = root.querySelectorAll(`mark[${SEARCH_HIGHLIGHT_MARK_ATTR}="true"]`);
+  const marks = root.querySelectorAll(SEARCH_HIGHLIGHT_SELECTOR);
   marks.forEach((mark) => {
     const parent = mark.parentNode;
     if (!parent) return;
@@ -17,7 +18,7 @@ export function applyTextHighlights(root: HTMLElement, query: string) {
   // We only need to clear existing marks if a previous search actually added
   // some.
   if (!needle) {
-    if (root.querySelector(`mark[${SEARCH_HIGHLIGHT_MARK_ATTR}="true"]`)) {
+    if (root.querySelector(SEARCH_HIGHLIGHT_SELECTOR)) {
       clearTextHighlights(root);
     }
     return;

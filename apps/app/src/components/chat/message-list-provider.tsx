@@ -7,6 +7,7 @@ interface MessageListContextValue {
   workspaceId: string
   sessionId: string
   showThinking: boolean
+  highlightQuery?: string
   developerMode: boolean
   displaySuggestions: boolean
   providerConnectedCount: number
@@ -24,6 +25,7 @@ interface MessageListProviderProps {
   workspaceId: string
   sessionId: string
   showThinking: boolean
+  highlightQuery?: string
   developerMode: boolean
   onRevertToUserMessage: (messageId: string) => void
   onForkAtMessage: (messageId: string) => void
@@ -45,6 +47,7 @@ export function MessageListProvider({
   workspaceId,
   sessionId,
   showThinking,
+  highlightQuery,
   developerMode,
   displaySuggestions,
   providerConnectedCount,
@@ -59,6 +62,7 @@ export function MessageListProvider({
       workspaceId,
       sessionId,
       showThinking,
+      highlightQuery,
       developerMode,
       displaySuggestions,
       providerConnectedCount,
@@ -72,6 +76,7 @@ export function MessageListProvider({
       workspaceId,
       sessionId,
       showThinking,
+      highlightQuery,
       developerMode,
       displaySuggestions,
       providerConnectedCount,

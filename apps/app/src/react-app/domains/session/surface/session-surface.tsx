@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
@@ -48,6 +48,8 @@ import { isModelReadableAttachment } from "@/react-app/domains/session/sync/atta
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { SessionScrollOverlay } from "./scroll-overlay";
+import { SessionFindBar } from "./find-bar";
+import { useSessionFindStore } from "./find-store";
 import { getSessionActivityStatusLabel, useSessionActivityStore, type SessionActivityStatus } from "@/react-app/domains/session/status/session-activity-store";
 import { PermissionApprovalPanel } from "@/react-app/domains/session/chat/permission-approval-modal";
 import { QuestionPanel } from "@/react-app/domains/session/modals/question-modal";
@@ -402,6 +404,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
+  const findOpen = useSessionFindStore((state) => state.open);
+  const findAppliedQuery = useSessionFindStore((state) => state.appliedQuery);
+  const findHighlightQuery = findOpen && findAppliedQuery.trim().length >= 2 ? findAppliedQuery : "";
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
   );
@@ -1126,6 +1131,32 @@ export function SessionSurface(props: SessionSurfaceProps) {
     contentRef,
   });
 
+  const handleFindBeforeJump = useCallback(() => {
+    sessionScroll.markScrollGesture(scrollRef.current);
+  }, [sessionScroll.markScrollGesture]);
+
+  const handleFindShortcut = useEffectEvent((event: KeyboardEvent) => {
+    const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+    const mod = isMac ? event.metaKey : event.ctrlKey;
+    if (!mod || event.shiftKey || event.altKey || event.key?.toLowerCase() !== "f") return;
+
+    event.preventDefault();
+    useSessionFindStore.getState().openFind();
+  });
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => handleFindShortcut(event);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    const state = useSessionFindStore.getState();
+    if (state.open && state.target?.sessionId !== props.sessionId) {
+      state.closeFind();
+    }
+  }, [props.sessionId]);
+
   const handleMessageListDispatchAction = useCallback((action: DispatchAction) => {
     if (action.target === "settings" && action.action === "open") {
       props.onOpenSettingsSection?.(action.section);
@@ -1257,7 +1288,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
             sessionScroll.markScrollGesture(event.currentTarget);
           }}
           onScroll={sessionScroll.handleScroll}
-          className="absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5"
+          // Extra top padding while the find bar is open so it never covers
+          // the first message (short transcripts cannot scroll it clear).
+          className={`absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 pb-4 sm:px-5 ${findOpen ? "pt-16" : "pt-4"}`}
         >
           {/* Chat column: tighter than the composer (800px) so messages
                keep a comfortable reading width and don't feel "too big". */}
@@ -1309,6 +1342,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
                       showThinking={showThinking}
+                      highlightQuery={findHighlightQuery}
                       developerMode={props.developerMode}
                       displaySuggestions={shellConfig.starterCards}
                       providerConnectedCount={props.providerConnectedCount ?? 0}
@@ -1335,6 +1369,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           isStreaming={chatStreaming}
           onJumpToLatest={sessionScroll.jumpToLatest}
           onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
+        />
+        <SessionFindBar
+          sessionId={props.sessionId}
+          scrollRef={scrollRef}
+          onBeforeJump={handleFindBeforeJump}
         />
       </div>
 

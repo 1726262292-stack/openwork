@@ -102,6 +102,7 @@ import {
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
+import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
@@ -1384,6 +1385,21 @@ export function SessionRoute() {
     },
   }), []);
 
+  const sessionFindPaletteItem = useMemo<PaletteItem | null>(() => {
+    if (!selectedSessionId) return null;
+    return {
+      id: "session-find.open",
+      title: "Find in conversation",
+      detail: "Search within the current conversation",
+      meta: "Cmd/Ctrl+F",
+      searchText: "find search current conversation session messages transcript",
+      action: () => {
+        setCommandPaletteOpen(false);
+        useSessionFindStore.getState().openFind();
+      },
+    };
+  }, [selectedSessionId]);
+
   const terminalPaletteItems = useMemo<PaletteItem[]>(() => [
     {
       id: "terminal.toggle",
@@ -2004,7 +2020,7 @@ export function SessionRoute() {
       currentSessionForGroupMove={currentSessionForGroupMove}
       currentSessionGroupId={currentSessionGroupId}
       onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}
+      extraItems={[...(sessionFindPaletteItem ? [sessionFindPaletteItem] : []), sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}
       listAgents={listAgents}
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}

@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Cloud, Columns2, FileText, Globe, Mic2, Settings2, X, Zap } from "lucide-react";
+import { Cloud, Columns2, FileText, Globe, Mic2, Settings2, TextSearch, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
@@ -21,6 +21,7 @@ import type {
 } from "../../../../app/types";
 import type { ShareWorkspaceModalProps } from "../../workspace/types";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogClose,
@@ -38,6 +39,7 @@ import { RenameSessionModal } from "../modals/rename-session-modal";
 import { AppSidebar } from "../sidebar/app-sidebar";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { SessionSurface, type SessionSurfaceProps } from "../surface/session-surface";
+import { useSessionFindStore } from "../surface/find-store";
 import {
   SidebarInset,
   SidebarProvider,
@@ -909,6 +911,24 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
+              {props.selectedSessionId ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground"
+                        aria-label="Find in conversation"
+                        onClick={() => useSessionFindStore.getState().openFind()}
+                      >
+                        <TextSearch size={17} />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Find in conversation (⌘F)</TooltipContent>
+                </Tooltip>
+              ) : null}
               <NotificationBell />
               {showCloudSignIn ? (
                 <Button

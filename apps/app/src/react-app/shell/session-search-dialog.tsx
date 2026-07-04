@@ -29,6 +29,7 @@ import {
   type SessionSearchProgress,
   type SessionSearchSnippet,
 } from "@/react-app/domains/session/search/session-search";
+import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 
 const MIN_QUERY_LENGTH = 2;
 const DEBOUNCE_MS = 200;
@@ -40,6 +41,7 @@ type ResultItem = {
   id: string;
   kind: "recent" | "title" | "message";
   session: SearchableSession;
+  messageId?: string;
   role?: "user" | "assistant";
   snippet?: SessionSearchSnippet;
 };
@@ -193,6 +195,7 @@ export function SessionSearchDialog(props: SessionSearchDialogProps) {
         id: `message:${match.session.workspaceId}:${match.session.sessionId}`,
         kind: "message",
         session: match.session,
+        messageId: match.messageId,
         role: match.role,
         snippet: match.snippet,
       });
@@ -272,6 +275,12 @@ export function SessionSearchDialog(props: SessionSearchDialogProps) {
                         onClick={() => {
                           props.onClose();
                           props.onOpenSession(item.session.workspaceId, item.session.sessionId);
+                          if (item.kind === "message") {
+                            const target = item.messageId
+                              ? { sessionId: item.session.sessionId, messageId: item.messageId }
+                              : { sessionId: item.session.sessionId };
+                            useSessionFindStore.getState().openFind({ query: trimmedQuery, target });
+                          }
                         }}
                       >
                         <span className="mr-2 shrink-0">{resultIcon(item.kind)}</span>
