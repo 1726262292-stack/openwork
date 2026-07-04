@@ -3,11 +3,26 @@
  * it with `gh`. The comment is the reviewable demo (verdict + per-frame claim,
  * voiceover, assertions); `fraimz.html` in the run directory stays the full
  * artifact with validated screenshots.
+ *
+ * Frame screenshots are uploaded to Vercel Blob (see the `upload-photo`
+ * skill) so they render inline in the PR comment. Requires
+ * `BLOB_READ_WRITE_TOKEN` in the environment.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+
+const BLOB_API_BASE = "https://blob.vercel-storage.com";
+
+function contentTypeFor(file) {
+  const lower = file.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "application/octet-stream";
+}
 
 export function renderPrComment(report, imageUrls = null) {
   const verdict = report.summary.failed > 0 ? "❌ FAILED" : "✅ PASSED";
@@ -68,66 +83,47 @@ export async function uploadRunImages(report, outDir) {
   }
   if (files.length === 0) return null;
 
-  const repoResult = spawnSync("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { encoding: "utf8" });
-  if (repoResult.error || repoResult.status !== 0) {
-    const detail = repoResult.error?.message ?? repoResult.stderr?.trim() ?? `gh exited ${repoResult.status}`;
-    throw new Error(`gh repo view failed: ${detail}`);
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    throw new Error(
+      "BLOB_READ_WRITE_TOKEN is not set — fetch it with the get-env-var skill: " +
+        'export BLOB_READ_WRITE_TOKEN="$(infisical secrets get BLOB_READ_WRITE_TOKEN --plain --silent)"',
+    );
   }
-  const nameWithOwner = repoResult.stdout.trim();
-  if (!nameWithOwner) throw new Error("gh repo view failed: empty nameWithOwner");
 
-  const payloadPath = join(outDir, ".gh-api-payload.json");
-  const ghApi = (args, inputJson = null) => {
-    const ghArgs = ["api", ...args];
-    if (inputJson !== null) {
-      writeFileSync(payloadPath, `${JSON.stringify(inputJson)}\n`);
-      ghArgs.push("--input", payloadPath);
-    }
-    const result = spawnSync("gh", ghArgs, { encoding: "utf8" });
-    if (result.error || result.status !== 0) {
-      const detail = result.error?.message ?? result.stderr?.trim() ?? `gh exited ${result.status}`;
-      throw new Error(`gh api ${args.join(" ")} failed: ${detail}`);
-    }
-    return result.stdout.trim();
-  };
-
-  try {
-    const uploads = [];
-    for (const file of files) {
-      const blobSha = ghApi([`repos/${nameWithOwner}/git/blobs`, "--jq", ".sha"], {
-        content: readFileSync(join(outDir, file)).toString("base64"),
-        encoding: "base64",
-      });
-      uploads.push({ file, blobSha });
-    }
-
-    const headResult = spawnSync("gh", ["api", `repos/${nameWithOwner}/git/ref/heads/fraimz-assets`, "--jq", ".object.sha"], { encoding: "utf8" });
-    if (headResult.error) throw new Error(`gh api repos/${nameWithOwner}/git/ref/heads/fraimz-assets failed: ${headResult.error.message}`);
-    const headSha = headResult.status === 0 ? headResult.stdout.trim() : null;
-    const parentTreeSha = headSha ? ghApi([`repos/${nameWithOwner}/git/commits/${headSha}`, "--jq", ".tree.sha"]) : null;
-    const treePayload = parentTreeSha
-      ? { base_tree: parentTreeSha, tree: uploads.map(({ file, blobSha }) => ({ path: `${report.runId}/${file}`, mode: "100644", type: "blob", sha: blobSha })) }
-      : { tree: uploads.map(({ file, blobSha }) => ({ path: `${report.runId}/${file}`, mode: "100644", type: "blob", sha: blobSha })) };
-    const treeSha = ghApi([`repos/${nameWithOwner}/git/trees`, "--jq", ".sha"], treePayload);
-    const commitSha = ghApi([`repos/${nameWithOwner}/git/commits`, "--jq", ".sha"], {
-      message: `fraimz assets ${report.runId}`,
-      tree: treeSha,
-      parents: headSha ? [headSha] : [],
+  const imageUrls = {};
+  for (const file of files) {
+    const pathname = `fraimz/${report.runId}/${encodeURIComponent(basename(file))}`;
+    const response = await fetch(`${BLOB_API_BASE}/${pathname}`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "x-content-type": contentTypeFor(file),
+        // Deterministic pathname: each run id + file name is already unique,
+        // so a random suffix would only make the URL harder to predict.
+        "x-add-random-suffix": "0",
+      },
+      body: readFileSync(join(outDir, file)),
     });
-    if (headSha) {
-      ghApi(["-X", "PATCH", `repos/${nameWithOwner}/git/refs/heads/fraimz-assets`], { sha: commitSha });
-    } else {
-      ghApi([`repos/${nameWithOwner}/git/refs`], { ref: "refs/heads/fraimz-assets", sha: commitSha });
+
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 300);
+      throw new Error(`Vercel Blob upload failed (${response.status}) for ${file}: ${detail}`);
     }
 
-    const imageUrls = {};
-    for (const file of files) {
-      imageUrls[file] = `https://raw.githubusercontent.com/${nameWithOwner}/${commitSha}/${report.runId}/${encodeURIComponent(file)}`;
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error(`Vercel Blob upload for ${file}: response was not JSON`);
     }
-    return imageUrls;
-  } finally {
-    rmSync(payloadPath, { force: true });
+    if (!payload || typeof payload.url !== "string" || payload.url.length === 0) {
+      throw new Error(`Vercel Blob upload for ${file}: response did not include a url`);
+    }
+
+    imageUrls[file] = payload.url;
   }
+  return imageUrls;
 }
 
 /**
