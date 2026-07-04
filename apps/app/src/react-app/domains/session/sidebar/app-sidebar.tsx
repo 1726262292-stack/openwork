@@ -751,7 +751,7 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         ) : null}
         {props.onOpenSessionSearch ? (
-          <SidebarHeader className="pb-0">
+          <SidebarHeader className="pb-2">
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
