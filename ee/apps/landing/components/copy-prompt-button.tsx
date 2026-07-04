@@ -20,9 +20,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { capturePosthogEvent } from "../lib/posthog-client";
 
-const AGENT_START_PROMPT =
-  "Read https://openworklabs.com/start.md?v=bootstrap-workspace then install OpenWork, prepare my first workspace, and prove it is ready.";
+const PROMPT_VARIANT = "bootstrap-workspace";
+const AGENT_START_PROMPT = `Read https://openworklabs.com/start.md?v=${PROMPT_VARIANT} then install OpenWork, prepare my first workspace, and prove it is ready.`;
 
 export function CopyPromptButton({ className }: { className?: string }) {
   const [feedback, setFeedback] = useState(false);
@@ -37,9 +38,11 @@ export function CopyPromptButton({ className }: { className?: string }) {
 
   const onClick = async () => {
     let copied = false;
+    let method: "clipboard" | "execCommand" | "none" = "none";
     try {
       await navigator.clipboard.writeText(AGENT_START_PROMPT);
       copied = true;
+      method = "clipboard";
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = AGENT_START_PROMPT;
@@ -49,11 +52,13 @@ export function CopyPromptButton({ className }: { className?: string }) {
       textarea.select();
       try {
         copied = document.execCommand("copy");
+        if (copied) method = "execCommand";
       } catch {}
       textarea.remove();
     }
     setCopyError(!copied);
     setFeedback(true);
+    capturePosthogEvent("landing_copy_prompt_clicked", { copied, method, variant: PROMPT_VARIANT });
     if (resetTimer.current) clearTimeout(resetTimer.current);
     resetTimer.current = setTimeout(() => {
       setFeedback(false);
