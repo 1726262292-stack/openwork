@@ -180,8 +180,8 @@ export default {
             for (const retired of RETIRED_TOP_LEVEL) {
               ctx.assert(!nav.includes(retired), `Retired top-level label still in the resting sidebar: ${retired}`);
             }
-            ctx.assert(!nav.includes("New") && !nav.includes("NEW"), "The sidebar must not show New badges anymore.");
-            ctx.assert(nav.includes("Beta"), "Models keeps its single Beta badge.");
+            ctx.assert(!/\bnew\b/i.test(nav), "The sidebar must not show New badges anymore.");
+            ctx.assert(/\bbeta\b/i.test(nav), "Models keeps its single Beta badge.");
           },
           screenshot: {
             name: "sidebar-seven",
