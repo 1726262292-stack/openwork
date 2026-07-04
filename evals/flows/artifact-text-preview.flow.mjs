@@ -48,14 +48,30 @@ export default {
               button?.click();
               return button ? "clicked" : "no-button";
             })()`);
-          },
-          assert: async () => {
-            const userAgent = await ctx.eval("navigator.userAgent");
-            ctx.assert(userAgent.includes("Electron/"), `Expected Electron userAgent, got ${userAgent}`);
             await ctx.waitFor(
               `window.__openworkControl.listActions().some((a) => a.id === "eval.artifact_tabs.seed_text" && !a.disabled)`,
               { timeoutMs: 30_000, label: "text artifact seed action enabled" },
             );
+            // Restore a neutral panel: a previous run may have left the
+            // meeting-notes artifact open; close it so this frame and the next
+            // one witness visibly different states on every rerun.
+            await ctx.eval(`(() => {
+              const close = document.querySelector('button[aria-label="Close tab: meeting-notes.txt"]');
+              close?.click();
+              return Boolean(close);
+            })()`);
+            await ctx.waitFor(
+              `!document.querySelector('button[aria-label="Select tab: meeting-notes.txt"]')`,
+              { timeoutMs: 10_000, label: "meeting notes tab closed" },
+            );
+          },
+          assert: async () => {
+            const userAgent = await ctx.eval("navigator.userAgent");
+            ctx.assert(userAgent.includes("Electron/"), `Expected Electron userAgent, got ${userAgent}`);
+            const seedReady = await ctx.eval(
+              `window.__openworkControl.listActions().some((a) => a.id === "eval.artifact_tabs.seed_text" && !a.disabled)`,
+            );
+            ctx.assert(seedReady, "Text artifact seed action was not enabled.");
           },
           screenshot: { name: "booted" },
         });
@@ -64,7 +80,7 @@ export default {
     {
       name: "Frame 2",
       run: async (ctx) => {
-        await ctx.prove("A saved plain-text file appears as an artifact tab in the side panel", {
+        await ctx.prove("A saved plain-text file opens as a readable artifact tab with an Edit affordance", {
           voiceover: vo[1],
           action: async () => {
             const result = await ctx.control("eval.artifact_tabs.seed_text");
@@ -84,36 +100,6 @@ export default {
             const result = await ctx.eval(`(() => {
               const tab = document.querySelector('button[aria-label="Select tab: meeting-notes.txt"]');
               const pre = ${PANEL_PRE};
-              return {
-                hasTab: Boolean(tab),
-                hasPreview: Boolean(pre) && (pre.textContent || "").includes("Team sync"),
-                previewText: pre ? pre.textContent || "" : "",
-              };
-            })()`);
-            ctx.assert(result.hasTab, "meeting-notes.txt tab was not present.");
-            ctx.assert(result.hasPreview, `Plain-text preview was not visible: ${result.previewText}`);
-          },
-          screenshot: { name: "text-artifact-tab", requireText: ["meeting-notes.txt"] },
-        });
-      },
-    },
-    {
-      name: "Frame 3",
-      run: async (ctx) => {
-        await ctx.prove("The text file is readable in the panel with an Edit affordance", {
-          voiceover: vo[2],
-          action: async () => {
-            await ctx.waitFor(
-              `(() => {
-                const pre = ${PANEL_PRE};
-                return Boolean(pre) && (pre.textContent || "").includes("Renewal budget: $12,00 per seat");
-              })()`,
-              { timeoutMs: 30_000, label: "plain-text budget line visible" },
-            );
-          },
-          assert: async () => {
-            const result = await ctx.eval(`(() => {
-              const pre = ${PANEL_PRE};
               const title = Array.from(document.querySelectorAll("h3"))
                 .find((node) => (node.textContent || "").trim() === "meeting-notes.txt");
               const header = title ? title.closest("div.shrink-0.border-b") : null;
@@ -122,25 +108,27 @@ export default {
                   .find((button) => (button.textContent || "").trim() === "Edit")
                 : null;
               return {
+                hasTab: Boolean(tab),
                 hasTitle: Boolean(title),
                 hasBudget: Boolean(pre) && (pre.textContent || "").includes("Renewal budget: $12,00 per seat"),
                 hasEdit: Boolean(editButton),
-                headerText: header ? header.textContent || "" : "",
+                previewText: pre ? pre.textContent || "" : "",
               };
             })()`);
+            ctx.assert(result.hasTab, "meeting-notes.txt tab was not present.");
             ctx.assert(result.hasTitle, "Artifact header did not show meeting-notes.txt.");
-            ctx.assert(result.hasBudget, "Plain-text preview did not show the renewal budget line.");
-            ctx.assert(result.hasEdit, `Artifact header did not expose an Edit button: ${result.headerText}`);
+            ctx.assert(result.hasBudget, `Plain-text preview did not show the renewal budget line: ${result.previewText}`);
+            ctx.assert(result.hasEdit, "Artifact header did not expose an Edit button.");
           },
-          screenshot: { name: "text-preview-readable", requireText: ["Team sync", "Edit"] },
+          screenshot: { name: "text-artifact-readable", requireText: ["Team sync", "Edit"] },
         });
       },
     },
     {
-      name: "Frame 4",
+      name: "Frame 3",
       run: async (ctx) => {
         await ctx.prove("Edit mode shows a line-numbered text editor and accepts the budget correction", {
-          voiceover: vo[3],
+          voiceover: vo[2],
           action: async () => {
             const clicked = await ctx.eval(`(() => {
               const title = Array.from(document.querySelectorAll("h3"))
@@ -211,10 +199,10 @@ export default {
       },
     },
     {
-      name: "Frame 5",
+      name: "Frame 4",
       run: async (ctx) => {
         await ctx.prove("Saving returns to preview mode and persists the corrected text on disk", {
-          voiceover: vo[4],
+          voiceover: vo[3],
           action: async () => {
             const clicked = await ctx.eval(`(() => {
               const title = Array.from(document.querySelectorAll("h3"))

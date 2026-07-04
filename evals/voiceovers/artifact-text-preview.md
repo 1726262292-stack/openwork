@@ -10,10 +10,8 @@ shows text files joining the panel as first-class artifacts.
 
 1. This is OpenWork on a working session. On the right sits the side panel, where files the agent produces show up as tabs — until today, only markdown, spreadsheets, PDFs, images and HTML ever landed here.
 
-2. The agent has just saved plain-text meeting notes, and the file appears as a tab in the panel like any other artifact. Text files are no longer second-class: no detour through Notepad or an external editor.
+2. The agent has just saved plain-text meeting notes, and the file opens right in the panel like any other artifact: the whole file is readable in place, with the file name and size in the header and an Edit button next to them. No detour through Notepad or an external editor.
 
-3. The notes open right in the panel — the whole file is readable in place, with the file name and size in the header and an Edit button ready next to them.
+3. One click on Edit turns the preview into a real text editor with line numbers. The budget line has a typo — twelve dollars instead of twelve thousand — and it can be fixed right here.
 
-4. One click on Edit turns the preview into a real text editor with line numbers. The budget line has a typo — twelve dollars instead of twelve thousand — and it can be fixed right here.
-
-5. Save writes the change back and the panel returns to the clean preview with the corrected line. Reading the file again straight from the workspace confirms the fix really landed on disk.
+4. Save writes the change back and the panel returns to the clean preview with the corrected line. Reading the file again straight from the workspace confirms the fix really landed on disk.

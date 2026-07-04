@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useDragControls } from "motion/react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
@@ -397,6 +398,7 @@ export function SidePanel({
 }: SidePanelProps) {
   const { tabs } = useSessionPanelState(sessionId);
   const activeTab = useActivePanelTab(sessionId);
+  const queryClient = useQueryClient();
   const isBrowserAvailable = Boolean(getElectronBrowser());
 
   const { createTab, closeTab, selectTab, reorderTabs } = useSidePanelTabs(sessionId);
@@ -547,6 +549,11 @@ export function SidePanel({
         };
 
         const store = usePanelTabStore.getState();
+        // Reset any panel state left by a previous run: close the tab so the
+        // artifact view (and its editing state) unmounts, and drop the cached
+        // file content so reopening refetches what was just written.
+        store.closeTab(sessionId, target.id);
+        queryClient.removeQueries({ queryKey: ["artifact-panel", workspaceId, target.id] });
         store.syncTranscriptArtifacts(sessionId, [target]);
         store.openTab(sessionId, { id: target.id, type: "artifact", label: target.name, preview: target.preview });
         store.selectTab(sessionId, target.id);
@@ -554,7 +561,7 @@ export function SidePanel({
         return { ok: true, activeTabId: target.id };
       },
     };
-  }, [client, sessionId, workspaceId]);
+  }, [client, queryClient, sessionId, workspaceId]);
   useControlAction(seedTextArtifactControlAction);
 
   const readTextFileControlAction = React.useMemo<OpenworkControlAction | null>(() => {
