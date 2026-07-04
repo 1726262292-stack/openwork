@@ -73,7 +73,7 @@ describe("getArtifactsFromMessages", () => {
     ]);
   });
 
-  it("orders verified artifacts by newest update time and marks unsupported previews", () => {
+  it("orders verified artifacts by newest update time and previews verified text files", () => {
     const messages: UIMessage[] = [{
       id: "msg_order",
       role: "assistant",
@@ -102,36 +102,63 @@ describe("getArtifactsFromMessages", () => {
         exists: true,
         updatedAt: 2,
       },
+      {
+        id: "file:src/widget.tsx",
+        kind: "file",
+        value: "src/widget.tsx",
+        name: "widget.tsx",
+        preview: "text",
+        confidence: 65,
+        reason: "message",
+        exists: true,
+      },
     ];
 
     const artifacts = getArtifactsFromMessages(messages, targets, { includeTargetFallbacks: false });
 
     expect(artifacts.map((artifact) => artifact.path)).toEqual(["reports/new.md", "reports/old.md", "src/widget.tsx"]);
     expect(canPreviewArtifact(artifacts[0])).toBe(true);
-    expect(canPreviewArtifact(artifacts[2])).toBe(false);
+    expect(canPreviewArtifact(artifacts[2])).toBe(true);
   });
 
-  it("lets verified unsupported file artifacts open outside the sidebar", () => {
+  it("lets verified text file artifacts preview while unsupported files open outside the sidebar", () => {
     const messages: UIMessage[] = [{
       id: "msg_unsupported",
       role: "assistant",
-      parts: [{ type: "text", text: "Created src/widget.tsx", state: "done" }],
+      parts: [{ type: "text", text: "Created src/widget.tsx and build/bundle.zip", state: "done" }],
     }];
-    const targets: OpenTarget[] = [{
-      id: "file:src/widget.tsx",
-      kind: "file",
-      value: "src/widget.tsx",
-      name: "widget.tsx",
-      preview: "text",
-      confidence: 65,
-      reason: "message",
-      exists: true,
-    }];
+    const targets: OpenTarget[] = [
+      {
+        id: "file:src/widget.tsx",
+        kind: "file",
+        value: "src/widget.tsx",
+        name: "widget.tsx",
+        preview: "text",
+        confidence: 65,
+        reason: "message",
+        exists: true,
+      },
+      {
+        id: "file:build/bundle.zip",
+        kind: "file",
+        value: "build/bundle.zip",
+        name: "bundle.zip",
+        preview: "external",
+        confidence: 65,
+        reason: "message",
+        exists: true,
+      },
+    ];
 
-    const artifact = getArtifactsFromMessages(messages, targets, { includeTargetFallbacks: false })[0];
+    const artifacts = getArtifactsFromMessages(messages, targets);
+    const artifact = artifacts.find((item) => item.path === "src/widget.tsx");
+    const unsupportedArtifact = artifacts.find((item) => item.path === "build/bundle.zip");
 
     expect(artifact).toMatchObject({ path: "src/widget.tsx", legacy_target: { exists: true, preview: "text" } });
-    expect(artifact ? canPreviewArtifact(artifact) : true).toBe(false);
+    expect(artifact ? canPreviewArtifact(artifact) : false).toBe(true);
     expect(artifact ? canOpenArtifact(artifact) : false).toBe(true);
+    expect(unsupportedArtifact).toMatchObject({ path: "build/bundle.zip", legacy_target: { exists: true, preview: "external" } });
+    expect(unsupportedArtifact ? canPreviewArtifact(unsupportedArtifact) : true).toBe(false);
+    expect(unsupportedArtifact ? canOpenArtifact(unsupportedArtifact) : false).toBe(true);
   });
 });

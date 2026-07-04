@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import {
   deriveOpenTargets,
   isCollectibleArtifactTarget,
+  isOpenableFileTarget,
   selectAutoOpenTarget,
 } from "../src/react-app/domains/session/artifacts/open-target";
 
@@ -75,15 +76,27 @@ describe("deriveOpenTargets", () => {
     expect(targets[0]).toMatchObject({ value: "reports/summary.md", preview: "markdown", confidence: 95 });
   });
 
-  it("keeps written unsupported files available for opening externally", () => {
+  it("collects written text files for sidebar preview", () => {
     const targets = deriveOpenTargets([
-      toolMessage("msg_tool", "write", { filePath: "src/widget.tsx" }, { filePath: "src/widget.tsx" }),
+      toolMessage("msg_tool", "write", { filePath: "notes/meeting-notes.txt" }, { filePath: "notes/meeting-notes.txt" }),
     ]);
 
     const target = targets[0];
 
-    expect(target).toMatchObject({ value: "src/widget.tsx", preview: "text", confidence: 95 });
+    expect(target).toMatchObject({ value: "notes/meeting-notes.txt", preview: "text", confidence: 95 });
+    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : false).toBe(true);
+  });
+
+  it("keeps written unsupported files available for opening externally", () => {
+    const targets = deriveOpenTargets([
+      toolMessage("msg_tool", "write", { filePath: "build/bundle.zip" }, { filePath: "build/bundle.zip" }),
+    ]);
+
+    const target = targets[0];
+
+    expect(target).toMatchObject({ value: "build/bundle.zip", preview: "external", confidence: 95 });
     expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : true).toBe(false);
+    expect(target ? isOpenableFileTarget({ ...target, exists: true }) : false).toBe(true);
   });
 
   it("uses markdown link href once when the label is the href basename", () => {

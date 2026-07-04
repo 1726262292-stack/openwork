@@ -513,6 +513,78 @@ export function SidePanel({
   }, [client, sessionId, workspaceId]);
   useControlAction(seedPdfArtifactControlAction);
 
+  const seedTextArtifactControlAction = React.useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.artifact_tabs.seed_text",
+      label: "Seed a plain-text artifact",
+      description: "Write plain-text meeting notes and open them as an artifact tab to verify inline text editing.",
+      sideEffect: "mutation",
+      disabled: !client || !workspaceId,
+      execute: async () => {
+        if (!client || !workspaceId) return { ok: false, error: "Workspace client is not ready." };
+
+        const value = "artifacts/meeting-notes.txt";
+        const content = `Team sync — March notes
+
+- Renewal budget: $12,00 per seat (typo)
+- Next demo: Friday
+- Owner: Jay`;
+
+        await client.writeWorkspaceFile(workspaceId, { path: value, content, baseUpdatedAt: null });
+
+        const target: OpenTarget = {
+          id: "file:artifacts/meeting-notes.txt",
+          kind: "file",
+          value,
+          name: "meeting-notes.txt",
+          preview: "text",
+          confidence: 100,
+          reason: "eval",
+          exists: true,
+          size: content.length,
+        };
+
+        const store = usePanelTabStore.getState();
+        store.syncTranscriptArtifacts(sessionId, [target]);
+        store.openTab(sessionId, { id: target.id, type: "artifact", label: target.name, preview: target.preview });
+        store.selectTab(sessionId, target.id);
+
+        return { ok: true, activeTabId: target.id };
+      },
+    };
+  }, [client, sessionId, workspaceId]);
+  useControlAction(seedTextArtifactControlAction);
+
+  const readTextFileControlAction = React.useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.artifact_tabs.read_text_file",
+      label: "Read a workspace text file (eval witness)",
+      description: "Read a workspace text file so evals can verify saved artifact content on disk.",
+      sideEffect: "none",
+      disabled: !client || !workspaceId,
+      args: [
+        { name: "path", type: "string", description: "Workspace-relative file path." },
+      ],
+      execute: async (args) => {
+        if (!client || !workspaceId) return { ok: false, error: "Workspace client is not ready." };
+
+        let path = "";
+        if (args && typeof args === "object" && "path" in args && typeof args.path === "string") {
+          path = args.path.trim();
+        }
+        if (!path) return { ok: false, error: "Workspace-relative file path is required." };
+
+        const result = await client.readWorkspaceFile(workspaceId, path);
+        return { ok: true, content: result.content };
+      },
+    };
+  }, [client, workspaceId]);
+  useControlAction(readTextFileControlAction);
+
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || tabs.length < 2) {
