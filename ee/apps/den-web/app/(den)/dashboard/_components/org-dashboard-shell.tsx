@@ -226,7 +226,6 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
         href: getInferenceRoute(activeOrg.slug),
         label: "Models",
         icon: Sparkles,
-        badge: "Beta",
         children: [
           { href: getInferenceRoute(activeOrg.slug), label: "OpenWork Models" },
           { href: getCustomLlmProvidersRoute(activeOrg.slug), label: "LLM Providers" },
