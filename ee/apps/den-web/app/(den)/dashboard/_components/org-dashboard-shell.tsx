@@ -5,23 +5,17 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   BarChart3,
-  Bot,
-  Cable,
-  CreditCard,
-  Cpu,
+  ChevronDown,
+  ChevronRight,
   FileText,
   Home,
-  KeyRound,
-  Laptop,
   LogOut,
   Menu,
   MessageSquare,
   Plug,
   Puzzle,
-  Shield,
   SlidersHorizontal,
   Sparkles,
-  Store,
   type LucideIcon,
   Users,
   X,
@@ -53,11 +47,23 @@ import { buildDenFeedbackUrl } from "../../_lib/feedback";
 
 const OPENWORK_DOCS_URL = "/docs";
 
+type DashboardNavChild = {
+  href: string;
+  label: string;
+  badge?: string;
+};
+
 type DashboardNavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
   badge?: string;
+  /**
+   * Grouped entries (Extensions, Models, Settings) keep the sidebar at seven
+   * top-level rows: the group links to its first child and its children
+   * render indented while the current page is inside the group.
+   */
+  children?: DashboardNavChild[];
 };
 
 function OrgMark({ name }: { name: string }) {
@@ -154,10 +160,10 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
     return "Marketplaces";
   }
   if (pathname.startsWith(getIntegrationsRoute(orgSlug))) {
-    return "Integrations";
+    return "Sources";
   }
   if (pathname.startsWith(getMcpConnectionsRoute(orgSlug))) {
-    return "MCP Connections";
+    return "Connections";
   }
   if (pathname.startsWith(getYourConnectionsRoute(orgSlug))) {
     return "Your Connections";
@@ -197,105 +203,58 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     orgSlug: activeOrg?.slug,
   });
 
-  const adminNavItems: DashboardNavItem[] = access.isAdmin
+  // Seven top-level rows: Dashboard, Your Connections, Extensions, Models,
+  // Members, Analytics, Settings. Everything tool-shaped groups under
+  // Extensions (in pipeline order: connect tools, plugins come from Sources,
+  // fill the Plugins library, share via Marketplaces); model config groups
+  // under Models; set-once governance groups under Settings.
+  const extensionsGroup: DashboardNavItem | null = access.isAdmin && activeOrg
+    ? {
+        href: getMcpConnectionsRoute(activeOrg.slug),
+        label: "Extensions",
+        icon: Puzzle,
+        children: [
+          { href: getMcpConnectionsRoute(activeOrg.slug), label: "Connections" },
+          { href: getIntegrationsRoute(activeOrg.slug), label: "Sources" },
+          { href: getPluginsRoute(activeOrg.slug), label: "Plugins" },
+          { href: getMarketplacesRoute(activeOrg.slug), label: "Marketplaces" },
+        ],
+      }
+    : null;
+  const modelsGroup: DashboardNavItem | null = access.isAdmin && activeOrg
+    ? {
+        href: getInferenceRoute(activeOrg.slug),
+        label: "Models",
+        icon: Sparkles,
+        badge: "Beta",
+        children: [
+          { href: getInferenceRoute(activeOrg.slug), label: "OpenWork Models" },
+          { href: getCustomLlmProvidersRoute(activeOrg.slug), label: "LLM Providers" },
+        ],
+      }
+    : null;
+  const settingsChildren: DashboardNavChild[] = activeOrg
     ? [
-        {
-          href: activeOrg ? getAnalyticsRoute(activeOrg.slug) : "#",
-          label: "Analytics",
-          icon: BarChart3,
-          badge: "New",
-        },
-        // NOTE: Shared Workspace soft-disabled — uncomment to re-enable
-        // {
-        //   href: activeOrg ? getBackgroundAgentsRoute(activeOrg.slug) : "#",
-        //   label: "Shared Workspace",
-        //   icon: Bot,
-        //   badge: "Alpha",
-        // },
-        {
-          href: activeOrg ? getInferenceRoute(activeOrg.slug) : "#",
-          label: "OpenWork Models",
-          icon: Sparkles,
-          badge: "Beta",
-        },
-        {
-          href: activeOrg ? getCustomLlmProvidersRoute(activeOrg.slug) : "#",
-          label: "LLM Providers",
-          icon: Cpu,
-        },
-        {
-          href: activeOrg ? getDesktopPoliciesRoute(activeOrg.slug) : "#",
-          label: "Desktop Policies",
-          icon: Laptop,
-        },
-        {
-          href: activeOrg ? getIntegrationsRoute(activeOrg.slug) : "#",
-          label: "Integrations",
-          icon: Cable,
-          badge: "New",
-        },
-        {
-          href: activeOrg ? getMcpConnectionsRoute(activeOrg.slug) : "#",
-          label: "MCP Connections",
-          icon: Plug,
-          badge: "New",
-        },
-        {
-          href: activeOrg ? getMarketplacesRoute(activeOrg.slug) : "#",
-          label: "Marketplaces",
-          icon: Store,
-          badge: "New",
-        },
-        {
-          href: activeOrg ? getPluginsRoute(activeOrg.slug) : "#",
-          label: "Plugins",
-          icon: Puzzle,
-          badge: "New",
-        },
-        {
-          href: activeOrg ? getMembersRoute(activeOrg.slug) : "#",
-          label: "Members",
-          icon: Users,
-        },
+        ...(access.isAdmin
+          ? [
+              { href: getOrgSettingsRoute(activeOrg.slug), label: "General" },
+              { href: getDesktopPoliciesRoute(activeOrg.slug), label: "Desktop Policies" },
+              { href: getBillingRoute(activeOrg.slug), label: "Billing" },
+            ]
+          : []),
+        ...(access.canManageApiKeys ? [{ href: getApiKeysRoute(activeOrg.slug), label: "API Keys" }] : []),
+        ...(access.canManageSso ? [{ href: getSsoRoute(activeOrg.slug), label: "SSO" }] : []),
+        ...(access.canManageScim ? [{ href: getScimRoute(activeOrg.slug), label: "SCIM" }] : []),
       ]
     : [];
-  const securityNavItems: DashboardNavItem[] = [
-    ...(access.canManageApiKeys
-      ? [{
-          href: activeOrg ? getApiKeysRoute(activeOrg.slug) : "#",
-          label: "API Keys",
-          icon: KeyRound,
-        }]
-      : []),
-    ...(access.canManageScim
-      ? [{
-          href: activeOrg ? getScimRoute(activeOrg.slug) : "#",
-          label: "SCIM",
-          icon: Shield,
-        }]
-      : []),
-    ...(access.canManageSso
-      ? [{
-          href: activeOrg ? getSsoRoute(activeOrg.slug) : "#",
-          label: "SSO",
-          icon: Shield,
-        }]
-      : []),
-  ];
-  const ownerAdminNavItems: DashboardNavItem[] = access.isAdmin
-    ? [
-        {
-          href: getBillingRoute(activeOrg?.slug),
-          label: "Billing",
-          icon: CreditCard,
-        },
-        {
-          href: activeOrg ? getOrgSettingsRoute(activeOrg.slug) : "#",
-          label: "Org Settings",
-          icon: SlidersHorizontal,
-        },
-      ]
-    : [];
+  const settingsGroup: DashboardNavItem | null = settingsChildren.length > 0
+    ? {
+        href: settingsChildren[0].href,
+        label: "Settings",
+        icon: SlidersHorizontal,
+        children: settingsChildren,
+      }
+    : null;
 
   const navItems: DashboardNavItem[] = [
     {
@@ -304,16 +263,21 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       icon: Home,
     },
     // Member-visible (not admin-gated): where each person connects their own
-    // account for per-member MCP connections shared with them.
+    // account for per-member connections shared with them.
     {
       href: activeOrg ? getYourConnectionsRoute(activeOrg.slug) : "#",
       label: "Your Connections",
       icon: Plug,
-      badge: "New",
     },
-    ...adminNavItems,
-    ...securityNavItems,
-    ...ownerAdminNavItems,
+    ...(extensionsGroup ? [extensionsGroup] : []),
+    ...(modelsGroup ? [modelsGroup] : []),
+    ...(access.isAdmin && activeOrg
+      ? [
+          { href: getMembersRoute(activeOrg.slug), label: "Members", icon: Users },
+          { href: getAnalyticsRoute(activeOrg.slug), label: "Analytics", icon: BarChart3 },
+        ]
+      : []),
+    ...(settingsGroup ? [settingsGroup] : []),
   ];
 
   const orgSwitcher = (
@@ -443,33 +407,69 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           {navItems.map((item) => {
             const isDashboardRoot =
               activeOrg && item.href === getOrgDashboardRoute(activeOrg.slug);
+            const childActive = (child: DashboardNavChild) =>
+              pathname === child.href || pathname.startsWith(`${child.href}/`);
+            const groupActive = (item.children ?? []).some(childActive);
             const selected =
               item.href !== "#" &&
-              (isDashboardRoot
-                ? pathname === item.href
-                : pathname === item.href || pathname.startsWith(`${item.href}/`));
+              (item.children
+                ? groupActive
+                : isDashboardRoot
+                  ? pathname === item.href
+                  : pathname === item.href || pathname.startsWith(`${item.href}/`));
 
             return (
-              <Link
-                key={item.label}
-                href={item.href}
-                onClick={() => setSidebarOpen(false)}
-                className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-[13px] tracking-[-0.1px] transition-colors ${
-                  selected
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                }`}
-              >
-                <span className="flex items-center gap-3">
-                  <item.icon className="h-4 w-4" strokeWidth={1.8} />
-                  {item.label}
-                </span>
-                {item.badge ? (
-                  <span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-gray-500">
-                    {item.badge}
+              <div key={item.label}>
+                <Link
+                  href={item.href}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-[13px] tracking-[-0.1px] transition-colors ${
+                    selected
+                      ? "bg-gray-100 text-gray-900"
+                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                  }`}
+                >
+                  <span className="flex items-center gap-3">
+                    <item.icon className="h-4 w-4" strokeWidth={1.8} />
+                    {item.label}
                   </span>
+                  <span className="flex items-center gap-1.5">
+                    {item.badge ? (
+                      <span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+                        {item.badge}
+                      </span>
+                    ) : null}
+                    {item.children ? (
+                      groupActive
+                        ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+                        : <ChevronRight className="h-3.5 w-3.5 text-gray-300" strokeWidth={2} />
+                    ) : null}
+                  </span>
+                </Link>
+                {item.children && groupActive ? (
+                  <div className="ml-[22px] mt-1 space-y-0.5 border-l border-gray-100 pl-3">
+                    {item.children.map((child) => (
+                      <Link
+                        key={child.label}
+                        href={child.href}
+                        onClick={() => setSidebarOpen(false)}
+                        className={`flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-[13px] tracking-[-0.1px] transition-colors ${
+                          childActive(child)
+                            ? "font-medium text-gray-900"
+                            : "text-gray-500 hover:text-gray-700"
+                        }`}
+                      >
+                        {child.label}
+                        {child.badge ? (
+                          <span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-gray-500">
+                            {child.badge}
+                          </span>
+                        ) : null}
+                      </Link>
+                    ))}
+                  </div>
                 ) : null}
-              </Link>
+              </div>
             );
           })}
         </div>

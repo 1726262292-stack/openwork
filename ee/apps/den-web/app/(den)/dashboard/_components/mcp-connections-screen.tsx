@@ -94,8 +94,7 @@ export function McpConnectionsScreen() {
   return (
     <DashboardPageTemplate
       icon={Plug}
-      badgeLabel="New"
-      title="MCP Connections"
+      title="Connections"
       description="Connect any MCP server — Notion, Linear, Stripe, or a custom URL — once for the whole org. search_capabilities and execute_capability pick these up automatically."
       colors={["#EDE9FE", "#4C1D95", "#7C3AED", "#C4B5FD"]}
     >
