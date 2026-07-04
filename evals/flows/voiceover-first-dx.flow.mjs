@@ -3,7 +3,7 @@
  *
  * Proves the voice-over-first DX end to end: the /voiceover entry point, the
  * "script before code" contract, the approved script as a checked-in artifact,
- * scaffolding + drift detection, the fraimz PR comment, and the merge-blocking
+ * fresh worktree, scaffolding + drift detection, the fraimz PR comment, and the merge-blocking
  * exit-code contract. Runs app-less (requiresApp: false): the protagonist is a
  * developer in a terminal, so evidence is claims + assertions + real command
  * output instead of screenshots.
@@ -81,9 +81,26 @@ export default {
           assert: async () => {
             const scriptPath = voiceoverScriptPath(FLOW_ID);
             witness(ctx, await exists(scriptPath), "The approved script exists at evals/voiceovers/voiceover-first-dx.md");
-            witness(ctx, vo.length === 6, "The script parses into exactly 6 frame paragraphs", String(vo.length));
+            witness(ctx, vo.length === 7, "The script parses into exactly 7 frame paragraphs", String(vo.length));
             witness(ctx, vo[0].includes("PRD"), "Frame 1 names the thing it replaces (the PRD)");
             ctx.output("evals/voiceovers/voiceover-first-dx.md", await readFile(scriptPath, "utf8"));
+          },
+        });
+      },
+    },
+    {
+      name: "The build starts on a fresh worktree and ends as a PR with the proof on it",
+      run: async (ctx) => {
+        await ctx.prove("The paved path is documented end to end: fresh worktree in, PR with fraimz out", {
+          voiceover: vo[3],
+          assert: async () => {
+            const skillPath = join(ROOT, ".opencode", "skills", "voiceover", "SKILL.md");
+            const skill = await readFile(skillPath, "utf8");
+            witness(ctx, skill.includes("git worktree add"), "The voiceover skill starts the build on a fresh worktree (git worktree add)");
+            witness(ctx, skill.includes("--pr"), "The voiceover skill ends with the proof posted on the PR (pnpm fraimz --flow <id> --pr)");
+            const command = await readFile(join(ROOT, ".opencode", "commands", "voiceover.md"), "utf8");
+            witness(ctx, command.toLowerCase().includes("worktree"), "The /voiceover command routes the build through a fresh worktree");
+            ctx.output("The worktree + PR contract (voiceover skill)", skill.split("\n").filter((line) => line.toLowerCase().includes("worktree") || line.includes("--pr")).join("\n"));
           },
         });
       },
@@ -96,7 +113,7 @@ export default {
         const flowsDir = await mkdtemp(join(tmpdir(), "fraimz-scaffold-"));
         try {
           await ctx.prove("One ctx.prove stub per paragraph, narration wired to the script file", {
-            voiceover: vo[3],
+            voiceover: vo[4],
             action: async () => {
               await writeFile(scaffoldScript, "# _scaffold-demo — fixture\n\n1. First fixture frame.\n\n2. Second fixture frame.\n");
             },
@@ -143,7 +160,7 @@ export default {
       name: "The fraimz lands on the PR as the reviewable demo",
       run: async (ctx) => {
         await ctx.prove("pnpm fraimz --flow <id> --pr renders the frame-by-frame proof as a PR comment", {
-          voiceover: vo[4],
+          voiceover: vo[5],
           assert: async () => {
             const body = renderPrComment({
               runId: "demo-run",
@@ -156,14 +173,14 @@ export default {
                 steps: [{
                   status: "passed",
                   evidence: [
-                    { type: "claim", status: "passed", claim: "The demo holds", voiceover: vo[4] },
+                    { type: "claim", status: "passed", claim: "The demo holds", voiceover: vo[5] },
                     { type: "assertion", status: "passed", assertion: "Observable side effect witnessed" },
                   ],
                 }],
               }],
             });
             witness(ctx, body.includes("## fraimz — ✅ PASSED"), "The comment leads with the verdict");
-            witness(ctx, body.includes(`🎙 ${vo[4]}`), "Each frame carries its voice-over line");
+            witness(ctx, body.includes(`🎙 ${vo[5]}`), "Each frame carries its voice-over line");
             witness(ctx, body.includes("Observable side effect witnessed"), "Each frame lists its passing assertions");
             ctx.output("pr-comment.md (rendered)", body);
           },
@@ -177,7 +194,7 @@ export default {
         const outDir = await mkdtemp(join(tmpdir(), "fraimz-red-out-"));
         try {
           await ctx.prove("The runner exits non-zero when any frame fails, while still writing the fraimz", {
-            voiceover: vo[5],
+            voiceover: vo[6],
             action: async () => {
               await writeFile(join(flowsDir, "_red-demo.flow.mjs"), `export default {
   id: "_red-demo",

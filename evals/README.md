@@ -52,6 +52,7 @@ Demo-driven development starts with the narration, not a PRD. The `/voiceover`
 command (and `voiceover` skill) aligns on the demo script with the user before
 any code; the approved script lands at `evals/voiceovers/<flow-id>.md` — a
 title, optional context prose, and one **numbered paragraph per frame**.
+On approval the build moves to a fresh worktree/branch; the journey ends with the PR carrying the proof (see the `voiceover` skill).
 
 ```bash
 pnpm fraimz scaffold <flow-id>    # generate evals/flows/<flow-id>.flow.mjs

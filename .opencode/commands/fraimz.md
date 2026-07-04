@@ -49,5 +49,5 @@ Run the full loop, in order, and stop on any failure:
    reproduce.
 
 The loop and its pitfalls live in the **`fraimz` skill** (load it first); the
-deeper mechanics live in `evals/README.md` and the `run-evals` /
-`daytona-flow-validator` skills — use them as the source of truth.
+deeper mechanics live in `evals/README.md`, and Daytona launch/validation
+specifics in the `daytona-electron-test` / `daytona-flow-validator` skills.
