@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fraimz · OpenWork Eval Run 2026-07-04T00-20-40-119Z</title>
+  <style>
+    body { margin: 0; background: #f7f7f8; color: #171717; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin-top: 32px; }
+    h3 { margin: 2px 0 10px; font-size: 18px; }
+    .meta, .muted { color: #5f6368; }
+    .summary { display: inline-flex; gap: 12px; margin: 16px 0 8px; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; background: white; }
+    .steps { display: grid; gap: 18px; margin-top: 16px; }
+    .step { padding: 16px; border: 1px solid #ddd; border-radius: 14px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+    .step.failed { border-color: #f4b4ae; background: #fff8f7; }
+    .eyebrow { color: #5f6368; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .evidence { display: grid; gap: 12px; }
+    .claim { padding: 10px 12px; border-left: 4px solid #7c3aed; background: #f5f3ff; border-radius: 8px; }
+    .voiceover { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-left: 4px solid #0e7490; background: #ecfeff; border-radius: 8px; font-style: italic; }
+    .voiceover-missing { padding: 8px 12px; border-left: 4px solid #d97706; background: #fffbeb; border-radius: 8px; color: #92400e; font-size: 13px; }
+    .speak, .speak-all { flex-shrink: 0; border: 1px solid #0e7490; border-radius: 999px; background: white; color: #0e7490; font-size: 12px; padding: 3px 10px; cursor: pointer; }
+    .speak:hover, .speak-all:hover { background: #cffafe; }
+    .kind { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .kind-user { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+    .kind-internal { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .kind-legacy { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .assertions, .validations { margin: 8px 0 0; padding-left: 20px; }
+    .assertions li, .validations li { margin: 5px 0; }
+    figure { margin: 0; overflow: hidden; border: 1px solid #ddd; border-radius: 12px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+    img { display: block; width: 100%; height: auto; }
+    figcaption { padding: 10px 12px; border-top: 1px solid #eee; font-size: 13px; color: #444; }
+    li { margin: 8px 0; }
+    .passed-text { color: #0a7f35; font-weight: 700; }
+    .failed-text, .error { color: #b42318; font-weight: 700; }
+    .skipped { color: #8a5a00; }
+    code { background: #ededf0; padding: 2px 5px; border-radius: 5px; }
+    pre.output { margin: 0; padding: 12px; background: #16181d; color: #d6e2f0; font-size: 12.5px; line-height: 1.5; overflow-x: auto; border-radius: 0 0 12px 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>fraimz</h1>
+    <p class="muted">Frame-by-frame proof of the flow, as the end user experienced it.</p>
+    <div class="meta">
+      Run ID: <code>2026-07-04T00-20-40-119Z</code><br />
+      Started: 2026-07-04T00:20:40.119Z<br />
+      Finished: 2026-07-04T00:21:33.629Z<br />
+      CDP: <code>http://127.0.0.1:9223</code>
+    </div>
+    <div class="summary">
+      <span>Passed: 1</span>
+      <span>Failed: 0</span>
+      <span>Skipped: 0</span>
+    </div>
+    
+      <section data-flow="den-sidebar-simplified">
+        <h2>den-sidebar-simplified - Den sidebar: sixteen rows become seven — tools, models, people, settings</h2>
+        <p><span class="kind kind-user">User-facing flow demo</span> <button type="button" class="speak-all" data-flow-id="den-sidebar-simplified">▶ Play full voiceover</button></p>
+        <p class="muted">Spec: evals/voiceovers/den-sidebar-simplified.md</p>
+        
+        <div class="steps">
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 6276ms</div>
+            <h3>Frame 1</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>The admin sidebar is seven top-level entries with no New badges</strong><br />The admin sidebar is seven top-level entries with no New badges</div>
+<figure>
+        <div class="voiceover" data-voiceover="Alex opens the company dashboard. The sidebar that used to be sixteen rows deep is now seven things he can say out loud: Dashboard, Your Connections, Extensions, Models, Members, Analytics, Settings. And the wall of NEW badges is gone."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>Alex opens the company dashboard. The sidebar that used to be sixteen rows deep is now seven things he can say out loud: Dashboard, Your Connections, Extensions, Models, Members, Analytics, Settings. And the wall of NEW badges is gone.</span></div>
+        <a href="den-sidebar-simplified-01-sidebar-seven.png"><img src="den-sidebar-simplified-01-sidebar-seven.png" alt="The admin sidebar shows exactly seven top-level entries and no New badges." /></a>
+        <figcaption>
+          <strong>sidebar-seven</strong><br />Claim: The admin sidebar shows exactly seven top-level entries and no New badges.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">116626 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">13fd89e8d656</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Dashboard</li>
+<li><span class="passed-text">PASS</span> Required visible text: Your Connections</li>
+<li><span class="passed-text">PASS</span> Required visible text: Extensions</li>
+<li><span class="passed-text">PASS</span> Required visible text: Models</li>
+<li><span class="passed-text">PASS</span> Required visible text: Members</li>
+<li><span class="passed-text">PASS</span> Required visible text: Analytics</li>
+<li><span class="passed-text">PASS</span> Required visible text: Settings</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: MCP Connections</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: SCIM</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>The admin sidebar is seven top-level entries with no New badges</strong><br />The admin sidebar is seven top-level entries with no New badges</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 1560ms</div>
+            <h3>Frame 2</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>Extensions opens on Connections — the org tools admins publish</strong><br />Extensions opens on Connections — the org tools admins publish</div>
+<div><span class="passed-text">passed</span> Visible text includes &quot;Google Workspace&quot;</div>
+<div><span class="passed-text">passed</span> Visible text includes &quot;Notion&quot;</div>
+<figure>
+        <div class="voiceover" data-voiceover="He opens Extensions and lands on Connections — the tools he publishes for the whole team, like Google Workspace and Notion. It is the admin side of the same coin every member sees as Your Connections: he publishes once, they each sign in as themselves."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>He opens Extensions and lands on Connections — the tools he publishes for the whole team, like Google Workspace and Notion. It is the admin side of the same coin every member sees as Your Connections: he publishes once, they each sign in as themselves.</span></div>
+        <a href="den-sidebar-simplified-02-extensions-connections.png"><img src="den-sidebar-simplified-02-extensions-connections.png" alt="Extensions lands on Connections with the tool presets (Google Workspace, Notion) visible." /></a>
+        <figcaption>
+          <strong>extensions-connections</strong><br />Claim: Extensions lands on Connections with the tool presets (Google Workspace, Notion) visible.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard/mcp-connections</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">90303 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">5b5921083a71</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Extensions</li>
+<li><span class="passed-text">PASS</span> Required visible text: Connections</li>
+<li><span class="passed-text">PASS</span> Required visible text: Google Workspace</li>
+<li><span class="passed-text">PASS</span> Required visible text: Notion</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Something went wrong</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>Extensions opens on Connections — the org tools admins publish</strong><br />Extensions opens on Connections — the org tools admins publish</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 1586ms</div>
+            <h3>Frame 3</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>The Extensions children read in pipeline order and Sources is the plugin supply</strong><br />The Extensions children read in pipeline order and Sources is the plugin supply</div>
+<div><span class="passed-text">passed</span> Visible text includes &quot;Sources&quot;</div>
+<div><span class="passed-text">passed</span> Visible text includes &quot;GitHub&quot;</div>
+<div><span class="passed-text">passed</span> Visible text includes &quot;Plugins page&quot;</div>
+<figure>
+        <div class="voiceover" data-voiceover="The rest of Extensions is the plugin pipeline, laid out in the order it actually flows: Sources is where plugins come from — the company GitHub — Plugins is the library that fills up from it, and Marketplaces is how that library gets shared out to the team. One flow, left to right, instead of three unrelated rows scattered down a sidebar."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>The rest of Extensions is the plugin pipeline, laid out in the order it actually flows: Sources is where plugins come from — the company GitHub — Plugins is the library that fills up from it, and Marketplaces is how that library gets shared out to the team. One flow, left to right, instead of three unrelated rows scattered down a sidebar.</span></div>
+        <a href="den-sidebar-simplified-03-extensions-sources.png"><img src="den-sidebar-simplified-03-extensions-sources.png" alt="Sources explains where plugins come from, inside Extensions." /></a>
+        <figcaption>
+          <strong>extensions-sources</strong><br />Claim: Sources explains where plugins come from, inside Extensions.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard/integrations</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">70258 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">9d8cd5fda846</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Sources</li>
+<li><span class="passed-text">PASS</span> Required visible text: GitHub</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Something went wrong</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>The Extensions children read in pipeline order and Sources is the plugin supply</strong><br />The Extensions children read in pipeline order and Sources is the plugin supply</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 1606ms</div>
+            <h3>Frame 4</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>Models holds OpenWork Models and LLM Providers side by side</strong><br />Models holds OpenWork Models and LLM Providers side by side</div>
+<figure>
+        <div class="voiceover" data-voiceover="Models next: the managed OpenWork Models plan and the company own provider keys, side by side — one place to answer what the org can run."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>Models next: the managed OpenWork Models plan and the company own provider keys, side by side — one place to answer what the org can run.</span></div>
+        <a href="den-sidebar-simplified-04-models-group.png"><img src="den-sidebar-simplified-04-models-group.png" alt="The Models group shows OpenWork Models and LLM Providers as siblings." /></a>
+        <figcaption>
+          <strong>models-group</strong><br />Claim: The Models group shows OpenWork Models and LLM Providers as siblings.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard/inference</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">107134 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">ed6aac41d811</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Models</li>
+<li><span class="passed-text">PASS</span> Required visible text: OpenWork Models</li>
+<li><span class="passed-text">PASS</span> Required visible text: LLM Providers</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Something went wrong</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>Models holds OpenWork Models and LLM Providers side by side</strong><br />Models holds OpenWork Models and LLM Providers side by side</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 1595ms</div>
+            <h3>Frame 5</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>Set-once governance lives under Settings</strong><br />Set-once governance lives under Settings</div>
+<figure>
+        <div class="voiceover" data-voiceover="Everything set-once — billing, desktop policies, SSO, SCIM, API keys — now lives under Settings. Out of his daily path, still one click away."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>Everything set-once — billing, desktop policies, SSO, SCIM, API keys — now lives under Settings. Out of his daily path, still one click away.</span></div>
+        <a href="den-sidebar-simplified-05-settings-group.png"><img src="den-sidebar-simplified-05-settings-group.png" alt="Settings groups General, Desktop Policies, Billing, API Keys, SSO, and SCIM." /></a>
+        <figcaption>
+          <strong>settings-group</strong><br />Claim: Settings groups General, Desktop Policies, Billing, API Keys, SSO, and SCIM.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard/org-settings</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">70414 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">a1abfa6eb405</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Settings</li>
+<li><span class="passed-text">PASS</span> Required visible text: Desktop Policies</li>
+<li><span class="passed-text">PASS</span> Required visible text: Billing</li>
+<li><span class="passed-text">PASS</span> Required visible text: API Keys</li>
+<li><span class="passed-text">PASS</span> Required visible text: SSO</li>
+<li><span class="passed-text">PASS</span> Required visible text: SCIM</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Something went wrong</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>Set-once governance lives under Settings</strong><br />Set-once governance lives under Settings</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 4721ms</div>
+            <h3>Frame 6</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>A member sidebar is just Dashboard and Your Connections</strong><br />A member sidebar is just Dashboard and Your Connections</div>
+<figure>
+        <div class="voiceover" data-voiceover="Jordan signs in and her sidebar is just Dashboard and Your Connections. Nothing admin-flavored leaked into her view; connecting her own accounts works exactly like yesterday."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>Jordan signs in and her sidebar is just Dashboard and Your Connections. Nothing admin-flavored leaked into her view; connecting her own accounts works exactly like yesterday.</span></div>
+        <a href="den-sidebar-simplified-06-member-sidebar.png"><img src="den-sidebar-simplified-06-member-sidebar.png" alt="The member sidebar has only Dashboard and Your Connections." /></a>
+        <figcaption>
+          <strong>member-sidebar</strong><br />Claim: The member sidebar has only Dashboard and Your Connections.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">118096 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">0119828b4324</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Dashboard</li>
+<li><span class="passed-text">PASS</span> Required visible text: Your Connections</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Extensions</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Settings</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Members</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>A member sidebar is just Dashboard and Your Connections</strong><br />A member sidebar is just Dashboard and Your Connections</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 5937ms</div>
+            <h3>Frame 7</h3>
+            
+          </header>
+          <div class="evidence"><div class="claim"><strong>The old MCP Connections bookmark still lands inside Extensions</strong><br />The old MCP Connections bookmark still lands inside Extensions</div>
+<div><span class="passed-text">passed</span> Visible text includes &quot;Google Workspace&quot;</div>
+<figure>
+        <div class="voiceover" data-voiceover="And the old bookmark Alex saved last week — the MCP Connections page — still lands exactly where it should, inside Extensions. Nothing anyone saved, linked, or documented breaks."><button type="button" class="speak" title="Play voiceover">🎙 Play</button><span>And the old bookmark Alex saved last week — the MCP Connections page — still lands exactly where it should, inside Extensions. Nothing anyone saved, linked, or documented breaks.</span></div>
+        <a href="den-sidebar-simplified-07-old-bookmark.png"><img src="den-sidebar-simplified-07-old-bookmark.png" alt="The pre-rename URL still renders the Connections page inside the Extensions group." /></a>
+        <figcaption>
+          <strong>old-bookmark</strong><br />Claim: The pre-rename URL still renders the Connections page inside the Extensions group.
+          <br /><span class="muted">URL: https://3005-cdpnyk579jwxhxte.daytonaproxy01.net/dashboard/mcp-connections</span>
+          <ul class="validations"><li><span class="passed-text">PASS</span> PNG exists and is non-empty <span class="muted">90303 bytes</span></li>
+<li><span class="passed-text">PASS</span> PNG dimensions are sane <span class="muted">1280x761</span></li>
+<li><span class="passed-text">PASS</span> Frame is not a duplicate of the previous capture <span class="muted">5b5921083a71</span></li>
+<li><span class="passed-text">PASS</span> Required visible text: Connections</li>
+<li><span class="passed-text">PASS</span> Required visible text: Google Workspace</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: Something went wrong</li>
+<li><span class="passed-text">PASS</span> Rejected visible text: 404</li></ul>
+        </figcaption>
+      </figure>
+<div class="claim"><strong>The old MCP Connections bookmark still lands inside Extensions</strong><br />The old MCP Connections bookmark still lands inside Extensions</div></div>
+        </article>
+
+        <article class="step passed">
+          <header>
+            <div class="eyebrow">PASSED · 0ms</div>
+            <h3>Voice-over script coverage</h3>
+            
+          </header>
+          <div class="evidence"><div><span class="passed-text">passed</span> Script frame 1 narrated: &quot;Alex opens the company dashboard. The sidebar that used to be sixteen rows deep is now s&quot;</div>
+<div><span class="passed-text">passed</span> Script frame 2 narrated: &quot;He opens Extensions and lands on Connections — the tools he publishes for the whole team&quot;</div>
+<div><span class="passed-text">passed</span> Script frame 3 narrated: &quot;The rest of Extensions is the plugin pipeline, laid out in the order it actually flows: &quot;</div>
+<div><span class="passed-text">passed</span> Script frame 4 narrated: &quot;Models next: the managed OpenWork Models plan and the company own provider keys, side by&quot;</div>
+<div><span class="passed-text">passed</span> Script frame 5 narrated: &quot;Everything set-once — billing, desktop policies, SSO, SCIM, API keys — now lives under S&quot;</div>
+<div><span class="passed-text">passed</span> Script frame 6 narrated: &quot;Jordan signs in and her sidebar is just Dashboard and Your Connections. Nothing admin-fl&quot;</div>
+<div><span class="passed-text">passed</span> Script frame 7 narrated: &quot;And the old bookmark Alex saved last week — the MCP Connections page — still lands exact&quot;</div></div>
+        </article></div>
+      </section>
+  </main>
+  <script>
+    (function () {
+      if (!("speechSynthesis" in window)) return;
+      var speak = function (texts) {
+        window.speechSynthesis.cancel();
+        texts.forEach(function (text) {
+          var utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 1.05;
+          window.speechSynthesis.speak(utterance);
+        });
+      };
+      document.querySelectorAll(".voiceover .speak").forEach(function (button) {
+        button.addEventListener("click", function () {
+          var host = button.closest(".voiceover");
+          if (host) speak([host.getAttribute("data-voiceover") || ""]);
+        });
+      });
+      document.querySelectorAll(".speak-all").forEach(function (button) {
+        button.addEventListener("click", function () {
+          var section = button.closest("section");
+          if (!section) return;
+          var texts = Array.prototype.map.call(
+            section.querySelectorAll(".voiceover[data-voiceover]"),
+            function (node) { return node.getAttribute("data-voiceover"); }
+          ).filter(Boolean);
+          speak(texts);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
