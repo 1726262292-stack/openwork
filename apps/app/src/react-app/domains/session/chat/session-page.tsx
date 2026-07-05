@@ -750,6 +750,7 @@ export function SessionPage(props: SessionPageProps) {
       props.surface,
   );
   const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
+  const findButtonSessionId = props.selectedSessionId;
 
   const openSessionTab = useCallback((workspaceId: string, sessionId: string) => {
     setSessionTabs((current) => {
@@ -911,7 +912,7 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              {props.selectedSessionId ? (
+              {findButtonSessionId ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -920,7 +921,7 @@ export function SessionPage(props: SessionPageProps) {
                         size="icon-sm"
                         className="rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground"
                         aria-label="Find in conversation"
-                        onClick={() => useSessionFindStore.getState().openFind()}
+                        onClick={() => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId })}
                       >
                         <TextSearch size={17} />
                       </Button>
@@ -1017,6 +1018,7 @@ export function SessionPage(props: SessionPageProps) {
                         return (
                           <div
                             key={tab.sessionId}
+                            data-session-tab-id={tab.sessionId}
                             className={cn(
                               "group flex max-w-56 shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
                               active

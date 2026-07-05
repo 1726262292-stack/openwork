@@ -1395,7 +1395,7 @@ export function SessionRoute() {
       searchText: "find search current conversation session messages transcript",
       action: () => {
         setCommandPaletteOpen(false);
-        useSessionFindStore.getState().openFind();
+        useSessionFindStore.getState().openFind({ sessionId: selectedSessionId });
       },
     };
   }, [selectedSessionId]);

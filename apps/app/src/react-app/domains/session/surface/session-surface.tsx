@@ -84,6 +84,7 @@ import {
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
 const DEFAULT_COMPOSER_CONTROL_TEXT = "Help me outline the next OpenWork task.";
+const SESSION_SURFACE_SELECTOR = "[data-session-surface-id]";
 
 type SessionError = {
   message: string;
@@ -170,6 +171,30 @@ function transcriptToText(messages: UIMessage[]) {
       return text ? [text] : [];
     })
     .join("\n\n---\n\n");
+}
+
+function isSessionSurfaceMounted(sessionId: string) {
+  for (const surface of document.querySelectorAll(SESSION_SURFACE_SELECTOR)) {
+    if (surface.getAttribute("data-session-surface-id") === sessionId) return true;
+  }
+  return false;
+}
+
+function firstMountedSessionSurfaceId() {
+  return document.querySelector(SESSION_SURFACE_SELECTOR)?.getAttribute("data-session-surface-id") ?? null;
+}
+
+function resolveFindOwnerSessionId() {
+  const focusedRoot = document.activeElement?.closest(SESSION_SURFACE_SELECTOR);
+  const focusedSessionId = focusedRoot?.getAttribute("data-session-surface-id") ?? null;
+  if (focusedSessionId) return focusedSessionId;
+
+  const lastFocusedSessionId = useSessionFindStore.getState().lastFocusedSessionId;
+  if (lastFocusedSessionId && isSessionSurfaceMounted(lastFocusedSessionId)) {
+    return lastFocusedSessionId;
+  }
+
+  return firstMountedSessionSurfaceId();
 }
 
 function statusLabel(snapshot: OpenworkSessionSnapshot | undefined, busy: boolean) {
@@ -405,8 +430,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
   const findOpen = useSessionFindStore((state) => state.open);
+  const findSessionId = useSessionFindStore((state) => state.sessionId);
   const findAppliedQuery = useSessionFindStore((state) => state.appliedQuery);
-  const findHighlightQuery = findOpen && findAppliedQuery.trim().length >= 2 ? findAppliedQuery : "";
+  const setFindLastFocused = useSessionFindStore((state) => state.setLastFocused);
+  const findOwned = findOpen && findSessionId === props.sessionId;
+  const findHighlightQuery = findOwned && findAppliedQuery.trim().length >= 2 ? findAppliedQuery : "";
   const sessionActivityStatus = useSessionActivityStore(
     (state) => state.statusesByWorkspaceId[props.workspaceId]?.[props.sessionId] ?? "idle",
   );
@@ -1135,13 +1163,19 @@ export function SessionSurface(props: SessionSurfaceProps) {
     sessionScroll.markScrollGesture(scrollRef.current);
   }, [sessionScroll.markScrollGesture]);
 
+  const handleFindSurfaceInteraction = useCallback(() => {
+    setFindLastFocused(props.sessionId);
+  }, [props.sessionId, setFindLastFocused]);
+
   const handleFindShortcut = useEffectEvent((event: KeyboardEvent) => {
     const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
     const mod = isMac ? event.metaKey : event.ctrlKey;
     if (!mod || event.shiftKey || event.altKey || event.key?.toLowerCase() !== "f") return;
 
     event.preventDefault();
-    useSessionFindStore.getState().openFind();
+    if (resolveFindOwnerSessionId() === props.sessionId) {
+      useSessionFindStore.getState().openFind({ sessionId: props.sessionId });
+    }
   });
 
   useEffect(() => {
@@ -1152,10 +1186,21 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   useEffect(() => {
     const state = useSessionFindStore.getState();
-    if (state.open && state.target?.sessionId !== props.sessionId) {
+    if (state.open && state.sessionId && state.sessionId !== props.sessionId && !isSessionSurfaceMounted(state.sessionId)) {
       state.closeFind();
     }
   }, [props.sessionId]);
+
+  const sessionIdRef = useRef(props.sessionId);
+  useEffect(() => {
+    sessionIdRef.current = props.sessionId;
+  }, [props.sessionId]);
+  useEffect(() => () => {
+    const state = useSessionFindStore.getState();
+    if (state.sessionId === sessionIdRef.current) {
+      state.closeFind();
+    }
+  }, []);
 
   const handleMessageListDispatchAction = useCallback((action: DispatchAction) => {
     if (action.target === "settings" && action.action === "open") {
@@ -1262,7 +1307,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      data-session-surface-id={props.sessionId}
+      onPointerDownCapture={handleFindSurfaceInteraction}
+      onFocusCapture={handleFindSurfaceInteraction}
+      className="flex h-full min-h-0 flex-col"
+    >
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">
           <div className="rounded-full border border-dls-border bg-dls-hover/80 px-3 py-1 text-xs text-dls-secondary">
@@ -1290,7 +1340,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           onScroll={sessionScroll.handleScroll}
           // Extra top padding while the find bar is open so it never covers
           // the first message (short transcripts cannot scroll it clear).
-          className={`absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 pb-4 sm:px-5 ${findOpen ? "pt-16" : "pt-4"}`}
+          className={`absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 pb-4 sm:px-5 ${findOwned ? "pt-16" : "pt-4"}`}
         >
           {/* Chat column: tighter than the composer (800px) so messages
                keep a comfortable reading width and don't feel "too big". */}

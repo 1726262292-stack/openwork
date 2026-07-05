@@ -86,6 +86,7 @@ export function SessionFindBar({
   onBeforeJump,
 }: SessionFindBarProps) {
   const open = useSessionFindStore((state) => state.open);
+  const ownerSessionId = useSessionFindStore((state) => state.sessionId);
   const query = useSessionFindStore((state) => state.query);
   const appliedQuery = useSessionFindStore((state) => state.appliedQuery);
   const target = useSessionFindStore((state) => state.target);
@@ -102,7 +103,8 @@ export function SessionFindBar({
   const [matches, setMatchesState] = useState<HTMLElement[]>([]);
   const [activeIndex, setActiveIndexState] = useState(0);
   const activeQuery = appliedQuery.trim();
-  const searchActive = open && activeQuery.length >= MIN_QUERY_LENGTH;
+  const owned = open && ownerSessionId === sessionId;
+  const searchActive = owned && activeQuery.length >= MIN_QUERY_LENGTH;
 
   const setMatches = useCallback((nextMatches: HTMLElement[]) => {
     matchesRef.current = nextMatches;
@@ -146,7 +148,7 @@ export function SessionFindBar({
 
   const collectMatches = useCallback((reason: CollectReason) => {
     const container = scrollRef.current;
-    if (!open || activeQuery.length < MIN_QUERY_LENGTH || !container) {
+    if (!owned || activeQuery.length < MIN_QUERY_LENGTH || !container) {
       setMatches([]);
       setActiveIndex(0);
       setActiveHighlight(activeElementRef, null);
@@ -204,25 +206,25 @@ export function SessionFindBar({
     if (shouldScroll && nextActive) {
       jumpToElement(nextActive);
     }
-  }, [activeQuery.length, jumpToElement, open, scrollRef, sessionId, setActiveIndex, setMatches]);
+  }, [activeQuery.length, jumpToElement, owned, scrollRef, sessionId, setActiveIndex, setMatches]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!owned) return;
     const frame = window.requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [focusNonce, open]);
+  }, [focusNonce, owned]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!owned) return;
     const timer = window.setTimeout(() => setAppliedQuery(query), DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [open, query, setAppliedQuery]);
+  }, [owned, query, setAppliedQuery]);
 
   useEffect(() => {
-    if (!open) {
+    if (!owned) {
       setMatches([]);
       setActiveIndex(0);
       setActiveHighlight(activeElementRef, null);
@@ -236,7 +238,7 @@ export function SessionFindBar({
 
     const timer = window.setTimeout(() => collectMatches("query"), COLLECT_AFTER_RENDER_MS);
     return () => window.clearTimeout(timer);
-  }, [activeQuery, collectMatches, open, setActiveIndex, setMatches]);
+  }, [activeQuery, collectMatches, owned, setActiveIndex, setMatches]);
 
   useEffect(() => {
     if (!searchActive) return;
@@ -278,7 +280,7 @@ export function SessionFindBar({
     setActiveHighlight(activeElementRef, null);
   }, []);
 
-  if (!open) {
+  if (!owned) {
     return null;
   }
 

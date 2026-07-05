@@ -279,7 +279,7 @@ export function SessionSearchDialog(props: SessionSearchDialogProps) {
                             const target = item.messageId
                               ? { sessionId: item.session.sessionId, messageId: item.messageId }
                               : { sessionId: item.session.sessionId };
-                            useSessionFindStore.getState().openFind({ query: trimmedQuery, target });
+                            useSessionFindStore.getState().openFind({ sessionId: item.session.sessionId, query: trimmedQuery, target });
                           }
                         }}
                       >
