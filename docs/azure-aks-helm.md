@@ -1,0 +1,372 @@
+# Deploy OpenWork EE on Azure with AKS and Helm
+
+Status: self-host operator guide
+Related: `packaging/helm/openwork-ee`, `packaging/helm/openwork-ee/examples/values.azure-ingress.yaml`
+
+This is the recommended Azure path for a first production-like OpenWork EE
+self-host install. Use Helm on Azure Kubernetes Service with Azure Database for
+MySQL Flexible Server. For web/API exposure, use the AKS application routing
+add-on's managed NGINX Ingress controller so OpenWork gets stable HTTPS host
+names through a standard Kubernetes `Ingress`.
+
+Azure is moving long-term L7 traffic management toward Gateway API, and
+Microsoft notes that AKS application routing NGINX remains supported for
+production workloads through November 2026. The current OpenWork chart emits
+Ingress resources, so managed NGINX application routing is the simplest
+supported Azure path today. Treat Gateway API support as a future chart/platform
+hardening item.
+
+Do not use raw Kubernetes `LoadBalancer` Services as the normal Azure path for
+OpenWork. Azure Load Balancer is a layer 4 load balancer. It is useful for TCP
+services and quick smoke tests, but it does not provide the browser-facing HTTPS
+and host routing experience customers expect for auth and SSO.
+
+## What this deploys
+
+- Den API on port `8788`
+- Den Web on port `3005`
+- optional inference service, disabled by default
+- one Azure Database for MySQL Flexible Server database
+- one single-org OpenWork deployment
+- one managed NGINX Ingress entry point for web and API hosts
+
+Azure owns the AKS cluster, node lifecycle, VNet networking, managed ingress
+controller, DNS, TLS certificate storage, MySQL Flexible Server, managed
+identities, and network security groups. The OpenWork Helm chart owns OpenWork
+Deployments, Services, ConfigMaps, Secrets, health probes, the optional Ingress,
+and the database migration Job.
+
+## Use Helm or something else?
+
+Use Helm on AKS for Azure unless the customer explicitly cannot run Kubernetes.
+The OpenWork EE release artifact is already a Helm chart, and AKS gives the
+cleanest fit for separate web/API services, migration Jobs, and later enterprise
+network controls. The gap to fill is Azure-specific infrastructure guidance,
+not a different OpenWork packaging format.
+
+## Prerequisites
+
+- Azure CLI authenticated to the target subscription.
+- `kubectl` and `helm`.
+- Permission to create AKS, virtual networks, managed identities, Azure Database
+  for MySQL Flexible Server, Private DNS, Azure DNS, Key Vault or TLS secrets,
+  and public IP resources.
+- A real admin email address for the first owner account.
+- A domain you control, such as `openwork.example.com` and
+  `api.openwork.example.com`.
+
+Azure docs used for this guide:
+
+- AKS application routing add-on: https://learn.microsoft.com/en-us/azure/aks/app-routing
+- AKS public Standard Load Balancer: https://learn.microsoft.com/en-us/azure/aks/load-balancer-standard
+- MySQL Flexible Server private network access: https://learn.microsoft.com/en-us/azure/mysql/flexible-server/concepts-networking-vnet
+- MySQL Flexible Server private access with Azure CLI: https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-virtual-network-cli
+- MySQL Flexible Server TLS: https://learn.microsoft.com/en-us/azure/mysql/flexible-server/security-tls-how-to-connect
+
+## 1. Create the AKS cluster
+
+For a first deployment, create an AKS cluster with the managed application
+routing add-on enabled:
+
+```bash
+export AZURE_LOCATION=eastus
+export RESOURCE_GROUP=openwork-ee-rg
+export AKS_CLUSTER=openwork-ee
+
+az group create \
+  --name "$RESOURCE_GROUP" \
+  --location "$AZURE_LOCATION"
+
+az aks create \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$AKS_CLUSTER" \
+  --location "$AZURE_LOCATION" \
+  --enable-app-routing \
+  --generate-ssh-keys
+
+az aks get-credentials \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$AKS_CLUSTER"
+
+kubectl get nodes
+kubectl get ingressclass
+```
+
+The application routing add-on creates an Ingress class named
+`webapprouting.kubernetes.azure.com`. The starter values file uses that class.
+
+If you are using an existing AKS cluster, enable the add-on instead:
+
+```bash
+az aks approuting enable \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$AKS_CLUSTER"
+```
+
+## 2. Create Azure Database for MySQL
+
+Create Azure Database for MySQL Flexible Server with private access in the same
+virtual network reachability boundary as AKS. The most important requirements
+are:
+
+- MySQL 8-compatible Flexible Server.
+- Database name: `openwork_den`.
+- Private access through VNet integration or Private Link.
+- AKS pods can resolve and reach the MySQL FQDN on TCP `3306`.
+- TLS enforcement remains enabled.
+- Backups enabled.
+- Public access disabled for production unless there is a documented exception.
+
+Azure's CLI can create a private-access server and delegate the MySQL subnet:
+
+```bash
+az mysql flexible-server create \
+  --resource-group "$RESOURCE_GROUP" \
+  --location "$AZURE_LOCATION" \
+  --name REPLACE_MYSQL_SERVER_NAME \
+  --admin-user openwork \
+  --admin-password REPLACE_DB_PASSWORD \
+  --database-name openwork_den \
+  --version 8.0.21 \
+  --vnet REPLACE_VNET_NAME \
+  --subnet REPLACE_MYSQL_DELEGATED_SUBNET_NAME
+```
+
+Use a separate delegated subnet for MySQL Flexible Server. Do not put AKS node
+resources in that delegated subnet.
+
+Example database URL:
+
+```text
+mysql://openwork:<password>@<server>.mysql.database.azure.com:3306/openwork_den?sslmode=require
+```
+
+Use `?sslmode=require` for Azure. OpenWork passes this through the runtime pool,
+Drizzle migrations, and migration bootstrap scripts.
+
+Before installing OpenWork, verify network access from the cluster:
+
+```bash
+kubectl run mysql-client \
+  --rm \
+  -it \
+  --restart=Never \
+  --image=mysql:8 \
+  -- mysql \
+    --host="REPLACE_MYSQL_SERVER_NAME.mysql.database.azure.com" \
+    --user=openwork \
+    --password \
+    --ssl-mode=REQUIRED \
+    --execute "select 1"
+```
+
+## 3. Prepare Helm values
+
+Copy the starter file:
+
+```bash
+cp packaging/helm/openwork-ee/examples/values.azure-ingress.yaml values.azure.yaml
+```
+
+Replace every `REPLACE_*` placeholder.
+
+Generate secrets:
+
+```bash
+openssl rand -base64 48
+openssl rand -base64 48
+```
+
+Use the first value for `secret.values.betterAuthSecret` and the second for
+`secret.values.denDbEncryptionKey`. Do not reuse either value across
+environments.
+
+Use a values file, not a long list of `--set` flags. Several OpenWork values are
+comma-separated strings, such as `config.public.corsOrigins`, and plain `--set`
+parsing commonly breaks them.
+
+## 4. Configure TLS for the Ingress
+
+The starter values reference this TLS secret:
+
+```yaml
+ingress:
+  tls:
+    - secretName: openwork-ee-tls
+```
+
+Create that secret from a certificate that covers both OpenWork hosts:
+
+```bash
+kubectl create namespace openwork-ee
+
+kubectl create secret tls openwork-ee-tls \
+  --namespace openwork-ee \
+  --cert=REPLACE_FULL_CHAIN_CERT.pem \
+  --key=REPLACE_PRIVATE_KEY.pem
+```
+
+For production, prefer an automated certificate flow owned by the platform team:
+AKS application routing with Azure DNS and Key Vault, cert-manager, or an
+existing ingress platform. Keep the Kubernetes secret name in the values file
+aligned with whichever controller creates the certificate.
+
+## 5. Install OpenWork
+
+Published chart releases live in GHCR:
+
+```bash
+helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  --create-namespace \
+  -f values.azure.yaml
+```
+
+For a checkout-local test:
+
+```bash
+helm upgrade --install openwork-ee ./packaging/helm/openwork-ee \
+  --namespace openwork-ee \
+  --create-namespace \
+  -f values.azure.yaml
+```
+
+If GHCR image pulls fail with `ImagePullBackOff`, authenticate to GHCR and add
+an `imagePullSecrets` entry. Public releases should not require this, but
+private packages or private forks do:
+
+```bash
+kubectl create secret docker-registry ghcr-pull-secret \
+  --namespace openwork-ee \
+  --docker-server=ghcr.io \
+  --docker-username="$GITHUB_USER" \
+  --docker-password="$GITHUB_TOKEN"
+```
+
+```yaml
+imagePullSecrets:
+  - name: ghcr-pull-secret
+```
+
+## 6. Point DNS at the Azure ingress address
+
+Wait for AKS to allocate an ingress address:
+
+```bash
+kubectl get ingress -n openwork-ee
+kubectl get service -n app-routing-system nginx
+```
+
+Create DNS records:
+
+- `openwork.example.com` -> the application routing public IP.
+- `api.openwork.example.com` -> the same application routing public IP.
+
+For production domains, prefer HTTPS before testing SSO. Browser auth cookies
+and identity-provider callback policies are much easier to validate on stable
+HTTPS origins than on raw ingress IP addresses.
+
+## 7. Verify readiness
+
+Check Kubernetes state:
+
+```bash
+helm status openwork-ee -n openwork-ee
+kubectl get pods -n openwork-ee
+kubectl get jobs -n openwork-ee
+kubectl get ingress -n openwork-ee
+kubectl describe ingress openwork-ee -n openwork-ee
+kubectl logs -n openwork-ee deploy/openwork-ee-den-api
+kubectl logs -n openwork-ee deploy/openwork-ee-den-web
+```
+
+Check readiness from your machine:
+
+```bash
+curl -fsS https://api.openwork.example.com/ready
+curl -fsS https://openwork.example.com/api/ready
+```
+
+If you are still using temporary hosts before DNS/TLS is ready, temporarily
+update the corresponding `config.public.*` origins in `values.azure.yaml`, then
+run `helm upgrade` again. Do not leave production deployments on raw ingress IPs
+or placeholder hostnames.
+
+## 8. Bootstrap the first owner
+
+The chart defaults to `single_org`. Set these before first sign-in:
+
+```yaml
+config:
+  tenancy:
+    mode: "single_org"
+    singleOrgName: "Acme"
+    singleOrgSlug: "acme"
+    ownerEmails: "admin@acme.com"
+    requireEmailVerification: "false"
+  public:
+    bootstrapAdminEmails: "admin@acme.com"
+```
+
+Open `https://openwork.example.com` and sign up with the owner email. OpenWork
+creates the singleton organization and makes that user the owner. Later users
+join the same organization. If `ownerEmails` is blank, the first user to reach
+the deployment can claim ownership, which is not recommended for production.
+
+## 9. Configure SSO with a test IdP
+
+Self-hosted installs keep plan gating off unless the operator explicitly sets
+`DEN_PLAN_GATING_ENABLED=true`, so SSO management should be available in the EE
+self-host default.
+
+Use OIDC first for a smoke test because most IdPs provide discovery metadata.
+Auth0, Okta trial, and Microsoft Entra test tenants all work as realistic demo
+IdPs.
+
+Configure the IdP application with this callback URL:
+
+```text
+https://openwork.example.com/api/auth/sso/callback/openwork-sso-<org-id>
+```
+
+In OpenWork, sign in as the owner, open the organization SSO settings, and enter
+the IdP issuer/client details. After saving, the organization sign-in path is:
+
+```text
+https://openwork.example.com/sso/<singleOrgSlug>
+```
+
+For SAML, OpenWork shows the generated ACS URL and metadata URL after the SAML
+connection is registered. Use those values in the IdP rather than guessing.
+OpenWork rejects unsigned or weak SAML responses, so configure the IdP to sign
+assertions.
+
+After SSO is configured, root sign-in shows the SSO-only experience for the
+single organization. Password sign-in for that organization is rejected.
+
+## 10. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `kubectl get ingressclass` does not show `webapprouting.kubernetes.azure.com` | Application routing is not enabled | Run `az aks approuting enable` or install a different supported ingress controller and update `ingress.className` |
+| Ingress has no address | Application routing controller is still reconciling or lacks public IP permission | Check `kubectl get pods -n app-routing-system` and the Ingress events |
+| Browser shows certificate warnings | TLS secret is missing, wrong, or does not cover both hosts | Recreate `openwork-ee-tls` or configure the platform certificate automation |
+| Migration Job fails to connect to MySQL | VNet, private DNS, credentials, or TLS settings are wrong | Test from `mysql-client`, confirm DNS resolves inside AKS, and use `?sslmode=require` |
+| `ERROR 3159` from MySQL | Azure requires encrypted transport and the client is not using TLS | Keep `?sslmode=require` in `DATABASE_URL` |
+| `ImagePullBackOff` from GHCR | Private image or missing pull token | Add `imagePullSecrets` |
+| Browser auth loops or CORS errors | Public origins do not match DNS/TLS | Set `webOrigin`, `apiOrigin`, `corsOrigins`, `betterAuthTrustedOrigins`, and `authCallbackUrl` to the final HTTPS domains |
+| SSO callback rejected | IdP callback URL does not match OpenWork | Use the callback/ACS URL shown by OpenWork for that org/provider |
+| SSO settings show Enterprise gating | `DEN_PLAN_GATING_ENABLED=true` or org is not entitled | Leave plan gating off for self-host smoke tests, or grant enterprise entitlement |
+
+## 11. Cleanup
+
+For a disposable test:
+
+```bash
+helm uninstall openwork-ee -n openwork-ee
+az group delete --name "$RESOURCE_GROUP"
+```
+
+Delete any DNS records, Key Vault certificates, public IP resources, and
+database backups or retained restore points if they were only for the test.

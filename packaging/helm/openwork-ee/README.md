@@ -88,13 +88,28 @@ helm template openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 helm upgrade --install openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 ```
 
-For AWS EKS, start with the [AWS deployment guide](../../../docs/aws-eks-helm.md)
-and the starter values file at
-[`examples/values.aws-load-balancer.yaml`](examples/values.aws-load-balancer.yaml).
-The recommended first AWS path is EKS Auto Mode plus `LoadBalancer` Services,
-which provisions AWS Network Load Balancers without installing an ingress
-controller. Use `ingress.enabled=true` only when the cluster already has an
-Ingress controller such as the AWS Load Balancer Controller.
+Provider-specific starter guides:
+
+- AWS EKS:
+  [guide](../../../docs/aws-eks-helm.md),
+  [`examples/values.aws-load-balancer.yaml`](examples/values.aws-load-balancer.yaml).
+  The recommended first AWS path is EKS Auto Mode plus `LoadBalancer` Services,
+  which provisions AWS Network Load Balancers without installing an ingress
+  controller.
+- Azure AKS:
+  [guide](../../../docs/azure-aks-helm.md),
+  [`examples/values.azure-ingress.yaml`](examples/values.azure-ingress.yaml).
+  The recommended first Azure path is AKS application routing plus
+  `ingress.enabled=true`.
+- Google Cloud GKE:
+  [guide](../../../docs/gcp-gke-helm.md),
+  [`examples/values.gcp-ingress.yaml`](examples/values.gcp-ingress.yaml).
+  The recommended first GCP path is GKE Ingress with a reserved global IP,
+  Google-managed certificate, and BackendConfig health checks.
+
+`ingress.enabled=true` only emits Kubernetes `Ingress` resources; it does not
+install an ingress controller. Use it only when the cluster already has a
+compatible provider ingress controller.
 
 ## Secrets
 
