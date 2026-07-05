@@ -9,6 +9,12 @@ data:
   NODE_ENV: "production"
   OPENWORK_DEV_MODE: {{ .Values.config.openworkDevMode | quote }}
   DB_MODE: {{ .Values.config.databaseMode | quote }}
+  DEN_ORG_MODE: {{ .Values.config.tenancy.mode | quote }}
+  DEN_SINGLE_ORG_NAME: {{ .Values.config.tenancy.singleOrgName | quote }}
+  DEN_SINGLE_ORG_SLUG: {{ .Values.config.tenancy.singleOrgSlug | quote }}
+  DEN_SINGLE_ORG_OWNER_EMAILS: {{ .Values.config.tenancy.ownerEmails | quote }}
+  DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP: {{ .Values.config.tenancy.allowPublicSignup | quote }}
+  DEN_REQUIRE_EMAIL_VERIFICATION: {{ .Values.config.tenancy.requireEmailVerification | quote }}
   DEN_PASSWORD_BREACH_SCREENING_ENABLED: {{ .Values.config.auth.passwordBreachScreeningEnabled | quote }}
   BETTER_AUTH_URL: {{ .Values.config.public.webOrigin | quote }}
   DEN_MCP_RESOURCE_URL: {{ .Values.config.public.mcpResourceUrl | quote }}

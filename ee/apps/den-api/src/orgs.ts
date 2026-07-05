@@ -6,6 +6,7 @@ import {
   MemberTable,
   OrganizationRoleTable,
   OrganizationTable,
+  SsoConnectionTable,
   TeamMemberTable,
   TeamTable,
 } from "@openwork-ee/den-db/schema"
@@ -13,6 +14,7 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { revokeOrganizationApiKeysForMember } from "./api-keys.js"
 import { revokeMembershipSessionCredentials } from "./credential-revocation.js"
 import { db } from "./db.js"
+import { env } from "./env.js"
 import {
   getRoleValueAfterOwnershipTransfer,
   roleIncludesPrivileged,
@@ -30,6 +32,7 @@ import {
   type OrganizationPermissionRecord,
 } from "./organization-access.js"
 import { ensureDefaultDesktopPolicyForOrganization } from "./desktop-policies.js"
+import { isSingleOrgOwnerEmailEligible, resolveSingleOrgMembershipRole } from "./single-org-policy.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
 type SessionId = typeof AuthSessionTable.$inferSelect.id
@@ -442,13 +445,15 @@ async function insertMemberIfMissing(input: {
     return existing[0]
   }
 
-  await db.insert(MemberTable).values({
-    id: createDenTypeId("member"),
-    organizationId: input.organizationId,
-    userId: input.userId,
-    role: input.role,
-    joinedAt: new Date(),
-  })
+  try {
+    await db.insert(MemberTable).values({
+      id: createDenTypeId("member"),
+      organizationId: input.organizationId,
+      userId: input.userId,
+      role: input.role,
+      joinedAt: new Date(),
+    })
+  } catch {}
 
   const created = await db
     .select()
@@ -622,6 +627,7 @@ export async function getInvitationPreview(invitationIdRaw: string): Promise<Inv
 async function createOrganizationRecord(input: {
   userId: UserId
   name: string
+  slug?: string
   logo?: string | null
   metadata?: Record<string, unknown> | null
 }) {
@@ -637,7 +643,7 @@ async function createOrganizationRecord(input: {
   await db.insert(OrganizationTable).values({
     id: organizationId,
     name: input.name,
-    slug: organizationId,
+    slug: input.slug ?? organizationId,
     logo: input.logo ?? null,
     metadata,
   })
@@ -660,9 +666,118 @@ async function createOrganizationRecord(input: {
   return organizationId
 }
 
+export async function getSingletonOrganization() {
+  const rows = await db
+    .select()
+    .from(OrganizationTable)
+    .where(eq(OrganizationTable.slug, env.singleOrg.slug))
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+export async function getSingletonSsoStatus() {
+  const organization = await getSingletonOrganization()
+  const organizationSlug = organization?.slug || env.singleOrg.slug
+  const fallbackSignInPath = `/sso/${encodeURIComponent(organizationSlug)}`
+
+  if (!organization) {
+    return {
+      configured: false,
+      organizationSlug,
+      signInPath: fallbackSignInPath,
+    }
+  }
+
+  const rows = await db
+    .select({ signInPath: SsoConnectionTable.signInPath })
+    .from(SsoConnectionTable)
+    .where(eq(SsoConnectionTable.organizationId, organization.id))
+    .limit(1)
+  const signInPath = rows[0]?.signInPath || fallbackSignInPath
+
+  return {
+    configured: Boolean(rows[0]),
+    organizationSlug,
+    signInPath,
+  }
+}
+
+async function countActiveOwners(organizationId: OrgId) {
+  const rows = await db
+    .select({ role: MemberTable.role })
+    .from(MemberTable)
+    .where(and(eq(MemberTable.organizationId, organizationId), isNull(MemberTable.removedAt)))
+
+  return rows.filter((row) => roleIncludesOwner(row.role)).length
+}
+
+export async function ensureSingletonOrganizationForUser(userId: UserId) {
+  const userRows = await db
+    .select({
+      email: AuthUserTable.email,
+    })
+    .from(AuthUserTable)
+    .where(eq(AuthUserTable.id, userId))
+    .limit(1)
+  const userEmail = userRows[0]?.email ?? null
+
+  let organization = await getSingletonOrganization()
+  if (!organization) {
+    if (!isSingleOrgOwnerEmailEligible({
+      email: userEmail,
+      ownerEmails: env.singleOrg.ownerEmails,
+    })) {
+      return null
+    }
+
+    try {
+      const organizationId = await createOrganizationRecord({
+        userId,
+        name: env.singleOrg.name,
+        slug: env.singleOrg.slug,
+      })
+      return organizationId
+    } catch {
+      organization = await getSingletonOrganization()
+      if (!organization) {
+        throw new Error("failed_to_create_single_org")
+      }
+    }
+  }
+
+  const activeOwnerCount = await countActiveOwners(organization.id)
+  const role = resolveSingleOrgMembershipRole({
+    activeOwnerCount,
+    email: userEmail,
+    ownerEmails: env.singleOrg.ownerEmails,
+  })
+  if (!role) {
+    return null
+  }
+
+  const member = await insertMemberIfMissing({
+    organizationId: organization.id,
+    userId,
+    role,
+  })
+
+  await ensureDefaultDesktopPolicyForOrganization({
+    organizationId: organization.id,
+    createdByOrgMemberId: member.id,
+  })
+  await ensureDefaultDynamicRoles(organization.id)
+
+  return organization.id
+}
+
 export async function ensureUserOrgAccess(input: {
   userId: UserId
 }) {
+  if (env.orgMode === "single_org") {
+    return ensureSingletonOrganizationForUser(input.userId)
+  }
+
   const memberships = await listMembershipRows(input.userId)
   if (memberships.length > 0) {
     const organizationIds = [...new Set(memberships.map((membership) => membership.organizationId))]
@@ -677,6 +792,10 @@ export async function ensurePersonalOrganizationForUser(userId: UserId) {
   const existingOrgId = await ensureUserOrgAccess({ userId })
   if (existingOrgId) {
     return existingOrgId
+  }
+
+  if (env.orgMode === "single_org") {
+    return null
   }
 
   const userRows = await db
@@ -876,7 +995,10 @@ export async function resolveUserOrganizations(input: {
 }) {
   await ensureUserOrgAccess({ userId: input.userId })
 
-  const orgs = await listUserOrgs(input.userId)
+  const visibleOrgs = await listUserOrgs(input.userId)
+  const orgs = env.orgMode === "single_org"
+    ? visibleOrgs.filter((org) => org.slug === env.singleOrg.slug)
+    : visibleOrgs
 
   const availableOrgIds = new Set(orgs.map((org) => org.id))
 

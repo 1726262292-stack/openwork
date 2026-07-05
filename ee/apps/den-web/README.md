@@ -47,6 +47,12 @@ Frontend for `app.openworklabs.com`.
 
 ### Related Den API env vars
 
+- `DEN_ORG_MODE`: `single_org` or `multi_org`. Blank/unset resolves to `single_org` in the implemented target state; hosted/cloud deployments should set `multi_org` explicitly.
+- `DEN_SINGLE_ORG_NAME` / `DEN_SINGLE_ORG_SLUG`: singleton organization display name and stable slug for private single-org deployments.
+- `DEN_SINGLE_ORG_OWNER_EMAILS`: comma-separated emails allowed to claim singleton organization ownership.
+- `DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP`: whether unauthenticated users can self-serve signup into the singleton organization.
+- When SSO is configured on the singleton organization, auth becomes SSO-only.
+- `DEN_REQUIRE_EMAIL_VERIFICATION`: set `false` for the single-org default to avoid signup verification-code flows; hosted multi-org should set `true`.
 - `DEN_MCP_CLAIM_NAMESPACE`: namespace used for MCP token claim URIs. Leave blank to use `BETTER_AUTH_URL`; set a stable value before issuing tokens if hosts may change. Use `https://openworklabs.com` to preserve the original hosted MCP claim names.
 - `DEN_BOOTSTRAP_ADMIN_EMAILS`: comma-separated platform admin emails seeded by `den-api` on startup. Blank disables bootstrap admin seeding.
 

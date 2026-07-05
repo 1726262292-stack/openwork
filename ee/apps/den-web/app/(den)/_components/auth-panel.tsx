@@ -4,7 +4,7 @@ import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { isSamePathname } from "../_lib/client-route";
-import { getErrorMessage, requestJson, type AuthMode } from "../_lib/den-flow";
+import { getErrorMessage, getSocialCallbackUrl, requestJson, type AuthMode } from "../_lib/den-flow";
 import { getMcpOAuthSelectOrganizationRoute } from "../_lib/mcp-oauth-route";
 import { useDenFlow } from "../_providers/den-flow-provider";
 
@@ -127,20 +127,44 @@ export function AuthPanel({
     cancelVerification,
     beginSocialAuth,
     resolveUserLandingRoute,
+    runtimeConfig,
+    runtimeConfigLoaded,
   } = useDenFlow();
+  const isSingleOrgMode = runtimeConfigLoaded && runtimeConfig.orgMode === "single_org";
+  const isSingleOrgSsoMode = isSingleOrgMode && runtimeConfig.singleOrgSsoConfigured;
+  const singleOrgName = runtimeConfig.singleOrgName || "OpenWork";
+  const singleOrgSlug = runtimeConfig.singleOrgSlug.trim();
+
+  useEffect(() => {
+    if (!isSingleOrgSsoMode || pathname === "/") {
+      return;
+    }
+
+    router.replace("/");
+  }, [isSingleOrgSsoMode, pathname, router]);
 
   const resolvedSignUpContent: PanelContent = {
-    title: "Get started.",
-    copy: "Free to try. Team plans from $50/mo.",
+    title: isSingleOrgMode ? "Create your account." : "Get started.",
+    copy: isSingleOrgMode
+      ? `Join ${singleOrgName}. The organization is managed by this deployment.`
+      : "Free to try. Team plans from $50/mo.",
     submitLabel: "Create account",
     ...signUpContent,
   };
 
   const resolvedSignInContent: PanelContent = {
-    title: "Welcome back.",
-    copy: "Sign in to open your team workspace.",
+    title: isSingleOrgMode ? `Sign in to ${singleOrgName}.` : "Welcome back.",
+    copy: isSingleOrgMode
+      ? "Use your organization account to continue."
+      : "Sign in to open your team workspace.",
     submitLabel: "Sign in",
     ...signInContent,
+  };
+
+  const singleOrgSsoContent: PanelContent = {
+    title: `Sign in to ${singleOrgName}.`,
+    copy: "Use your organization's SSO to continue.",
+    submitLabel: "Continue with SSO",
   };
 
   const resolvedVerificationContent: PanelContent = {
@@ -158,11 +182,13 @@ export function AuthPanel({
 
   const desktopGrant = getDesktopGrant(desktopRedirectUrl);
   const isPasswordResetRequest = authMode === "sign-in" && passwordResetRequested && !verificationRequired;
-  const formBusy = isPasswordResetRequest ? passwordResetBusy : authBusy || desktopRedirectBusy;
+  const formBusy = !runtimeConfigLoaded || (isPasswordResetRequest ? passwordResetBusy : authBusy || desktopRedirectBusy);
   const activeContent = verificationRequired
     ? resolvedVerificationContent
     : isPasswordResetRequest
       ? passwordResetContent
+      : isSingleOrgSsoMode
+      ? singleOrgSsoContent
       : authMode === "sign-in"
       ? resolvedSignInContent
       : resolvedSignUpContent;
@@ -172,7 +198,11 @@ export function AuthPanel({
   // The segmented tabs are the primary sign-in/sign-up switch. Hide them for the
   // focused sub-flows (email verification, password reset) where switching mode
   // mid-step would be confusing.
-  const showModeTabs = !verificationRequired && !isPasswordResetRequest;
+  const showModeTabs = !isSingleOrgSsoMode && !verificationRequired && !isPasswordResetRequest;
+  const showSingleOrgSso = isSingleOrgMode && Boolean(singleOrgSlug) && !verificationRequired && !isPasswordResetRequest && (!hideSocialAuth || isSingleOrgSsoMode);
+  const showSingleOrgSsoDivider = showSingleOrgSso && !isSingleOrgSsoMode;
+  const showEmailPasswordAuth = !isSingleOrgSsoMode;
+  const showSocialAuth = showEmailPasswordAuth && !verificationRequired && !isPasswordResetRequest && !hideSocialAuth;
 
   useEffect(() => {
     const key = prefillKey ?? prefilledEmail?.trim() ?? null;
@@ -204,6 +234,17 @@ export function AuthPanel({
     window.setTimeout(() => {
       setCopiedDesktopField((current) => (current === field ? null : current));
     }, 1800);
+  };
+
+  const startSingleOrgSso = () => {
+    if (!singleOrgSlug) return;
+    const nextUrl = new URL(`/sso/${encodeURIComponent(singleOrgSlug)}`, window.location.origin);
+    nextUrl.searchParams.set("callbackURL", getSocialCallbackUrl(runtimeConfig.openworkAuthCallbackUrl));
+    const trimmedEmail = email.trim();
+    if (trimmedEmail) {
+      nextUrl.searchParams.set("loginHint", trimmedEmail);
+    }
+    window.location.assign(nextUrl.toString());
   };
 
   const submitPasswordResetRequest = async (event: FormEvent<HTMLFormElement>) => {
@@ -387,11 +428,31 @@ export function AuthPanel({
           }
         }}
       >
-        {!verificationRequired && !isPasswordResetRequest && !hideSocialAuth ? (
+        {showSingleOrgSso ? (
+          <>
+            <button
+              type="button"
+              className="den-button-primary w-full"
+              onClick={startSingleOrgSso}
+              disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
+            >
+              Continue with SSO
+              <ArrowRight className="h-4 w-4" />
+            </button>
+
+            {showSingleOrgSsoDivider ? (
+              <div className="den-divider" aria-hidden="true">
+                <span>or</span>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        {showSocialAuth ? (
           <>
             <SocialButton
               onClick={() => void beginSocialAuth("github")}
-              disabled={authBusy || desktopRedirectBusy}
+              disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
             >
               <GitHubLogo />
               <span>Continue with GitHub</span>
@@ -399,7 +460,7 @@ export function AuthPanel({
 
             <SocialButton
               onClick={() => void beginSocialAuth("google")}
-              disabled={authBusy || desktopRedirectBusy}
+              disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
             >
               <GoogleLogo />
               <span>Continue with Google</span>
@@ -418,7 +479,7 @@ export function AuthPanel({
           </div>
         ) : null}
 
-        {!hideEmailField ? (
+        {showEmailPasswordAuth && !hideEmailField ? (
           <label className="grid gap-2">
             <span className="den-label">Email</span>
             <input
@@ -434,7 +495,7 @@ export function AuthPanel({
           </label>
         ) : null}
 
-        {!verificationRequired && !isPasswordResetRequest ? (
+        {showEmailPasswordAuth && !verificationRequired && !isPasswordResetRequest ? (
           <label className="grid gap-2">
             <span className="den-label">Password</span>
             <input
@@ -464,7 +525,7 @@ export function AuthPanel({
           </label>
         ) : null}
 
-        {!verificationRequired && !isPasswordResetRequest && !hideEmailField ? (
+        {showEmailPasswordAuth && !verificationRequired && !isPasswordResetRequest && !hideEmailField ? (
           // Always rendered (invisible in sign-up) so switching modes never
           // changes the card height.
           <div className={`-mt-2 flex justify-end ${authMode === "sign-in" ? "" : "invisible"}`}>
@@ -485,14 +546,16 @@ export function AuthPanel({
           </div>
         ) : null}
 
-        <button
-          type="submit"
-          className="den-button-primary w-full"
-          disabled={formBusy}
-        >
-          {formBusy ? "Working..." : activeContent.submitLabel}
-          {!formBusy ? <ArrowRight className="h-4 w-4" /> : null}
-        </button>
+        {showEmailPasswordAuth ? (
+          <button
+            type="submit"
+            className="den-button-primary w-full"
+            disabled={formBusy}
+          >
+            {formBusy ? "Working..." : activeContent.submitLabel}
+            {!formBusy ? <ArrowRight className="h-4 w-4" /> : null}
+          </button>
+        ) : null}
 
         {verificationRequired ? (
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -553,13 +616,13 @@ export function AuthPanel({
         >
           <p>{authInfo}</p>
           {authError ? <p className="font-medium text-rose-600">{authError}</p> : null}
-          {!authError && verificationRequired ? (
+          {!authError && verificationRequired && !isSingleOrgMode ? (
             <div className="mt-1 inline-flex items-center justify-center gap-1 text-emerald-600">
               <CheckCircle2 className="h-3.5 w-3.5" />
               <span>Waiting for your verification code</span>
             </div>
           ) : null}
-          {authError && authMode === "sign-in" && !verificationRequired ? (
+          {authError && authMode === "sign-in" && !verificationRequired && showEmailPasswordAuth ? (
             <button
               type="button"
               className="mt-1 inline-flex items-center justify-center gap-1 font-medium text-[var(--dls-text-primary)] transition hover:opacity-70"

@@ -7,10 +7,11 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
 import { db } from "../../db.js"
+import { env } from "../../env.js"
 import { authenticatedRoute, jsonValidator, orgMemberRoute, type OrganizationContextVariables, type UserOrganizationsContext } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
-import { resolveUserOrganizations, setSessionActiveOrganization } from "../../orgs.js"
+import { resolveUserOrganizations, setSessionActiveOrganization, type UserOrgSummary } from "../../orgs.js"
 import type { AuthContextVariables } from "../../session.js"
 import { calculateDesktopPolicyForOrgMember } from "../../desktop-policies.js"
 import { DenEmailSendError, sendEmail } from "../../utils/email/send-email.js"
@@ -62,6 +63,27 @@ const activeOrganizationResponseSchema = z.object({
   activeOrgId: denTypeIdSchema("organization"),
   activeOrgSlug: z.string().nullable(),
 }).meta({ ref: "ActiveOrganizationResponse" })
+
+export function getAllowedSingleOrgActiveOrganization(input: {
+  orgs: Pick<UserOrgSummary, "id" | "slug">[]
+  requestedOrgId: string | null
+  requestedOrgSlug?: string
+}) {
+  const singletonOrg = input.orgs[0] ?? null
+  if (!singletonOrg) {
+    return null
+  }
+
+  if (input.requestedOrgId) {
+    return input.requestedOrgId === singletonOrg.id ? singletonOrg : null
+  }
+
+  if (input.requestedOrgSlug) {
+    return input.requestedOrgSlug === singletonOrg.slug ? singletonOrg : null
+  }
+
+  return singletonOrg
+}
 
 function normalizeAuthProvider(providerId: string) {
   const normalized = providerId.trim().toLowerCase()
@@ -255,9 +277,15 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         activeOrganizationId: requestedOrgId,
         userId: normalizeDenTypeId("user", user.id),
       })
-      const activeOrg = requestedOrgId
-        ? resolved.orgs.find((org) => org.id === requestedOrgId) ?? null
-        : resolved.orgs.find((org) => org.slug === input.organizationSlug) ?? null
+      const activeOrg = env.orgMode === "single_org"
+        ? getAllowedSingleOrgActiveOrganization({
+            orgs: resolved.orgs,
+            requestedOrgId,
+            requestedOrgSlug: input.organizationSlug,
+          })
+        : requestedOrgId
+          ? resolved.orgs.find((org) => org.id === requestedOrgId) ?? null
+          : resolved.orgs.find((org) => org.slug === input.organizationSlug) ?? null
       if (!activeOrg) {
         return c.json({ error: "forbidden", message: "You do not have access to this organization." }, 403)
       }

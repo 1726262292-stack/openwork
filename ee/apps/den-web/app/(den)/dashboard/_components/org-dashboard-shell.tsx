@@ -180,7 +180,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
 
 export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, signOut } = useDenFlow();
+  const { user, signOut, runtimeConfig, runtimeConfigLoaded } = useDenFlow();
   const {
     activeOrg,
     orgDirectory,
@@ -190,6 +190,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     switchOrganization,
   } = useOrgDashboard();
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const isSingleOrgMode = runtimeConfigLoaded && runtimeConfig.orgMode === "single_org";
 
   const access = getOrgAccessFlags(
     orgContext?.currentMember.role ?? "member",
@@ -280,7 +281,29 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     ...(settingsGroup ? [settingsGroup] : []),
   ];
 
-  const orgSwitcher = (
+  const orgSwitcher = isSingleOrgMode ? (
+    <div className="flex w-full items-center justify-between gap-3 rounded-xl px-2 py-2">
+      <div className="flex min-w-0 items-center gap-3">
+        <OrgMark name={activeOrg?.name ?? runtimeConfig.singleOrgName} />
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-medium text-gray-900">
+            {activeOrg?.name ?? runtimeConfig.singleOrgName}
+          </p>
+          <p className="truncate text-[12px] text-gray-500">
+            {activeOrg ? formatRoleLabel(activeOrg.role) : "Preparing workspace"}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => void signOut()}
+        className="shrink-0 rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-900"
+        aria-label="Sign out"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  ) : (
     <div className="relative">
       <button
         type="button"

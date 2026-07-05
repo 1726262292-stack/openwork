@@ -62,7 +62,7 @@ export function OrgDashboardProvider({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { user, sessionHydrated, signOut, refreshWorkers, workersLoadedOnce } = useDenFlow();
+  const { user, sessionHydrated, signOut, refreshWorkers, workersLoadedOnce, runtimeConfig, runtimeConfigLoaded } = useDenFlow();
   const [orgDirectory, setOrgDirectory] = useState<DenOrgSummary[]>([]);
   const [orgContext, setOrgContext] = useState<DenOrgContext | null>(null);
   const [orgBusy, setOrgBusy] = useState(false);
@@ -79,6 +79,7 @@ export function OrgDashboardProvider({
   );
 
   const activeOrgId = activeOrg?.id ?? orgContext?.organization.id ?? null;
+  const isSingleOrgMode = runtimeConfigLoaded && runtimeConfig.orgMode === "single_org";
 
   function ensureActiveOrganizationSelected() {
     if (!activeOrgId) {
@@ -216,6 +217,10 @@ export function OrgDashboardProvider({
   }
 
   async function createOrganization(name: string) {
+    if (isSingleOrgMode) {
+      throw new Error("This deployment uses one managed organization.");
+    }
+
     const trimmed = name.trim();
     if (!trimmed) {
       throw new Error("Enter an organization name.");
@@ -254,6 +259,10 @@ export function OrgDashboardProvider({
   }
 
   function switchOrganization(nextSlug: string) {
+    if (isSingleOrgMode) {
+      return;
+    }
+
     const targetOrg = orgDirectory.find((entry) => entry.slug === nextSlug) ?? null;
     if (!targetOrg) {
       return;

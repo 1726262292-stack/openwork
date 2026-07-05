@@ -15,6 +15,7 @@ import { getInvalidMcpOAuthRedirectUris } from "../../mcp/oauth-client-policy.js
 import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
 import { publicRoute, tokenRoute } from "../../middleware/index.js"
 import { emptyResponse, jsonResponse } from "../../openapi.js"
+import { getSingletonSsoStatus } from "../../orgs.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
 import type { AuthContextVariables } from "../../session.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
@@ -28,6 +29,122 @@ function rewriteAuthRequest(request: Request, path: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function singleOrgModeResponse() {
+  return Response.json({
+    error: "single_org_mode",
+    message: "This deployment is configured for one organization. Additional organization changes are disabled.",
+  }, { status: 409 })
+}
+
+function singleOrgSsoRequiredResponse(signInPath: string) {
+  return Response.json({
+    error: "single_org_sso_required",
+    message: "This deployment uses organization SSO. Continue with SSO to sign in.",
+    signInPath,
+  }, { status: 403 })
+}
+
+export function getBetterAuthProxyPath(pathname: string) {
+  const prefix = "/api/auth"
+  if (!pathname.startsWith(prefix)) {
+    return pathname
+  }
+
+  return pathname.slice(prefix.length) || "/"
+}
+
+export function isBetterAuthOrganizationCreationRequest(request: Request) {
+  const url = new URL(request.url)
+  return request.method.toUpperCase() === "POST" && getBetterAuthProxyPath(url.pathname) === "/organization/create"
+}
+
+export function isBetterAuthSetActiveOrganizationRequest(request: Request) {
+  const url = new URL(request.url)
+  return request.method.toUpperCase() === "POST" && getBetterAuthProxyPath(url.pathname) === "/organization/set-active"
+}
+
+export function isBetterAuthEmailPasswordRequest(request: Request) {
+  const url = new URL(request.url)
+  const path = getBetterAuthProxyPath(url.pathname)
+  return request.method.toUpperCase() === "POST" && (path === "/sign-in/email" || path === "/sign-up/email")
+}
+
+export function canSetActiveOrganizationInSingleOrgMode(input: {
+  activeOrganizationId: string | null
+  singleOrganizationSlug: string
+  requestedOrganizationId?: string | null
+  requestedOrganizationSlug?: string | null
+}) {
+  if (input.requestedOrganizationId === undefined && input.requestedOrganizationSlug === undefined) {
+    return true
+  }
+
+  return (
+    (!!input.activeOrganizationId && input.requestedOrganizationId === input.activeOrganizationId) ||
+    input.requestedOrganizationSlug === input.singleOrganizationSlug
+  )
+}
+
+async function readSetActiveOrganizationBody(request: Request) {
+  let body: unknown
+  try {
+    body = await request.clone().json()
+  } catch {
+    return null
+  }
+
+  if (!isRecord(body)) {
+    return null
+  }
+
+  return {
+    organizationId: typeof body.organizationId === "string" || body.organizationId === null ? body.organizationId : undefined,
+    organizationSlug: typeof body.organizationSlug === "string" || body.organizationSlug === null ? body.organizationSlug : undefined,
+  }
+}
+
+async function getCurrentActiveOrganizationId(request: Request) {
+  const session = await auth.api.getSession({ headers: request.headers })
+  const activeOrganizationId = session?.session.activeOrganizationId
+  return typeof activeOrganizationId === "string" ? activeOrganizationId : null
+}
+
+async function getSingleOrgAuthGuardResponse(request: Request) {
+  if (env.orgMode !== "single_org") {
+    return null
+  }
+
+  if (isBetterAuthOrganizationCreationRequest(request)) {
+    return singleOrgModeResponse()
+  }
+
+  if (isBetterAuthEmailPasswordRequest(request)) {
+    const status = await getSingletonSsoStatus()
+    if (status.configured) {
+      return singleOrgSsoRequiredResponse(status.signInPath)
+    }
+  }
+
+  if (!isBetterAuthSetActiveOrganizationRequest(request)) {
+    return null
+  }
+
+  const body = await readSetActiveOrganizationBody(request)
+  if (!body) {
+    return null
+  }
+
+  const activeOrganizationId = await getCurrentActiveOrganizationId(request)
+  return canSetActiveOrganizationInSingleOrgMode({
+    activeOrganizationId,
+    singleOrganizationSlug: env.singleOrg.slug,
+    requestedOrganizationId: body.organizationId,
+    requestedOrganizationSlug: body.organizationSlug,
+  })
+    ? null
+    : singleOrgModeResponse()
 }
 
 function oauthRegistrationError(status: number, error: string, errorDescription: string) {
@@ -124,6 +241,11 @@ const authPasswordScreeningUnavailableSchema = z.object({
 }).meta({ ref: "AuthPasswordScreeningUnavailableError" })
 
 async function handleAuthRequest(request: Request) {
+  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(request)
+  if (singleOrgAuthGuardResponse) {
+    return singleOrgAuthGuardResponse
+  }
+
   const emailPasswordAttempt = await readEmailPasswordSignInAttempt(request)
   if (emailPasswordAttempt) {
     const lockoutResponse = await getEmailPasswordLockoutResponse(emailPasswordAttempt)

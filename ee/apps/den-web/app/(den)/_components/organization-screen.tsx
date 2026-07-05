@@ -11,7 +11,7 @@ type SettingsTab = "profile" | "organizations";
 
 export function OrganizationScreen() {
   const router = useRouter();
-  const { user, sessionHydrated, signOut } = useDenFlow();
+  const { user, sessionHydrated, signOut, runtimeConfig, runtimeConfigLoaded } = useDenFlow();
   const [orgs, setOrgs] = useState<DenOrgSummary[]>([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,10 +34,13 @@ export function OrganizationScreen() {
   }, [userDisplayName]);
 
   const activeOrg = useMemo(() => orgs.find((org) => org.isActive) ?? null, [orgs]);
-  const showDirectCreateFlow = orgs.length === 0;
+  const isSingleOrgMode = runtimeConfigLoaded && runtimeConfig.orgMode === "single_org";
+  const singleOrgName = runtimeConfig.singleOrgName || "OpenWork";
+  const singleOrgSlug = runtimeConfig.singleOrgSlug.trim();
+  const showDirectCreateFlow = !isSingleOrgMode && orgs.length === 0;
 
   useEffect(() => {
-    if (!sessionHydrated) return;
+    if (!sessionHydrated || !runtimeConfigLoaded) return;
     if (!user) {
       router.replace("/");
       return;
@@ -55,8 +58,13 @@ export function OrganizationScreen() {
         if (isMounted) {
           const parsed = parseOrgListPayload(payload);
           const nextOrgs = parsed.orgs.map((org) => ({ ...org, isActive: org.slug === parsed.activeOrgSlug }));
+          const targetOrg = nextOrgs.find((org) => org.isActive) ?? nextOrgs[0] ?? null;
+          if (isSingleOrgMode && targetOrg) {
+            router.replace(getOrgDashboardRoute(targetOrg.slug));
+            return;
+          }
           setOrgs(nextOrgs);
-          setShowCreate(nextOrgs.length === 0);
+          setShowCreate(!isSingleOrgMode && nextOrgs.length === 0);
           setBusy(false);
         }
       } catch (err) {
@@ -72,10 +80,15 @@ export function OrganizationScreen() {
     return () => {
       isMounted = false;
     };
-  }, [sessionHydrated, user, router]);
+  }, [isSingleOrgMode, runtimeConfigLoaded, sessionHydrated, user, router]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (isSingleOrgMode) {
+      setCreateError("This deployment uses one managed organization.");
+      return;
+    }
+
     const trimmed = createName.trim();
     if (!trimmed) return;
 
@@ -119,7 +132,7 @@ export function OrganizationScreen() {
     router.push(getOrgDashboardRoute(slug));
   }
 
-  if (!sessionHydrated || busy) {
+  if (!sessionHydrated || !runtimeConfigLoaded || busy) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#fafafa]">
         <p className="text-sm text-gray-500">Loading organizations...</p>
@@ -146,6 +159,52 @@ export function OrganizationScreen() {
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-12">
+        {isSingleOrgMode && orgs.length === 0 ? (
+          <div className="mx-auto max-w-2xl">
+            <section className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm sm:p-7 md:rounded-[2rem] md:p-10">
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#011627] text-sm font-semibold uppercase tracking-[0.08em] text-white sm:h-14 sm:w-14">
+                  {userInitials}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium uppercase tracking-[0.18em] text-gray-400">OpenWork</p>
+                  <h1 className="mt-2 text-[2rem] font-semibold leading-none tracking-[-0.04em] text-gray-950 sm:text-3xl">
+                    {singleOrgName}
+                  </h1>
+                  <p className="mt-3 max-w-xl text-[13px] leading-6 text-gray-500 sm:text-sm">
+                    This deployment uses one managed organization. Once setup is complete, you will be taken straight to the workspace.
+                  </p>
+                </div>
+              </div>
+
+              {error ? (
+                <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                  {error}
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                {singleOrgSlug ? (
+                  <button
+                    type="button"
+                    className="w-full rounded-2xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-800 sm:w-auto"
+                    onClick={() => router.push(`/sso/${encodeURIComponent(singleOrgSlug)}`)}
+                  >
+                    Continue with SSO
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="w-full rounded-2xl border border-gray-200 px-5 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:w-auto"
+                  onClick={() => window.location.reload()}
+                >
+                  Check again
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
         {showDirectCreateFlow ? (
           <div className="mx-auto max-w-2xl">
             <section className="rounded-[1.75rem] border border-gray-200 bg-white p-5 shadow-sm sm:p-7 md:rounded-[2rem] md:p-10">
@@ -199,7 +258,7 @@ export function OrganizationScreen() {
               </form>
             </section>
           </div>
-        ) : (
+        ) : !isSingleOrgMode ? (
           <div className="mx-auto max-w-5xl">
             <div className="mb-6 sm:mb-8">
               <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Settings</h1>
@@ -437,7 +496,7 @@ export function OrganizationScreen() {
               </>
             )}
           </div>
-        )}
+        ) : null}
       </main>
     </div>
   );

@@ -18,6 +18,7 @@ import {
   acceptInvitationForUser,
   createOrganizationForUser,
   getInvitationPreview,
+  getSingletonSsoStatus,
   normalizeAllowedEmailDomains,
   OrganizationEmailDomainRestrictionError,
   setSessionActiveOrganization,
@@ -53,6 +54,13 @@ const resolveSsoByEmailResponseSchema = z.object({
   signInUrl: z.string().url(),
 }).meta({ ref: "ResolveOrganizationSsoByEmailResponse" })
 
+const singleOrgSsoStatusResponseSchema = z.object({
+  configured: z.boolean(),
+  organizationSlug: z.string(),
+  signInPath: z.string(),
+  signInUrl: z.string().url(),
+}).meta({ ref: "SingleOrgSsoStatusResponse" })
+
 const invitationPreviewQuerySchema = z.object({
   id: z.string().trim().min(1).max(255),
 })
@@ -64,6 +72,11 @@ const acceptInvitationSchema = z.object({
 const organizationResponseSchema = z.object({
   organization: z.object({}).passthrough().nullable(),
 }).meta({ ref: "OrganizationResponse" })
+
+const singleOrgModeSchema = z.object({
+  error: z.literal("single_org_mode"),
+  message: z.string(),
+}).meta({ ref: "SingleOrgModeError" })
 
 const organizationOwnerSchema = z.object({
   memberId: denTypeIdSchema("member"),
@@ -153,6 +166,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         400: jsonResponse("The organization creation request body was invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to create an organization.", unauthorizedSchema),
         403: jsonResponse("API keys cannot create organizations.", forbiddenSchema),
+        409: jsonResponse("Organization creation is disabled in single-org mode.", singleOrgModeSchema),
       },
     }),
     authenticatedRoute(),
@@ -163,6 +177,13 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         error: "forbidden",
         message: "API keys cannot create organizations.",
       }, 403)
+    }
+
+    if (env.orgMode === "single_org") {
+      return c.json({
+        error: "single_org_mode",
+        message: "This deployment is configured for one organization. New organizations cannot be created.",
+      }, 409)
     }
 
     const user = c.get("user")
@@ -360,6 +381,29 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       }
 
       return c.json({ organization: updated })
+    },
+  )
+
+  app.get(
+    "/v1/orgs/sso/singleton",
+    describeRoute({
+      tags: ["Organizations"],
+      hide: true,
+      summary: "Resolve singleton organization SSO status",
+      description: "Returns whether the singleton organization has SSO configured for single-org deployments.",
+      responses: {
+        200: jsonResponse("Singleton organization SSO status returned successfully.", singleOrgSsoStatusResponseSchema),
+      },
+    }),
+    publicRoute,
+    async (c) => {
+      const status = await getSingletonSsoStatus()
+      return c.json({
+        configured: env.orgMode === "single_org" && status.configured,
+        organizationSlug: status.organizationSlug,
+        signInPath: status.signInPath,
+        signInUrl: new URL(status.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl).toString(),
+      })
     },
   )
 

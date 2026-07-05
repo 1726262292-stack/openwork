@@ -10,6 +10,13 @@ imagePullSecrets: []
 config:
   databaseMode: mysql
   openworkDevMode: "0"
+  tenancy:
+    mode: single_org
+    singleOrgName: OpenWork
+    singleOrgSlug: default
+    ownerEmails: ""
+    allowPublicSignup: "false"
+    requireEmailVerification: "false"
   auth:
     passwordBreachScreeningEnabled: "false"
   public:

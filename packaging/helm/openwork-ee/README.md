@@ -28,6 +28,15 @@ image:
   tag: "0.17.1"
 
 config:
+  tenancy:
+    # Default chart behavior is single-org for private/self-hosted installs.
+    # Hosted OpenWork Cloud should set this to "multi_org" explicitly.
+    mode: "single_org"
+    singleOrgName: "OpenWork"
+    singleOrgSlug: "default"
+    ownerEmails: "admin@example.com"
+    allowPublicSignup: "false"
+    requireEmailVerification: "false"
   public:
     webOrigin: "https://openwork.example.com"
     apiOrigin: "https://api.openwork.example.com"
@@ -96,6 +105,80 @@ The existing Secret must contain the keys listed under `secret.keys`, especially
 - `DEN_DB_ENCRYPTION_KEY`
 
 Set `DAYTONA_API_KEY` when `config.provisioner.mode` is `daytona`. Set `POLAR_ACCESS_TOKEN` when Polar feature gating is enabled. Set `OPENROUTER_MANAGEMENT_API_KEY` when enabling OpenWork Models management.
+
+## Tenancy Mode
+
+The chart defaults to a private single-org deployment:
+
+```yaml
+config:
+  tenancy:
+    mode: "single_org"
+    singleOrgName: "OpenWork"
+    singleOrgSlug: "default"
+    ownerEmails: "admin@example.com"
+    allowPublicSignup: "false"
+    requireEmailVerification: "false"
+```
+
+These values are exposed to both `den-api` and `den-web` as:
+
+- `DEN_ORG_MODE`
+- `DEN_SINGLE_ORG_NAME`
+- `DEN_SINGLE_ORG_SLUG`
+- `DEN_SINGLE_ORG_OWNER_EMAILS`
+- `DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP`
+- `DEN_REQUIRE_EMAIL_VERIFICATION`
+
+In the implemented target state, blank or unset `DEN_ORG_MODE` is treated as `single_org`. The Helm chart sets it explicitly to make rendered manifests clear. Hosted or cloud-style multi-organization deployments should set:
+
+```yaml
+config:
+  tenancy:
+    mode: "multi_org"
+    requireEmailVerification: "true"
+```
+
+`config.tenancy.ownerEmails` controls who can claim ownership of the singleton deployment organization. `config.public.bootstrapAdminEmails` is separate: it seeds platform/admin allowlist access and does not by itself make a user the singleton organization owner.
+
+## Initial Organization Setup
+
+For self-hosted installs, configure the singleton organization before the first
+user signs in:
+
+```yaml
+config:
+  tenancy:
+    mode: "single_org"
+    singleOrgName: "Acme"
+    singleOrgSlug: "acme"
+    ownerEmails: "admin@acme.com"
+    requireEmailVerification: "false"
+  public:
+    bootstrapAdminEmails: "admin@acme.com"
+```
+
+After the release is installed and the web host is reachable, sign up or sign in
+with one of the emails in `config.tenancy.ownerEmails`. If the singleton
+organization does not exist yet, Den creates it with `singleOrgName` and
+`singleOrgSlug`, then makes that eligible first user the organization owner.
+
+Later users are attached to the same singleton organization. They do not see an
+organization creation step, and attempts to create another organization return a
+single-org-mode error. If no `ownerEmails` are configured, the first user who
+reaches the deployment can claim the owner role, so production deployments
+should set `ownerEmails` explicitly.
+
+For most production installs, use this first owner account as the break-glass
+setup path, then configure SAML/OIDC SSO and SCIM from the organization
+settings. Keep `bootstrapAdminEmails` aligned only if that same person should
+also have platform/admin allowlist access; it is not a replacement for
+`ownerEmails`.
+
+After SAML/OIDC SSO is configured on the singleton organization, the auth
+experience becomes SSO-only: root sign-in and sign-up show one "Continue with
+SSO" action, other sign-in/sign-up entry points redirect there, and raw
+email/password sign-in or sign-up requests are rejected by Den API.
 
 ## Internal Service URLs
 

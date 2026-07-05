@@ -23,6 +23,10 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
+  DEN_ORG_MODE: z.string().optional(),
+  DEN_SINGLE_ORG_NAME: z.string().optional(),
+  DEN_SINGLE_ORG_SLUG: z.string().optional(),
+  DEN_SINGLE_ORG_OWNER_EMAILS: z.string().optional(),
   DEN_REQUIRE_EMAIL_VERIFICATION: z.string().optional(),
   DEN_PASSWORD_BREACH_SCREENING_ENABLED: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
@@ -170,6 +174,35 @@ function optionalString(value: string | undefined) {
   return trimmed ? trimmed : undefined
 }
 
+export type DenOrgMode = "single_org" | "multi_org"
+
+export function parseDenOrgMode(value: string | undefined): DenOrgMode {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return "single_org"
+  }
+  if (normalized === "single_org") {
+    return "single_org"
+  }
+  if (normalized === "multi_org") {
+    return "multi_org"
+  }
+  throw new Error("DEN_ORG_MODE must be single_org or multi_org")
+}
+
+export function normalizeSingleOrgSlug(value: string | undefined) {
+  const normalized = (value ?? "default").trim().toLowerCase()
+  if (!normalized) {
+    return "default"
+  }
+
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(normalized)) {
+    throw new Error("DEN_SINGLE_ORG_SLUG must contain only lowercase letters, numbers, and single hyphens")
+  }
+
+  return normalized
+}
+
 function normalizeOrigin(origin: string) {
   const value = origin.trim()
   if (value === "*") {
@@ -197,6 +230,7 @@ const mcpConnectionsGatingEnabled =
   (parsed.DEN_MCP_CONNECTIONS_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
+const orgMode = parseDenOrgMode(parsed.DEN_ORG_MODE)
 // SSRF guard for External MCP Connection URLs: on hosted (multi-tenant)
 // deployments, Den must not fetch private/reserved addresses on behalf of
 // users. Self-hosted deployments whose MCP servers legitimately live on a
@@ -205,7 +239,7 @@ const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 // stand-in server keep working.
 const allowPrivateMcpUrls = devMode || (parsed.DEN_ALLOW_PRIVATE_MCP_URLS ?? "0").trim() === "1"
 const requireEmailVerification = parsed.DEN_REQUIRE_EMAIL_VERIFICATION === undefined
-  ? !devMode
+  ? orgMode === "multi_org" && !devMode
   : parsed.DEN_REQUIRE_EMAIL_VERIFICATION.trim().toLowerCase() !== "false"
 const passwordBreachScreeningEnabled = parsed.DEN_PASSWORD_BREACH_SCREENING_ENABLED === undefined
   ? true
@@ -279,6 +313,13 @@ export const env = {
   loops: {
     apiKey: optionalString(parsed.LOOPS_API_KEY),
     marketingEnabled: parsed.LOOPS_MARKETING_ENABLED?.trim() === "1",
+  },
+  orgMode,
+  singleOrg: {
+    name: optionalString(parsed.DEN_SINGLE_ORG_NAME) ?? "OpenWork",
+    slug: normalizeSingleOrgSlug(parsed.DEN_SINGLE_ORG_SLUG),
+    ownerEmails: splitCsv(parsed.DEN_SINGLE_ORG_OWNER_EMAILS)
+      .map((email) => email.toLowerCase()),
   },
   port,
   workerProxyPort: Number(parsed.WORKER_PROXY_PORT ?? "8789"),
