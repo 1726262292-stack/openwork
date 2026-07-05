@@ -121,6 +121,9 @@ denApi:
   service:
     type: ClusterIP
     port: 8788
+    annotations: {}
+    loadBalancerClass: ""
+    loadBalancerSourceRanges: []
   containerPort: 8788
   env: {}
   podAnnotations: {}
@@ -146,6 +149,9 @@ denWeb:
   service:
     type: ClusterIP
     port: 3005
+    annotations: {}
+    loadBalancerClass: ""
+    loadBalancerSourceRanges: []
   containerPort: 3005
   env: {}
   podAnnotations: {}
@@ -172,6 +178,9 @@ inference:
   service:
     type: ClusterIP
     port: 8791
+    annotations: {}
+    loadBalancerClass: ""
+    loadBalancerSourceRanges: []
   containerPort: 8791
   env: {}
   podAnnotations: {}

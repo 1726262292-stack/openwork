@@ -4,8 +4,19 @@ metadata:
   name: {{ include "openwork-ee.denApiServiceName" . }}
   labels:
     {{- include "openwork-ee.componentLabels" (dict "root" . "component" "den-api") | nindent 4 }}
+  {{- with .Values.denApi.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.denApi.service.type }}
+  {{- with .Values.denApi.service.loadBalancerClass }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.denApi.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   ports:
     - name: http
       port: {{ .Values.denApi.service.port }}

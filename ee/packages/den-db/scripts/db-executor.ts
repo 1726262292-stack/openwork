@@ -5,6 +5,8 @@
  * common `{ query, close }` shape.
  */
 
+import { parseMySqlConnectionConfig } from "../src/mysql-config.ts"
+
 export type Executor = {
   query: (sql: string, args?: (string | number)[]) => Promise<Record<string, unknown>[]>
   close: () => Promise<void>
@@ -19,7 +21,7 @@ export async function createExecutor(): Promise<Executor> {
 
   if (databaseUrl) {
     const mysql = await import("mysql2/promise")
-    const connection = await mysql.createConnection(databaseUrl)
+    const connection = await mysql.createConnection(parseMySqlConnectionConfig(databaseUrl))
     return {
       query: async (sql, args = []) => {
         const [rows] = await connection.query(sql, args)

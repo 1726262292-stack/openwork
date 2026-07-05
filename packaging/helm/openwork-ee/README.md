@@ -88,6 +88,14 @@ helm template openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 helm upgrade --install openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 ```
 
+For AWS EKS, start with the [AWS deployment guide](../../../docs/aws-eks-helm.md)
+and the starter values file at
+[`examples/values.aws-load-balancer.yaml`](examples/values.aws-load-balancer.yaml).
+The recommended first AWS path is EKS Auto Mode plus `LoadBalancer` Services,
+which provisions AWS Network Load Balancers without installing an ingress
+controller. Use `ingress.enabled=true` only when the cluster already has an
+Ingress controller such as the AWS Load Balancer Controller.
+
 ## Secrets
 
 The chart can create an Opaque Secret from `secret.values`, or consume an existing Secret:
@@ -189,6 +197,29 @@ By default, the chart wires internal services through Kubernetes DNS:
 - `INFERENCE_PROXY_BASE_URL=http://<release>-openwork-ee-inference:8791` when `inference.enabled=true`
 
 Override `config.internal.*` only when routing through a mesh, gateway, or external service.
+
+## Service Exposure
+
+Each service supports Kubernetes Service metadata and load balancer settings:
+
+```yaml
+denWeb:
+  service:
+    type: LoadBalancer
+    port: 443
+    loadBalancerClass: eks.amazonaws.com/nlb
+    loadBalancerSourceRanges:
+      - 203.0.113.0/24
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:...
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+```
+
+The same shape is available under `denApi.service` and `inference.service`.
+`ingress.enabled=true` only emits Kubernetes `Ingress` resources; it does not
+install an ingress controller.
 
 ## Isolated Networks
 

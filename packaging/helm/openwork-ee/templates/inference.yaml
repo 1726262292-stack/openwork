@@ -5,8 +5,19 @@ metadata:
   name: {{ include "openwork-ee.inferenceServiceName" . }}
   labels:
     {{- include "openwork-ee.componentLabels" (dict "root" . "component" "inference") | nindent 4 }}
+  {{- with .Values.inference.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.inference.service.type }}
+  {{- with .Values.inference.service.loadBalancerClass }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.inference.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   ports:
     - name: http
       port: {{ .Values.inference.service.port }}

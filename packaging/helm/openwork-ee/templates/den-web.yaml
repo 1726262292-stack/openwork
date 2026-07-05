@@ -4,8 +4,19 @@ metadata:
   name: {{ include "openwork-ee.denWebServiceName" . }}
   labels:
     {{- include "openwork-ee.componentLabels" (dict "root" . "component" "den-web") | nindent 4 }}
+  {{- with .Values.denWeb.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.denWeb.service.type }}
+  {{- with .Values.denWeb.service.loadBalancerClass }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.denWeb.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   ports:
     - name: http
       port: {{ .Values.denWeb.service.port }}
