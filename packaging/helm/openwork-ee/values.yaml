@@ -201,6 +201,7 @@ inference:
 migrations:
   enabled: true
   hook: true
+  hookDeletePolicy: before-hook-creation,hook-succeeded
   backoffLimit: 2
   activeDeadlineSeconds: 600
   podAnnotations: {}

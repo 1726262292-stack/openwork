@@ -138,11 +138,14 @@ resources in that delegated subnet.
 Example database URL:
 
 ```text
-mysql://openwork:<password>@<server>.mysql.database.azure.com:3306/openwork_den?sslmode=require
+mysql://openwork:<password>@<server>.mysql.database.azure.com:3306/openwork_den?sslaccept=accept
 ```
 
-Use `?sslmode=require` for Azure. OpenWork passes this through the runtime pool,
-Drizzle migrations, and migration bootstrap scripts.
+Use `?sslaccept=accept` for the simple private-MySQL smoke path. This keeps TLS
+on without requiring a cloud CA bundle to be mounted into the OpenWork image.
+Use strict certificate verification later, after you provide the required CA
+bundle, with a hardened value such as `sslmode=verify-ca` or
+`sslmode=verify-full`.
 
 Before installing OpenWork, verify network access from the cluster:
 
@@ -184,6 +187,25 @@ environments.
 Use a values file, not a long list of `--set` flags. Several OpenWork values are
 comma-separated strings, such as `config.public.corsOrigins`, and plain `--set`
 parsing commonly breaks them.
+
+Make sure your file uses the current chart keys. Public URL values belong under
+`config.public.*`; database and app secrets belong under `secret.values.*`.
+Values such as `config.urls`, `config.databaseUrl`, or `secrets.*` are ignored
+by the chart.
+
+Before installing, render the chart and verify the migration Job will use your
+Azure MySQL URL:
+
+```bash
+helm template openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  -f values.azure.yaml > /tmp/openwork-rendered.yaml
+
+grep -E 'DATABASE_URL|BETTER_AUTH_URL|DEN_API_PUBLIC_URL|DEN_WEB_PUBLIC_ORIGIN' /tmp/openwork-rendered.yaml
+```
+
+Redact secrets before sharing rendered manifests or terminal output.
 
 ## 4. Configure TLS for the Ingress
 
@@ -249,7 +271,48 @@ imagePullSecrets:
   - name: ghcr-pull-secret
 ```
 
-## 6. Point DNS at the Azure ingress address
+## 6. Migration troubleshooting
+
+The migration Job runs before the Deployments are useful. If it fails, fix that
+before debugging web/API readiness.
+
+Avoid `kubectl describe job openwork-ee-migrate` in shared reports because the
+hook Job currently includes `DATABASE_URL` and `DEN_DB_ENCRYPTION_KEY` in the
+rendered environment. Use logs and redacted rendered manifests instead.
+
+For a retained-log debug attempt, temporarily disable hook behavior:
+
+```yaml
+migrations:
+  enabled: true
+  hook: false
+  backoffLimit: 0
+```
+
+Then run Helm and inspect the normal Job logs:
+
+```bash
+helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  --create-namespace \
+  -f values.azure.yaml \
+  --wait=false
+
+kubectl get jobs,pods -n openwork-ee
+kubectl logs -n openwork-ee -l job-name=openwork-ee-migrate --all-containers=true
+```
+
+Return to the default hook mode after debugging:
+
+```yaml
+migrations:
+  enabled: true
+  hook: true
+  backoffLimit: 2
+```
+
+## 7. Point DNS at the Azure ingress address
 
 Wait for AKS to allocate an ingress address:
 
@@ -267,7 +330,22 @@ For production domains, prefer HTTPS before testing SSO. Browser auth cookies
 and identity-provider callback policies are much easier to validate on stable
 HTTPS origins than on raw ingress IP addresses.
 
-## 7. Verify readiness
+If you are still using temporary hosts before DNS/TLS is ready, temporarily
+update the corresponding `config.public.*` origins in `values.azure.yaml`, then
+run `helm upgrade` again. Do not leave production deployments on raw ingress IPs
+or placeholder hostnames.
+
+The current chart rolls the Den API, Den Web, and inference pods automatically
+when ConfigMap or Secret content changes. On older chart versions, manually
+restart the deployments after changing public origin values:
+
+```bash
+kubectl rollout restart deployment/openwork-ee-den-api deployment/openwork-ee-den-web -n openwork-ee
+kubectl rollout status deployment/openwork-ee-den-api -n openwork-ee --timeout=180s
+kubectl rollout status deployment/openwork-ee-den-web -n openwork-ee --timeout=180s
+```
+
+## 8. Verify readiness
 
 Check Kubernetes state:
 
@@ -288,12 +366,7 @@ curl -fsS https://api.openwork.example.com/ready
 curl -fsS https://openwork.example.com/api/ready
 ```
 
-If you are still using temporary hosts before DNS/TLS is ready, temporarily
-update the corresponding `config.public.*` origins in `values.azure.yaml`, then
-run `helm upgrade` again. Do not leave production deployments on raw ingress IPs
-or placeholder hostnames.
-
-## 8. Bootstrap the first owner
+## 9. Bootstrap the first owner
 
 The chart defaults to `single_org`. Set these before first sign-in:
 
@@ -314,7 +387,7 @@ creates the singleton organization and makes that user the owner. Later users
 join the same organization. If `ownerEmails` is blank, the first user to reach
 the deployment can claim ownership, which is not recommended for production.
 
-## 9. Configure SSO with a test IdP
+## 10. Configure SSO with a test IdP
 
 Self-hosted installs keep plan gating off unless the operator explicitly sets
 `DEN_PLAN_GATING_ENABLED=true`, so SSO management should be available in the EE
@@ -345,21 +418,22 @@ assertions.
 After SSO is configured, root sign-in shows the SSO-only experience for the
 single organization. Password sign-in for that organization is rejected.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `kubectl get ingressclass` does not show `webapprouting.kubernetes.azure.com` | Application routing is not enabled | Run `az aks approuting enable` or install a different supported ingress controller and update `ingress.className` |
 | Ingress has no address | Application routing controller is still reconciling or lacks public IP permission | Check `kubectl get pods -n app-routing-system` and the Ingress events |
 | Browser shows certificate warnings | TLS secret is missing, wrong, or does not cover both hosts | Recreate `openwork-ee-tls` or configure the platform certificate automation |
-| Migration Job fails to connect to MySQL | VNet, private DNS, credentials, or TLS settings are wrong | Test from `mysql-client`, confirm DNS resolves inside AKS, and use `?sslmode=require` |
-| `ERROR 3159` from MySQL | Azure requires encrypted transport and the client is not using TLS | Keep `?sslmode=require` in `DATABASE_URL` |
+| Migration Job fails to connect to MySQL | VNet, private DNS, credentials, or TLS settings are wrong | Test from `mysql-client`, confirm DNS resolves inside AKS, and use `?sslaccept=accept` for the private-MySQL smoke path |
+| `ERROR 3159` from MySQL | Azure requires encrypted transport and the client is not using TLS | Keep TLS enabled with `?sslaccept=accept`, or configure strict CA verification explicitly |
+| Migration Job logs show `self-signed certificate in certificate chain` | Strict certificate verification is being used without the cloud MySQL CA bundle | Use `?sslaccept=accept` for the smoke path or mount/configure the CA bundle before strict verification |
 | `ImagePullBackOff` from GHCR | Private image or missing pull token | Add `imagePullSecrets` |
 | Browser auth loops or CORS errors | Public origins do not match DNS/TLS | Set `webOrigin`, `apiOrigin`, `corsOrigins`, `betterAuthTrustedOrigins`, and `authCallbackUrl` to the final HTTPS domains |
 | SSO callback rejected | IdP callback URL does not match OpenWork | Use the callback/ACS URL shown by OpenWork for that org/provider |
 | SSO settings show Enterprise gating | `DEN_PLAN_GATING_ENABLED=true` or org is not entitled | Leave plan gating off for self-host smoke tests, or grant enterprise entitlement |
 
-## 11. Cleanup
+## 12. Cleanup
 
 For a disposable test:
 

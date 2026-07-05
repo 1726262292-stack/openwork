@@ -43,9 +43,9 @@ config:
 secret:
   create: true
   values:
-    # Azure Database for MySQL Flexible Server example. The sslmode=require flag
-    # is understood by the app, Drizzle migrations, and bootstrap scripts.
-    databaseUrl: "mysql://openwork:REPLACE_DB_PASSWORD@REPLACE_MYSQL_SERVER.mysql.database.azure.com:3306/openwork_den?sslmode=require"
+    # Azure Database for MySQL Flexible Server private-network smoke path.
+    # sslaccept=accept preserves TLS without requiring a mounted CA bundle.
+    databaseUrl: "mysql://openwork:REPLACE_DB_PASSWORD@REPLACE_MYSQL_SERVER.mysql.database.azure.com:3306/openwork_den?sslaccept=accept"
     # Generate with: openssl rand -base64 48
     betterAuthSecret: "REPLACE_BETTER_AUTH_SECRET"
     # Generate separately with: openssl rand -base64 48

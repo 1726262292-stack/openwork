@@ -166,10 +166,13 @@ inject Cloud SQL Auth Proxy sidecars. Cloud SQL Auth Proxy is a stronger future
 hardening path when the chart supports sidecars or an operator-managed proxy
 pattern.
 
-If the Cloud SQL instance enforces client SSL certificates or encrypted client
-connections, add the required MySQL SSL parameters to `DATABASE_URL` and verify
-the same URL works for both the migration Job and runtime pods before testing
-the browser flow.
+If the Cloud SQL instance enforces encrypted client connections, use
+`?sslaccept=accept` for the simple private-MySQL smoke path. This keeps TLS on
+without requiring a cloud CA bundle to be mounted into the OpenWork image. Use
+strict certificate verification later, after you provide the required CA bundle,
+with a hardened value such as `sslmode=verify-ca` or `sslmode=verify-full`.
+Verify the same URL works for both the migration Job and runtime pods before
+testing the browser flow.
 
 Before installing OpenWork, verify network access from the cluster:
 
@@ -274,6 +277,25 @@ Use a values file, not a long list of `--set` flags. Several OpenWork values are
 comma-separated strings, such as `config.public.corsOrigins`, and plain `--set`
 parsing commonly breaks them.
 
+Make sure your file uses the current chart keys. Public URL values belong under
+`config.public.*`; database and app secrets belong under `secret.values.*`.
+Values such as `config.urls`, `config.databaseUrl`, or `secrets.*` are ignored
+by the chart.
+
+Before installing, render the chart and verify the migration Job will use your
+Cloud SQL URL:
+
+```bash
+helm template openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  -f values.gcp.yaml > /tmp/openwork-rendered.yaml
+
+grep -E 'DATABASE_URL|BETTER_AUTH_URL|DEN_API_PUBLIC_URL|DEN_WEB_PUBLIC_ORIGIN' /tmp/openwork-rendered.yaml
+```
+
+Redact secrets before sharing rendered manifests or terminal output.
+
 ## 5. Install OpenWork
 
 Published chart releases live in GHCR:
@@ -312,7 +334,48 @@ imagePullSecrets:
   - name: ghcr-pull-secret
 ```
 
-## 6. Point DNS at the global load balancer IP
+## 6. Migration troubleshooting
+
+The migration Job runs before the Deployments are useful. If it fails, fix that
+before debugging web/API readiness.
+
+Avoid `kubectl describe job openwork-ee-migrate` in shared reports because the
+hook Job currently includes `DATABASE_URL` and `DEN_DB_ENCRYPTION_KEY` in the
+rendered environment. Use logs and redacted rendered manifests instead.
+
+For a retained-log debug attempt, temporarily disable hook behavior:
+
+```yaml
+migrations:
+  enabled: true
+  hook: false
+  backoffLimit: 0
+```
+
+Then run Helm and inspect the normal Job logs:
+
+```bash
+helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  --create-namespace \
+  -f values.gcp.yaml \
+  --wait=false
+
+kubectl get jobs,pods -n openwork-ee
+kubectl logs -n openwork-ee -l job-name=openwork-ee-migrate --all-containers=true
+```
+
+Return to the default hook mode after debugging:
+
+```yaml
+migrations:
+  enabled: true
+  hook: true
+  backoffLimit: 2
+```
+
+## 7. Point DNS at the global load balancer IP
 
 Get the reserved IP address:
 
@@ -339,7 +402,22 @@ kubectl describe managedcertificate openwork-ee-cert -n openwork-ee
 kubectl describe ingress openwork-ee -n openwork-ee
 ```
 
-## 7. Verify readiness
+If you are still using temporary hosts before DNS/TLS is ready, temporarily
+update the corresponding `config.public.*` origins in `values.gcp.yaml`, then
+run `helm upgrade` again. Do not leave production deployments on raw IPs or
+placeholder hostnames.
+
+The current chart rolls the Den API, Den Web, and inference pods automatically
+when ConfigMap or Secret content changes. On older chart versions, manually
+restart the deployments after changing public origin values:
+
+```bash
+kubectl rollout restart deployment/openwork-ee-den-api deployment/openwork-ee-den-web -n openwork-ee
+kubectl rollout status deployment/openwork-ee-den-api -n openwork-ee --timeout=180s
+kubectl rollout status deployment/openwork-ee-den-web -n openwork-ee --timeout=180s
+```
+
+## 8. Verify readiness
 
 Check Kubernetes state:
 
@@ -361,12 +439,7 @@ curl -fsS https://api.openwork.example.com/ready
 curl -fsS https://openwork.example.com/api/ready
 ```
 
-If you are still using temporary hosts before DNS/TLS is ready, temporarily
-update the corresponding `config.public.*` origins in `values.gcp.yaml`, then
-run `helm upgrade` again. Do not leave production deployments on raw IPs or
-placeholder hostnames.
-
-## 8. Bootstrap the first owner
+## 9. Bootstrap the first owner
 
 The chart defaults to `single_org`. Set these before first sign-in:
 
@@ -387,7 +460,7 @@ creates the singleton organization and makes that user the owner. Later users
 join the same organization. If `ownerEmails` is blank, the first user to reach
 the deployment can claim ownership, which is not recommended for production.
 
-## 9. Configure SSO with a test IdP
+## 10. Configure SSO with a test IdP
 
 Self-hosted installs keep plan gating off unless the operator explicitly sets
 `DEN_PLAN_GATING_ENABLED=true`, so SSO management should be available in the EE
@@ -418,20 +491,21 @@ assertions.
 After SSO is configured, root sign-in shows the SSO-only experience for the
 single organization. Password sign-in for that organization is rejected.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Ingress does not reconcile | HTTP load balancing add-on is disabled or Ingress annotation is wrong | Keep HTTP load balancing enabled and use `kubernetes.io/ingress.class: gce` |
 | Backends are unhealthy | GKE load balancer health checks do not match OpenWork readiness endpoints | Apply the `BackendConfig` resources and keep the service annotations from the starter values |
 | Managed certificate is not `Active` | DNS does not point at the load balancer or provisioning is still running | Point both hosts at the reserved global IP and wait; check `kubectl describe managedcertificate` |
-| Migration Job fails to connect to MySQL | Private services access, VPC, credentials, or IP are wrong | Test from `mysql-client`, confirm the private IP, and confirm GKE and Cloud SQL share VPC reachability |
+| Migration Job fails to connect to MySQL | Private services access, VPC, credentials, IP, or TLS mode are wrong | Test from `mysql-client`, confirm the private IP, and confirm GKE and Cloud SQL share VPC reachability |
+| Migration Job logs show `self-signed certificate in certificate chain` | Strict certificate verification is being used without the cloud MySQL CA bundle | Use `?sslaccept=accept` for the smoke path or mount/configure the CA bundle before strict verification |
 | `ImagePullBackOff` from GHCR | Private image or missing pull token | Add `imagePullSecrets` |
 | Browser auth loops or CORS errors | Public origins do not match DNS/TLS | Set `webOrigin`, `apiOrigin`, `corsOrigins`, `betterAuthTrustedOrigins`, and `authCallbackUrl` to the final HTTPS domains |
 | SSO callback rejected | IdP callback URL does not match OpenWork | Use the callback/ACS URL shown by OpenWork for that org/provider |
 | SSO settings show Enterprise gating | `DEN_PLAN_GATING_ENABLED=true` or org is not entitled | Leave plan gating off for self-host smoke tests, or grant enterprise entitlement |
 
-## 11. Cleanup
+## 12. Cleanup
 
 For a disposable test:
 

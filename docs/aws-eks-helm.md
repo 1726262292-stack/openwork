@@ -1,7 +1,7 @@
 # Deploy OpenWork EE on AWS with EKS and Helm
 
 Status: self-host operator guide
-Related: `packaging/helm/openwork-ee`, `packaging/helm/openwork-ee/examples/values.aws-load-balancer.yaml`
+Related: `packaging/helm/openwork-ee`, `packaging/helm/openwork-ee/examples/values.aws-load-balancer.yaml`, `packaging/helm/openwork-ee/examples/values.aws-load-balancer-http-smoke.yaml`
 
 This is the recommended AWS path for a first production-like OpenWork EE
 self-host install. Use Helm on Amazon EKS with Amazon RDS for MySQL. For the
@@ -45,6 +45,10 @@ missing chart knobs for AWS service annotations.
 - A domain you control, such as `openwork.example.com` and
   `api.openwork.example.com`.
 
+Do not run production installs as the AWS root account. Use AWS SSO or an IAM
+role with only the permissions needed for the cluster, VPC/load balancer, RDS,
+DNS, and certificate resources.
+
 AWS docs used for this guide:
 
 - EKS Auto Mode: https://docs.aws.amazon.com/eks/latest/userguide/automode.html
@@ -52,6 +56,34 @@ AWS docs used for this guide:
 - EKS Auto Mode NLB service annotations: https://docs.aws.amazon.com/eks/latest/userguide/auto-configure-nlb.html
 - AWS Load Balancer Controller: https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html
 - RDS TLS: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html
+
+## CloudShell quickstart
+
+If you start from the AWS Console, CloudShell is a reasonable test environment,
+but it may not have every required tool or a default region configured. Set the
+region explicitly even if the console region selector already shows the right
+region:
+
+```bash
+export AWS_REGION=us-east-1
+aws sts get-caller-identity
+aws configure get region
+```
+
+Install Helm and `eksctl` if they are missing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" \
+  -o /tmp/eksctl.tar.gz
+tar -xzf /tmp/eksctl.tar.gz -C /tmp
+sudo mv /tmp/eksctl /usr/local/bin/eksctl
+
+helm version
+eksctl version
+kubectl version --client
+```
 
 ## 1. Create the EKS cluster
 
@@ -77,6 +109,10 @@ EKS Auto Mode handles default compute, pod networking, DNS, block storage, and
 load balancer integration. It also makes Network Load Balancers available for
 Kubernetes Services of type `LoadBalancer`.
 
+Fresh EKS Auto Mode clusters can show no nodes at first. Auto Mode provisions
+compute when there is pending workload demand, so `kubectl get nodes` may return
+`No resources found` until the first pods are scheduled.
+
 ## 2. Create RDS MySQL
 
 Create a MySQL database reachable from the EKS worker security group. The exact
@@ -94,11 +130,45 @@ VPC and subnet commands vary by account, so the important requirements are:
 Example database URL:
 
 ```text
-mysql://openwork:<password>@<rds-endpoint>:3306/openwork_den?sslmode=require
+mysql://openwork:<password>@<rds-endpoint>:3306/openwork_den?sslaccept=accept
 ```
 
-Use `?sslmode=require` for RDS. OpenWork passes this through the runtime pool,
-Drizzle migrations, and migration bootstrap scripts.
+Use `?sslaccept=accept` for the simple private-RDS smoke path. This keeps TLS on
+but does not require the RDS CA bundle to be mounted into the OpenWork image.
+Use strict certificate verification later, after you provide the RDS CA bundle,
+with a hardened value such as `sslmode=verify-ca` or `sslmode=verify-full`.
+
+Wait until the EKS cluster is `ACTIVE` before wiring RDS security groups. Then
+allow MySQL traffic from both the EKS cluster security group and the eksctl
+shared node security group:
+
+```bash
+export CLUSTER_SG_ID=$(aws eks describe-cluster \
+  --region "$AWS_REGION" \
+  --name "$CLUSTER_NAME" \
+  --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' \
+  --output text)
+
+export NODE_SG_ID=$(aws cloudformation describe-stacks \
+  --region "$AWS_REGION" \
+  --stack-name "eksctl-${CLUSTER_NAME}-cluster" \
+  --query 'Stacks[0].Outputs[?OutputKey==`SharedNodeSecurityGroup`].OutputValue' \
+  --output text)
+
+aws ec2 authorize-security-group-ingress \
+  --region "$AWS_REGION" \
+  --group-id "$RDS_SG_ID" \
+  --protocol tcp \
+  --port 3306 \
+  --source-group "$CLUSTER_SG_ID"
+
+aws ec2 authorize-security-group-ingress \
+  --region "$AWS_REGION" \
+  --group-id "$RDS_SG_ID" \
+  --protocol tcp \
+  --port 3306 \
+  --source-group "$NODE_SG_ID"
+```
 
 Before installing OpenWork, verify network access from the cluster. One simple
 way is to run a temporary MySQL client pod:
@@ -125,6 +195,13 @@ Copy the starter file:
 cp packaging/helm/openwork-ee/examples/values.aws-load-balancer.yaml values.aws.yaml
 ```
 
+If you do not have DNS and ACM ready yet, use the HTTP smoke-test starter
+instead:
+
+```bash
+cp packaging/helm/openwork-ee/examples/values.aws-load-balancer-http-smoke.yaml values.aws.yaml
+```
+
 Replace every `REPLACE_*` placeholder.
 
 Generate secrets:
@@ -141,6 +218,25 @@ environments.
 Use a values file, not a long list of `--set` flags. Several OpenWork values are
 comma-separated strings, such as `config.public.corsOrigins`, and plain
 `--set` parsing commonly breaks them.
+
+Make sure your file uses the current chart keys. Public URL values belong under
+`config.public.*`; database and app secrets belong under `secret.values.*`.
+Values such as `config.urls`, `config.databaseUrl`, or `secrets.*` are ignored
+by the chart.
+
+Before installing, render the chart and verify the migration Job will use your
+RDS URL:
+
+```bash
+helm template openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  -f values.aws.yaml > /tmp/openwork-rendered.yaml
+
+grep -E 'DATABASE_URL|BETTER_AUTH_URL|DEN_API_PUBLIC_URL|DEN_WEB_PUBLIC_ORIGIN' /tmp/openwork-rendered.yaml
+```
+
+Redact secrets before sharing rendered manifests or terminal output.
 
 ## 4. Install OpenWork
 
@@ -180,7 +276,52 @@ imagePullSecrets:
   - name: ghcr-pull-secret
 ```
 
-## 5. Point DNS at AWS load balancers
+## 5. Migration troubleshooting
+
+The migration Job runs before the Deployments and Services are installed. If it
+fails, fix that before debugging web/API readiness.
+
+Avoid `kubectl describe job openwork-ee-migrate` in shared reports because the
+hook Job currently includes `DATABASE_URL` and `DEN_DB_ENCRYPTION_KEY` in the
+rendered environment. Use logs and redacted rendered manifests instead.
+
+For a retained-log debug attempt, temporarily disable hook behavior:
+
+```yaml
+migrations:
+  enabled: true
+  hook: false
+  backoffLimit: 0
+```
+
+Then run Helm and inspect the normal Job logs:
+
+```bash
+helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
+  --version REPLACE_OPENWORK_VERSION \
+  --namespace openwork-ee \
+  --create-namespace \
+  -f values.aws.yaml \
+  --wait=false
+
+kubectl get jobs,pods -n openwork-ee
+kubectl logs -n openwork-ee -l job-name=openwork-ee-migrate --all-containers=true
+```
+
+If you see `self-signed certificate in certificate chain` against RDS, use the
+documented private-RDS smoke URL with `?sslaccept=accept`, or mount/configure
+the RDS CA bundle before using strict certificate verification.
+
+Return to the default hook mode after debugging:
+
+```yaml
+migrations:
+  enabled: true
+  hook: true
+  backoffLimit: 2
+```
+
+## 6. Point DNS at AWS load balancers
 
 Wait for AWS to allocate load balancer hostnames:
 
@@ -225,7 +366,22 @@ For a temporary HTTP-only smoke test, remove the SSL annotations, set
 `denWeb.service.port` back to `3005`, set `denApi.service.port` back to `8788`,
 and use explicit `http://host:port` origins in `values.aws.yaml`.
 
-## 6. Verify readiness
+If you are still using raw AWS load balancer hostnames before DNS/TLS is ready,
+temporarily update the corresponding `config.public.*` origins in
+`values.aws.yaml`, then run `helm upgrade` again. Do not leave production
+deployments on raw load balancer hostnames.
+
+The current chart rolls the Den API, Den Web, and inference pods automatically
+when ConfigMap or Secret content changes. On older chart versions, manually
+restart the deployments after changing public origin values:
+
+```bash
+kubectl rollout restart deployment/openwork-ee-den-api deployment/openwork-ee-den-web -n openwork-ee
+kubectl rollout status deployment/openwork-ee-den-api -n openwork-ee --timeout=180s
+kubectl rollout status deployment/openwork-ee-den-web -n openwork-ee --timeout=180s
+```
+
+## 7. Verify readiness
 
 Check Kubernetes state:
 
@@ -245,12 +401,14 @@ curl -fsS https://api.openwork.example.com/ready
 curl -fsS https://openwork.example.com/api/ready
 ```
 
-If you are still using raw AWS load balancer hostnames before DNS/TLS is ready,
-temporarily update the corresponding `config.public.*` origins in
-`values.aws.yaml`, then run `helm upgrade` again. Do not leave production
-deployments on raw load balancer hostnames.
+For HTTP smoke tests, use the raw NLB hostnames and ports:
 
-## 7. Bootstrap the first owner
+```bash
+curl -fsS http://REPLACE_API_NLB_HOST:8788/ready
+curl -fsS http://REPLACE_WEB_NLB_HOST:3005/api/ready
+```
+
+## 8. Bootstrap the first owner
 
 The chart defaults to `single_org`. Set these before first sign-in:
 
@@ -271,7 +429,7 @@ creates the singleton organization and makes that user the owner. Later users
 join the same organization. If `ownerEmails` is blank, the first user to reach
 the deployment can claim ownership, which is not recommended for production.
 
-## 8. Configure SSO with a test IdP
+## 9. Configure SSO with a test IdP
 
 Self-hosted installs keep plan gating off unless the operator explicitly sets
 `DEN_PLAN_GATING_ENABLED=true`, so SSO management should be available in the EE
@@ -302,21 +460,24 @@ assertions.
 After SSO is configured, root sign-in shows the SSO-only experience for the
 single organization. Password sign-in for that organization is rejected.
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `helm` is missing in CloudShell | CloudShell does not always include Helm | Install Helm in CloudShell or run Helm locally with AWS credentials |
 | `aws sts get-caller-identity` returns `NoCredentials` | AWS CLI is not authenticated | Configure AWS SSO/profile or use authenticated CloudShell |
-| Pods are pending | EKS cluster has no schedulable capacity or Auto Mode is not enabled | Confirm `kubectl get nodes` and EKS Auto Mode status |
-| Migration Job fails to connect to MySQL | RDS security group or DB credentials are wrong | Allow TCP `3306` from EKS, verify the user/password, and test with `mysql-client` |
+| Initial `kubectl get nodes` is empty | EKS Auto Mode has not needed to provision nodes yet | Continue after the cluster is active; nodes appear when workloads are pending |
+| Pods show untolerated Auto Mode taints | Auto Mode is still selecting/provisioning matching capacity | Wait for the NodeClaim, then check pod events again |
+| Pod sandbox fails with `aws-cni failed ... failed to assign an IP address` | Subnet/IP or EKS CNI capacity problem | Check subnet free IPs, node events, and retry after Auto Mode provisions replacement capacity |
+| Migration Job fails to connect to MySQL | RDS security group, DB credentials, or TLS mode are wrong | Allow TCP `3306` from EKS, verify with `mysql-client`, and use `?sslaccept=accept` for the private-RDS smoke path |
+| Migration Job logs show `self-signed certificate in certificate chain` | Strict certificate verification is being used without the RDS CA bundle | Use `?sslaccept=accept` for the smoke path or mount/configure the RDS CA bundle before strict verification |
 | Runtime is ready but migration failed | Helm hook did not complete | Check `kubectl get jobs` and the migration Job logs before testing web |
 | `ImagePullBackOff` from GHCR | Private image or missing pull token | Add `imagePullSecrets` |
 | Browser auth loops or CORS errors | Public origins do not match DNS/TLS | Set `webOrigin`, `apiOrigin`, `corsOrigins`, `betterAuthTrustedOrigins`, and `authCallbackUrl` to the final HTTPS domains |
 | SSO callback rejected | IdP callback URL does not match OpenWork | Use the callback/ACS URL shown by OpenWork for that org/provider |
 | SSO settings show Enterprise gating | `DEN_PLAN_GATING_ENABLED=true` or org is not entitled | Leave plan gating off for self-host smoke tests, or grant enterprise entitlement |
 
-## 10. Cleanup
+## 11. Cleanup
 
 For a disposable test:
 

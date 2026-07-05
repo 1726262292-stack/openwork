@@ -15,7 +15,7 @@ Published releases are available as an OCI Helm chart:
 
 ```bash
 helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
-  --version 0.17.1 \
+  --version REPLACE_OPENWORK_VERSION \
   -f values.prod.yaml
 ```
 
@@ -25,7 +25,7 @@ Create a values file for the target environment:
 
 ```yaml
 image:
-  tag: "0.17.1"
+  tag: "REPLACE_OPENWORK_VERSION"
 
 config:
   tenancy:
@@ -51,7 +51,7 @@ config:
 
 secret:
   values:
-    databaseUrl: "mysql://openwork:REPLACE_ME@mysql.example.internal:3306/openwork_den"
+    databaseUrl: "mysql://openwork:REPLACE_ME@mysql.example.internal:3306/openwork_den?sslaccept=accept"
     betterAuthSecret: "REPLACE_WITH_AT_LEAST_32_CHARACTERS"
     denDbEncryptionKey: "REPLACE_WITH_AT_LEAST_32_CHARACTERS"
 
@@ -92,7 +92,8 @@ Provider-specific starter guides:
 
 - AWS EKS:
   [guide](../../../docs/aws-eks-helm.md),
-  [`examples/values.aws-load-balancer.yaml`](examples/values.aws-load-balancer.yaml).
+  [`examples/values.aws-load-balancer.yaml`](examples/values.aws-load-balancer.yaml),
+  [`examples/values.aws-load-balancer-http-smoke.yaml`](examples/values.aws-load-balancer-http-smoke.yaml).
   The recommended first AWS path is EKS Auto Mode plus `LoadBalancer` Services,
   which provisions AWS Network Load Balancers without installing an ingress
   controller.
@@ -236,6 +237,13 @@ The same shape is available under `denApi.service` and `inference.service`.
 `ingress.enabled=true` only emits Kubernetes `Ingress` resources; it does not
 install an ingress controller.
 
+## Config Rollouts
+
+Den API, Den Web, and inference pods include checksums for the chart-managed
+ConfigMap and Secret. Helm upgrades that change runtime config or secrets roll
+the pods automatically so environment variables such as public origins, CORS
+origins, and database URLs are refreshed.
+
 ## Isolated Networks
 
 The chart disables external password breach screening by default so isolated self-hosted installs do not depend on the Have I Been Pwned Pwned Passwords range API. If your deployment has approved egress and you want password creation and reset to reject known-compromised passwords through that service, enable it:
@@ -255,11 +263,28 @@ The migration Job runs as a Helm `pre-install,pre-upgrade` hook by default:
 ```yaml
 migrations:
   enabled: true
+  hook: true
+  hookDeletePolicy: before-hook-creation,hook-succeeded
   args:
     - pnpm --dir /app/ee/packages/den-db run db:bootstrap
 ```
 
 `db:bootstrap` uses `db:migrate` for normal upgrades. On a completely empty database it applies the current schema once, records the committed migrations as the baseline, then runs migrations. On an existing schema without a Drizzle ledger, it records the baseline before migrating.
+
+For retained-log troubleshooting, temporarily disable hook behavior and reduce
+retries:
+
+```yaml
+migrations:
+  enabled: true
+  hook: false
+  backoffLimit: 0
+```
+
+The hook Job currently renders `DATABASE_URL` and `DEN_DB_ENCRYPTION_KEY` into
+the Job environment when `secret.create=true`, because pre-install hooks run
+before normal chart resources. Avoid sharing `kubectl describe job` output
+without redacting secrets.
 
 ## Install links
 
