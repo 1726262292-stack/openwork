@@ -206,6 +206,7 @@ export type DenOrgEntitlements = {
 /** Per-org feature flags controlled by platform admins; everything defaults to off. */
 export type DenOrgCapabilities = {
   installLinks: boolean;
+  mcpConnections: boolean;
 };
 
 export type DenOrganizationMetadata = {
@@ -737,11 +738,12 @@ function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
 
 function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
   if (!isRecord(value)) {
-    return { installLinks: false };
+    return { installLinks: false, mcpConnections: false };
   }
 
   return {
     installLinks: value.installLinks === true,
+    mcpConnections: value.mcpConnections === true,
   };
 }
 
