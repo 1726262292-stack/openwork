@@ -54,6 +54,7 @@ secret:
     databaseUrl: "mysql://openwork:REPLACE_ME@mysql.example.internal:3306/openwork_den?sslaccept=accept"
     betterAuthSecret: "REPLACE_WITH_AT_LEAST_32_CHARACTERS"
     denDbEncryptionKey: "REPLACE_WITH_AT_LEAST_32_CHARACTERS"
+    emailFrom: "OpenWork <no-reply@example.com>"
     smtpHost: "smtp.example.com"
     smtpPort: "587"
     smtpUser: "openwork@example.com"
@@ -143,6 +144,7 @@ the chart Secret:
 ```yaml
 secret:
   values:
+    emailFrom: "OpenWork <no-reply@example.com>"
     smtpHost: "smtp.example.com"
     smtpPort: "587"
     smtpUser: "openwork@example.com"
@@ -152,6 +154,7 @@ secret:
 
 These values are exposed to Den API as:
 
+- `EMAIL_FROM`
 - `SMTP_HOST`
 - `SMTP_PORT`
 - `SMTP_USER`
@@ -159,8 +162,9 @@ These values are exposed to Den API as:
 - `SMTP_SECURE`
 
 If `secret.create=false`, add those keys to the existing Secret referenced by
-`secret.existingSecret`. `SMTP_HOST` enables SMTP delivery; leave it blank to
-disable SMTP-backed transactional email.
+`secret.existingSecret`. SMTP delivery requires both `EMAIL_FROM` and
+`SMTP_HOST`; leave `smtpHost` blank only when SMTP-backed transactional email
+should be disabled.
 
 ## Tenancy Mode
 

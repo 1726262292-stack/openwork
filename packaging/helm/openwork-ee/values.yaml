@@ -97,6 +97,7 @@ secret:
     openRouterManagementApiKey: OPENROUTER_MANAGEMENT_API_KEY
     inferenceAdminToken: INFERENCE_ADMIN_TOKEN
     inferenceWebhookSecret: INFERENCE_WEBHOOK_SECRET
+    emailFrom: EMAIL_FROM
     smtpHost: SMTP_HOST
     smtpPort: SMTP_PORT
     smtpUser: SMTP_USER
@@ -111,6 +112,7 @@ secret:
     openRouterManagementApiKey: ""
     inferenceAdminToken: ""
     inferenceWebhookSecret: ""
+    emailFrom: ""
     smtpHost: ""
     smtpPort: "587"
     smtpUser: ""
