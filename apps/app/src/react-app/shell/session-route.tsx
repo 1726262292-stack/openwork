@@ -17,6 +17,8 @@ import type {
 
 import { captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { trackSessionActive, trackTaskStarted } from "@/app/lib/den-telemetry";
+import { buildDiagnosticsBundleJson } from "@/app/lib/diagnostics-bundle";
+import { downloadTextAsFile } from "@/app/lib/download";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -1430,6 +1432,61 @@ export function SessionRoute() {
     },
   }), [developerMode]);
 
+  const buildCommandDiagnosticsBundle = useCallback(() => buildDiagnosticsBundleJson({
+    anyActiveRuns: activeReloadBlockingSessions.length > 0,
+    canReloadWorkspace: reloadCoordinator.canReloadWorkspaceEngine,
+    clientConnected: canCreateTask,
+    developerMode,
+    hostInfo: openworkServerHostInfoState,
+    openworkServerStatus: client ? "connected" : "disconnected",
+    openworkServerUrl: baseUrl,
+    runtimeWorkspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
+  }), [
+    activeReloadBlockingSessions.length,
+    baseUrl,
+    canCreateTask,
+    client,
+    developerMode,
+    openworkServerHostInfoState,
+    reloadCoordinator.canReloadWorkspaceEngine,
+    selectedWorkspaceEndpoint?.workspaceId,
+  ]);
+
+  const diagnosticsCopyPaletteItem = useMemo<PaletteItem>(() => ({
+    id: "diagnostics.copy",
+    title: t("session.cmd_diagnostics_copy_title"),
+    detail: t("session.cmd_diagnostics_copy_detail"),
+    searchText: "logs share diagnostics debug support bundle troubleshoot copy report issue",
+    action: async () => {
+      setCommandPaletteOpen(false);
+      try {
+        const json = await buildCommandDiagnosticsBundle();
+        await navigator.clipboard.writeText(json);
+        toast.success(t("session.diagnostics_copied"));
+      } catch (error) {
+        toast.error(t("session.diagnostics_failed"), { description: describeRouteError(error) });
+      }
+    },
+  }), [buildCommandDiagnosticsBundle]);
+
+  const diagnosticsExportPaletteItem = useMemo<PaletteItem>(() => ({
+    id: "diagnostics.export",
+    title: t("session.cmd_diagnostics_export_title"),
+    detail: t("session.cmd_diagnostics_export_detail"),
+    searchText: "logs export diagnostics debug support bundle save file json download",
+    action: async () => {
+      setCommandPaletteOpen(false);
+      try {
+        const json = await buildCommandDiagnosticsBundle();
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        downloadTextAsFile(`openwork-diagnostics-${timestamp}.json`, json, "application/json");
+        toast.success(t("session.diagnostics_exported"));
+      } catch (error) {
+        toast.error(t("session.diagnostics_failed"), { description: describeRouteError(error) });
+      }
+    },
+  }), [buildCommandDiagnosticsBundle]);
+
   const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-tab.next",
     title: "Next session tab",
@@ -2020,7 +2077,7 @@ export function SessionRoute() {
       currentSessionForGroupMove={currentSessionForGroupMove}
       currentSessionGroupId={currentSessionGroupId}
       onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[...(sessionFindPaletteItem ? [sessionFindPaletteItem] : []), sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}
+      extraItems={[...(sessionFindPaletteItem ? [sessionFindPaletteItem] : []), sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, diagnosticsCopyPaletteItem, diagnosticsExportPaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem, reloadConfigPaletteItem]}
       listAgents={listAgents}
       selectedAgent={selectedAgent}
       onSelectAgent={setSelectedAgent}
