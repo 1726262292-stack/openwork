@@ -54,6 +54,11 @@ secret:
     databaseUrl: "mysql://openwork:REPLACE_ME@mysql.example.internal:3306/openwork_den?sslaccept=accept"
     betterAuthSecret: "REPLACE_WITH_AT_LEAST_32_CHARACTERS"
     denDbEncryptionKey: "REPLACE_WITH_AT_LEAST_32_CHARACTERS"
+    smtpHost: "smtp.example.com"
+    smtpPort: "587"
+    smtpUser: "openwork@example.com"
+    smtpPass: "REPLACE_ME"
+    smtpSecure: "false"
 
 ingress:
   enabled: true
@@ -129,6 +134,33 @@ The existing Secret must contain the keys listed under `secret.keys`, especially
 - `DEN_DB_ENCRYPTION_KEY`
 
 Set `DAYTONA_API_KEY` when `config.provisioner.mode` is `daytona`. Set `POLAR_ACCESS_TOKEN` when Polar feature gating is enabled. Set `OPENROUTER_MANAGEMENT_API_KEY` when enabling OpenWork Models management.
+
+## Transactional Email
+
+Den API can send transactional email through SMTP. Configure the SMTP values in
+the chart Secret:
+
+```yaml
+secret:
+  values:
+    smtpHost: "smtp.example.com"
+    smtpPort: "587"
+    smtpUser: "openwork@example.com"
+    smtpPass: "REPLACE_ME"
+    smtpSecure: "false"
+```
+
+These values are exposed to Den API as:
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_SECURE`
+
+If `secret.create=false`, add those keys to the existing Secret referenced by
+`secret.existingSecret`. `SMTP_HOST` enables SMTP delivery; leave it blank to
+disable SMTP-backed transactional email.
 
 ## Tenancy Mode
 

@@ -215,6 +215,23 @@ Use the first value for `secret.values.betterAuthSecret` and the second for
 `secret.values.denDbEncryptionKey`. Do not reuse either value across
 environments.
 
+To send transactional email, configure SMTP in the same values file:
+
+```yaml
+secret:
+  values:
+    smtpHost: "smtp.example.com"
+    smtpPort: "587"
+    smtpUser: "openwork@example.com"
+    smtpPass: "REPLACE_SMTP_PASSWORD"
+    smtpSecure: "false"
+```
+
+These values become `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and
+`SMTP_SECURE` in Den API. If you use `secret.create=false`, add those keys to
+the existing Kubernetes Secret referenced by `secret.existingSecret`. Leave
+`smtpHost` blank only when SMTP-backed transactional email should be disabled.
+
 Use a values file, not a long list of `--set` flags. Several OpenWork values are
 comma-separated strings, such as `config.public.corsOrigins`, and plain
 `--set` parsing commonly breaks them.
@@ -233,7 +250,7 @@ helm template openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
   --namespace openwork-ee \
   -f values.aws.yaml > /tmp/openwork-rendered.yaml
 
-grep -E 'DATABASE_URL|BETTER_AUTH_URL|DEN_API_PUBLIC_URL|DEN_WEB_PUBLIC_ORIGIN' /tmp/openwork-rendered.yaml
+grep -E 'DATABASE_URL|BETTER_AUTH_URL|DEN_API_PUBLIC_URL|DEN_WEB_PUBLIC_ORIGIN|SMTP_HOST|SMTP_PORT|SMTP_SECURE' /tmp/openwork-rendered.yaml
 ```
 
 Redact secrets before sharing rendered manifests or terminal output.

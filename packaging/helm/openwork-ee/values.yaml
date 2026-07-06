@@ -97,6 +97,11 @@ secret:
     openRouterManagementApiKey: OPENROUTER_MANAGEMENT_API_KEY
     inferenceAdminToken: INFERENCE_ADMIN_TOKEN
     inferenceWebhookSecret: INFERENCE_WEBHOOK_SECRET
+    smtpHost: SMTP_HOST
+    smtpPort: SMTP_PORT
+    smtpUser: SMTP_USER
+    smtpPass: SMTP_PASS
+    smtpSecure: SMTP_SECURE
   values:
     databaseUrl: mysql://openwork:change-me@mysql:3306/openwork_den
     betterAuthSecret: CHANGE_ME_32_CHARS_MINIMUM_BETTER_AUTH
@@ -106,6 +111,11 @@ secret:
     openRouterManagementApiKey: ""
     inferenceAdminToken: ""
     inferenceWebhookSecret: ""
+    smtpHost: ""
+    smtpPort: "587"
+    smtpUser: ""
+    smtpPass: ""
+    smtpSecure: "false"
 
 installerArtifacts:
   enabled: false
