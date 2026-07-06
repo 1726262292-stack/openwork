@@ -48,6 +48,9 @@ config:
     webAppHosts: "openwork.example.com"
     bootstrapAdminEmails: "admin@example.com"
     authCallbackUrl: "https://openwork.example.com"
+  githubConnector:
+    appId: ""
+    clientId: ""
 
 secret:
   values:
@@ -60,6 +63,9 @@ secret:
     smtpUser: "openwork@example.com"
     smtpPass: "REPLACE_ME"
     smtpSecure: "false"
+    githubConnectorAppClientSecret: ""
+    githubConnectorAppPrivateKey: ""
+    githubConnectorAppWebhookSecret: ""
 
 ingress:
   enabled: true
@@ -135,6 +141,47 @@ The existing Secret must contain the keys listed under `secret.keys`, especially
 - `DEN_DB_ENCRYPTION_KEY`
 
 Set `DAYTONA_API_KEY` when `config.provisioner.mode` is `daytona`. Set `POLAR_ACCESS_TOKEN` when Polar feature gating is enabled. Set `OPENROUTER_MANAGEMENT_API_KEY` when enabling OpenWork Models management.
+
+## GitHub Connector
+
+The GitHub repository connector uses a GitHub App. It is separate from GitHub
+OAuth social sign-in. Follow the full setup guide in
+[`packages/docs/start-here/github-connector-helm.mdx`](../../../packages/docs/start-here/github-connector-helm.mdx).
+
+Use these public URLs when creating the GitHub App:
+
+- Setup URL: `https://openwork.example.com/dashboard/integrations/github`
+- Webhook URL: `https://api.openwork.example.com/v1/webhooks/connectors/github`
+
+Then set the chart values:
+
+```yaml
+config:
+  githubConnector:
+    appId: "123456"
+    clientId: "Iv1.example"
+
+secret:
+  values:
+    githubConnectorAppClientSecret: "github-app-client-secret-if-used"
+    githubConnectorAppPrivateKey: |-
+      -----BEGIN PRIVATE KEY-----
+      ...
+      -----END PRIVATE KEY-----
+    githubConnectorAppWebhookSecret: "replace-with-the-github-webhook-secret"
+```
+
+The chart exposes these to Den API as:
+
+- `GITHUB_CONNECTOR_APP_ID`
+- `GITHUB_CONNECTOR_APP_CLIENT_ID`
+- `GITHUB_CONNECTOR_APP_CLIENT_SECRET`
+- `GITHUB_CONNECTOR_APP_PRIVATE_KEY`
+- `GITHUB_CONNECTOR_APP_WEBHOOK_SECRET`
+
+If `secret.create=false`, add the three secret-backed keys to the existing
+Secret referenced by `secret.existingSecret`. The app ID and client ID come from
+the chart ConfigMap.
 
 ## Transactional Email
 
