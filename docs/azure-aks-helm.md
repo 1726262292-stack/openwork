@@ -51,6 +51,10 @@ not a different OpenWork packaging format.
 - Permission to create AKS, virtual networks, managed identities, Azure Database
   for MySQL Flexible Server, Private DNS, Azure DNS, Key Vault or TLS secrets,
   and public IP resources.
+- Enough regional and VM-family vCPU quota for the AKS node pool. Azure's
+  default AKS node pool is commonly three 2-vCPU nodes, so a subscription with a
+  4-vCPU regional limit must either request more quota or intentionally start
+  smaller.
 - A real admin email address for the first owner account.
 - A domain you control, such as `openwork.example.com` and
   `api.openwork.example.com`.
@@ -59,6 +63,7 @@ Azure docs used for this guide:
 
 - AKS application routing add-on: https://learn.microsoft.com/en-us/azure/aks/app-routing
 - AKS public Standard Load Balancer: https://learn.microsoft.com/en-us/azure/aks/load-balancer-standard
+- Azure regional vCPU quota: https://learn.microsoft.com/en-us/azure/quotas/regional-quota-requests
 - MySQL Flexible Server private network access: https://learn.microsoft.com/en-us/azure/mysql/flexible-server/concepts-networking-vnet
 - MySQL Flexible Server private access with Azure CLI: https://learn.microsoft.com/en-us/azure/mysql/flexible-server/how-to-manage-virtual-network-cli
 - MySQL Flexible Server TLS: https://learn.microsoft.com/en-us/azure/mysql/flexible-server/security-tls-how-to-connect
@@ -72,6 +77,20 @@ az login --use-device-code
 az account list --query "[].{name:name,id:id,state:state,isDefault:isDefault}" -o table
 az account set --subscription REPLACE_SUBSCRIPTION_ID
 az account show --query "{name:name,id:id,state:state,tenantId:tenantId}" -o json
+```
+
+Set the target region and disposable resource names once, then reuse them for
+the preflight checks, AKS, MySQL, and Helm values:
+
+```bash
+export AZURE_LOCATION=eastus
+export RESOURCE_GROUP=openwork-ee-rg
+export AKS_CLUSTER=openwork-ee
+export VNET_NAME=openwork-ee-vnet
+export AKS_SUBNET_NAME=aks
+export MYSQL_SUBNET_NAME=mysql
+export AKS_NODE_VM_SIZE=Standard_D2s_v7
+export AKS_NODE_COUNT=1
 ```
 
 New Azure subscriptions often need resource providers registered before AKS,
@@ -96,25 +115,64 @@ az provider list \
 
 Wait until each provider shows `Registered`.
 
+Check regional quota before creating AKS. `Current` shows existing usage and
+`Limit` shows the subscription cap; a failure can be caused by a low limit even
+when `Current` is `0`:
+
+```bash
+az vm list-usage \
+  --location "$AZURE_LOCATION" \
+  --query "[?name.value=='cores' || contains(name.value, 'standardDS') || contains(name.value, 'standardD')].{name:name.localizedValue,current:currentValue,limit:limit}" \
+  -o table
+```
+
+If `Total Regional vCPUs` is below `6`, either request a quota increase or use
+the quota-friendly one-node example below for a first disposable validation.
+
 ## 1. Create the AKS cluster
 
 For a first deployment, create an AKS cluster with the managed application
-routing add-on enabled. This default path uses a standard AKS cluster:
+routing add-on enabled. Use one VNet with separate subnets for AKS and Azure
+Database for MySQL Flexible Server. The MySQL subnet must be delegated to
+`Microsoft.DBforMySQL/flexibleServers`, and it cannot contain AKS nodes or other
+resource types.
 
 ```bash
-export AZURE_LOCATION=eastus
-export RESOURCE_GROUP=openwork-ee-rg
-export AKS_CLUSTER=openwork-ee
-
 az group create \
   --name "$RESOURCE_GROUP" \
   --location "$AZURE_LOCATION"
+
+az network vnet create \
+  --resource-group "$RESOURCE_GROUP" \
+  --location "$AZURE_LOCATION" \
+  --name "$VNET_NAME" \
+  --address-prefixes 10.42.0.0/16 \
+  --subnet-name "$AKS_SUBNET_NAME" \
+  --subnet-prefixes 10.42.0.0/22
+
+az network vnet subnet create \
+  --resource-group "$RESOURCE_GROUP" \
+  --vnet-name "$VNET_NAME" \
+  --name "$MYSQL_SUBNET_NAME" \
+  --address-prefixes 10.42.16.0/24 \
+  --delegations Microsoft.DBforMySQL/flexibleServers
+
+export AKS_SUBNET_ID="$(az network vnet subnet show \
+  --resource-group "$RESOURCE_GROUP" \
+  --vnet-name "$VNET_NAME" \
+  --name "$AKS_SUBNET_NAME" \
+  --query id -o tsv)"
 
 az aks create \
   --resource-group "$RESOURCE_GROUP" \
   --name "$AKS_CLUSTER" \
   --location "$AZURE_LOCATION" \
+  --vnet-subnet-id "$AKS_SUBNET_ID" \
+  --network-plugin azure \
+  --network-plugin-mode overlay \
   --enable-app-routing \
+  --node-vm-size "$AKS_NODE_VM_SIZE" \
+  --node-count "$AKS_NODE_COUNT" \
   --generate-ssh-keys
 
 az aks get-credentials \
@@ -127,6 +185,18 @@ kubectl get ingressclass
 
 The application routing add-on creates an Ingress class named
 `webapprouting.kubernetes.azure.com`. The starter values file uses that class.
+
+For production capacity, increase `AKS_NODE_COUNT` and use the node SKU your
+platform team standardizes on. The one-node example is intended to fit trial or
+low-quota subscriptions during first validation; it is not a high-availability
+production node pool.
+
+If AKS reports `Standard_DS2_v2 is not allowed` or
+`ErrCode_InsufficientVCPUQuota`, check `az vm list-usage` in the target region.
+Those errors usually mean Azure picked a default node SKU or node count that the
+subscription cannot use, not that OpenWork has consumed quota. Pick an allowed
+SKU from Azure's error output, lower `AKS_NODE_COUNT` for a disposable test, or
+request regional and VM-family quota increases before production.
 
 If you use AKS Automatic instead of standard AKS, account for the additional
 platform requirements before following the rest of this guide:
@@ -192,20 +262,30 @@ are:
 Azure's CLI can create a private-access server and delegate the MySQL subnet:
 
 ```bash
+export MYSQL_SERVER_NAME=REPLACE_GLOBALLY_UNIQUE_MYSQL_SERVER_NAME
+export MYSQL_ADMIN_USER=openwork
+export MYSQL_ADMIN_PASSWORD=REPLACE_DB_PASSWORD
+
 az mysql flexible-server create \
   --resource-group "$RESOURCE_GROUP" \
   --location "$AZURE_LOCATION" \
-  --name REPLACE_MYSQL_SERVER_NAME \
-  --admin-user openwork \
-  --admin-password REPLACE_DB_PASSWORD \
+  --name "$MYSQL_SERVER_NAME" \
+  --admin-user "$MYSQL_ADMIN_USER" \
+  --admin-password "$MYSQL_ADMIN_PASSWORD" \
   --database-name openwork_den \
   --version 8.0.21 \
-  --vnet REPLACE_VNET_NAME \
-  --subnet REPLACE_MYSQL_DELEGATED_SUBNET_NAME
+  --vnet "$VNET_NAME" \
+  --subnet "$MYSQL_SUBNET_NAME" \
+  --tier Burstable \
+  --sku-name Standard_B1ms \
+  --storage-size 32
 ```
 
 Use a separate delegated subnet for MySQL Flexible Server. Do not put AKS node
-resources in that delegated subnet.
+resources in that delegated subnet. Azure Database for MySQL private access is
+chosen at server creation time; after the server is deployed into a VNet/subnet,
+Azure does not let you move that same server to another VNet, another subnet, or
+public access.
 
 Before retrying failed MySQL creation, confirm Azure can list Flexible Server
 SKUs in the target region:
@@ -215,12 +295,26 @@ az mysql flexible-server list-skus --location "$AZURE_LOCATION" -o table
 ```
 
 If MySQL creation or SKU listing returns Azure `InternalServerError`, capture
-the tracking ID, region, subscription ID, and command that failed, then retry
-later or open an Azure Support case. That failure happens before OpenWork or
-Helm is involved. For disposable chart-only validation, you may temporarily use
-an in-cluster MySQL instance to separate chart behavior from Azure MySQL control
-plane availability, but do not treat that as a production Azure deployment or
-as validation of the documented Azure Database path.
+the tracking ID, region, subscription ID, and command that failed. Confirm the
+provider is registered and that the `flexibleServers` resource type lists the
+target region:
+
+```bash
+az provider show \
+  --namespace Microsoft.DBforMySQL \
+  --query "{state:registrationState, flexibleServerRegions:resourceTypes[?resourceType=='flexibleServers'].locations | [0]}" \
+  -o json
+```
+
+If the provider is `Registered` and the region is listed, repeated
+`InternalServerError` responses from both `list-skus` and
+`flexible-server create` indicate an Azure MySQL resource-provider or
+subscription control-plane issue before OpenWork or Helm is involved. Retry
+later or open an Azure Support case with the tracking IDs. For disposable
+chart-only validation, you may temporarily use an in-cluster MySQL instance to
+separate chart behavior from Azure MySQL control plane availability, but do not
+treat that as a production Azure deployment or as validation of the documented
+Azure Database path.
 
 Example database URL:
 
@@ -243,8 +337,8 @@ kubectl run mysql-client \
   --restart=Never \
   --image=mysql:8 \
   -- mysql \
-    --host="REPLACE_MYSQL_SERVER_NAME.mysql.database.azure.com" \
-    --user=openwork \
+    --host="${MYSQL_SERVER_NAME}.mysql.database.azure.com" \
+    --user="$MYSQL_ADMIN_USER" \
     --password \
     --ssl-mode=REQUIRED \
     --execute "select 1"
@@ -537,10 +631,13 @@ single organization. Password sign-in for that organization is rejected.
 | Migration Job logs show `self-signed certificate in certificate chain` | Strict certificate verification is being used without the cloud MySQL CA bundle | Use `?sslaccept=accept` for the smoke path or mount/configure the CA bundle before strict verification |
 | `az login` succeeds but reports no subscriptions | The account has no visible enabled subscription | Create/activate a subscription, rerun device-code login, and confirm `az account show` before provisioning |
 | AKS creation reports missing provider registration | New subscription providers are not registered yet | Register the providers listed in "Before creating resources" and wait for `Registered` |
+| AKS creation reports `Standard_DS2_v2 is not allowed` | Azure selected a default node SKU that is unavailable in the subscription or region | Set `AKS_NODE_VM_SIZE` to an allowed SKU from Azure's error output, or choose another region |
+| AKS creation reports `ErrCode_InsufficientVCPUQuota` | Regional or VM-family vCPU quota is lower than the requested node pool size | Check `az vm list-usage`, reduce `AKS_NODE_COUNT` only for disposable validation, or request regional and VM-family quota increases |
 | AKS Automatic rejects SSH keys | Automatic managed system node pools do not accept SSH key configuration | Use `--no-ssh-key` for AKS Automatic, or use the standard AKS command in this guide |
 | AKS Automatic with BYO VNet rejects system-assigned identity | BYO VNet requires a user-assigned managed identity | Create a UAMI and grant `Network Contributor` on the VNet before cluster creation |
 | `az aks operation show` changes accepted CLI flags after running | Azure CLI may install/use the `aks-preview` extension, changing command behavior | Check `az extension list`; remove `aks-preview` unless you intentionally need preview AKS commands |
 | `kubectl get nodes` is unauthorized on an Azure RBAC cluster | Signed-in user lacks AKS RBAC role assignment or `kubelogin` is missing | Install `kubelogin`, assign `Azure Kubernetes Service RBAC Cluster Admin`, and refresh credentials |
+| MySQL private access creation rejects the subnet | The subnet is not dedicated to MySQL or is missing `Microsoft.DBforMySQL/flexibleServers` delegation | Use the separate `MYSQL_SUBNET_NAME` created in this guide; do not reuse the AKS subnet |
 | `az mysql flexible-server create` or `list-skus` returns `InternalServerError` | Azure MySQL control plane or regional SKU service failed before Helm install | Capture tracking IDs and region, retry later or open Azure Support; only use temporary in-cluster MySQL for chart-only smoke tests |
 | `ImagePullBackOff` from GHCR | Private image or missing pull token | Add `imagePullSecrets` |
 | Browser auth loops or CORS errors | Public origins do not match DNS/TLS | Set `webOrigin`, `apiOrigin`, `corsOrigins`, `betterAuthTrustedOrigins`, and `authCallbackUrl` to the final HTTPS domains |

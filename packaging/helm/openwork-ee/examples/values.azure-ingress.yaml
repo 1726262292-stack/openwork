@@ -1,6 +1,8 @@
 # Azure AKS starter values for a first OpenWork EE self-host install.
 #
-# Copy this file, replace every REPLACE_* value, and install with:
+# Follow docs/azure-aks-helm.md to create the VNet, AKS subnet, delegated
+# MySQL subnet, AKS cluster, and Azure Database for MySQL Flexible Server.
+# Then copy this file, replace every REPLACE_* value, and install with:
 #
 #   helm upgrade --install openwork-ee oci://ghcr.io/different-ai/charts/openwork-ee \
 #     --version REPLACE_OPENWORK_VERSION \
@@ -45,7 +47,7 @@ secret:
   values:
     # Azure Database for MySQL Flexible Server private-network smoke path.
     # sslaccept=accept preserves TLS without requiring a mounted CA bundle.
-    databaseUrl: "mysql://openwork:REPLACE_DB_PASSWORD@REPLACE_MYSQL_SERVER.mysql.database.azure.com:3306/openwork_den?sslaccept=accept"
+    databaseUrl: "mysql://openwork:REPLACE_DB_PASSWORD@REPLACE_MYSQL_SERVER_NAME.mysql.database.azure.com:3306/openwork_den?sslaccept=accept"
     # Generate with: openssl rand -base64 48
     betterAuthSecret: "REPLACE_BETTER_AUTH_SECRET"
     # Generate separately with: openssl rand -base64 48

@@ -106,7 +106,8 @@ Provider-specific starter guides:
 - Azure AKS:
   [guide](../../../docs/azure-aks-helm.md),
   [`examples/values.azure-ingress.yaml`](examples/values.azure-ingress.yaml).
-  The recommended first Azure path is AKS application routing plus
+  The recommended first Azure path is VNet-first AKS application routing plus
+  Azure Database for MySQL Flexible Server private access, with
   `ingress.enabled=true`.
 - Google Cloud GKE:
   [guide](../../../docs/gcp-gke-helm.md),
