@@ -80,10 +80,14 @@ az account show --query "{name:name,id:id,state:state,tenantId:tenantId}" -o jso
 ```
 
 Set the target region and disposable resource names once, then reuse them for
-the preflight checks, AKS, MySQL, and Helm values:
+the preflight checks, AKS, MySQL, and Helm values. Choose a region that can
+provision Azure Database for MySQL Flexible Server for your subscription before
+you create AKS; if MySQL is not eligible in the region, build the whole
+disposable deployment in a different region rather than splitting AKS and MySQL
+across regions.
 
 ```bash
-export AZURE_LOCATION=eastus
+export AZURE_LOCATION=westus2
 export RESOURCE_GROUP=openwork-ee-rg
 export AKS_CLUSTER=openwork-ee
 export VNET_NAME=openwork-ee-vnet
@@ -114,6 +118,25 @@ az provider list \
 ```
 
 Wait until each provider shows `Registered`.
+
+Check that Azure Database for MySQL Flexible Server can list SKUs in the same
+region before creating AKS:
+
+```bash
+az mysql flexible-server list-skus \
+  --location "$AZURE_LOCATION" \
+  --query "[0].supportedFlexibleServerEditions[].name" \
+  -o table
+```
+
+The output should include at least one tier such as `Burstable`,
+`GeneralPurpose`, or `BusinessCritical`. If this command returns
+`InternalServerError`, `ProvisionNotSupportedForRegion`, or
+`RequestDisallowedByAzure` with `locationineligible`, the subscription cannot
+currently create MySQL Flexible Server in that region. Pick another region and
+rerun this preflight before creating the resource group, VNet, AKS cluster, or
+database. This is an Azure subscription/region eligibility issue, not OpenWork
+quota usage.
 
 Check regional quota before creating AKS. `Current` shows existing usage and
 `Limit` shows the subscription cap; a failure can be caused by a low limit even
@@ -278,7 +301,8 @@ az mysql flexible-server create \
   --subnet "$MYSQL_SUBNET_NAME" \
   --tier Burstable \
   --sku-name Standard_B1ms \
-  --storage-size 32
+  --storage-size 32 \
+  --yes
 ```
 
 Use a separate delegated subnet for MySQL Flexible Server. Do not put AKS node
@@ -287,7 +311,7 @@ chosen at server creation time; after the server is deployed into a VNet/subnet,
 Azure does not let you move that same server to another VNet, another subnet, or
 public access.
 
-Before retrying failed MySQL creation, confirm Azure can list Flexible Server
+Before retrying failed MySQL creation, reconfirm Azure can list Flexible Server
 SKUs in the target region:
 
 ```bash
@@ -307,14 +331,15 @@ az provider show \
 ```
 
 If the provider is `Registered` and the region is listed, repeated
-`InternalServerError` responses from both `list-skus` and
-`flexible-server create` indicate an Azure MySQL resource-provider or
-subscription control-plane issue before OpenWork or Helm is involved. Retry
-later or open an Azure Support case with the tracking IDs. For disposable
-chart-only validation, you may temporarily use an in-cluster MySQL instance to
-separate chart behavior from Azure MySQL control plane availability, but do not
-treat that as a production Azure deployment or as validation of the documented
-Azure Database path.
+`InternalServerError`, `ProvisionNotSupportedForRegion`, or
+`locationineligible` responses from `list-skus` or `flexible-server create`
+indicate an Azure MySQL subscription/region eligibility issue before OpenWork or
+Helm is involved. Switch to a region where `list-skus` succeeds and create AKS
+and MySQL there, or open an Azure Support case with the tracking IDs. For
+disposable chart-only validation, you may temporarily use an in-cluster MySQL
+instance to separate chart behavior from Azure MySQL control plane availability,
+but do not treat that as a production Azure deployment or as validation of the
+documented Azure Database path.
 
 Example database URL:
 
@@ -638,7 +663,7 @@ single organization. Password sign-in for that organization is rejected.
 | `az aks operation show` changes accepted CLI flags after running | Azure CLI may install/use the `aks-preview` extension, changing command behavior | Check `az extension list`; remove `aks-preview` unless you intentionally need preview AKS commands |
 | `kubectl get nodes` is unauthorized on an Azure RBAC cluster | Signed-in user lacks AKS RBAC role assignment or `kubelogin` is missing | Install `kubelogin`, assign `Azure Kubernetes Service RBAC Cluster Admin`, and refresh credentials |
 | MySQL private access creation rejects the subnet | The subnet is not dedicated to MySQL or is missing `Microsoft.DBforMySQL/flexibleServers` delegation | Use the separate `MYSQL_SUBNET_NAME` created in this guide; do not reuse the AKS subnet |
-| `az mysql flexible-server create` or `list-skus` returns `InternalServerError` | Azure MySQL control plane or regional SKU service failed before Helm install | Capture tracking IDs and region, retry later or open Azure Support; only use temporary in-cluster MySQL for chart-only smoke tests |
+| `az mysql flexible-server create` or `list-skus` returns `InternalServerError`, `ProvisionNotSupportedForRegion`, or `locationineligible` | The subscription cannot currently create MySQL Flexible Server in that region, or the regional SKU service is failing before Helm install | Pick a new `AZURE_LOCATION` where `list-skus` succeeds before creating AKS; capture tracking IDs and region for Azure Support if every acceptable region fails; only use temporary in-cluster MySQL for chart-only smoke tests |
 | `ImagePullBackOff` from GHCR | Private image or missing pull token | Add `imagePullSecrets` |
 | Browser auth loops or CORS errors | Public origins do not match DNS/TLS | Set `webOrigin`, `apiOrigin`, `corsOrigins`, `betterAuthTrustedOrigins`, and `authCallbackUrl` to the final HTTPS domains |
 | SSO callback rejected | IdP callback URL does not match OpenWork | Use the callback/ACS URL shown by OpenWork for that org/provider |
