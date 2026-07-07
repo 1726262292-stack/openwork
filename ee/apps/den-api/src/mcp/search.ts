@@ -39,6 +39,29 @@ export function tokenize(value: string): string[] {
     .filter((token) => token.length > 0)
 }
 
+export function scoreText(
+  nameTokens: string[],
+  summaryTokens: string[],
+  queryTokens: string[],
+  extraTokens: string[] = [],
+): number {
+  let score = 0
+  for (const queryToken of queryTokens) {
+    if (nameTokens.includes(queryToken)) {
+      score += 5
+    } else if (nameTokens.some((token) => token.startsWith(queryToken) || queryToken.startsWith(token))) {
+      score += 3
+    }
+    if (summaryTokens.includes(queryToken)) {
+      score += 2
+    }
+    if (extraTokens.includes(queryToken)) {
+      score += 1
+    }
+  }
+  return score
+}
+
 /**
  * Splits a camelCase / PascalCase tool name into lowercase word tokens so a
  * query like "organization" matches a tool named `getOrganizations`.
@@ -60,22 +83,7 @@ function scoreOperation(operation: McpToolOperation, queryTokens: string[]): num
   const nameTokens = tokenizeToolName(operation.name)
   const summaryTokens = tokenize(summaryFor(operation))
   const pathTokens = tokenize(operation.path)
-
-  let score = 0
-  for (const queryToken of queryTokens) {
-    if (nameTokens.includes(queryToken)) {
-      score += 5
-    } else if (nameTokens.some((token) => token.startsWith(queryToken) || queryToken.startsWith(token))) {
-      score += 3
-    }
-    if (summaryTokens.includes(queryToken)) {
-      score += 2
-    }
-    if (pathTokens.includes(queryToken)) {
-      score += 1
-    }
-  }
-  return score
+  return scoreText(nameTokens, summaryTokens, queryTokens, pathTokens)
 }
 
 export function searchCapabilities(

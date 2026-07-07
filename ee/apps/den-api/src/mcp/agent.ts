@@ -13,10 +13,22 @@ import { invokeMcpOperation, normalizeToolBody, normalizeToolRecord } from "./in
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities } from "./search.js"
 import { executeExternalCapability, parseExternalCapabilityName, resolveMcpMemberIdentity, searchExternalCapabilities } from "./external-capabilities.js"
+import { executeMarketplaceCapability, parseMarketplaceCapabilityName, searchMarketplaceCapabilities } from "./marketplace-capabilities.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { env } from "../env.js"
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
+
+function textContent(text: string): { text: string; type: "text" }[] {
+  return [{ type: "text", text }]
+}
+
+function unknownCapabilityText(name: string): string {
+  return JSON.stringify({
+    error: "unknown_capability",
+    message: `No capability named "${name}". Call search_capabilities to find a valid name.`,
+  })
+}
 
 /**
  * The minimal, harness-facing MCP surface: exactly two tools, full stop.
@@ -100,7 +112,16 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
             limit: boundedLimit,
           })
           : []
-        const matches = [...restMatches, ...externalMatches]
+        const marketplaceMatches = externalMcpConnectionsEnabled
+          ? await searchMarketplaceCapabilities({
+            organizationId: principal.organizationId,
+            member: memberIdentity,
+            query,
+            limit: boundedLimit,
+            enabled: externalMcpConnectionsEnabled,
+          })
+          : []
+        const matches = [...restMatches, ...externalMatches, ...marketplaceMatches]
           .sort((a, b) => b.score - a.score)
           .slice(0, boundedLimit)
         const text = matches.length > 0
@@ -168,17 +189,32 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           return { content }
         }
 
+        const marketplace = parseMarketplaceCapabilityName(name)
+        if (marketplace) {
+          const result = await executeMarketplaceCapability({
+            organizationId: principal.organizationId,
+            member: memberIdentity,
+            pluginId: marketplace.pluginId,
+            configObjectId: marketplace.configObjectId,
+            body,
+            enabled: externalMcpConnectionsEnabled,
+          })
+          if (!result.ok) {
+            return {
+              isError: true,
+              content: textContent(result.error === "unknown_capability"
+                ? unknownCapabilityText(name)
+                : JSON.stringify({ error: result.error, message: result.message })),
+            }
+          }
+          return { content: textContent(JSON.stringify(result.result, null, 2)) }
+        }
+
         const operation = catalog.find((candidate) => candidate.name === name)
         if (!operation) {
           return {
             isError: true,
-            content: [{
-              type: "text" as const,
-              text: JSON.stringify({
-                error: "unknown_capability",
-                message: `No capability named "${name}". Call search_capabilities to find a valid name.`,
-              }),
-            }],
+            content: textContent(unknownCapabilityText(name)),
           }
         }
 
