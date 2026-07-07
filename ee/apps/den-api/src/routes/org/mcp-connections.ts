@@ -148,6 +148,22 @@ const connectStartResponseSchema = z.object({
   authorizeUrl: z.string().nullable(),
 }).meta({ ref: "ExternalMcpConnectStartResponse" })
 
+const connectStartFailedSchema = z.object({
+  error: z.literal("oauth_handshake_failed"),
+  message: z.string(),
+}).meta({ ref: "ExternalMcpConnectStartFailedError" })
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function errorForLog(error: unknown) {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message, stack: error.stack }
+  }
+  return { message: String(error) }
+}
+
 function isConnectionConnected(row: ExternalMcpConnectionRow): boolean {
   if (row.credentialMode === "per_member") {
     // A per_member connection is "published" once created; individual
@@ -305,6 +321,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         400: jsonResponse("Invalid request.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
         403: jsonResponse("Only workspace owners and admins can add MCP connections.", forbiddenSchema),
+        502: jsonResponse("The upstream MCP server could not be reached.", connectStartFailedSchema),
       },
     }),
     orgMemberRoute(),
@@ -370,7 +387,17 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
 
       if (body.authType !== "oauth") {
         // No OAuth dance needed — validate the server is real and reachable now.
-        await connectExternalMcp(created, callbackRedirectUri(c.req.raw, created.id))
+        try {
+          await connectExternalMcp(created, callbackRedirectUri(c.req.raw, created.id))
+        } catch (error) {
+          console.error("external_mcp_connection_validation_failed", {
+            connectionId: created.id,
+            organizationId: payload.organization.id,
+            connectionUrl: created.url,
+            error: errorForLog(error),
+          })
+          return c.json({ error: "oauth_handshake_failed", message: `The OAuth handshake with "${created.name}" failed: ${errorMessage(error)}` }, 502)
+        }
       }
 
       const refreshed = await getExternalMcpConnection({ organizationId: payload.organization.id, connectionId: created.id })
@@ -495,6 +522,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         200: jsonResponse("Authorize URL, or already connected.", connectStartResponseSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
         404: jsonResponse("Unknown connection.", connectionNotFoundSchema),
+        502: jsonResponse("OAuth handshake failed.", connectStartFailedSchema),
       },
     }),
     orgMemberRoute(),
@@ -529,26 +557,36 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         }
       }
 
-      // Our own signed state token identifies which connection AND which
-      // member this is for once the external server redirects back. It MUST
-      // travel as the standard OAuth `state` param — a custom param would
-      // simply be dropped, since only `state` is guaranteed to round-trip on
-      // any spec-compliant authorization server (see ExternalMcpOAuthProvider.state()).
-      const signedState = createOAuthStateToken({
-        organizationId: payload.organization.id,
-        orgMembershipId: payload.currentMember.id,
-        providerId: connectionId,
-        secret: env.betterAuthSecret,
-      })
-      const redirectUri = callbackRedirectUri(c.req.raw, connectionId)
-      const member = connection.credentialMode === "per_member"
-        ? { orgMembershipId: payload.currentMember.id }
-        : undefined
-      const result = await connectExternalMcp(connection, redirectUri, signedState, member)
-      if (result.status === "connected") {
-        return c.json({ status: "connected" as const, authorizeUrl: null })
+      try {
+        // Our own signed state token identifies which connection AND which
+        // member this is for once the external server redirects back. It MUST
+        // travel as the standard OAuth `state` param — a custom param would
+        // simply be dropped, since only `state` is guaranteed to round-trip on
+        // any spec-compliant authorization server (see ExternalMcpOAuthProvider.state()).
+        const signedState = createOAuthStateToken({
+          organizationId: payload.organization.id,
+          orgMembershipId: payload.currentMember.id,
+          providerId: connectionId,
+          secret: env.betterAuthSecret,
+        })
+        const redirectUri = callbackRedirectUri(c.req.raw, connectionId)
+        const member = connection.credentialMode === "per_member"
+          ? { orgMembershipId: payload.currentMember.id }
+          : undefined
+        const result = await connectExternalMcp(connection, redirectUri, signedState, member)
+        if (result.status === "connected") {
+          return c.json({ status: "connected" as const, authorizeUrl: null })
+        }
+        return c.json({ status: "needs_auth" as const, authorizeUrl: result.authorizeUrl })
+      } catch (error) {
+        console.error("external_mcp_connect_start_oauth_handshake_failed", {
+          connectionId: connection.id,
+          organizationId: payload.organization.id,
+          connectionUrl: connection.url,
+          error: errorForLog(error),
+        })
+        return c.json({ error: "oauth_handshake_failed", message: `The OAuth handshake with "${connection.name}" failed: ${errorMessage(error)}` }, 502)
       }
-      return c.json({ status: "needs_auth" as const, authorizeUrl: result.authorizeUrl })
     },
   )
 
