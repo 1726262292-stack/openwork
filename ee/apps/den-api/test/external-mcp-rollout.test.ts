@@ -3,7 +3,16 @@ import { memberFacingMcpConnectionsEnabled } from "../src/capability-sources/ext
 
 describe("memberFacingMcpConnectionsEnabled", () => {
   test("gating disabled: enabled for every org, regardless of metadata", () => {
-    for (const metadata of [null, undefined, "", "{}", "not json", { connectEnabled: false }, { mcpConnectionsEnabled: false }]) {
+    for (const metadata of [
+      null,
+      undefined,
+      "",
+      "{}",
+      "not json",
+      { capabilities: { mcpConnections: false } },
+      { connectEnabled: false },
+      { mcpConnectionsEnabled: false },
+    ]) {
       expect(memberFacingMcpConnectionsEnabled(metadata, { gatingEnabled: false })).toBe(true)
     }
   })
@@ -17,16 +26,33 @@ describe("memberFacingMcpConnectionsEnabled", () => {
       "not json",
       "[]",
       JSON.stringify({ limits: { members: 5 } }),
+      JSON.stringify({ capabilities: { mcpConnections: false } }),
+      JSON.stringify({ capabilities: { mcpConnections: "true" } }),
       JSON.stringify({ connectEnabled: false }),
       JSON.stringify({ connectEnabled: "yes" }),
       JSON.stringify({ mcpConnectionsEnabled: false }),
+      JSON.stringify({ mcpConnectionsEnabled: "yes" }),
+      { capabilities: { mcpConnections: false } },
+      { capabilities: { mcpConnections: "true" } },
       { connectEnabled: false },
       { connectEnabled: "yes" },
       { mcpConnectionsEnabled: false },
+      { mcpConnectionsEnabled: "yes" },
       {},
     ]) {
       expect(memberFacingMcpConnectionsEnabled(metadata, { gatingEnabled: true })).toBe(false)
     }
+  })
+
+  test("gating enabled: orgs with the mcpConnections capability are enabled", () => {
+    expect(memberFacingMcpConnectionsEnabled(JSON.stringify({ capabilities: { mcpConnections: true } }), { gatingEnabled: true })).toBe(true)
+    expect(memberFacingMcpConnectionsEnabled({ capabilities: { mcpConnections: true } }, { gatingEnabled: true })).toBe(true)
+    expect(
+      memberFacingMcpConnectionsEnabled(
+        JSON.stringify({ limits: { members: 100 }, plan: { tier: "team" }, capabilities: { mcpConnections: true } }),
+        { gatingEnabled: true },
+      ),
+    ).toBe(true)
   })
 
   test("gating enabled: orgs with connectEnabled are enabled", () => {
