@@ -11,7 +11,6 @@ import {
   isDesktopRuntime,
   safeStringify,
 } from "../../app/utils";
-import { recordLifecycleDiagnostic } from "../../app/lib/lifecycle-diagnostics";
 import { t } from "../../i18n";
 
 export type ReloadState = {
@@ -90,10 +89,6 @@ export function useSystemState(
 
   const markReloadRequired = useCallback(
     (reason: ReloadReason, trigger?: ReloadTrigger) => {
-      recordLifecycleDiagnostic("system.mark_reload_required", {
-        reason,
-        trigger: trigger ?? null,
-      });
       setReloadPending(true);
       setReloadLastTriggeredAt(Date.now());
       setReloadReasons((current) =>
@@ -150,20 +145,11 @@ export function useSystemState(
     !reloadBusy && options.canReloadWorkspaceEngine?.() !== false;
 
   const reloadWorkspaceEngine = useCallback(async () => {
-    if (reloadBusy) {
-      recordLifecycleDiagnostic("system.reload_ignored_busy");
-      return;
-    }
+    if (reloadBusy) return;
     if (options.canReloadWorkspaceEngine?.() === false) {
-      recordLifecycleDiagnostic("system.reload_unavailable");
       setReloadError(t("system.reload_unavailable"));
       return;
     }
-    recordLifecycleDiagnostic("system.reload_start", {
-      pending: reloadPending,
-      reasons: reloadReasons,
-      trigger: reloadTrigger,
-    });
     setReloadBusy(true);
     setReloadError(null);
     options.setError(null);
@@ -172,32 +158,18 @@ export function useSystemState(
         ? await options.reloadWorkspaceEngine()
         : false;
       if (ok === false) {
-        recordLifecycleDiagnostic("system.reload_failed_return", {
-          pending: reloadPending,
-          reasons: reloadReasons,
-          trigger: reloadTrigger,
-        });
         setReloadError(t("system.reload_failed"));
         return;
       }
       await options.onReloadComplete?.();
       clearReloadRequired();
-      recordLifecycleDiagnostic("system.reload_success", {
-        reasons: reloadReasons,
-        trigger: reloadTrigger,
-      });
     } catch (error) {
       const message = error instanceof Error ? error.message : safeStringify(error);
-      recordLifecycleDiagnostic("system.reload_error", {
-        message,
-        reasons: reloadReasons,
-        trigger: reloadTrigger,
-      });
       setReloadError(message || t("system.reload_failed"));
     } finally {
       setReloadBusy(false);
     }
-  }, [clearReloadRequired, options, reloadBusy, reloadPending, reloadReasons, reloadTrigger]);
+  }, [clearReloadRequired, options, reloadBusy]);
 
   const openResetModal = useCallback(
     (mode: ResetOpenworkMode) => {

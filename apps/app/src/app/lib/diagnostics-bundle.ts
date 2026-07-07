@@ -10,10 +10,7 @@ import {
 } from "./desktop";
 import { readPerfLogs, type PerfLogRecord } from "./perf-log";
 import {
-  DEFAULT_OPENWORK_SERVER_PORT,
-  createOpenworkServerClient,
   readOpenworkServerSettings,
-  type OpenworkServerDiagnostics,
   type OpenworkServerSettings,
   type OpenworkServerStatus,
 } from "./openwork-server";
@@ -38,7 +35,6 @@ export type DiagnosticsBundleInputs = {
   appInfo: AppBuildInfo | null;
   engineInfo: EngineInfo | null;
   openworkServerSettings: OpenworkServerSettings;
-  openworkServerDiagnostics: OpenworkServerDiagnostics | null;
   hostInfo: OpenworkServerInfo | null;
   developerLogs: DevLogRecord[];
   perfLogs: PerfLogRecord[];
@@ -168,7 +164,6 @@ export function composeDiagnosticsBundleJson(input: DiagnosticsBundleInputs): st
         urlOverride: urlOverride || null,
         tokenPresent: Boolean(token),
       },
-      diagnosticLogPaths: input.openworkServerDiagnostics?.server.diagnosticLogPaths ?? null,
       host: pickHostInfo(input.hostInfo),
     },
     reload: {
@@ -217,43 +212,19 @@ async function readHostInfo(desktopRuntime: boolean) {
   }
 }
 
-async function readOpenworkServerDiagnostics(
-  settings: OpenworkServerSettings,
-  context?: DiagnosticsBundleContext,
-): Promise<OpenworkServerDiagnostics | null> {
-  const baseUrl = (
-    context?.openworkServerUrl ??
-    settings.urlOverride ??
-    `http://127.0.0.1:${settings.portOverride ?? DEFAULT_OPENWORK_SERVER_PORT}`
-  ).trim();
-  if (!baseUrl) return null;
-  try {
-    return await createOpenworkServerClient({
-      baseUrl,
-      token: settings.token,
-      hostToken: settings.hostToken,
-    }).status();
-  } catch {
-    return null;
-  }
-}
-
 export async function buildDiagnosticsBundleJson(context?: DiagnosticsBundleContext): Promise<string> {
   const desktopRuntime = isDesktopRuntime();
   const hasContextHostInfo = context !== undefined && "hostInfo" in context;
-  const openworkServerSettings = readOpenworkServerSettings();
   const appInfo = await readAppInfo(desktopRuntime);
   const engine = await readEngineInfo(desktopRuntime);
   const fetchedHostInfo = hasContextHostInfo ? null : await readHostInfo(desktopRuntime);
   const hostInfo = hasContextHostInfo && context ? context.hostInfo ?? null : fetchedHostInfo;
-  const openworkServerDiagnostics = await readOpenworkServerDiagnostics(openworkServerSettings, context);
   return composeDiagnosticsBundleJson({
     capturedAt: new Date().toISOString(),
     desktopRuntime,
     appInfo,
     engineInfo: engine,
-    openworkServerSettings,
-    openworkServerDiagnostics,
+    openworkServerSettings: readOpenworkServerSettings(),
     hostInfo,
     developerLogs: readDevLogs(80),
     perfLogs: readPerfLogs(80),

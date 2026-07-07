@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { publishInspectorSlice, recordInspectorEvent } from "@/app/lib/app-inspector";
-import { recordLifecycleDiagnostic } from "@/app/lib/lifecycle-diagnostics";
 import {
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
@@ -427,30 +426,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === nextWorkspaceId) ?? null;
         const nextEndpoint = endpointForWorkspace(nextWorkspace);
         if (nextEndpoint) {
-          recordLifecycleDiagnostic("route.activate_workspace_start", {
-            selectedWorkspaceId: nextWorkspaceId,
-            serverActiveId: list.activeId,
-            endpointWorkspaceId: nextEndpoint.workspaceId,
-            persist: false,
-          });
-          void nextEndpoint.client.activateWorkspace(nextEndpoint.workspaceId)
-            .then(() => {
-              recordLifecycleDiagnostic("route.activate_workspace_success", {
-                selectedWorkspaceId: nextWorkspaceId,
-                serverActiveId: list.activeId,
-                endpointWorkspaceId: nextEndpoint.workspaceId,
-                persist: false,
-              });
-            })
-            .catch((error) => {
-              recordLifecycleDiagnostic("route.activate_workspace_error", {
-                selectedWorkspaceId: nextWorkspaceId,
-                serverActiveId: list.activeId,
-                endpointWorkspaceId: nextEndpoint.workspaceId,
-                persist: false,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            });
+          void nextEndpoint.client.activateWorkspace(nextEndpoint.workspaceId).catch(() => undefined);
         }
       }
       recordInspectorEvent("route.refresh.complete", {

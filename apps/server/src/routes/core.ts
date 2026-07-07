@@ -48,7 +48,6 @@ interface RegisterCoreRoutesOptions {
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
   resolveToyUiEnabled: () => boolean;
   resolveDevLogPath: () => string | null;
-  resolveLifecycleLogPath: () => string | null;
   createOpenAiRealtimeVoiceSession: (env: EnvService, input: unknown) => Promise<unknown>;
 }
 
@@ -75,7 +74,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     serializeWorkspace,
     resolveToyUiEnabled,
     resolveDevLogPath,
-    resolveLifecycleLogPath,
     createOpenAiRealtimeVoiceSession,
   } = options;
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
@@ -95,8 +93,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   // Dev log sink: append browser console + error events to a file that an
   // operator (or an AI driver) can tail. Unauth on purpose because this is
   // scoped to the dev host and needs to work before clients finish wiring
-  // tokens. Alpha/support builds keep this on by default and can opt out with
-  // OPENWORK_DISABLE_DEV_LOG_FILE=1.
+  // tokens; it is also a no-op when OPENWORK_DEV_LOG_FILE is unset.
   addRoute(routes, "POST", "/dev/log", "none", async (ctx) => {
     const target = resolveDevLogPath();
     if (!target) {
@@ -193,10 +190,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
         host: config.host,
         port: config.port,
         configPath: config.configPath ?? null,
-        diagnosticLogPaths: {
-          browser: resolveDevLogPath(),
-          lifecycle: resolveLifecycleLogPath(),
-        },
       },
       tokenSource: {
         client: config.tokenSource,
@@ -232,10 +225,6 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
         host: config.host,
         port: config.port,
         configPath: config.configPath ?? null,
-        diagnosticLogPaths: {
-          browser: resolveDevLogPath(),
-          lifecycle: resolveLifecycleLogPath(),
-        },
       },
       tokenSource: {
         client: config.tokenSource,
