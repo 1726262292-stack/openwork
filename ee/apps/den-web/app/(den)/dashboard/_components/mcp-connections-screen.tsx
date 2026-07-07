@@ -21,12 +21,20 @@ import {
   useDeleteMcpConnection,
   useMcpConnectionPresets,
   useMcpConnections,
+  useNativeProviderClient,
   useSaveNativeProviderClient,
   useStartMcpConnectionOAuth,
 } from "./mcp-connections-data";
 
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 90_000;
+
+const GOOGLE_WORKSPACE_OPTIONAL_PERMISSIONS = [
+  { key: "gmailRead", label: "Read Gmail (gmailRead)" },
+  { key: "driveFull", label: "Full Drive access (driveFull)" },
+  { key: "calendarWrite", label: "Create calendar events (calendarWrite)" },
+  { key: "chat", label: "Google Chat (chat)" },
+];
 
 export function McpConnectionsScreen() {
   const { orgContext } = useOrgDashboard();
@@ -251,19 +259,38 @@ function GoogleWorkspaceDialog({
   submitting: boolean;
   error: unknown;
   onClose: () => void;
-  onSubmit: (input: { clientId: string; clientSecret: string }) => void;
+  onSubmit: (input: { clientId?: string; clientSecret?: string; features: string[] }) => void;
 }) {
+  const clientConfig = useNativeProviderClient("google-workspace", open);
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [features, setFeatures] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setClientId("");
     setClientSecret("");
+    setFeatures([]);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || clientConfig.isLoading) return;
+    setFeatures(clientConfig.data?.features ?? []);
+  }, [open, clientConfig.isLoading, clientConfig.data?.features]);
 
   if (!open) {
     return null;
+  }
+
+  const configured = Boolean(clientConfig.data);
+  const loadingConfig = clientConfig.isLoading;
+  const formError = error ?? clientConfig.error;
+  const trimmedClientId = clientId.trim();
+  const trimmedClientSecret = clientSecret.trim();
+  const saveDisabled = loadingConfig || (!configured && (!trimmedClientId || !trimmedClientSecret));
+
+  function toggleFeature(feature: string) {
+    setFeatures((current) => current.includes(feature) ? current.filter((entry) => entry !== feature) : [...current, feature]);
   }
 
   return (
@@ -277,14 +304,35 @@ function GoogleWorkspaceDialog({
           Paste the OAuth client from your company&apos;s Google Cloud project. Members then connect their own
           Google account from Your Connections — sign-ins stay in your org&apos;s cloud.
         </p>
+        <p className="mt-2 text-[12px] leading-5 text-gray-500">
+          Included permissions: calendar read, Gmail drafts, and selected Drive files.
+        </p>
 
         <div className="mt-5 space-y-4">
+          <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+            <p className="text-[13px] font-semibold text-gray-900">Optional permissions</p>
+            <p className="mt-1 text-[12px] leading-5 text-gray-500">Only add these when your team needs the extra Google access.</p>
+            <div className="mt-3 space-y-2">
+              {GOOGLE_WORKSPACE_OPTIONAL_PERMISSIONS.map((permission) => (
+                <label key={permission.key} className="flex items-center gap-2 text-[13px] text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-gray-900"
+                    checked={features.includes(permission.key)}
+                    disabled={loadingConfig}
+                    onChange={() => toggleFeature(permission.key)}
+                  />
+                  <span>{permission.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
           <div>
             <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client ID</label>
             <DenInput
               value={clientId}
               onChange={(event) => setClientId(event.target.value)}
-              placeholder="1234567890-abc.apps.googleusercontent.com"
+              placeholder={configured ? "Saved client ID kept if left blank" : "1234567890-abc.apps.googleusercontent.com"}
             />
           </div>
           <div>
@@ -293,13 +341,13 @@ function GoogleWorkspaceDialog({
               type="password"
               value={clientSecret}
               onChange={(event) => setClientSecret(event.target.value)}
-              placeholder="GOCSPX-…"
+              placeholder={configured ? "Saved client secret kept if left blank" : "GOCSPX-…"}
             />
           </div>
         </div>
 
-        {error ? (
-          <p className="mt-3 text-[13px] text-red-600">{error instanceof Error ? error.message : "Failed to save the OAuth client."}</p>
+        {formError ? (
+          <p className="mt-3 text-[13px] text-red-600">{formError instanceof Error ? formError.message : "Failed to save the OAuth client."}</p>
         ) : null}
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -309,8 +357,12 @@ function GoogleWorkspaceDialog({
           <DenButton
             variant="primary"
             loading={submitting}
-            disabled={!clientId.trim() || !clientSecret.trim()}
-            onClick={() => onSubmit({ clientId: clientId.trim(), clientSecret: clientSecret.trim() })}
+            disabled={saveDisabled}
+            onClick={() => onSubmit({
+              ...(trimmedClientId ? { clientId: trimmedClientId } : {}),
+              ...(trimmedClientSecret ? { clientSecret: trimmedClientSecret } : {}),
+              features,
+            })}
           >
             Save
           </DenButton>

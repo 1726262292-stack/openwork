@@ -47,7 +47,17 @@ export const mcpConnectionQueryKeys = {
   list: (orgId?: string | null, scope?: ExternalMcpConnectionScope) =>
     [...mcpConnectionQueryKeys.all, "list", orgId ?? "none", scope ?? "usable"] as const,
   presets: () => [...mcpConnectionQueryKeys.all, "presets"] as const,
+  nativeProviderClient: (orgId?: string | null, providerId?: string | null) =>
+    [...mcpConnectionQueryKeys.all, "native-provider-client", orgId ?? "none", providerId ?? "none"],
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
 
 async function fetchConnections(scope: ExternalMcpConnectionScope): Promise<ExternalMcpConnection[]> {
   const { response, payload } = await requestJson(`/v1/mcp-connections?scope=${scope}`, {}, 15000);
@@ -199,9 +209,28 @@ export function useDeleteMcpConnection() {
 
 export type SaveNativeProviderClientInput = {
   providerId: string;
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
+  clientSecret?: string;
+  features: string[];
 };
+
+export type NativeProviderClient = {
+  providerId: string;
+  clientId: string;
+  features: string[];
+  scopes: string[];
+};
+
+function parseNativeProviderClient(payload: unknown): NativeProviderClient {
+  if (!isRecord(payload)) {
+    throw new Error("Native provider client response was incomplete.");
+  }
+  const { providerId, clientId, features, scopes } = payload;
+  if (typeof providerId !== "string" || typeof clientId !== "string" || !isStringArray(features) || !isStringArray(scopes)) {
+    throw new Error("Native provider client response was incomplete.");
+  }
+  return { providerId, clientId, features, scopes };
+}
 
 /**
  * Native providers (google-workspace) are configured with an org OAuth
@@ -215,9 +244,18 @@ export function useSaveNativeProviderClient() {
   return useMutation({
     mutationFn: async (input: SaveNativeProviderClientInput): Promise<void> => {
       await runReauthableAction("save-native-oauth-client", async () => {
+        const clientId = input.clientId?.trim();
+        const clientSecret = input.clientSecret?.trim();
         const { response, payload } = await requestJson(
           `/v1/oauth-providers/${encodeURIComponent(input.providerId)}/client`,
-          { method: "POST", body: JSON.stringify({ clientId: input.clientId, clientSecret: input.clientSecret }) },
+          {
+            method: "POST",
+            body: JSON.stringify({
+              ...(clientId ? { clientId } : {}),
+              ...(clientSecret ? { clientSecret } : {}),
+              features: input.features,
+            }),
+          },
           20000,
         );
         if (!response.ok) {
@@ -227,6 +265,29 @@ export function useSaveNativeProviderClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });
+    },
+  });
+}
+
+export function useNativeProviderClient(providerId: string, enabled: boolean) {
+  const { orgId } = useOrgDashboard();
+
+  return useQuery({
+    enabled: enabled && Boolean(orgId),
+    queryKey: mcpConnectionQueryKeys.nativeProviderClient(orgId, providerId),
+    queryFn: async (): Promise<NativeProviderClient | null> => {
+      const { response, payload } = await requestJson(
+        `/v1/oauth-providers/${encodeURIComponent(providerId)}/client`,
+        {},
+        15000,
+      );
+      if (response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        throw getRequestError(payload, response, `Failed to load the OAuth client (${response.status}).`);
+      }
+      return parseNativeProviderClient(payload);
     },
   });
 }
