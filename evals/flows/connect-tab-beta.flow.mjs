@@ -42,19 +42,21 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await prepareSignedInDesktopWithConnectOff(ctx);
-            await navigateToSettingsTab(ctx, "connect");
+            // Frame 1 proves the SIDEBAR (Connect entry + badge) from the
+            // Account tab so its capture differs from frame 2's pitch view.
+            await navigateToSettingsTab(ctx, "cloud-account");
           },
           assert: async () => {
             const nav = await readSettingsSidebar(ctx);
             ctx.assert(nav.text.includes("Cloud"), `Settings sidebar did not include Cloud: ${nav.text}`);
             ctx.assert(nav.connectButtonText.includes("Connect"), `Connect tab button missing: ${JSON.stringify(nav)}`);
             ctx.assert(nav.connectButtonText.includes("Beta"), `Connect tab button missing Beta badge: ${nav.connectButtonText}`);
-            await ctx.expectHashIncludes("/settings/connect");
+            await ctx.expectHashIncludes("/settings/cloud-account");
           },
           screenshot: {
             name: "connect-tab-beta-sidebar",
             claim: "Settings shows Connect under Cloud and marks it Beta.",
-            requireText: ["Cloud", "Connect", "Beta"],
+            requireText: ["Cloud", "Connect", "BETA"],
             rejectText: ["Something went wrong"],
           },
         });
@@ -77,13 +79,13 @@ export default {
             ctx.assert(proof.text.includes("Ask your organization admin to enable Connect (beta) to get started."), "Pitch body was missing.");
             ctx.assert(proof.text.includes("Manage in Den web"), "Pitch did not include the Den web link.");
             ctx.assert(proof.cardCount === 0, `Pitch rendered org connection cards: ${proof.cardCount}`);
-            ctx.assert(!proof.text.includes("Available apps"), "Connect pitch leaked the local quick-connect grid.");
+            ctx.assert(!proof.text.includes("AVAILABLE APPS"), "Connect pitch leaked the local quick-connect grid.");
           },
           screenshot: {
             name: "connect-tab-beta-pitch",
             claim: "Signed in without Connect enabled shows a friendly admin pitch, not an error.",
             requireText: ["Connect is the new way OpenWork lets you share workflows with your team.", "Manage in Den web"],
-            rejectText: [CONNECTION_NAME, "Available apps", "Something went wrong"],
+            rejectText: [CONNECTION_NAME, "AVAILABLE APPS", "Something went wrong"],
           },
         });
       },
@@ -109,13 +111,13 @@ export default {
             ctx.assert(proof.cardText.includes(CONNECTION_NAME), `Connect card missing connection name: ${JSON.stringify(proof)}`);
             ctx.assert(proof.cardText.includes("Beta"), `Connect card missing Beta badge: ${proof.cardText}`);
             ctx.assert(proof.cardText.includes("Connect your account"), `Per-member action missing: ${proof.cardText}`);
-            ctx.assert(!proof.pageText.includes("Available apps"), "Connect active state leaked the local quick-connect grid.");
+            ctx.assert(!proof.pageText.includes("AVAILABLE APPS"), "Connect active state leaked the local quick-connect grid.");
           },
           screenshot: {
             name: "connect-tab-beta-active-card",
             claim: "Connect active state shows the org status row and the beta org MCP connection card.",
-            requireText: ["Connected to", CONNECTION_NAME, "Beta", "Connect your account"],
-            rejectText: ["Available apps", "Something went wrong"],
+            requireText: ["Connected to", CONNECTION_NAME, "Beta", "Connect your account"], // card badge is not uppercased
+            rejectText: ["AVAILABLE APPS", "Something went wrong"],
           },
         });
       },
@@ -136,7 +138,7 @@ export default {
               orgCardCount: [...document.querySelectorAll('button')].filter((button) => button.textContent.includes(${JSON.stringify(CONNECTION_NAME)})).length,
             }))()`);
             ctx.assert(proof.text.includes("My Extensions"), "Extensions local shell was missing My Extensions.");
-            ctx.assert(proof.text.includes("Available apps"), "Extensions local quick-connect section was missing.");
+            ctx.assert(proof.text.includes("AVAILABLE APPS"), "Extensions local quick-connect section was missing.");
             ctx.assert(proof.text.includes("One-click connect"), "Extensions quick-connect helper text was missing.");
             ctx.assert(proof.orgCardCount === 0, `Extensions rendered org connection cards: ${proof.orgCardCount}`);
             ctx.assert(!proof.text.includes("Available from your organization"), "Extensions rendered org connection description text.");
@@ -144,7 +146,7 @@ export default {
           screenshot: {
             name: "connect-tab-beta-extensions-local-only",
             claim: "Extensions still shows local quick-connect content but no org MCP connection card.",
-            requireText: ["My Extensions", "Available apps", "One-click connect"],
+            requireText: ["My Extensions", "AVAILABLE APPS", "One-click connect"],
             rejectText: [CONNECTION_NAME, "Available from your organization", "Something went wrong"],
           },
         });
@@ -251,9 +253,12 @@ async function ensureOrgAdminContext(ctx) {
   ctx.assert(listed.response.ok, `Could not list orgs: ${listed.response.status} ${listed.text.slice(0, 300)}`);
   const orgs = listed.body?.orgs;
   ctx.assert(Array.isArray(orgs), "Current user organizations payload was missing orgs.");
-  const acme = orgs.find((org) => org.name === "Acme Robotics") ?? orgs.find((org) => typeof org.slug === "string" && org.slug.includes("acme"));
-  ctx.assert(acme && typeof acme.id === "string", `Could not find Acme Robotics in ${ADMIN_EMAIL}'s organizations.`);
-  state.orgId = acme.id;
+  // Use the signed-in admin's ACTIVE org (what the desktop session targets) —
+  // seed org names vary across stack lifetimes, the active org does not.
+  const activeOrgId = typeof listed.body?.activeOrgId === "string" ? listed.body.activeOrgId : null;
+  const demoOrg = orgs.find((org) => org.id === activeOrgId) ?? orgs[0];
+  ctx.assert(demoOrg && typeof demoOrg.id === "string", `Could not resolve an organization for ${ADMIN_EMAIL}.`);
+  state.orgId = demoOrg.id;
 
   const active = await denApiFetch("/v1/me/active-organization", {
     method: "POST",
@@ -387,11 +392,20 @@ async function navigateToSettingsTab(ctx, tab) {
   const workspaceId = await ctx.eval("(window.location.hash.match(/\\/workspace\\/([^/]+)/) ?? [])[1] ?? ''");
   await ctx.navigateHash(workspaceId ? `/workspace/${workspaceId}/settings/${tab}` : `/settings/${tab}`);
   await ctx.waitFor(`window.location.hash.includes('/settings/${tab}')`, { timeoutMs: 30_000, label: `${tab} settings route` });
+  // The route can be live before React mounts the settings surface (fresh
+  // reloads during sign-in). "Back to app" only exists on the settings shell.
+  await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 30_000, label: "settings surface mounted" });
 }
 
 async function readSettingsSidebar(ctx) {
   return ctx.eval(`(() => {
-    const sidebar = document.querySelector('[data-sidebar="sidebar"], aside');
+    // Several sidebars can be mounted at once (app session sidebar + settings
+    // tabs sidebar). Anchor on the settings one: it is the only surface that
+    // contains the "Back to app" affordance (fallback: the Cloud group).
+    const candidates = [...document.querySelectorAll('[data-sidebar="sidebar"], aside, nav')];
+    const sidebar = candidates.find((el) => (el.innerText ?? '').includes('Back to app'))
+      ?? candidates.find((el) => (el.innerText ?? '').includes('Cloud'))
+      ?? candidates[0];
     const buttons = [...(sidebar?.querySelectorAll('button') ?? [])].map((button) => (button.textContent ?? '').replace(/\s+/g, ' ').trim());
     return {
       text: (sidebar?.innerText ?? '').replace(/\s+/g, ' ').trim(),
@@ -434,5 +448,5 @@ async function assertNoOrgConnectionInExtensions(ctx, name) {
   ctx.assert(!marketplaceText.includes(name), "Marketplace rendered the org connection.");
   ctx.assert(!marketplaceText.includes("Organization MCP Connections"), "Marketplace kept the org MCP filter option.");
   await ctx.clickText("My Extensions", { selector: "button", timeoutMs: 30_000 });
-  await ctx.waitForText("Available apps", { timeoutMs: 30_000 });
+  await ctx.waitForText("AVAILABLE APPS", { timeoutMs: 30_000 });
 }
