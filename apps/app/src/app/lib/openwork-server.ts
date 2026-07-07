@@ -246,6 +246,7 @@ export type OpenworkDesktopCloudSyncResult = {
 
 export type OpenworkCloudPluginInstallResult = {
   item: CloudImportedPlugin;
+  warnings: string[];
 };
 
 export type OpenworkCloudPluginsResult = {

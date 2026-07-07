@@ -45,7 +45,7 @@ import {
   type OpenMarketplacePluginDetail,
 } from "@/react-app/shell/notifications";
 
-type AsyncResult = { ok: boolean; message: string };
+type AsyncResult = { ok: boolean; message: string; warnings?: string[] };
 type MarketplacePackageStatus = "available" | "installed" | "update_available";
 type MarketplaceStatusFilter = "all" | MarketplacePackageStatus;
 type CloudMarketplacesSession = Pick<
@@ -442,7 +442,8 @@ export function CloudMarketplacesView({
       try {
         const result = await extensions.importCloudOrgPlugin(marketplaceId, plugin);
         if (!result.ok) throw new Error(result.message);
-        toast.success(result.message);
+        if (result.warnings?.length) toast.warning(result.message);
+        else toast.success(result.message);
         setDetailRow(null);
       } catch (error) {
         setActionError(error instanceof Error ? error.message : `Failed to add ${plugin.name}.`);
@@ -490,16 +491,20 @@ export function CloudMarketplacesView({
     setActionError(null);
     const targets = [...updatableRows];
     let failed = 0;
+    const warnings: string[] = [];
     // Sequential on purpose: avoid hammering the install routes.
     for (let index = 0; index < targets.length; index += 1) {
       const target = targets[index];
       setUpdateAllProgress({ current: index + 1, total: targets.length });
       const result = await extensions.importCloudOrgPlugin(target.marketplaceId, target.plugin);
       if (!result.ok) failed += 1;
+      else warnings.push(...(result.warnings ?? []));
     }
     setUpdateAllProgress(null);
     if (failed > 0) {
       setActionError(`Failed to update ${failed} extension${failed === 1 ? "" : "s"}.`);
+    } else if (warnings.length > 0) {
+      toast.warning(`Updated ${targets.length} extension${targets.length === 1 ? "" : "s"}. ${warnings.join(" ")}`);
     } else if (targets.length > 0) {
       toast.success(`Updated ${targets.length} extension${targets.length === 1 ? "" : "s"}.`);
     }
