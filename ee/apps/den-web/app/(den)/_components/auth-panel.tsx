@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowRight, CheckCircle2 } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { isSamePathname } from "../_lib/client-route";
 import { getErrorMessage, getSocialCallbackUrl, requestJson, type AuthMode } from "../_lib/den-flow";
@@ -98,6 +98,7 @@ export function AuthPanel({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const prefillRef = useRef<string | null>(null);
   const [copiedDesktopField, setCopiedDesktopField] = useState<"link" | "code" | null>(null);
   const [passwordResetRequested, setPasswordResetRequested] = useState(false);
@@ -203,6 +204,13 @@ export function AuthPanel({
   const showSingleOrgSsoDivider = showSingleOrgSso && !isSingleOrgSsoMode;
   const showEmailPasswordAuth = !isSingleOrgSsoMode;
   const showSocialAuth = showEmailPasswordAuth && !verificationRequired && !isPasswordResetRequest && !hideSocialAuth;
+  const callbackError = searchParams.get("error")?.trim() ?? "";
+  const callbackErrorDescription = searchParams.get("error_description")?.trim() ?? "";
+  const authCallbackMessage = callbackError === "unsolicited_response"
+    ? "Microsoft sent an IdP-initiated SAML response. Start SSO from the OpenWork sign-in URL instead."
+    : callbackError === "saml_error" && callbackErrorDescription
+      ? callbackErrorDescription
+      : "";
 
   useEffect(() => {
     const key = prefillKey ?? prefilledEmail?.trim() ?? null;
@@ -401,6 +409,15 @@ export function AuthPanel({
           <p className="m-0 text-center text-xs text-[var(--dls-text-secondary)]">
             Sign in below, then click above to return to the app.
           </p>
+        </div>
+      ) : null}
+
+      {authCallbackMessage ? (
+        <div
+          className="den-frame-inset grid gap-1 rounded-[1.5rem] px-4 py-3 text-center text-[13px] text-[var(--dls-text-secondary)]"
+          aria-live="polite"
+        >
+          <p className="font-medium text-rose-600">{authCallbackMessage}</p>
         </div>
       ) : null}
 

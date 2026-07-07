@@ -116,7 +116,9 @@ ACS URL before SAML can be fully tested.
    - `displayName`: the user's display name.
    - Name ID: an email-like stable user identifier.
 10. Test with an assigned user from the OpenWork `/sso/<org-slug>` URL. This is
-    the supported SP-initiated path.
+    the supported SP-initiated path. Do not start the test from an Entra
+    IdP-initiated launch or My Apps tile unless it first redirects to the
+    OpenWork Sign-in URL.
 
 For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 
@@ -155,7 +157,7 @@ For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 
 ## Validation checklist
 
-- Entra SAML test redirects through OpenWork's `/sso/<org-slug>` URL.
+- OpenWork's `/sso/<org-slug>` Sign-in URL redirects to Entra.
 - The SAML response lands on OpenWork's generated ACS URL.
 - A first SSO login creates or updates an OpenWork user and organization member.
 - Email/password sign-in is rejected for managed users when SSO is required for
@@ -172,6 +174,7 @@ For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 |---|---|---|
 | Entra says the reply URL is invalid | The Entra Reply URL does not match OpenWork's generated ACS URL | Copy the ACS URL from OpenWork after saving the SAML connection and paste it into Basic SAML Configuration. |
 | Microsoft shows `AADSTS700016` for `https://sts.windows.net/.../` | Entra is receiving the IdP issuer as the SP Entity ID / app identifier | Set Entra **Identifier (Entity ID)** to the OpenWork audience/auth URL, then resave the SSO connection in OpenWork so AuthnRequests use the OpenWork SP Entity ID. |
+| OpenWork redirects to `/?error=unsolicited_response&error_description=IdP-initiated+SSO+not+allowed` | The flow started from Entra as IdP-initiated SAML | Open the OpenWork **Sign-in URL** directly, or set Entra **Sign on URL** to that OpenWork URL and launch from there. |
 | SAML login fails with audience or recipient errors | Entra Identifier, OpenWork Audience URL, or ACS URL do not match | Keep the Entra Identifier equal to the OpenWork audience and the Entra Reply URL equal to the OpenWork ACS URL. |
 | SAML login fails after changing certs | OpenWork still has the old IdP certificate | Paste the new Entra Base64 certificate into OpenWork and save the SAML connection again. |
 | IdP-initiated login fails | OpenWork only supports SP-initiated organization SAML | Start login from OpenWork's `/sso/<org-slug>` sign-in URL. |
