@@ -120,16 +120,14 @@ function includedPermissionsScript() {
 
 function featureReadyScript(featureKey) {
   return `(() => {
-    const label = [...document.querySelectorAll('label')].find((entry) => (entry.textContent ?? '').includes(${JSON.stringify(`(${featureKey})`)}));
-    const input = label?.querySelector('input[type="checkbox"]');
+    const input = [...document.querySelectorAll('input[type="checkbox"][data-feature]')].find((entry) => entry.dataset.feature === ${JSON.stringify(featureKey)});
     return Boolean(input && !input.disabled);
   })()`;
 }
 
 function setFeatureCheckedScript(featureKey, checked) {
   return `(() => {
-    const label = [...document.querySelectorAll('label')].find((entry) => (entry.textContent ?? '').includes(${JSON.stringify(`(${featureKey})`)}));
-    const input = label?.querySelector('input[type="checkbox"]');
+    const input = [...document.querySelectorAll('input[type="checkbox"][data-feature]')].find((entry) => entry.dataset.feature === ${JSON.stringify(featureKey)});
     if (!input || input.disabled) return { ok: false, checked: false };
     input.scrollIntoView({ block: 'center' });
     if (input.checked !== ${JSON.stringify(checked)}) input.click();
@@ -141,8 +139,7 @@ function featureStatesScript() {
   return `(() => {
     const states = {};
     for (const featureKey of ${JSON.stringify(FEATURE_KEYS)}) {
-      const label = [...document.querySelectorAll('label')].find((entry) => (entry.textContent ?? '').includes('(' + featureKey + ')'));
-      const input = label?.querySelector('input[type="checkbox"]');
+      const input = [...document.querySelectorAll('input[type="checkbox"][data-feature]')].find((entry) => entry.dataset.feature === featureKey);
       states[featureKey] = input ? input.checked : null;
     }
     return states;

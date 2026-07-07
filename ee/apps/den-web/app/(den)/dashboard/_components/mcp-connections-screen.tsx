@@ -30,10 +30,10 @@ const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 90_000;
 
 const GOOGLE_WORKSPACE_OPTIONAL_PERMISSIONS = [
-  { key: "gmailRead", label: "Read Gmail (gmailRead)" },
-  { key: "driveFull", label: "Full Drive access (driveFull)" },
-  { key: "calendarWrite", label: "Create calendar events (calendarWrite)" },
-  { key: "chat", label: "Google Chat (chat)" },
+  { key: "gmailRead", label: "Read Gmail" },
+  { key: "driveFull", label: "Full Drive access" },
+  { key: "calendarWrite", label: "Create calendar events" },
+  { key: "chat", label: "Google Chat" },
 ];
 
 export function McpConnectionsScreen() {
@@ -265,18 +265,21 @@ function GoogleWorkspaceDialog({
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [features, setFeatures] = useState<string[]>([]);
+  const featuresPrefilled = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setClientId("");
     setClientSecret("");
     setFeatures([]);
+    featuresPrefilled.current = false;
   }, [open]);
 
   useEffect(() => {
-    if (!open || clientConfig.isLoading) return;
+    if (!open || featuresPrefilled.current || !clientConfig.isSuccess || clientConfig.isFetching) return;
     setFeatures(clientConfig.data?.features ?? []);
-  }, [open, clientConfig.isLoading, clientConfig.data?.features]);
+    featuresPrefilled.current = true;
+  }, [open, clientConfig.isSuccess, clientConfig.isFetching, clientConfig.data?.features]);
 
   if (!open) {
     return null;
@@ -317,6 +320,7 @@ function GoogleWorkspaceDialog({
                 <label key={permission.key} className="flex items-center gap-2 text-[13px] text-gray-700">
                   <input
                     type="checkbox"
+                    data-feature={permission.key}
                     className="h-4 w-4 rounded border-gray-300 text-gray-900"
                     checked={features.includes(permission.key)}
                     disabled={loadingConfig}
