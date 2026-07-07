@@ -150,6 +150,7 @@ export const desktopConfigSchema = desktopPolicyValueSchema
       .optional(),
     brandLogoUrl: z.string().url().max(2048).optional(),
     brandAccentColor: z.enum(brandAccentColorValues).optional(),
+    connectEnabled: z.boolean().optional(),
   })
   .meta({ ref: "DenDesktopConfig" });
 
