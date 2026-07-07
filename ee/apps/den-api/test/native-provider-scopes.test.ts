@@ -51,6 +51,7 @@ describe("google-workspace native provider scopes", () => {
     const features = registry.clientSelectedFeatures(provider, {})
     const scopes = registry.resolveProviderScopes(provider, features)
 
+    // Legacy rows without a features key preserve the old base-6 scope behavior.
     expect(registry.clientSelectedFeatures(provider, null)).toEqual(["calendarRead", "gmailDraft", "driveFile"])
     expect(features).toEqual(["calendarRead", "gmailDraft", "driveFile"])
     expect(scopes).toEqual(GOOGLE_WORKSPACE_LEGACY_BASE_SCOPES)
@@ -119,5 +120,6 @@ describe("google-workspace native provider scopes", () => {
       "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/calendar.events",
     ])
+    expect(scopes).toHaveLength(8)
   })
 })

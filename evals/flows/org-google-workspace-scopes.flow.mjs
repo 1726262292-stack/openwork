@@ -38,6 +38,7 @@ const state = {
   memberSession: null,
   orgId: null,
   orgName: null,
+  redirectUri: null,
   authorizeUrl: null,
   authorizeScopes: [],
   status: null,
@@ -153,10 +154,22 @@ function includedPermissionsScript() {
     const text = document.body.innerText;
     const normalized = text.toLowerCase();
     return text.includes('Permissions')
+      && text.includes('Add this authorized redirect URI')
       && normalized.includes('calendar')
       && normalized.includes('gmail')
       && normalized.includes('drive');
   })()`;
+}
+
+function redirectUriVisibleScript() {
+  return `(() => {
+    const element = document.querySelector('[data-google-redirect-uri]');
+    return Boolean(element && (element.textContent ?? '').includes('/v1/oauth-providers/google-workspace/connect/callback'));
+  })()`;
+}
+
+function displayedRedirectUriScript() {
+  return `(() => (document.querySelector('[data-google-redirect-uri]')?.textContent ?? '').trim())()`;
 }
 
 function assertFeatureStates(ctx, states, checkedFeatures, uncheckedFeatures) {
@@ -219,6 +232,18 @@ function saveButtonEnabledScript() {
 
 function parseScopes(authorizeUrl) {
   return (new URL(authorizeUrl).searchParams.get("scope") ?? "").split(" ").filter(Boolean);
+}
+
+function parseRedirectUri(authorizeUrl) {
+  return new URL(authorizeUrl).searchParams.get("redirect_uri");
+}
+
+async function loadGoogleClientConfig(ctx) {
+  const config = await denApiFetch("/v1/oauth-providers/google-workspace/client", {
+    headers: orgHeaders(state.adminSession),
+  });
+  ctx.assert(config.response.ok, `Google Workspace client config failed: ${config.response.status} ${JSON.stringify(config.body).slice(0, 200)}`);
+  return config.body;
 }
 
 function consentAuthorizeUrl(authorizeUrl) {
@@ -331,7 +356,7 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The Google Workspace setup shows granular permissions with desktop defaults checked", {
+        await ctx.prove("The Google Workspace setup explains the Google Cloud app, redirect URL, and default granular permissions", {
           voiceover: vo[0],
           action: async () => {
             await signInViaBrowser(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
@@ -343,13 +368,20 @@ export default {
           assert: async () => {
             await ctx.waitFor(includedPermissionsScript(), { timeoutMs: 20_000, label: "permissions copy" });
             await ctx.waitFor(featureReadyScript("calendarRead"), { timeoutMs: 20_000, label: "default permission checkboxes ready" });
+            await ctx.waitFor(redirectUriVisibleScript(), { timeoutMs: 20_000, label: "Google redirect URI" });
+            const config = await loadGoogleClientConfig(ctx);
+            state.redirectUri = typeof config.redirectUri === "string" ? config.redirectUri : null;
+            ctx.assert(Boolean(state.redirectUri), `Client config did not include a redirectUri: ${JSON.stringify(config)}`);
+            ctx.assert(state.redirectUri.includes("/v1/oauth-providers/google-workspace/connect/callback"), `Unexpected redirectUri: ${state.redirectUri}`);
+            const displayedRedirectUri = await ctx.eval(displayedRedirectUriScript());
+            ctx.assert(displayedRedirectUri === state.redirectUri, `Displayed redirect URI ${displayedRedirectUri} did not equal API redirectUri ${state.redirectUri}.`);
             const states = await ctx.eval(featureStatesScript());
             assertFeatureStates(ctx, states, DEFAULT_FEATURES, ["calendarWrite", "gmailRead", "driveRead", "driveFull", "chat"]);
           },
           screenshot: {
             name: "org-google-workspace-included-permissions",
-            claim: "The setup dialog shows granular Calendar, Gmail, and Drive permissions with the default picks checked.",
-            requireText: ["Permissions", "Calendar", "Gmail", "Drive", "Read calendar", "Draft emails"],
+            claim: "The setup dialog shows Google Cloud instructions, the redirect URI, and granular Calendar, Gmail, and Drive permissions with the default picks checked.",
+            requireText: ["How to set it up", "Add this authorized redirect URI", "Permissions", "Read calendar", "Draft emails"],
             rejectText: ["Something went wrong"],
           },
         });
@@ -412,7 +444,7 @@ export default {
     {
       name: "Frame 4",
       run: async (ctx) => {
-        await ctx.prove("The member authorize URL asks for exactly the defaults plus the two selected additions", {
+        await ctx.prove("The member authorize URL uses the setup redirect URI and exactly the defaults plus the two selected additions", {
           voiceover: vo[3],
           action: async () => {
             const started = await denApiFetch("/v1/mcp-connections/google-workspace/connect/start", {
@@ -422,12 +454,15 @@ export default {
             ctx.assert(started.body.status === "needs_auth" && typeof started.body.authorizeUrl === "string", "connect/start did not return an authorizeUrl.");
             state.authorizeUrl = started.body.authorizeUrl;
             state.authorizeScopes = parseScopes(state.authorizeUrl);
+            ctx.assert(Boolean(state.redirectUri), "Frame 1 did not capture the setup redirect URI.");
+            ctx.assert(parseRedirectUri(state.authorizeUrl) === state.redirectUri, `Authorize URL redirect_uri ${parseRedirectUri(state.authorizeUrl)} did not equal setup redirectUri ${state.redirectUri}.`);
             assertExactStringSet(ctx, state.authorizeScopes, EXPECTED_MEMBER_SCOPES, "Authorize URL scopes");
             await ctx.eval(`(() => { window.location.href = ${JSON.stringify(consentAuthorizeUrl(state.authorizeUrl))}; return true; })()`);
             await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: "mock consent page loaded" });
           },
           assert: async () => {
             assertExactStringSet(ctx, state.authorizeScopes, EXPECTED_MEMBER_SCOPES, "Authorize URL scopes");
+            ctx.assert(parseRedirectUri(state.authorizeUrl) === state.redirectUri, `Authorize URL redirect_uri ${parseRedirectUri(state.authorizeUrl)} did not equal setup redirectUri ${state.redirectUri}.`);
             await ctx.waitFor("document.body.innerText.includes('Mock MCP OAuth') && document.body.innerText.includes('Approve OpenWork')", {
               timeoutMs: 30_000,
               label: "mock Google consent page",

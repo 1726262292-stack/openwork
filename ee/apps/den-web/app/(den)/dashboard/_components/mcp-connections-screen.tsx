@@ -291,19 +291,21 @@ function GoogleWorkspaceDialog({
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [features, setFeatures] = useState<string[]>([]);
+  const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
   const featuresPrefilled = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setClientId("");
     setClientSecret("");
-    setFeatures([]);
+    setFeatures(GOOGLE_WORKSPACE_DEFAULT_FEATURES);
+    setCopiedRedirectUri(false);
     featuresPrefilled.current = false;
   }, [open]);
 
   useEffect(() => {
     if (!open || featuresPrefilled.current || !clientConfig.isSuccess || clientConfig.isFetching) return;
-    setFeatures(clientConfig.data?.features ?? GOOGLE_WORKSPACE_DEFAULT_FEATURES);
+    setFeatures(clientConfig.data.features);
     featuresPrefilled.current = true;
   }, [open, clientConfig.isSuccess, clientConfig.isFetching, clientConfig.data?.features]);
 
@@ -311,7 +313,8 @@ function GoogleWorkspaceDialog({
     return null;
   }
 
-  const configured = Boolean(clientConfig.data);
+  const configured = clientConfig.data?.configured ?? false;
+  const redirectUri = clientConfig.data?.redirectUri ?? "";
   const loadingConfig = clientConfig.isLoading;
   const formError = error ?? clientConfig.error;
   const trimmedClientId = clientId.trim();
@@ -322,10 +325,15 @@ function GoogleWorkspaceDialog({
     setFeatures((current) => current.includes(feature) ? current.filter((entry) => entry !== feature) : [...current, feature]);
   }
 
+  function copyRedirectUri() {
+    if (!redirectUri) return;
+    void navigator.clipboard.writeText(redirectUri).then(() => setCopiedRedirectUri(true));
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-[28px] border border-gray-200 bg-white p-6 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.45)]"
+        className="max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-[28px] border border-gray-200 bg-white p-6 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.45)]"
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-gray-950">Set up Google Workspace</h2>
@@ -335,6 +343,35 @@ function GoogleWorkspaceDialog({
         </p>
 
         <div className="mt-5 space-y-4">
+          <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+            <p className="text-[13px] font-semibold text-gray-900">How to set it up</p>
+            <ol className="mt-2 list-decimal space-y-2 pl-4 text-[12px] leading-5 text-gray-600">
+              <li>
+                Create an OAuth client in Google Cloud Console (APIs &amp; Services → Credentials → Create credentials → OAuth client ID → Web application).{" "}
+                <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="font-medium text-gray-900 underline decoration-gray-300 underline-offset-4">
+                  Open Google Cloud Console
+                </a>
+              </li>
+              <li>
+                <p>Add this authorized redirect URI:</p>
+                <div className="mt-1 flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-2">
+                  <p data-google-redirect-uri className="min-w-0 flex-1 break-all font-mono text-[11px] leading-5 text-gray-800">
+                    {redirectUri || "Loading redirect URI…"}
+                  </p>
+                  <DenButton variant="secondary" size="sm" onClick={copyRedirectUri} disabled={!redirectUri}>
+                    {copiedRedirectUri ? "Copied" : "Copy"}
+                  </DenButton>
+                </div>
+              </li>
+              <li>
+                Enable the Google APIs for the permissions you pick (Gmail, Calendar, Drive).{" "}
+                <a href="https://console.cloud.google.com/apis/library" target="_blank" rel="noopener" className="font-medium text-gray-900 underline decoration-gray-300 underline-offset-4">
+                  Open API library
+                </a>
+              </li>
+              <li>Paste the client ID and secret below.</li>
+            </ol>
+          </div>
           <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
             <p className="text-[13px] font-semibold text-gray-900">Permissions</p>
             <p className="mt-1 text-[12px] leading-5 text-gray-500">

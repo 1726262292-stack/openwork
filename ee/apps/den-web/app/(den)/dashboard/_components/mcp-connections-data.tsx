@@ -235,20 +235,29 @@ export type SaveNativeProviderClientInput = {
 
 export type NativeProviderClient = {
   providerId: string;
-  clientId: string;
+  configured: boolean;
+  clientId: string | null;
   features: string[];
   scopes: string[];
+  redirectUri: string;
 };
 
 function parseNativeProviderClient(payload: unknown): NativeProviderClient {
   if (!isRecord(payload)) {
     throw new Error("Native provider client response was incomplete.");
   }
-  const { providerId, clientId, features, scopes } = payload;
-  if (typeof providerId !== "string" || typeof clientId !== "string" || !isStringArray(features) || !isStringArray(scopes)) {
+  const { providerId, configured, clientId, features, scopes, redirectUri } = payload;
+  if (
+    typeof providerId !== "string"
+    || typeof configured !== "boolean"
+    || (typeof clientId !== "string" && clientId !== null)
+    || !isStringArray(features)
+    || !isStringArray(scopes)
+    || typeof redirectUri !== "string"
+  ) {
     throw new Error("Native provider client response was incomplete.");
   }
-  return { providerId, clientId, features, scopes };
+  return { providerId, configured, clientId, features, scopes, redirectUri };
 }
 
 /**
@@ -295,15 +304,12 @@ export function useNativeProviderClient(providerId: string, enabled: boolean) {
   return useQuery({
     enabled: enabled && Boolean(orgId),
     queryKey: mcpConnectionQueryKeys.nativeProviderClient(orgId, providerId),
-    queryFn: async (): Promise<NativeProviderClient | null> => {
+    queryFn: async (): Promise<NativeProviderClient> => {
       const { response, payload } = await requestJson(
         `/v1/oauth-providers/${encodeURIComponent(providerId)}/client`,
         { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
         15000,
       );
-      if (response.status === 404) {
-        return null;
-      }
       if (!response.ok) {
         throw getRequestError(payload, response, `Failed to load the OAuth client (${response.status}).`);
       }
