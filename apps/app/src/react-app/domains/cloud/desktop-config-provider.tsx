@@ -54,6 +54,7 @@ const DESKTOP_CONFIG_ITEMS = [
   "allowedDesktopVersions",
   "brandLogoUrl",
   "brandAccentColor",
+  "connectEnabled",
 ] as const satisfies readonly (keyof DenDesktopConfig)[];
 
 type DesktopConfigItem = (typeof DESKTOP_CONFIG_ITEMS)[number];
@@ -318,6 +319,10 @@ export function useDesktopConfig(): DesktopConfigStore {
  */
 export function useOrgRestrictions(): DenDesktopConfig {
   return useDesktopConfig().config;
+}
+
+export function useConnectEnabled(): boolean | undefined {
+  return useDesktopConfig().config.connectEnabled;
 }
 
 /**

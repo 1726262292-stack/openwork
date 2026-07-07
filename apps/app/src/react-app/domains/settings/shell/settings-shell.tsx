@@ -22,12 +22,14 @@ import { NotificationBell } from "../../../shell/notification-center";
 import type { SettingsTab } from "../../../../app/types";
 import {
   SettingsPage,
+  SettingsBetaBadge,
   SettingsSidebar,
   getCloudSettingsTabs,
   getGlobalSettingsTabs,
   getSettingsTabIcon,
   getSettingsTabLabel,
   getWorkspaceSettingsTabs,
+  isSettingsTabBeta,
 } from "./settings-page";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { useFeatureFlagsPreferences } from "../state/feature-flags-preferences";
@@ -179,6 +181,7 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
           <Button variant="outline" size="sm" className="min-w-0 max-w-46 justify-start gap-2">
             <ActiveIcon className="size-4 shrink-0" />
             <span className="truncate">{getSettingsTabLabel(props.activeTab)}</span>
+            {isSettingsTabBeta(props.activeTab) ? <SettingsBetaBadge /> : null}
             <ChevronDown className="ml-auto size-4 shrink-0" />
           </Button>
         )}
@@ -198,6 +201,7 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
                 >
                   <Icon />
                   <span>{getSettingsTabLabel(tab)}</span>
+                  {isSettingsTabBeta(tab) ? <SettingsBetaBadge className="ml-auto" /> : null}
                 </DropdownMenuItem>
               );
             })}

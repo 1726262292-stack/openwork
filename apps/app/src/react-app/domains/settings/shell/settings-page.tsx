@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   BrainCircuit,
   Bug,
+  Cable,
   ChevronDown,
   CloudCog,
   Cog,
@@ -42,6 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { t } from "../../../../i18n";
 import type { SettingsTab } from "../../../../app/types";
+import { cn } from "@/lib/utils";
 import { useOrgRestrictions } from "../../cloud/desktop-config-provider";
 import {
   SettingsContent,
@@ -70,6 +72,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return FolderLock;
     case "cloud-account":
       return UserCircle;
+    case "connect":
+      return Cable;
     case "cloud-marketplaces":
       return Store;
     case "cloud-providers":
@@ -109,6 +113,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return "Permissions";
     case "cloud-account":
       return t("settings.tab_cloud_account");
+    case "connect":
+      return t("settings.tab_connect");
     case "cloud-marketplaces":
       return t("settings.tab_cloud_marketplaces");
     case "cloud-providers":
@@ -150,6 +156,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return "Authorized folders and file access";
     case "cloud-account":
       return t("settings.tab_description_cloud_account");
+    case "connect":
+      return t("settings.tab_description_connect");
     case "cloud-marketplaces":
       return t("settings.tab_description_cloud_marketplaces");
     case "cloud-providers":
@@ -191,7 +199,34 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
 
 export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
   "cloud-account",
+  "connect",
 ];
+
+export function isSettingsTabBeta(tab: SettingsTab) {
+  return tab === "connect";
+}
+
+export function SettingsBetaBadge({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full border border-amber-6/40 bg-amber-3/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-11",
+        className,
+      )}
+    >
+      {t("common.beta")}
+    </span>
+  );
+}
+
+function SettingsSidebarTabLabel({ tab }: { tab: SettingsTab }) {
+  return (
+    <>
+      <span>{getSettingsTabLabel(tab)}</span>
+      {isSettingsTabBeta(tab) ? <SettingsBetaBadge className="ml-auto" /> : null}
+    </>
+  );
+}
 
 /**
  * Cloud settings tabs, gated by client-only preview flags. The Memory tab is
@@ -304,7 +339,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
+                      <SettingsSidebarTabLabel tab={tab} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -327,7 +362,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
+                      <SettingsSidebarTabLabel tab={tab} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -350,7 +385,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
+                      <SettingsSidebarTabLabel tab={tab} />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );

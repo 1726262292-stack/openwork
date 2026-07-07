@@ -75,6 +75,7 @@ import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
+import { ConnectView } from "@/react-app/domains/settings/pages/connect-view";
 import { CloudMarketplacesView } from "@/react-app/domains/settings/pages/cloud-marketplaces-view";
 import { CloudProvidersView } from "@/react-app/domains/settings/pages/cloud-providers-view";
 import { MemoryView } from "@/react-app/domains/settings/pages/memory-view";
@@ -242,7 +243,7 @@ const SETTINGS_HIDE_TITLEBAR_KEY = "openwork.react.settings.hide-titlebar";
 const SETTINGS_UPDATE_AUTO_CHECK_KEY = "openwork.react.settings.update-auto-check";
 const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-download";
 
-function parseSettingsPath(pathname: string): {
+export function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
   extensionsSection?: "all" | "mcp" | "plugins";
@@ -270,6 +271,7 @@ function parseSettingsPath(pathname: string): {
     case "debug":
       return { tab: head, redirectPath: null };
     case "cloud-account":
+    case "connect":
     case "cloud-marketplaces":
     case "cloud-providers":
     case "memory":
@@ -1660,6 +1662,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }),
     [connectionsSnapshot.mcpServers, connectionsStore.quickConnect, enablementContext, extensionController, extensionsStore, orgMcpConnections.connections],
   );
+  const extensionItemsForExtensions = useMemo(
+    () => extensionItems.items.filter((item) => item.source !== "org-connection"),
+    [extensionItems.items],
+  );
   const routeOpenworkStatus = openworkClient ? "connected" : "disconnected";
   const notFoundRouteError = !loading && routeWorkspaceId && !selectedWorkspace
     ? "Workspace was not found. Select a new workspace from the sidebar."
@@ -2102,7 +2108,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 selectedMcp={connectionsSnapshot.selectedMcp}
                 setSelectedMcp={(name) => connectionsStore.setSelectedMcp(name)}
                 quickConnect={extensionItems.quickConnectEntries}
-                installedOrgMcpItems={extensionItems.orgMcpConnectionItems.filter((item) => item.installState === "installed")}
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
                 connectMcp={(entry) => {
@@ -2146,7 +2151,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 builtInEntries={extensionItems.builtInItems.flatMap((item) => item.builtInEntry ? [item.builtInEntry] : [])}
                 configSlotForBuiltIn={extensionController.configSlotForEntry}
                 isBuiltInConnected={extensionController.isConnected}
-                extensionItems={extensionItems.items}
+                extensionItems={extensionItemsForExtensions}
                 orgMcpConnectingId={orgMcpConnections.connectingId}
                 onConnectOrgMcp={(connectionId) => {
                   void orgMcpConnections.connect(connectionId);
@@ -2164,6 +2169,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             session={denSession}
           />
         );
+      case "connect":
+        return (
+          <ConnectView
+            developerMode={developerMode}
+            session={denSession}
+          />
+        );
       case "cloud-marketplaces":
         return (
           <CloudMarketplacesView
@@ -2176,7 +2188,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             builtInEntries={extensionItems.builtInItems.flatMap((item) => item.builtInEntry ? [item.builtInEntry] : [])}
             configSlotForBuiltIn={extensionController.configSlotForEntry}
             isBuiltInConnected={extensionController.isConnected}
-            extensionItems={extensionItems.items}
+            extensionItems={extensionItemsForExtensions}
             orgMcpConnectingId={orgMcpConnections.connectingId}
             onConnectOrgMcp={(connectionId) => {
               void orgMcpConnections.connect(connectionId);

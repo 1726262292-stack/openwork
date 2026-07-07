@@ -2,6 +2,7 @@
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import type { ExtensionKind } from "../../app/constants";
 import type { EnablementResult } from "../../app/extensions";
+import { t } from "../../i18n";
 import { resolveExtensionIconUrl } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
 
@@ -162,7 +163,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
             ) : null}
             {beta ? (
               <span className="shrink-0 rounded-md bg-amber-3 px-1.5 py-0.5 text-[10px] font-medium text-amber-11">
-                Beta
+                {t("common.beta")}
               </span>
             ) : null}
             {disabledReason ? (
