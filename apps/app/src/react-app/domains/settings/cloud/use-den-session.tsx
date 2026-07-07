@@ -317,7 +317,7 @@ export function useDenSession({
         });
         // Push to context immediately so consumers see the new org
         if (nextOrg) {
-          setActiveOrganization({ id: nextOrg.id, name: nextOrg.name, slug: nextOrg.slug });
+          setActiveOrganization({ id: nextOrg.id, name: nextOrg.name, role: nextOrg.role, slug: nextOrg.slug });
         } else if (!next) {
           setActiveOrganization(null);
         }
@@ -476,6 +476,7 @@ export function useDenSession({
       setActiveOrganization({
         id: nextOrg.id,
         name: nextOrg.name,
+        role: nextOrg.role,
         slug: nextOrg.slug,
       });
 

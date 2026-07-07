@@ -14,6 +14,7 @@ import { useConnectEnabled } from "@/react-app/domains/cloud/desktop-config-prov
 import { ExtensionCard } from "@/react-app/design-system/extension-card";
 import { ExtensionDetailModal } from "@/react-app/design-system/extension-detail-modal";
 import { resolveMarketplaceDeliveryAction } from "@/react-app/domains/settings/connect-delivery";
+import { isDesktopInstallableMarketplacePlugin } from "@/react-app/domains/settings/connect-cloud-readiness";
 import {
   isOrgMcpConnectionItem,
   isToggleControlledExtension,
@@ -250,7 +251,8 @@ export function CloudMarketplacesView({
   ), [extensionItems]);
   const lastRowsRef = React.useRef<MarketplaceRow[]>([]);
   const cloudRows = React.useMemo<MarketplacePackageRow[]>(() => {
-    return marketplaces.flatMap((marketplace) => marketplace.plugins.map((plugin) => {
+    return marketplaces.flatMap((marketplace) => marketplace.plugins.flatMap((plugin) => {
+      if (connectEnabled === true && !isDesktopInstallableMarketplacePlugin(plugin)) return [];
       const imported = importedPlugins[plugin.id] ?? null;
       const composition = pluginComposition(plugin);
       const counts = pluginCounts(plugin);
@@ -258,7 +260,7 @@ export function CloudMarketplacesView({
       const status: MarketplacePackageStatus = imported && pendingChanges[plugin.id] === "modified" && !isCloudBuiltInPlugin(plugin)
         ? "update_available"
         : item?.installState ?? (isCloudBuiltInPlugin(plugin) ? "installed" : pluginStatus(imported, plugin));
-      return {
+      return [{
         source: "cloud",
         marketplaceId: marketplace.marketplace.id,
         marketplaceName: marketplace.marketplace.name,
@@ -275,9 +277,9 @@ export function CloudMarketplacesView({
           ...counts,
           ...(imported?.files.map((file) => `${file.title} ${file.objectType} ${file.path}`) ?? []),
         ].join(" ").toLowerCase(),
-      };
+      }];
     }));
-  }, [extensionItemsByPluginId, importedPlugins, marketplaces, pendingChanges]);
+  }, [connectEnabled, extensionItemsByPluginId, importedPlugins, marketplaces, pendingChanges]);
 
   const builtInRows = React.useMemo<BuiltInMarketplaceRow[]>(() => {
     return builtInEntries.map((entry) => {
@@ -304,6 +306,7 @@ export function CloudMarketplacesView({
   }, [builtInEntries, enablementContext, extensionItemsByBuiltInId, isBuiltInConnected]);
 
   const orgMcpRows = React.useMemo<OrgMcpMarketplaceRow[]>(() => {
+    if (connectEnabled === true) return [];
     return extensionItems.flatMap((item) => {
       if (!isOrgMcpConnectionItem(item) || item.installState !== "available") return [];
       const connection = item.orgMcpConnection;
@@ -323,7 +326,7 @@ export function CloudMarketplacesView({
         ].join(" ").toLowerCase(),
       }];
     });
-  }, [extensionItems]);
+  }, [connectEnabled, extensionItems]);
 
   const rows = React.useMemo<MarketplaceRow[]>(() => canShowRows ? [...builtInRows, ...cloudRows, ...orgMcpRows] : [], [builtInRows, canShowRows, cloudRows, orgMcpRows]);
 
@@ -430,7 +433,7 @@ export function CloudMarketplacesView({
 
   const importPlugin = React.useCallback(
     async (marketplaceId: string | null, plugin: DenOrgPlugin) => {
-      if (connectEnabled === true) return;
+      if (connectEnabled === true && !isDesktopInstallableMarketplacePlugin(plugin)) return;
       if (actionId) return;
 
       setActionId(plugin.id);
@@ -472,10 +475,8 @@ export function CloudMarketplacesView({
   );
 
   const updatableRows = React.useMemo(
-    () => connectEnabled === true
-      ? []
-      : cloudRows.filter((row) => row.status === "update_available" && !isCloudBuiltInPlugin(row.plugin)),
-    [cloudRows, connectEnabled],
+    () => cloudRows.filter((row) => row.status === "update_available" && !isCloudBuiltInPlugin(row.plugin)),
+    [cloudRows],
   );
 
   const removedUpstreamPlugins = React.useMemo(
@@ -484,7 +485,6 @@ export function CloudMarketplacesView({
   );
 
   const updateAll = React.useCallback(async () => {
-    if (connectEnabled === true) return;
     if (actionId || updateAllProgress) return;
 
     setActionError(null);
@@ -503,15 +503,15 @@ export function CloudMarketplacesView({
     } else if (targets.length > 0) {
       toast.success(`Updated ${targets.length} extension${targets.length === 1 ? "" : "s"}.`);
     }
-  }, [actionId, connectEnabled, extensions, updatableRows, updateAllProgress]);
+  }, [actionId, extensions, updatableRows, updateAllProgress]);
 
   const content = (
     <SettingsSection>
       <SettingsSectionHeader>
         <SettingsSectionHeaderContent>
-          <SettingsSectionHeaderTitle>Extension Marketplace</SettingsSectionHeaderTitle>
+          <SettingsSectionHeaderTitle>{connectEnabled === true ? t("extensions.marketplace_local_title") : t("extensions.marketplace_title")}</SettingsSectionHeaderTitle>
           <SettingsSectionHeaderDescription>
-            Browse built-in OpenWork extensions and organization marketplace extensions. Claude-compatible plugins are normalized into OpenWork extensions with installable resources such as skills, MCPs, commands, or tools.
+            {connectEnabled === true ? t("extensions.marketplace_local_description") : t("extensions.marketplace_description")}
           </SettingsSectionHeaderDescription>
         </SettingsSectionHeaderContent>
         <SettingsSectionHeaderActions>
@@ -769,7 +769,7 @@ function MarketplaceCard(props: {
   const cloudBuiltIn = isCloudBuiltInPlugin(row.plugin);
   const updateAvailable = !cloudBuiltIn && row.status === "update_available";
   const deliveryAction = resolveMarketplaceDeliveryAction({
-    connectEnabled: props.connectEnabled,
+    connectEnabled: props.connectEnabled === true && !isDesktopInstallableMarketplacePlugin(row.plugin),
     importedLocally: Boolean(row.imported),
   });
   const cloudDelivery = deliveryAction !== "install";
@@ -898,7 +898,7 @@ function MarketplacePackageDetailModal(props: {
   const cloudBuiltIn = isCloudBuiltInPlugin(row.plugin);
   const manifest = row.plugin.extension?.manifest;
   const deliveryAction = resolveMarketplaceDeliveryAction({
-    connectEnabled: props.connectEnabled,
+    connectEnabled: props.connectEnabled === true && !isDesktopInstallableMarketplacePlugin(row.plugin),
     importedLocally: Boolean(row.imported),
   });
   const cloudDelivery = deliveryAction !== "install";

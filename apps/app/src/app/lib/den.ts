@@ -69,6 +69,9 @@ import type {
   DenOrgMarketplace,
   DenOrgPlugin,
   DenOrgPluginResolved,
+  DenPluginCloudReadiness,
+  DenPluginCloudReadinessConnection,
+  DenPluginCloudReadinessState,
   DenPluginConfigObject,
   DenPluginConfigObjectType,
   DenPluginConfigObjectVersion,
@@ -1612,6 +1615,48 @@ function parseDenExtensionProjection(value: unknown): DenOrgExtensionProjection 
   };
 }
 
+function parsePluginCloudReadinessState(value: unknown): DenPluginCloudReadinessState | null {
+  switch (value) {
+    case "ready":
+    case "needs_signin":
+    case "needs_admin_setup":
+    case "desktop_only":
+    case "not_synced":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function parsePluginCloudReadinessConnection(value: unknown): DenPluginCloudReadinessConnection | null {
+  if (!isRecord(value) || typeof value.name !== "string" || typeof value.url !== "string") return null;
+  if (value.id !== null && typeof value.id !== "string") return null;
+  const credentialMode = value.credentialMode === "shared" || value.credentialMode === "per_member"
+    ? value.credentialMode
+    : undefined;
+  return {
+    id: value.id,
+    name: value.name,
+    url: value.url,
+    ...(credentialMode ? { credentialMode } : {}),
+    ...(typeof value.connectedForMe === "boolean" ? { connectedForMe: value.connectedForMe } : {}),
+  };
+}
+
+function parsePluginCloudReadiness(value: unknown): DenPluginCloudReadiness | null {
+  if (!isRecord(value) || typeof value.hasInstructional !== "boolean" || !Array.isArray(value.connections)) return null;
+  const state = parsePluginCloudReadinessState(value.state);
+  if (!state) return null;
+  return {
+    state,
+    hasInstructional: value.hasInstructional,
+    connections: value.connections.flatMap((entry) => {
+      const connection = parsePluginCloudReadinessConnection(entry);
+      return connection ? [connection] : [];
+    }),
+  };
+}
+
 function parseOrgPlugin(value: unknown): DenOrgPlugin | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
   const counts = isRecord(value.componentCounts)
@@ -1630,6 +1675,7 @@ function parseOrgPlugin(value: unknown): DenOrgPlugin | null {
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : null,
     componentCounts: counts,
     extension: parseDenExtensionProjection(value.extension),
+    ...(value.cloudReadiness === undefined ? {} : { cloudReadiness: parsePluginCloudReadiness(value.cloudReadiness) ?? undefined }),
   };
 }
 

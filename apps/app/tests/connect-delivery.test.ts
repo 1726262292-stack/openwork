@@ -6,10 +6,10 @@ import {
 } from "../src/react-app/domains/settings/connect-delivery";
 
 describe("Connect delivery switch decisions", () => {
-  test("keeps the Extensions marketplace pane unless Connect is explicitly enabled", () => {
+  test("keeps the Extensions marketplace pane in both rollout modes", () => {
     expect(shouldShowExtensionsMarketplacePane()).toBe(true);
     expect(shouldShowExtensionsMarketplacePane(false)).toBe(true);
-    expect(shouldShowExtensionsMarketplacePane(true)).toBe(false);
+    expect(shouldShowExtensionsMarketplacePane(true)).toBe(true);
   });
 
   test("keeps desktop import actions outside Connect mode", () => {

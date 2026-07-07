@@ -260,6 +260,54 @@ Add sandboxed `tool` execution via Den Worker Runtime; add `tools/searchText` ca
 
 ---
 
+## Phase 2 — cloud-native plugins (capability records)
+
+Status: designed 2026-07-07, tabled — Part 1 (readiness partition) ships first.
+
+Phase 2 replaces "derive at read time" with versioned `CapabilityRecord`s compiled when a marketplace plugin is published or synced.
+
+Each record is an immutable description of one runnable or installable unit:
+
+```ts
+type CapabilityRecord = {
+  id: string
+  pluginId: string
+  versionId: string
+  name: string
+  kind: "skill" | "command" | "agent" | "context" | "mcp" | "tool" | "hook" | "custom"
+  executionMode: "den_instructional" | "external_mcp" | "desktop_install" | "reserved_sandbox"
+  requirements: Array<{ kind: "connection" | "member_signin" | "desktop"; ref?: string }>
+  bundleRef: string
+}
+```
+
+Compile-at-publish means search reads ready-to-index rows rather than reparsing plugin config objects on every request. A publish transaction writes all records for the new plugin version, then atomically swaps the marketplace pointer from the previous record set to the new set.
+
+Skill envelopes keep the Claude plugin directory contract as the source bundle. The bundle remains compatible with `apps/server/src/claude-plugin-bundle.ts`: a Claude plugin directory with skills, commands, MCP declarations, and metadata. Den stores a `bundleRef`, then the runtime mounts that bundle into an ephemeral harness view when instructional content is executed.
+
+Instructional records (`skill`, `command`, `context`, `agent`, `custom`) execute by returning a signed envelope: provenance, raw content, arguments schema when present, and a short-lived bundle mount reference. They still do not run arbitrary code inside den-api.
+
+Plugin `.mcp.json` content compiles into connection templates. A template has a stable name, normalized URL, declared auth mode, and optional provider hints. At org setup time, templates bind to the existing External MCP machinery rather than creating a parallel credential store.
+
+The binding layer is the same one used today for External MCP Connections: org admins create or approve the connection once, members complete per-member OAuth when required, and the rail merges discovered remote tools under the existing `search_capabilities` / `execute_capability` grammar.
+
+Desktop-install records (`tool`, `hook`, built-in extension manifests, unsupported local files) intentionally stay out of Connect. They are visible only on desktop install surfaces, with the same bundleRef so the desktop can copy the exact versioned payload.
+
+The sandbox arm is reserved, not chosen. Two candidates remain open:
+
+1. Den Worker running `opencode-server` with a constrained workspace and mounted bundle.
+2. Claude Agent SDK runner with a plugin bundle adapter.
+
+Both require a stronger isolation and billing story than Part 1 needs. Until that decision is made, `tool` records stay `desktop_install` or `reserved_sandbox` with no execution path.
+
+Records are versioned and atomically swapped. A marketplace reader either sees all records for version N or all records for version N+1; it never sees a half-compiled mix. Old record sets can be retained for rollback and audit until the source plugin is archived.
+
+Capability records also make readiness cheap: state is a projection over `executionMode` plus bound connection/member auth status, not a fresh parse of every config object. The PR 6 readiness contract is the user-visible partition that this later record model preserves.
+
+No Den worker executes anything on the rail today. Part 1 and PR 6 are den-api in-process only: DB reads, readiness classification, instructional payloads, and external-MCP handoff through existing connection infrastructure.
+
+---
+
 ## 9. Security & trust considerations
 
 1. Marketplace content is org-curated but still third-party text. Instructional payloads are prompt-injection surface. Mitigations: provenance framing in every payload; the existing desktop invariant that agents do not auto-open tool-output URLs; strict grants; org admins control what is published.

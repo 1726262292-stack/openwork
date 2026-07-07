@@ -11,7 +11,7 @@ import {
 } from "../../../../app/lib/den";
 import { denSettingsChangedEvent } from "../../../../app/lib/den-session-events";
 
-type CloudActiveOrganization = Pick<DenOrgSummary, "id" | "name" | "slug">;
+type CloudActiveOrganization = Pick<DenOrgSummary, "id" | "name" | "role" | "slug">;
 
 type CloudSessionContextValue = {
   client: DenClient;
@@ -54,6 +54,7 @@ export function CloudSessionProvider({ children }: CloudSessionProviderProps) {
       return {
         id,
         name: initial.activeOrgName?.trim() || "",
+        role: "member",
         slug: initial.activeOrgSlug?.trim() || "",
       };
     });

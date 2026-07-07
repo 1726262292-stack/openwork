@@ -77,6 +77,15 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </Button>
       </div>
 
+      {connectEnabled === true ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-dls-border bg-dls-surface px-4 py-3 text-sm text-dls-secondary sm:flex-row sm:items-center sm:justify-between">
+          <span>{t("extensions.connect_marketplace_split_hint")}</span>
+          <Button size="sm" variant="outline" className="w-fit" onClick={props.onOpenConnect}>
+            {t("extensions.open_connect")}
+          </Button>
+        </div>
+      ) : null}
+
       {showMarketplacePane ? (
         <div className="flex w-fit rounded-xl border border-dls-border bg-dls-surface p-1">
           <Button
@@ -84,14 +93,14 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             size="sm"
             onClick={() => setView("my")}
           >
-            My Extensions
+            {t("extensions.my_extensions_tab")}
           </Button>
           <Button
             variant={view === "marketplace" ? "secondary" : "ghost"}
             size="sm"
             onClick={() => setView("marketplace")}
           >
-            Marketplace
+            {t("extensions.marketplace_tab")}
           </Button>
         </div>
       ) : (

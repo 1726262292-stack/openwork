@@ -1,7 +1,7 @@
 export type MarketplaceDeliveryActionKind = "install" | "cloud_active" | "cloud_active_local_copy";
 
-export function shouldShowExtensionsMarketplacePane(connectEnabled?: boolean) {
-  return connectEnabled !== true;
+export function shouldShowExtensionsMarketplacePane(_connectEnabled?: boolean) {
+  return true;
 }
 
 export function resolveMarketplaceDeliveryAction(input: {

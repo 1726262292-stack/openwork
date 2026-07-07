@@ -62,6 +62,8 @@ import {
 import { db } from "../../../db.js"
 import { env } from "../../../env.js"
 import { roleIncludesOwner } from "../../../orgs.js"
+import { memberFacingMcpConnectionsEnabled } from "../../../capability-sources/external-mcp-rollout.js"
+import { resolveMarketplacePluginCloudReadiness } from "../../../mcp/marketplace-capabilities.js"
 
 type OrganizationId = PluginArchActorContext["organizationContext"]["organization"]["id"]
 type MemberId = PluginArchActorContext["organizationContext"]["currentMember"]["id"]
@@ -2080,11 +2082,25 @@ export async function getMarketplaceResolved(input: { context: PluginArchActorCo
     counts.set(objectType, (counts.get(objectType) ?? 0) + 1)
   }
 
+  const cloudReadinessByPlugin = memberFacingMcpConnectionsEnabled(input.context.organizationContext.organization.metadata, { gatingEnabled: env.mcpConnectionsGatingEnabled })
+    ? await resolveMarketplacePluginCloudReadiness({
+        organizationId,
+        member: {
+          orgMembershipId: input.context.organizationContext.currentMember.id,
+          teamIds: input.context.memberTeams.map((team) => team.id),
+        },
+        pluginIds,
+        desktopManifestPluginIds: pluginRows.flatMap((row) => defaultOpenWorkManifestForPlugin(row) ? [row.id] : []),
+      })
+    : new Map<string, never>()
+
   const plugins = pluginRows.map((row) => {
     const componentCounts = Object.fromEntries(componentCountsByPlugin.get(row.id) ?? new Map())
+    const cloudReadiness = cloudReadinessByPlugin.get(row.id)
     return {
       ...serializePlugin(row, memberCounts.get(row.id) ?? 0, [], componentCounts),
       componentCounts,
+      ...(cloudReadiness ? { cloudReadiness } : {}),
     }
   })
 

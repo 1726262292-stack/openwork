@@ -527,6 +527,18 @@ export const marketplaceSchema = z.object({
   pluginCount: z.number().int().nonnegative().optional(),
 }).meta({ ref: "PluginArchMarketplace" })
 
+const pluginCloudReadinessSchema = z.object({
+  state: z.enum(["ready", "needs_signin", "needs_admin_setup", "desktop_only", "not_synced"]),
+  hasInstructional: z.boolean(),
+  connections: z.array(z.object({
+    id: z.string().nullable(),
+    name: z.string(),
+    url: z.string(),
+    credentialMode: z.enum(["shared", "per_member"]).optional(),
+    connectedForMe: z.boolean().optional(),
+  })),
+}).meta({ ref: "PluginArchPluginCloudReadiness" })
+
 export const connectorAccountSchema = z.object({
   id: connectorAccountIdSchema,
   organizationId: denTypeIdSchema("organization"),
@@ -754,6 +766,7 @@ export const marketplaceResolvedResponseSchema = pluginArchMutationResponseSchem
     marketplace: marketplaceSchema,
     plugins: z.array(pluginSchema.extend({
       componentCounts: z.record(z.string(), z.number().int().nonnegative()).default({}),
+      cloudReadiness: pluginCloudReadinessSchema.optional(),
     })),
     source: z.object({
       connectorAccountId: connectorAccountIdSchema,
