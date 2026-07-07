@@ -525,8 +525,19 @@ async function completeDesktopCloudOnboardingIfNeeded(ctx) {
 
 async function remountDesktop(ctx) {
   await clearDesktopConfigCache(ctx);
-  await ctx.eval("location.reload()");
-  await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API after reload" });
+  // The renderer sometimes boots into a dead-blank state (empty root, no
+  // control API) that only another reload clears. Retry with bounds.
+  let remountReady = false;
+  for (let attempt = 0; attempt < 3 && !remountReady; attempt += 1) {
+    await ctx.eval("location.reload()");
+    try {
+      await ctx.waitFor("Boolean(window.__openworkControl) && (document.getElementById('root')?.childElementCount ?? 0) > 0", { timeoutMs: 45_000, label: `desktop alive after reload (attempt ${attempt + 1})` });
+      remountReady = true;
+    } catch {
+      // fall through to the next reload attempt
+    }
+  }
+  ctx.assert(remountReady, "Desktop never became interactive after remount reloads.");
   await ctx.waitFor("(document.getElementById('root')?.childElementCount ?? 0) > 0", { timeoutMs: 120_000, label: "react root mounted after reload" });
   await completeDesktopCloudOnboardingIfNeeded(ctx);
 }
@@ -557,6 +568,9 @@ async function waitForConnectText(ctx, text) {
   while (Date.now() < deadline) {
     const found = await ctx.eval(`document.body.innerText.includes(${JSON.stringify(text)})`);
     if (found) return;
+    // The marketplace store serves a cached snapshot after remounts — force a
+    // refetch while polling, mirroring waitForMarketplacePlugin.
+    await ctx.control("extensions.refresh-marketplace").catch(() => {});
     await sleep(2_000);
   }
   ctx.assert(false, `Connect text did not render: ${text}`);

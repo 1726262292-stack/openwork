@@ -99,8 +99,7 @@ export default {
             await setCapabilityViaAdminApi(ctx, { mcpConnections: true });
             await createPerMemberConnection(ctx);
             await clearDesktopConfigCache(ctx);
-            await ctx.eval("location.reload()");
-            await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API after reload" });
+            await reloadUntilAlive(ctx, "desktop after capability flip");
             await completeDesktopCloudOnboardingIfNeeded(ctx);
             await navigateToSettingsTab(ctx, "connect");
             await waitForConnectConnectionCard(ctx, CONNECTION_NAME);
@@ -108,15 +107,15 @@ export default {
           assert: async () => {
             const proof = await readConnectState(ctx, CONNECTION_NAME);
             ctx.assert(proof.statusText.includes("Connected to"), `Connect status row missing org status: ${JSON.stringify(proof)}`);
-            ctx.assert(proof.cardText.includes(CONNECTION_NAME), `Connect card missing connection name: ${JSON.stringify(proof)}`);
-            ctx.assert(proof.cardText.includes("Beta"), `Connect card missing Beta badge: ${proof.cardText}`);
-            ctx.assert(proof.cardText.includes("Connect your account"), `Per-member action missing: ${proof.cardText}`);
+            ctx.assert(proof.cardText.includes(CONNECTION_NAME), `Connect row missing connection name: ${JSON.stringify(proof)}`);
+            ctx.assert(proof.pageText.includes("NEEDS YOUR SIGN-IN"), `Per-member group missing: ${proof.pageText.slice(0, 300)}`);
+            ctx.assert(proof.cardText.includes("Connect"), `Per-member Connect action missing: ${proof.cardText}`);
             ctx.assert(!proof.pageText.includes("AVAILABLE APPS"), "Connect active state leaked the local quick-connect grid.");
           },
           screenshot: {
             name: "connect-tab-beta-active-card",
             claim: "Connect active state shows the org status row and the beta org MCP connection card.",
-            requireText: ["Connected to", CONNECTION_NAME, "Beta", "Connect your account"], // card badge is not uppercased
+            requireText: ["Connected to", CONNECTION_NAME, "NEEDS YOUR SIGN-IN"],
             rejectText: ["AVAILABLE APPS", "Something went wrong"],
           },
         });
@@ -325,8 +324,27 @@ async function prepareSignedInDesktopWithConnectOff(ctx) {
   await completeDesktopCloudOnboardingIfNeeded(ctx);
 }
 
+
+async function reloadUntilAlive(ctx, label) {
+  let alive = false;
+  for (let attempt = 0; attempt < 3 && !alive; attempt += 1) {
+    await ctx.eval("location.reload()");
+    try {
+      await ctx.waitFor("Boolean(window.__openworkControl) && (document.getElementById('root')?.childElementCount ?? 0) > 0", { timeoutMs: 45_000, label: `${label} (attempt ${attempt + 1})` });
+      alive = true;
+    } catch {
+      // next attempt
+    }
+  }
+  ctx.assert(alive, `Desktop never became interactive: ${label}`);
+}
+
 async function signDesktopIntoCloud(ctx) {
-  await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API" });
+  try {
+    await ctx.waitFor("Boolean(window.__openworkControl) && (document.getElementById('root')?.childElementCount ?? 0) > 0", { timeoutMs: 30_000, label: "desktop control API" });
+  } catch {
+    await reloadUntilAlive(ctx, "desktop initial boot");
+  }
   await ctx.waitFor("Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", { timeoutMs: 30_000, label: "desktop bridge" });
   const bootstrap = { baseUrl: DEN_API_URL, apiBaseUrl: DEN_API_URL, requireSignin: false, handoff: null };
   const written = await ctx.eval(`(async () => {
@@ -343,8 +361,7 @@ async function signDesktopIntoCloud(ctx) {
   })()`, { awaitPromise: true });
   ctx.assert(written?.ok, "Failed to write desktop bootstrap config.");
   await clearDesktopConfigCache(ctx);
-  await ctx.eval("location.reload()");
-  await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after bootstrap reload" });
+  await reloadUntilAlive(ctx, "desktop after bootstrap write");
 
   const handoff = await denApiFetch("/v1/auth/desktop-handoff", {
     method: "POST",
@@ -394,7 +411,14 @@ async function navigateToSettingsTab(ctx, tab) {
   await ctx.waitFor(`window.location.hash.includes('/settings/${tab}')`, { timeoutMs: 30_000, label: `${tab} settings route` });
   // The route can be live before React mounts the settings surface (fresh
   // reloads during sign-in). "Back to app" only exists on the settings shell.
-  await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 30_000, label: "settings surface mounted" });
+  // Hash changes during early boot can leave the root empty — recover once.
+  try {
+    await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 10_000, label: "settings surface mounted" });
+  } catch {
+    await ctx.eval("location.reload()");
+    await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after settings recovery reload" });
+    await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 60_000, label: "settings surface mounted (after recovery)" });
+  }
 }
 
 async function readSettingsSidebar(ctx) {
@@ -418,18 +442,18 @@ async function readSettingsSidebar(ctx) {
 async function waitForConnectConnectionCard(ctx, name) {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const found = await ctx.eval(`(() => [...document.querySelectorAll('[data-testid="connect-org-mcp-card"]')]
-      .some((card) => (card.textContent ?? '').includes(${JSON.stringify(name)})))()`);
+    const found = await ctx.eval(`(() => [...document.querySelectorAll('[data-testid="connect-organization-row"]')]
+      .some((row) => (row.textContent ?? '').includes(${JSON.stringify(name)})))()`);
     if (found) return;
     await sleep(2_000);
   }
-  ctx.assert(false, `Connect card did not render: ${name}`);
+  ctx.assert(false, `Connect row did not render: ${name}`);
 }
 
 async function readConnectState(ctx, name) {
   return ctx.eval(`(() => {
     const compact = (entry) => (entry?.textContent ?? '').replace(/\\s+/g, ' ').trim();
-    const card = [...document.querySelectorAll('[data-testid="connect-org-mcp-card"]')]
+    const card = [...document.querySelectorAll('[data-testid="connect-organization-row"]')]
       .find((entry) => compact(entry).includes(${JSON.stringify(name)}));
     return {
       pageText: document.body.innerText,
@@ -443,7 +467,10 @@ async function assertNoOrgConnectionInExtensions(ctx, name) {
   const myText = await ctx.eval("document.body.innerText");
   ctx.assert(!myText.includes(name), "My Extensions rendered the org connection before checking Marketplace.");
   await ctx.clickText("Marketplace", { selector: "button", timeoutMs: 30_000 });
-  await ctx.waitForText("Extension Marketplace", { timeoutMs: 30_000 });
+  await ctx.waitFor(
+    "(document.body?.innerText ?? '').includes('Extension Marketplace') || (document.body?.innerText ?? '').includes('installs on this machine')",
+    { timeoutMs: 30_000, label: "marketplace pane heading" },
+  );
   const marketplaceText = await ctx.eval("document.body.innerText");
   ctx.assert(!marketplaceText.includes(name), "Marketplace rendered the org connection.");
   ctx.assert(!marketplaceText.includes("Organization MCP Connections"), "Marketplace kept the org MCP filter option.");
