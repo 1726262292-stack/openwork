@@ -639,7 +639,9 @@ https://openwork.example.com/sso/<singleOrgSlug>
 For SAML, OpenWork shows the generated ACS URL and metadata URL after the SAML
 connection is registered. Use those values in the IdP rather than guessing.
 OpenWork rejects unsigned or weak SAML responses, so configure the IdP to sign
-assertions.
+assertions. For Microsoft Entra ID specifically, also make sure the Entra
+**Identifier (Entity ID)** is the OpenWork auth origin and the certificate saved
+in OpenWork is the active Entra token-signing certificate.
 
 After SSO is configured, root sign-in shows the SSO-only experience for the
 single organization. Password sign-in for that organization is rejected.

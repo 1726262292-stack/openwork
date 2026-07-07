@@ -45,6 +45,7 @@ export function SsoScreen() {
   const [jwksEndpoint, setJwksEndpoint] = useState("");
   const [userInfoEndpoint, setUserInfoEndpoint] = useState("");
   const [tokenEndpointAuthentication, setTokenEndpointAuthentication] = useState<"" | "client_secret_basic" | "client_secret_post">("");
+  const [editingConnection, setEditingConnection] = useState(false);
 
   const access = useMemo(
     () => getOrgAccessFlags(orgContext?.currentMember.role ?? "member", orgContext?.currentMember.isOwner ?? false, orgContext?.roles),
@@ -60,7 +61,7 @@ export function SsoScreen() {
     setBusy(true);
     setError(null);
     try {
-      const { response, payload } = await requestJson("/v1/sso", { method: "GET" }, 12000);
+      const { response, payload } = await requestJson("/v1/sso", { method: "GET", headers: getOrgScopedHeaders() }, 12000);
       if (!response.ok) {
         throw new Error(getErrorMessage(payload, `Failed to load SSO settings (${response.status}).`));
       }
@@ -73,6 +74,14 @@ export function SsoScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function getOrgScopedHeaders() {
+    const headers = new Headers();
+    if (orgId) {
+      headers.set("x-openwork-legacy-org-id", orgId);
+    }
+    return headers;
   }
 
   function syncFormFromConnection(nextConnection: DenOrgSsoConnection | null) {
@@ -155,7 +164,7 @@ export function SsoScreen() {
                 tokenEndpointAuthentication: tokenEndpointAuthentication || undefined,
               };
 
-          const { response, payload } = await requestJson(path, { method: "POST", body: JSON.stringify(body) }, 20000);
+          const { response, payload } = await requestJson(path, { method: "POST", headers: getOrgScopedHeaders(), body: JSON.stringify(body) }, 20000);
           if (!response.ok) {
             throw getRequestError(payload, response, `Failed to save SSO settings (${response.status}).`);
           }
@@ -164,6 +173,7 @@ export function SsoScreen() {
           setConnection(parsed.connection);
           syncFormFromConnection(parsed.connection);
           setDomainVerificationToken(parsed.domainVerificationToken);
+          setEditingConnection(false);
         } finally {
           setSaving(false);
         }
@@ -183,11 +193,12 @@ export function SsoScreen() {
       await runReauthableAction("delete-sso-settings", async () => {
         setDeleting(true);
         try {
-          const { response, payload } = await requestJson("/v1/sso", { method: "DELETE" }, 12000);
+          const { response, payload } = await requestJson("/v1/sso", { method: "DELETE", headers: getOrgScopedHeaders() }, 12000);
           if (response.status !== 204 && !response.ok) {
             throw getRequestError(payload, response, `Failed to delete SSO settings (${response.status}).`);
           }
           setConnection(null);
+          setEditingConnection(false);
           await loadSsoConfig();
         } finally {
           setDeleting(false);
@@ -205,7 +216,7 @@ export function SsoScreen() {
       await runReauthableAction("request-sso-domain-token", async () => {
         setRequestingDomainToken(true);
         try {
-          const { response, payload } = await requestJson("/v1/sso/request-domain-verification", { method: "POST", body: JSON.stringify({}) }, 12000);
+          const { response, payload } = await requestJson("/v1/sso/request-domain-verification", { method: "POST", headers: getOrgScopedHeaders(), body: JSON.stringify({}) }, 12000);
           if (!response.ok) {
             throw getRequestError(payload, response, `Failed to request domain verification (${response.status}).`);
           }
@@ -233,7 +244,7 @@ export function SsoScreen() {
       await runReauthableAction("verify-sso-domain", async () => {
         setVerifyingDomain(true);
         try {
-          const { response, payload } = await requestJson("/v1/sso/verify-domain", { method: "POST", body: JSON.stringify({}) }, 12000);
+          const { response, payload } = await requestJson("/v1/sso/verify-domain", { method: "POST", headers: getOrgScopedHeaders(), body: JSON.stringify({}) }, 12000);
           if (response.status !== 204 && !response.ok) {
             throw getRequestError(payload, response, `Failed to verify domain (${response.status}).`);
           }
@@ -265,7 +276,7 @@ export function SsoScreen() {
           {!orgContext.entitlements.sso ? <EnterprisePlanNotice feature="SSO" /> : null}
           {error ? <div className="mb-6 rounded-[28px] border border-red-200 bg-red-50 px-6 py-4 text-[14px] text-red-700">{error}</div> : null}
 
-          <div className="mb-6 rounded-[30px] border border-gray-200 bg-white p-6 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.22)]">
+          {!connection || editingConnection ? <div className="mb-6 rounded-[30px] border border-gray-200 bg-white p-6 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.22)]">
             <div className="flex flex-wrap items-center gap-3">
               <DenButton variant={formMode === "saml" ? "primary" : "secondary"} onClick={() => setFormMode("saml")}>SAML</DenButton>
               <DenButton variant={formMode === "oidc" ? "primary" : "secondary"} onClick={() => setFormMode("oidc")}>OIDC</DenButton>
@@ -353,7 +364,7 @@ export function SsoScreen() {
               <DenButton variant="primary" icon={RefreshCw} onClick={() => void handleSave()} disabled={saving}>{saving ? "Saving..." : "Save SSO connection"}</DenButton>
               <DenButton variant="secondary" icon={Trash2} onClick={() => void handleDelete()} disabled={deleting || !connection}>{deleting ? "Deleting..." : "Delete connection"}</DenButton>
             </div>
-          </div>
+          </div> : null}
 
           <div className="rounded-[30px] border border-gray-200 bg-white p-6 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.22)]">
             <div className="flex items-start justify-between gap-4">
@@ -361,6 +372,23 @@ export function SsoScreen() {
                 <p className="text-[16px] font-semibold tracking-[-0.03em] text-gray-900">Current connection</p>
                 <p className="mt-1 text-[14px] leading-6 text-gray-500">Use the generated sign-in and provider setup URLs below.</p>
               </div>
+              {connection ? (
+                <div className="flex flex-wrap gap-2">
+                  <DenButton
+                    variant="secondary"
+                    icon={KeyRound}
+                    onClick={() => {
+                      syncFormFromConnection(connection);
+                      setEditingConnection(true);
+                    }}
+                  >
+                    Edit
+                  </DenButton>
+                  <DenButton variant="secondary" icon={Trash2} onClick={() => void handleDelete()} disabled={deleting}>
+                    {deleting ? "Deleting..." : "Delete"}
+                  </DenButton>
+                </div>
+              ) : null}
             </div>
 
             {!connection && !busy ? <p className="mt-4 text-[14px] text-gray-500">No SSO connection configured yet.</p> : null}

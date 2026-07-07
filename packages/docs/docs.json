@@ -80,6 +80,7 @@
             ]
           },
           "cloud/members-and-rbac",
+          "cloud/sso-microsoft-entra",
           "cloud/security-and-operations",
           "cloud/enterprise"
         ]
