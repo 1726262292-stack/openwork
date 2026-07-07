@@ -153,6 +153,11 @@ const connectStartFailedSchema = z.object({
   message: z.string(),
 }).meta({ ref: "ExternalMcpConnectStartFailedError" })
 
+const connectionValidationFailedSchema = z.object({
+  error: z.literal("connection_validation_failed"),
+  message: z.string(),
+}).meta({ ref: "ExternalMcpConnectionValidationFailedError" })
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
@@ -321,7 +326,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         400: jsonResponse("Invalid request.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
         403: jsonResponse("Only workspace owners and admins can add MCP connections.", forbiddenSchema),
-        502: jsonResponse("The upstream MCP server could not be reached.", connectStartFailedSchema),
+        502: jsonResponse("The upstream MCP server could not be reached.", connectionValidationFailedSchema),
       },
     }),
     orgMemberRoute(),
@@ -396,7 +401,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
             connectionUrl: created.url,
             error: errorForLog(error),
           })
-          return c.json({ error: "oauth_handshake_failed", message: `The OAuth handshake with "${created.name}" failed: ${errorMessage(error)}` }, 502)
+          return c.json({ error: "connection_validation_failed", message: `Could not reach "${created.name}" at its MCP URL: ${errorMessage(error)}` }, 502)
         }
       }
 
