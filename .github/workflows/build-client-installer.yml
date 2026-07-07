@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      smoke_check_deployment:
+        description: "Run the compiled installer against the deployment API (requires GitHub-hosted runners to reach api_url)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -164,7 +169,7 @@ jobs:
 
       - name: Smoke test (headless dry run against the client deployment)
         # Cross-compiled mac x64 output cannot run on the arm64 runner.
-        if: matrix.bun_target != 'bun-darwin-x64'
+        if: github.event.inputs.smoke_check_deployment == 'true' && matrix.bun_target != 'bun-darwin-x64'
         shell: bash
         env:
           OPENWORK_DESKTOP_BOOTSTRAP_PATH: ${{ runner.temp }}/smoke/desktop-bootstrap.json
