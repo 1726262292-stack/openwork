@@ -248,55 +248,108 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       const expiresAt = typeof link.expiresAt === "string" ? link.expiresAt.trim() : "";
       return id && role && url && expiresAt ? [{ id, role, ...(token ? { token } : {}), url, expiresAt }] : [];
     });
+    const writtenAt = typeof input?.writtenAt === "string" ? input.writtenAt.trim() : "";
 
     return {
       baseUrl,
       apiBaseUrl,
       requireSignin: forceRequireSignin || input?.requireSignin === true,
+      ...(writtenAt ? { writtenAt } : {}),
       ...(claimLinks.length > 0 ? { claimLinks } : {}),
       ...(normalizedHandoff ? { handoff: normalizedHandoff } : {}),
       ...(normalizedPrepared ? { prepared: normalizedPrepared } : {}),
     };
   }
 
-  async function getDesktopBootstrapConfig() {
-    const configPath = desktopBootstrapPath();
+  function desktopBootstrapCandidateTimeMs(candidate) {
+    const writtenAt = typeof candidate.parsed?.writtenAt === "string" ? candidate.parsed.writtenAt.trim() : "";
+    const writtenAtMs = writtenAt ? Date.parse(writtenAt) : Number.NaN;
+    return Number.isFinite(writtenAtMs) ? writtenAtMs : candidate.mtimeMs;
+  }
+
+  async function readDesktopBootstrapCandidate(candidatePath) {
+    let exists = false;
+    let mtimeMs = 0;
     try {
-      const raw = await readFile(configPath, "utf8");
-      return normalizeDesktopBootstrapConfig(JSON.parse(raw));
-    } catch (primaryError) {
-      const legacyPath = legacyDesktopBootstrapPath();
-      if (legacyPath) {
-        try {
-          const raw = await readFile(legacyPath, "utf8");
-          const normalized = normalizeDesktopBootstrapConfig(JSON.parse(raw));
-          // One-time migration: rewrite to the canonical path so future reads
-          // and writes (setDesktopBootstrapConfig) target the same file.
-          try {
-            await mkdir(path.dirname(configPath), { recursive: true });
-            await writeFile(configPath, raw, "utf8");
-            console.info("[desktop-bootstrap] migrated legacy config", {
-              from: legacyPath,
-              to: configPath,
-            });
-          } catch (migrationError) {
-            console.warn("[desktop-bootstrap] legacy config migration failed", migrationError);
-          }
-          return normalized;
-        } catch {
-          // Fall through to defaults below.
-        }
-      }
-      console.warn("[desktop-bootstrap] falling back to defaults", {
-        path: configPath,
-        error: primaryError instanceof Error ? primaryError.message : String(primaryError),
-      });
+      const stats = await stat(candidatePath);
+      exists = true;
+      mtimeMs = stats.mtimeMs;
+    } catch {
+      // Missing paths are normal; keep the read error below for diagnostics.
+    }
+
+    try {
+      const raw = await readFile(candidatePath, "utf8");
+      const parsed = JSON.parse(raw);
       return {
-        baseUrl: defaultDenBaseUrl,
-        apiBaseUrl: null,
-        requireSignin: defaultRequireSignin,
+        ok: true,
+        path: candidatePath,
+        exists: true,
+        raw,
+        parsed,
+        normalized: normalizeDesktopBootstrapConfig(parsed),
+        mtimeMs,
+        error: null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        path: candidatePath,
+        exists,
+        raw: null,
+        parsed: null,
+        normalized: null,
+        mtimeMs,
+        error,
       };
     }
+  }
+
+  async function migrateLegacyDesktopBootstrapConfig(configPath, legacyCandidate) {
+    try {
+      await mkdir(path.dirname(configPath), { recursive: true });
+      await writeFile(configPath, legacyCandidate.raw, "utf8");
+      console.info("[desktop-bootstrap] migrated legacy config", {
+        from: legacyCandidate.path,
+        to: configPath,
+      });
+    } catch (migrationError) {
+      console.warn("[desktop-bootstrap] legacy config migration failed", migrationError);
+    }
+  }
+
+  async function getDesktopBootstrapConfig() {
+    const configPath = desktopBootstrapPath();
+    const primary = await readDesktopBootstrapCandidate(configPath);
+    const legacyPath = legacyDesktopBootstrapPath();
+    const legacy = legacyPath ? await readDesktopBootstrapCandidate(legacyPath) : null;
+
+    if (primary.ok && legacy?.ok) {
+      if (desktopBootstrapCandidateTimeMs(legacy) > desktopBootstrapCandidateTimeMs(primary)) {
+        await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
+        return legacy.normalized;
+      }
+      return primary.normalized;
+    }
+
+    if (primary.ok) return primary.normalized;
+
+    if (legacy?.ok) {
+      if (!primary.exists || desktopBootstrapCandidateTimeMs(legacy) >= desktopBootstrapCandidateTimeMs(primary)) {
+        await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
+        return legacy.normalized;
+      }
+    }
+
+    console.warn("[desktop-bootstrap] falling back to defaults", {
+      path: configPath,
+      error: primary.error instanceof Error ? primary.error.message : String(primary.error),
+    });
+    return {
+      baseUrl: defaultDenBaseUrl,
+      apiBaseUrl: null,
+      requireSignin: defaultRequireSignin,
+    };
   }
 
   async function debugDesktopBootstrapConfig() {
@@ -330,9 +383,9 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   async function setDesktopBootstrapConfig(config) {
     const normalized = normalizeDesktopBootstrapConfig(config);
     const outputPath = desktopBootstrapPath();
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-    return normalized;
+    const stamped = { ...normalized, writtenAt: new Date().toISOString() };
+    await writeJsonFileAtomic(outputPath, stamped);
+    return stamped;
   }
 
   function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {

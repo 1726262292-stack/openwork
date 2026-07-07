@@ -140,6 +140,7 @@ export type DesktopBootstrapConfig = {
   baseUrl: string;
   apiBaseUrl?: string | null;
   requireSignin: boolean;
+  writtenAt?: string | null;
   claimLinks?: Array<{
     id: string;
     role: string;

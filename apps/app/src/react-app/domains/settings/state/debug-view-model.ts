@@ -6,6 +6,7 @@ import {
   engineInfo as engineInfoCmd,
   engineStart as engineStartCmd,
   getDesktopBootstrapConfig,
+  debugDesktopBootstrapConfig,
   nukeOpenworkAndOpencodeConfigAndExit,
   openDesktopUrl,
   openworkServerInfo as openworkServerInfoCmd,
@@ -250,6 +251,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const [engineInfoState, setEngineInfoState] = useState<EngineInfo | null>(null);
   const [appBuild, setAppBuild] = useState<AppBuildInfo | null>(null);
   const [bootstrapPrepared, setBootstrapPrepared] = useState<DesktopBootstrapConfig["prepared"]>(null);
+  const [bootstrapConfigDebug, setBootstrapConfigDebug] = useState<unknown>(null);
   const [runtimeDebugStatus, setRuntimeDebugStatus] = useState<string | null>(null);
   const [sandboxProbeBusy, setSandboxProbeBusy] = useState(false);
   const [sandboxProbeResult, setSandboxProbeResult] = useState<SandboxDebugProbeResult | null>(null);
@@ -334,6 +336,25 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     };
   }, [developerMode]);
 
+  useEffect(() => {
+    if (!developerMode || !isDesktopRuntime()) return;
+    let cancelled = false;
+    void debugDesktopBootstrapConfig()
+      .then((config) => {
+        if (!cancelled) setBootstrapConfigDebug(config);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBootstrapConfigDebug({
+            error: error instanceof Error ? error.message : safeStringify(error),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [developerMode]);
+
   const pushDeveloperLog = useCallback((message: string) => {
     const timestamp = new Date().toISOString();
     setDeveloperLog((current) => {
@@ -391,6 +412,10 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const runtimeDebugReportJson = useMemo(
     () => safeStringify(runtimeDebugReport),
     [runtimeDebugReport],
+  );
+  const bootstrapConfigDebugJson = useMemo(
+    () => safeStringify(bootstrapConfigDebug),
+    [bootstrapConfigDebug],
   );
 
   const engineCard = useMemo(() => describeEngine(engineInfoState), [engineInfoState]);
@@ -920,6 +945,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
           : t("status.disconnected_label"),
       runtimeSummary,
       runtimeDebugReportJson,
+      bootstrapConfigDebugJson,
       runtimeDebugStatus,
       onCopyRuntimeDebugReport,
       onExportRuntimeDebugReport,
@@ -1006,6 +1032,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       developerLog,
       developerLogStatus,
       developerMode,
+      bootstrapConfigDebugJson,
       electronMigrationBusy,
       electronMigrationArtifactLabel,
       electronMigrationSha256,

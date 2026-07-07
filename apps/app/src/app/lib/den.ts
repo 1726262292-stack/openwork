@@ -821,7 +821,7 @@ export function readDenSettings(): DenSettings {
   };
 }
 
-export function writeDenSettings(next: DenSettings, options?: { persistBootstrap?: boolean }) {
+export function writeDenSettings(next: DenSettings, options?: { persistBootstrap?: boolean; awaitBootstrap?: boolean }) {
   if (typeof window === "undefined") {
     return;
   }
@@ -840,6 +840,13 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
   const activeOrgId = next.activeOrgId?.trim() ?? "";
   const activeOrgSlug = next.activeOrgSlug?.trim() ?? "";
   const activeOrgName = next.activeOrgName?.trim() ?? "";
+  const currentBootstrap = pendingBootstrap ? readDenBootstrapConfig() : null;
+  const bootstrapChanged = Boolean(
+    pendingBootstrap && currentBootstrap && (
+      pendingBootstrap.baseUrl !== currentBootstrap.baseUrl ||
+      pendingBootstrap.apiBaseUrl !== currentBootstrap.apiBaseUrl
+    ),
+  );
 
   if (
     previous.baseUrl === baseUrl &&
@@ -847,7 +854,8 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
     (previous.authToken ?? "") === authToken &&
     (previous.activeOrgId ?? "") === activeOrgId &&
     (previous.activeOrgSlug ?? "") === activeOrgSlug &&
-    (previous.activeOrgName ?? "") === activeOrgName
+    (previous.activeOrgName ?? "") === activeOrgName &&
+    !bootstrapChanged
   ) {
     return;
   }
@@ -878,23 +886,28 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
     window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
   }
 
-  if (options?.persistBootstrap !== false && pendingBootstrap) {
-    const currentBootstrap = readDenBootstrapConfig();
-    if (
-      pendingBootstrap.baseUrl !== currentBootstrap.baseUrl ||
-      pendingBootstrap.apiBaseUrl !== currentBootstrap.apiBaseUrl
-    ) {
-      void setDenBootstrapConfig({
+  let bootstrapWrite: Promise<DenBootstrapConfig> | null = null;
+  if (options?.persistBootstrap !== false && pendingBootstrap && currentBootstrap) {
+    if (bootstrapChanged) {
+      bootstrapWrite = setDenBootstrapConfig({
         baseUrl: pendingBootstrap.baseUrl,
         apiBaseUrl: pendingBootstrap.apiBaseUrl,
         requireSignin: currentBootstrap.requireSignin,
-      }).catch(() => undefined);
+      });
     }
   }
 
   dispatchDenSettingsChanged({
     settings: readDenSettings(),
   });
+
+  if (options?.awaitBootstrap && bootstrapWrite) {
+    return bootstrapWrite.then(() => undefined);
+  }
+
+  if (bootstrapWrite) {
+    void bootstrapWrite.catch(() => undefined);
+  }
 }
 
 export function clearDenSession(options?: { includeBaseUrls?: boolean }) {

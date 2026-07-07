@@ -20,3 +20,11 @@ export function desktopBootstrapPath(
     path.join(os.homedir(), platform === "win32" ? path.join("AppData", "Roaming") : ".config")
   return path.join(configHome, "openwork", "desktop-bootstrap.json")
 }
+
+export function legacyDesktopBootstrapPath(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const home = (platform === "win32" ? env.USERPROFILE?.trim() : env.HOME?.trim()) || os.homedir()
+  return path.join(home, ".config", "openwork", "desktop-bootstrap.json")
+}

@@ -211,7 +211,7 @@ export function useDenSession({
     [baseUrl, openLink],
   );
 
-  const applyBaseUrl = React.useCallback(() => {
+  const applyBaseUrl = React.useCallback(async () => {
     const normalized = normalizeDenBaseUrl(baseUrlDraft);
     if (!normalized) {
       setBaseUrlError(t("den.error_base_url"));
@@ -225,19 +225,26 @@ export function useDenSession({
       return;
     }
 
-    setBaseUrl(resolved.baseUrl);
-    setBaseUrlDraft(resolved.baseUrl);
-    writeDenSettings({
-      baseUrl: resolved.baseUrl,
-      apiBaseUrl: resolved.apiBaseUrl,
-      authToken: null,
-      activeOrgId: null,
-      activeOrgSlug: null,
-      activeOrgName: null,
-    });
-    clearSignedInState(t("den.status_base_url_updated"), {
-      baseUrl: resolved.baseUrl,
-    });
+    try {
+      await writeDenSettings(
+        {
+          baseUrl: resolved.baseUrl,
+          apiBaseUrl: resolved.apiBaseUrl,
+          authToken: null,
+          activeOrgId: null,
+          activeOrgSlug: null,
+          activeOrgName: null,
+        },
+        { awaitBootstrap: true },
+      );
+      setBaseUrl(resolved.baseUrl);
+      setBaseUrlDraft(resolved.baseUrl);
+      clearSignedInState(t("den.status_base_url_updated"), {
+        baseUrl: resolved.baseUrl,
+      });
+    } catch (error) {
+      setBaseUrlError(error instanceof Error ? error.message : t("den.error_base_url"));
+    }
   }, [baseUrl, baseUrlDraft, clearSignedInState]);
 
   React.useEffect(() => {
