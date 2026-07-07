@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
-import type { NativeOAuthProviderConfig } from "./provider-registry.js"
+import { clientSelectedFeatures, resolveProviderScopes, type NativeOAuthProviderConfig } from "./provider-registry.js"
 import {
   getConnectedAccount,
   getOrgOAuthClient,
@@ -115,7 +115,7 @@ export function buildAuthorizeUrl(input: {
   url.searchParams.set("client_id", input.client.clientId)
   url.searchParams.set("redirect_uri", input.redirectUri)
   url.searchParams.set("response_type", "code")
-  url.searchParams.set("scope", input.provider.defaultScopes.join(" "))
+  url.searchParams.set("scope", resolveProviderScopes(input.provider, clientSelectedFeatures(input.provider, input.client.extra)).join(" "))
   url.searchParams.set("state", input.state)
   if (input.provider.usesPkce && input.codeChallenge) {
     url.searchParams.set("code_challenge", input.codeChallenge)
