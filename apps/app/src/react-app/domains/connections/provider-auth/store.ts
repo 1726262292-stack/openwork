@@ -389,7 +389,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return false;
   };
 
-  const refreshImportedCloudProviders = async () => {
+  const refreshImportedCloudProviders = async (refreshOptions?: { strict?: boolean }) => {
     try {
       const config = await readWorkspaceOpenworkConfigRecord();
       const cloudImports = readWorkspaceCloudImports(config);
@@ -403,7 +403,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         setStateField("importedCloudProviders", next);
       }
       return next;
-    } catch {
+    } catch (error) {
+      if (refreshOptions?.strict) {
+        throw error;
+      }
       // Preserve existing state on read failure to avoid losing import state.
       return state.importedCloudProviders;
     }
@@ -1523,10 +1526,14 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return;
     }
 
-    const [importedProviders, liveProviders] = await Promise.all([
-      refreshImportedCloudProviders(),
-      refreshCloudOrgProviders({ force: true }),
-    ]);
+    let importedProviders: Record<string, CloudImportedProvider>;
+    try {
+      importedProviders = await refreshImportedCloudProviders({ strict: true });
+    } catch (error) {
+      logCloudProviderSyncError(reason, error);
+      return;
+    }
+    const liveProviders = await refreshCloudOrgProviders({ force: true });
     const liveProviderMap = new Map(liveProviders.map((provider) => [provider.id, provider]));
     const failures: string[] = [];
     const processedLiveProviderIds = new Set<string>();

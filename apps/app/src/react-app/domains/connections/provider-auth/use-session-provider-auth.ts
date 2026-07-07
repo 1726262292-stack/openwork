@@ -54,6 +54,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
   } = input;
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const reloadCoordinator = useReloadCoordinator();
+  const { markReloadRequired } = reloadCoordinator;
   const onboardingProviderAuthPendingRef = useRef(false);
 
   const stateRef = useRef({
@@ -77,6 +78,10 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     selectedWorkspaceRoot,
   };
 
+  // Depend on the stable callback, not the coordinator object: the context
+  // value identity changes on every reload flip, and recreating this store
+  // triggers a spurious cloud provider sync pass that amplified the
+  // dispose/create loop.
   const store = useMemo(
     () =>
       createProviderAuthStore({
@@ -111,14 +116,14 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
         setProviderConnectedIds,
         setDisabledProviders: setDisabledProviderIds,
         markOpencodeConfigReloadRequired: () => {
-          reloadCoordinator.markReloadRequired("config", {
+          markReloadRequired("config", {
             type: "config",
             name: "opencode.json",
             action: "updated",
           });
         },
       }),
-    [checkDesktopRestriction, reloadCoordinator],
+    [checkDesktopRestriction, markReloadRequired],
   );
 
   useEffect(() => {

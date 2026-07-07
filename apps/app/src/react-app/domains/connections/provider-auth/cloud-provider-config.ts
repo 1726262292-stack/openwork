@@ -21,8 +21,6 @@ const getStringList = (value: unknown): string[] =>
       )
     : [];
 
-const sortStrings = (values: string[]) => values.toSorted();
-
 const sameStringList = (a: string[], b: string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index]);
 
@@ -103,7 +101,9 @@ export const isCloudProviderOutOfSync = (
   (importedProvider.updatedAt ?? null) !== (provider.updatedAt ?? null) ||
   !sameStringList(
     importedProvider.modelIds,
-    sortStrings(provider.models.map((model) => model.id)),
+    // Normalize both sides: raw Den ids can include whitespace/empty values,
+    // which otherwise made providers permanently out-of-sync.
+    getProviderModelIds(provider),
   );
 
 export const buildCloudProviderConfig = (

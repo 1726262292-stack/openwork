@@ -52,6 +52,14 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   };
 }
 
+function parseRuntimeOpencodeConfig(configJson: string): RuntimeOpencodeConfig {
+  try {
+    return normalizeRuntimeOpencodeConfig(JSON.parse(configJson));
+  } catch {
+    return {};
+  }
+}
+
 function runtimeDbPath(config: ServerConfig): string {
   const override = process.env.OPENWORK_RUNTIME_DB?.trim();
   if (override) return resolve(override);
@@ -178,25 +186,26 @@ export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceI
   const db = await runtimeDb(config);
   const row = db.get(workspaceId);
   if (!row) return {};
-  try {
-    return normalizeRuntimeOpencodeConfig(JSON.parse(row.configJson));
-  } catch {
-    return {};
-  }
+  return parseRuntimeOpencodeConfig(row.configJson);
 }
 
 export async function writeRuntimeOpencodeConfig(
   config: ServerConfig,
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
-): Promise<RuntimeOpencodeConfig> {
+): Promise<{ config: RuntimeOpencodeConfig; changed: boolean }> {
   const db = await runtimeDb(config);
-  const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
+  const row = db.get(workspaceId);
+  const current = row ? parseRuntimeOpencodeConfig(row.configJson) : {};
+  const next = normalizeRuntimeOpencodeConfig(updater(current));
   const now = Date.now();
   const configJson = JSON.stringify(next);
+  if (row?.configJson === configJson) {
+    return { config: next, changed: false };
+  }
   db.upsert({ workspaceId, configJson, updatedAt: now });
   for (const listener of writeListeners) listener(config, workspaceId);
-  return next;
+  return { config: next, changed: true };
 }
 
 export function mergeOpencodeConfigs(
