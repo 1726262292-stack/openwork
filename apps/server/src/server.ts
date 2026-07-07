@@ -70,6 +70,14 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import {
+  browserDiagnosticLogPath,
+  lifecycleDiagnosticLogPath,
+  recordLifecycleDiagnostic,
+  sanitizeDiagnosticUrl,
+  workspaceDiagnosticSummary,
+  type ReloadOpencodeEngineInput,
+} from "./lifecycle-diagnostics.js";
+import {
   hasOpenworkWorkspaceConfig,
   mergeOpenworkWorkspaceConfigs,
   readOpenworkWorkspaceConfig,
@@ -1121,13 +1129,11 @@ function resolveToyUiEnabled(): boolean {
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
-// Dev-only log sink target. When OPENWORK_DEV_LOG_FILE is set to a path, the
-// /dev/log endpoint accepts JSON payloads and appends them to that file so an
-// operator can `tail -f` the file to see live browser activity. Returning null
-// disables the endpoint entirely.
-function resolveDevLogPath(): string | null {
-  const raw = (process.env.OPENWORK_DEV_LOG_FILE ?? "").trim();
-  return raw.length > 0 ? raw : null;
+// Browser diagnostic log target. Alpha/support builds write browser console,
+// fetch, and lifecycle breadcrumbs by default so affected users can attach one
+// durable file without setting environment variables first.
+function resolveDevLogPath(config: ServerConfig): string | null {
+  return browserDiagnosticLogPath(config);
 }
 
 function resolveBrowserProvider(): Capabilities["toolProviders"]["browser"] {
@@ -1145,11 +1151,17 @@ function resolveBrowserProvider(): Capabilities["toolProviders"]["browser"] {
 }
 
 function emitReloadEvent(
+  config: ServerConfig,
   reloadEvents: ReloadEventStore,
   workspace: WorkspaceInfo,
   reason: ReloadReason,
   trigger?: ReloadTrigger,
 ) {
+  void recordLifecycleDiagnostic(config, "reload_event.record", {
+    reason,
+    trigger: trigger ?? null,
+    workspace: workspaceDiagnosticSummary(workspace),
+  });
   reloadEvents.recordDebounced(workspace.id, reason, trigger);
 }
 
@@ -1321,7 +1333,8 @@ function createRoutes(
     resolveWorkspace,
     serializeWorkspace,
     resolveToyUiEnabled,
-    resolveDevLogPath,
+    resolveDevLogPath: () => resolveDevLogPath(config),
+    resolveLifecycleLogPath: () => lifecycleDiagnosticLogPath(config),
     createOpenAiRealtimeVoiceSession,
   });
 
@@ -1452,7 +1465,7 @@ function createRoutes(
     });
 
     for (const file of imported.files) {
-      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
+      emitReloadEvent(config, ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
         type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
         name: file.title,
         action: "added",
@@ -1507,7 +1520,7 @@ function createRoutes(
     });
 
     for (const file of imported.files) {
-      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
+      emitReloadEvent(config, ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
         type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
         name: file.title,
         action: "added",
@@ -1551,7 +1564,7 @@ function createRoutes(
     });
 
     for (const file of removed.files) {
-      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
+      emitReloadEvent(config, ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
         type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
         name: file.title,
         action: "removed",
@@ -1614,7 +1627,7 @@ function createRoutes(
       timestamp: updatedAt,
     });
 
-    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
     const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig({
       permission: { external_directory: nextExternalDirectory ?? {} },
@@ -1680,7 +1693,7 @@ function createRoutes(
       summary: `Migrated runtime OpenCode config: ${keys.join(", ")}`,
       timestamp: updatedAt,
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
     return jsonResponse({ migrated: true, keys, legacyKeys: legacy.keys, userOpencodeKeys: user.keys, updatedAt, legacyError: openworkError });
   });
@@ -1788,7 +1801,7 @@ function createRoutes(
     });
 
     if (scope === "project" && changed) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
+      emitReloadEvent(config, ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
     }
 
     return jsonResponse({
@@ -1888,7 +1901,7 @@ function createRoutes(
     });
 
     if (opencode) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(openworkConfigPath(workspace.path)));
+      emitReloadEvent(config, ctx.reloadEvents, workspace, "config", buildConfigTrigger(openworkConfigPath(workspace.path)));
     }
 
     return jsonResponse({ updatedAt: Date.now() });
@@ -1950,7 +1963,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
     if (changed) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "plugins", {
+      emitReloadEvent(config, ctx.reloadEvents, workspace, "plugins", {
         type: "plugin",
         name: normalized,
         action: "added",
@@ -1983,7 +1996,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
     if (removed) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "plugins", {
+      emitReloadEvent(config, ctx.reloadEvents, workspace, "plugins", {
         type: "plugin",
         name: normalized,
         action: "removed",
@@ -2048,7 +2061,7 @@ function createRoutes(
       summary: `Installed hub skill ${name}`,
       timestamp: Date.now(),
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "skills", {
       type: "skill",
       name,
       action: result.action,
@@ -2098,7 +2111,7 @@ function createRoutes(
       summary: `Upserted skill ${name}`,
       timestamp: Date.now(),
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "skills", {
       type: "skill",
       name,
       action: result.action,
@@ -2131,7 +2144,7 @@ function createRoutes(
       summary: `Deleted skill ${name}`,
       timestamp: Date.now(),
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "skills", {
       type: "skill",
       name,
       action: "removed",
@@ -2201,7 +2214,7 @@ function createRoutes(
       summary: `Added MCP ${name}`,
       timestamp: Date.now(),
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "mcp", {
       type: "mcp",
       name,
       action: result.action,
@@ -2233,7 +2246,7 @@ function createRoutes(
     });
     if (removed) {
       await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
-      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+      emitReloadEvent(config, ctx.reloadEvents, workspace, "mcp", {
         type: "mcp",
         name,
         action: "removed",
@@ -2278,7 +2291,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
     // ReloadTrigger.action only allows added/removed/updated, so toggle => "updated".
-    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "mcp", {
       type: "mcp",
       name,
       action: "updated",
@@ -2383,7 +2396,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    emitReloadEvent(ctx.reloadEvents, workspace, "commands", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "commands", {
       type: "command",
       name: sanitizeCommandName(name),
       action: "updated",
@@ -2415,7 +2428,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
 
-    emitReloadEvent(ctx.reloadEvents, workspace, "commands", {
+    emitReloadEvent(config, ctx.reloadEvents, workspace, "commands", {
       type: "command",
       name: sanitizeCommandName(name),
       action: "removed",
@@ -2502,7 +2515,7 @@ function createRoutes(
       timestamp: Date.now(),
     });
     if (configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
+      emitReloadEvent(config, ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
     }
     return jsonResponse({ ok: true, preview: publicWorkspaceImportPreview(latestPreview) });
   });
@@ -2551,16 +2564,24 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     }
     if (bootstrapReloadReasons.size > 0) {
       await reloadBaselineRefreshers.get(config)?.(workspace.id, Array.from(bootstrapReloadReasons));
-      reloadOpencodeEngineAfterInternalBootstrap(config, { ...workspace, path: resolvedWorkspace });
+      reloadOpencodeEngineAfterInternalBootstrap(config, { ...workspace, path: resolvedWorkspace }, Array.from(bootstrapReloadReasons));
     }
   }
   return { ...workspace, path: resolvedWorkspace };
 }
 
-function reloadOpencodeEngineAfterInternalBootstrap(config: ServerConfig, workspace: WorkspaceInfo): void {
+function reloadOpencodeEngineAfterInternalBootstrap(
+  config: ServerConfig,
+  workspace: WorkspaceInfo,
+  reloadReasons: ReloadReason[],
+): void {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!connection.baseUrl?.trim()) return;
-  void reloadOpencodeEngine(config, workspace).catch(() => undefined);
+  void reloadOpencodeEngine(config, workspace, {
+    reason: "internal.bootstrap",
+    source: "resolveWorkspace",
+    trigger: { reloadReasons },
+  }).catch(() => undefined);
 }
 
 async function isAuthorizedRoot(workspacePath: string, roots: string[]): Promise<boolean> {
@@ -2809,15 +2830,39 @@ function parseOpencodeErrorBody(input: string): unknown {
   }
 }
 
-async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceInfo): Promise<void> {
+async function reloadOpencodeEngine(
+  config: ServerConfig,
+  workspace: WorkspaceInfo,
+  input: ReloadOpencodeEngineInput = {},
+): Promise<void> {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
   if (!baseUrl) {
+    void recordLifecycleDiagnostic(config, "opencode.reload.unconfigured", {
+      reason: input.reason ?? null,
+      source: input.source ?? null,
+      trigger: input.trigger ?? null,
+      workspace: workspaceDiagnosticSummary(workspace),
+    });
     throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
   }
 
   const directory = resolveOpencodeDirectory(workspace);
   const targetUrl = buildOpencodeReloadUrl(baseUrl, directory);
+  const startedAt = Date.now();
+  const commonDetails = {
+    reason: input.reason ?? null,
+    source: input.source ?? null,
+    trigger: input.trigger ?? null,
+    workspace: workspaceDiagnosticSummary(workspace),
+    activeWorkspaceId: config.workspaces[0]?.id ?? null,
+    workspaceOrderIds: config.workspaces.map((entry) => entry.id),
+    configPath: config.configPath ?? null,
+    baseUrl: sanitizeDiagnosticUrl(baseUrl),
+    targetUrl: sanitizeDiagnosticUrl(targetUrl),
+    directory: directory ?? null,
+  };
+  void recordLifecycleDiagnostic(config, "opencode.reload.request", commonDetails);
   const headers: Record<string, string> = {};
   const auth = connection.authHeader ?? null;
   if (auth) headers.Authorization = auth;
@@ -2826,6 +2871,11 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   try {
     response = await fetch(targetUrl, { method: "POST", headers });
   } catch (error) {
+    void recordLifecycleDiagnostic(config, "opencode.reload.unreachable", {
+      ...commonDetails,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error : String(error),
+    });
     throw new ApiError(
       503,
       "opencode_engine_unreachable",
@@ -2835,17 +2885,42 @@ async function reloadOpencodeEngine(config: ServerConfig, workspace: WorkspaceIn
   }
   if (!response.ok) {
     const body = parseOpencodeErrorBody(await response.text());
+    void recordLifecycleDiagnostic(config, "opencode.reload.failed", {
+      ...commonDetails,
+      durationMs: Date.now() - startedAt,
+      status: response.status,
+      body,
+    });
     throw new ApiError(502, "opencode_reload_failed", "OpenCode reload failed", {
       status: response.status,
       body,
     });
   }
+  void recordLifecycleDiagnostic(config, "opencode.reload.success", {
+    ...commonDetails,
+    durationMs: Date.now() - startedAt,
+    status: response.status,
+  });
 
   // Re-register runtime-DB MCPs: dispose rebuilds engine state from disk
   // configs (including the server-managed runtime config file for the
   // primary workspace), but other workspaces' runtime MCPs only reach the
   // engine through this dynamic push.
-  await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+  const syncStartedAt = Date.now();
+  await syncRuntimeMcpToOpencodeEngine(config, workspace)
+    .then(() => {
+      void recordLifecycleDiagnostic(config, "opencode.reload.runtime_mcp_sync.success", {
+        ...commonDetails,
+        durationMs: Date.now() - syncStartedAt,
+      });
+    })
+    .catch((error) => {
+      void recordLifecycleDiagnostic(config, "opencode.reload.runtime_mcp_sync.failed", {
+        ...commonDetails,
+        durationMs: Date.now() - syncStartedAt,
+        error: error instanceof Error ? error : String(error),
+      });
+    });
 }
 
 // Push runtime-DB MCP entries into the running OpenCode engine via its dynamic

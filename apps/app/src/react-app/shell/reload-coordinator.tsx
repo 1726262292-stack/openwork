@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import type { ReloadReason, ReloadTrigger } from "@/app/types";
+import { recordLifecycleDiagnostic } from "@/app/lib/lifecycle-diagnostics";
 import { t } from "@/i18n";
 import {
   useSessionActivityStore,
@@ -177,7 +178,11 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
   );
   const reloadWorkspaceEngine = useCallback(async () => {
     const controls = controlsRef.current;
-    if (!controls?.reloadWorkspaceEngine) return false;
+    if (!controls?.reloadWorkspaceEngine) {
+      recordLifecycleDiagnostic("coordinator.reload_missing_controls");
+      return false;
+    }
+    recordLifecycleDiagnostic("coordinator.reload_call_controls");
     return controls.reloadWorkspaceEngine();
   }, []);
   const ignoreError = useCallback(() => {}, []);
@@ -227,6 +232,10 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ reason?: ReloadReason; trigger?: ReloadTrigger }>).detail;
+      recordLifecycleDiagnostic("coordinator.window_reload_required", {
+        reason: detail?.reason ?? "config",
+        trigger: detail?.trigger ?? null,
+      });
       systemState.markReloadRequired(detail?.reason ?? "config", detail?.trigger);
     };
 
@@ -284,13 +293,25 @@ export function ReloadCoordinatorProvider({ children }: { children: ReactNode })
       AUTO_RELOAD_DEBOUNCE_MS,
       lastAutoReloadAtRef.current + AUTO_RELOAD_COOLDOWN_MS - Date.now(),
     );
+    recordLifecycleDiagnostic("coordinator.auto_reload_scheduled", {
+      delayMs: delay,
+      activeSessions: activeSessions.length,
+      activityBlocked,
+      trigger: systemState.reload.reloadTrigger,
+    });
     const timer = window.setTimeout(() => {
       // Re-check at fire time: a task may have started during the debounce
       // window. The effect re-runs when activity ends and reschedules.
       if (hasLiveSessionActivity(useSessionActivityStore.getState().statusesByWorkspaceId)) {
+        recordLifecycleDiagnostic("coordinator.auto_reload_skipped_activity", {
+          trigger: systemState.reload.reloadTrigger,
+        });
         return;
       }
       lastAutoReloadAtRef.current = Date.now();
+      recordLifecycleDiagnostic("coordinator.auto_reload_fire", {
+        trigger: systemState.reload.reloadTrigger,
+      });
       void systemState.reloadWorkspaceEngine();
     }, delay);
     return () => window.clearTimeout(timer);

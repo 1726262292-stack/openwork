@@ -2,6 +2,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
+import type { ReloadOpencodeEngineInput } from "../lifecycle-diagnostics.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
@@ -25,7 +26,7 @@ interface RegisterWorkspaceRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
-  reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<void>;
+  reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo, input?: ReloadOpencodeEngineInput) => Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -452,6 +453,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
     const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+    const previousActiveId = config.workspaces[0]?.id ?? null;
     const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
     const persist = queryPersist ?? (body.persist === true);
@@ -472,7 +474,16 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       timestamp: Date.now(),
     });
     if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
-      await reloadOpencodeEngine(config, workspace);
+      await reloadOpencodeEngine(config, workspace, {
+        reason: "workspace.activate",
+        source: "POST /workspaces/:id/activate",
+        trigger: {
+          route: ctx.url.pathname,
+          persist,
+          previousActiveId,
+          requestedWorkspaceId: workspace.id,
+        },
+      });
     }
     return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
   });

@@ -5,6 +5,7 @@ import { toast } from "@/components/ui/sonner";
 
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
+import { recordLifecycleDiagnostic } from "@/app/lib/lifecycle-diagnostics";
 import { createClient } from "@/app/lib/opencode";
 import {
   createOpenworkServerClient,
@@ -180,13 +181,20 @@ async function reloadEngineOrRestartDesktop(
   afterRestart?: () => Promise<void>,
 ): Promise<void> {
   try {
+    recordLifecycleDiagnostic("settings.reload_server_start", { workspaceId });
     await client.reloadEngine(workspaceId);
+    recordLifecycleDiagnostic("settings.reload_server_success", { workspaceId });
   } catch (error) {
     const unreachable =
       error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
     if (!unreachable || !isDesktopRuntime()) {
+      recordLifecycleDiagnostic("settings.reload_server_error", {
+        workspaceId,
+        message: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
+    recordLifecycleDiagnostic("settings.reload_desktop_restart", { workspaceId });
     await engineRestart({});
     await afterRestart?.();
   }
@@ -1748,7 +1756,27 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
     const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
     if (endpoint) {
-      void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
+      recordLifecycleDiagnostic("settings.activate_workspace_start", {
+        selectedWorkspaceId: workspaceId,
+        endpointWorkspaceId: endpoint.workspaceId,
+        persist: true,
+      });
+      void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true })
+        .then(() => {
+          recordLifecycleDiagnostic("settings.activate_workspace_success", {
+            selectedWorkspaceId: workspaceId,
+            endpointWorkspaceId: endpoint.workspaceId,
+            persist: true,
+          });
+        })
+        .catch((error) => {
+          recordLifecycleDiagnostic("settings.activate_workspace_error", {
+            selectedWorkspaceId: workspaceId,
+            endpointWorkspaceId: endpoint.workspaceId,
+            persist: true,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
     }
     if (isDesktopRuntime()) {
       void workspaceSetSelected(workspaceId).catch(() => undefined);

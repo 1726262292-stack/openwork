@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { engineInfo, engineRestart } from "@/app/lib/desktop";
 import type { EngineInfo } from "@/app/lib/desktop-types";
+import { recordLifecycleDiagnostic } from "@/app/lib/lifecycle-diagnostics";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { OpenworkServerError, type OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
@@ -52,23 +53,42 @@ export function useEngineReload(input: UseEngineReloadInput) {
 
   const reloadWorkspaceEngineFromUi = useCallback(async () => {
     if (!client || !workspaceId) {
+      recordLifecycleDiagnostic("ui.reload_missing_client", { workspaceId });
       onError(t("app.error_connect_first"));
       return false;
     }
     const endpoint = endpointForWorkspace(workspace);
     if (!endpoint) {
+      recordLifecycleDiagnostic("ui.reload_missing_endpoint", { workspaceId });
       onError(t("app.error_connect_first"));
       return false;
     }
     let restartedEngine = false;
     try {
+      recordLifecycleDiagnostic("ui.reload_server_start", {
+        workspaceId,
+        endpointWorkspaceId: endpoint.workspaceId,
+      });
       await endpoint.client.reloadEngine(endpoint.workspaceId);
+      recordLifecycleDiagnostic("ui.reload_server_success", {
+        workspaceId,
+        endpointWorkspaceId: endpoint.workspaceId,
+      });
     } catch (error) {
       const unreachable =
         error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
       if (!unreachable || !isDesktopRuntime()) {
+        recordLifecycleDiagnostic("ui.reload_server_error", {
+          workspaceId,
+          endpointWorkspaceId: endpoint.workspaceId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
+      recordLifecycleDiagnostic("ui.reload_fallback_engine_restart", {
+        workspaceId,
+        endpointWorkspaceId: endpoint.workspaceId,
+      });
       await engineRestart({});
       restartedEngine = true;
     }
@@ -89,6 +109,11 @@ export function useEngineReload(input: UseEngineReloadInput) {
     }
     toast.dismiss(taskCreateUnavailableToastId(workspaceId));
     toast.dismiss();
+    recordLifecycleDiagnostic("ui.reload_complete", {
+      workspaceId,
+      endpointWorkspaceId: endpoint.workspaceId,
+      restartedEngine,
+    });
     return true;
   }, [client, endpointForWorkspace, onError, refreshRouteState, workspace, workspaceId]);
 
@@ -109,6 +134,7 @@ export function useEngineReload(input: UseEngineReloadInput) {
       return;
     }
     // Marking is enough: the reload coordinator auto-reloads once idle.
+    recordLifecycleDiagnostic("ui.org_onboarding_reload_latch", { workspaceId });
     reloadCoordinator.markReloadRequired("config", {
       type: "config",
       name: "opencode.json",
@@ -140,6 +166,13 @@ export function useEngineReload(input: UseEngineReloadInput) {
         // agent while the session page is open.
         if (currentCursor === undefined || currentCursor === null) return;
         for (const event of response.items ?? []) {
+          recordLifecycleDiagnostic("ui.reload_event_polled", {
+            workspaceId,
+            endpointWorkspaceId: endpoint.workspaceId,
+            reason: event.reason,
+            trigger: event.trigger ?? null,
+            seq: event.seq,
+          });
           reloadCoordinator.markReloadRequired(event.reason, event.trigger);
         }
       } catch {

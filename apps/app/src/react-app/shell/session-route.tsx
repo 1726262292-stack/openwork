@@ -19,6 +19,7 @@ import { captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { trackSessionActive, trackTaskStarted } from "@/app/lib/den-telemetry";
 import { buildDiagnosticsBundleJson } from "@/app/lib/diagnostics-bundle";
 import { downloadTextAsFile } from "@/app/lib/download";
+import { recordLifecycleDiagnostic } from "@/app/lib/lifecycle-diagnostics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -1846,7 +1847,27 @@ export function SessionRoute() {
             const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
             const endpoint = endpointForWorkspace(workspace);
             if (endpoint) {
-              void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
+              recordLifecycleDiagnostic("session.activate_workspace_start", {
+                selectedWorkspaceId: workspaceId,
+                endpointWorkspaceId: endpoint.workspaceId,
+                persist: true,
+              });
+              void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true })
+                .then(() => {
+                  recordLifecycleDiagnostic("session.activate_workspace_success", {
+                    selectedWorkspaceId: workspaceId,
+                    endpointWorkspaceId: endpoint.workspaceId,
+                    persist: true,
+                  });
+                })
+                .catch((error) => {
+                  recordLifecycleDiagnostic("session.activate_workspace_error", {
+                    selectedWorkspaceId: workspaceId,
+                    endpointWorkspaceId: endpoint.workspaceId,
+                    persist: true,
+                    message: error instanceof Error ? error.message : String(error),
+                  });
+                });
             }
           }
           // If we remember what the user last opened here and that session

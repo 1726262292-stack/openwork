@@ -21,6 +21,7 @@ import {
   workspaceOpenworkRead,
   workspaceOpenworkWrite,
 } from "../../../../app/lib/desktop";
+import { recordLifecycleDiagnostic } from "../../../../app/lib/lifecycle-diagnostics";
 import { OpenworkServerError } from "../../../../app/lib/openwork-server";
 import type {
   Client,
@@ -1158,13 +1159,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             "";
           if (workspaceId) {
             try {
+              recordLifecycleDiagnostic("provider_auth.reload_server_start", { workspaceId });
               await openworkClient.reloadEngine(workspaceId);
+              recordLifecycleDiagnostic("provider_auth.reload_server_success", { workspaceId });
             } catch (error) {
               const unreachable =
                 error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
               if (!unreachable || !isDesktopRuntime()) {
+                recordLifecycleDiagnostic("provider_auth.reload_server_error", {
+                  workspaceId,
+                  message: error instanceof Error ? error.message : String(error),
+                });
                 throw error;
               }
+              recordLifecycleDiagnostic("provider_auth.reload_desktop_restart", { workspaceId });
               await engineRestart({});
             }
             reloaded = true;
@@ -1176,8 +1184,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
       if (!reloaded) {
         try {
+          recordLifecycleDiagnostic("provider_auth.direct_dispose_start");
           unwrap(await c.instance.dispose());
+          recordLifecycleDiagnostic("provider_auth.direct_dispose_success");
         } catch {
+          recordLifecycleDiagnostic("provider_auth.direct_dispose_error");
           // ignore dispose failures and try reading current state anyway
         }
       }

@@ -1,5 +1,6 @@
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
+import type { ReloadOpencodeEngineInput } from "../lifecycle-diagnostics.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
@@ -14,7 +15,7 @@ interface RegisterOperationRoutesOptions {
   readJsonBody: ReadJsonBody;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
-  reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo) => Promise<void>;
+  reloadOpencodeEngine: (config: ServerConfig, workspace: WorkspaceInfo, input?: ReloadOpencodeEngineInput) => Promise<void>;
 }
 
 export function registerOperationRoutes(options: RegisterOperationRoutesOptions): void {
@@ -40,7 +41,11 @@ export function registerOperationRoutes(options: RegisterOperationRoutesOptions)
     const workspace = await resolveWorkspace(config, ctx.params.id);
     requireClientScope(ctx, "collaborator");
 
-    await reloadOpencodeEngine(config, workspace);
+    await reloadOpencodeEngine(config, workspace, {
+      reason: "workspace.engine_reload",
+      source: "POST /workspace/:id/engine/reload",
+      trigger: { route: ctx.url.pathname },
+    });
 
     await recordAudit(workspace.path, {
       id: shortId(),

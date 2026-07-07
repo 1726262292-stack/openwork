@@ -50,7 +50,15 @@ export type OpenworkServerDiagnostics = {
   selectedWorkspaceId?: string | null;
   workspace: OpenworkWorkspaceInfo | null;
   authorizedRoots: string[];
-  server: { host: string; port: number; configPath?: string | null };
+  server: {
+    host: string;
+    port: number;
+    configPath?: string | null;
+    diagnosticLogPaths?: {
+      browser?: string | null;
+      lifecycle?: string | null;
+    };
+  };
   tokenSource: { client: string; host: string };
 };
 
