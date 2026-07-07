@@ -418,6 +418,7 @@ async function signDesktopIntoCloud(ctx) {
   await clearDesktopConfigCache(ctx);
   await ctx.eval("location.reload()");
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after bootstrap reload" });
+  await ctx.waitFor("(document.getElementById('root')?.childElementCount ?? 0) > 0", { timeoutMs: 60_000, label: "react root mounted after bootstrap reload" });
 
   const handoff = await denApiFetch("/v1/auth/desktop-handoff", {
     method: "POST",
@@ -465,6 +466,7 @@ async function remountDesktop(ctx) {
   await clearDesktopConfigCache(ctx);
   await ctx.eval("location.reload()");
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API after reload" });
+  await ctx.waitFor("(document.getElementById('root')?.childElementCount ?? 0) > 0", { timeoutMs: 120_000, label: "react root mounted after reload" });
   await completeDesktopCloudOnboardingIfNeeded(ctx);
 }
 
@@ -472,7 +474,16 @@ async function navigateToSettingsTab(ctx, tab) {
   const workspaceId = await ctx.eval("(window.location.hash.match(/\\/workspace\\/([^/]+)/) ?? [])[1] ?? ''");
   await ctx.navigateHash(workspaceId ? `/workspace/${workspaceId}/settings/${tab}` : `/settings/${tab}`);
   await ctx.waitFor(`window.location.hash.includes('/settings/${tab}')`, { timeoutMs: 30_000, label: `${tab} settings route` });
-  await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 30_000, label: "settings surface mounted" });
+  // Hash changes during early boot can leave the React root empty (observed
+  // deterministically after remounts). Recover once with a reload — the hash
+  // is already at the target, so a fresh boot lands on the right tab.
+  try {
+    await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 10_000, label: "settings surface mounted" });
+  } catch {
+    await ctx.eval("location.reload()");
+    await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after settings recovery reload" });
+    await ctx.waitFor("(document.body?.innerText ?? '').includes('Back to app')", { timeoutMs: 60_000, label: "settings surface mounted (after recovery)" });
+  }
 }
 
 async function openExtensionsMarketplace(ctx) {
@@ -507,7 +518,7 @@ async function waitForConnectMarketplaceCard(ctx, name) {
 
 async function readExtensionsMarketplaceState(ctx, name) {
   return ctx.eval(`(() => {
-    const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\\s+/g, ' ').trim();
     const buttons = [...document.querySelectorAll('button')];
     const pluginCard = buttons.find((button) => compact(button).includes(${JSON.stringify(name)}));
     return {
@@ -520,7 +531,7 @@ async function readExtensionsMarketplaceState(ctx, name) {
 
 async function readExtensionsHintState(ctx) {
   return ctx.eval(`(() => {
-    const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\\s+/g, ' ').trim();
     const buttons = [...document.querySelectorAll('button')];
     return {
       text: document.body.innerText,
@@ -531,7 +542,7 @@ async function readExtensionsHintState(ctx) {
 
 async function readConnectMarketplaceState(ctx, name) {
   return ctx.eval(`(() => {
-    const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\\s+/g, ' ').trim();
     const section = document.querySelector('[data-testid="connect-marketplace-section"]');
     const card = [...document.querySelectorAll('[data-testid="connect-marketplace-plugin-card"]')]
       .find((entry) => compact(entry).includes(${JSON.stringify(name)}));

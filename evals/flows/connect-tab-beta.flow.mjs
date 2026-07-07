@@ -406,9 +406,9 @@ async function readSettingsSidebar(ctx) {
     const sidebar = candidates.find((el) => (el.innerText ?? '').includes('Back to app'))
       ?? candidates.find((el) => (el.innerText ?? '').includes('Cloud'))
       ?? candidates[0];
-    const buttons = [...(sidebar?.querySelectorAll('button') ?? [])].map((button) => (button.textContent ?? '').replace(/\s+/g, ' ').trim());
+    const buttons = [...(sidebar?.querySelectorAll('button') ?? [])].map((button) => (button.textContent ?? '').replace(/\\s+/g, ' ').trim());
     return {
-      text: (sidebar?.innerText ?? '').replace(/\s+/g, ' ').trim(),
+      text: (sidebar?.innerText ?? '').replace(/\\s+/g, ' ').trim(),
       connectButtonText: buttons.find((text) => text.includes('Connect')) ?? '',
       buttons,
     };
@@ -428,7 +428,7 @@ async function waitForConnectConnectionCard(ctx, name) {
 
 async function readConnectState(ctx, name) {
   return ctx.eval(`(() => {
-    const compact = (entry) => (entry?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    const compact = (entry) => (entry?.textContent ?? '').replace(/\\s+/g, ' ').trim();
     const card = [...document.querySelectorAll('[data-testid="connect-org-mcp-card"]')]
       .find((entry) => compact(entry).includes(${JSON.stringify(name)}));
     return {
