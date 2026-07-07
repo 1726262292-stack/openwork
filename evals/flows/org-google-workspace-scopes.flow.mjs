@@ -34,6 +34,8 @@ const EXPECTED_MEMBER_SCOPES = [
 const state = {
   adminSession: null,
   memberSession: null,
+  orgId: null,
+  orgName: null,
   authorizeUrl: null,
   authorizeScopes: [],
   status: null,
@@ -59,6 +61,29 @@ function assertExactStringSet(ctx, actual, expected, label) {
   );
 }
 
+function orgHeaders(session) {
+  if (!session) throw new Error("Missing session for org-scoped API call.");
+  if (!state.orgId) throw new Error("Missing pinned organization id for org-scoped API call.");
+  return { authorization: `Bearer ${session}`, "x-openwork-legacy-org-id": state.orgId };
+}
+
+async function selectAdminOrganization(ctx) {
+  const listed = await denApiFetch("/v1/me/orgs", {
+    headers: { authorization: `Bearer ${state.adminSession}` },
+  });
+  ctx.assert(listed.response.ok, `Admin org list failed: ${listed.response.status} ${JSON.stringify(listed.body).slice(0, 200)}`);
+  const orgs = Array.isArray(listed.body.orgs) ? listed.body.orgs : [];
+  const acme = orgs.find((org) => org.slug === "acme-robotics-demo");
+  const adminOrg = orgs.find((org) => ["owner", "admin"].includes(String(org.role ?? "").toLowerCase()));
+  const selected = acme ?? adminOrg;
+  ctx.assert(
+    selected && typeof selected.id === "string",
+    `Admin ${ADMIN_EMAIL} is not in acme-robotics-demo and has no owner/admin org. Orgs: ${JSON.stringify(orgs)}`,
+  );
+  state.orgId = selected.id;
+  state.orgName = typeof selected.name === "string" && selected.name ? selected.name : selected.slug ?? selected.id;
+}
+
 async function ensureVerifiedUser(ctx, email, name, password) {
   let token = await signInApi(email, password);
   if (token) return token;
@@ -75,24 +100,38 @@ async function ensureVerifiedUser(ctx, email, name, password) {
   return token;
 }
 
+async function memberBelongsToPinnedOrg(ctx) {
+  const orgs = await denApiFetch("/v1/me/orgs", { headers: { authorization: `Bearer ${state.memberSession}` } });
+  ctx.assert(orgs.response.ok, `Member org list failed: ${orgs.response.status} ${JSON.stringify(orgs.body).slice(0, 200)}`);
+  return (orgs.body.orgs ?? []).some((org) => org.id === state.orgId);
+}
+
 async function ensureMember(ctx) {
   state.memberSession = await ensureVerifiedUser(ctx, MEMBER_EMAIL, "Jordan Demo", MEMBER_PASSWORD);
-  const orgs = await denApiFetch("/v1/me/orgs", { headers: { authorization: `Bearer ${state.memberSession}` } });
-  const inAcme = (orgs.body.orgs ?? []).some((org) => org.slug === "acme-robotics-demo");
-  if (inAcme) return;
+  if (await memberBelongsToPinnedOrg(ctx)) return;
 
   const invite = await denApiFetch("/v1/invitations", {
     method: "POST",
-    headers: { authorization: `Bearer ${state.adminSession}` },
+    headers: orgHeaders(state.adminSession),
     body: JSON.stringify({ email: MEMBER_EMAIL, role: "member" }),
   });
-  ctx.assert(invite.response.ok, `Invitation failed: ${invite.response.status}`);
+  if (!invite.response.ok && invite.body?.error === "member_exists") {
+    ctx.assert(await memberBelongsToPinnedOrg(ctx), `Invite returned member_exists, but ${MEMBER_EMAIL} is not in ${state.orgName} (${state.orgId}).`);
+    return;
+  }
+  ctx.assert(invite.response.ok, `Invitation failed: ${invite.response.status} ${JSON.stringify(invite.body).slice(0, 200)}`);
   const accept = await denApiFetch("/v1/orgs/invitations/accept", {
     method: "POST",
     headers: { authorization: `Bearer ${state.memberSession}` },
     body: JSON.stringify({ id: invite.body.inviteToken }),
   });
   ctx.assert(accept.response.ok && accept.body.accepted, "Invitation accept failed.");
+  ctx.assert(await memberBelongsToPinnedOrg(ctx), `${MEMBER_EMAIL} did not join ${state.orgName} (${state.orgId}) after accepting the invite.`);
+}
+
+async function setBrowserActiveOrg(ctx) {
+  const ok = await ctx.eval(`fetch('/api/auth/organization/set-active', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ organizationId: ${JSON.stringify(state.orgId)} }) }).then((r) => r.ok)`, { awaitPromise: true });
+  ctx.assert(ok, `Could not set the browser active org to ${state.orgName} (${state.orgId}).`);
 }
 
 function clickGoogleQuickAddScript() {
@@ -185,7 +224,7 @@ async function waitForSavedFeatures(ctx) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const config = await denApiFetch("/v1/oauth-providers/google-workspace/client", {
-      headers: { authorization: `Bearer ${state.adminSession}` },
+      headers: orgHeaders(state.adminSession),
     });
     if (config.response.ok) {
       features = Array.isArray(config.body.features) ? config.body.features : [];
@@ -212,7 +251,7 @@ async function waitForMemberConnectedStatus(ctx) {
   const deadline = Date.now() + 45_000;
   while (Date.now() < deadline) {
     const result = await denApiFetch("/v1/oauth-providers/google-workspace/status", {
-      headers: { authorization: `Bearer ${state.memberSession}` },
+      headers: orgHeaders(state.memberSession),
     });
     if (result.response.ok) {
       status = result.body;
@@ -258,16 +297,17 @@ export default {
 
         state.adminSession = await signInApi(ADMIN_EMAIL, ADMIN_PASSWORD);
         ctx.assert(Boolean(state.adminSession), `Admin sign-in failed for ${ADMIN_EMAIL}.`);
+        await selectAdminOrganization(ctx);
         await ensureMember(ctx);
 
         await denApiFetch("/v1/oauth-providers/google-workspace/disconnect", {
           method: "POST",
-          headers: { authorization: `Bearer ${state.memberSession}` },
+          headers: orgHeaders(state.memberSession),
         }).catch(() => undefined);
 
         const cleanClient = await denApiFetch("/v1/oauth-providers/google-workspace/client", {
           method: "POST",
-          headers: { authorization: `Bearer ${state.adminSession}` },
+          headers: orgHeaders(state.adminSession),
           body: JSON.stringify({
             clientId: `google-clean-client-${RUN_TAG}`,
             clientSecret: "google-clean-secret",
@@ -284,6 +324,7 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await signInViaBrowser(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
+            await setBrowserActiveOrg(ctx);
             await openAdminConnections(ctx);
             const clicked = await ctx.eval(clickGoogleQuickAddScript());
             ctx.assert(clicked, "Google Workspace quick-add card was not found.");
@@ -364,7 +405,7 @@ export default {
           voiceover: vo[3],
           action: async () => {
             const started = await denApiFetch("/v1/mcp-connections/google-workspace/connect/start", {
-              headers: { authorization: `Bearer ${state.memberSession}` },
+              headers: orgHeaders(state.memberSession),
             });
             ctx.assert(started.response.ok, `Starting Google Workspace connect failed: ${started.response.status} ${JSON.stringify(started.body).slice(0, 200)}`);
             ctx.assert(started.body.status === "needs_auth" && typeof started.body.authorizeUrl === "string", "connect/start did not return an authorizeUrl.");
@@ -400,6 +441,7 @@ export default {
           action: async () => {
             state.status = await waitForMemberConnectedStatus(ctx);
             await signInViaBrowser(ctx, MEMBER_EMAIL, MEMBER_PASSWORD);
+            await setBrowserActiveOrg(ctx);
             await openYourConnections(ctx);
           },
           assert: async () => {
