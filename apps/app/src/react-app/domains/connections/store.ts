@@ -42,9 +42,12 @@ import type { OpenworkServerStore } from "./openwork-server-store";
 import { attemptSilentMcpReauth } from "./mcp-silent-reauth";
 import {
   CLOUD_MCP_SERVER_NAME,
+  clearCloudMcpUnhealthyRemintAttempt,
   clearCloudMcpUserState,
   isCloudMcpSyncMarkerFresh,
+  readCloudMcpUnhealthyRemintAttempt,
   readCloudMcpUserState,
+  writeCloudMcpUnhealthyRemintAttempt,
   writeCloudMcpUserState,
 } from "./cloud-mcp-user-state";
 
@@ -882,7 +885,8 @@ export function createConnectionsStore(options: {
     }
   }
 
-  // Guards the unhealthy-status self-heal in syncCloudControlMcp: each
+  // Guards the unhealthy-status self-heal in syncCloudControlMcp with a
+  // persisted marker that survives settings-route store remounts: each
   // re-mint writes a new token to config, which marks an engine reload as
   // required. Until that reload happens the status stays needs_auth, so
   // retrying on every sync tick produced an endless "MCP 'openwork-cloud'
@@ -917,6 +921,10 @@ export function createConnectionsStore(options: {
     if (readCloudMcpUserState() !== null) return "skipped";
     const configuredEntry = snapshot.mcpServers.find((server) => server.name === slug);
     if (configuredEntry?.config.enabled === false) return "skipped";
+    if (options?.force) {
+      cloudMcpUnhealthyRemintAttempted = false;
+      clearCloudMcpUnhealthyRemintAttempt();
+    }
 
     const marker = readCloudMcpSyncMarker();
     const markerFresh =
@@ -934,9 +942,11 @@ export function createConnectionsStore(options: {
     const entryStatus = snapshot.mcpStatuses[slug]?.status;
     if (entryStatus === "connected") {
       cloudMcpUnhealthyRemintAttempted = false;
+      clearCloudMcpUnhealthyRemintAttempt();
     }
     const entryUnhealthy = entryStatus === "needs_auth" || entryStatus === "failed";
-    const shouldRemintForHealth = entryUnhealthy && !cloudMcpUnhealthyRemintAttempted;
+    const attempted = cloudMcpUnhealthyRemintAttempted || readCloudMcpUnhealthyRemintAttempt()?.orgId === orgId;
+    const shouldRemintForHealth = entryUnhealthy && !attempted;
 
     // Builds before #2116's follow-up wrote the MCP URL against the bare
     // web-app origin (https://app.openworklabs.com/mcp), which 404s.
@@ -956,6 +966,7 @@ export function createConnectionsStore(options: {
     }
     if (shouldRemintForHealth) {
       cloudMcpUnhealthyRemintAttempted = true;
+      writeCloudMcpUnhealthyRemintAttempt({ orgId });
     }
 
     // Validate the session up front so a failed mint never reaches

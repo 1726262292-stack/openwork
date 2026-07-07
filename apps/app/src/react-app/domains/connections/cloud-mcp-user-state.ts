@@ -14,8 +14,10 @@
 export const CLOUD_MCP_SERVER_NAME = "openwork-cloud";
 
 const CLOUD_MCP_USER_STATE_KEY = "openwork.den.mcp.cloudControlUserState";
+const CLOUD_MCP_UNHEALTHY_REMINT_ATTEMPT_KEY = "openwork.den.mcp.unhealthyRemintAttempt";
 
 export type CloudMcpUserState = "disabled" | "removed";
+export type CloudMcpUnhealthyRemintAttempt = { orgId: string };
 
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -61,6 +63,49 @@ export function writeCloudMcpUserState(state: CloudMcpUserState) {
 export function clearCloudMcpUserState() {
   try {
     getStorage()?.removeItem(CLOUD_MCP_USER_STATE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * One re-mint attempt per unhealthy Cloud Control MCP episode must survive
+ * store remounts: the settings route recreates the connections store per
+ * mount, which re-armed the re-mint and reloaded the engine on every settings
+ * open. The episode ends when the entry reports connected, or when the user
+ * forces a refresh.
+ */
+export function readCloudMcpUnhealthyRemintAttempt(): CloudMcpUnhealthyRemintAttempt | null {
+  try {
+    const raw = getStorage()?.getItem(CLOUD_MCP_UNHEALTHY_REMINT_ATTEMPT_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      "orgId" in parsed &&
+      typeof parsed.orgId === "string"
+    ) {
+      return { orgId: parsed.orgId };
+    }
+  } catch {
+    // Corrupt marker or storage unavailable — treat as no recorded attempt.
+  }
+  return null;
+}
+
+export function writeCloudMcpUnhealthyRemintAttempt(marker: CloudMcpUnhealthyRemintAttempt) {
+  try {
+    getStorage()?.setItem(CLOUD_MCP_UNHEALTHY_REMINT_ATTEMPT_KEY, JSON.stringify(marker));
+  } catch {
+    // Storage unavailable — the in-memory guard still suppresses same-store retries.
+  }
+}
+
+export function clearCloudMcpUnhealthyRemintAttempt() {
+  try {
+    getStorage()?.removeItem(CLOUD_MCP_UNHEALTHY_REMINT_ATTEMPT_KEY);
   } catch {
     // ignore
   }

@@ -456,6 +456,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
     const persist = queryPersist ?? (body.persist === true);
     if (persist) ensureWritable(config);
+    const wasActive = config.workspaces[0]?.id === workspace.id;
     config.workspaces = [
       workspace,
       ...config.workspaces.filter((entry) => entry.id !== workspace.id),
@@ -471,7 +472,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       summary: "Switched active workspace",
       timestamp: Date.now(),
     });
-    if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
+    // Re-activating the already-active workspace must not dispose its engine instance; switch reloads stay (#870).
+    if (!wasActive && workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
       await reloadOpencodeEngine(config, workspace);
     }
     return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
