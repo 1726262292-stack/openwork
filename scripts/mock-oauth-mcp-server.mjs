@@ -161,7 +161,7 @@ function authorize(req, res, url) {
   if (!requirePreregisteredAuthorizeClient(res, url.searchParams)) {
     return;
   }
-  if (autoApprove) {
+  if (autoApprove && url.searchParams.get("force_consent") !== "1") {
     redirectWithCode(res, url.searchParams);
     return;
   }
@@ -204,6 +204,7 @@ async function registerClient(req, res) {
 async function issueToken(req, res) {
   const form = await readForm(req);
   const grantType = form.grant_type || "authorization_code";
+  let grantedScope = "mcp:read mcp:write";
 
   if (grantType === "authorization_code") {
     const grant = codes.get(form.code);
@@ -214,6 +215,7 @@ async function issueToken(req, res) {
     if (!requirePreregisteredTokenClient(req, res, form, grant)) {
       return;
     }
+    grantedScope = grant.scope;
     if (grant.codeChallenge) {
       const verifier = form.code_verifier || "";
       const expected =
@@ -237,7 +239,7 @@ async function issueToken(req, res) {
     refresh_token: `mock-refresh-${randomUUID()}`,
     token_type: "Bearer",
     expires_in: 3600,
-    scope: "mcp:read mcp:write",
+    scope: grantedScope,
   });
 }
 
