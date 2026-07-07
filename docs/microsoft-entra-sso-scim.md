@@ -13,14 +13,14 @@ wraps them with organization-scoped OpenWork routes and policy:
 | SSO management | `/dashboard/sso`, `/v1/sso`, `/v1/sso/saml`, `/v1/sso/oidc` | One SSO connection per organization. Owners and security admins can create or replace it. |
 | SAML callback | `/api/auth/sso/saml2/sp/acs/openwork-sso-<org-id>` | Better Auth consumes the response after OpenWork validates SAML response policy. |
 | SAML metadata | `/api/auth/sso/saml2/sp/metadata?providerId=openwork-sso-<org-id>` | Generated after the SAML connection is saved in OpenWork. |
-| SSO sign-in | `/sso/<org-slug>` | Starts SP-initiated SSO for the organization and redirects to Entra. |
+| SSO sign-in | `/sso/<org-slug>` | Starts SP-initiated SSO for one organization and redirects to Entra. |
 | SCIM management | `/dashboard/scim`, `/v1/scim`, `/v1/scim/token` | Owners and security admins create or rotate an org-scoped SCIM bearer token. |
 | SCIM provisioning | `/api/auth/scim/v2` | Supports SCIM user provisioning, updates, and deprovisioning. |
 
 OpenWork enforces these SAML security settings for organization SSO:
 
 - Signed SAML assertions are required.
-- IdP-initiated SAML is disabled.
+- IdP-initiated SAML is accepted only through the org-specific provider ACS URL.
 - SAML timestamps are required.
 - Deprecated SAML algorithms are rejected.
 - SSO login writes an external identity link and just-in-time organization
@@ -115,8 +115,9 @@ ACS URL before SAML can be fully tested.
      `user.userprincipalname` in tenants where `mail` is empty.
    - `displayName`: the user's display name.
    - Name ID: an email-like stable user identifier.
-10. Test with an assigned user from the OpenWork `/sso/<org-slug>` URL. This is
-    the supported SP-initiated path.
+10. Test with an assigned user from the OpenWork `/sso/<org-slug>` URL or the
+    Entra My Apps tile. For multi-org users, the org slug, Entra app, and ACS
+    URL choose which OpenWork organization they are entering.
 
 For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 
@@ -155,8 +156,10 @@ For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 
 ## Validation checklist
 
-- Entra SAML test redirects through OpenWork's `/sso/<org-slug>` URL.
-- The SAML response lands on OpenWork's generated ACS URL.
+- OpenWork's `/sso/<org-slug>` Sign-in URL redirects to Entra for SP-initiated
+  SSO.
+- Entra My Apps or test launch posts the SAML response to OpenWork's generated
+  ACS URL.
 - A first SSO login creates or updates an OpenWork user and organization member.
 - Email/password sign-in is rejected for managed users when SSO is required for
   the organization domain.
@@ -174,7 +177,7 @@ For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 | Microsoft shows `AADSTS700016` for `https://sts.windows.net/.../` | Entra is receiving the IdP issuer as the SP Entity ID / app identifier | Set Entra **Identifier (Entity ID)** to the OpenWork audience/auth URL, then resave the SSO connection in OpenWork so AuthnRequests use the OpenWork SP Entity ID. |
 | SAML login fails with audience or recipient errors | Entra Identifier, OpenWork Audience URL, or ACS URL do not match | Keep the Entra Identifier equal to the OpenWork audience and the Entra Reply URL equal to the OpenWork ACS URL. |
 | SAML login fails after changing certs | OpenWork still has the old IdP certificate | Paste the new Entra Base64 certificate into OpenWork and save the SAML connection again. |
-| IdP-initiated login fails | OpenWork only supports SP-initiated organization SAML | Start login from OpenWork's `/sso/<org-slug>` sign-in URL. |
+| IdP-initiated login fails with `unsolicited_response` | The deployment is running an older OpenWork version that rejects IdP-initiated SAML | Upgrade OpenWork or start login from OpenWork's `/sso/<org-slug>` sign-in URL. |
 | SCIM test connection is unauthorized | The token was copied incorrectly or rotated after Entra was configured | Rotate the OpenWork SCIM token and update Entra's Secret Token. |
 | Entra group provisioning fails | OpenWork does not support SCIM Group objects yet | Disable the group object mapping and use group assignment only to scope user provisioning. |
 
