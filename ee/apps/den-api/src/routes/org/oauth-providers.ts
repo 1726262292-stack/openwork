@@ -206,7 +206,7 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
     describeRoute({
       tags: ["Authentication"],
       summary: "Get an org's OAuth client configuration for a provider",
-      description: "Admin-only. Returns the saved OAuth client id, selected optional features, and the full scope list members will be asked to approve. Never returns the client secret.",
+      description: "Admin-only. Returns the saved OAuth client id, selected permission features, and the full scope list members will be asked to approve. Never returns the client secret.",
       responses: {
         200: jsonResponse("OAuth client configuration.", clientConfigDetailResponseSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),

@@ -29,11 +29,37 @@ import {
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 90_000;
 
-const GOOGLE_WORKSPACE_OPTIONAL_PERMISSIONS = [
-  { key: "gmailRead", label: "Read Gmail" },
-  { key: "driveFull", label: "Full Drive access" },
-  { key: "calendarWrite", label: "Create calendar events" },
-  { key: "chat", label: "Google Chat" },
+const GOOGLE_WORKSPACE_DEFAULT_FEATURES = ["calendarRead", "gmailDraft", "driveFile"];
+
+const GOOGLE_WORKSPACE_PERMISSION_GROUPS = [
+  {
+    name: "Calendar",
+    permissions: [
+      { key: "calendarRead", label: "Read calendar" },
+      { key: "calendarWrite", label: "Create calendar events" },
+    ],
+  },
+  {
+    name: "Gmail",
+    permissions: [
+      { key: "gmailDraft", label: "Draft emails" },
+      { key: "gmailRead", label: "Read Gmail" },
+    ],
+  },
+  {
+    name: "Drive",
+    permissions: [
+      { key: "driveFile", label: "Work with selected Drive files" },
+      { key: "driveRead", label: "Read all Drive files" },
+      { key: "driveFull", label: "Full Drive access" },
+    ],
+  },
+  {
+    name: "Chat",
+    permissions: [
+      { key: "chat", label: "Google Chat" },
+    ],
+  },
 ];
 
 export function McpConnectionsScreen() {
@@ -277,7 +303,7 @@ function GoogleWorkspaceDialog({
 
   useEffect(() => {
     if (!open || featuresPrefilled.current || !clientConfig.isSuccess || clientConfig.isFetching) return;
-    setFeatures(clientConfig.data?.features ?? []);
+    setFeatures(clientConfig.data?.features ?? GOOGLE_WORKSPACE_DEFAULT_FEATURES);
     featuresPrefilled.current = true;
   }, [open, clientConfig.isSuccess, clientConfig.isFetching, clientConfig.data?.features]);
 
@@ -307,27 +333,33 @@ function GoogleWorkspaceDialog({
           Paste the OAuth client from your company&apos;s Google Cloud project. Members then connect their own
           Google account from Your Connections — sign-ins stay in your org&apos;s cloud.
         </p>
-        <p className="mt-2 text-[12px] leading-5 text-gray-500">
-          Included permissions: calendar read, Gmail drafts, and selected Drive files.
-        </p>
 
         <div className="mt-5 space-y-4">
           <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-            <p className="text-[13px] font-semibold text-gray-900">Optional permissions</p>
-            <p className="mt-1 text-[12px] leading-5 text-gray-500">Only add these when your team needs the extra Google access.</p>
-            <div className="mt-3 space-y-2">
-              {GOOGLE_WORKSPACE_OPTIONAL_PERMISSIONS.map((permission) => (
-                <label key={permission.key} className="flex items-center gap-2 text-[13px] text-gray-700">
-                  <input
-                    type="checkbox"
-                    data-feature={permission.key}
-                    className="h-4 w-4 rounded border-gray-300 text-gray-900"
-                    checked={features.includes(permission.key)}
-                    disabled={loadingConfig}
-                    onChange={() => toggleFeature(permission.key)}
-                  />
-                  <span>{permission.label}</span>
-                </label>
+            <p className="text-[13px] font-semibold text-gray-900">Permissions</p>
+            <p className="mt-1 text-[12px] leading-5 text-gray-500">
+              Pick what your team&apos;s AI can do across Calendar, Gmail, and Drive. Signing in always shares the member&apos;s name and email.
+            </p>
+            <div className="mt-3 space-y-3">
+              {GOOGLE_WORKSPACE_PERMISSION_GROUPS.map((group) => (
+                <div key={group.name}>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400">{group.name}</p>
+                  <div className="space-y-2">
+                    {group.permissions.map((permission) => (
+                      <label key={permission.key} className="flex items-center gap-2 text-[13px] text-gray-700">
+                        <input
+                          type="checkbox"
+                          data-feature={permission.key}
+                          className="h-4 w-4 rounded border-gray-300 text-gray-900"
+                          checked={features.includes(permission.key)}
+                          disabled={loadingConfig}
+                          onChange={() => toggleFeature(permission.key)}
+                        />
+                        <span>{permission.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>
