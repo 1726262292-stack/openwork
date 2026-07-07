@@ -118,6 +118,29 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
 
 type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>
 
+function isCurrentResponseRealm(res: Response): boolean {
+  return res instanceof globalThis.Response
+}
+
+/**
+ * @hono/node-server overrides globalThis.Response with its own Response2
+ * constructor when Den starts serving. Real undici fetch() error responses do
+ * not chain to that new prototype, so the MCP SDK's OAuth error parser sees
+ * `input instanceof Response` as false and stringifies the whole response — the
+ * production symptom was `Invalid OAuth error response: SyntaxError: ... Raw
+ * body: [object Response]`, hiding the upstream OAuth server's JSON error.
+ * Success responses pass through untouched so streaming/SSE bodies stay live.
+ */
+export async function normalizeResponseRealm(res: Response): Promise<Response> {
+  if (res.ok || isCurrentResponseRealm(res)) return res
+  const buffered = await res.arrayBuffer()
+  return new globalThis.Response(buffered, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: res.headers,
+  })
+}
+
 /**
  * A fetch wrapper that re-applies assertPublicUrl to EVERY outbound request
  * — the MCP SDK follows discovery documents to other hosts (authorization
@@ -127,6 +150,10 @@ type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>
 export function createGuardedFetch(): FetchLike {
   return async (input, init) => {
     await assertPublicUrl(String(input))
-    return fetch(input, init)
+    return normalizeResponseRealm(await fetch(input, init))
   }
+}
+
+export function createRealmSafeFetch(): FetchLike {
+  return async (input, init) => normalizeResponseRealm(await fetch(input, init))
 }
