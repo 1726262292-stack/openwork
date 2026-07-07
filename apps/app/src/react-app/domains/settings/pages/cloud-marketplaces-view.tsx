@@ -10,8 +10,10 @@ import type { DenExternalMcpConnection, DenOrgMarketplaceResolved, DenOrgPlugin,
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { t } from "@/i18n";
+import { useConnectEnabled } from "@/react-app/domains/cloud/desktop-config-provider";
 import { ExtensionCard } from "@/react-app/design-system/extension-card";
 import { ExtensionDetailModal } from "@/react-app/design-system/extension-detail-modal";
+import { resolveMarketplaceDeliveryAction } from "@/react-app/domains/settings/connect-delivery";
 import {
   isOrgMcpConnectionItem,
   isToggleControlledExtension,
@@ -203,6 +205,7 @@ export function CloudMarketplacesView({
   setBuiltInEnabled,
 }: CloudMarketplacesViewProps) {
   const { activeOrganization: activeOrg, authToken, client, isSignedIn, user } = useCloudSession();
+  const connectEnabled = useConnectEnabled();
   const [busy, setBusy] = React.useState(false);
   const [actionId, setActionId] = React.useState<string | null>(null);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -427,6 +430,7 @@ export function CloudMarketplacesView({
 
   const importPlugin = React.useCallback(
     async (marketplaceId: string | null, plugin: DenOrgPlugin) => {
+      if (connectEnabled === true) return;
       if (actionId) return;
 
       setActionId(plugin.id);
@@ -443,7 +447,7 @@ export function CloudMarketplacesView({
         setActionId(null);
       }
     },
-    [actionId, extensions],
+    [actionId, connectEnabled, extensions],
   );
 
   const removePlugin = React.useCallback(
@@ -468,8 +472,10 @@ export function CloudMarketplacesView({
   );
 
   const updatableRows = React.useMemo(
-    () => cloudRows.filter((row) => row.status === "update_available" && !isCloudBuiltInPlugin(row.plugin)),
-    [cloudRows],
+    () => connectEnabled === true
+      ? []
+      : cloudRows.filter((row) => row.status === "update_available" && !isCloudBuiltInPlugin(row.plugin)),
+    [cloudRows, connectEnabled],
   );
 
   const removedUpstreamPlugins = React.useMemo(
@@ -478,6 +484,7 @@ export function CloudMarketplacesView({
   );
 
   const updateAll = React.useCallback(async () => {
+    if (connectEnabled === true) return;
     if (actionId || updateAllProgress) return;
 
     setActionError(null);
@@ -496,7 +503,7 @@ export function CloudMarketplacesView({
     } else if (targets.length > 0) {
       toast.success(`Updated ${targets.length} extension${targets.length === 1 ? "" : "s"}.`);
     }
-  }, [actionId, extensions, updatableRows, updateAllProgress]);
+  }, [actionId, connectEnabled, extensions, updatableRows, updateAllProgress]);
 
   const content = (
     <SettingsSection>
@@ -627,6 +634,7 @@ export function CloudMarketplacesView({
                 row={row}
                 onOpenDetail={setDetailRow}
                 onUpdatePlugin={importPlugin}
+                connectEnabled={connectEnabled}
                 orgMcpConnectingId={orgMcpConnectingId}
                 builtInDisabled={builtInExtensionsDisabled}
                 builtInConnectingName={builtInConnectingName}
@@ -646,6 +654,7 @@ export function CloudMarketplacesView({
           resolveError={detailError}
           onClose={() => setDetailRow(null)}
           onImportPlugin={importPlugin}
+          connectEnabled={connectEnabled}
           onRemovePlugin={removePlugin}
         />
       ) : detailRow?.source === "built-in" ? (
@@ -692,6 +701,7 @@ function MarketplaceCard(props: {
   row: MarketplaceRow;
   onOpenDetail: (row: MarketplaceRow) => void;
   onUpdatePlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => void | Promise<void>;
+  connectEnabled?: boolean;
   orgMcpConnectingId: string | null;
   builtInDisabled: boolean;
   builtInConnectingName: string | null;
@@ -758,6 +768,11 @@ function MarketplaceCard(props: {
   const manifest = row.plugin.extension?.manifest;
   const cloudBuiltIn = isCloudBuiltInPlugin(row.plugin);
   const updateAvailable = !cloudBuiltIn && row.status === "update_available";
+  const deliveryAction = resolveMarketplaceDeliveryAction({
+    connectEnabled: props.connectEnabled,
+    importedLocally: Boolean(row.imported),
+  });
+  const cloudDelivery = deliveryAction !== "install";
 
   return (
     <div ref={highlightRef} className={`flex flex-col gap-2 ${highlightClass}`}>
@@ -767,13 +782,13 @@ function MarketplaceCard(props: {
         iconSlug={manifest?.icon?.simpleIconSlug}
         iconSrc={manifest?.icon?.src}
         kind="extension"
-        connected={cloudBuiltIn || Boolean(row.imported)}
-        connectedLabel={cloudBuiltIn ? "Built-in" : updateAvailable ? t("extensions.update_available") : "Installed"}
+        connected={cloudBuiltIn || cloudDelivery || Boolean(row.imported)}
+        connectedLabel={cloudDelivery ? t("extensions.marketplace_active_cloud_label") : cloudBuiltIn ? "Built-in" : updateAvailable ? t("extensions.update_available") : "Installed"}
         connecting={actionBusy}
-        actionLabel={cloudBuiltIn ? "View details" : actionBusy ? "Working..." : actionLabelForStatus(row.status)}
+        actionLabel={cloudDelivery ? t("extensions.marketplace_runs_in_cloud") : cloudBuiltIn ? "View details" : actionBusy ? "Working..." : actionLabelForStatus(row.status)}
         onClick={() => onOpenDetail(row)}
       />
-      {updateAvailable ? (
+      {updateAvailable && !cloudDelivery ? (
         <Button
           size="xs"
           variant="secondary"
@@ -873,6 +888,7 @@ function MarketplacePackageDetailModal(props: {
   resolved: DenOrgPluginResolved | null;
   resolving: boolean;
   resolveError: string | null;
+  connectEnabled?: boolean;
   onClose: () => void;
   onImportPlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => void | Promise<void>;
   onRemovePlugin: (pluginId: string, pluginName: string) => void | Promise<void>;
@@ -881,7 +897,12 @@ function MarketplacePackageDetailModal(props: {
   const actionBusy = actionId === row.plugin.id;
   const cloudBuiltIn = isCloudBuiltInPlugin(row.plugin);
   const manifest = row.plugin.extension?.manifest;
-  const canAddOrUpdate = !cloudBuiltIn && (row.status === "available" || row.status === "update_available");
+  const deliveryAction = resolveMarketplaceDeliveryAction({
+    connectEnabled: props.connectEnabled,
+    importedLocally: Boolean(row.imported),
+  });
+  const cloudDelivery = deliveryAction !== "install";
+  const canAddOrUpdate = !cloudDelivery && !cloudBuiltIn && (row.status === "available" || row.status === "update_available");
 
   return (
     <ExtensionDetailModal
@@ -892,8 +913,8 @@ function MarketplacePackageDetailModal(props: {
       iconSlug={manifest?.icon?.simpleIconSlug}
       iconSrc={manifest?.icon?.src}
       kind="extension"
-      connected={cloudBuiltIn || Boolean(row.imported)}
-      connectedLabel={cloudBuiltIn ? "Built-in" : "Installed"}
+      connected={cloudBuiltIn || cloudDelivery || Boolean(row.imported)}
+      connectedLabel={cloudDelivery ? t("extensions.marketplace_active_cloud_label") : cloudBuiltIn ? "Built-in" : "Installed"}
       connecting={actionBusy}
       connectLabel={row.status === "update_available" ? "Update" : "Add"}
       connectingLabel={row.status === "update_available" ? "Updating..." : "Adding..."}
@@ -907,7 +928,9 @@ function MarketplacePackageDetailModal(props: {
       configSlot={(
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            <SettingsPill className={statusClass(row.status)}>{cloudBuiltIn ? "Built-in" : statusLabel(row.status)}</SettingsPill>
+            <SettingsPill className={cloudDelivery ? "border-green-7/30 bg-green-3/20 text-green-11" : statusClass(row.status)}>
+              {cloudDelivery ? t("extensions.marketplace_active_cloud_label") : cloudBuiltIn ? "Built-in" : statusLabel(row.status)}
+            </SettingsPill>
             <SettingsPill>{row.marketplaceName}</SettingsPill>
             {row.counts.map((label) => <SettingsPill key={label}>{label}</SettingsPill>)}
           </div>
