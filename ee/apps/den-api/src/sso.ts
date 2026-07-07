@@ -131,24 +131,26 @@ async function getSsoProviderByProviderId(providerId: string) {
 }
 
 async function registerBetterAuthSsoProvider(input: OrganizationSsoRegistrationInput, providerId: string) {
-  const common = {
-    providerId,
-    issuer: input.issuer,
-    domain: input.domain,
-    organizationId: input.organizationId,
-  }
-
   if (input.kind === "saml") {
+    const audience = input.audience || env.betterAuthUrl
     return auth.api.registerSSOProvider({
       body: {
-        ...common,
+        providerId,
+        issuer: audience,
+        domain: input.domain,
+        organizationId: input.organizationId,
         samlConfig: {
           entryPoint: input.entryPoint,
           cert: input.cert,
           callbackUrl: getSsoAcsUrl(providerId),
-          audience: input.audience || env.betterAuthUrl,
+          audience,
+          idpMetadata: {
+            entityID: input.issuer,
+          },
           wantAssertionsSigned: ORGANIZATION_SAML_WANT_ASSERTIONS_SIGNED,
-          spMetadata: {},
+          spMetadata: {
+            entityID: audience,
+          },
           mapping: {
             id: "nameID",
             email: "email",
@@ -164,7 +166,10 @@ async function registerBetterAuthSsoProvider(input: OrganizationSsoRegistrationI
   const oidcEndpoints = await resolveOidcEndpoints(input)
   return auth.api.registerSSOProvider({
     body: {
-      ...common,
+      providerId,
+      issuer: input.issuer,
+      domain: input.domain,
+      organizationId: input.organizationId,
       oidcConfig: {
         clientId: input.clientId,
         clientSecret: input.clientSecret,

@@ -77,13 +77,14 @@ ACS URL before SAML can be fully tested.
 1. In the Entra enterprise application, open **Single sign-on** and choose
    **SAML**.
 2. In the Entra SAML page, copy these IdP values:
-   - **Microsoft Entra Identifier**. Use this as OpenWork **Issuer URL**.
+   - **Microsoft Entra Identifier**. Use this as OpenWork **IdP Issuer URL**.
    - **Login URL**. Use this as OpenWork **SAML Entry Point**.
    - **Certificate (Base64)**. Paste the PEM certificate into OpenWork
      **IdP Certificate**.
 3. In OpenWork, open **Dashboard** -> **SSO** and choose **SAML**.
 4. Fill the OpenWork fields:
-   - **Issuer URL**: the Entra **Microsoft Entra Identifier**.
+   - **IdP Issuer URL**: the Entra **Microsoft Entra Identifier**. This is
+     the IdP issuer, not the Entra app's Identifier / Entity ID.
    - **Domain**: the email domain that should use this SSO connection, for
      example `example.com`.
    - **SAML Entry Point**: the Entra **Login URL**.
@@ -104,7 +105,8 @@ ACS URL before SAML can be fully tested.
 7. Return to Entra **Single sign-on** -> **Basic SAML Configuration** and set:
    - **Identifier (Entity ID)**: the OpenWork audience. If you left the
      OpenWork audience blank, use the OpenWork auth URL shown by your deployment
-     docs or metadata.
+     docs or metadata. Do not use the Entra `https://sts.windows.net/.../`
+     issuer here.
    - **Reply URL (Assertion Consumer Service URL)**: the OpenWork **ACS URL**.
    - **Sign on URL**: the OpenWork **Sign-in URL**.
 8. Save the Entra SAML configuration.
@@ -118,12 +120,14 @@ ACS URL before SAML can be fully tested.
 
 For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 
-- **Issuer URL**:
+- **IdP Issuer URL**:
   `https://sts.windows.net/2b853de0-b14b-4433-90be-cced1b963647/`
 - **Domain**: `omaropenworklabs.onmicrosoft.com`
 - **SAML Entry Point**:
   `https://login.microsoftonline.com/2b853de0-b14b-4433-90be-cced1b963647/saml2`
 - **Audience URL**: leave blank unless you also set a custom Entra Identifier.
+  With the field blank, set Entra **Identifier (Entity ID)** to the OpenWork
+  auth URL, not to the `sts.windows.net` issuer.
 - **IdP Certificate**: paste the active Entra SAML signing certificate.
 
 ## Configure SCIM user provisioning
@@ -167,6 +171,7 @@ For the OpenWork Labs test tenant, the OpenWork SAML fields are:
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Entra says the reply URL is invalid | The Entra Reply URL does not match OpenWork's generated ACS URL | Copy the ACS URL from OpenWork after saving the SAML connection and paste it into Basic SAML Configuration. |
+| Microsoft shows `AADSTS700016` for `https://sts.windows.net/.../` | Entra is receiving the IdP issuer as the SP Entity ID / app identifier | Set Entra **Identifier (Entity ID)** to the OpenWork audience/auth URL, then resave the SSO connection in OpenWork so AuthnRequests use the OpenWork SP Entity ID. |
 | SAML login fails with audience or recipient errors | Entra Identifier, OpenWork Audience URL, or ACS URL do not match | Keep the Entra Identifier equal to the OpenWork audience and the Entra Reply URL equal to the OpenWork ACS URL. |
 | SAML login fails after changing certs | OpenWork still has the old IdP certificate | Paste the new Entra Base64 certificate into OpenWork and save the SAML connection again. |
 | IdP-initiated login fails | OpenWork only supports SP-initiated organization SAML | Start login from OpenWork's `/sso/<org-slug>` sign-in URL. |

@@ -285,7 +285,7 @@ export function SsoScreen() {
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <label className="block text-[14px] text-gray-700">
-                  <span className="mb-2 block font-medium">Issuer URL</span>
+                  <span className="mb-2 block font-medium">{formMode === "saml" ? "IdP Issuer URL" : "Issuer URL"}</span>
                   <input className="w-full rounded-[18px] border border-gray-200 px-4 py-3" value={issuer} onChange={(event) => setIssuer(event.target.value)} placeholder="https://idp.example.com" />
                 </label>
                 <label className="block text-[14px] text-gray-700">
