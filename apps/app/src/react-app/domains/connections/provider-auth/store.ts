@@ -1526,6 +1526,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return;
     }
 
+    // Imports, baseline reads, and persistence all go through the OpenWork
+    // server target (patchRuntimeProviders throws without it). Running before
+    // the target resolves made the baseline read fall back to an empty source
+    // and re-import every org provider — engine dispose churn on settings open.
+    const target = await resolveOpenworkConfigTarget("write");
+    if (!target.canUseOpenworkServer || !target.openworkClient || !target.openworkWorkspaceId) {
+      return;
+    }
+
     let importedProviders: Record<string, CloudImportedProvider>;
     try {
       importedProviders = await refreshImportedCloudProviders({ strict: true });

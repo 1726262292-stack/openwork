@@ -1743,6 +1743,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   };
 
   const handleSelectSettingsWorkspace = useCallback((workspaceId: string) => {
+    if (workspaceId === selectedWorkspaceId) return;
     setLegacySelectedWorkspaceId(workspaceId);
     writeActiveWorkspaceId(workspaceId);
     const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
@@ -1755,7 +1756,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       void workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
     }
     navigate(workspaceSettingsRoute(workspaceId, settingsPathForRoute(route)), { state: location.state });
-  }, [baseUrl, location, navigate, route, token, workspaces]);
+  }, [baseUrl, location, navigate, route, selectedWorkspaceId, token, workspaces]);
 
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
