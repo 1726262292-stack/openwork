@@ -15,6 +15,8 @@ type OpenApiDocument = {
 let isMcpOperationAllowed: typeof import("../src/mcp/policy.js")["isMcpOperationAllowed"]
 let isAgentApiKeyConnection: typeof import("../src/routes/org/mcp-connections.js")["isAgentApiKeyConnection"]
 let isAgentOAuthClientConnection: typeof import("../src/routes/org/mcp-connections.js")["isAgentOAuthClientConnection"]
+let buildMcpCatalog: typeof import("../src/mcp/catalog.js")["buildMcpCatalog"]
+let searchCapabilities: typeof import("../src/mcp/search.js")["searchCapabilities"]
 let document: OpenApiDocument
 
 function findOperation(operationId: string) {
@@ -36,6 +38,8 @@ function allowed(operationId: string) {
 beforeAll(async () => {
   seedRequiredEnv()
   isMcpOperationAllowed = (await import("../src/mcp/policy.js")).isMcpOperationAllowed
+  buildMcpCatalog = (await import("../src/mcp/catalog.js")).buildMcpCatalog
+  searchCapabilities = (await import("../src/mcp/search.js")).searchCapabilities
   const mcpConnections = await import("../src/routes/org/mcp-connections.js")
   isAgentApiKeyConnection = mcpConnections.isAgentApiKeyConnection
   isAgentOAuthClientConnection = mcpConnections.isAgentOAuthClientConnection
@@ -62,6 +66,24 @@ describe("agent-configurable org connections policy", () => {
   test("discovery surfaces the agent needs are readable", () => {
     expect(allowed("getV1McpConnections")).toBe(true)
     expect(allowed("getV1McpConnectionsPresets")).toBe(true)
+  })
+
+  test("agent catalog search discovers member list and admin create mcp-connection operations", () => {
+    const catalog = buildMcpCatalog(document)
+    const memberMatches = searchCapabilities(catalog, "list external mcp connections", 10)
+    const adminMatches = searchCapabilities(catalog, "register external mcp connection", 10)
+
+    expect(memberMatches).toContainEqual(expect.objectContaining({
+      name: "getMcpConnections",
+      method: "GET",
+      path: "/v1/mcp-connections",
+    }))
+    expect(adminMatches).toContainEqual(expect.objectContaining({
+      name: "postMcpConnections",
+      method: "POST",
+      path: "/v1/mcp-connections",
+      hasBody: true,
+    }))
   })
 
   test("API-key connections are blocked only for the internal agent principal", () => {

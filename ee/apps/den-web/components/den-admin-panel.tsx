@@ -1735,7 +1735,7 @@ export function DenAdminPanel() {
                           }}
                           className="h-4 w-4 rounded border-slate-300"
                         />
-                        MCP connections
+                        OpenWork Connect (beta)
                       </label>
                     </div>
                     {capabilityError?.orgId === org.id ? (
@@ -1744,7 +1744,7 @@ export function DenAdminPanel() {
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs text-slate-400">Off by default. Lets workspace admins mint desktop install links for this organization.</p>
-                    <p className="mt-1 text-xs text-slate-400">Off by default. Lets members discover and use organization MCP connections.</p>
+                    <p className="mt-1 text-xs text-slate-400">Off by default. Enables member-facing org connections, marketplace capabilities on the agent rail, and the desktop Connect tab.</p>
                   </div>
 
                   <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 lg:grid-cols-[12rem_10rem_auto] lg:items-end">
