@@ -44,6 +44,13 @@ export const EXTERNAL_MCP_PRESETS: ExternalMcpPreset[] = [
     authType: "oauth",
   },
   {
+    presetId: "granola",
+    displayName: "Granola",
+    description: "Search your meeting notes and transcripts.",
+    url: "https://mcp.granola.ai/mcp",
+    authType: "oauth",
+  },
+  {
     presetId: "slack",
     displayName: "Slack",
     description: "Channels, DMs, and search. Slack has no automatic app registration — paste your Slack app's OAuth client once; each person then connects their own account.",
