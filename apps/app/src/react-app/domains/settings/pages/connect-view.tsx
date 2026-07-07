@@ -1,8 +1,8 @@
 /** @jsxImportSource react */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 
-import type { DenExternalMcpConnection } from "@/app/lib/den";
+import type { DenExternalMcpConnection, DenOrgPlugin } from "@/app/lib/den";
 import { readDenSettings } from "@/app/lib/den";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,10 @@ import {
   resolveOrgMcpConnectionCardState,
   useOrgMcpConnections,
 } from "@/react-app/domains/connections/use-org-mcp-connections";
-import { ExtensionCard } from "@/react-app/design-system/extension-card";
+import { resolveMarketplaceDeliveryAction } from "@/react-app/domains/settings/connect-delivery";
+import type { ExtensionItem } from "@/react-app/domains/settings/extension-items";
 import { useConnectEnabled, useDesktopConfig } from "@/react-app/domains/cloud/desktop-config-provider";
+import { ExtensionCard } from "@/react-app/design-system/extension-card";
 import { useCloudSession } from "../cloud/cloud-session-provider";
 import type { useDenSession } from "../cloud/use-den-session";
 import {
@@ -62,7 +64,11 @@ type ConnectSession = Pick<
 export type ConnectViewProps = {
   developerMode: boolean;
   session: ConnectSession;
+  marketplaceItems?: ExtensionItem[];
+  refreshMarketplaceItems?: () => Promise<unknown> | void;
 };
+
+type CloudMarketplaceItem = ExtensionItem & { plugin: DenOrgPlugin };
 
 function denManageConnectionsUrl() {
   return new URL("/dashboard/mcp-connections", readDenSettings().baseUrl).toString();
@@ -182,8 +188,129 @@ function OrgConnectionCards(props: {
   );
 }
 
+function isCloudMarketplaceItem(item: ExtensionItem): item is CloudMarketplaceItem {
+  return Boolean(item.plugin);
+}
+
+function marketplaceResourceTypeLabel(type: string, count: number) {
+  switch (type) {
+    case "mcp":
+      return t("connect.marketplace_resource_type_mcp", { count });
+    case "skill":
+      return t("connect.marketplace_resource_type_skill", { count });
+    case "command":
+      return t("connect.marketplace_resource_type_command", { count });
+    case "tool":
+      return t("connect.marketplace_resource_type_tool", { count });
+    default:
+      return type;
+  }
+}
+
+function marketplaceResourceCountLabel(type: string, count: number) {
+  return t("connect.marketplace_resource_count", {
+    count,
+    type: marketplaceResourceTypeLabel(type, count),
+  });
+}
+
+function marketplaceResourceCounts(item: CloudMarketplaceItem) {
+  const componentCounts = Object.entries(item.plugin.componentCounts).filter(([, count]) => count > 0);
+  if (componentCounts.length > 0) {
+    return componentCounts.map(([type, count]) => marketplaceResourceCountLabel(type, count));
+  }
+
+  const resourceCounts = new Map<string, number>();
+  for (const resource of item.resources) {
+    resourceCounts.set(resource.type, (resourceCounts.get(resource.type) ?? 0) + 1);
+  }
+  return [...resourceCounts.entries()].map(([type, count]) => marketplaceResourceCountLabel(type, count));
+}
+
+function ConnectMarketplaceCard(props: { item: CloudMarketplaceItem }) {
+  const deliveryAction = resolveMarketplaceDeliveryAction({
+    connectEnabled: true,
+    importedLocally: Boolean(props.item.importedPlugin),
+  });
+  const localCopy = deliveryAction === "cloud_active_local_copy";
+  const counts = marketplaceResourceCounts(props.item);
+  const manifest = props.item.plugin.extension?.manifest;
+
+  return (
+    <div
+      data-testid="connect-marketplace-plugin-card"
+      className="rounded-xl border border-green-6 bg-green-2 p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h4 className="min-w-0 break-words text-sm font-semibold text-dls-text">
+              {props.item.name}
+            </h4>
+            <span className="shrink-0 rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">
+              {t("connect.marketplace_active_cloud_label")}
+            </span>
+            {localCopy ? (
+              <span className="shrink-0 rounded-md bg-amber-3 px-1.5 py-0.5 text-[10px] font-medium text-amber-11">
+                {t("connect.marketplace_local_copy_badge")}
+              </span>
+            ) : null}
+          </div>
+          <p className="line-clamp-2 text-xs text-dls-secondary">
+            {props.item.description ?? t("connect.marketplace_no_description")}
+          </p>
+        </div>
+        {manifest?.icon?.src ? (
+          <img src={manifest.icon.src} alt="" className="size-8 rounded-lg" />
+        ) : null}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {counts.length > 0 ? counts.map((label) => (
+          <span key={label} className="rounded-md border border-green-6/40 bg-green-3/50 px-2 py-0.5 text-[11px] font-medium text-green-11">
+            {label}
+          </span>
+        )) : (
+          <span className="rounded-md border border-green-6/40 bg-green-3/50 px-2 py-0.5 text-[11px] font-medium text-green-11">
+            {t("connect.marketplace_no_components")}
+          </span>
+        )}
+      </div>
+      {localCopy ? (
+        <div className="mt-3 text-xs text-amber-11">
+          {t("connect.marketplace_local_copy_note")}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectMarketplaceSection(props: { items: ExtensionItem[] }) {
+  const pluginItems = props.items.filter(isCloudMarketplaceItem);
+
+  return (
+    <div data-testid="connect-marketplace-section" className="space-y-3">
+      <div className="space-y-1">
+        <div className="text-sm font-semibold text-dls-text">{t("connect.marketplace_section_title")}</div>
+        <div className="text-sm text-dls-secondary">{t("connect.marketplace_section_description")}</div>
+      </div>
+
+      {pluginItems.length > 0 ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
+          {pluginItems.map((item) => <ConnectMarketplaceCard key={item.id} item={item} />)}
+        </div>
+      ) : (
+        <SettingsInset className="bg-dls-surface">
+          <div className="text-sm text-dls-secondary">{t("connect.marketplace_empty")}</div>
+        </SettingsInset>
+      )}
+    </div>
+  );
+}
+
 function ConnectActivePanel(props: {
   connections: DenExternalMcpConnection[];
+  marketplaceItems: ExtensionItem[];
+  showMarketplace: boolean;
   loading: boolean;
   error: string | null;
   connectingId: string | null;
@@ -222,6 +349,8 @@ function ConnectActivePanel(props: {
         </SettingsInset>
       )}
 
+      {props.showMarketplace ? <ConnectMarketplaceSection items={props.marketplaceItems} /> : null}
+
       <div className="flex justify-end">
         <ManageInDenButton />
       </div>
@@ -248,6 +377,8 @@ export function ConnectView(props: ConnectViewProps) {
   const desktopConfig = useDesktopConfig();
   const connectEnabled = useConnectEnabled();
   const orgMcpConnections = useOrgMcpConnections();
+  const marketplaceItems = props.marketplaceItems ?? [];
+  const refreshMarketplaceItems = props.refreshMarketplaceItems;
   const connectionsCount = orgMcpConnections.connections.length;
   const signedInLoading = denAuth.status === "signed_in"
     && connectionsCount === 0
@@ -261,6 +392,11 @@ export function ConnectView(props: ConnectViewProps) {
         connectionsCount,
       });
 
+  useEffect(() => {
+    if (state !== "active" || connectEnabled !== true) return;
+    void refreshMarketplaceItems?.();
+  }, [connectEnabled, refreshMarketplaceItems, state]);
+
   return (
     <SettingsStack>
       <Separator />
@@ -270,6 +406,8 @@ export function ConnectView(props: ConnectViewProps) {
       {state === "active" ? (
         <ConnectActivePanel
           connections={orgMcpConnections.connections}
+          marketplaceItems={marketplaceItems}
+          showMarketplace={connectEnabled === true}
           loading={orgMcpConnections.loading}
           error={orgMcpConnections.error}
           connectingId={orgMcpConnections.connectingId}

@@ -1958,6 +1958,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const openCloudAccountSettings = () => {
     navigateSettingsPath("cloud-account");
   };
+  const refreshConnectMarketplaceItems = useCallback(
+    () => extensionsStore.refreshCloudOrgMarketplaces({ force: true }),
+    [extensionsStore],
+  );
 
   const settingsView = (() => {
     switch (route.tab) {
@@ -2084,6 +2088,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               const path = `extensions/${section}`;
               navigateSettingsPath(path);
             }}
+            onOpenConnect={() => navigateSettingsPath("connect")}
             onRefresh={() => {
               // Force-sync the cloud MCP first (re-mint token + rewrite
               // config, bypassing the freshness marker) so Refresh really
@@ -2174,6 +2179,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <ConnectView
             developerMode={developerMode}
             session={denSession}
+            marketplaceItems={extensionItems.cloudPluginItems}
+            refreshMarketplaceItems={refreshConnectMarketplaceItems}
           />
         );
       case "cloud-marketplaces":
