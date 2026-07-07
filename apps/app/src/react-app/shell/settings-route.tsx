@@ -85,11 +85,9 @@ import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
-import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
-import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
 import { useElectronUpdaterState } from "@/react-app/domains/settings/state/electron-updater-state";
 import { CloudSessionProvider, useCloudSession } from "@/react-app/domains/settings/cloud/cloud-session-provider";
 import { useDenSession } from "@/react-app/domains/settings/cloud/use-den-session";
@@ -1905,45 +1903,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setCreateWorkspaceRemoteBusy(false);
     }
   };
-
-  const handleReconnectMessagingServer = useCallback(async () => {
-    const ok = await openworkServerStore.reconnectOpenworkServer();
-    if (ok) {
-      await refreshRouteState();
-    }
-    return ok;
-  }, [openworkServerStore, refreshRouteState]);
-
-  const restartOpenworkServerAndRefresh = useCallback(async () => {
-    if (!isDesktopRuntime()) return false;
-    try {
-      await openworkServerRestart({
-        remoteAccessEnabled:
-          readOpenworkServerSettings().remoteAccessEnabled === true,
-      });
-      await openworkServerStore.reconnectOpenworkServer();
-      await refreshRouteState();
-      return true;
-    } catch {
-      return false;
-    }
-  }, [openworkServerStore, refreshRouteState]);
-
-  const handleRestartLocalServer = restartOpenworkServerAndRefresh;
-  const handleRestartMessagingWorker = restartOpenworkServerAndRefresh;
-
-  const messagingViewProps = useMessagingViewProps({
-    busy,
-    openworkServerStatus: openworkServerSnapshot.openworkServerStatus,
-    openworkServerUrl: openworkServerSnapshot.openworkServerUrl,
-    openworkServerClient:
-      openworkClient ?? openworkServerSnapshot.openworkServerClient,
-    openworkReconnectBusy: openworkServerSnapshot.openworkReconnectBusy,
-    reconnectOpenworkServer: handleReconnectMessagingServer,
-    restartMessagingWorker: handleRestartMessagingWorker,
-    workspaceId: runtimeWorkspaceId,
-    selectedWorkspaceRoot,
-  });
 
   if (route.redirectPath && !props.embedded) {
     const target = selectedWorkspaceId
