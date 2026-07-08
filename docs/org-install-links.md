@@ -80,7 +80,7 @@ installer and bootstrap CLI:
 
 | OS | Canonical path |
 |---|---|
-| Windows | `%APPDATA%\openwork\desktop-bootstrap.json` (`%XDG_CONFIG_HOME%\openwork\desktop-bootstrap.json` wins first if your environment sets it) |
+| Windows | `%LOCALAPPDATA%\openwork\desktop-bootstrap.json` (`%XDG_CONFIG_HOME%\openwork\desktop-bootstrap.json` wins first if your environment sets it) |
 | macOS/Linux | `$XDG_CONFIG_HOME/openwork/desktop-bootstrap.json`, falling back to `~/.config/openwork/desktop-bootstrap.json` |
 
 Older desktop builds also wrote `~/.config/openwork/desktop-bootstrap.json` on

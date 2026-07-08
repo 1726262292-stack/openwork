@@ -102,22 +102,22 @@ async function readJsonFile(targetPath, fallback) {
 }
 
 // The bootstrap CLI (packages/openwork-bootstrap) and this app must agree on
-// where desktop-bootstrap.json lives: %APPDATA% on Windows, XDG_CONFIG_HOME
+// where desktop-bootstrap.json lives: %LOCALAPPDATA% on Windows, XDG_CONFIG_HOME
 // (falling back to ~/.config) elsewhere. Resolved once at module load so a
 // mid-session process.env mutation (runtime.mjs buildChildEnv ->
 // Object.assign(process.env)) can never retarget reads to a different file.
 const DEFAULT_DESKTOP_BOOTSTRAP_PATH = (() => {
   // Same precedence as the CLI's configHomeDir(): XDG_CONFIG_HOME everywhere,
-  // then APPDATA on Windows, then ~/.config.
+  // then LOCALAPPDATA on Windows, then ~/.config.
   const configHome =
     process.env.XDG_CONFIG_HOME?.trim() ||
-    (process.platform === "win32" ? process.env.APPDATA?.trim() : "") ||
-    path.join(os.homedir(), process.platform === "win32" ? path.join("AppData", "Roaming") : ".config");
+    (process.platform === "win32" ? process.env.LOCALAPPDATA?.trim() : "") ||
+    path.join(os.homedir(), process.platform === "win32" ? path.join("AppData", "Local") : ".config");
   return path.join(configHome, "openwork", "desktop-bootstrap.json");
 })();
 
 // Older builds resolved the default as ~/.config on every OS, ignoring
-// APPDATA and XDG_CONFIG_HOME. Keep reading that file when the canonical one
+// LOCALAPPDATA and XDG_CONFIG_HOME. Keep reading that file when the canonical one
 // is missing so existing installs keep their deployment config.
 const LEGACY_DESKTOP_BOOTSTRAP_PATH = path.join(os.homedir(), ".config", "openwork", "desktop-bootstrap.json");
 

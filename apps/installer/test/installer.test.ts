@@ -20,9 +20,9 @@ describe("desktopBootstrapPath", () => {
     expect(desktopBootstrapPath({ XDG_CONFIG_HOME: "/xdg" }, "win32")).toBe(path.join("/xdg", "openwork", "desktop-bootstrap.json"))
   })
 
-  test("uses APPDATA on Windows and ~/.config elsewhere", () => {
-    expect(desktopBootstrapPath({ APPDATA: "C:\\Users\\u\\AppData\\Roaming" }, "win32")).toBe(
-      path.join("C:\\Users\\u\\AppData\\Roaming", "openwork", "desktop-bootstrap.json"),
+  test("uses LOCALAPPDATA on Windows and ~/.config elsewhere", () => {
+    expect(desktopBootstrapPath({ LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local" }, "win32")).toBe(
+      path.join("C:\\Users\\u\\AppData\\Local", "openwork", "desktop-bootstrap.json"),
     )
     expect(desktopBootstrapPath({}, "darwin")).toBe(path.join(os.homedir(), ".config", "openwork", "desktop-bootstrap.json"))
   })
