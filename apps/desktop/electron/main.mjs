@@ -1613,6 +1613,15 @@ const desktopCommandHandlers = {
 
 if (isDevMode) {
   desktopCommandHandlers.__evalRelaunch = async () => {
+    // Chromium persists localStorage/leveldb lazily; force a flush so the
+    // relaunched instance sees the same renderer storage (otherwise the app
+    // can come back signed out and eval flows misread that as a regression).
+    try {
+      mainWindow?.webContents.session.flushStorageData();
+      session.defaultSession.flushStorageData();
+    } catch {
+      // Best effort — never block the relaunch on a flush failure.
+    }
     setTimeout(() => {
       app.relaunch();
       // Graceful quit (not app.exit) so before-quit teardown runs and managed
