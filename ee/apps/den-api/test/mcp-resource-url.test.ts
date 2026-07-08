@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 
 type ProbeOptions = {
   betterAuthUrl: string
+  apiPublicUrl?: string
   additionalResources?: string
   requestUrl: string
   expectedResource: string
@@ -64,6 +65,7 @@ console.log("ok")
       DEN_DB_ENCRYPTION_KEY: "x".repeat(32),
       BETTER_AUTH_SECRET: "y".repeat(32),
       BETTER_AUTH_URL: options.betterAuthUrl,
+      DEN_API_PUBLIC_URL: options.apiPublicUrl ?? "",
       OPENWORK_DEV_MODE: "0",
       PROVISIONER_MODE: "stub",
       DEN_ORG_MODE: "",
@@ -91,6 +93,18 @@ console.log("ok")
 }
 
 describe("getMcpResourceUrl", () => {
+  test("auto-trusts the public API origin resource", () => {
+    runMcpResourceProbe({
+      betterAuthUrl: "https://app.example.com",
+      apiPublicUrl: "https://api.example.com",
+      requestUrl: "https://api.example.com/mcp/agent",
+      expectedResource: "https://api.example.com/mcp",
+      metadataUrl: "https://api.example.com/mcp/agent",
+      expectedMetadataResource: "https://api.example.com/mcp",
+      expectedAuthorizationServer: "https://api.example.com/api/auth",
+    })
+  })
+
   test("honors an additional direct API-origin resource", () => {
     runMcpResourceProbe({
       betterAuthUrl: "https://app.openworklabs.com",
@@ -109,6 +123,17 @@ describe("getMcpResourceUrl", () => {
       requestUrl: "https://api.openworklabs.com/mcp/agent",
       expectedResource: "https://app.openworklabs.com/api/den/mcp",
     })
+  })
+
+  test("ignores malformed and empty public API URLs", () => {
+    for (const apiPublicUrl of ["not a url", ""]) {
+      runMcpResourceProbe({
+        betterAuthUrl: "https://app.example.com",
+        apiPublicUrl,
+        requestUrl: "https://api.example.com/mcp/agent",
+        expectedResource: "https://app.example.com/api/den/mcp",
+      })
+    }
   })
 
   test("honors the proxied web-app resource derived from BETTER_AUTH_URL", () => {
