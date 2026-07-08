@@ -9,8 +9,8 @@ const vo = await loadVoiceoverParagraphs(FLOW_ID);
 
 const INITIAL_BASE_URL = "https://app.openworklabs.com";
 const SAVED_BASE_URL = "https://bootstrap-debug.example.test";
-const UPDATED_STATUS = "Updated the Cloud control plane URL. Sign in again to continue.";
-const CLEARED_STATUS = "Cleared the desktop server configuration. OpenWork is using the default Cloud control plane.";
+const SAVED_ORG_SERVER_TEXT = `Current organization server: ${SAVED_BASE_URL}`;
+const DEFAULT_ORG_SERVER_TEXT = "Using standard OpenWork Cloud.";
 
 function bootstrapPath(ctx) {
   const rawPath = ctx.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH?.trim();
@@ -167,28 +167,28 @@ export default {
       },
     },
     {
-      name: "Cloud control plane URL save is persisted with writtenAt",
+      name: "Organization server URL save is persisted with writtenAt",
       run: async (ctx) => {
-        await ctx.prove("Saving a Cloud control plane URL confirms success and writes a stamped bootstrap file", {
+        await ctx.prove("Saving an organization server URL updates Advanced settings and writes a stamped bootstrap file", {
           voiceover: vo[2],
           action: async () => {
-            await ctx.navigateHash("/settings/cloud-account");
-            await ctx.waitForText("Cloud control plane URL", { timeoutMs: 30_000 });
+            await ctx.navigateHash("/settings/advanced");
+            await ctx.waitForText("Organization server URL", { timeoutMs: 30_000 });
             await ctx.fill("label input", SAVED_BASE_URL);
             await ctx.clickText("Save", { selector: "button" });
-            await ctx.waitForText(UPDATED_STATUS, { timeoutMs: 15_000 });
+            await ctx.waitForText(SAVED_ORG_SERVER_TEXT, { timeoutMs: 15_000 });
           },
           assert: async () => {
-            await ctx.expectText(UPDATED_STATUS);
+            await ctx.expectText(SAVED_ORG_SERVER_TEXT);
             const persisted = await readBootstrapFile(ctx);
             ctx.assert(persisted.baseUrl === SAVED_BASE_URL, `Expected persisted baseUrl ${SAVED_BASE_URL}, got ${persisted.baseUrl}`);
             ctx.assert(typeof persisted.writtenAt === "string" && Number.isFinite(Date.parse(persisted.writtenAt)), "Persisted bootstrap config is missing a valid writtenAt timestamp.");
             ctx.log(`Bootstrap file witness: ${JSON.stringify({ baseUrl: persisted.baseUrl, writtenAt: persisted.writtenAt })}`);
           },
           screenshot: {
-            name: "cloud-url-save-confirmed",
-            requireText: ["Cloud control plane URL", UPDATED_STATUS],
-            hashIncludes: "/settings/cloud-account",
+            name: "advanced-org-server-url-save-confirmed",
+            requireText: ["Organization server URL", SAVED_ORG_SERVER_TEXT],
+            hashIncludes: "/settings/advanced",
           },
         });
       },
@@ -221,41 +221,41 @@ export default {
       },
     },
     {
-      name: "Cloud control plane configuration can be cleared",
+      name: "Organization server configuration can be cleared",
       run: async (ctx) => {
         await ctx.prove("Clearing the desktop server configuration returns the app to the default control plane", {
           voiceover: vo[4],
           action: async () => {
-            await ctx.navigateHash("/settings/cloud-account");
+            await ctx.navigateHash("/settings/advanced");
             await ctx.waitForText("Clear server configuration", { timeoutMs: 30_000 });
             await ctx.clickText("Clear server configuration", { selector: "button" });
             await ctx.waitForText("Click again to clear", { timeoutMs: 10_000 });
             await ctx.clickText("Click again to clear", { selector: "button" });
-            await ctx.waitForText(CLEARED_STATUS, { timeoutMs: 15_000 });
+            await ctx.waitForText(DEFAULT_ORG_SERVER_TEXT, { timeoutMs: 15_000 });
             await ctx.waitFor(`(() => {
-              const input = Array.from(document.querySelectorAll("input")).find((node) => node.value.includes("app.openworklabs.com"));
-              return Boolean(input);
+              const input = Array.from(document.querySelectorAll("label")).find((node) => (node.textContent ?? "").includes("Organization server URL"))?.querySelector("input");
+              return input?.value === "" && input?.placeholder === ${JSON.stringify(INITIAL_BASE_URL)};
             })()`, {
               timeoutMs: 10_000,
-              label: "default control plane URL restored",
+              label: "default organization server placeholder restored",
             });
           },
           assert: async () => {
-            await ctx.expectText(CLEARED_STATUS);
+            await ctx.expectText(DEFAULT_ORG_SERVER_TEXT);
             const inputValue = await ctx.eval(`(() => {
-              const input = Array.from(document.querySelectorAll("input")).find((node) => node.value.includes("app.openworklabs.com"));
+              const input = Array.from(document.querySelectorAll("label")).find((node) => (node.textContent ?? "").includes("Organization server URL"))?.querySelector("input");
               return input?.value ?? "";
             })()`);
-            ctx.assert(inputValue === INITIAL_BASE_URL, `Expected default URL ${INITIAL_BASE_URL}, got ${inputValue}`);
+            ctx.assert(inputValue === "", `Expected the default URL to render as an empty custom URL field, got ${inputValue}`);
             ctx.assert(!(await bootstrapFileExists(ctx)), "Expected the isolated canonical bootstrap file to be removed.");
             // With OPENWORK_DESKTOP_BOOTSTRAP_PATH set, the desktop code disables the legacy path
             // instead of resolving the real user's ~/.config path. Unit coverage asserts legacy removal.
             ctx.log("Bootstrap file witness: isolated canonical file removed; legacy path is disabled under OPENWORK_DESKTOP_BOOTSTRAP_PATH.");
           },
           screenshot: {
-            name: "cloud-url-clear-confirmed",
-            requireText: ["Cloud control plane URL", "Clear server configuration", CLEARED_STATUS],
-            hashIncludes: "/settings/cloud-account",
+            name: "advanced-org-server-url-clear-confirmed",
+            requireText: ["Organization server URL", "Clear server configuration", DEFAULT_ORG_SERVER_TEXT],
+            hashIncludes: "/settings/advanced",
           },
         });
       },
