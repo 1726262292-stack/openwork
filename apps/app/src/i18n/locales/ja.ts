@@ -411,6 +411,8 @@ export default {
   "mcp.oauth": "サインイン",
   "mcp.org_connection_disconnect_action": "切断",
   "mcp.org_connection_disconnecting_action": "切断中...",
+  "mcp.org_connection_desc_per_member_reconnect": "新しく要求された権限を付与するにはアカウントを再接続してください。",
+  "mcp.org_connection_reconnect_action": "再接続",
   "mcp.oauth_autodetect_hint": "このアプリでサインインが必要な場合は、追加後にブラウザが開いてアカウントを接続します。",
   "mcp.one_click_connect": "ワンクリック接続",
   "mcp.open_file": "ファイルを開く",

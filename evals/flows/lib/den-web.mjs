@@ -49,6 +49,20 @@ export async function signInViaBrowser(ctx, email, password) {
     "Boolean(document.querySelector('input[type=\"email\"]')) && Boolean(document.querySelector('input[type=\"password\"]'))",
     { timeoutMs: 30_000, label: "email + password fields" },
   );
+  const switchedToSignIn = await ctx.eval(`(() => {
+    const button = [...document.querySelectorAll('button')].find((entry) => (entry.textContent ?? '').trim() === 'Sign in');
+    button?.click();
+    return Boolean(button);
+  })()`);
+  if (switchedToSignIn) {
+    await ctx.waitFor(
+      `(() => {
+        const submit = document.querySelector('button[type="submit"]');
+        return (submit?.textContent ?? '').includes('Sign in');
+      })()`,
+      { timeoutMs: 10_000, label: "sign-in form selected" },
+    );
+  }
   await ctx.fill('input[type="email"]', email);
   await ctx.fill('input[type="password"]', password);
   const submitted = await ctx.eval(`(() => {

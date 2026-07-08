@@ -415,6 +415,8 @@ export default {
   "mcp.oauth": "登录",
   "mcp.org_connection_disconnect_action": "断开连接",
   "mcp.org_connection_disconnecting_action": "正在断开...",
+  "mcp.org_connection_desc_per_member_reconnect": "重新连接你的账户以授予新请求的权限。",
+  "mcp.org_connection_reconnect_action": "重新连接",
   "mcp.oauth_autodetect_hint": "如果此应用需要登录，添加后浏览器将打开以连接你的账户。",
   "mcp.one_click_connect": "一键连接",
   "mcp.open_file": "打开文件",

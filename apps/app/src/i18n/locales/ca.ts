@@ -435,6 +435,8 @@ export default {
   "mcp.oauth": "Inicia la sessió",
   "mcp.org_connection_disconnect_action": "Desconnecta",
   "mcp.org_connection_disconnecting_action": "Desconnectant...",
+  "mcp.org_connection_desc_per_member_reconnect": "Torna a connectar el compte per concedir els permisos nous sol·licitats.",
+  "mcp.org_connection_reconnect_action": "Torna a connectar",
   "mcp.oauth_autodetect_hint": "Si aquesta aplicació requereix iniciar sessió, el navegador s'obrirà per connectar el vostre compte després d'afegir-la.",
   "mcp.one_click_connect": "Connecta amb un sol clic",
   "mcp.open_file": "Obre el fitxer",

@@ -262,9 +262,10 @@ function ConnectOrganizationRow(props: {
 }) {
   const row = props.row;
   const pluginManifest = row.kind === "plugin" ? row.plugin.extension?.manifest : null;
+  const needsReconnect = row.kind === "connection" && row.connection.connectedForMe && row.connection.needsReconnect === true;
   const connectableConnectionId = row.kind === "plugin"
     ? cloudReadinessConnectableConnectionId(row.plugin.cloudReadiness)
-    : row.connection.credentialMode === "per_member" && !row.connection.connectedForMe
+    : row.connection.credentialMode === "per_member" && (!row.connection.connectedForMe || needsReconnect)
       ? row.connection.id
       : null;
   const setupNames = row.kind === "plugin" ? cloudReadinessMissingConnectionNames(row.plugin.cloudReadiness) : [];
@@ -289,9 +290,21 @@ function ConnectOrganizationRow(props: {
         <div className="truncate text-xs text-dls-secondary">{row.meta}</div>
       </div>
       {row.group === "needs_signin" && connectableConnectionId ? (
-        <Button size="sm" disabled={connecting} onClick={() => props.onConnect(connectableConnectionId)}>
-          {connecting ? t("connect.waiting_for_browser") : t("connect.row_action_connect")}
-        </Button>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button
+            size="sm"
+            disabled={connecting}
+            className={needsReconnect ? "border border-amber-6 bg-amber-2 text-amber-11 hover:bg-amber-3" : undefined}
+            onClick={() => props.onConnect(connectableConnectionId)}
+          >
+            {connecting ? t("connect.waiting_for_browser") : needsReconnect ? t("mcp.org_connection_reconnect_action") : t("connect.row_action_connect")}
+          </Button>
+          {disconnectableConnectionId ? (
+            <Button size="sm" variant="destructive" disabled={disconnecting} onClick={() => props.onDisconnect(disconnectableConnectionId)}>
+              {disconnecting ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_disconnect_action")}
+            </Button>
+          ) : null}
+        </div>
       ) : row.group === "needs_admin_setup" ? (
         <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(denManageConnectionsUrl())} title={setupNames.join(t("connect.row_meta_list_separator"))}>
           {t("connect.row_action_set_up_connection")}

@@ -435,6 +435,8 @@ export default {
   "mcp.oauth": "Iniciar sesión",
   "mcp.org_connection_disconnect_action": "Desconectar",
   "mcp.org_connection_disconnecting_action": "Desconectando...",
+  "mcp.org_connection_desc_per_member_reconnect": "Vuelve a conectar tu cuenta para conceder los nuevos permisos solicitados.",
+  "mcp.org_connection_reconnect_action": "Reconectar",
   "mcp.oauth_autodetect_hint": "Si esta app requiere iniciar sesión, el navegador se abrirá para conectar tu cuenta después de añadirla.",
   "mcp.one_click_connect": "Conexión con un clic",
   "mcp.open_file": "Abrir archivo",

@@ -28,10 +28,12 @@ export type OrgMcpConnectionCardState = {
   descriptionKey:
     | "mcp.org_connection_desc_shared"
     | "mcp.org_connection_desc_per_member_connected"
+    | "mcp.org_connection_desc_per_member_reconnect"
     | "mcp.org_connection_desc_per_member";
   actionLabelKey:
     | "mcp.org_connection_managed_label"
     | "mcp.org_connection_connected_label"
+    | "mcp.org_connection_reconnect_action"
     | "mcp.org_connection_connect_action";
 };
 
@@ -43,13 +45,21 @@ export type OrgMcpConnectionCardState = {
  * `connectedForMe` rather than the connection-wide `connected` flag.
  */
 export function resolveOrgMcpConnectionCardState(
-  connection: Pick<DenExternalMcpConnection, "credentialMode" | "connected" | "connectedForMe">,
+  connection: Pick<DenExternalMcpConnection, "credentialMode" | "connected" | "connectedForMe" | "needsReconnect">,
 ): OrgMcpConnectionCardState {
   if (connection.credentialMode === "shared") {
     return {
       connected: connection.connected,
       descriptionKey: "mcp.org_connection_desc_shared",
       actionLabelKey: "mcp.org_connection_managed_label",
+    };
+  }
+
+  if (connection.connectedForMe && connection.needsReconnect === true) {
+    return {
+      connected: false,
+      descriptionKey: "mcp.org_connection_desc_per_member_reconnect",
+      actionLabelKey: "mcp.org_connection_reconnect_action",
     };
   }
 
@@ -158,7 +168,7 @@ export function useOrgMcpConnections() {
           const polled = await pollClient.listMcpConnections(refreshedOrgId, "usable");
           setConnections(polled);
           const match = polled.find((entry) => entry.id === connectionId);
-          if (match?.connectedForMe) {
+          if (match?.connectedForMe && match.needsReconnect !== true) {
             stopPolling();
             setConnectingId(null);
           }

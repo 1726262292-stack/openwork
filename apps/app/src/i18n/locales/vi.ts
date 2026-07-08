@@ -412,6 +412,8 @@ export default {
   "mcp.oauth": "Đăng nhập",
   "mcp.org_connection_disconnect_action": "Ngắt kết nối",
   "mcp.org_connection_disconnecting_action": "Đang ngắt kết nối...",
+  "mcp.org_connection_desc_per_member_reconnect": "Kết nối lại tài khoản của bạn để cấp các quyền mới được yêu cầu.",
+  "mcp.org_connection_reconnect_action": "Kết nối lại",
   "mcp.oauth_autodetect_hint": "Nếu ứng dụng này yêu cầu đăng nhập, trình duyệt sẽ mở để kết nối tài khoản của bạn sau khi thêm.",
   "mcp.one_click_connect": "Kết nối một chạm",
   "mcp.open_file": "Mở tệp",

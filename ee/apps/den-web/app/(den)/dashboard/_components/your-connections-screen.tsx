@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, Plug } from "lucide-react";
+import { AlertTriangle, Check, Loader2, Plug } from "lucide-react";
 import { DenButton } from "../../_components/ui/button";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { getOrgAccessFlags } from "../../_lib/den-org";
@@ -61,7 +61,7 @@ export function YourConnectionsScreen() {
     pollTimer.current = setInterval(async () => {
       const result = await refetch();
       const connection = result.data?.find((entry) => entry.id === connectionId);
-      if (connection?.connectedForMe || Date.now() - startedAt > OAUTH_POLL_TIMEOUT_MS) {
+      if ((connection?.connectedForMe && connection.needsReconnect !== true) || Date.now() - startedAt > OAUTH_POLL_TIMEOUT_MS) {
         stopPolling();
       }
     }, OAUTH_POLL_INTERVAL_MS);
@@ -156,6 +156,7 @@ function YourConnectionRow({
   onDisconnect: () => void;
 }) {
   const isPerMember = connection.credentialMode === "per_member";
+  const needsReconnect = connection.connectedForMe && connection.needsReconnect === true;
   const needsMyConnect = isPerMember && !connection.connectedForMe;
   const needsAdminConnect = isAdmin && !isPerMember && connection.authType === "oauth" && !connection.connectedForMe;
   const canDisconnect = canDisconnectNativeProviderAccount(connection);
@@ -167,7 +168,12 @@ function YourConnectionRow({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-[14px] font-semibold text-gray-900">{connection.name}</p>
-            {connection.connectedForMe ? (
+            {needsReconnect ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                <AlertTriangle className="h-3 w-3" />
+                Reconnect to grant new permissions
+              </span>
+            ) : connection.connectedForMe ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
                 <Check className="h-3 w-3" />
                 {isPerMember ? "Connected as you" : "Org account connected"}
@@ -202,9 +208,9 @@ function YourConnectionRow({
             Disconnect
           </DenButton>
         ) : null}
-        {needsMyConnect || needsAdminConnect ? (
+        {needsReconnect || needsMyConnect || needsAdminConnect ? (
           <DenButton variant="primary" size="sm" loading={connecting || polling} onClick={onConnect}>
-            Connect
+            {needsReconnect ? "Reconnect" : "Connect"}
           </DenButton>
         ) : null}
       </div>

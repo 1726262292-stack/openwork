@@ -36,6 +36,8 @@ export type ExternalMcpConnection = {
   connected: boolean;
   connectedAt: string | null;
   connectedForMe: boolean;
+  needsReconnect?: boolean;
+  missingFeatures?: string[];
   access: ExternalMcpAccessSummary | null;
 };
 
@@ -91,7 +93,11 @@ async function fetchConnections(scope: ExternalMcpConnectionScope, orgId: string
     throw getRequestError(payload, response, `Failed to load MCP connections (${response.status}).`);
   }
   const record = payload as { connections?: ExternalMcpConnection[] };
-  return record.connections ?? [];
+  return (record.connections ?? []).map((connection) => ({
+    ...connection,
+    ...(typeof connection.needsReconnect === "boolean" ? { needsReconnect: connection.needsReconnect } : {}),
+    ...(isStringArray(connection.missingFeatures) ? { missingFeatures: connection.missingFeatures } : {}),
+  }));
 }
 
 export function useMcpConnections(scope: ExternalMcpConnectionScope = "manageable") {

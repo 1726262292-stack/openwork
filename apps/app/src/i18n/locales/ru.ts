@@ -334,6 +334,8 @@ export default {
   "mcp.oauth": "Войти",
   "mcp.org_connection_disconnect_action": "Отключить",
   "mcp.org_connection_disconnecting_action": "Отключение...",
+  "mcp.org_connection_desc_per_member_reconnect": "Подключите аккаунт заново, чтобы предоставить новые запрошенные разрешения.",
+  "mcp.org_connection_reconnect_action": "Подключить заново",
   "mcp.oauth_autodetect_hint": "Если приложению требуется вход, после добавления откроется браузер для подключения аккаунта.",
   "mcp.one_click_connect": "Подключение в один клик",
   "mcp.open_file": "Открыть файл",

@@ -412,6 +412,8 @@ export default {
   "mcp.oauth": "เข้าสู่ระบบ",
   "mcp.org_connection_disconnect_action": "ตัดการเชื่อมต่อ",
   "mcp.org_connection_disconnecting_action": "กำลังตัดการเชื่อมต่อ...",
+  "mcp.org_connection_desc_per_member_reconnect": "เชื่อมต่อบัญชีของคุณอีกครั้งเพื่อให้สิทธิ์ใหม่ที่ร้องขอ",
+  "mcp.org_connection_reconnect_action": "เชื่อมต่ออีกครั้ง",
   "mcp.oauth_autodetect_hint": "หากแอปนี้ต้องการการลงชื่อเข้าใช้ เบราว์เซอร์จะเปิดขึ้นเพื่อเชื่อมต่อบัญชีของคุณหลังจากเพิ่มแล้ว",
   "mcp.one_click_connect": "เชื่อมต่อด้วยคลิกเดียว",
   "mcp.open_file": "เปิดไฟล์",
