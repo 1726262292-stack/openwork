@@ -1,20 +1,21 @@
-# landing-connect-mcp — Share it once on OpenWork, use it from any agent
+# landing-connect-mcp — Add what your agents already do to OpenWork, share it, use it anywhere
 
-OpenWork Connect exposes everything an org shares — skills, MCP connections,
-plugins — through two MCP tools, `search_capabilities` and
-`execute_capability`, served at `https://api.openworklabs.com/mcp/agent`
-(remote streamable HTTP, browser OAuth). This section sells the sharing story
-with the same visual language as the hero prompt and the demo window, and
-turns the install into one click or one command.
+The section leads with the user's existing agent life: the skills, MCPs, and
+commands they already run in Claude Code or Cursor drop into OpenWork as-is
+(same SKILL.md format, same remote MCP URLs), get shared org-wide, and come
+back out through two MCP tools — `search_capabilities` and
+`execute_capability` at `https://api.openworklabs.com/mcp/agent` — from any
+agent. Layout: header, then two balanced cards (bring-it-in + agent's-eye
+example window), then a full-width connect-your-agent install row.
 
-1. Further down the OpenWork landing page, a new section makes the pitch: share a skill, an MCP connection, or a plugin with your org once, and every agent your team already uses can work with it.
+1. Further down the OpenWork landing page, the pitch is personal: already doing it in your agent? The skills and MCPs you run in Claude Code or Cursor can be added to OpenWork and shared with your whole team.
 
-2. The install card speaks the hero prompt's language: I pick my client from a pill picker — Cursor's one-click Add to Cursor button is front and center, with Claude Code, OpenCode, VS Code, and everything else one pill away.
+2. The left card shows my existing setup moving in as-is — the Granola MCP, a meeting-brief skill, a review-pr command — same SKILL.md format, same server URLs, packaged and shared with the org in one link.
 
-3. I flip to Claude Code and it's one command; I hit copy, the button flips to Copied, and three steps appear — sign in in the browser, pick your org, your team's tools show up in your agent.
+3. Next to it, an OpenWork window shows what a teammate's agent sees once connected: search_capabilities for meeting notes finds exactly what I shared — the Granola connection and the meeting-brief skill.
 
-4. Beside it, an OpenWork window shows what the connected agent sees: search_capabilities for meeting notes finds what the org shared — the Granola connection and a teammate's meeting-brief skill.
+4. execute_capability runs that shared skill and the Acme Corp brief comes back — shared once, consumed from whatever agent a teammate already uses.
 
-5. execute_capability runs that shared skill and the brief comes back — share once on OpenWork, consume from whatever agent you already use.
+5. Below, connecting an agent is one click or one command — Add to Cursor up front; I flip to Claude Code, hit copy, and the exact command lands on my clipboard with three steps: sign in, pick your org, your team's tools appear.
 
 6. Read the docs points at the Cloud MCP guide with the OAuth details — sign in in the browser, pick your org, and the token does the rest.

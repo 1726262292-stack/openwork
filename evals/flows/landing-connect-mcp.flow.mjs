@@ -4,7 +4,9 @@ const FLOW_ID = "landing-connect-mcp";
 const MCP_SERVER_URL = "https://api.openworklabs.com/mcp/agent";
 const DOCS_URL = "https://openworklabs.com/docs/cloud/run-in-the-cloud/cloud-mcp";
 const SECTION_SELECTOR = "#connect-mcp";
+const BRING_SELECTOR = '[data-testid="connect-mcp-bring"]';
 const EXAMPLE_SELECTOR = '[data-testid="connect-mcp-example"]';
+const INSTALL_SELECTOR = '[data-testid="connect-mcp-install"]';
 const CLAUDE_CODE_COMMAND = `claude mcp add --transport http openwork ${MCP_SERVER_URL}`;
 const INSTALL_COPY_BUTTON_SELECTOR = `${SECTION_SELECTOR} [role="tabpanel"]:not([hidden]) button[aria-label="Copy the OpenWork MCP install command"]`;
 
@@ -66,6 +68,14 @@ async function scrollSectionIntoView(ctx) {
   })()`);
 }
 
+async function scrollSelectorIntoView(ctx, selector, block = "center") {
+  await ctx.eval(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    element?.scrollIntoView({ block: ${JSON.stringify(block)}, behavior: "instant" });
+    return Boolean(element);
+  })()`);
+}
+
 async function ensureConnectSection(ctx, { forceReload = false } = {}) {
   await applyDesktopViewport(ctx);
   const hasSection = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(SECTION_SELECTOR)}))`).catch(() => false);
@@ -79,9 +89,12 @@ async function ensureConnectSection(ctx, { forceReload = false } = {}) {
     `(() => {
       const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
       const text = section ? section.innerText : "";
-      return Boolean(section) && text.includes("Share it once") && text.includes(${JSON.stringify(MCP_SERVER_URL)});
+      return Boolean(section)
+        && text.includes("Already doing it in your agent?")
+        && text.includes("Add it to OpenWork")
+        && text.includes(${JSON.stringify(MCP_SERVER_URL)});
     })()`,
-    { timeoutMs: 30_000, label: "Share it once MCP section" },
+    { timeoutMs: 30_000, label: "Connect section with new sharing headline" },
   );
   await scrollSectionIntoView(ctx);
 }
@@ -149,7 +162,7 @@ async function scrollExampleTextIntoView(ctx, text) {
 
 export default {
   id: FLOW_ID,
-  title: "Share OpenWork tools once and use them from any agent",
+  title: "Add existing agent work to OpenWork, share it, and use it anywhere",
   kind: "user-facing",
   spec: "evals/README.md",
   preserveTheme: true,
@@ -158,56 +171,191 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The landing page explains that shared OpenWork tools can be used from any agent.", {
+        await ctx.prove("The landing page leads with adding existing agent work to OpenWork and sharing it with the team.", {
           voiceover: vo[0],
-          // "Further down the OpenWork landing page, a new section makes the pitch: share"
           action: async () => {
-            // Always start from a fresh navigation so repeat runs against a
-            // warm page don't inherit tab/copy state from a previous run.
             await ensureConnectSection(ctx, { forceReload: true });
           },
           assert: async () => {
             const actual = await ctx.eval(`(() => {
               const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
-              const bodyText = document.body.innerText;
+              const text = section ? section.innerText : "";
               return {
                 sectionExists: Boolean(section),
-                bodyHasHeading: bodyText.includes("Share it once"),
-                bodyHasServerUrl: bodyText.includes(${JSON.stringify(MCP_SERVER_URL)}),
-                sectionText: section ? section.innerText.slice(0, 500) : "",
+                hasAlreadyDoingHeading: text.includes("Already doing it in your agent?"),
+                hasAddItHeading: text.includes("Add it to OpenWork"),
+                hasServerUrl: text.includes(${JSON.stringify(MCP_SERVER_URL)}),
               };
             })()`);
             recordAssertion(
               ctx,
-              "The Share it once section and OpenWork MCP server URL are present on the landing page",
-              actual.sectionExists === true && actual.bodyHasHeading === true && actual.bodyHasServerUrl === true,
+              "The Connect section includes the new heading and OpenWork MCP server URL",
+              actual.sectionExists === true
+                && actual.hasAlreadyDoingHeading === true
+                && actual.hasAddItHeading === true
+                && actual.hasServerUrl === true,
               actual,
             );
           },
-          screenshot: { name: "frame-1", requireText: ["Share it once"] },
+          screenshot: { name: "frame-1", requireText: ["Add it to OpenWork"] },
         });
       },
     },
     {
       name: "Frame 2",
       run: async (ctx) => {
-        await ctx.prove("Cursor is the default MCP install tab and its one-click deeplink encodes the OpenWork server URL.", {
+        await ctx.prove("The bring-it-in card shows existing agent setups moving into OpenWork unchanged and shared in one link.", {
           voiceover: vo[1],
-          // "The install card speaks the hero prompt's language: I pick my client from"
           action: async () => {
             await ensureConnectSection(ctx);
-            // Center the install card on the Add to Cursor button so this frame
-            // shows the client picker itself (and differs from frame 1's
-            // section-top framing — the runner rejects duplicate captures).
-            await ctx.eval(`(() => {
-              const links = Array.from(document.querySelectorAll(${JSON.stringify(`${SECTION_SELECTOR} a`)}));
-              const addToCursor = links.find((link) => (link.textContent || "").trim() === "Add to Cursor");
-              addToCursor?.scrollIntoView({ block: "center", behavior: "instant" });
-              return Boolean(addToCursor);
-            })()`);
+            await scrollSelectorIntoView(ctx, BRING_SELECTOR);
+            await ctx.waitFor(
+              `(() => {
+                const card = document.querySelector(${JSON.stringify(BRING_SELECTOR)});
+                const text = card ? card.innerText : "";
+                return text.includes("Granola")
+                  && text.includes("Meeting Brief Generator")
+                  && text.includes("review-pr")
+                  && text.includes("SKILL.md")
+                  && text.includes("one link");
+              })()`,
+              { timeoutMs: 10_000, label: "bring existing setup card" },
+            );
           },
           assert: async () => {
             const actual = await ctx.eval(`(() => {
+              const card = document.querySelector(${JSON.stringify(BRING_SELECTOR)});
+              const text = card ? card.innerText : "";
+              return {
+                exists: Boolean(card),
+                hasGranola: text.includes("Granola"),
+                hasMeetingBriefGenerator: text.includes("Meeting Brief Generator"),
+                hasReviewPr: text.includes("review-pr"),
+                hasSkillMd: text.includes("SKILL.md"),
+                hasOneLink: text.includes("one link"),
+              };
+            })()`);
+            recordAssertion(
+              ctx,
+              "The bring-it-in card shows Granola, Meeting Brief Generator, review-pr, SKILL.md, and one link",
+              actual.exists === true
+                && actual.hasGranola === true
+                && actual.hasMeetingBriefGenerator === true
+                && actual.hasReviewPr === true
+                && actual.hasSkillMd === true
+                && actual.hasOneLink === true,
+              actual,
+            );
+          },
+          screenshot: { name: "frame-2", requireText: ["SKILL.md"] },
+        });
+      },
+    },
+    {
+      name: "Frame 3",
+      run: async (ctx) => {
+        await ctx.prove("The example window shows search_capabilities finding shared meeting notes, Granola, and the meeting-brief skill.", {
+          voiceover: vo[2],
+          action: async () => {
+            await ensureConnectSection(ctx);
+            // Align the example window's top with the viewport top: frame 2
+            // centers the sibling bring-it-in card in the same grid row, so a
+            // "center" scroll here would land on the same offset and the
+            // runner would reject the capture as a duplicate frame.
+            await scrollSelectorIntoView(ctx, EXAMPLE_SELECTOR, "start");
+            await ctx.waitFor(
+              `(() => {
+                const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
+                const text = example ? example.innerText : "";
+                return text.includes("search_capabilities")
+                  && text.includes("meeting notes")
+                  && text.includes("granola")
+                  && text.includes("plugin:meeting-brief:generate");
+              })()`,
+              { timeoutMs: 10_000, label: "search_capabilities shared results" },
+            );
+          },
+          assert: async () => {
+            const actual = await ctx.eval(`(() => {
+              const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
+              const text = example ? example.innerText : "";
+              return {
+                exists: Boolean(example),
+                hasSearchCapabilities: text.includes("search_capabilities"),
+                hasMeetingNotes: text.includes("meeting notes"),
+                hasGranola: text.includes("granola"),
+                hasMeetingBriefPlugin: text.includes("plugin:meeting-brief:generate"),
+              };
+            })()`);
+            recordAssertion(
+              ctx,
+              "The teammate agent example finds meeting notes, Granola, and the shared meeting-brief skill",
+              actual.exists === true
+                && actual.hasSearchCapabilities === true
+                && actual.hasMeetingNotes === true
+                && actual.hasGranola === true
+                && actual.hasMeetingBriefPlugin === true,
+              actual,
+            );
+          },
+          screenshot: { name: "frame-3", requireText: ["search_capabilities"] },
+        });
+      },
+    },
+    {
+      name: "Frame 4",
+      run: async (ctx) => {
+        await ctx.prove("execute_capability runs the shared skill and returns the Acme Corp brief.", {
+          voiceover: vo[3],
+          action: async () => {
+            await ensureConnectSection(ctx);
+            await scrollExampleTextIntoView(ctx, "execute_capability");
+            await ctx.waitFor(
+              `(() => {
+                const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
+                const text = example ? example.innerText : "";
+                return text.includes("execute_capability") && text.includes("Acme Corp") && text.includes("savedTo");
+              })()`,
+              { timeoutMs: 10_000, label: "execute_capability Acme Corp result" },
+            );
+          },
+          assert: async () => {
+            const actual = await ctx.eval(`(() => {
+              const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
+              const text = example ? example.innerText : "";
+              return {
+                exists: Boolean(example),
+                hasExecuteCapability: text.includes("execute_capability"),
+                hasAcmeCorp: text.includes("Acme Corp"),
+                hasSavedTo: text.includes("savedTo"),
+              };
+            })()`);
+            recordAssertion(
+              ctx,
+              "The example execute call returns Acme Corp brief output with savedTo",
+              actual.exists === true
+                && actual.hasExecuteCapability === true
+                && actual.hasAcmeCorp === true
+                && actual.hasSavedTo === true,
+              actual,
+            );
+          },
+          screenshot: { name: "frame-4", requireText: ["execute_capability"] },
+        });
+      },
+    },
+    {
+      name: "Frame 5",
+      run: async (ctx) => {
+        let cursorScan = null;
+        let clipboardRead = { text: "", error: "not read" };
+
+        await ctx.prove("Connecting an agent starts with Cursor by default, then Claude Code copies the exact MCP command and reveals the OAuth steps.", {
+          voiceover: vo[4],
+          action: async () => {
+            await ensureConnectSection(ctx);
+            await scrollSelectorIntoView(ctx, INSTALL_SELECTOR);
+            cursorScan = await ctx.eval(`(() => {
               const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
               const tabs = Array.from(section ? section.querySelectorAll('[role="tab"]') : []);
               const cursorTab = tabs.find((tab) => (tab.textContent || "").trim() === "Cursor");
@@ -236,38 +384,7 @@ export default {
                 parseError,
               };
             })()`);
-            ctx.recordEvidence({
-              type: "output",
-              name: "Decoded Cursor MCP config",
-              text: actual.decodedConfig,
-            });
-            recordAssertion(
-              ctx,
-              "The Cursor tab is selected by default and the Add to Cursor anchor exists",
-              actual.cursorSelected === "true" && actual.addToCursorExists === true,
-              actual,
-            );
-            recordAssertion(
-              ctx,
-              "The Add to Cursor deeplink config decodes to the OpenWork MCP server URL",
-              actual.parseError === "" && actual.decodedUrl === MCP_SERVER_URL,
-              actual,
-            );
-          },
-          screenshot: { name: "frame-2", requireText: ["Add to Cursor"] },
-        });
-      },
-    },
-    {
-      name: "Frame 3",
-      run: async (ctx) => {
-        let clipboardRead = { text: "", error: "not read" };
 
-        await ctx.prove("Claude Code is a single command, and copying writes that exact command to the clipboard.", {
-          voiceover: vo[2],
-          // "I flip to Claude Code and it's one command; I hit copy, the button flips"
-          action: async () => {
-            await ensureConnectSection(ctx);
             await realMouseClick(ctx, tabByLabelExpression("Claude Code"), "Claude Code tab");
             await ctx.waitFor(
               `(() => {
@@ -303,6 +420,21 @@ export default {
             await sleep(150);
           },
           assert: async () => {
+            ctx.recordEvidence({
+              type: "output",
+              name: "Decoded Cursor MCP config",
+              text: cursorScan?.decodedConfig ?? "",
+            });
+            recordAssertion(
+              ctx,
+              "Cursor is selected by default and Add to Cursor decodes to the OpenWork MCP server URL",
+              cursorScan?.cursorSelected === "true"
+                && cursorScan.addToCursorExists === true
+                && cursorScan.parseError === ""
+                && cursorScan.decodedUrl === MCP_SERVER_URL,
+              cursorScan,
+            );
+
             const feedbackScan = await ctx.eval(`(() => {
               const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
               return {
@@ -310,7 +442,6 @@ export default {
                 copiedVisible: Boolean(section && section.innerText.includes("Copied")),
                 signInStepVisible: Boolean(section && section.innerText.includes("Sign in in the browser")),
                 pickOrgStepVisible: Boolean(section && section.innerText.includes("Pick your org")),
-                visiblePanelText: document.querySelector(${JSON.stringify(`${SECTION_SELECTOR} [role="tabpanel"]:not([hidden])`)})?.innerText || "",
               };
             })()`);
             ctx.recordEvidence({
@@ -334,101 +465,7 @@ export default {
               feedbackScan,
             );
           },
-          screenshot: { name: "frame-3", requireText: ["Copied"] },
-        });
-      },
-    },
-    {
-      name: "Frame 4",
-      run: async (ctx) => {
-        await ctx.prove("The example panel shows search_capabilities finding meeting notes in the org's Granola connection and a shared meeting-brief skill.", {
-          voiceover: vo[3],
-          // "Beside it, an OpenWork window shows what the connected agent sees: search_cap"
-          action: async () => {
-            await ensureConnectSection(ctx);
-            await scrollExampleTextIntoView(ctx, "search_capabilities");
-            await ctx.waitFor(
-              `(() => {
-                const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
-                const text = example ? example.innerText : "";
-                return text.includes("search_capabilities") && text.includes("meeting notes") && text.includes("granola") && text.includes("plugin:meeting-brief:generate");
-              })()`,
-              { timeoutMs: 10_000, label: "search_capabilities example" },
-            );
-          },
-          assert: async () => {
-            const actual = await ctx.eval(`(() => {
-              const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
-              const text = example ? example.innerText : "";
-              return {
-                exampleExists: Boolean(example),
-                hasSearchCapabilities: text.includes("search_capabilities"),
-                hasMeetingNotes: text.includes("meeting notes"),
-                hasGranola: text.includes("granola"),
-                hasMeetingBriefPlugin: text.includes("plugin:meeting-brief:generate"),
-                hasPathParams: text.includes("pathParams"),
-                hasQueryParams: text.includes("queryParams"),
-              };
-            })()`);
-            recordAssertion(
-              ctx,
-              "The example search shows meeting notes, the Granola connection, and capability parameters",
-              actual.exampleExists === true
-                && actual.hasSearchCapabilities === true
-                && actual.hasMeetingNotes === true
-                && actual.hasGranola === true
-                && actual.hasMeetingBriefPlugin === true
-                && actual.hasPathParams === true
-                && actual.hasQueryParams === true,
-              actual,
-            );
-          },
-          screenshot: { name: "frame-4", requireText: ["search_capabilities"] },
-        });
-      },
-    },
-    {
-      name: "Frame 5",
-      run: async (ctx) => {
-        await ctx.prove("The example continues from search_capabilities into execute_capability and returns the shared Acme Corp meeting brief.", {
-          voiceover: vo[4],
-          // "execute_capability runs that shared skill and the brief comes back — share once"
-          action: async () => {
-            await ensureConnectSection(ctx);
-            await scrollExampleTextIntoView(ctx, "execute_capability");
-            await ctx.waitFor(
-              `(() => {
-                const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
-                const text = example ? example.innerText : "";
-                return text.includes("execute_capability") && text.includes("Acme Corp") && text.includes("savedTo") && text.includes("Meeting Brief");
-              })()`,
-              { timeoutMs: 10_000, label: "execute_capability Acme Corp brief result" },
-            );
-          },
-          assert: async () => {
-            const actual = await ctx.eval(`(() => {
-              const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
-              const text = example ? example.innerText : "";
-              return {
-                hasExecuteCapability: text.includes("execute_capability"),
-                hasTopMatchName: text.includes("plugin:meeting-brief:generate"),
-                hasAcmeCorp: text.includes("Acme Corp"),
-                hasSavedTo: text.includes("savedTo"),
-                hasBrief: text.includes("deal history, latest notes, 3 talking points"),
-              };
-            })()`);
-            recordAssertion(
-              ctx,
-              "The example execute call runs the shared meeting-brief skill and returns Acme Corp brief data",
-              actual.hasExecuteCapability === true
-                && actual.hasTopMatchName === true
-                && actual.hasAcmeCorp === true
-                && actual.hasSavedTo === true
-                && actual.hasBrief === true,
-              actual,
-            );
-          },
-          screenshot: { name: "frame-5", requireText: ["execute_capability"] },
+          screenshot: { name: "frame-5", requireText: ["Copied"] },
         });
       },
     },
@@ -437,7 +474,6 @@ export default {
       run: async (ctx) => {
         await ctx.prove("Read the docs links to the Cloud MCP guide for OAuth details.", {
           voiceover: vo[5],
-          // "Read the docs points at the Cloud MCP guide with the OAuth details — sign in"
           action: async () => {
             await ensureConnectSection(ctx);
             await ctx.eval(`(() => {
