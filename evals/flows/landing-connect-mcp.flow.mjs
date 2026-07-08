@@ -66,11 +66,11 @@ async function scrollSectionIntoView(ctx) {
   })()`);
 }
 
-async function ensureConnectSection(ctx) {
+async function ensureConnectSection(ctx, { forceReload = false } = {}) {
   await applyDesktopViewport(ctx);
   const hasSection = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(SECTION_SELECTOR)}))`).catch(() => false);
 
-  if (!hasSection) {
+  if (!hasSection || forceReload) {
     await fetch(routeUrl(ctx, "/")).catch(() => {});
     await ctx.eval(`location.href = ${JSON.stringify(routeUrl(ctx, "/"))}; true`);
   }
@@ -162,7 +162,9 @@ export default {
           voiceover: vo[0],
           // "Scrolling the OpenWork landing page, I reach a new section — Connect any age"
           action: async () => {
-            await ensureConnectSection(ctx);
+            // Always start from a fresh navigation so repeat runs against a
+            // warm page don't inherit tab/copy state from a previous run.
+            await ensureConnectSection(ctx, { forceReload: true });
           },
           assert: async () => {
             const actual = await ctx.eval(`(() => {
