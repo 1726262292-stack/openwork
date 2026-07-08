@@ -22,6 +22,7 @@ const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.t
 const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const DRIFT_ORG_NAME = "Drift Probe Org";
 const ORG_SCOPE_HEADER = "x-openwork-org-id";
+const PENDING_ORG_SELECTION_KEY = "openwork:web:pending-org-selection";
 const ORG_NAME_INPUT_SELECTOR = 'form input[type="text"]:not([readonly])';
 
 const state = {
@@ -77,6 +78,13 @@ async function browserActiveOrgId(ctx) {
     ctx,
     `fetch('/api/den/v1/me/orgs').then((response) => response.json()).then((data) => JSON.stringify(data.activeOrgId ?? null))`,
   );
+}
+
+async function tidyViewportForCapture(ctx) {
+  // The Next dev overlay badge ("1 Issue": the landing hero's WebGL shader is
+  // unsupported in sandbox Chromium) is dev-server chrome, not app state —
+  // remove it and reset the scroll so frames show the claim, not a form tail.
+  await ctx.eval(`(() => { document.querySelector('nextjs-portal')?.remove(); window.scrollTo(0, 0); return true; })()`);
 }
 
 async function settingsNameInputValue(ctx) {
@@ -137,7 +145,14 @@ export default {
         state.orgBName = orgB.name;
 
         if (state.orgAName.startsWith("Pinned Rename ")) {
-          await renameOrg(ctx, state.orgA.id, "Acme Robotics");
+          // A prior crashed run left our probe rename behind. Slugs survive
+          // renames, so restore the stack's canonical name for the slug.
+          const healedName = state.orgA.slug === "default"
+            ? "OpenWork"
+            : state.orgA.slug.startsWith("acme")
+              ? "Acme Robotics"
+              : `Restored ${state.orgA.slug}`;
+          await renameOrg(ctx, state.orgA.id, healedName);
           orgA = await readOrg(ctx, state.orgA.id);
           state.orgAName = orgA.name;
         }
@@ -184,32 +199,53 @@ export default {
               })()`,
               { timeoutMs: 30_000, label: "org chooser or dashboard" },
             );
-            const chooserVisible = await ctx.eval(`(document.body?.innerText ?? '').includes('Choose an organization')`);
-            if (chooserVisible) {
-              const picked = await ctx.eval(`(() => {
+            // The chooser needs Next.js hydration before clicks attach, and the
+            // first dashboard render pays the dev-server compile cost — retry
+            // the pick until the dashboard is actually on screen.
+            await ctx.waitFor(
+              `(() => {
+                const text = document.body?.innerText ?? '';
+                if (text.includes('Dashboard') && !text.includes('Choose an organization')) return true;
                 const button = [...document.querySelectorAll('button')].find((entry) => (entry.textContent ?? '').includes(${JSON.stringify(state.orgA.name)}));
                 button?.click();
-                return Boolean(button);
-              })()`);
-              ctx.assert(picked, `Org chooser did not list ${state.orgA.name}.`);
-            }
-            await ctx.waitForText("Dashboard", { timeoutMs: 30_000 });
+                return false;
+              })()`,
+              { timeoutMs: 60_000, label: `org ${state.orgA.name} picked from chooser` },
+            );
 
             const status = await browserSetActiveOrg(ctx, state.orgA.id);
             ctx.assert(status === 200, `Selecting the primary org failed with status ${status}.`);
-            await ctx.eval(`(() => { window.location.href = ${JSON.stringify(denWebUrl())}; return true; })()`);
+            // Go straight to the settings screen. The den-web root re-arms the
+            // org chooser for multi-org accounts (pending-selection flag) and
+            // the post-signin redirect can arm it twice in dev, so clear the
+            // flag before navigating and click through any stray chooser.
+            await ctx.eval(`(() => { window.sessionStorage.removeItem(${JSON.stringify(PENDING_ORG_SELECTION_KEY)}); window.location.href = ${JSON.stringify(`${denWebUrl()}/dashboard/org-settings`)}; return true; })()`);
             await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000 });
-            await ctx.waitForText("Dashboard", { timeoutMs: 30_000 });
-
-            await ctx.eval(`(() => { window.location.href = ${JSON.stringify(`${denWebUrl()}/dashboard/org-settings`)}; return true; })()`);
-            await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000 });
+            await ctx.waitFor(
+              `(() => {
+                const text = document.body?.innerText ?? '';
+                if (text.includes('Organization Identity')) return true;
+                if (text.includes('Choose an organization')) {
+                  const button = [...document.querySelectorAll('button')].find((entry) => (entry.textContent ?? '').includes(${JSON.stringify(state.orgA.name)}));
+                  button?.click();
+                  return false;
+                }
+                // Picking from a stray chooser lands on /dashboard — hop back.
+                if (text.includes('Dashboard') && !window.location.pathname.includes('org-settings')) {
+                  window.location.href = ${JSON.stringify(`${denWebUrl()}/dashboard/org-settings`)};
+                }
+                return false;
+              })()`,
+              { timeoutMs: 60_000, label: "org settings screen visible" },
+            );
           },
           assert: async () => {
-            await ctx.waitForText("Organization Identity", { timeoutMs: 30_000 });
+            await ctx.waitForText("Organization Identity", { timeoutMs: 60_000 });
             const nameValue = await settingsNameInputValue(ctx);
             ctx.assert(nameValue === state.orgAName, `Settings name input is ${nameValue}, expected ${state.orgAName}.`);
             const active = await browserActiveOrgId(ctx);
             ctx.assert(active === state.orgA.id, `Browser session active org is ${active}, expected ${state.orgA.id}.`);
+            await tidyViewportForCapture(ctx);
           },
           screenshot: {
             name: "org-settings-on-org-a",
@@ -236,7 +272,14 @@ export default {
             await ctx.clickText("Save settings", { timeoutMs: 15_000 });
           },
           assert: async () => {
-            await ctx.waitForText("Workspace settings updated.", { timeoutMs: 30_000 });
+            // The refresh after a successful save re-renders the screen with
+            // the new org name (sidebar + name field) — that durable state is
+            // the observable outcome; the success toast can be wiped by the
+            // post-save remount.
+            await ctx.waitFor(
+              `(document.body?.innerText ?? '').includes(${JSON.stringify(state.probeName)})`,
+              { timeoutMs: 30_000, label: "renamed org visible on screen" },
+            );
             await ctx.expectNoText("organization_not_found");
             await ctx.expectNoText("Something went wrong");
 
@@ -245,11 +288,12 @@ export default {
 
             const orgB = await readOrg(ctx, state.orgB.id);
             ctx.assert(orgB.name === state.orgBName, `Org B name is ${orgB.name}, expected ${state.orgBName}.`);
+            await tidyViewportForCapture(ctx);
           },
           screenshot: {
             name: "rename-survives-org-drift",
             claim: "The rename succeeds from the open Settings screen even after the browser session drifts to another org.",
-            requireText: ["Workspace settings updated."],
+            requireText: [state.probeName ?? "Pinned Rename"],
             rejectText: ["organization_not_found", "Something went wrong"],
           },
         });
@@ -265,22 +309,30 @@ export default {
               `(() => (document.body?.innerText ?? '').includes(${JSON.stringify(state.probeName)}))()`,
               { timeoutMs: 30_000, label: "probe name visible after settings refresh" },
             );
-          },
-          assert: async () => {
             const nameValue = await settingsNameInputValue(ctx);
             ctx.assert(nameValue === state.probeName, `Settings name input is ${nameValue}, expected ${state.probeName}.`);
-
+            // Walk back to the dashboard home — the sidebar and greeting must
+            // still belong to the renamed org (and this frame is visually
+            // distinct from the settings capture).
+            await ctx.clickText("Dashboard", { timeoutMs: 15_000 });
+            await ctx.waitFor(
+              `window.location.pathname.endsWith('/dashboard') && (document.body?.innerText ?? '').includes(${JSON.stringify(state.probeName)})`,
+              { timeoutMs: 30_000, label: "dashboard home under the renamed org" },
+            );
+          },
+          assert: async () => {
             // The save refresh should reclaim org A so the session matches the org still on screen.
             const active = await browserActiveOrgId(ctx);
             ctx.assert(active === state.orgA.id, `Browser session active org is ${active}, expected ${state.orgA.id}.`);
 
             const orgB = await readOrg(ctx, state.orgB.id);
             ctx.assert(orgB.name === state.orgBName, `Org B name is ${orgB.name}, expected ${state.orgBName}.`);
+            await tidyViewportForCapture(ctx);
           },
           screenshot: {
             name: "dashboard-stays-on-screen-org",
             claim: "After the settings refresh, the dashboard remains on the org the admin edited and shows the new name.",
-            requireText: ["Organization Identity", state.probeName],
+            requireText: [state.probeName, "Dashboard"],
             rejectText: ["organization_not_found", "Something went wrong"],
           },
         });
