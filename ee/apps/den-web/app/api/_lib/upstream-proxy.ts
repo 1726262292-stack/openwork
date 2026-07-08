@@ -12,7 +12,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   "upgrade",
 ]);
 const REQUEST_ONLY_HEADERS = new Set(["host", "content-length"]);
-const RESPONSE_ONLY_HEADERS = new Set(["content-length"]);
+const RESPONSE_ONLY_HEADERS = new Set(["content-length", "content-encoding"]);
 
 const apiBase = readBaseUrlEnv("DEN_API_BASE");
 

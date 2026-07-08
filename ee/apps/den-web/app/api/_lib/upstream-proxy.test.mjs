@@ -20,6 +20,16 @@ describe("Den upstream proxy", () => {
           authorization: request.headers.get("authorization"),
           custom: request.headers.get("x-custom-proxy-test"),
         };
+
+        if (url.pathname === "/v1/compressed") {
+          return new Response(Bun.gzipSync(JSON.stringify({ ok: true, source: "gzip" })), {
+            headers: {
+              "content-type": "application/json",
+              "content-encoding": "gzip",
+            },
+          });
+        }
+
         return new Response("proxied", {
           status: 207,
           headers: {
@@ -69,5 +79,15 @@ describe("Den upstream proxy", () => {
     expect(response.headers.get("x-upstream-result")).toBe("ok");
     expect(response.headers.get("set-cookie")).toContain("sid=abc");
     expect(await response.text()).toBe("proxied");
+  });
+
+  test("drops content-encoding after upstream fetch decompresses the body", async () => {
+    const { proxyUpstream } = await import("./upstream-proxy.ts");
+    const request = new NextRequest("https://app.example.com/api/den/v1/compressed");
+
+    const response = await proxyUpstream(request, [], { routePrefix: "/api/den" });
+
+    expect(response.headers.get("content-encoding")).toBeNull();
+    expect(await response.json()).toEqual({ ok: true, source: "gzip" });
   });
 });
