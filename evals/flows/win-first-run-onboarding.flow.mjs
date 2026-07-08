@@ -16,7 +16,7 @@ export default {
       name: "Frame 1 — first-run loader holds the boot surface",
       run: async (ctx) => {
         await ctx.prove("First launch shows the Preparing workspace loader instead of an empty session picker", {
-          claim: "A factory-reset Windows launch starts on the full-screen Preparing workspace loader while OpenWork creates the default workspace.",
+          claim: "A factory-reset Windows launch starts on the full-screen Preparing workspace loader as the topmost surface while OpenWork creates the default workspace.",
           voiceover: vo[0],
           // "The instant the app opens there is no welcome wizard and no empty picker — j"
           action: async () => {
@@ -24,12 +24,26 @@ export default {
           },
           assert: async () => {
             await ctx.expectText("Preparing workspace", { timeoutMs: 1_000 });
-            await ctx.expectNoText("Select or create a session");
+            const occlusion = await ctx.eval(`(() => {
+              const overlayTop = document.elementFromPoint(Math.floor(innerWidth / 2), Math.floor(innerHeight / 2));
+              const status = overlayTop ? overlayTop.closest('[role="status"]') : null;
+              const leaves = Array.from(document.querySelectorAll("*")).filter(
+                (el) => el.children.length === 0 && (el.textContent || "").includes("Select or create a session"),
+              );
+              const emptyStateVisible = leaves.some((el) => {
+                const rect = el.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) return false;
+                const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return Boolean(top && (el === top || el.contains(top) || top.contains(el)));
+              });
+              return { loaderOnTop: Boolean(status), emptyStateVisible };
+            })()`);
+            ctx.assert(occlusion.loaderOnTop, "The Preparing workspace loader overlay is not the topmost element at the viewport center.");
+            ctx.assert(!occlusion.emptyStateVisible, "The select-or-create empty state is visible to the user during first-run boot.");
           },
           screenshot: {
             name: "first-run-loader",
             requireText: ["Preparing workspace"],
-            rejectText: ["Select or create a session"],
           },
         });
       },
