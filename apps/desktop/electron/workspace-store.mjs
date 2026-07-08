@@ -196,10 +196,6 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       throw new Error("baseUrl is required");
     }
 
-    const apiBaseUrl =
-      typeof input?.apiBaseUrl === "string" && input.apiBaseUrl.trim().length > 0
-        ? input.apiBaseUrl.trim()
-        : null;
     // The handoff grant is a one-time, short-lived (~5 min) desktop sign-in
     // token written to this machine-local config by the bootstrap CLI. The app
     // exchanges it once on boot and then rewrites this file with `handoff: null`
@@ -252,7 +248,6 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
 
     return {
       baseUrl,
-      apiBaseUrl,
       requireSignin: forceRequireSignin || input?.requireSignin === true,
       ...(writtenAt ? { writtenAt } : {}),
       ...(claimLinks.length > 0 ? { claimLinks } : {}),
@@ -347,7 +342,6 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     });
     return {
       baseUrl: defaultDenBaseUrl,
-      apiBaseUrl: null,
       requireSignin: defaultRequireSignin,
     };
   }

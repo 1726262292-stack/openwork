@@ -126,8 +126,7 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
       const client = createDenClient({
         baseUrl: nextBaseUrl,
       });
-      // The helper exchanges, persists (incl. the working apiBaseUrl, #1808), and
-      // dispatches the success/error session events.
+      // The helper exchanges, persists, and dispatches the success/error session events.
       const result = await exchangeHandoffAndSignIn(parsed.grant, {
         baseUrl: nextBaseUrl,
         client,
