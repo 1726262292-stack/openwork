@@ -400,6 +400,15 @@ export function McpView(props: McpViewProps) {
       );
     });
 
+  // Auto-configured built-ins like openwork-cloud remain active but hidden from
+  // Your apps until Show hidden reveals the row for disable/remove.
+  const visibleMcpServers = showHidden
+    ? props.mcpServers
+    : props.mcpServers.filter((entry) => {
+        const match = resolveQuickConnectMatch(entry.name);
+        return !match || !isOpenWorkExtensionHidden(match);
+      });
+
   const displayName = (name: string) => resolveQuickConnectMatch(name)?.name ?? name;
 
   const quickConnectStatus = (entry: McpDirectoryInfo) =>
@@ -640,7 +649,7 @@ export function McpView(props: McpViewProps) {
       />
 
       <McpConfiguredServersSection
-        servers={props.mcpServers}
+        servers={visibleMcpServers}
         statuses={props.mcpStatuses}
         lastUpdatedAt={props.mcpLastUpdatedAt}
         selectedMcp={props.selectedMcp}

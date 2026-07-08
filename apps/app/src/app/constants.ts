@@ -170,6 +170,10 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSrc: "/openwork-mark.svg",
+    // Auto-managed by the signed-in cloud reconciler (syncCloudControlMcp):
+    // configured + enabled while signed in to OpenWork Cloud. Hidden from the
+    // default catalog; "Show hidden" reveals it.
+    defaultHidden: true,
   },
   {
     get name() { return t("mcp.quick_connect_openwork_admin_title"); },
@@ -201,6 +205,9 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: false,
     kind: "ui-control",
     iconSrc: "/openwork-mark.svg",
+    // Internal UI-control surface for agents driving the desktop app. Hidden
+    // from the default catalog; "Show hidden" reveals it.
+    defaultHidden: true,
   },
   ...BUILT_IN_OPENWORK_EXTENSION_MANIFESTS.map(extensionManifestToDirectoryInfo),
 ];
