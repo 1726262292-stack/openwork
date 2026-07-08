@@ -149,6 +149,7 @@ export const desktopConfigSchema = desktopPolicyValueSchema
       .array(z.string().trim().min(1).max(32))
       .optional(),
     brandLogoUrl: z.string().url().max(2048).optional(),
+    brandIconUrl: z.string().url().max(2048).optional(),
     brandAccentColor: z.enum(brandAccentColorValues).optional(),
     connectEnabled: z.boolean().optional(),
   })
@@ -248,7 +249,7 @@ export function calculateEffectiveDesktopPolicy(input: {
   return calculated;
 }
 
-function normalizeBrandLogoUrl(value: unknown): string | undefined {
+function normalizeBrandUrl(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
@@ -274,7 +275,8 @@ export function normalizeDesktopConfig(value: unknown): DesktopConfig {
   const allowedDesktopVersions = normalizeAllowedDesktopVersions(
     raw?.allowedDesktopVersions,
   );
-  const brandLogoUrl = normalizeBrandLogoUrl(raw?.brandLogoUrl);
+  const brandLogoUrl = normalizeBrandUrl(raw?.brandLogoUrl);
+  const brandIconUrl = normalizeBrandUrl(raw?.brandIconUrl);
   const brandAccentColor = normalizeBrandAccentColor(raw?.brandAccentColor);
   const connectEnabled =
     typeof raw?.connectEnabled === "boolean" ? raw.connectEnabled : undefined;
@@ -283,6 +285,7 @@ export function normalizeDesktopConfig(value: unknown): DesktopConfig {
     ...policy,
     ...(allowedDesktopVersions !== undefined ? { allowedDesktopVersions } : {}),
     ...(brandLogoUrl !== undefined ? { brandLogoUrl } : {}),
+    ...(brandIconUrl !== undefined ? { brandIconUrl } : {}),
     ...(brandAccentColor !== undefined ? { brandAccentColor } : {}),
     ...(connectEnabled !== undefined ? { connectEnabled } : {}),
   };

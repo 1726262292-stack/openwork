@@ -22,6 +22,7 @@ export type OrganizationMetadata = {
   allowedDesktopVersions?: string[]
   requireSso?: boolean
   brandLogoUrl?: string
+  brandIconUrl?: string
   brandAccentColor?: string
 } & Record<string, unknown>
 

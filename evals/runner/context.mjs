@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { captureScreenshot, connect, debuggerUrlFor, evaluate, listTargets } from "./cdp.mjs";
+import { captureScreenshot, connect, debuggerUrlFor, evaluate, listTargets, pickAppTarget } from "./cdp.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 250;
@@ -84,6 +84,45 @@ export class EvalContext {
     if (previous) {
       this.client = previous;
     }
+  }
+
+  async reconnect({ timeoutMs = 90_000 } = {}) {
+    if (!this.cdpBaseUrl) {
+      throw new EvalError("reconnect requires cdpBaseUrl on the context.");
+    }
+    try {
+      this.client?.close();
+    } catch {
+      // The app may already be gone during relaunch.
+    }
+    for (const tabClient of this.tabStack) {
+      try {
+        tabClient.close();
+      } catch {
+        // Ignore stale tab clients.
+      }
+    }
+    this.tabStack = [];
+
+    const startedAt = Date.now();
+    let lastError = null;
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        const target = await pickAppTarget(this.cdpBaseUrl);
+        const nextClient = await connect(debuggerUrlFor(this.cdpBaseUrl, target));
+        await nextClient.send("Page.enable").catch(() => undefined);
+        this.client = nextClient;
+        this.log(`Reconnected to app target: ${target.title || target.url}`);
+        return target;
+      } catch (error) {
+        lastError = error;
+        await sleep(POLL_INTERVAL_MS);
+      }
+    }
+    throw new EvalError(
+      `Timed out after ${timeoutMs}ms reconnecting to Electron CDP` +
+        (lastError ? ` (last error: ${lastError.message})` : ""),
+    );
   }
 
   beginStep(name) {
@@ -345,46 +384,77 @@ export class EvalContext {
   async screenshot(name, options = {}) {
     this.screenshotIndex += 1;
     const fileName = `${this.flowId}-${String(this.screenshotIndex).padStart(2, "0")}-${slug(name)}.png`;
-    const buffer = await captureScreenshot(this.client);
-    await writeFile(join(this.outDir, fileName), buffer);
-    this.screenshots.push(fileName);
-    const bodyText = await this.eval("document.body.innerText").catch(() => "");
-    const url = await this.eval("location.href").catch(() => "");
-    const hash = createHash("sha256").update(buffer).digest("hex");
-    const dimensions = pngDimensions(buffer);
-    const validations = [
-      { label: "PNG exists and is non-empty", passed: buffer.length > 0, detail: `${buffer.length} bytes` },
-      { label: "PNG dimensions are sane", passed: Boolean(dimensions?.width && dimensions?.height), detail: dimensions ? `${dimensions.width}x${dimensions.height}` : "unknown" },
-      { label: "Frame is not a duplicate of the previous capture", passed: this.lastScreenshotHash !== hash, detail: hash.slice(0, 12) },
-    ];
-    for (const text of options.requireText ?? []) {
-      validations.push({ label: `Required visible text: ${text}`, passed: typeof bodyText === "string" && bodyText.includes(text) });
+    const targetSelector = options.targetId || options.targetUrlIncludes;
+    let screenshotClient = this.client;
+    let closeScreenshotClient = false;
+    if (targetSelector) {
+      if (!this.cdpBaseUrl) {
+        throw new EvalError("Targeted screenshots require cdpBaseUrl on the context.");
+      }
+      const targets = await listTargets(this.cdpBaseUrl);
+      const target = targets.find((entry) => (
+        entry.type === "page" &&
+        entry.webSocketDebuggerUrl &&
+        (!options.targetId || entry.id === options.targetId) &&
+        (!options.targetUrlIncludes || String(entry.url ?? "").includes(options.targetUrlIncludes))
+      ));
+      if (!target) {
+        throw new EvalError(`No CDP target found for screenshot ${JSON.stringify({ targetId: options.targetId, targetUrlIncludes: options.targetUrlIncludes })}.`);
+      }
+      screenshotClient = await connect(debuggerUrlFor(this.cdpBaseUrl, target));
+      closeScreenshotClient = true;
+      await screenshotClient.send("Page.enable").catch(() => undefined);
     }
-    for (const text of options.rejectText ?? []) {
-      validations.push({ label: `Rejected visible text: ${text}`, passed: !(typeof bodyText === "string" && bodyText.includes(text)) });
+    try {
+      const buffer = await captureScreenshot(screenshotClient);
+      await writeFile(join(this.outDir, fileName), buffer);
+      this.screenshots.push(fileName);
+      const bodyText = await evaluate(screenshotClient, "document.body.innerText").catch(() => "");
+      const url = await evaluate(screenshotClient, "location.href").catch(() => "");
+      const hash = createHash("sha256").update(buffer).digest("hex");
+      const dimensions = pngDimensions(buffer);
+      const validations = [
+        { label: "PNG exists and is non-empty", passed: buffer.length > 0, detail: `${buffer.length} bytes` },
+        { label: "PNG dimensions are sane", passed: Boolean(dimensions?.width && dimensions?.height), detail: dimensions ? `${dimensions.width}x${dimensions.height}` : "unknown" },
+        { label: "Frame is not a duplicate of the previous capture", passed: this.lastScreenshotHash !== hash, detail: hash.slice(0, 12) },
+      ];
+      for (const text of options.requireText ?? []) {
+        validations.push({ label: `Required visible text: ${text}`, passed: typeof bodyText === "string" && bodyText.includes(text) });
+      }
+      for (const text of options.rejectText ?? []) {
+        validations.push({ label: `Rejected visible text: ${text}`, passed: !(typeof bodyText === "string" && bodyText.includes(text)) });
+      }
+      if (options.hashIncludes) {
+        validations.push({ label: `URL hash includes ${options.hashIncludes}`, passed: typeof url === "string" && url.includes(options.hashIncludes), detail: url });
+      }
+      const passed = validations.every((item) => item.passed);
+      this.lastScreenshotHash = hash;
+      const frame = {
+        type: "frame",
+        status: passed ? "passed" : "failed",
+        file: fileName,
+        name,
+        claim: options.claim ?? null,
+        voiceover: typeof options.voiceover === "string" && options.voiceover.trim() ? options.voiceover.trim() : null,
+        url,
+        validations,
+      };
+      this.evidenceFrames.push(frame);
+      this.recordEvidence(frame);
+      this.log(`Screenshot: ${fileName}`);
+      if (!passed && options.allowInvalid !== true) {
+        const failed = validations.filter((item) => !item.passed).map((item) => item.label).join(", ");
+        throw new EvalError(`Screenshot evidence failed validation: ${failed}`);
+      }
+      return fileName;
+    } finally {
+      if (closeScreenshotClient) {
+        try {
+          screenshotClient.close();
+        } catch {
+          // Ignore target cleanup errors.
+        }
+      }
     }
-    if (options.hashIncludes) {
-      validations.push({ label: `URL hash includes ${options.hashIncludes}`, passed: typeof url === "string" && url.includes(options.hashIncludes), detail: url });
-    }
-    const passed = validations.every((item) => item.passed);
-    this.lastScreenshotHash = hash;
-    const frame = {
-      type: "frame",
-      status: passed ? "passed" : "failed",
-      file: fileName,
-      name,
-      claim: options.claim ?? null,
-      voiceover: typeof options.voiceover === "string" && options.voiceover.trim() ? options.voiceover.trim() : null,
-      url,
-      validations,
-    };
-    this.evidenceFrames.push(frame);
-    this.recordEvidence(frame);
-    this.log(`Screenshot: ${fileName}`);
-    if (!passed && options.allowInvalid !== true) {
-      const failed = validations.filter((item) => !item.passed).map((item) => item.label).join(", ");
-      throw new EvalError(`Screenshot evidence failed validation: ${failed}`);
-    }
-    return fileName;
   }
 }

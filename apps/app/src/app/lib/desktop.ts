@@ -11,7 +11,10 @@ export type {
   OpencodeCommandDraft,
   WorkspaceOpenworkConfig,
   AppBuildInfo,
+  BrandIconApplyResult,
+  BrandIconState,
   DesktopBootstrapConfig,
+  EvalRelaunchResult,
   OrchestratorDetachedHost,
   SandboxDoctorResult,
   OpenworkDockerCleanupResult,
@@ -25,10 +28,13 @@ export type {
 } from "./desktop-types";
 
 import type {
+  BrandIconApplyResult,
+  BrandIconState,
   DesktopCommandArgs,
   DesktopCommandInvokers,
   DesktopCommandName,
   DesktopCommandResult,
+  EvalRelaunchResult,
   WorkspaceList,
 } from "./desktop-types";
 import type { BrowserPanelTab } from "./desktop-types";
@@ -84,6 +90,13 @@ declare global {
       migration?: {
         readSnapshot?: () => Promise<unknown>;
         ackSnapshot?: () => Promise<{ ok: boolean; moved: boolean }>;
+      };
+      brandIcon?: {
+        apply?: (url: string | null) => Promise<BrandIconApplyResult>;
+        getState?: () => Promise<BrandIconState>;
+      };
+      dev?: {
+        evalRelaunch?: () => Promise<EvalRelaunchResult>;
       };
       updater?: {
         getChannel?: () => Promise<{
@@ -364,6 +377,26 @@ export async function revealDesktopItemInDir(target: string): Promise<void> {
 
 export async function getDesktopFileIcon(target: string, size?: "small" | "normal" | "large"): Promise<string | null> {
   return invokeElectronHelper("__getFileIcon", target, size);
+}
+
+export async function applyBrandIcon(url: string | null): Promise<boolean> {
+  const apply = typeof window !== "undefined" ? window.__OPENWORK_ELECTRON__?.brandIcon?.apply : undefined;
+  if (!apply) return false;
+  const result = await apply(url);
+  return result.ok;
+}
+
+export async function getBrandIconState(): Promise<BrandIconState | null> {
+  const getState = typeof window !== "undefined" ? window.__OPENWORK_ELECTRON__?.brandIcon?.getState : undefined;
+  return getState ? getState() : null;
+}
+
+export async function evalRelaunchDesktopApp(): Promise<EvalRelaunchResult> {
+  const relaunch = typeof window !== "undefined" ? window.__OPENWORK_ELECTRON__?.dev?.evalRelaunch : undefined;
+  if (!relaunch) {
+    throw new Error("Electron eval relaunch helper is unavailable.");
+  }
+  return relaunch();
 }
 
 export type DesktopApplication = {

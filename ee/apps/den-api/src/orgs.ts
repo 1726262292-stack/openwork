@@ -963,6 +963,7 @@ export async function updateOrganizationSettings(input: {
   allowedDesktopVersions?: readonly string[] | null
   requireSso?: boolean
   brandLogoUrl?: string | null
+  brandIconUrl?: string | null
   brandAccentColor?: string | null
 }) {
   const nextName = typeof input.name === "string" ? input.name.trim() : null
@@ -977,7 +978,7 @@ export async function updateOrganizationSettings(input: {
   if (input.allowedEmailDomains !== undefined) {
     updates.allowedEmailDomains = normalizeAllowedEmailDomains(input.allowedEmailDomains).domains
   }
-  if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.brandLogoUrl !== undefined || input.brandAccentColor !== undefined) {
+  if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.brandLogoUrl !== undefined || input.brandIconUrl !== undefined || input.brandAccentColor !== undefined) {
     const rows = await db
       .select({ metadata: OrganizationTable.metadata })
       .from(OrganizationTable)
@@ -1010,6 +1011,14 @@ export async function updateOrganizationSettings(input: {
         delete nextMetadata.brandLogoUrl
       } else {
         nextMetadata.brandLogoUrl = input.brandLogoUrl
+      }
+    }
+
+    if (input.brandIconUrl !== undefined) {
+      if (input.brandIconUrl === null) {
+        delete nextMetadata.brandIconUrl
+      } else {
+        nextMetadata.brandIconUrl = input.brandIconUrl
       }
     }
 

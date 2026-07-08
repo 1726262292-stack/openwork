@@ -213,6 +213,7 @@ export type DenOrganizationMetadata = {
   allowedDesktopVersions?: string[];
   requireSso?: boolean;
   brandLogoUrl?: string;
+  brandIconUrl?: string;
   brandAccentColor?: string;
 } & Record<string, unknown>;
 

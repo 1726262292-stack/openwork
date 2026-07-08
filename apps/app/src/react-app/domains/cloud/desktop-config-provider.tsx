@@ -24,6 +24,7 @@ import {
   readDenSettings,
   type DenDesktopConfig,
 } from "../../../app/lib/den";
+import { applyBrandIcon } from "../../../app/lib/desktop";
 import {
   denSessionUpdatedEvent,
   denSettingsChangedEvent,
@@ -53,6 +54,7 @@ const DESKTOP_CONFIG_ITEMS = [
   ...desktopPolicyKeys,
   "allowedDesktopVersions",
   "brandLogoUrl",
+  "brandIconUrl",
   "brandAccentColor",
   "connectEnabled",
 ] as const satisfies readonly (keyof DenDesktopConfig)[];
@@ -166,6 +168,13 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     });
 
     if (actions.length === 0) return false;
+
+    const brandIconAction = actions.find((action) => action.item === "brandIconUrl");
+    if (brandIconAction) {
+      void applyBrandIcon(
+        typeof brandIconAction.nextValue === "string" ? brandIconAction.nextValue : null,
+      ).catch(() => null);
+    }
 
     currentDesktopConfigRef.current = normalizedConfig;
     setDesktopConfigState((current) => ({

@@ -14,6 +14,7 @@ import {
   denSettingsChangedEvent,
   denSessionUpdatedEvent,
 } from "../../app/lib/den-session-events";
+import { evalRelaunchDesktopApp } from "../../app/lib/desktop";
 import { useDenAuth } from "../domains/cloud/den-auth-provider";
 import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
 import { OrgOnboardingPage } from "../domains/cloud/org-onboarding-page";
@@ -189,7 +190,7 @@ function DenAuthControlActions() {
 }
 
 /**
- * Control action for eval automation: inject brand theme (logo, accent color)
+ * Control action for eval automation: inject brand theme (logo, icon, accent color)
  * via the dev-only desktop config bridge. Placed inside OpenworkControlProvider.
  */
 function BrandThemeControlActions() {
@@ -198,10 +199,11 @@ function BrandThemeControlActions() {
     return {
       id: "eval.brand_theme.apply",
       label: "Apply brand theme override",
-      description: "Inject brand theme (logo, accent color) via desktop config for eval testing.",
+      description: "Inject brand theme (logo, icon, accent color) via desktop config for eval testing.",
       sideEffect: "mutation",
       args: [
         { name: "brandLogoUrl", type: "string", description: "Logo URL" },
+        { name: "brandIconUrl", type: "string", description: "Icon URL" },
         { name: "brandAccentColor", type: "string", description: "Radix color family" },
       ],
       execute: (args) => {
@@ -215,6 +217,18 @@ function BrandThemeControlActions() {
     };
   }, []);
   useControlAction(applyAction);
+
+  const relaunchAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+    return {
+      id: "eval.app.relaunch",
+      label: "Relaunch app for eval",
+      description: "Dev-only eval hook that relaunches the Electron app.",
+      sideEffect: "mutation",
+      execute: () => evalRelaunchDesktopApp(),
+    };
+  }, []);
+  useControlAction(relaunchAction);
 
   return null;
 }

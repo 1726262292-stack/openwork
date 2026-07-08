@@ -173,6 +173,7 @@ export function OrgSettingsScreen() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [pageSuccess, setPageSuccess] = useState<string | null>(null);
   const [brandLogoUrlDraft, setBrandLogoUrlDraft] = useState("");
+  const [brandIconUrlDraft, setBrandIconUrlDraft] = useState("");
   const [brandAccentColorDraft, setBrandAccentColorDraft] = useState("");
   const [copiedOrgId, setCopiedOrgId] = useState(false);
 
@@ -217,6 +218,7 @@ export function OrgSettingsScreen() {
     setRequireSsoEnabled(getRequireSsoFromMetadata(orgContext.organization.metadata));
     const meta = parseOrganizationMetadata(orgContext.organization.metadata);
     setBrandLogoUrlDraft(typeof meta?.brandLogoUrl === "string" ? meta.brandLogoUrl : "");
+    setBrandIconUrlDraft(typeof meta?.brandIconUrl === "string" ? meta.brandIconUrl : "");
     setBrandAccentColorDraft(typeof meta?.brandAccentColor === "string" ? meta.brandAccentColor : "");
     setDomainEditModeEnabled(false);
   }, [orgContext]);
@@ -393,6 +395,7 @@ export function OrgSettingsScreen() {
           : {}),
         requireSso: requireSsoEnabled,
         brandLogoUrl: brandLogoUrlDraft.trim() || null,
+        brandIconUrl: brandIconUrlDraft.trim() || null,
         brandAccentColor: brandAccentColorDraft.trim() || null,
       });
       setDomainEditModeEnabled(false);
@@ -682,22 +685,41 @@ export function OrgSettingsScreen() {
             <EnterprisePlanNotice feature="White-label brand appearance" />
           ) : (
           <div className="grid gap-5 lg:grid-cols-2">
-            <label className="grid gap-3">
-              <span className="text-[14px] font-medium text-gray-700">
-                Logo URL
-              </span>
-              <DenInput
-                type="url"
-                value={brandLogoUrlDraft}
-                onChange={(event) => setBrandLogoUrlDraft(event.target.value)}
-                placeholder="https://example.com/logo.svg"
-                maxLength={2048}
-                disabled={!isOwner}
-              />
-              <span className="text-[11px] text-gray-400">
-                Displayed in the sidebar top-left. Use an SVG or PNG with a transparent background.
-              </span>
-            </label>
+            <div className="grid gap-5">
+              <label className="grid gap-3">
+                <span className="text-[14px] font-medium text-gray-700">
+                  Logo URL
+                </span>
+                <DenInput
+                  type="url"
+                  value={brandLogoUrlDraft}
+                  onChange={(event) => setBrandLogoUrlDraft(event.target.value)}
+                  placeholder="https://example.com/logo.svg"
+                  maxLength={2048}
+                  disabled={!isOwner}
+                />
+                <span className="text-[11px] text-gray-400">
+                  Displayed in the sidebar top-left. Use an SVG or PNG with a transparent background.
+                </span>
+              </label>
+
+              <label className="grid gap-3">
+                <span className="text-[14px] font-medium text-gray-700">
+                  Icon URL
+                </span>
+                <DenInput
+                  type="url"
+                  value={brandIconUrlDraft}
+                  onChange={(event) => setBrandIconUrlDraft(event.target.value)}
+                  placeholder="https://example.com/icon.png"
+                  maxLength={2048}
+                  disabled={!isOwner}
+                />
+                <span className="text-[11px] text-gray-400">
+                  Square PNG, 256×256 or larger. Changes the app icon in the taskbar and dock for all members.
+                </span>
+              </label>
+            </div>
 
             <label className="grid gap-3">
               <span className="text-[14px] font-medium text-gray-700">

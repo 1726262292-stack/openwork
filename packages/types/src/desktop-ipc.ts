@@ -95,6 +95,10 @@ export type WorkspaceExportSummary = {
   excluded: string[];
 };
 
+export type BrandIconApplyResult = { ok: boolean; reason?: string };
+export type BrandIconState = { applied: boolean; sourceUrl: string | null };
+export type EvalRelaunchResult = { ok: true };
+
 export type OpencodeCommandDraft = {
   name: string;
   description?: string;
@@ -495,6 +499,9 @@ export type DesktopCommandMap = {
   __openPath: { args: [target: string]; result: unknown };
   __revealItemInDir: { args: [target: string]; result: unknown };
   __getFileIcon: { args: [target: string, size?: "small" | "normal" | "large"]; result: string | null };
+  __applyBrandIcon: { args: [url: string | null]; result: BrandIconApplyResult };
+  __getBrandIconState: { args: []; result: BrandIconState };
+  __evalRelaunch: { args: []; result: EvalRelaunchResult };
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
@@ -523,12 +530,16 @@ export type DesktopCommandResult<C extends DesktopCommandName> = DesktopCommandM
  * narrowing rewrites in the plain-JS main process for no runtime gain.
  * Key parity and result types are still enforced.
  */
+type DesktopCommandHandler<Event, C extends DesktopCommandName> = (
+  event: Event,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ...args: any[]
+) => Promise<DesktopCommandResult<C>>;
+
 export type DesktopCommandHandlers<Event = unknown> = {
-  [C in DesktopCommandName]: (
-    event: Event,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...args: any[]
-  ) => Promise<DesktopCommandResult<C>>;
+  [C in Exclude<DesktopCommandName, "__evalRelaunch">]: DesktopCommandHandler<Event, C>;
+} & {
+  __evalRelaunch?: DesktopCommandHandler<Event, "__evalRelaunch">;
 };
 
 /** Renderer-side bridge: one async function per command. */

@@ -39,8 +39,9 @@ const updateOrganizationSchema = z.object({
   allowedDesktopVersions: z.array(z.string().trim().min(1).max(32)).max(200).nullable().optional(),
   requireSso: z.boolean().optional(),
   brandLogoUrl: z.string().url().max(2048).nullable().optional(),
+  brandIconUrl: z.string().url().max(2048).nullable().optional(),
   brandAccentColor: z.string().trim().min(1).max(32).nullable().optional(),
-}).refine((value) => value.name !== undefined || value.allowedEmailDomains !== undefined || value.allowedDesktopVersions !== undefined || value.requireSso !== undefined || value.brandLogoUrl !== undefined || value.brandAccentColor !== undefined, {
+}).refine((value) => value.name !== undefined || value.allowedEmailDomains !== undefined || value.allowedDesktopVersions !== undefined || value.requireSso !== undefined || value.brandLogoUrl !== undefined || value.brandIconUrl !== undefined || value.brandAccentColor !== undefined, {
   message: "Provide at least one organization field to update.",
 })
 
@@ -359,7 +360,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         }
       }
 
-      const enablesBranding = (typeof input.brandLogoUrl === "string") || (typeof input.brandAccentColor === "string")
+      const enablesBranding = (typeof input.brandLogoUrl === "string") || (typeof input.brandIconUrl === "string") || (typeof input.brandAccentColor === "string")
       if (enablesBranding) {
         const entitlement = checkEntitlement(payload.organization.metadata, "desktopPolicies")
         if (!entitlement.ok) {
@@ -374,6 +375,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         allowedDesktopVersions: input.allowedDesktopVersions,
         requireSso: input.requireSso,
         brandLogoUrl: input.brandLogoUrl,
+        brandIconUrl: input.brandIconUrl,
         brandAccentColor: input.brandAccentColor,
       })
 

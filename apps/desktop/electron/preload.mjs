@@ -79,6 +79,19 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
       return ipcRenderer.invoke("openwork:migration:ack");
     },
   },
+  brandIcon: {
+    apply(url) {
+      return ipcRenderer.invoke("openwork:desktop", "__applyBrandIcon", url ?? null);
+    },
+    getState() {
+      return ipcRenderer.invoke("openwork:desktop", "__getBrandIconState");
+    },
+  },
+  dev: {
+    evalRelaunch() {
+      return ipcRenderer.invoke("openwork:desktop", "__evalRelaunch");
+    },
+  },
   updater: {
     getChannel() {
       return ipcRenderer.invoke("openwork:updater:getChannel");

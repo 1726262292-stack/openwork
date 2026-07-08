@@ -275,9 +275,188 @@ async function resolveArchitectureInfo() {
 
 const APP_ICON_PATH = resolveAppIconPath();
 const APP_ICON_IMAGE = APP_ICON_PATH ? nativeImage.createFromPath(APP_ICON_PATH) : null;
+const BRAND_ICON_MAX_BYTES = 2 * 1024 * 1024;
+const BRAND_ICON_FETCH_TIMEOUT_MS = 10_000;
+let brandIconApplySequence = 0;
 
-if (process.platform === "darwin" && APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() && app.dock) {
-  app.dock.setIcon(APP_ICON_IMAGE);
+function brandIconCachePath() {
+  return path.join(app.getPath("userData"), "brand-icon.png");
+}
+
+function brandIconSidecarPath() {
+  return path.join(app.getPath("userData"), "brand-icon.json");
+}
+
+function resolveBrandIconImage() {
+  try {
+    const cachePath = brandIconCachePath();
+    if (!existsSync(cachePath)) return null;
+    const image = nativeImage.createFromPath(cachePath);
+    return image && !image.isEmpty() ? image : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyAppIconImage(image) {
+  if (!image || image.isEmpty()) return;
+  try {
+    if (process.platform === "darwin") {
+      if (app.dock) app.dock.setIcon(image);
+      return;
+    }
+    mainWindow?.setIcon(image);
+  } catch {
+    // Icon application failures should never take down the app.
+  }
+}
+
+function applyDefaultAppIconImage() {
+  if (APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty()) {
+    applyAppIconImage(APP_ICON_IMAGE);
+  }
+}
+
+async function readBrandIconSidecar() {
+  try {
+    const parsed = JSON.parse(await readFile(brandIconSidecarPath(), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function clearBrandIconCache() {
+  await Promise.all([
+    rm(brandIconCachePath(), { force: true }),
+    rm(brandIconSidecarPath(), { force: true }),
+  ]);
+}
+
+function normalizeBrandIconSourceUrl(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBrandIconBuffer(sourceUrl) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BRAND_ICON_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(sourceUrl, { signal: controller.signal });
+    if (!response.ok) return { ok: false, reason: "http-status" };
+
+    const contentLength = Number(response.headers.get("content-length") ?? "0");
+    if (Number.isFinite(contentLength) && contentLength > BRAND_ICON_MAX_BYTES) {
+      return { ok: false, reason: "too-large" };
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > BRAND_ICON_MAX_BYTES) {
+      return { ok: false, reason: "too-large" };
+    }
+    return { ok: true, buffer };
+  } catch (error) {
+    return { ok: false, reason: error?.name === "AbortError" ? "timeout" : "fetch-failed" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function brandIconImageRejectionReason(image) {
+  if (!image || image.isEmpty()) return "invalid-image";
+  const size = image.getSize();
+  if (size.width < 64 || size.height < 64) return "too-small";
+  const aspectRatio = size.width / size.height;
+  if (aspectRatio < 1 / 1.5 || aspectRatio > 1.5) return "invalid-aspect";
+  return null;
+}
+
+async function writeBrandIconCache(image, sourceUrl) {
+  const cachePath = brandIconCachePath();
+  const sidecarPath = brandIconSidecarPath();
+  const suffix = `${process.pid}-${Date.now()}`;
+  const cacheTempPath = `${cachePath}.${suffix}.tmp`;
+  const sidecarTempPath = `${sidecarPath}.${suffix}.tmp`;
+  try {
+    await mkdir(path.dirname(cachePath), { recursive: true });
+    await writeFile(cacheTempPath, image.toPNG());
+    await writeFile(sidecarTempPath, JSON.stringify({
+      sourceUrl,
+      appliedAt: new Date().toISOString(),
+      appVersion: app.getVersion(),
+    }, null, 2), "utf8");
+    await rename(cacheTempPath, cachePath);
+    await rename(sidecarTempPath, sidecarPath);
+  } catch (error) {
+    await Promise.all([
+      rm(cacheTempPath, { force: true }),
+      rm(sidecarTempPath, { force: true }),
+    ]).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function applyBrandIconUrl(value) {
+  const sequence = ++brandIconApplySequence;
+  if (value === null) {
+    await clearBrandIconCache().catch(() => undefined);
+    applyDefaultAppIconImage();
+    return { ok: true };
+  }
+
+  const sourceUrl = normalizeBrandIconSourceUrl(value);
+  if (!sourceUrl) return { ok: false, reason: "invalid-url" };
+
+  const sidecar = await readBrandIconSidecar();
+  const cachedImage = resolveBrandIconImage();
+  if (sidecar?.sourceUrl === sourceUrl && cachedImage) {
+    applyAppIconImage(cachedImage);
+    return { ok: true };
+  }
+
+  const fetched = await fetchBrandIconBuffer(sourceUrl);
+  if (!fetched.ok) return { ok: false, reason: fetched.reason };
+  if (sequence !== brandIconApplySequence) return { ok: false, reason: "stale" };
+
+  const image = nativeImage.createFromBuffer(fetched.buffer);
+  const rejectionReason = brandIconImageRejectionReason(image);
+  if (rejectionReason) return { ok: false, reason: rejectionReason };
+  if (sequence !== brandIconApplySequence) return { ok: false, reason: "stale" };
+
+  try {
+    await writeBrandIconCache(image, sourceUrl);
+  } catch {
+    return { ok: false, reason: "write-failed" };
+  }
+  if (sequence !== brandIconApplySequence) {
+    const latestSidecar = await readBrandIconSidecar();
+    if (latestSidecar?.sourceUrl === sourceUrl) {
+      await clearBrandIconCache().catch(() => undefined);
+    }
+    return { ok: false, reason: "stale" };
+  }
+  applyAppIconImage(image);
+  return { ok: true };
+}
+
+async function getBrandIconState() {
+  const sidecar = await readBrandIconSidecar();
+  return {
+    applied: Boolean(resolveBrandIconImage()),
+    sourceUrl: typeof sidecar?.sourceUrl === "string" ? sidecar.sourceUrl : null,
+  };
+}
+
+const INITIAL_APP_ICON_IMAGE = resolveBrandIconImage() ?? APP_ICON_IMAGE;
+if (process.platform === "darwin" && INITIAL_APP_ICON_IMAGE && !INITIAL_APP_ICON_IMAGE.isEmpty() && app.dock) {
+  app.dock.setIcon(INITIAL_APP_ICON_IMAGE);
 }
 
 // Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
@@ -1302,6 +1481,13 @@ const desktopCommandHandlers = {
         return null;
       }
   },
+  "__applyBrandIcon": async (event, ...args) => {
+      const value = args[0] === null ? null : String(args[0] ?? "");
+      return applyBrandIconUrl(value);
+  },
+  "__getBrandIconState": async (event, ...args) => {
+      return getBrandIconState();
+  },
   "__getApplicationsForFile": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return [];
@@ -1425,6 +1611,16 @@ const desktopCommandHandlers = {
   },
 };
 
+if (isDevMode) {
+  desktopCommandHandlers.__evalRelaunch = async () => {
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 150);
+    return { ok: true };
+  };
+}
+
 function desktopErrorMessageSegment(error, includeName = false) {
   try {
     if (error && (typeof error === "object" || typeof error === "function")) {
@@ -1502,13 +1698,18 @@ async function createMainWindow() {
     });
   }
 
+  const windowIconImage = resolveBrandIconImage() ?? APP_ICON_IMAGE;
+  if (process.platform === "darwin" && windowIconImage && !windowIconImage.isEmpty() && app.dock) {
+    app.dock.setIcon(windowIconImage);
+  }
+
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 820,
     title: APP_NAME,
     show: false,
     ...windowAppearanceOptions,
-    ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
+    ...(windowIconImage && !windowIconImage.isEmpty() ? { icon: windowIconImage } : {}),
     webPreferences: {
       // The renderer owns session dispatch + event streams; keep it running
       // while hidden/minimized so background tasks are not interrupted.
