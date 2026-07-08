@@ -1914,6 +1914,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
   };
 
+  // Hooks must run unconditionally: this useCallback used to sit below the
+  // redirect returns, so the bare <-> workspace-scoped settings transition
+  // changed the hook count and crashed the whole settings surface
+  // ("Rendered more/fewer hooks than during the previous render").
+  const refreshConnectMarketplaceItems = useCallback(
+    () => extensionsStore.refreshCloudOrgMarketplaces({ force: true }),
+    [extensionsStore],
+  );
+
   if (route.redirectPath && !props.embedded) {
     const target = selectedWorkspaceId
       ? workspaceSettingsRoute(selectedWorkspaceId, route.redirectPath)
@@ -1928,10 +1937,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const openCloudAccountSettings = () => {
     navigateSettingsPath("cloud-account");
   };
-  const refreshConnectMarketplaceItems = useCallback(
-    () => extensionsStore.refreshCloudOrgMarketplaces({ force: true }),
-    [extensionsStore],
-  );
 
   const settingsView = (() => {
     switch (route.tab) {
