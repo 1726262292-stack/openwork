@@ -9,7 +9,7 @@ carries a sign-up path. No protocol/tool-name jargon anywhere.
 
 1. Further down the OpenWork landing page, the pitch is personal: already doing it in your agent? The skills and MCPs you run in Claude Code or Cursor can be added to OpenWork and shared with your whole team.
 
-2. The left window shows my setup moving in as-is — the Granola MCP, a meeting-brief skill, a review-pr command — same SKILL.md format, same server URLs, shared with the org in one link.
+2. On the left, my agent's terminal — I ask it to share my setup with my OpenWork org, and it finds the granola MCP, my meeting-brief skill, and a review-pr command, shipping them to the team in one link.
 
 3. Next to it, OpenWork itself: a teammate just types what they need — a brief for tomorrow's Acme call — and OpenWork picks up the exact skills and connections I shared.
 

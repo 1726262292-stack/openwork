@@ -1,11 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Link2, Plug } from "lucide-react";
+import { ChevronRight, Plug } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { capturePosthogEvent } from "../lib/posthog-client";
-import { LandingAgentGlyphs } from "./landing-agent-glyphs";
 
 const MCP_SERVER_URL = "https://api.openworklabs.com/mcp/agent";
 const DOCS_URL = "https://openworklabs.com/docs/cloud/run-in-the-cloud/cloud-mcp";
@@ -60,7 +59,6 @@ const SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 
 type CopyMethod = "clipboard" | "execCommand" | "none";
 type ClientId = "cursor" | "claude-code" | "opencode" | "vs-code" | "any-client";
-type BringTone = "mcp" | "skill" | "command";
 
 type ClientInstall = {
   id: ClientId;
@@ -70,26 +68,18 @@ type ClientInstall = {
   helper: string;
 };
 
-type BringItem = {
-  name: string;
-  type: string;
-  tone: BringTone;
-};
-
 const CLIENT_ORDER: ClientId[] = ["cursor", "claude-code", "opencode", "vs-code", "any-client"];
 const revealSteps = ["Create your free account or sign in", "Pick your org", "Your team's tools appear"];
+const CURSOR_ICON_PATH = "M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z";
+const CLAUDE_ICON_PATH = "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z";
+const VS_CODE_ICON_PATH = "M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448v10.896z";
 
-const bringItems: BringItem[] = [
-  { name: "Granola", type: "MCP", tone: "mcp" },
-  { name: "Meeting Brief Generator", type: "Skill", tone: "skill" },
-  { name: "review-pr", type: "Command", tone: "command" },
-  { name: "Linear", type: "MCP", tone: "mcp" }
-];
-
-const dotClass: Record<BringTone, string> = {
-  mcp: "bg-gradient-to-br from-teal-400 to-cyan-500",
-  skill: "bg-gradient-to-br from-amber-400 to-orange-400",
-  command: "bg-gradient-to-br from-violet-400 to-purple-500"
+const clientIconClass: Record<ClientId, string> = {
+  cursor: "text-[#111111]",
+  "claude-code": "text-[#D97757]",
+  opencode: "text-[#656363]",
+  "vs-code": "text-[#007ACC]",
+  "any-client": "text-gray-500"
 };
 
 const CLIENT_INSTALLS: Record<ClientId, ClientInstall> = {
@@ -129,6 +119,43 @@ const CLIENT_INSTALLS: Record<ClientId, ClientInstall> = {
     helper: "Use install-mcp for another client, or paste the remote server URL directly."
   }
 };
+
+function ClientIcon({ clientId, className }: { clientId: ClientId; className: string }) {
+  if (clientId === "cursor") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path fillRule="evenodd" d={CURSOR_ICON_PATH} />
+      </svg>
+    );
+  }
+
+  if (clientId === "claude-code") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d={CLAUDE_ICON_PATH} />
+      </svg>
+    );
+  }
+
+  if (clientId === "opencode") {
+    return (
+      <svg className={className} viewBox="0 6 24 30" fill="none" aria-hidden="true">
+        <path d="M18 30H6V18H18V30Z" fill="#CFCECD" />
+        <path d="M18 12H6V30H18V12ZM24 36H0V6H24V36Z" fill="currentColor" />
+      </svg>
+    );
+  }
+
+  if (clientId === "vs-code") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d={VS_CODE_ICON_PATH} />
+      </svg>
+    );
+  }
+
+  return <Plug className={className} size={16} aria-hidden="true" />;
+}
 
 async function writeClipboardText(text: string): Promise<{ copied: boolean; method: CopyMethod }> {
   let copied = false;
@@ -220,53 +247,45 @@ export function LandingConnectMcp() {
       <div className="grid gap-6 lg:grid-cols-2 lg:items-stretch">
         <div
           data-testid="connect-mcp-bring"
-          className="flex h-full flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+          className="flex h-full min-h-[430px] flex-col overflow-hidden rounded-xl border border-[#0b1f34] bg-[#011627] shadow-[0_24px_70px_-44px_rgba(1,22,39,0.85)]"
         >
-          <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-2.5">
+          <div className="flex items-center gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-2.5">
             <div className="flex gap-1.5">
               <div className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
               <div className="h-2.5 w-2.5 rounded-full bg-yellow-400/70" />
               <div className="h-2.5 w-2.5 rounded-full bg-green-400/70" />
             </div>
-            <div className="text-[12px] font-medium text-gray-500">OpenWork</div>
+            <div className="text-[12px] font-medium text-gray-300">agent — terminal</div>
           </div>
 
-          <div className="flex flex-1 flex-col gap-3 p-4 text-left md:p-5">
+          <div className="flex flex-1 flex-col gap-4 p-4 font-mono text-[12px] leading-6 text-gray-100 md:p-5">
             <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-                From your agents
+              <span className="text-cyan-300">❯</span> share my skills and MCPs with my OpenWork org
+            </div>
+
+            <div className="space-y-2">
+              <div>
+                <span className="text-green-300">✓</span> found <span className="text-teal-300">granola</span> MCP
               </div>
-              <h3 className="text-lg font-medium tracking-tight text-[#011627]">
-                Your setup, moved in as-is
-              </h3>
+              <div>
+                <span className="text-green-300">✓</span> packed <span className="text-amber-300">meeting-brief</span> skill from SKILL.md
+              </div>
+              <div>
+                <span className="text-green-300">✓</span> added <span className="text-violet-300">review-pr</span> command
+              </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              {bringItems.map((item, index) => (
-                <div
-                  key={item.name}
-                  className={`flex items-center gap-2.5 rounded-lg px-3 py-2 ${
-                    index === 0 ? "bg-blue-50/60" : "bg-gray-50/70"
-                  }`}
-                >
-                  <span className={`h-6 w-6 shrink-0 rounded-full ${dotClass[item.tone]}`} />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#011627]">
-                    {item.name}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-gray-400">
-                    {item.type}
-                  </span>
-                </div>
-              ))}
+            <div>
+              <div className="text-gray-500">› bundling</div>
+              <div className="space-y-1 pl-4 text-gray-400">
+                <div>mcp/granola.json</div>
+                <div>skills/meeting-brief/SKILL.md</div>
+                <div>commands/review-pr.md</div>
+              </div>
             </div>
 
-            <p className="text-[13px] leading-6 text-gray-600">
-              Already in Claude Code or Cursor? OpenWork speaks the same SKILL.md and remote MCP URLs — add them unchanged, then share your setup in one link.
-            </p>
-
-            <div className="mt-auto flex w-full items-center justify-center gap-2 rounded-lg bg-[#011627] py-2 text-[13px] font-medium text-white shadow-[0_1px_2px_rgba(17,24,39,0.12)]">
-              <Link2 size={16} />
-              Share with your org
+            <div className="mt-auto">
+              <span className="text-green-300">✓</span> Shared with your org — <span className="text-white">one link</span> for the whole team
             </div>
           </div>
         </div>
@@ -359,7 +378,7 @@ export function LandingConnectMcp() {
             Developers: point your own agent at your org — one click or one command.
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-2 text-gray-400">
-            <LandingAgentGlyphs />
+            <Plug size={14} aria-hidden="true" />
             <span className="text-xs text-gray-400">
               Works with Claude Code, Cursor, VS Code — any MCP agent
             </span>
@@ -367,41 +386,44 @@ export function LandingConnectMcp() {
         </div>
 
         <div className="min-w-0">
-            <div
-              role="tablist"
-              aria-label="OpenWork MCP client install options"
-              className="landing-chip mb-4 flex flex-nowrap gap-2 overflow-x-auto rounded-full p-1"
-            >
-              {CLIENT_ORDER.map((clientId) => {
-                const client = CLIENT_INSTALLS[clientId];
-                const selected = client.id === activeClient;
+          <div
+            role="tablist"
+            aria-label="OpenWork MCP client install options"
+            className="landing-chip mb-4 flex flex-nowrap gap-2 overflow-x-auto rounded-full p-1"
+          >
+            {CLIENT_ORDER.map((clientId) => {
+              const client = CLIENT_INSTALLS[clientId];
+              const selected = client.id === activeClient;
 
-                return (
-                  <button
-                    key={client.id}
-                    id={`connect-mcp-tab-${client.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    aria-controls={`connect-mcp-panel-${client.id}`}
-                    tabIndex={selected ? 0 : -1}
-                    onClick={() => setActiveClient(client.id)}
-                    className={`relative shrink-0 cursor-pointer whitespace-nowrap rounded-full px-5 py-2 text-sm font-medium transition-colors ${
-                      selected ? "text-[#011627]" : "text-gray-600 hover:text-gray-900"
-                    }`}
-                  >
-                    {selected ? (
-                      <motion.div
-                        layoutId="connect-mcp-pill"
-                        className="absolute inset-0 rounded-full border border-gray-100 bg-white shadow-sm"
-                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                      />
-                    ) : null}
-                    <span className="relative z-10">{client.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+              return (
+                <button
+                  key={client.id}
+                  id={`connect-mcp-tab-${client.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`connect-mcp-panel-${client.id}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => setActiveClient(client.id)}
+                  className={`relative shrink-0 cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    selected ? "text-[#011627]" : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  {selected ? (
+                    <motion.div
+                      layoutId="connect-mcp-pill"
+                      className="absolute inset-0 rounded-full border border-gray-100 bg-white shadow-sm"
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  ) : null}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <ClientIcon clientId={client.id} className={`h-4 w-4 shrink-0 ${clientIconClass[client.id]}`} />
+                    <span>{client.label}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
 
             {CLIENT_ORDER.map((clientId) => {
               const install = CLIENT_INSTALLS[clientId];
@@ -425,7 +447,10 @@ export function LandingConnectMcp() {
                       </div>
                       <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <h3 className="text-xl font-medium text-[#011627]">{install.label}</h3>
+                          <h3 className="flex items-center gap-2 text-xl font-medium text-[#011627]">
+                            <ClientIcon clientId={install.id} className={`h-5 w-5 shrink-0 ${clientIconClass[install.id]}`} />
+                            <span>{install.label}</span>
+                          </h3>
                           <p className="mt-1 text-[13px] leading-5 text-gray-500">{install.helper}</p>
                         </div>
                         {install.id === "cursor" ? (

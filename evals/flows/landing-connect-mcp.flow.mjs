@@ -207,7 +207,7 @@ export default {
     {
       name: "Frame 2",
       run: async (ctx) => {
-        await ctx.prove("The bring-it-in card shows existing agent setups moving into OpenWork unchanged and shared in one link.", {
+        await ctx.prove("The agent terminal shows existing skills, MCPs, and commands shared to OpenWork in one link.", {
           voiceover: vo[1],
           action: async () => {
             await ensureConnectSection(ctx);
@@ -216,13 +216,15 @@ export default {
               `(() => {
                 const card = document.querySelector(${JSON.stringify(BRING_SELECTOR)});
                 const text = card ? card.innerText : "";
-                return text.includes("Granola")
-                  && text.includes("Meeting Brief Generator")
+                return text.includes("agent — terminal")
+                  && text.includes("share my skills and MCPs with my OpenWork org")
+                  && text.includes("granola")
+                  && text.includes("meeting-brief")
                   && text.includes("review-pr")
                   && text.includes("SKILL.md")
                   && text.includes("one link");
               })()`,
-              { timeoutMs: 10_000, label: "bring existing setup card" },
+              { timeoutMs: 10_000, label: "agent terminal sharing existing setup" },
             );
           },
           assert: async () => {
@@ -231,8 +233,10 @@ export default {
               const text = card ? card.innerText : "";
               return {
                 exists: Boolean(card),
-                hasGranola: text.includes("Granola"),
-                hasMeetingBriefGenerator: text.includes("Meeting Brief Generator"),
+                hasTerminalTitle: text.includes("agent — terminal"),
+                hasSharePrompt: text.includes("share my skills and MCPs with my OpenWork org"),
+                hasGranola: text.includes("granola"),
+                hasMeetingBrief: text.includes("meeting-brief"),
                 hasReviewPr: text.includes("review-pr"),
                 hasSkillMd: text.includes("SKILL.md"),
                 hasOneLink: text.includes("one link"),
@@ -240,17 +244,19 @@ export default {
             })()`);
             recordAssertion(
               ctx,
-              "The bring-it-in card shows Granola, Meeting Brief Generator, review-pr, SKILL.md, and one link",
+              "The agent terminal shows the share prompt, granola, meeting-brief, review-pr, SKILL.md, and one link",
               actual.exists === true
+                && actual.hasTerminalTitle === true
+                && actual.hasSharePrompt === true
                 && actual.hasGranola === true
-                && actual.hasMeetingBriefGenerator === true
+                && actual.hasMeetingBrief === true
                 && actual.hasReviewPr === true
                 && actual.hasSkillMd === true
                 && actual.hasOneLink === true,
               actual,
             );
           },
-          screenshot: { name: "frame-2", requireText: ["SKILL.md"] },
+          screenshot: { name: "frame-2", requireText: ["agent — terminal"] },
         });
       },
     },
@@ -391,9 +397,11 @@ export default {
             await ctx.waitFor(
               `(() => {
                 const panel = document.querySelector(${JSON.stringify(`${SECTION_SELECTOR} [role="tabpanel"]:not([hidden])`)});
-                return Boolean(panel && panel.innerText.includes(${JSON.stringify(CLAUDE_CODE_COMMAND)}));
+                const tabs = Array.from(document.querySelectorAll(${JSON.stringify(`${SECTION_SELECTOR} [role="tab"]`)}));
+                const claudeTab = tabs.find((tab) => (tab.textContent || "").trim() === "Claude Code");
+                return Boolean(panel && panel.innerText.includes(${JSON.stringify(CLAUDE_CODE_COMMAND)}) && claudeTab && claudeTab.querySelector("svg"));
               })()`,
-              { timeoutMs: 10_000, label: "Claude Code command visible" },
+              { timeoutMs: 10_000, label: "Claude Code command and tab icon visible" },
             );
             await grantClipboardPermissions(ctx);
             await realMouseClick(
@@ -440,7 +448,9 @@ export default {
             const feedbackScan = await ctx.eval(`(() => {
               const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
               const links = Array.from(section ? section.querySelectorAll("a") : []);
+              const tabs = Array.from(section ? section.querySelectorAll('[role="tab"]') : []);
               const signup = links.find((link) => (link.textContent || "").trim() === "create one free");
+              const claudeTab = tabs.find((tab) => (tab.textContent || "").trim() === "Claude Code");
               return {
                 feedbackActive: Boolean(section && section.querySelector('[data-feedback="true"]')),
                 copiedVisible: Boolean(section && section.innerText.includes("Copied")),
@@ -448,6 +458,8 @@ export default {
                 pickOrgStepVisible: Boolean(section && section.innerText.includes("Pick your org")),
                 signupExists: Boolean(signup),
                 signupHref: signup ? signup.getAttribute("href") : "",
+                claudeTabSelected: claudeTab ? claudeTab.getAttribute("aria-selected") : null,
+                claudeTabHasSvg: Boolean(claudeTab && claudeTab.querySelector("svg")),
               };
             })()`);
             ctx.recordEvidence({
@@ -460,6 +472,12 @@ export default {
               "navigator.clipboard.readText returns the exact Claude Code MCP command",
               clipboardRead.error === "" && clipboardRead.text === CLAUDE_CODE_COMMAND,
               clipboardRead,
+            );
+            recordAssertion(
+              ctx,
+              "The active Claude Code tab button contains a brand SVG icon",
+              feedbackScan.claudeTabSelected === "true" && feedbackScan.claudeTabHasSvg === true,
+              feedbackScan,
             );
             recordAssertion(
               ctx,
