@@ -14,6 +14,7 @@ const MARK_VERIFIED_CMD = process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() ||
 const MOCK_SERVER_URL = (process.env.MOCK_OAUTH_MCP_URL ?? "http://127.0.0.1:3978").trim().replace(/\/+$/, "");
 const RUN_TAG = Date.now();
 const DEFAULT_FEATURES = ["calendarRead", "gmailDraft", "driveFile"];
+const GOOGLE_WORKSPACE_CALLBACK_PATH = "/v1/oauth-providers/google-workspace/connect/callback";
 
 const state = {
   adminSession: null,
@@ -150,6 +151,22 @@ function parseRedirectUri(authorizeUrl) {
   return new URL(authorizeUrl).searchParams.get("redirect_uri");
 }
 
+function normalizeLoopback(url) {
+  const parsed = new URL(url);
+  if (parsed.hostname === "127.0.0.1") parsed.hostname = "localhost";
+  return parsed.toString();
+}
+
+function assertRedirectUriMatch(ctx, actual, expected, label) {
+  ctx.assert(typeof actual === "string" && typeof expected === "string", `${label} redirect URI was missing. Actual: ${actual}. Expected: ${expected}.`);
+  const actualUrl = new URL(actual);
+  const expectedUrl = new URL(expected);
+  ctx.assert(actualUrl.pathname === GOOGLE_WORKSPACE_CALLBACK_PATH, `${label} actual path ${actualUrl.pathname} did not match ${GOOGLE_WORKSPACE_CALLBACK_PATH}.`);
+  ctx.assert(expectedUrl.pathname === GOOGLE_WORKSPACE_CALLBACK_PATH, `${label} expected path ${expectedUrl.pathname} did not match ${GOOGLE_WORKSPACE_CALLBACK_PATH}.`);
+  // Local den-web proxy may use localhost while direct API fetch uses 127.0.0.1; production pins DEN_API_PUBLIC_URL.
+  ctx.assert(normalizeLoopback(actual) === normalizeLoopback(expected), `${label} redirect URI mismatch. Actual: ${actual}. Expected: ${expected}.`);
+}
+
 function consentAuthorizeUrl(authorizeUrl) {
   const url = new URL(authorizeUrl);
   const mockOrigin = new URL(MOCK_SERVER_URL).origin;
@@ -240,7 +257,7 @@ export default {
           },
           assert: async () => {
             const displayedRedirectUri = await ctx.eval(displayedRedirectUriScript());
-            ctx.assert(displayedRedirectUri === state.redirectUri, `Displayed redirect URI ${displayedRedirectUri} did not equal API redirectUri ${state.redirectUri}.`);
+            assertRedirectUriMatch(ctx, displayedRedirectUri, state.redirectUri, "Displayed/API");
             await ctx.waitFor(copyButtonCopiedScript(), { timeoutMs: 10_000, label: "Copied button state" });
           },
           screenshot: {
@@ -290,12 +307,12 @@ export default {
             ctx.assert(started.response.ok, `Starting Google Workspace connect failed: ${started.response.status} ${JSON.stringify(started.body).slice(0, 200)}`);
             ctx.assert(started.body.status === "needs_auth" && typeof started.body.authorizeUrl === "string", "connect/start did not return an authorizeUrl.");
             state.authorizeUrl = started.body.authorizeUrl;
-            ctx.assert(parseRedirectUri(state.authorizeUrl) === state.redirectUri, `Authorize URL redirect_uri ${parseRedirectUri(state.authorizeUrl)} did not equal API redirectUri ${state.redirectUri}.`);
+            assertRedirectUriMatch(ctx, parseRedirectUri(state.authorizeUrl), state.redirectUri, "Authorize/API");
             await ctx.eval(`(() => { window.location.href = ${JSON.stringify(consentAuthorizeUrl(state.authorizeUrl))}; return true; })()`);
             await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: "mock consent page loaded" });
           },
           assert: async () => {
-            ctx.assert(parseRedirectUri(state.authorizeUrl) === state.redirectUri, `Authorize URL redirect_uri ${parseRedirectUri(state.authorizeUrl)} did not equal API redirectUri ${state.redirectUri}.`);
+            assertRedirectUriMatch(ctx, parseRedirectUri(state.authorizeUrl), state.redirectUri, "Authorize/API");
             await ctx.waitFor("document.body.innerText.includes('Mock MCP OAuth') && document.body.innerText.includes('Approve OpenWork')", {
               timeoutMs: 30_000,
               label: "mock Google consent page",
