@@ -66,6 +66,13 @@ export const EXTERNAL_MCP_PRESETS: ExternalMcpPreset[] = [
     authType: "apikey",
   },
   {
+    presetId: "render",
+    displayName: "Render",
+    description: "Deploy and manage services, databases, and logs. Paste your org's Render API key from dashboard.render.com.",
+    url: "https://mcp.render.com/mcp",
+    authType: "apikey",
+  },
+  {
     presetId: "context7",
     displayName: "Context7",
     description: "Search product docs with richer context.",
