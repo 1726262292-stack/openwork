@@ -114,6 +114,14 @@ async function waitForPanel(ctx, expression, { timeoutMs = 20_000, label = expre
 }
 
 async function openAdminPanel(ctx) {
+  // Reuse an existing den-web tab when present — repeated opens both leak
+  // tabs and can leave the freshly-opened one on a pre-auth failed access
+  // check.
+  const existing = await findPanelTarget(ctx).catch(() => null);
+  if (existing) {
+    panelTargetId = existing.id;
+    return existing;
+  }
   await ctx.waitFor(
     "window.__openworkControl.listActions().some((action) => action.id === 'browser.open_url' && !action.disabled)",
     { timeoutMs: 30_000, label: "browser.open_url control action" },
@@ -146,13 +154,24 @@ async function adminEnsureFreshAuth(ctx) {
 }
 
 async function navigateAdminOrgSettings(ctx) {
-  await withPanelClient(ctx, async (client) => {
-    await client.send("Page.navigate", { url: orgSettingsUrl(ctx) });
-  });
-  await waitForPanel(ctx, `(() => {
+  const settingsReady = `(() => {
     const text = document.body.innerText;
     return text.includes('Brand Appearance') && text.includes('Icon URL');
-  })()`, { timeoutMs: 30_000, label: "Brand Appearance card with Icon URL" });
+  })()`;
+  // Hard reload via location.replace: the tab may have loaded org-settings
+  // BEFORE the auth cookie existed, and a soft re-navigation to the same URL
+  // keeps the failed access-check state. A full document load with the fresh
+  // cookie recovers it.
+  await panelEval(ctx, `location.replace(${JSON.stringify(orgSettingsUrl(ctx))})`).catch(() => undefined);
+  // Cold next-dev compiles and the workspace-access check can exceed 30s on a
+  // freshly (re)started stack; retry the reload once midway.
+  try {
+    await waitForPanel(ctx, settingsReady, { timeoutMs: 45_000, label: "Brand Appearance card with Icon URL" });
+  } catch {
+    ctx.log("Org settings not ready after 45s; hard-reloading once (cold dev-server compile).");
+    await panelEval(ctx, `location.replace(${JSON.stringify(orgSettingsUrl(ctx))})`).catch(() => undefined);
+    await waitForPanel(ctx, settingsReady, { timeoutMs: 60_000, label: "Brand Appearance card with Icon URL (retry)" });
+  }
   await panelEval(ctx, `(() => {
     const heading = Array.from(document.querySelectorAll('h1,h2,h3,p,span')).find((element) =>
       (element.textContent ?? '').includes('Brand Appearance')
@@ -210,8 +229,16 @@ async function getBrandIconState(ctx) {
   return ctx.eval("window.__OPENWORK_ELECTRON__?.brandIcon?.getState?.()", { awaitPromise: true });
 }
 
-async function waitForBrandIconState(ctx, label, predicate, timeoutMs = 30_000) {
+async function waitForBrandIconState(ctx, label, predicate, timeoutMs = 30_000, { refresh = false } = {}) {
+  let lastDispatch = 0;
   return waitUntil(ctx, label, async () => {
+    // Re-dispatch the den refresh events every few seconds while waiting —
+    // a single dispatch can race the provider's in-flight refresh run and
+    // get discarded (same pattern as the two-surface driver).
+    if (refresh && Date.now() - lastDispatch > 3_000) {
+      lastDispatch = Date.now();
+      await memberRefresh(ctx).catch(() => undefined);
+    }
     const state = await getBrandIconState(ctx);
     return predicate(state) ? state : null;
   }, { timeoutMs, intervalMs: 500 });
@@ -310,6 +337,24 @@ fi
   });
 }
 
+/**
+ * Reload until the React root mounts. On the dev stack the renderer can load
+ * index.html while vite is still (re)settling its module graph, leaving an
+ * unmounted root; packaged builds load from disk and don't hit this.
+ */
+async function ensureRendererMounted(ctx, { attempts = 5 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const mounted = await ctx.waitFor(
+      "(document.getElementById('root')?.children?.length ?? 0) > 0",
+      { timeoutMs: 25_000, label: `renderer mounted (attempt ${attempt + 1})` },
+    ).then(() => true).catch(() => false);
+    if (mounted) return;
+    ctx.log(`Renderer not mounted (dev-server race); reload attempt ${attempt + 1}.`);
+    await ctx.eval("location.reload()").catch(() => undefined);
+  }
+  throw new Error("Renderer did not mount after repeated reloads.");
+}
+
 async function assertSignedIntoDen(ctx) {
   const settings = await ctx.eval(`(() => ({
     authToken: localStorage.getItem('openwork.den.authToken'),
@@ -338,6 +383,7 @@ export default {
     {
       name: "setup",
       run: async (ctx) => {
+        await ensureRendererMounted(ctx);
         await ctx.waitFor("Boolean(window.__openworkControl)", {
           timeoutMs: 30_000,
           label: "window.__openworkControl",
@@ -389,7 +435,7 @@ export default {
         await waitForDesktopConfig(ctx, "server reset brandIconUrl and kept Genpact logo", (config) =>
           !config.brandIconUrl && config.brandLogoUrl === GENPACT_LOGO,
         );
-        await waitForBrandIconState(ctx, "brand icon cleared during setup", (state) => state?.applied === false);
+        await waitForBrandIconState(ctx, "brand icon cleared during setup", (state) => state?.applied === false, 30_000, { refresh: true });
         await waitForGenpactLogo(ctx);
         ctx.log("Setup complete: desktop is signed in, Genpact wordmark is loaded, and brand icon is clear.");
       },
@@ -453,7 +499,7 @@ export default {
             await memberRefresh(ctx);
             await waitForBrandIconState(ctx, "brand icon applied from server", (state) =>
               state?.applied === true && state?.sourceUrl === TEST_ICON_URL,
-            );
+            30_000, { refresh: true });
           },
           assert: async () => {
             const state = await getBrandIconState(ctx);
@@ -503,16 +549,49 @@ export default {
         await ctx.prove("Relaunch boots with the cached org icon already applied", {
           voiceover: vo[4],
           action: async () => {
-            await ctx.waitFor(
-              "window.__openworkControl.listActions().some((action) => action.id === 'eval.app.relaunch' && !action.disabled)",
-              { timeoutMs: 15_000, label: "eval.app.relaunch action" },
-            );
-            try {
-              await ctx.control("eval.app.relaunch", {});
-            } catch (error) {
-              ctx.log(`eval.app.relaunch control call ended during relaunch: ${errorMessage(error)}`);
+            const sandbox = ctx.env.OPENWORK_EVAL_DAYTONA_SANDBOX?.trim();
+            if (sandbox) {
+              // Quit and relaunch the way the OS would: stop the process and
+              // start it again with its own environment (read from /proc).
+              // In-place app.relaunch() overlaps old/new instances on this
+              // stack and loses renderer storage, which is not what a real
+              // quit-and-reopen does.
+              // The daytona CLI can hang on the detached child even though the
+              // restart succeeded; ctx.reconnect() below is the real check.
+              await daytonaExec(ctx, "quit and relaunch the app", `
+pid=$(pgrep -f "electron ./electron/main.mjs" | head -n 1)
+test -n "$pid"
+exe=$(readlink /proc/$pid/exe)
+cwd=$(readlink /proc/$pid/cwd)
+tr '\\0' '\\n' < /proc/$pid/environ | grep -E '^(DISPLAY|ELECTRON_|OPENWORK_)' > /tmp/electron-relaunch.env
+kill "$pid" 2>/dev/null || true
+sleep 3
+pkill -f opencode-x86_64 2>/dev/null || true
+sleep 2
+cd "$cwd"
+set -a
+. /tmp/electron-relaunch.env
+set +a
+setsid nohup "$exe" ./electron/main.mjs >> /tmp/electron.log 2>&1 < /dev/null &
+echo relaunched
+`).catch((error) => {
+                const message = errorMessage(error);
+                if (!/timed? ?out|ETIMEDOUT|killed/i.test(message)) throw error;
+                ctx.log(`daytona relaunch exec did not return (expected with a detached child): ${message}`);
+              });
+            } else {
+              await ctx.waitFor(
+                "window.__openworkControl.listActions().some((action) => action.id === 'eval.app.relaunch' && !action.disabled)",
+                { timeoutMs: 15_000, label: "eval.app.relaunch action" },
+              );
+              try {
+                await ctx.control("eval.app.relaunch", {});
+              } catch (error) {
+                ctx.log(`eval.app.relaunch control call ended during relaunch: ${errorMessage(error)}`);
+              }
             }
-            await ctx.reconnect({ timeoutMs: 90_000 });
+            await ctx.reconnect({ timeoutMs: 120_000 });
+            await ensureRendererMounted(ctx);
             await ctx.waitFor("Boolean(window.__openworkControl)", {
               timeoutMs: 60_000,
               label: "window.__openworkControl after relaunch",
@@ -549,7 +628,7 @@ export default {
             await clickSaveSettings(ctx);
             await waitForDesktopConfig(ctx, "server brandIconUrl cleared", (body) => !body.brandIconUrl);
             await memberRefresh(ctx);
-            await waitForBrandIconState(ctx, "brand icon cleared in running member app", (state) => state?.applied === false);
+            await waitForBrandIconState(ctx, "brand icon cleared in running member app", (state) => state?.applied === false, 30_000, { refresh: true });
             await ctx.navigateHash("/session");
             await ctx.waitForText("Search sessions", { timeoutMs: 30_000 });
           },
