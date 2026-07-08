@@ -317,7 +317,7 @@ describe("writeBootstrapConfig", () => {
       }))
       const written = writeBootstrapConfig(
         { clientName: "Acme", webUrl: "https://openwork.acme.com", apiUrl: "https://openwork-api.acme.com", requireSignin: true, logoUrl: null },
-        { OPENWORK_DESKTOP_BOOTSTRAP_PATH: target, HOME: home },
+        { OPENWORK_DESKTOP_BOOTSTRAP_PATH: target, HOME: home, USERPROFILE: home },
       )
       expect(written).toBe(target)
       const parsed = JSON.parse(readFileSync(target, "utf8"))
