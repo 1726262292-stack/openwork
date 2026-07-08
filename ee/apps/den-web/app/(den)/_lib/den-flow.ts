@@ -1,4 +1,5 @@
 import { DEN_WORKER_POLL_INTERVAL_MS } from "./CONSTS";
+import { ORG_SCOPE_HEADER, getRequestOrgScope, shouldPinOrgScopePath } from "./org-scope";
 
 export type AuthMode = "sign-in" | "sign-up";
 export type SocialAuthProvider = "github" | "google";
@@ -1047,6 +1048,11 @@ export async function requestJson(path: string, init: RequestInit = {}, timeoutM
 
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
+  }
+
+  const orgScope = getRequestOrgScope();
+  if (orgScope && !headers.has(ORG_SCOPE_HEADER) && shouldPinOrgScopePath(path)) {
+    headers.set(ORG_SCOPE_HEADER, orgScope);
   }
 
   const shouldAttachTimeout = !init.signal && timeoutMs > 0;

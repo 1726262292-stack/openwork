@@ -2029,10 +2029,11 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
       return appVersionMetadata;
     },
 
-    async getDesktopConfig(): Promise<DenDesktopConfig> {
+    async getDesktopConfig(orgId?: string | null): Promise<DenDesktopConfig> {
       const payload = await requestJson<unknown>(baseUrls, "/v1/me/desktop-config", {
         method: "GET",
         token,
+        organizationId: orgId,
       });
       return normalizeDenDesktopConfig(payload);
     },
