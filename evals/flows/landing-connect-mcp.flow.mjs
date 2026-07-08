@@ -7,6 +7,7 @@ const SECTION_SELECTOR = "#connect-mcp";
 const BRING_SELECTOR = '[data-testid="connect-mcp-bring"]';
 const EXAMPLE_SELECTOR = '[data-testid="connect-mcp-example"]';
 const INSTALL_SELECTOR = '[data-testid="connect-mcp-install"]';
+const SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 const CLAUDE_CODE_COMMAND = `claude mcp add --transport http openwork ${MCP_SERVER_URL}`;
 const INSTALL_COPY_BUTTON_SELECTOR = `${SECTION_SELECTOR} [role="tabpanel"]:not([hidden]) button[aria-label="Copy the OpenWork MCP install command"]`;
 
@@ -162,7 +163,7 @@ async function scrollExampleTextIntoView(ctx, text) {
 
 export default {
   id: FLOW_ID,
-  title: "Add existing agent work to OpenWork, share it, and use it anywhere",
+  title: "Add existing agent work to OpenWork and share it with your team",
   kind: "user-facing",
   spec: "evals/README.md",
   preserveTheme: true,
@@ -185,15 +186,17 @@ export default {
                 hasAlreadyDoingHeading: text.includes("Already doing it in your agent?"),
                 hasAddItHeading: text.includes("Add it to OpenWork"),
                 hasServerUrl: text.includes(${JSON.stringify(MCP_SERVER_URL)}),
+                hasProtocolJargon: text.includes("search_capabilities"),
               };
             })()`);
             recordAssertion(
               ctx,
-              "The Connect section includes the new heading and OpenWork MCP server URL",
+              "The Connect section includes the new heading and OpenWork MCP server URL without tool-name jargon",
               actual.sectionExists === true
                 && actual.hasAlreadyDoingHeading === true
                 && actual.hasAddItHeading === true
-                && actual.hasServerUrl === true,
+                && actual.hasServerUrl === true
+                && actual.hasProtocolJargon === false,
               actual,
             );
           },
@@ -254,7 +257,7 @@ export default {
     {
       name: "Frame 3",
       run: async (ctx) => {
-        await ctx.prove("The example window shows search_capabilities finding shared meeting notes, Granola, and the meeting-brief skill.", {
+        await ctx.prove("The mini OpenWork app shows a teammate using the shared Granola connection and meeting-brief skill.", {
           voiceover: vo[2],
           action: async () => {
             await ensureConnectSection(ctx);
@@ -267,12 +270,11 @@ export default {
               `(() => {
                 const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
                 const text = example ? example.innerText : "";
-                return text.includes("search_capabilities")
-                  && text.includes("meeting notes")
-                  && text.includes("granola")
-                  && text.includes("plugin:meeting-brief:generate");
+                return text.includes("Prep a brief for tomorrow's Acme call")
+                  && text.includes("Queried the shared Granola MCP")
+                  && text.includes("Your teammate's view");
               })()`,
-              { timeoutMs: 10_000, label: "search_capabilities shared results" },
+              { timeoutMs: 10_000, label: "mini OpenWork teammate view" },
             );
           },
           assert: async () => {
@@ -281,42 +283,42 @@ export default {
               const text = example ? example.innerText : "";
               return {
                 exists: Boolean(example),
-                hasSearchCapabilities: text.includes("search_capabilities"),
-                hasMeetingNotes: text.includes("meeting notes"),
-                hasGranola: text.includes("granola"),
-                hasMeetingBriefPlugin: text.includes("plugin:meeting-brief:generate"),
+                hasPrompt: text.includes("Prep a brief for tomorrow's Acme call"),
+                hasGranolaExecution: text.includes("Queried the shared Granola MCP"),
+                hasTeammateView: text.includes("Your teammate's view"),
               };
             })()`);
             recordAssertion(
               ctx,
-              "The teammate agent example finds meeting notes, Granola, and the shared meeting-brief skill",
+              "The mini OpenWork UI shows a teammate prompt and shared Granola execution",
               actual.exists === true
-                && actual.hasSearchCapabilities === true
-                && actual.hasMeetingNotes === true
-                && actual.hasGranola === true
-                && actual.hasMeetingBriefPlugin === true,
+                && actual.hasPrompt === true
+                && actual.hasGranolaExecution === true
+                && actual.hasTeammateView === true,
               actual,
             );
           },
-          screenshot: { name: "frame-3", requireText: ["search_capabilities"] },
+          screenshot: { name: "frame-3", requireText: ["Granola"] },
         });
       },
     },
     {
       name: "Frame 4",
       run: async (ctx) => {
-        await ctx.prove("execute_capability runs the shared skill and returns the Acme Corp brief.", {
+        await ctx.prove("The teammate run shows the shared meeting-brief skill completing with three talking points.", {
           voiceover: vo[3],
           action: async () => {
             await ensureConnectSection(ctx);
-            await scrollExampleTextIntoView(ctx, "execute_capability");
+            await scrollExampleTextIntoView(ctx, "3 talking points");
             await ctx.waitFor(
               `(() => {
                 const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
                 const text = example ? example.innerText : "";
-                return text.includes("execute_capability") && text.includes("Acme Corp") && text.includes("savedTo");
+                return text.includes("Ran Meeting Brief Generator")
+                  && text.includes("3 talking points")
+                  && text.includes("Run Task");
               })()`,
-              { timeoutMs: 10_000, label: "execute_capability Acme Corp result" },
+              { timeoutMs: 10_000, label: "mini OpenWork run result" },
             );
           },
           assert: async () => {
@@ -325,22 +327,22 @@ export default {
               const text = example ? example.innerText : "";
               return {
                 exists: Boolean(example),
-                hasExecuteCapability: text.includes("execute_capability"),
-                hasAcmeCorp: text.includes("Acme Corp"),
-                hasSavedTo: text.includes("savedTo"),
+                hasMeetingBriefRun: text.includes("Ran Meeting Brief Generator"),
+                hasTalkingPoints: text.includes("3 talking points"),
+                hasRunTask: text.includes("Run Task"),
               };
             })()`);
             recordAssertion(
               ctx,
-              "The example execute call returns Acme Corp brief output with savedTo",
+              "The mini OpenWork UI shows the shared meeting-brief run, talking points, and Run Task input",
               actual.exists === true
-                && actual.hasExecuteCapability === true
-                && actual.hasAcmeCorp === true
-                && actual.hasSavedTo === true,
+                && actual.hasMeetingBriefRun === true
+                && actual.hasTalkingPoints === true
+                && actual.hasRunTask === true,
               actual,
             );
           },
-          screenshot: { name: "frame-4", requireText: ["execute_capability"] },
+          screenshot: { name: "frame-4", requireText: ["talking points"] },
         });
       },
     },
@@ -403,7 +405,7 @@ export default {
               `(() => {
                 const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
                 const text = section ? section.innerText : "";
-                return Boolean(section && section.querySelector('[data-feedback="true"]') && text.includes("Copied") && text.includes("Sign in in the browser") && text.includes("Pick your org"));
+                return Boolean(section && section.querySelector('[data-feedback="true"]') && text.includes("Copied") && text.includes("Create your free account or sign in") && text.includes("Pick your org"));
               })()`,
               { timeoutMs: 10_000, label: "Copied feedback state and reveal steps" },
             );
@@ -437,11 +439,15 @@ export default {
 
             const feedbackScan = await ctx.eval(`(() => {
               const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
+              const links = Array.from(section ? section.querySelectorAll("a") : []);
+              const signup = links.find((link) => (link.textContent || "").trim() === "create one free");
               return {
                 feedbackActive: Boolean(section && section.querySelector('[data-feedback="true"]')),
                 copiedVisible: Boolean(section && section.innerText.includes("Copied")),
-                signInStepVisible: Boolean(section && section.innerText.includes("Sign in in the browser")),
+                accountStepVisible: Boolean(section && section.innerText.includes("Create your free account or sign in")),
                 pickOrgStepVisible: Boolean(section && section.innerText.includes("Pick your org")),
+                signupExists: Boolean(signup),
+                signupHref: signup ? signup.getAttribute("href") : "",
               };
             })()`);
             ctx.recordEvidence({
@@ -460,8 +466,10 @@ export default {
               "The install card shows the Copied feedback state and browser sign-in reveal steps after copying",
               feedbackScan.feedbackActive === true
                 && feedbackScan.copiedVisible === true
-                && feedbackScan.signInStepVisible === true
-                && feedbackScan.pickOrgStepVisible === true,
+                && feedbackScan.accountStepVisible === true
+                && feedbackScan.pickOrgStepVisible === true
+                && feedbackScan.signupExists === true
+                && feedbackScan.signupHref === SIGNUP_URL,
               feedbackScan,
             );
           },

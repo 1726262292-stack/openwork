@@ -56,15 +56,7 @@ const OPENCODE_SNIPPET = `{
 const VS_CODE_COMMAND = `code --add-mcp '{"name":"openwork","type":"http","url":"${MCP_SERVER_URL}"}'`;
 const ANY_CLIENT_COMMAND = `npx install-mcp ${MCP_SERVER_URL} --client <your-client>`;
 
-const SEARCH_INPUT = `{"query": "meeting notes"}`;
-const SEARCH_RESULT = `{
-  "matches": [
-    { "name": "mcp:granola:query_meetings", "method": "POST", "path": "/mcp/granola", "score": 12, "summary": "Meeting notes your org connected via Granola", "pathParams": [], "queryParams": [], "hasBody": true },
-    { "name": "plugin:meeting-brief:generate", "kind": "skill", "method": "POST", "path": "/v1/marketplace/run", "score": 9, "summary": "Teammate-shared skill: draft a meeting brief", "hasBody": true }
-  ]
-}`;
-const EXECUTE_INPUT = `{"name": "plugin:meeting-brief:generate"}`;
-const EXECUTE_RESULT = `{"brief": "Acme Corp call — deal history, latest notes, 3 talking points", "savedTo": "Meeting Brief — Acme Corp.md"}`;
+const SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 
 type CopyMethod = "clipboard" | "execCommand" | "none";
 type ClientId = "cursor" | "claude-code" | "opencode" | "vs-code" | "any-client";
@@ -85,7 +77,7 @@ type BringItem = {
 };
 
 const CLIENT_ORDER: ClientId[] = ["cursor", "claude-code", "opencode", "vs-code", "any-client"];
-const revealSteps = ["Sign in in the browser", "Pick your org", "Your team's tools appear"];
+const revealSteps = ["Create your free account or sign in", "Pick your org", "Your team's tools appear"];
 
 const bringItems: BringItem[] = [
   { name: "Granola", type: "MCP", tone: "mcp" },
@@ -220,10 +212,8 @@ export function LandingConnectMcp() {
           Already doing it in your agent?<br />Add it to OpenWork. Share it with everyone.
         </h2>
         <p className="mt-5 max-w-3xl text-[16px] leading-7 text-gray-600 md:text-lg md:leading-8">
-          Skills and MCPs move in as-is — same SKILL.md format, same server URLs. Share once on
-          OpenWork, and every teammate&apos;s agent can use them through
-          <span className="font-mono text-[#011627]"> search_capabilities</span> and
-          <span className="font-mono text-[#011627]"> execute_capability</span>.
+          Skills and MCPs move in as-is — same SKILL.md format, same server URLs. Share once,
+          and your whole team runs them in OpenWork — or from their own agent.
         </p>
       </div>
 
@@ -255,15 +245,15 @@ export function LandingConnectMcp() {
               {bringItems.map((item, index) => (
                 <div
                   key={item.name}
-                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 transition-all ${
-                    index === 0 ? "border-blue-300 bg-blue-50/60 shadow-sm" : "border-gray-100 bg-white"
+                  className={`flex items-center gap-2.5 rounded-lg px-3 py-2 ${
+                    index === 0 ? "bg-blue-50/60" : "bg-gray-50/70"
                   }`}
                 >
                   <span className={`h-6 w-6 shrink-0 rounded-full ${dotClass[item.tone]}`} />
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#011627]">
                     {item.name}
                   </span>
-                  <span className="shrink-0 rounded-full border border-gray-100 bg-gray-50 px-2 py-0.5 text-[11px] font-medium text-gray-500">
+                  <span className="shrink-0 text-[11px] text-gray-400">
                     {item.type}
                   </span>
                 </div>
@@ -283,49 +273,78 @@ export function LandingConnectMcp() {
 
         <div
           data-testid="connect-mcp-example"
-          className="landing-shell relative flex h-full flex-col overflow-hidden rounded-2xl"
+          className="flex h-full flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
         >
-          <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-white/50 bg-gradient-to-b from-white/90 to-white/60 px-4">
-            <div className="flex gap-1.5">
-              <div className="h-3 w-3 rounded-full border border-[#e0443e]/20 bg-[#ff5f56]/90 shadow-sm" />
-              <div className="h-3 w-3 rounded-full border border-[#dea123]/20 bg-[#ffbd2e]/90 shadow-sm" />
-              <div className="h-3 w-3 rounded-full border border-[#1aab29]/20 bg-[#27c93f]/90 shadow-sm" />
+          <div className="flex items-center justify-between gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1.5">
+                <div className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
+                <div className="h-2.5 w-2.5 rounded-full bg-yellow-400/70" />
+                <div className="h-2.5 w-2.5 rounded-full bg-green-400/70" />
+              </div>
+              <div className="text-[12px] font-medium text-gray-500">OpenWork</div>
             </div>
-            <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[12px] font-medium tracking-wide text-gray-500">
-              What your teammate&apos;s agent sees
-            </div>
+            <div className="text-[11px] text-gray-400">Your teammate&apos;s view</div>
           </div>
 
-          <div className="flex flex-1 flex-col gap-3 bg-[#07192C] p-4 font-mono text-[11px] leading-5 text-slate-100 md:p-5">
-            <div className="flex items-center justify-between gap-3">
-              <span className="inline-flex rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-                Example
-              </span>
-              <span className="text-[11px] text-slate-500">shared once, consumed anywhere</span>
+          <div className="flex flex-1">
+            <div className="hidden w-[170px] flex-col border-r border-gray-100 bg-gray-50/50 p-3 sm:flex">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between rounded-2xl bg-white px-2.5 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-400" />
+                    <span className="text-[11px] font-medium text-[#011627]">Meeting Brief</span>
+                  </div>
+                  <span className="text-[9px] text-green-600">Active</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-teal-400 to-cyan-500" />
+                    <span className="truncate text-[11px] font-medium text-gray-600">Granola</span>
+                    <span className="text-[9px] text-gray-400">MCP</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-400 to-purple-500" />
+                    <span className="text-[11px] font-medium text-gray-600">review-pr</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-teal-400 to-cyan-500" />
+                    <span className="text-[11px] font-medium text-gray-600">Linear</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="mb-1.5 text-slate-400">agent → search_capabilities</div>
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-white/5 p-3 text-slate-100">
-                <code>{SEARCH_INPUT}</code>
-              </pre>
-            </div>
-            <div>
-              <div className="mb-1.5 text-slate-400">openwork → matches</div>
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-white/5 p-3 text-slate-100">
-                <code>{SEARCH_RESULT}</code>
-              </pre>
-            </div>
-            <div>
-              <div className="mb-1.5 text-slate-400">agent → execute_capability</div>
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-white/5 p-3 text-slate-100">
-                <code>{EXECUTE_INPUT}</code>
-              </pre>
-            </div>
-            <div>
-              <div className="mb-1.5 text-slate-400">openwork → result</div>
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-white/5 p-3 text-slate-100">
-                <code>{EXECUTE_RESULT}</code>
-              </pre>
+
+            <div className="flex flex-1 flex-col">
+              <div className="flex flex-1 flex-col gap-4 p-4">
+                <div className="self-end rounded-2xl rounded-br-md bg-gray-100 px-4 py-2.5 text-[12px] leading-relaxed text-[#011627]">
+                  Prep a brief for tomorrow&apos;s Acme call from my meeting notes.
+                </div>
+
+                <div className="flex flex-col gap-1 pl-1">
+                  <div className="text-[10px] text-gray-400">
+                    &rsaquo; Queried the shared Granola MCP for meeting notes
+                  </div>
+                  <div className="text-[10px] text-gray-400">
+                    &rsaquo; Ran Meeting Brief Generator — shared by your team
+                  </div>
+                </div>
+
+                <div className="text-[12px] leading-relaxed text-[#011627]">
+                  Your brief is ready — deal history, latest notes, and 3 talking points. Saved to your desktop.
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 p-3">
+                <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                  <span className="text-[12px] text-gray-400">Describe your task</span>
+                  <span className="rounded-full bg-[#011627] px-3 py-1 text-[10px] font-medium text-white">Run Task</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -333,11 +352,11 @@ export function LandingConnectMcp() {
 
       <div
         data-testid="connect-mcp-install"
-        className="mt-6 rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md"
+        className="mt-8 border-t border-gray-100 pt-6"
       >
         <div className="group mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="text-[13px] text-gray-500">
-            Already use an AI agent? Point it at your org — one click or one command connects it.
+            Developers: point your own agent at your org — one click or one command.
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-2 text-gray-400">
             <LandingAgentGlyphs />
@@ -399,8 +418,8 @@ export function LandingConnectMcp() {
                   data-feedback={installFeedback ? "true" : "false"}
                   data-copy-error={copyError ? "true" : "false"}
                 >
-                  <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
-                    <div className="border-b border-gray-100 p-4">
+                  <div>
+                    <div className="pb-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
                         {install.eyebrow}
                       </div>
@@ -422,7 +441,7 @@ export function LandingConnectMcp() {
                       </div>
                     </div>
 
-                    <div className="p-4">
+                    <div>
                       <pre className="max-h-[300px] overflow-x-auto whitespace-pre-wrap rounded-xl bg-[#011627] p-4 font-mono text-[12px] leading-6 text-white shadow-inner">
                         <code>{install.copyText}</code>
                       </pre>
@@ -433,7 +452,16 @@ export function LandingConnectMcp() {
                       ) : null}
                       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-[12px] leading-5 text-gray-500">
-                          OAuth opens in your browser, asks you to pick your org, then returns the token to the client.
+                          Works with your OpenWork account —{" "}
+                          <a
+                            href={SIGNUP_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-[#011627] underline decoration-gray-300 underline-offset-4 hover:decoration-[#011627]"
+                          >
+                            create one free
+                          </a>
+                          .
                         </p>
                         <button
                           type="button"
@@ -517,12 +545,12 @@ export function LandingConnectMcp() {
             })}
           </div>
 
-        <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+        <div className="mt-5 flex flex-col gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
             Server URL
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <code className="min-w-0 whitespace-normal break-all rounded-lg bg-white px-3 py-2 font-mono text-[12px] text-[#011627] ring-1 ring-gray-100">
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <code className="min-w-0 whitespace-normal break-all rounded bg-gray-50 px-2 py-1 font-mono text-[12px] text-[#011627]">
               {MCP_SERVER_URL}
             </code>
             <button
@@ -531,7 +559,7 @@ export function LandingConnectMcp() {
               onClick={() => {
                 void copyServerUrl();
               }}
-              className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-[#011627] transition-colors hover:bg-gray-50"
+              className="inline-flex shrink-0 items-center justify-center px-2 py-1 text-xs font-medium text-[#011627] underline decoration-gray-300 underline-offset-4 transition-colors hover:decoration-[#011627]"
             >
               {urlCopied ? "Copied" : "Copy URL"}
             </button>
