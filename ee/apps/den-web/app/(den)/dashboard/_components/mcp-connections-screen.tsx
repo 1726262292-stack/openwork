@@ -62,6 +62,36 @@ const GOOGLE_WORKSPACE_PERMISSION_GROUPS = [
   },
 ];
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    const clipboard = navigator.clipboard;
+    if (clipboard) {
+      await clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea fallback.
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
 export function McpConnectionsScreen() {
   const { orgContext } = useOrgDashboard();
   const { data: connections = [], isLoading, error, refetch } = useMcpConnections();
@@ -325,9 +355,9 @@ function GoogleWorkspaceDialog({
     setFeatures((current) => current.includes(feature) ? current.filter((entry) => entry !== feature) : [...current, feature]);
   }
 
-  function copyRedirectUri() {
+  async function copyRedirectUri() {
     if (!redirectUri) return;
-    void navigator.clipboard.writeText(redirectUri).then(() => setCopiedRedirectUri(true));
+    if (await copyTextToClipboard(redirectUri)) setCopiedRedirectUri(true);
   }
 
   return (
@@ -358,7 +388,7 @@ function GoogleWorkspaceDialog({
                   <p data-google-redirect-uri className="min-w-0 flex-1 break-all font-mono text-[11px] leading-5 text-gray-800">
                     {redirectUri || "Loading redirect URI…"}
                   </p>
-                  <DenButton variant="secondary" size="sm" onClick={copyRedirectUri} disabled={!redirectUri}>
+                  <DenButton variant="secondary" size="sm" data-testid="copy-redirect-uri" onClick={copyRedirectUri} disabled={!redirectUri}>
                     {copiedRedirectUri ? "Copied" : "Copy"}
                   </DenButton>
                 </div>
@@ -621,9 +651,9 @@ function AddConnectionDialog({
     }
   }
 
-  function copyOAuthCallback() {
+  async function copyOAuthCallback() {
     if (!oauthCallback) return;
-    void navigator.clipboard.writeText(oauthCallback).then(() => setCopiedCallback(true));
+    if (await copyTextToClipboard(oauthCallback)) setCopiedCallback(true);
   }
 
   if (!open) {

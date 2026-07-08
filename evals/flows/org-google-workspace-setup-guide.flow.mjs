@@ -253,7 +253,7 @@ export default {
             const config = await loadGoogleClientConfig(ctx);
             state.redirectUri = config.redirectUri;
             await ctx.waitFor(redirectUriVisibleScript(), { timeoutMs: 20_000, label: "rendered redirect URI" });
-            await ctx.clickText("Copy", { timeoutMs: 10_000 });
+            await ctx.trustedClick('[data-testid="copy-redirect-uri"]', { timeoutMs: 10_000 });
           },
           assert: async () => {
             const displayedRedirectUri = await ctx.eval(displayedRedirectUriScript());
