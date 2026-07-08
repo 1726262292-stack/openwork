@@ -35,8 +35,8 @@ import type {
   OpenWorkExtensionSourceFormat,
 } from "../extensions";
 
-const STORAGE_BASE_URL = "openwork.den.baseUrl";
-const STORAGE_API_BASE_URL = "openwork.den.apiBaseUrl";
+export const STORAGE_BASE_URL = "openwork.den.baseUrl";
+export const STORAGE_API_BASE_URL = "openwork.den.apiBaseUrl";
 const STORAGE_AUTH_TOKEN = "openwork.den.authToken";
 const STORAGE_ACTIVE_ORG_ID = "openwork.den.activeOrgId";
 const STORAGE_ACTIVE_ORG_SLUG = "openwork.den.activeOrgSlug";
@@ -288,6 +288,7 @@ const defaultBootstrapBaseUrls = resolveDenBaseUrls({
   baseUrl: BUILD_DEN_BASE_URL,
   apiBaseUrl: BUILD_DEN_API_BASE_URL,
 });
+export const DEFAULT_DEN_API_BASE_URL = defaultBootstrapBaseUrls.apiBaseUrl;
 
 let desktopBootstrapConfig: DenBootstrapConfig = {
   ...defaultBootstrapBaseUrls,
