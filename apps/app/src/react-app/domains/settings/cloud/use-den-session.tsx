@@ -26,6 +26,7 @@ import {
 } from "@/app/lib/den-session-events";
 import { t } from "@/i18n";
 import { useCloudSession } from "./cloud-session-provider";
+import { defaultControlPlaneUrl, saveControlPlaneUrl } from "./control-plane-url";
 
 type SettingsTone = "ready" | "warning" | "neutral" | "error";
 
@@ -86,6 +87,7 @@ export function useDenSession({
   const initial = React.useMemo(() => readDenSettings(), []);
 
   const [baseUrlDraft, setBaseUrlDraft] = React.useState(baseUrl);
+  const [baseUrlBusy, setBaseUrlBusy] = React.useState(false);
   const [baseUrlError, setBaseUrlError] = React.useState<string | null>(null);
 
   const [authBusy, setAuthBusy] = React.useState(false);
@@ -155,9 +157,11 @@ export function useDenSession({
     (
       message?: string | null,
       eventDetail?: Pick<DenSessionUpdatedDetail, "baseUrl">,
+      options?: { includeBaseUrls?: boolean },
     ) => {
-      clearDenSession({ includeBaseUrls: !developerMode });
-      if (!developerMode) {
+      const includeBaseUrls = options?.includeBaseUrls ?? !developerMode;
+      clearDenSession({ includeBaseUrls });
+      if (includeBaseUrls) {
         setBaseUrl(DEFAULT_DEN_BASE_URL);
         setBaseUrlDraft(DEFAULT_DEN_BASE_URL);
       }
@@ -227,35 +231,58 @@ export function useDenSession({
       return;
     }
 
+    setBaseUrlBusy(true);
     try {
-      await writeDenSettings(
-        {
-          baseUrl: resolved.baseUrl,
-          apiBaseUrl: resolved.apiBaseUrl,
-          authToken: null,
-          activeOrgId: null,
-          activeOrgSlug: null,
-          activeOrgName: null,
-        },
-        { awaitBootstrap: true },
-      );
-      setBaseUrl(resolved.baseUrl);
-      setBaseUrlDraft(resolved.baseUrl);
+      const persisted = await saveControlPlaneUrl(resolved.baseUrl);
+      if (!persisted) {
+        setBaseUrlError(t("den.error_base_url"));
+        return;
+      }
+
+      setBaseUrl(persisted.baseUrl);
+      setBaseUrlDraft(persisted.baseUrl);
       clearSignedInState(t("den.status_base_url_updated"), {
-        baseUrl: resolved.baseUrl,
-      });
+        baseUrl: persisted.baseUrl,
+      }, { includeBaseUrls: false });
     } catch (error) {
       setBaseUrlError(error instanceof Error ? error.message : t("den.error_base_url"));
+    } finally {
+      setBaseUrlBusy(false);
     }
   }, [baseUrl, baseUrlDraft, clearSignedInState]);
 
-  const clearServerConfiguration = React.useCallback(async () => {
-    if (authBusy) return;
+  const resetBaseUrlToDefault = React.useCallback(async () => {
+    setBaseUrlDraft(defaultControlPlaneUrl());
+    setBaseUrlBusy(true);
+    try {
+      const persisted = await saveControlPlaneUrl(defaultControlPlaneUrl());
+      if (!persisted) {
+        setBaseUrlError(t("den.error_base_url"));
+        return;
+      }
 
-    setAuthBusy(true);
+      setBaseUrlError(null);
+      setBaseUrl(persisted.baseUrl);
+      setBaseUrlDraft(persisted.baseUrl);
+      clearSignedInState(t("den.status_base_url_updated"), {
+        baseUrl: persisted.baseUrl,
+      }, { includeBaseUrls: false });
+    } catch (error) {
+      setBaseUrlError(error instanceof Error ? error.message : t("den.error_base_url"));
+    } finally {
+      setBaseUrlBusy(false);
+    }
+  }, [clearSignedInState, setBaseUrl]);
+
+  const clearServerConfiguration = React.useCallback(async () => {
+    if (baseUrlBusy) return;
+
+    setBaseUrlBusy(true);
     setBaseUrlError(null);
     setAuthError(null);
     try {
+      // Reset-to-default writes a default-pointing bootstrap file; clear removes
+      // bootstrap files entirely so an MDM-dropped config can win on next launch.
       await clearDesktopBootstrapConfig();
       const bootstrap = await initializeDenBootstrapConfig();
       const resolved = resolveDenBaseUrls(bootstrap);
@@ -274,13 +301,13 @@ export function useDenSession({
       setBaseUrlDraft(resolved.baseUrl);
       clearSignedInState(t("den.status_server_config_cleared"), {
         baseUrl: resolved.baseUrl,
-      });
+      }, { includeBaseUrls: false });
     } catch (error) {
       setBaseUrlError(error instanceof Error ? error.message : t("den.error_base_url"));
     } finally {
-      setAuthBusy(false);
+      setBaseUrlBusy(false);
     }
-  }, [authBusy, clearSignedInState, setBaseUrl]);
+  }, [baseUrlBusy, clearSignedInState, setBaseUrl]);
 
   React.useEffect(() => {
     const token = authToken.trim();
@@ -543,6 +570,8 @@ export function useDenSession({
   return {
     authBusy,
     authError,
+    baseUrl,
+    baseUrlBusy,
     baseUrlDraft,
     baseUrlError,
     needsOrgSelection,
@@ -562,6 +591,7 @@ export function useDenSession({
     onOpenControlPlane: openControlPlane,
     onRefreshOrgs: refreshOrgs,
     onResetBaseUrl: () => setBaseUrlDraft(baseUrl),
+    onResetBaseUrlToDefault: resetBaseUrlToDefault,
     onSignOut: signOut,
     onSubmitManualAuth: submitManualAuth,
   };

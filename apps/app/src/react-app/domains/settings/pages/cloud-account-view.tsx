@@ -33,6 +33,7 @@ type CloudAccountSession = Pick<
   ReturnType<typeof useDenSession>,
   | "authBusy"
   | "authError"
+  | "baseUrlBusy"
   | "baseUrlDraft"
   | "baseUrlError"
   | "needsOrgSelection"
@@ -45,7 +46,6 @@ type CloudAccountSession = Pick<
   | "onActiveOrgChange"
   | "onApplyBaseUrl"
   | "onBaseUrlDraftChange"
-  | "onClearServerConfiguration"
   | "onClearAuthError"
   | "onOpenBrowserAuth"
   | "onOpenControlPlane"
@@ -195,10 +195,10 @@ export function CloudAccountView({ developerMode, session }: CloudAccountViewPro
         {developerMode ? (
           <CloudDevMode
             authBusy={session.authBusy}
+            baseUrlBusy={session.baseUrlBusy}
             baseUrlDraft={session.baseUrlDraft}
             onApplyBaseUrl={session.onApplyBaseUrl}
             onBaseUrlDraftChange={session.onBaseUrlDraftChange}
-            onClearServerConfiguration={session.onClearServerConfiguration}
             onOpenControlPlane={session.onOpenControlPlane}
             onResetBaseUrl={session.onResetBaseUrl}
             sessionBusy={session.sessionBusy}

@@ -43,6 +43,7 @@ import {
 } from "./sso-saml-policy.js";
 import {
   getOrganizationContextForUser,
+  reconcilePendingInvitationsForUser,
   seedDefaultOrganizationRoles,
   validateOrganizationMemberRemovalForHook,
   validateOrganizationMemberRoleUpdate,
@@ -246,7 +247,15 @@ export const auth = betterAuth({
     session: {
       create: {
         before: async (session) => {
-          const activeOrganizationId = await getInitialActiveOrganizationIdForUser(session.userId);
+          const userId = normalizeDenTypeId("user", session.userId);
+          const activeOrganizationId = await getInitialActiveOrganizationIdForUser(userId);
+          try {
+            // SSO JIT creates the raw member row before the session row, so this
+            // chokepoint can merge any matching pending invitation without blocking sign-in.
+            await reconcilePendingInvitationsForUser(userId);
+          } catch (error) {
+            console.error("[auth][invitation_reconcile_failed]", { userId, error });
+          }
 
           return {
             data: {

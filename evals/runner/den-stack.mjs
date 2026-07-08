@@ -267,13 +267,17 @@ async function ensureApp(log, cdpCandidates) {
   throw new Error("Dev Electron CDP did not come up within 3 minutes.");
 }
 
-export async function ensureDenStack({ log, cdpCandidates }) {
+export async function ensureDenStack({ log, cdpCandidates, skipApp = false }) {
   await mkdir(STATE_DIR, { recursive: true });
   await ensureMysql(log);
   await ensureSchema(log);
   await ensureDenApi(log);
   await ensureSeed(log);
-  await ensureApp(log, cdpCandidates);
+  if (skipApp) {
+    log("Skipping dev Electron startup — selected eval flow is app-less");
+  } else {
+    await ensureApp(log, cdpCandidates);
+  }
 
   const token = await signInDemoOwner();
   if (!token) throw new Error("Could not obtain a demo-owner session token.");
