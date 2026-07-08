@@ -79,9 +79,9 @@ async function ensureConnectSection(ctx, { forceReload = false } = {}) {
     `(() => {
       const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
       const text = section ? section.innerText : "";
-      return Boolean(section) && text.includes("Connect any agent") && text.includes(${JSON.stringify(MCP_SERVER_URL)});
+      return Boolean(section) && text.includes("Share it once") && text.includes(${JSON.stringify(MCP_SERVER_URL)});
     })()`,
-    { timeoutMs: 30_000, label: "Connect any agent MCP section" },
+    { timeoutMs: 30_000, label: "Share it once MCP section" },
   );
   await scrollSectionIntoView(ctx);
 }
@@ -149,7 +149,7 @@ async function scrollExampleTextIntoView(ctx, text) {
 
 export default {
   id: FLOW_ID,
-  title: "Connect any agent to OpenWork Cloud from the landing page",
+  title: "Share OpenWork tools once and use them from any agent",
   kind: "user-facing",
   spec: "evals/README.md",
   preserveTheme: true,
@@ -158,9 +158,9 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The landing page exposes the Connect any agent MCP section and server URL.", {
+        await ctx.prove("The landing page explains that shared OpenWork tools can be used from any agent.", {
           voiceover: vo[0],
-          // "Scrolling the OpenWork landing page, I reach a new section — Connect any age"
+          // "Further down the OpenWork landing page, a new section makes the pitch: share"
           action: async () => {
             // Always start from a fresh navigation so repeat runs against a
             // warm page don't inherit tab/copy state from a previous run.
@@ -172,19 +172,19 @@ export default {
               const bodyText = document.body.innerText;
               return {
                 sectionExists: Boolean(section),
-                bodyHasHeading: bodyText.includes("Connect any agent"),
+                bodyHasHeading: bodyText.includes("Share it once"),
                 bodyHasServerUrl: bodyText.includes(${JSON.stringify(MCP_SERVER_URL)}),
                 sectionText: section ? section.innerText.slice(0, 500) : "",
               };
             })()`);
             recordAssertion(
               ctx,
-              "The Connect any agent section and OpenWork MCP server URL are present on the landing page",
+              "The Share it once section and OpenWork MCP server URL are present on the landing page",
               actual.sectionExists === true && actual.bodyHasHeading === true && actual.bodyHasServerUrl === true,
               actual,
             );
           },
-          screenshot: { name: "frame-1", requireText: ["Connect any agent"] },
+          screenshot: { name: "frame-1", requireText: ["Share it once"] },
         });
       },
     },
@@ -193,7 +193,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("Cursor is the default MCP install tab and its one-click deeplink encodes the OpenWork server URL.", {
           voiceover: vo[1],
-          // "I pick my client: Cursor is selected with a one-click Add to Cursor button, "
+          // "The install card speaks the hero prompt's language: I pick my client from"
           action: async () => {
             await ensureConnectSection(ctx);
             // Center the install card on the Add to Cursor button so this frame
@@ -265,7 +265,7 @@ export default {
 
         await ctx.prove("Claude Code is a single command, and copying writes that exact command to the clipboard.", {
           voiceover: vo[2],
-          // "I switch to Claude Code and it's a single command; I hit copy and the exact "
+          // "I flip to Claude Code and it's one command; I hit copy, the button flips"
           action: async () => {
             await ensureConnectSection(ctx);
             await realMouseClick(ctx, tabByLabelExpression("Claude Code"), "Claude Code tab");
@@ -285,9 +285,10 @@ export default {
             await ctx.waitFor(
               `(() => {
                 const section = document.querySelector(${JSON.stringify(SECTION_SELECTOR)});
-                return Boolean(section && section.querySelector('[data-feedback="true"]') && section.innerText.includes("Copied"));
+                const text = section ? section.innerText : "";
+                return Boolean(section && section.querySelector('[data-feedback="true"]') && text.includes("Copied") && text.includes("Sign in in the browser") && text.includes("Pick your org"));
               })()`,
-              { timeoutMs: 10_000, label: "Copied feedback state" },
+              { timeoutMs: 10_000, label: "Copied feedback state and reveal steps" },
             );
 
             try {
@@ -307,6 +308,8 @@ export default {
               return {
                 feedbackActive: Boolean(section && section.querySelector('[data-feedback="true"]')),
                 copiedVisible: Boolean(section && section.innerText.includes("Copied")),
+                signInStepVisible: Boolean(section && section.innerText.includes("Sign in in the browser")),
+                pickOrgStepVisible: Boolean(section && section.innerText.includes("Pick your org")),
                 visiblePanelText: document.querySelector(${JSON.stringify(`${SECTION_SELECTOR} [role="tabpanel"]:not([hidden])`)})?.innerText || "",
               };
             })()`);
@@ -323,8 +326,11 @@ export default {
             );
             recordAssertion(
               ctx,
-              "The install card shows the Copied feedback state after copying",
-              feedbackScan.feedbackActive === true && feedbackScan.copiedVisible === true,
+              "The install card shows the Copied feedback state and browser sign-in reveal steps after copying",
+              feedbackScan.feedbackActive === true
+                && feedbackScan.copiedVisible === true
+                && feedbackScan.signInStepVisible === true
+                && feedbackScan.pickOrgStepVisible === true,
               feedbackScan,
             );
           },
@@ -335,9 +341,9 @@ export default {
     {
       name: "Frame 4",
       run: async (ctx) => {
-        await ctx.prove("The example panel shows search_capabilities finding meeting notes in the org's Granola connection.", {
+        await ctx.prove("The example panel shows search_capabilities finding meeting notes in the org's Granola connection and a shared meeting-brief skill.", {
           voiceover: vo[3],
-          // "Beside the install card, the section shows what connecting unlocks: the agen"
+          // "Beside it, an OpenWork window shows what the connected agent sees: search_cap"
           action: async () => {
             await ensureConnectSection(ctx);
             await scrollExampleTextIntoView(ctx, "search_capabilities");
@@ -345,7 +351,7 @@ export default {
               `(() => {
                 const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
                 const text = example ? example.innerText : "";
-                return text.includes("search_capabilities") && text.includes("meeting notes") && text.includes("granola");
+                return text.includes("search_capabilities") && text.includes("meeting notes") && text.includes("granola") && text.includes("plugin:meeting-brief:generate");
               })()`,
               { timeoutMs: 10_000, label: "search_capabilities example" },
             );
@@ -359,6 +365,7 @@ export default {
                 hasSearchCapabilities: text.includes("search_capabilities"),
                 hasMeetingNotes: text.includes("meeting notes"),
                 hasGranola: text.includes("granola"),
+                hasMeetingBriefPlugin: text.includes("plugin:meeting-brief:generate"),
                 hasPathParams: text.includes("pathParams"),
                 hasQueryParams: text.includes("queryParams"),
               };
@@ -370,6 +377,7 @@ export default {
                 && actual.hasSearchCapabilities === true
                 && actual.hasMeetingNotes === true
                 && actual.hasGranola === true
+                && actual.hasMeetingBriefPlugin === true
                 && actual.hasPathParams === true
                 && actual.hasQueryParams === true,
               actual,
@@ -382,9 +390,9 @@ export default {
     {
       name: "Frame 5",
       run: async (ctx) => {
-        await ctx.prove("The example continues from search_capabilities into execute_capability and returns meeting data.", {
+        await ctx.prove("The example continues from search_capabilities into execute_capability and returns the shared Acme Corp meeting brief.", {
           voiceover: vo[4],
-          // "Then execute_capability runs the top match and the data comes back — search,"
+          // "execute_capability runs that shared skill and the brief comes back — share once"
           action: async () => {
             await ensureConnectSection(ctx);
             await scrollExampleTextIntoView(ctx, "execute_capability");
@@ -392,9 +400,9 @@ export default {
               `(() => {
                 const example = document.querySelector(${JSON.stringify(EXAMPLE_SELECTOR)});
                 const text = example ? example.innerText : "";
-                return text.includes("execute_capability") && text.includes("Design review") && text.includes("Customer onboarding");
+                return text.includes("execute_capability") && text.includes("Acme Corp") && text.includes("savedTo") && text.includes("Meeting Brief");
               })()`,
-              { timeoutMs: 10_000, label: "execute_capability example result" },
+              { timeoutMs: 10_000, label: "execute_capability Acme Corp brief result" },
             );
           },
           assert: async () => {
@@ -403,18 +411,20 @@ export default {
               const text = example ? example.innerText : "";
               return {
                 hasExecuteCapability: text.includes("execute_capability"),
-                hasTopMatchName: text.includes("mcp:granola:query_meetings"),
-                hasDesignReview: text.includes("Design review"),
-                hasCustomerOnboarding: text.includes("Customer onboarding"),
+                hasTopMatchName: text.includes("plugin:meeting-brief:generate"),
+                hasAcmeCorp: text.includes("Acme Corp"),
+                hasSavedTo: text.includes("savedTo"),
+                hasBrief: text.includes("deal history, latest notes, 3 talking points"),
               };
             })()`);
             recordAssertion(
               ctx,
-              "The example execute call runs the Granola top match and returns meeting result data",
+              "The example execute call runs the shared meeting-brief skill and returns Acme Corp brief data",
               actual.hasExecuteCapability === true
                 && actual.hasTopMatchName === true
-                && actual.hasDesignReview === true
-                && actual.hasCustomerOnboarding === true,
+                && actual.hasAcmeCorp === true
+                && actual.hasSavedTo === true
+                && actual.hasBrief === true,
               actual,
             );
           },

@@ -1,8 +1,11 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronRight, Plug } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { capturePosthogEvent } from "../lib/posthog-client";
+import { LandingAgentGlyphs } from "./landing-agent-glyphs";
 
 const MCP_SERVER_URL = "https://api.openworklabs.com/mcp/agent";
 const DOCS_URL = "https://openworklabs.com/docs/cloud/run-in-the-cloud/cloud-mcp";
@@ -63,37 +66,30 @@ const SEARCH_RESULT = `{
       "method": "POST",
       "path": "/mcp/granola",
       "score": 12,
-      "summary": "Search your org's Granola meeting notes",
+      "summary": "Meeting notes your org connected via Granola",
       "pathParams": [],
       "queryParams": [],
       "hasBody": true
     },
     {
-      "name": "getOrg",
-      "method": "GET",
-      "path": "/v1/org",
-      "score": 8,
-      "summary": "Get active organization",
+      "name": "plugin:meeting-brief:generate",
+      "kind": "skill",
+      "method": "POST",
+      "path": "/v1/marketplace/run",
+      "score": 9,
+      "summary": "Teammate-shared skill: draft a meeting brief",
       "pathParams": [],
       "queryParams": [],
-      "hasBody": false
+      "hasBody": true
     }
   ]
 }`;
 const EXECUTE_INPUT = `{
-  "name": "mcp:granola:query_meetings"
+  "name": "plugin:meeting-brief:generate"
 }`;
 const EXECUTE_RESULT = `{
-  "meetings": [
-    {
-      "title": "Design review",
-      "date": "2026-07-07"
-    },
-    {
-      "title": "Customer onboarding",
-      "date": "2026-07-02"
-    }
-  ]
+  "brief": "Acme Corp call — deal history, latest notes, 3 talking points",
+  "savedTo": "Meeting Brief — Acme Corp.md"
 }`;
 
 type CopyMethod = "clipboard" | "execCommand" | "none";
@@ -108,6 +104,7 @@ type ClientInstall = {
 };
 
 const CLIENT_ORDER: ClientId[] = ["cursor", "claude-code", "opencode", "vs-code", "any-client"];
+const revealSteps = ["Sign in in the browser", "Pick your org", "Your team's tools appear"];
 
 const CLIENT_INSTALLS: Record<ClientId, ClientInstall> = {
   cursor: {
@@ -115,14 +112,14 @@ const CLIENT_INSTALLS: Record<ClientId, ClientInstall> = {
     label: "Cursor",
     eyebrow: "One-click install or ~/.cursor/mcp.json",
     copyText: CURSOR_SNIPPET,
-    helper: "Paste this into ~/.cursor/mcp.json if you prefer manual setup."
+    helper: "Use the one-click button, or paste this into ~/.cursor/mcp.json."
   },
   "claude-code": {
     id: "claude-code",
     label: "Claude Code",
     eyebrow: "One terminal command",
     copyText: CLAUDE_CODE_COMMAND,
-    helper: "Claude Code opens the browser for OAuth, then stores the remote MCP server."
+    helper: "Claude Code opens your browser for OAuth, then stores the remote MCP server."
   },
   opencode: {
     id: "opencode",
@@ -176,6 +173,7 @@ export function LandingConnectMcp() {
   const [activeClient, setActiveClient] = useState<ClientId>("cursor");
   const [feedbackClient, setFeedbackClient] = useState<ClientId | null>(null);
   const [copyError, setCopyError] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
   const installResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const urlResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,6 +190,7 @@ export function LandingConnectMcp() {
 
     setCopyError(!copied);
     setFeedbackClient(install.id);
+    if (copied) setRevealed(true);
     capturePosthogEvent("landing_connect_mcp_copy_clicked", {
       client: install.id,
       copied,
@@ -217,167 +216,46 @@ export function LandingConnectMcp() {
   };
 
   return (
-    <section id="connect-mcp" className="relative scroll-mt-24">
-      <div className="mb-6 max-w-3xl">
-        <div className="landing-chip mb-4 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-500">
-          OpenWork Connect MCP
+    <section id="connect-mcp" className="landing-shell rounded-[2.5rem] p-8 md:p-12 scroll-mt-24">
+      <div className="mb-10">
+        <div className="mb-4 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
+          <Plug size={18} />
+          OpenWork Connect
         </div>
-        <h2 className="text-3xl font-medium leading-[1.12] tracking-tight text-[#011627] md:text-4xl lg:text-5xl">
-          Connect any agent
+        <h2 className="max-w-2xl text-3xl font-medium leading-[1.15] tracking-tight md:text-4xl lg:text-5xl">
+          Share it once.<br />Use it from any agent.
         </h2>
-        <p className="mt-4 text-[16px] leading-7 text-gray-600 md:text-lg md:leading-8">
-          Your org&apos;s capabilities, connections, and marketplace are two MCP tools away:
-          <span className="font-mono text-[#011627]"> search_capabilities</span> finds the
-          right operation, and <span className="font-mono text-[#011627]">execute_capability</span> runs it.
+        <p className="mt-5 max-w-3xl text-[16px] leading-7 text-gray-600 md:text-lg md:leading-8">
+          Skills, MCP connections, and plugins your team shares on OpenWork show up in
+          Claude Code, Cursor — any MCP agent — through two tools:
+          <span className="font-mono text-[#011627]"> search_capabilities</span> and
+          <span className="font-mono text-[#011627]"> execute_capability</span>.
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
-          <div className="mb-5 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-              Server URL
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <code className="min-w-0 overflow-x-auto whitespace-nowrap rounded-lg bg-white px-3 py-2 font-mono text-[12px] text-[#011627] ring-1 ring-gray-100">
-                {MCP_SERVER_URL}
-              </code>
-              <button
-                type="button"
-                aria-label="Copy the OpenWork MCP server URL"
-                onClick={() => {
-                  void copyServerUrl();
-                }}
-                className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-[#011627] transition-colors hover:bg-gray-50"
-              >
-                {urlCopied ? "Copied" : "Copy URL"}
-              </button>
-            </div>
-            <p className="mt-3 text-[12px] leading-5 text-gray-500">
-              Remote streamable HTTP with OAuth 2.0, dynamic client registration, and PKCE.
-            </p>
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="OpenWork MCP client install options"
-            className="landing-chip mb-4 flex gap-1 overflow-x-auto rounded-full p-1"
-          >
-            {CLIENT_ORDER.map((clientId) => {
-              const client = CLIENT_INSTALLS[clientId];
-              const selected = client.id === activeClient;
-
-              return (
-                <button
-                  key={client.id}
-                  id={`connect-mcp-tab-${client.id}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  aria-controls={`connect-mcp-panel-${client.id}`}
-                  tabIndex={selected ? 0 : -1}
-                  onClick={() => setActiveClient(client.id)}
-                  className={`shrink-0 rounded-full px-3 py-2 text-[13px] font-medium transition-colors md:px-4 ${
-                    selected
-                      ? "bg-[#011627] text-white shadow-sm"
-                      : "text-gray-600 hover:bg-white hover:text-[#011627]"
-                  }`}
-                >
-                  {client.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {CLIENT_ORDER.map((clientId) => {
-            const install = CLIENT_INSTALLS[clientId];
-            const selected = install.id === activeClient;
-            const installFeedback = feedbackClient === install.id;
-
-            return (
-              <div
-                key={install.id}
-                id={`connect-mcp-panel-${install.id}`}
-                role="tabpanel"
-                aria-labelledby={`connect-mcp-tab-${install.id}`}
-                hidden={!selected}
-                data-feedback={installFeedback ? "true" : "false"}
-                data-copy-error={copyError ? "true" : "false"}
-                className="rounded-xl border border-gray-100 bg-white shadow-sm"
-              >
-                <div className="border-b border-gray-100 p-4 md:p-5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-                    {install.eyebrow}
-                  </div>
-                  <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-xl font-medium text-[#011627]">{install.label}</h3>
-                      <p className="mt-1 text-[13px] leading-5 text-gray-500">{install.helper}</p>
-                    </div>
-                    {install.id === "cursor" ? (
-                      <a
-                        href={CURSOR_DEEPLINK}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex min-h-[42px] shrink-0 items-center justify-center rounded-full bg-[#011627] px-5 text-sm font-medium text-white shadow-[0_14px_32px_-16px_rgba(1,22,39,0.55)] transition-colors hover:bg-black"
-                      >
-                        Add to Cursor
-                      </a>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="p-4 md:p-5">
-                  <pre className="max-h-[300px] overflow-x-auto whitespace-pre-wrap rounded-xl bg-[#011627] p-4 font-mono text-[12px] leading-6 text-white shadow-inner">
-                    <code>{install.copyText}</code>
-                  </pre>
-                  {install.id === "any-client" ? (
-                    <p className="mt-3 text-[13px] leading-6 text-gray-500">
-                      You can also paste the URL into any MCP client that supports remote servers with OAuth.
-                    </p>
-                  ) : null}
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[12px] leading-5 text-gray-500">
-                      OAuth opens in your browser, asks you to pick your org, then returns the token to the client.
-                    </p>
-                    <button
-                      type="button"
-                      aria-label="Copy the OpenWork MCP install command"
-                      onClick={() => {
-                        void copyInstall(install);
-                      }}
-                      className="inline-flex min-w-[116px] shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-[#011627] shadow-sm transition-colors hover:bg-gray-50"
-                    >
-                      {installFeedback ? (copyError ? "Couldn't copy" : "Copied") : "Copy"}
-                    </button>
-                  </div>
-                </div>
-                <span aria-live="polite" className="sr-only">
-                  {installFeedback ? (copyError ? "Install command could not be copied" : "Install command copied") : ""}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
+      <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
         <div
           data-testid="connect-mcp-example"
-          className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
+          className="landing-shell relative flex flex-col overflow-hidden rounded-2xl"
         >
-          <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-4 py-3">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
-                Example
-              </div>
-              <div className="mt-1 text-sm font-medium text-[#011627]">Search, then execute</div>
+          <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-white/50 bg-gradient-to-b from-white/90 to-white/60 px-4">
+            <div className="flex gap-1.5">
+              <div className="h-3 w-3 rounded-full border border-[#e0443e]/20 bg-[#ff5f56]/90 shadow-sm" />
+              <div className="h-3 w-3 rounded-full border border-[#dea123]/20 bg-[#ffbd2e]/90 shadow-sm" />
+              <div className="h-3 w-3 rounded-full border border-[#1aab29]/20 bg-[#27c93f]/90 shadow-sm" />
             </div>
-            <div className="flex gap-1.5" aria-hidden="true">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-300" />
-              <span className="h-2.5 w-2.5 rounded-full bg-yellow-300" />
-              <span className="h-2.5 w-2.5 rounded-full bg-green-300" />
+            <div className="absolute left-1/2 -translate-x-1/2 text-[12px] font-medium tracking-wide text-gray-500">
+              Your agent, connected
             </div>
           </div>
+
           <div className="space-y-4 bg-[#07192C] p-4 font-mono text-[12px] leading-6 text-slate-100 md:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="inline-flex rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                Example
+              </span>
+              <span className="text-[11px] text-slate-500">shared once, consumed anywhere</span>
+            </div>
             <div>
               <div className="mb-2 text-slate-400">agent → search_capabilities</div>
               <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-white/5 p-3 text-slate-100">
@@ -404,12 +282,213 @@ export function LandingConnectMcp() {
             </div>
           </div>
         </div>
+
+        <div className="group rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+          <div className="mb-2 text-[13px] text-gray-500">
+            Already use an AI agent? Point it at your org — one click or one command connects it.
+          </div>
+          <div className="mb-4 flex min-w-0 items-center gap-2 text-gray-400">
+            <LandingAgentGlyphs />
+            <span className="text-xs text-gray-400">
+              Works with Claude Code, Cursor, VS Code — any MCP agent
+            </span>
+          </div>
+
+          <div
+            role="tablist"
+            aria-label="OpenWork MCP client install options"
+            className="landing-chip mb-4 flex flex-wrap gap-2 overflow-x-auto rounded-full p-1"
+          >
+            {CLIENT_ORDER.map((clientId) => {
+              const client = CLIENT_INSTALLS[clientId];
+              const selected = client.id === activeClient;
+
+              return (
+                <button
+                  key={client.id}
+                  id={`connect-mcp-tab-${client.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`connect-mcp-panel-${client.id}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => setActiveClient(client.id)}
+                  className={`relative cursor-pointer whitespace-nowrap rounded-full px-5 py-2 text-sm font-medium transition-colors ${
+                    selected ? "text-[#011627]" : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  {selected ? (
+                    <motion.div
+                      layoutId="connect-mcp-pill"
+                      className="absolute inset-0 rounded-full border border-gray-100 bg-white shadow-sm"
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  ) : null}
+                  <span className="relative z-10">{client.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {CLIENT_ORDER.map((clientId) => {
+            const install = CLIENT_INSTALLS[clientId];
+            const selected = install.id === activeClient;
+            const installFeedback = feedbackClient === install.id;
+
+            return (
+              <div
+                key={install.id}
+                id={`connect-mcp-panel-${install.id}`}
+                role="tabpanel"
+                aria-labelledby={`connect-mcp-tab-${install.id}`}
+                hidden={!selected}
+                data-feedback={installFeedback ? "true" : "false"}
+                data-copy-error={copyError ? "true" : "false"}
+              >
+                <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
+                  <div className="border-b border-gray-100 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                      {install.eyebrow}
+                    </div>
+                    <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="text-xl font-medium text-[#011627]">{install.label}</h3>
+                        <p className="mt-1 text-[13px] leading-5 text-gray-500">{install.helper}</p>
+                      </div>
+                      {install.id === "cursor" ? (
+                        <a
+                          href={CURSOR_DEEPLINK}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex min-h-[42px] shrink-0 items-center justify-center rounded-full bg-[#011627] px-5 text-sm font-medium text-white shadow-[0_14px_32px_-16px_rgba(1,22,39,0.55)] transition-colors hover:bg-black"
+                        >
+                          Add to Cursor
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+                    <pre className="max-h-[300px] overflow-x-auto whitespace-pre-wrap rounded-xl bg-[#011627] p-4 font-mono text-[12px] leading-6 text-white shadow-inner">
+                      <code>{install.copyText}</code>
+                    </pre>
+                    {install.id === "any-client" ? (
+                      <p className="mt-3 text-[13px] leading-6 text-gray-500">
+                        You can also paste the URL into any MCP client that supports remote servers with OAuth.
+                      </p>
+                    ) : null}
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-[12px] leading-5 text-gray-500">
+                        OAuth opens in your browser, asks you to pick your org, then returns the token to the client.
+                      </p>
+                      <button
+                        type="button"
+                        aria-label="Copy the OpenWork MCP install command"
+                        onClick={() => {
+                          void copyInstall(install);
+                        }}
+                        className="inline-flex min-w-[110px] items-center justify-center gap-1.5 rounded-lg bg-[#011627] px-4 py-2 text-xs font-medium text-white shadow-[0_1px_2px_rgba(17,24,39,0.12)] transition-colors hover:bg-black"
+                      >
+                        {installFeedback ? (
+                          copyError ? (
+                            "Couldn't copy"
+                          ) : (
+                            <>
+                              <svg
+                                className="h-3.5 w-3.5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                              Copied
+                            </>
+                          )
+                        ) : (
+                          "Copy"
+                        )}
+                      </button>
+                    </div>
+
+                    <AnimatePresence initial={false}>
+                      {revealed && selected ? (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.25 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mt-3 border-t border-gray-100 pt-3">
+                            <div className="flex items-center gap-2 text-[13px] font-medium text-[#011627]">
+                              <svg
+                                className="h-4 w-4 shrink-0 text-green-600"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M20 6 9 17l-5-5" />
+                              </svg>
+                              Copied — now run it:
+                            </div>
+                            <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-2">
+                              {revealSteps.map((label, index) => (
+                                <div key={label} className="flex items-center gap-2">
+                                  {index > 0 ? <ChevronRight size={12} className="text-gray-300" /> : null}
+                                  <span className="step-circle">{index + 1}</span>
+                                  <span className="text-[13px] text-gray-600">{label}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
+                  </div>
+                </div>
+                <span aria-live="polite" className="sr-only">
+                  {installFeedback ? (copyError ? "Install command could not be copied" : "Install command copied") : ""}
+                </span>
+              </div>
+            );
+          })}
+
+          <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/80 p-3">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+              Server URL
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <code className="min-w-0 overflow-x-auto whitespace-nowrap rounded-lg bg-white px-3 py-2 font-mono text-[12px] text-[#011627] ring-1 ring-gray-100">
+                {MCP_SERVER_URL}
+              </code>
+              <button
+                type="button"
+                aria-label="Copy the OpenWork MCP server URL"
+                onClick={() => {
+                  void copyServerUrl();
+                }}
+                className="inline-flex shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-[#011627] transition-colors hover:bg-gray-50"
+              >
+                {urlCopied ? "Copied" : "Copy URL"}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-5 flex flex-col gap-3 rounded-xl border border-gray-100 bg-white/80 p-4 text-[13px] leading-6 text-gray-600 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-8 flex flex-col gap-3 border-t border-gray-100 pt-5 text-[13px] leading-6 text-gray-600 sm:flex-row sm:items-center sm:justify-between">
         <p>
           Works with any MCP client that supports remote servers with OAuth — your agent signs in with your
-          OpenWork account and only sees what your org allows.
+          OpenWork account and only sees what your org shares with them.
         </p>
         <a
           href={DOCS_URL}
