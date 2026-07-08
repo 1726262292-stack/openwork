@@ -410,6 +410,8 @@ export default {
   "mcp.no_apps_hint": "เชื่อมต่อแอปด้านบนเพื่อเริ่มต้น",
   "mcp.no_apps_yet": "ยังไม่มีแอปที่เชื่อมต่อ",
   "mcp.oauth": "เข้าสู่ระบบ",
+  "mcp.org_connection_disconnect_action": "ตัดการเชื่อมต่อ",
+  "mcp.org_connection_disconnecting_action": "กำลังตัดการเชื่อมต่อ...",
   "mcp.oauth_autodetect_hint": "หากแอปนี้ต้องการการลงชื่อเข้าใช้ เบราว์เซอร์จะเปิดขึ้นเพื่อเชื่อมต่อบัญชีของคุณหลังจากเพิ่มแล้ว",
   "mcp.one_click_connect": "เชื่อมต่อด้วยคลิกเดียว",
   "mcp.open_file": "เปิดไฟล์",

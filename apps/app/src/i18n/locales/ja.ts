@@ -409,6 +409,8 @@ export default {
   "mcp.no_apps_hint": "上のアプリを接続して始めましょう。",
   "mcp.no_apps_yet": "まだアプリが接続されていません",
   "mcp.oauth": "サインイン",
+  "mcp.org_connection_disconnect_action": "切断",
+  "mcp.org_connection_disconnecting_action": "切断中...",
   "mcp.oauth_autodetect_hint": "このアプリでサインインが必要な場合は、追加後にブラウザが開いてアカウントを接続します。",
   "mcp.one_click_connect": "ワンクリック接続",
   "mcp.open_file": "ファイルを開く",

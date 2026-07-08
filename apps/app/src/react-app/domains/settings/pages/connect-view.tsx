@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { t } from "@/i18n";
 import { DenSignInSurface } from "@/react-app/domains/cloud/den-signin-surface";
 import { useDenAuth, type DenAuthStatus } from "@/react-app/domains/cloud/den-auth-provider";
+import { canDisconnectNativeProviderAccount } from "@/react-app/domains/connections/native-provider-connections";
 import { useOrgMcpConnections } from "@/react-app/domains/connections/use-org-mcp-connections";
 import {
   cloudReadinessConnectableConnectionId,
@@ -254,7 +255,9 @@ function buildConnectRows(input: {
 
 function ConnectOrganizationRow(props: {
   connectingId: string | null;
+  disconnectingId: string | null;
   onConnect: (connectionId: string) => void;
+  onDisconnect: (connectionId: string) => void;
   row: ConnectOrganizationRow;
 }) {
   const row = props.row;
@@ -266,6 +269,8 @@ function ConnectOrganizationRow(props: {
       : null;
   const setupNames = row.kind === "plugin" ? cloudReadinessMissingConnectionNames(row.plugin.cloudReadiness) : [];
   const connecting = connectableConnectionId ? props.connectingId === connectableConnectionId : false;
+  const disconnectableConnectionId = row.kind === "connection" && canDisconnectNativeProviderAccount(row.connection) ? row.connection.id : null;
+  const disconnecting = disconnectableConnectionId ? props.disconnectingId === disconnectableConnectionId : false;
 
   return (
     <div
@@ -291,6 +296,15 @@ function ConnectOrganizationRow(props: {
         <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(denManageConnectionsUrl())} title={setupNames.join(t("connect.row_meta_list_separator"))}>
           {t("connect.row_action_set_up_connection")}
         </Button>
+      ) : disconnectableConnectionId ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <span className="rounded-md bg-green-3 px-2 py-1 text-xs font-medium text-green-11">
+            {t("connect.row_chip_ready")}
+          </span>
+          <Button size="sm" variant="destructive" disabled={disconnecting} onClick={() => props.onDisconnect(disconnectableConnectionId)}>
+            {disconnecting ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_disconnect_action")}
+          </Button>
+        </div>
       ) : (
         <span className="shrink-0 rounded-md bg-green-3 px-2 py-1 text-xs font-medium text-green-11">
           {t("connect.row_chip_ready")}
@@ -302,9 +316,11 @@ function ConnectOrganizationRow(props: {
 
 function ConnectOrganizationList(props: {
   connectingId: string | null;
+  disconnectingId: string | null;
   connections: DenExternalMcpConnection[];
   items: ExtensionItem[];
   onConnect: (connectionId: string) => void;
+  onDisconnect: (connectionId: string) => void;
   role: "owner" | "admin" | "member" | null | undefined;
 }) {
   const [search, setSearch] = useState("");
@@ -351,7 +367,14 @@ function ConnectOrganizationList(props: {
                 </div>
                 <div className="space-y-2">
                   {groupRows.map((row) => (
-                    <ConnectOrganizationRow key={`${row.kind}:${row.id}`} row={row} connectingId={props.connectingId} onConnect={props.onConnect} />
+                    <ConnectOrganizationRow
+                      key={`${row.kind}:${row.id}`}
+                      row={row}
+                      connectingId={props.connectingId}
+                      disconnectingId={props.disconnectingId}
+                      onConnect={props.onConnect}
+                      onDisconnect={props.onDisconnect}
+                    />
                   ))}
                 </div>
               </div>
@@ -369,7 +392,9 @@ function ConnectActivePanel(props: {
   loading: boolean;
   error: string | null;
   connectingId: string | null;
+  disconnectingId: string | null;
   onConnect: (connectionId: string) => void;
+  onDisconnect: (connectionId: string) => void;
 }) {
   const { activeOrganization } = useCloudSession();
   const activeOrgName = activeOrganization?.name.trim();
@@ -394,7 +419,9 @@ function ConnectActivePanel(props: {
         items={props.marketplaceItems}
         role={activeOrganization?.role}
         connectingId={props.connectingId}
+        disconnectingId={props.disconnectingId}
         onConnect={props.onConnect}
+        onDisconnect={props.onDisconnect}
       />
 
       <div className="flex justify-end">
@@ -456,7 +483,9 @@ export function ConnectView(props: ConnectViewProps) {
           loading={orgMcpConnections.loading}
           error={orgMcpConnections.error}
           connectingId={orgMcpConnections.connectingId}
+          disconnectingId={orgMcpConnections.disconnectingId}
           onConnect={orgMcpConnections.connect}
+          onDisconnect={orgMcpConnections.disconnect}
         />
       ) : null}
       {state === "pitch" ? <ConnectPitchPanel /> : null}

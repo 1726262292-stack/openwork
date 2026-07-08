@@ -413,6 +413,8 @@ export default {
   "mcp.no_apps_hint": "连接上方的应用开始使用。",
   "mcp.no_apps_yet": "暂无已连接的应用",
   "mcp.oauth": "登录",
+  "mcp.org_connection_disconnect_action": "断开连接",
+  "mcp.org_connection_disconnecting_action": "正在断开...",
   "mcp.oauth_autodetect_hint": "如果此应用需要登录，添加后浏览器将打开以连接你的账户。",
   "mcp.one_click_connect": "一键连接",
   "mcp.open_file": "打开文件",

@@ -415,6 +415,8 @@ export default {
   "mcp.no_apps_hint": "Conecte um acima para começar.",
   "mcp.no_apps_yet": "Nenhum app conectado ainda",
   "mcp.oauth": "Entrar",
+  "mcp.org_connection_disconnect_action": "Desconectar",
+  "mcp.org_connection_disconnecting_action": "Desconectando...",
   "mcp.oauth_autodetect_hint": "Se este app exigir login, o navegador será aberto para conectar sua conta depois de adicioná-lo.",
   "mcp.one_click_connect": "Conectar com um clique",
   "mcp.open_file": "Abrir arquivo",

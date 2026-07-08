@@ -8,7 +8,9 @@ import { getOrgAccessFlags } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { IntegrationIcon } from "./integration-icon";
 import {
+  canDisconnectNativeProviderAccount,
   type ExternalMcpConnection,
+  useDisconnectMyProviderAccount,
   useMcpConnections,
   useStartMcpConnectionOAuth,
 } from "./mcp-connections-data";
@@ -34,7 +36,9 @@ export function YourConnectionsScreen() {
     orgContext?.roles,
   );
   const startOAuth = useStartMcpConnectionOAuth();
+  const disconnectProvider = useDisconnectMyProviderAccount();
   const [pollingConnectionId, setPollingConnectionId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ connectionId: string; message: string } | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -64,6 +68,7 @@ export function YourConnectionsScreen() {
   }
 
   async function handleConnectMyAccount(connectionId: string) {
+    setRowError(null);
     const result = await startOAuth.mutateAsync(connectionId);
     if (result.status === "connected") {
       void refetch();
@@ -72,6 +77,19 @@ export function YourConnectionsScreen() {
     if (result.authorizeUrl) {
       window.open(result.authorizeUrl, "_blank", "noopener,noreferrer");
       pollUntilConnectedForMe(connectionId);
+    }
+  }
+
+  async function handleDisconnectMyAccount(connectionId: string) {
+    setRowError(null);
+    try {
+      await disconnectProvider.mutateAsync(connectionId);
+      void refetch();
+    } catch (disconnectError) {
+      setRowError({
+        connectionId,
+        message: disconnectError instanceof Error ? disconnectError.message : "Failed to disconnect account.",
+      });
     }
   }
 
@@ -106,7 +124,10 @@ export function YourConnectionsScreen() {
               isAdmin={access.isAdmin}
               polling={pollingConnectionId === connection.id}
               connecting={startOAuth.isPending && startOAuth.variables === connection.id}
+              disconnecting={disconnectProvider.isPending && disconnectProvider.variables === connection.id}
+              errorMessage={rowError?.connectionId === connection.id ? rowError.message : null}
               onConnect={() => void handleConnectMyAccount(connection.id)}
+              onDisconnect={() => void handleDisconnectMyAccount(connection.id)}
             />
           ))}
         </div>
@@ -120,17 +141,24 @@ function YourConnectionRow({
   isAdmin,
   polling,
   connecting,
+  disconnecting,
+  errorMessage,
   onConnect,
+  onDisconnect,
 }: {
   connection: ExternalMcpConnection;
   isAdmin: boolean;
   polling: boolean;
   connecting: boolean;
+  disconnecting: boolean;
+  errorMessage: string | null;
   onConnect: () => void;
+  onDisconnect: () => void;
 }) {
   const isPerMember = connection.credentialMode === "per_member";
   const needsMyConnect = isPerMember && !connection.connectedForMe;
   const needsAdminConnect = isAdmin && !isPerMember && connection.authType === "oauth" && !connection.connectedForMe;
+  const canDisconnect = canDisconnectNativeProviderAccount(connection);
 
   return (
     <div className="flex items-center justify-between gap-4 px-6 py-4">
@@ -164,10 +192,16 @@ function YourConnectionRow({
             )}
           </div>
           <p className="mt-0.5 truncate text-[12px] text-gray-500">{connection.url}</p>
+          {errorMessage ? <p className="mt-1 text-[12px] text-red-600">{errorMessage}</p> : null}
         </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {canDisconnect ? (
+          <DenButton variant="destructive" size="sm" loading={disconnecting} onClick={onDisconnect}>
+            Disconnect
+          </DenButton>
+        ) : null}
         {needsMyConnect || needsAdminConnect ? (
           <DenButton variant="primary" size="sm" loading={connecting || polling} onClick={onConnect}>
             Connect

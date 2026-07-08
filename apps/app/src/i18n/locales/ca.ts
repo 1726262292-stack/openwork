@@ -433,6 +433,8 @@ export default {
   "mcp.no_apps_hint": "Connecta'n una a dalt per començar.",
   "mcp.no_apps_yet": "Encara no hi ha cap aplicació connectada",
   "mcp.oauth": "Inicia la sessió",
+  "mcp.org_connection_disconnect_action": "Desconnecta",
+  "mcp.org_connection_disconnecting_action": "Desconnectant...",
   "mcp.oauth_autodetect_hint": "Si aquesta aplicació requereix iniciar sessió, el navegador s'obrirà per connectar el vostre compte després d'afegir-la.",
   "mcp.one_click_connect": "Connecta amb un sol clic",
   "mcp.open_file": "Obre el fitxer",

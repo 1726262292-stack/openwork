@@ -410,6 +410,8 @@ export default {
   "mcp.no_apps_hint": "Kết nối một ứng dụng ở trên để bắt đầu.",
   "mcp.no_apps_yet": "Chưa kết nối ứng dụng nào",
   "mcp.oauth": "Đăng nhập",
+  "mcp.org_connection_disconnect_action": "Ngắt kết nối",
+  "mcp.org_connection_disconnecting_action": "Đang ngắt kết nối...",
   "mcp.oauth_autodetect_hint": "Nếu ứng dụng này yêu cầu đăng nhập, trình duyệt sẽ mở để kết nối tài khoản của bạn sau khi thêm.",
   "mcp.one_click_connect": "Kết nối một chạm",
   "mcp.open_file": "Mở tệp",

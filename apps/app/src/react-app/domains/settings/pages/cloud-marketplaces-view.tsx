@@ -11,12 +11,14 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { t } from "@/i18n";
 import { useConnectEnabled } from "@/react-app/domains/cloud/desktop-config-provider";
+import { canDisconnectNativeProviderAccount } from "@/react-app/domains/connections/native-provider-connections";
 import { ExtensionCard } from "@/react-app/design-system/extension-card";
 import { ExtensionDetailModal } from "@/react-app/design-system/extension-detail-modal";
 import { resolveMarketplaceDeliveryAction } from "@/react-app/domains/settings/connect-delivery";
 import { isDesktopInstallableMarketplacePlugin } from "@/react-app/domains/settings/connect-cloud-readiness";
 import {
   isOrgMcpConnectionItem,
+  isOrgMcpConnectionReady,
   isToggleControlledExtension,
   orgMcpConnectionActionLabel,
   type ExtensionItem,
@@ -114,7 +116,9 @@ export type CloudMarketplacesViewProps = {
   isBuiltInConnected?: (entry: McpDirectoryInfo) => boolean;
   extensionItems?: ExtensionItem[];
   orgMcpConnectingId?: string | null;
+  orgMcpDisconnectingId?: string | null;
   onConnectOrgMcp?: (connectionId: string) => void;
+  onDisconnectOrgMcp?: (connectionId: string) => void;
   refreshOrgMcpConnections?: () => Promise<unknown> | void;
   setBuiltInEnabled?: (entry: McpDirectoryInfo, enabled: boolean) => void;
 };
@@ -201,7 +205,9 @@ export function CloudMarketplacesView({
   isBuiltInConnected,
   extensionItems = [],
   orgMcpConnectingId = null,
+  orgMcpDisconnectingId = null,
   onConnectOrgMcp,
+  onDisconnectOrgMcp,
   refreshOrgMcpConnections,
   setBuiltInEnabled,
 }: CloudMarketplacesViewProps) {
@@ -641,6 +647,8 @@ export function CloudMarketplacesView({
                 onUpdatePlugin={importPlugin}
                 connectEnabled={connectEnabled}
                 orgMcpConnectingId={orgMcpConnectingId}
+                orgMcpDisconnectingId={orgMcpDisconnectingId}
+                onDisconnectOrgMcp={onDisconnectOrgMcp}
                 builtInDisabled={builtInExtensionsDisabled}
                 builtInConnectingName={builtInConnectingName}
                 highlighted={isHighlighted}
@@ -675,8 +683,10 @@ export function CloudMarketplacesView({
         <OrgMcpConnectionDetailModal
           row={detailRow}
           connecting={orgMcpConnectingId === detailRow.connection.id}
+          disconnecting={orgMcpDisconnectingId === detailRow.connection.id}
           onClose={() => setDetailRow(null)}
           onConnect={onConnectOrgMcp}
+          onDisconnect={onDisconnectOrgMcp}
         />
       ) : null}
     </SettingsSection>
@@ -708,6 +718,8 @@ function MarketplaceCard(props: {
   onUpdatePlugin: (marketplaceId: string | null, plugin: DenOrgPlugin) => void | Promise<void>;
   connectEnabled?: boolean;
   orgMcpConnectingId: string | null;
+  orgMcpDisconnectingId: string | null;
+  onDisconnectOrgMcp?: (connectionId: string) => void;
   builtInDisabled: boolean;
   builtInConnectingName: string | null;
   highlighted?: boolean;
@@ -752,19 +764,34 @@ function MarketplaceCard(props: {
 
   if (row.source === "org-mcp") {
     const actionBusy = props.orgMcpConnectingId === row.connection.id;
+    const disconnecting = props.orgMcpDisconnectingId === row.connection.id;
+    const canDisconnect = canDisconnectNativeProviderAccount(row.connection);
+    const ready = isOrgMcpConnectionReady(row.connection);
     return (
-      <div ref={highlightRef} className={highlightClass}>
+      <div ref={highlightRef} className={`space-y-2 ${highlightClass}`}>
         <ExtensionCard
           name={row.item.name}
           description={row.item.description ?? "Available from your organization."}
           kind="mcp"
           url={row.connection.url}
-          connected={false}
+          connected={ready}
+          connectedLabel={orgMcpConnectionActionLabel(row.connection)}
           beta
           connecting={actionBusy}
-          actionLabel={actionBusy ? "Waiting for browser..." : orgMcpConnectionActionLabel(row.connection)}
+          actionLabel={actionBusy ? "Waiting for browser..." : disconnecting ? t("mcp.org_connection_disconnecting_action") : ready ? "View details" : orgMcpConnectionActionLabel(row.connection)}
           onClick={() => onOpenDetail(row)}
         />
+        {canDisconnect ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="w-full"
+            disabled={disconnecting}
+            onClick={() => props.onDisconnectOrgMcp?.(row.connection.id)}
+          >
+            {disconnecting ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_disconnect_action")}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -851,10 +878,14 @@ function BuiltInMarketplaceDetailModal(props: {
 function OrgMcpConnectionDetailModal(props: {
   row: OrgMcpMarketplaceRow;
   connecting: boolean;
+  disconnecting: boolean;
   onClose: () => void;
   onConnect?: (connectionId: string) => void;
+  onDisconnect?: (connectionId: string) => void;
 }) {
-  const { row, connecting, onClose, onConnect } = props;
+  const { row, connecting, onClose, onConnect, onDisconnect } = props;
+  const ready = isOrgMcpConnectionReady(row.connection);
+  const canDisconnect = canDisconnectNativeProviderAccount(row.connection);
   return (
     <ExtensionDetailModal
       open
@@ -862,15 +893,18 @@ function OrgMcpConnectionDetailModal(props: {
       name={row.item.name}
       description={row.item.description ?? "Available from your organization."}
       kind="mcp"
-      connected={false}
+      connected={ready}
+      connectedLabel={orgMcpConnectionActionLabel(row.connection)}
       beta
-      connecting={connecting}
+      connecting={connecting || props.disconnecting}
       connectLabel={orgMcpConnectionActionLabel(row.connection)}
       connectingLabel="Waiting for browser..."
+      uninstallLabel={t("mcp.org_connection_disconnect_action")}
       url={row.connection.url}
       oauth={row.connection.authType === "oauth"}
       showEnablementCard={false}
-      onConnect={onConnect ? () => onConnect(row.connection.id) : undefined}
+      onConnect={!ready && onConnect ? () => onConnect(row.connection.id) : undefined}
+      onUninstall={canDisconnect && onDisconnect ? () => onDisconnect(row.connection.id) : undefined}
       configSlot={(
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">

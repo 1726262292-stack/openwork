@@ -55,6 +55,15 @@ export type CreatedMcpConnection = ExternalMcpConnection & {
   };
 };
 
+export function isNativeProviderConnectionId(id: string): boolean {
+  // Today google-workspace is the only native provider connection id; a follow-up generalizes this for external per-member connections.
+  return id === "google-workspace";
+}
+
+export function canDisconnectNativeProviderAccount(connection: Pick<ExternalMcpConnection, "id" | "connectedForMe">): boolean {
+  return connection.connectedForMe && isNativeProviderConnectionId(connection.id);
+}
+
 export const mcpConnectionQueryKeys = {
   all: ["mcp-connections"] as const,
   list: (orgId?: string | null, scope?: ExternalMcpConnectionScope) =>
@@ -195,6 +204,28 @@ export function useStartMcpConnectionOAuth() {
         throw getRequestError(payload, response, `Failed to start OAuth (${response.status}).`);
       }
       return payload as { status: "connected" | "needs_auth"; authorizeUrl: string | null };
+    },
+  });
+}
+
+export function useDisconnectMyProviderAccount() {
+  const queryClient = useQueryClient();
+  const { orgId } = useOrgDashboard();
+
+  return useMutation({
+    mutationFn: async (providerId: string): Promise<string> => {
+      const { response, payload } = await requestJson(
+        `/v1/oauth-providers/${encodeURIComponent(providerId)}/disconnect`,
+        { method: "POST", headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+        15000,
+      );
+      if (!response.ok) {
+        throw getRequestError(payload, response, `Failed to disconnect account (${response.status}).`);
+      }
+      return providerId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });
     },
   });
 }

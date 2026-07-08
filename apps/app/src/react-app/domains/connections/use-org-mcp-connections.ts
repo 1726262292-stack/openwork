@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createDenClient, readDenSettings, type DenExternalMcpConnection } from "@/app/lib/den";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
+import { isNativeProviderConnectionId } from "./native-provider-connections";
 
 // Mirrors the poll-until-connected pattern used for local MCP OAuth
 // (mcp-auth-modal.tsx) — the external server's redirect completes on a
@@ -78,6 +79,7 @@ export function useOrgMcpConnections() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const stopPolling = useCallback(() => {
@@ -170,10 +172,31 @@ export function useOrgMcpConnections() {
     }
   }, [refresh, stopPolling]);
 
+  const disconnect = useCallback(async (connectionId: string) => {
+    if (!isNativeProviderConnectionId(connectionId)) return;
+
+    const settings = readDenSettings();
+    const token = settings.authToken?.trim() ?? "";
+    const orgId = settings.activeOrgId?.trim() ?? "";
+    if (!token || !orgId) return;
+
+    setDisconnectingId(connectionId);
+    setError(null);
+    try {
+      const client = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl, token });
+      await client.disconnectOauthProviderAccount(orgId, connectionId);
+      await refresh();
+    } catch (disconnectError) {
+      setError(disconnectError instanceof Error ? disconnectError.message : "Failed to disconnect the account.");
+    } finally {
+      setDisconnectingId(null);
+    }
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
     return () => stopPolling();
   }, [refresh, stopPolling]);
 
-  return { connections, loading, error, connectingId, refresh, connect };
+  return { connections, loading, error, connectingId, disconnectingId, refresh, connect, disconnect };
 }

@@ -433,6 +433,8 @@ export default {
   "mcp.no_apps_hint": "Connectez-en une ci-dessus pour commencer.",
   "mcp.no_apps_yet": "Aucune application connectée pour le moment",
   "mcp.oauth": "Se connecter",
+  "mcp.org_connection_disconnect_action": "Déconnecter",
+  "mcp.org_connection_disconnecting_action": "Déconnexion...",
   "mcp.oauth_autodetect_hint": "Si cette application nécessite une connexion, votre navigateur s'ouvrira pour connecter votre compte après l'ajout.",
   "mcp.one_click_connect": "Connexion en un clic",
   "mcp.open_file": "Ouvrir le fichier",

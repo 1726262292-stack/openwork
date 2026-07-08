@@ -1665,6 +1665,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     () => extensionItems.items.filter((item) => item.source !== "org-connection"),
     [extensionItems.items],
   );
+  const installedOrgMcpConnectionItems = useMemo(
+    () => extensionItems.orgMcpConnectionItems.filter((item) => item.installState === "installed"),
+    [extensionItems.orgMcpConnectionItems],
+  );
   const routeOpenworkStatus = openworkClient ? "connected" : "disconnected";
   const notFoundRouteError = !loading && routeWorkspaceId && !selectedWorkspace
     ? "Workspace was not found. Select a new workspace from the sidebar."
@@ -2098,8 +2102,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
                 installedSkills={extensionItems.installedSkills}
                 installedPlugins={extensionItems.installedCloudPlugins}
+                installedOrgMcpItems={installedOrgMcpConnectionItems}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
+                orgMcpDisconnectingId={orgMcpConnections.disconnectingId}
+                disconnectOrgMcp={(connectionId) => { void orgMcpConnections.disconnect(connectionId); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
                 installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
@@ -2121,8 +2128,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 isBuiltInConnected={extensionController.isConnected}
                 extensionItems={extensionItemsForExtensions}
                 orgMcpConnectingId={orgMcpConnections.connectingId}
+                orgMcpDisconnectingId={orgMcpConnections.disconnectingId}
                 onConnectOrgMcp={(connectionId) => {
                   void orgMcpConnections.connect(connectionId);
+                }}
+                onDisconnectOrgMcp={(connectionId) => {
+                  void orgMcpConnections.disconnect(connectionId);
                 }}
                 refreshOrgMcpConnections={orgMcpConnections.refresh}
                 setBuiltInEnabled={setOpenWorkExtensionEnabled}
@@ -2160,8 +2171,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             isBuiltInConnected={extensionController.isConnected}
             extensionItems={extensionItemsForExtensions}
             orgMcpConnectingId={orgMcpConnections.connectingId}
+            orgMcpDisconnectingId={orgMcpConnections.disconnectingId}
             onConnectOrgMcp={(connectionId) => {
               void orgMcpConnections.connect(connectionId);
+            }}
+            onDisconnectOrgMcp={(connectionId) => {
+              void orgMcpConnections.disconnect(connectionId);
             }}
             refreshOrgMcpConnections={orgMcpConnections.refresh}
             setBuiltInEnabled={setOpenWorkExtensionEnabled}

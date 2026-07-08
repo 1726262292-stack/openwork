@@ -2219,6 +2219,14 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
       return result;
     },
 
+    async disconnectOauthProviderAccount(orgId: string, providerId: string): Promise<void> {
+      await requestJson<unknown>(
+        baseUrls,
+        `/v1/oauth-providers/${encodeURIComponent(providerId)}/disconnect`,
+        { method: "POST", token, organizationId: orgId },
+      );
+    },
+
     async listOrgMarketplaces(orgId: string): Promise<DenOrgMarketplace[]> {
       const payload = await requestJson<unknown>(
         baseUrls,

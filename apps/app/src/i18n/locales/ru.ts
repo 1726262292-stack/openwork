@@ -332,6 +332,8 @@ export default {
   "mcp.no_apps_hint": "Подключите одно из приложений выше, чтобы начать.",
   "mcp.no_apps_yet": "Пока нет подключенных приложений",
   "mcp.oauth": "Войти",
+  "mcp.org_connection_disconnect_action": "Отключить",
+  "mcp.org_connection_disconnecting_action": "Отключение...",
   "mcp.oauth_autodetect_hint": "Если приложению требуется вход, после добавления откроется браузер для подключения аккаунта.",
   "mcp.one_click_connect": "Подключение в один клик",
   "mcp.open_file": "Открыть файл",
