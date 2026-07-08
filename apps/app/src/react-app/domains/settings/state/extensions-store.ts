@@ -1454,7 +1454,7 @@ export function createExtensionsStore(options: {
         return;
       }
 
-      const client = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl, token });
+      const client = createDenClient({ baseUrl: settings.baseUrl, token });
       const catalog = await fetchDenOrgSkillsCatalog(client, orgId);
       if (refreshCloudOrgSkillsAborted || getCurrentCloudOrgLoadKey() !== loadKey) return;
       mutateState((current) => ({
@@ -1518,7 +1518,7 @@ export function createExtensionsStore(options: {
         return;
       }
 
-      const client = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl, token });
+      const client = createDenClient({ baseUrl: settings.baseUrl, token });
       const marketplaces = await client.listOrgMarketplaces(orgId);
       const resolved = await Promise.all(
         marketplaces.map((marketplace) => client.getOrgMarketplaceResolved(orgId, marketplace.id)),
@@ -1594,7 +1594,7 @@ export function createExtensionsStore(options: {
       const token = settings.authToken?.trim() ?? "";
       const orgId = settings.activeOrgId?.trim() ?? "";
       if (!token || !orgId) throw new Error("Sign in to OpenWork Cloud and choose an organization first.");
-      const client = createDenClient({ baseUrl: settings.baseUrl, apiBaseUrl: settings.apiBaseUrl, token });
+      const client = createDenClient({ baseUrl: settings.baseUrl, token });
       const resolved = await client.getOrgPluginResolved(orgId, plugin);
       const target = await resolveWorkspaceServerTarget();
       if (target.openworkClient && target.openworkWorkspaceId) {

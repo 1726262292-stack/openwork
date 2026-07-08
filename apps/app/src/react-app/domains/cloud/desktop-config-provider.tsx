@@ -200,7 +200,6 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     try {
       const nextConfig = await createDenClient({
         baseUrl: settings.baseUrl,
-        apiBaseUrl: settings.apiBaseUrl,
         token,
       }).getDesktopConfig(activeOrgId);
 

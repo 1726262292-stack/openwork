@@ -11,14 +11,14 @@ import {
 } from "./den-endpoint-sources";
 
 describe("Den endpoint sources", () => {
-  test("custom storage wins over bootstrap", () => {
+  test("bootstrap wins over stale storage", () => {
     expect(describeDenEndpointSource({
       storedValue: "https://custom.example.com/",
       bootstrapValue: "http://127.0.0.1:8788",
       buildDefault: "https://app.openworklabs.com",
     })).toEqual({
-      effective: "https://custom.example.com",
-      source: "custom",
+      effective: "http://127.0.0.1:8788",
+      source: "bootstrap",
     });
   });
 
@@ -57,7 +57,7 @@ describe("Den endpoint sources", () => {
   test("detects MCP targets that do not match the API origin", () => {
     const target = describeCloudMcpTarget({
       mcpUrl: "https://other.example.com/mcp/agent",
-      effectiveApiBaseUrl: "https://api.openworklabs.com/api/den",
+      effectiveApiBaseUrl: "https://app.openworklabs.com/api/den",
     });
 
     expect(target.url).toBe("https://other.example.com/mcp/agent");
@@ -68,7 +68,7 @@ describe("Den endpoint sources", () => {
   test("handles a missing MCP URL", () => {
     expect(describeCloudMcpTarget({
       mcpUrl: null,
-      effectiveApiBaseUrl: "https://api.openworklabs.com/api/den",
+      effectiveApiBaseUrl: "https://app.openworklabs.com/api/den",
     })).toEqual({
       url: null,
       isLocalhost: false,

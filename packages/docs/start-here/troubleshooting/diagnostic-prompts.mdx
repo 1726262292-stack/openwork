@@ -24,7 +24,7 @@ Your agent's `openwork-cloud` MCP entry is a snapshot: it stores a server URL an
 ````text
 Debug and fix my OpenWork Cloud MCP connection. It may be pointed at a stale or local server instead of my real OpenWork Cloud server. Work through ALL phases, show your findings after each, and ask before anything destructive. Never print bearer tokens or Authorization headers — redact them.
 
-My expected cloud API host: https://api.openworklabs.com (replace with your self-hosted server URL if you run your own).
+My expected cloud web URL: https://app.openworklabs.com (replace with your self-hosted Den web URL if you run your own).
 
 ## Phase 1 — Evidence: what am I actually connected to?
 
@@ -41,9 +41,9 @@ My expected cloud API host: https://api.openworklabs.com (replace with your self
 
 ## Phase 2 — Probe both servers directly (no auth needed)
 
-4. The server from Phase 1:
-   `curl -s -m 5 <that-origin>/openapi.json | python3 -c "import json,sys; d=json.load(sys.stdin); ps=[p for p in d.get('paths',{}) if 'google-workspace' in p]; print(len(ps)); [print(p) for p in ps]"`
-5. The expected cloud host, same command. Compare the two lists.
+4. The server from Phase 1, through the Den web proxy:
+   `curl -s -m 5 <that-origin>/api/den/openapi.json | python3 -c "import json,sys; d=json.load(sys.stdin); ps=[p for p in d.get('paths',{}) if 'google-workspace' in p]; print(len(ps)); [print(p) for p in ps]"`
+5. The expected cloud web URL, same command. Compare the two lists.
 
 ## Phase 3 — Probe through your own MCP tools (in-band ground truth)
 
@@ -54,7 +54,7 @@ My expected cloud API host: https://api.openworklabs.com (replace with your self
 
 State which world you are in:
 - openwork-cloud url is localhost/127.0.0.1, OR search returned only gmail-drafts, OR execute returned unknown_capability → you are bound to a STALE server, not the expected cloud.
-- a desktop-bootstrap.json contains localhost URLs → that file is the root cause (it feeds the app's server URL when the Advanced settings field is empty).
+- a desktop-bootstrap.json contains localhost URLs → that file is the root cause (it is the desktop app's Cloud URL source of truth).
 
 ## Phase 5 — Fix (confirm with me before each destructive step)
 
@@ -74,7 +74,7 @@ State which world you are in:
 
 **Expected passing state**
 
-- The `openwork-cloud` entry's `url` points at your real server's `/mcp/agent`.
+- The `openwork-cloud` entry's `url` points at your real server's `/api/den/mcp/agent`.
 - `search_capabilities` reflects your server's current catalog.
 - `execute_capability` on a known capability returns data or an actionable connection message — never `unknown_capability`.
 
