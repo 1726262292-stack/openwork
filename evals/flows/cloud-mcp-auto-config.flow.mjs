@@ -61,6 +61,9 @@ export default {
           "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())",
           { timeoutMs: 30_000, label: "persisted den auth token" },
         );
+        // Post-sign-in org onboarding may appear; drive through it best-effort.
+        await ctx.clickText("Continue with organization", { timeoutMs: 10_000 }).catch(() => {});
+        await ctx.clickText("Continue to workspace", { timeoutMs: 10_000 }).catch(() => {});
       },
     },
     {
