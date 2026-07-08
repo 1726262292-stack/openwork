@@ -1,15 +1,34 @@
+/**
+ * Internal + visual proof for PR #2548: pending invitations are adopted without
+ * duplicate organization members, and the den-web Members page shows the same
+ * states the customer reported.
+ *
+ * Local runbook:
+ *   1. pnpm evals --stack-down
+ *   2. OPENWORK_EVAL_DEN_WEB_URL=http://127.0.0.1:3005 OPENWORK_EVAL_WEB_CDP_ADMIN=http://127.0.0.1:9855 pnpm fraimz --flow invite-adoption-no-duplicates --stack den
+ *      (the stack exports OPENWORK_EVAL_DEN_API_URL and OPENWORK_EVAL_DEN_TOKEN)
+ *   3. In another shell, run den-web against the stack API:
+ *      DEN_WEB_PORT=3005 DEN_API_BASE=http://127.0.0.1:8790 DEN_AUTH_ORIGIN=http://127.0.0.1:3005 DEN_AUTH_FALLBACK_BASE=http://127.0.0.1:8790 pnpm --filter @openwork-ee/den-web dev:local
+ *   4. In another shell, run Chrome for screenshots:
+ *      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --remote-debugging-port=9855 --user-data-dir="$(mktemp -d)" --window-size=1440,1100 about:blank
+ */
 import { execFileSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { connect, debuggerUrlFor, listTargets } from "../runner/cdp.mjs";
+import { denWebUrl } from "./lib/den-web.mjs";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
 const FLOW_ID = "invite-adoption-no-duplicates";
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
 
 const DEN_API_URL = (process.env.OPENWORK_EVAL_DEN_API_URL ?? "").trim().replace(/\/+$/, "");
-const DEN_WEB_URL = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? DEN_API_URL.replace("127.0.0.1", "localhost")).trim().replace(/\/+$/, "");
+const DEN_WEB_URL = denWebUrl();
+const ADMIN_CDP_URL = (process.env.OPENWORK_EVAL_WEB_CDP_ADMIN ?? "").trim().replace(/\/+$/, "");
 const MYSQL_CONTAINER = "openwork-web-local-mysql";
 const MYSQL_ARGS = ["exec", MYSQL_CONTAINER, "mysql", "-uroot", "-ppassword", "openwork_den", "-N", "-e"];
 const ADMIN_TOKEN = (process.env.OPENWORK_EVAL_DEN_TOKEN ?? "").trim();
+const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
+const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const TYPE_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 const TYPE_ID_PREFIXES = {
   member: "om",
@@ -24,6 +43,7 @@ const state = {
   organization: null,
   adminMemberId: null,
   orgMode: null,
+  adminBrowserSignedIn: false,
   rashmiToken: null,
   rashmiUserId: null,
   reconcileEmail: null,
@@ -66,6 +86,211 @@ function cleanupPriorEvalArtifacts() {
   return mysqlQuery("DELETE FROM org_subscriptions WHERE last_event_id = 'invite-adoption-no-duplicates';");
 }
 
+function adminAuthOrigins() {
+  const origins = [];
+  if (DEN_WEB_URL) {
+    origins.push(new URL(DEN_WEB_URL).origin);
+  }
+  if (DEN_API_URL) {
+    const apiUrl = new URL(DEN_API_URL);
+    if (apiUrl.hostname === "127.0.0.1") {
+      const localhostUrl = new URL(apiUrl.toString());
+      localhostUrl.hostname = "localhost";
+      origins.push(localhostUrl.origin);
+    }
+    origins.push(apiUrl.origin);
+  }
+  return [...new Set(origins)];
+}
+
+function sessionCookiePair(setCookie) {
+  const match = String(setCookie ?? "").match(/better-auth\.session_token=([^;,\s]+)/);
+  return match ? `better-auth.session_token=${match[1]}` : "";
+}
+
+async function createAdminBrowserSession(ctx) {
+  let last = null;
+  for (const origin of adminAuthOrigins()) {
+    const response = await fetch(`${DEN_API_URL}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    });
+    const text = await response.text();
+    let body = text;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {}
+    const cookie = sessionCookiePair(response.headers.get("set-cookie"));
+    last = { origin, status: response.status, body, cookie: cookie ? "<present>" : null };
+    if (response.ok && typeof body?.token === "string" && cookie) {
+      witness(ctx, true, "Admin API sign-in minted a den-web browser session", { origin, status: response.status, token: "<present>", cookie: "<present>" });
+      return { token: body.token, cookie };
+    }
+  }
+  witness(ctx, false, "Admin API sign-in minted a den-web browser session", last);
+  return null;
+}
+
+async function withClient(ctx, cdpBaseUrl, fn) {
+  const previous = ctx.client;
+  const target = await firstPageTarget(cdpBaseUrl);
+  const client = await connect(debuggerUrlFor(cdpBaseUrl, target));
+  ctx.client = client;
+  try {
+    return await fn();
+  } finally {
+    ctx.client = previous;
+    try {
+      client.close();
+    } catch {}
+  }
+}
+
+async function firstPageTarget(cdpBaseUrl) {
+  const existing = await listTargets(cdpBaseUrl);
+  const page = existing.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
+  if (page) {
+    return page;
+  }
+
+  const base = cdpBaseUrl.replace(/\/+$/, "");
+  let response = await fetch(`${base}/json/new?about:blank`, { method: "PUT" });
+  if (!response.ok) {
+    response = await fetch(`${base}/json/new?about:blank`);
+  }
+  if (!response.ok) {
+    throw new Error(`Could not create a page target at ${cdpBaseUrl}: ${response.status}`);
+  }
+
+  const created = await response.json();
+  if (created?.type === "page" && created.webSocketDebuggerUrl) {
+    return created;
+  }
+  const targets = await listTargets(cdpBaseUrl);
+  const nextPage = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
+  if (!nextPage) {
+    throw new Error(`No page target available at ${cdpBaseUrl}.`);
+  }
+  return nextPage;
+}
+
+async function goToDenWeb(ctx, path) {
+  const url = path.startsWith("http") ? path : `${DEN_WEB_URL}${path}`;
+  await ctx.eval(`location.assign(${JSON.stringify(url)})`);
+  await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: `den-web loaded ${path}` });
+}
+
+async function signInAdminBrowser(ctx) {
+  if (state.adminBrowserSignedIn) {
+    return;
+  }
+
+  const session = await createAdminBrowserSession(ctx);
+  await goToDenWeb(ctx, "/");
+  await ctx.eval(`(() => {
+    document.cookie = 'better-auth.session_token=; Max-Age=0; Path=/';
+    document.cookie = ${JSON.stringify(`${session.cookie}; Path=/; SameSite=Lax`)};
+    localStorage.setItem('openwork:web:auth-token', ${JSON.stringify(session.token)});
+    sessionStorage.clear();
+    return true;
+  })()`);
+  await goToDenWeb(ctx, "/");
+  await ctx.waitFor("location.pathname.startsWith('/dashboard')", { timeoutMs: 45_000, label: "den-web dashboard after admin sign-in" });
+  state.adminBrowserSignedIn = true;
+}
+
+async function openMembersPage(ctx) {
+  await signInAdminBrowser(ctx);
+  await goToDenWeb(ctx, "/dashboard/members");
+  await ctx.waitFor("location.pathname.includes('/dashboard/members')", { timeoutMs: 30_000, label: "members route" });
+  await ctx.waitForText("Invite teammates, adjust roles, and keep access clean.", { timeoutMs: 30_000 });
+}
+
+function memberRowsExpression(email) {
+  return `(() => {
+    const email = ${JSON.stringify(email)};
+    return [...document.querySelectorAll('div')]
+      .filter((el) => {
+        const style = getComputedStyle(el);
+        return style.display === 'grid' && style.gridTemplateColumns.includes('180px') && (el.innerText ?? '').includes(email);
+      })
+      .map((el) => {
+        const cells = [...el.children].map((child) => child.innerText.trim());
+        return {
+          text: el.innerText.trim(),
+          role: cells[1] ?? '',
+          joined: cells[2] ?? '',
+        };
+      });
+  })()`;
+}
+
+async function memberRows(ctx, email) {
+  return ctx.eval(memberRowsExpression(email));
+}
+
+async function waitForUiRows(ctx, email, predicateSource, label) {
+  await ctx.waitFor(`(() => {
+    const rows = ${memberRowsExpression(email)};
+    const predicate = ${predicateSource};
+    return predicate(rows);
+  })()`, { timeoutMs: 30_000, label });
+  return memberRows(ctx, email);
+}
+
+async function scrollMemberRowsIntoView(ctx, email) {
+  await ctx.eval(`(() => {
+    const rows = [...document.querySelectorAll('div')]
+      .filter((el) => {
+        const style = getComputedStyle(el);
+        return style.display === 'grid' && style.gridTemplateColumns.includes('180px') && (el.innerText ?? '').includes(${JSON.stringify(email)});
+      });
+    rows[0]?.scrollIntoView({ block: 'center' });
+    return rows.length;
+  })()`);
+  await ctx.eval("new Promise((resolve) => setTimeout(resolve, 250))", { awaitPromise: true });
+}
+
+async function assertPendingInviteUi(ctx, email) {
+  const rows = await waitForUiRows(
+    ctx,
+    email,
+    "(rows) => rows.length === 1 && rows[0].role.includes('Admin') && rows[0].joined.includes('Pending') && rows[0].text.toLowerCase().includes('invited')",
+    `pending invited admin row for ${email}`,
+  );
+  witness(ctx, rows.length === 1, `${email} is one pending row in den-web`, rows);
+  witness(ctx, rows[0]?.role.includes("Admin"), `${email} den-web row shows Admin role`, rows);
+  witness(ctx, rows[0]?.joined.includes("Pending"), `${email} den-web row shows Pending`, rows);
+  await scrollMemberRowsIntoView(ctx, email);
+}
+
+async function assertDuplicateUi(ctx, email) {
+  const rows = await waitForUiRows(
+    ctx,
+    email,
+    "(rows) => rows.length === 2 && rows.some((row) => row.role.includes('Member') && !row.joined.includes('Pending')) && rows.some((row) => row.role.includes('Admin') && row.joined.includes('Pending') && row.text.toLowerCase().includes('invited'))",
+    `duplicate raw member plus pending invite rows for ${email}`,
+  );
+  witness(ctx, rows.length === 2, `${email} has two visible den-web rows in the duplicate state`, rows);
+  witness(ctx, rows.some((row) => row.role.includes("Member") && !row.joined.includes("Pending")), `${email} den-web duplicate includes the active wrong member role`, rows);
+  witness(ctx, rows.some((row) => row.role.includes("Admin") && row.joined.includes("Pending") && row.text.toLowerCase().includes("invited")), `${email} den-web duplicate includes the pending invited admin record`, rows);
+  await scrollMemberRowsIntoView(ctx, email);
+}
+
+async function assertReconciledUi(ctx, email) {
+  const rows = await waitForUiRows(
+    ctx,
+    email,
+    "(rows) => rows.length === 1 && rows[0].role.includes('Admin') && !rows[0].joined.includes('Pending') && !rows[0].text.toLowerCase().includes('invited')",
+    `single reconciled admin row for ${email}`,
+  );
+  witness(ctx, rows.length === 1, `${email} has exactly one visible den-web row after reconcile`, rows);
+  witness(ctx, rows[0]?.role.includes("Admin"), `${email} den-web row shows Admin after reconcile`, rows);
+  witness(ctx, !rows[0]?.joined.includes("Pending") && !rows[0]?.text.toLowerCase().includes("invited"), `${email} den-web row has no pending/invited ghost after reconcile`, rows);
+  await scrollMemberRowsIntoView(ctx, email);
+}
+
 async function denFetch(path, options = {}) {
   const response = await fetch(`${DEN_API_URL}${path}`, {
     ...options,
@@ -81,6 +306,24 @@ async function denFetch(path, options = {}) {
     body = text ? JSON.parse(text) : null;
   } catch {}
   return { response, body, text };
+}
+
+async function denAuthFetch(path, options = {}) {
+  let last = null;
+  for (const origin of adminAuthOrigins()) {
+    const result = await denFetch(path, {
+      ...options,
+      headers: {
+        origin,
+        ...(options.headers ?? {}),
+      },
+    });
+    last = result;
+    if (!(result.response.status === 403 && result.body?.code === "INVALID_ORIGIN")) {
+      return result;
+    }
+  }
+  return last;
 }
 
 async function authed(path, options = {}) {
@@ -223,7 +466,7 @@ async function inviteAsAdmin(ctx, email) {
 }
 
 async function signUpEmail(ctx, email, name) {
-  const result = await denFetch("/api/auth/sign-up/email", {
+  const result = await denAuthFetch("/api/auth/sign-up/email", {
     method: "POST",
     body: JSON.stringify({ email, name, password: RASHMI_PASSWORD }),
   });
@@ -232,7 +475,7 @@ async function signUpEmail(ctx, email, name) {
 }
 
 async function signInEmail(ctx, email) {
-  const result = await denFetch("/api/auth/sign-in/email", {
+  const result = await denAuthFetch("/api/auth/sign-in/email", {
     method: "POST",
     body: JSON.stringify({ email, password: RASHMI_PASSWORD }),
   });
@@ -290,11 +533,12 @@ export default {
   title: "Pending invitations are adopted without duplicate organization members",
   kind: "internal",
   requiresApp: false,
-  requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
+  requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_WEB_CDP_ADMIN"],
   steps: [
     {
       name: "Frame 1 — The admin invites Rashmi as an admin",
       run: async (ctx) => {
+        await withClient(ctx, ADMIN_CDP_URL, async () => {
         await ctx.prove("The admin invite creates one pending admin invitation and one invited placeholder", {
           voiceover: vo[0],
           assert: async () => {
@@ -311,7 +555,15 @@ export default {
               seatSetupApplied: Boolean(invite.seatSql),
               org: summarizeOrg(org, [RASHMI_EMAIL]),
             }, null, 2));
+            await openMembersPage(ctx);
+            await assertPendingInviteUi(ctx, RASHMI_EMAIL);
           },
+          screenshot: {
+            name: "rashmi-pending-admin-invite",
+            requireText: [RASHMI_EMAIL, "Pending", "Admin"],
+            rejectText: ["Something went wrong"],
+          },
+        });
         });
       },
     },
@@ -358,6 +610,7 @@ export default {
     {
       name: "Frame 3 — An SSO-style raw membership appears",
       run: async (ctx) => {
+        await withClient(ctx, ADMIN_CDP_URL, async () => {
         await ctx.prove("The pre-fix duplicate state is observable before the next session is created", {
           voiceover: vo[2],
           action: async () => {
@@ -379,6 +632,7 @@ export default {
               organizationId: orgId,
               userId: state.reconcileUserId,
             });
+            await openMembersPage(ctx);
           },
           assert: async () => {
             const org = await loadOrg(ctx);
@@ -401,19 +655,28 @@ export default {
               setupSignUp: state.jitSetup ? redactAuthResult(state.jitSetup.signUp) : undefined,
               org: summarizeOrg(org, [state.reconcileEmail]),
             }, null, 2));
+            await assertDuplicateUi(ctx, state.reconcileEmail);
           },
+          screenshot: {
+            name: "rashmi-duplicate-raw-member-and-pending-invite",
+            requireText: ["Member", "Pending", "INVITED", "Admin"],
+            rejectText: ["Something went wrong"],
+          },
+        });
         });
       },
     },
     {
       name: "Frame 4 — Rashmi signs in again and the app reconciles",
       run: async (ctx) => {
+        await withClient(ctx, ADMIN_CDP_URL, async () => {
         await ctx.prove("The next sign-in merges the active member with the invite and deletes the invited ghost", {
           voiceover: vo[3],
           action: async () => {
             const signedIn = await signInEmail(ctx, state.reconcileEmail);
             state.reconciledToken = signedIn.body.token;
             state.reconciledMe = await loadMe(ctx, state.reconciledToken, "Reconciled Rashmi");
+            await openMembersPage(ctx);
           },
           assert: async () => {
             const org = await loadOrg(ctx);
@@ -428,7 +691,14 @@ export default {
               },
               org: summarizeOrg(org, [state.reconcileEmail]),
             }, null, 2));
+            await assertReconciledUi(ctx, state.reconcileEmail);
           },
+          screenshot: {
+            name: "rashmi-reconciled-single-admin-row",
+            requireText: ["Admin"],
+            rejectText: ["Something went wrong"],
+          },
+        });
         });
       },
     },
