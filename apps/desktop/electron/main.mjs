@@ -1095,6 +1095,9 @@ const desktopCommandHandlers = {
   "debugDesktopBootstrapConfig": async (event, ...args) => {
       return workspaceStore.debugDesktopBootstrapConfig();
   },
+  "clearDesktopBootstrapConfig": async (event, ...args) => {
+      return workspaceStore.clearDesktopBootstrapConfig();
+  },
   "setDesktopBootstrapConfig": async (event, ...args) => {
       return workspaceStore.setDesktopBootstrapConfig(args[0] ?? {});
   },

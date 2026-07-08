@@ -415,6 +415,7 @@ export type DesktopCommandMap = {
   // Bootstrap config
   getDesktopBootstrapConfig: { args: []; result: DesktopBootstrapConfig };
   debugDesktopBootstrapConfig: { args: []; result: unknown };
+  clearDesktopBootstrapConfig: { args: []; result: unknown };
   setDesktopBootstrapConfig: {
     args: [config: Partial<DesktopBootstrapConfig>];
     result: DesktopBootstrapConfig;

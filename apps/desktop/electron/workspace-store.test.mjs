@@ -42,6 +42,7 @@ async function withIsolatedBootstrapStore(callback) {
       store,
       canonicalPath: path.join(xdg, "openwork", "desktop-bootstrap.json"),
       legacyPath: path.join(home, ".config", "openwork", "desktop-bootstrap.json"),
+      userDataPath: path.join(root, "userData"),
     });
   } finally {
     restoreEnv("HOME", previousHome);
@@ -277,5 +278,34 @@ test("desktop bootstrap writes include a fresh writtenAt stamp", async () => {
     const persisted = JSON.parse(await readFile(canonicalPath, "utf8"));
     assert.equal(persisted.baseUrl, "https://canonical.example.com");
     assert.equal(Number.isFinite(Date.parse(persisted.writtenAt)), true);
+  });
+});
+
+test("clearDesktopBootstrapConfig removes bootstrap files without deleting workspace state", async () => {
+  await withIsolatedBootstrapStore(async ({ store, canonicalPath, legacyPath, userDataPath }) => {
+    const workspaceStatePath = path.join(userDataPath, "openwork-workspaces.json");
+    await writeBootstrapConfig(canonicalPath, {
+      baseUrl: "https://canonical.example.com",
+      requireSignin: false,
+      writtenAt: "2026-01-02T00:00:00.000Z",
+    });
+    await writeBootstrapConfig(legacyPath, {
+      baseUrl: "https://legacy.example.com",
+      requireSignin: true,
+      writtenAt: "2026-01-01T00:00:00.000Z",
+    });
+    await mkdir(userDataPath, { recursive: true });
+    await writeFile(workspaceStatePath, JSON.stringify({ selectedId: "ws_keep", workspaces: [] }), "utf8");
+
+    await store.clearDesktopBootstrapConfig();
+
+    await assert.rejects(readFile(canonicalPath, "utf8"));
+    await assert.rejects(readFile(legacyPath, "utf8"));
+    const workspaceState = JSON.parse(await readFile(workspaceStatePath, "utf8"));
+    assert.equal(workspaceState.selectedId, "ws_keep");
+
+    const config = await store.getDesktopBootstrapConfig();
+    assert.equal(config.baseUrl, "https://default.example.com");
+    assert.equal(config.requireSignin, false);
   });
 });

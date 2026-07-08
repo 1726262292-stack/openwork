@@ -45,6 +45,7 @@ type CloudAccountSession = Pick<
   | "onActiveOrgChange"
   | "onApplyBaseUrl"
   | "onBaseUrlDraftChange"
+  | "onClearServerConfiguration"
   | "onClearAuthError"
   | "onOpenBrowserAuth"
   | "onOpenControlPlane"
@@ -197,6 +198,7 @@ export function CloudAccountView({ developerMode, session }: CloudAccountViewPro
             baseUrlDraft={session.baseUrlDraft}
             onApplyBaseUrl={session.onApplyBaseUrl}
             onBaseUrlDraftChange={session.onBaseUrlDraftChange}
+            onClearServerConfiguration={session.onClearServerConfiguration}
             onOpenControlPlane={session.onOpenControlPlane}
             onResetBaseUrl={session.onResetBaseUrl}
             sessionBusy={session.sessionBusy}

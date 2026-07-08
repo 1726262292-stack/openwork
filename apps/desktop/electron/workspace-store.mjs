@@ -388,6 +388,19 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return stamped;
   }
 
+  async function clearDesktopBootstrapFiles() {
+    await rm(desktopBootstrapPath(), { force: true });
+    const legacyPath = legacyDesktopBootstrapPath();
+    if (legacyPath) {
+      await rm(legacyPath, { force: true });
+    }
+  }
+
+  async function clearDesktopBootstrapConfig() {
+    await clearDesktopBootstrapFiles();
+    return undefined;
+  }
+
   function defaultWorkspaceOpenworkConfig(workspacePath, preset = null) {
     return {
       version: 1,
@@ -1051,11 +1064,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
 
   async function resetOpenworkState() {
     await rm(workspaceStatePath(), { force: true });
-    await rm(desktopBootstrapPath(), { force: true });
-    const legacyPath = legacyDesktopBootstrapPath();
-    if (legacyPath) {
-      await rm(legacyPath, { force: true });
-    }
+    await clearDesktopBootstrapFiles();
     return undefined;
   }
 
@@ -1063,6 +1072,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     addAuthorizedRoot,
     createRemoteWorkspace,
     createWorkspace,
+    clearDesktopBootstrapConfig,
     debugDesktopBootstrapConfig,
     defaultWorkspaceOpenworkConfig,
     exportConfig,

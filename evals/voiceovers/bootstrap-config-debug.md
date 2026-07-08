@@ -9,3 +9,5 @@ This proof uses an isolated desktop instance, so the bootstrap file shown here i
 3. Alex goes to Cloud account, enters a Cloud control plane URL, and saves it. The page confirms the URL was updated instead of failing silently.
 
 4. Back on Debug, the Bootstrap config diagnostics now show the saved URL together with a writtenAt timestamp, proving the desktop bootstrap file was stamped and persisted.
+
+5. Alex returns to Cloud account and clears the server configuration. The URL returns to the default OpenWork Cloud host, and the temporary bootstrap file is gone without resetting workspaces.

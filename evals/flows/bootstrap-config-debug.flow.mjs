@@ -10,6 +10,7 @@ const vo = await loadVoiceoverParagraphs(FLOW_ID);
 const INITIAL_BASE_URL = "https://app.openworklabs.com";
 const SAVED_BASE_URL = "https://bootstrap-debug.example.test";
 const UPDATED_STATUS = "Updated the Cloud control plane URL. Sign in again to continue.";
+const CLEARED_STATUS = "Cleared the desktop server configuration. OpenWork is using the default Cloud control plane.";
 
 function bootstrapPath(ctx) {
   const rawPath = ctx.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH?.trim();
@@ -45,6 +46,15 @@ async function seedBootstrapFile(ctx) {
 async function readBootstrapFile(ctx) {
   const raw = await readFile(bootstrapPath(ctx), "utf8");
   return JSON.parse(raw);
+}
+
+async function bootstrapFileExists(ctx) {
+  try {
+    await readFile(bootstrapPath(ctx), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function reloadCleanSettingsShell(ctx) {
@@ -206,6 +216,46 @@ export default {
             name: "debug-bootstrap-saved-stamp",
             requireText: ["Bootstrap config", SAVED_BASE_URL, "writtenAt"],
             hashIncludes: "/settings/debug",
+          },
+        });
+      },
+    },
+    {
+      name: "Cloud control plane configuration can be cleared",
+      run: async (ctx) => {
+        await ctx.prove("Clearing the desktop server configuration returns the app to the default control plane", {
+          voiceover: vo[4],
+          action: async () => {
+            await ctx.navigateHash("/settings/cloud-account");
+            await ctx.waitForText("Clear server configuration", { timeoutMs: 30_000 });
+            await ctx.clickText("Clear server configuration", { selector: "button" });
+            await ctx.waitForText("Click again to clear", { timeoutMs: 10_000 });
+            await ctx.clickText("Click again to clear", { selector: "button" });
+            await ctx.waitForText(CLEARED_STATUS, { timeoutMs: 15_000 });
+            await ctx.waitFor(`(() => {
+              const input = Array.from(document.querySelectorAll("input")).find((node) => node.value.includes("app.openworklabs.com"));
+              return Boolean(input);
+            })()`, {
+              timeoutMs: 10_000,
+              label: "default control plane URL restored",
+            });
+          },
+          assert: async () => {
+            await ctx.expectText(CLEARED_STATUS);
+            const inputValue = await ctx.eval(`(() => {
+              const input = Array.from(document.querySelectorAll("input")).find((node) => node.value.includes("app.openworklabs.com"));
+              return input?.value ?? "";
+            })()`);
+            ctx.assert(inputValue === INITIAL_BASE_URL, `Expected default URL ${INITIAL_BASE_URL}, got ${inputValue}`);
+            ctx.assert(!(await bootstrapFileExists(ctx)), "Expected the isolated canonical bootstrap file to be removed.");
+            // With OPENWORK_DESKTOP_BOOTSTRAP_PATH set, the desktop code disables the legacy path
+            // instead of resolving the real user's ~/.config path. Unit coverage asserts legacy removal.
+            ctx.log("Bootstrap file witness: isolated canonical file removed; legacy path is disabled under OPENWORK_DESKTOP_BOOTSTRAP_PATH.");
+          },
+          screenshot: {
+            name: "cloud-url-clear-confirmed",
+            requireText: ["Cloud control plane URL", "Clear server configuration", CLEARED_STATUS],
+            hashIncludes: "/settings/cloud-account",
           },
         });
       },
