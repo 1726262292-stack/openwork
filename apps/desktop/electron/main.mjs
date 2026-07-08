@@ -1615,7 +1615,10 @@ if (isDevMode) {
   desktopCommandHandlers.__evalRelaunch = async () => {
     setTimeout(() => {
       app.relaunch();
-      app.exit(0);
+      // Graceful quit (not app.exit) so before-quit teardown runs and managed
+      // sidecars are stopped — a hard exit orphans them and they can hold
+      // ports (e.g. the CDP debug port) the relaunched instance needs.
+      app.quit();
     }, 150);
     return { ok: true };
   };
