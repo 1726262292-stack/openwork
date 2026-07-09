@@ -900,12 +900,15 @@ function GoogleWorkspaceDialog({
             </div>
           ) : null}
           {configured && !replacingCredentials ? (
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-              <p className="text-[13px] font-semibold text-emerald-950">Credentials saved</p>
-              <p className="mt-1 text-[12px] leading-5 text-emerald-800">
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4 text-emerald-600" />
+                <p className="text-[13px] font-semibold text-gray-900">Credentials saved</p>
+              </div>
+              <p className="mt-1 text-[12px] leading-5 text-gray-500">
                 OpenWork keeps the saved Google client ID and secret when you save permission changes. Replace them only if you are rotating credentials.
               </p>
-              <div className="mt-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 text-[12px] text-emerald-900">
+              <div className="mt-3 rounded-xl border border-gray-100 bg-white px-3 py-2 text-[12px] text-gray-800">
                 Saved client ID: <span className="font-mono">{savedClientId ?? "stored in OpenWork"}</span>
               </div>
               <DenButton className="mt-3" variant="secondary" size="sm" onClick={startReplacingCredentials} disabled={submitting}>
@@ -1062,6 +1065,62 @@ function ConnectionRow({
   );
 }
 
+type SegmentedControlOption<TValue extends string> = {
+  value: TValue;
+  label: string;
+};
+
+function SegmentedControl<TValue extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: SegmentedControlOption<TValue>[];
+  value: TValue;
+  onChange: (value: TValue) => void;
+}) {
+  const gridColumns = options.length === 2 ? "grid-cols-2" : "grid-cols-3";
+
+  return (
+    <div className={`grid ${gridColumns} gap-1 rounded-full border border-gray-200 bg-gray-50 p-1`} role="group">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition ${
+            value === option.value
+              ? "bg-white text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.08)]"
+              : "text-gray-500 hover:text-gray-900"
+          }`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type AddConnectionAccessMode = "everyone" | "teams" | "people";
+
+const AUTH_TYPE_OPTIONS: SegmentedControlOption<ExternalMcpAuthType>[] = [
+  { value: "oauth", label: "OAuth" },
+  { value: "apikey", label: "API key" },
+  { value: "none", label: "None" },
+];
+
+const CREDENTIAL_MODE_OPTIONS: SegmentedControlOption<ExternalMcpCredentialMode>[] = [
+  { value: "per_member", label: "Individual accounts" },
+  { value: "shared", label: "One org account" },
+];
+
+const ACCESS_MODE_OPTIONS: SegmentedControlOption<AddConnectionAccessMode>[] = [
+  { value: "everyone", label: "Everyone" },
+  { value: "teams", label: "Specific teams" },
+  { value: "people", label: "Specific people" },
+];
+
 function AddConnectionDialog({
   open,
   preset,
@@ -1088,7 +1147,7 @@ function AddConnectionDialog({
   const [oauthClientSecret, setOAuthClientSecret] = useState("");
   const [oauthCallback, setOAuthCallback] = useState<string | null>(null);
   const [copiedCallback, setCopiedCallback] = useState(false);
-  const [accessMode, setAccessMode] = useState<"everyone" | "teams" | "people">("everyone");
+  const [accessMode, setAccessMode] = useState<AddConnectionAccessMode>("everyone");
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
@@ -1196,7 +1255,7 @@ function AddConnectionDialog({
         <p className="mt-1 text-[13px] leading-6 text-gray-600">
           {isSlackPreset ? (
             <>
-              Slack MCP uses <span className="font-mono text-[12px]">{url}</span> and needs a pre-registered Slack app. Slack does not support automatic app registration, so paste the Slack app&apos;s OAuth client here; after creation OpenWork shows the exact redirect URL to add in Slack.
+              Slack MCP needs a pre-registered Slack app — Slack does not support automatic app registration. Paste your Slack app&apos;s OAuth client below.
             </>
           ) : "Connect an MCP server org-wide. If it requires OAuth, you'll authorize it in a new tab next."}
         </p>
@@ -1218,25 +1277,14 @@ function AddConnectionDialog({
           {!preset ? (
             <div>
               <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Authentication</label>
-              <div className="flex gap-2">
-                {(["oauth", "apikey", "none"] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => {
-                      setAuthType(option);
-                      if (option !== "oauth") setShowOAuthClient(false);
-                    }}
-                    className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition ${
-                      authType === option
-                        ? "border-gray-900 bg-gray-900 text-white"
-                        : "border-gray-200 text-gray-600 hover:border-gray-300"
-                    }`}
-                  >
-                    {option === "oauth" ? "OAuth" : option === "apikey" ? "API key" : "None"}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                options={AUTH_TYPE_OPTIONS}
+                value={authType}
+                onChange={(option) => {
+                  setAuthType(option);
+                  if (option !== "oauth") setShowOAuthClient(false);
+                }}
+              />
             </div>
           ) : null}
           {authType === "apikey" ? (
@@ -1261,7 +1309,7 @@ function AddConnectionDialog({
               <p className="text-[13px] font-semibold text-gray-900">{isSlackPreset ? "Slack OAuth app" : "OAuth app"}</p>
               <p className="mt-1 text-[12px] leading-5 text-gray-500">
                 {isSlackPreset
-                  ? "Create or use an internal or directory-published Slack app, then paste its Client ID and Client Secret. Slack does not support automatic app registration / DCR; after OpenWork creates the connection, copy the exact redirect URL it shows into that Slack app."
+                  ? "Create or use an internal or directory-published Slack app, then paste its Client ID and Client secret. After you create the connection, OpenWork shows the exact redirect URL to add to that Slack app."
                   : "Create an app for your workspace, then paste its OAuth client here. Each person connects their own account with it — sign-ins stay in your org's cloud."}
               </p>
               <div className="mt-3 space-y-3">
@@ -1289,26 +1337,7 @@ function AddConnectionDialog({
           {authType === "oauth" ? (
             <div>
               <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Whose account does the AI use?</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCredentialMode("per_member")}
-                  className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition ${
-                    credentialMode === "per_member" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:border-gray-300"
-                  }`}
-                >
-                  Individual accounts
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCredentialMode("shared")}
-                  className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition ${
-                    credentialMode === "shared" ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:border-gray-300"
-                  }`}
-                >
-                  One org account
-                </button>
-              </div>
+              <SegmentedControl options={CREDENTIAL_MODE_OPTIONS} value={credentialMode} onChange={setCredentialMode} />
               <p className="mt-1.5 text-[12px] leading-5 text-gray-500">
                 {credentialMode === "per_member"
                   ? "Each person signs in with their own account from Your Connections. Their AI acts as them, with their permissions."
@@ -1319,20 +1348,7 @@ function AddConnectionDialog({
 
           <div>
             <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Who can use this?</label>
-            <div className="flex gap-2">
-              {(["everyone", "teams", "people"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => setAccessMode(option)}
-                  className={`rounded-full border px-3 py-1.5 text-[12px] font-medium transition ${
-                    accessMode === option ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-gray-600 hover:border-gray-300"
-                  }`}
-                >
-                  {option === "everyone" ? "Everyone in the org" : option === "teams" ? "Specific teams" : "Specific people"}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl options={ACCESS_MODE_OPTIONS} value={accessMode} onChange={setAccessMode} />
             {accessMode === "teams" ? (
               <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-xl border border-gray-100 p-2">
                 {teams.length === 0 ? (
@@ -1344,7 +1360,7 @@ function AddConnectionDialog({
                       type="button"
                       onClick={() => setSelectedTeamIds((current) => toggle(current, team.id))}
                       className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[13px] transition ${
-                        selectedTeamIds.includes(team.id) ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-50"
+                        selectedTeamIds.includes(team.id) ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50"
                       }`}
                     >
                       <span className="truncate">{team.name}</span>
@@ -1365,7 +1381,7 @@ function AddConnectionDialog({
                       type="button"
                       onClick={() => setSelectedMemberIds((current) => toggle(current, member.id))}
                       className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[13px] transition ${
-                        selectedMemberIds.includes(member.id) ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-50"
+                        selectedMemberIds.includes(member.id) ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50"
                       }`}
                     >
                       <span className="truncate">{member.user.name || member.user.email}</span>
