@@ -6,6 +6,7 @@ import {
   clickSaveSettings,
   denFetch,
   ensureRendererMounted,
+  ensureWorkspaceReady,
   memberRefresh,
   navigateAdminOrgSettings,
   openAdminPanel,
@@ -41,35 +42,7 @@ async function ensureMemberReady(ctx) {
     return status?.status !== "checking" && status?.user ? status : null;
   }, { timeoutMs: 30_000 });
 
-  const workspacePath = ctx.env.OPENWORK_EVAL_WORKSPACE_PATH?.trim() || "/workspace";
-  const onOnboarding = await ctx.eval("location.hash.includes('/onboarding')");
-  if (onOnboarding) {
-    const hasWorkspaceButton = await ctx.eval(
-      "Boolean([...document.querySelectorAll('button')].find(b => b.innerText.includes('Continue to workspace')))",
-    );
-    if (hasWorkspaceButton) {
-      await ctx.clickText("Continue to workspace");
-      await ctx.waitFor(
-        "location.hash.includes('/welcome') || location.hash.includes('/workspace/') || location.hash.includes('/session')",
-        { timeoutMs: 10_000 },
-      );
-    }
-  }
-  if (await ctx.eval("location.hash.includes('/welcome')")) {
-    await ctx.fill("input", workspacePath);
-    await ctx.clickText("Use this folder", { timeoutMs: 5_000 });
-    await ctx.waitFor(
-      "location.hash.includes('/workspace/') || location.hash.includes('/session')",
-      { timeoutMs: 30_000, label: "workspace route after welcome" },
-    );
-    ctx.log(`Workspace ready at ${workspacePath}`);
-  }
-
-  await ctx.navigateHash("/session");
-  await ctx.waitFor(
-    "window.__openworkControl.listActions().some((action) => action.id === 'browser.open_url' && !action.disabled)",
-    { timeoutMs: 30_000, label: "session browser.open_url action" },
-  );
+  await ensureWorkspaceReady(ctx);
 }
 
 async function getIconUrlInputValue(ctx) {
