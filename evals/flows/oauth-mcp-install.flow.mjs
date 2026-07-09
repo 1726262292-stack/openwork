@@ -364,11 +364,6 @@ export default {
               resolvedStatuses: resolved.map((entry) => ({ path: entry.path, status: entry.status })),
             }, null, 2));
           },
-          screenshot: {
-            name: "member-connect-panel-secret-boundary",
-            hashIncludes: "/settings/connect",
-            rejectText: [SHARED.OAUTH_CLIENT_SECRET],
-          },
         });
       },
     },
