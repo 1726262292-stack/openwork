@@ -387,26 +387,48 @@ export class EvalContext {
     const targetSelector = options.targetId || options.targetUrlIncludes;
     let screenshotClient = this.client;
     let closeScreenshotClient = false;
+    let preCapturedBuffer = null;
     if (targetSelector) {
       if (!this.cdpBaseUrl) {
         throw new EvalError("Targeted screenshots require cdpBaseUrl on the context.");
       }
-      const targets = await listTargets(this.cdpBaseUrl);
-      const target = targets.find((entry) => (
-        entry.type === "page" &&
-        entry.webSocketDebuggerUrl &&
-        (!options.targetId || entry.id === options.targetId) &&
-        (!options.targetUrlIncludes || String(entry.url ?? "").includes(options.targetUrlIncludes))
-      ));
-      if (!target) {
-        throw new EvalError(`No CDP target found for screenshot ${JSON.stringify({ targetId: options.targetId, targetUrlIncludes: options.targetUrlIncludes })}.`);
+      // Connecting to a second (non-primary) CDP target is intermittently
+      // flaky through the Daytona proxy — a fresh connection's first
+      // Page.captureScreenshot call can time out even though the target is
+      // healthy. Retry with a brand-new connection each attempt rather than
+      // failing the whole frame on one flaky round trip.
+      const attempts = 3;
+      let lastError = null;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          const targets = await listTargets(this.cdpBaseUrl);
+          const target = targets.find((entry) => (
+            entry.type === "page" &&
+            entry.webSocketDebuggerUrl &&
+            (!options.targetId || entry.id === options.targetId) &&
+            (!options.targetUrlIncludes || String(entry.url ?? "").includes(options.targetUrlIncludes))
+          ));
+          if (!target) {
+            throw new EvalError(`No CDP target found for screenshot ${JSON.stringify({ targetId: options.targetId, targetUrlIncludes: options.targetUrlIncludes })}.`);
+          }
+          const candidate = await connect(debuggerUrlFor(this.cdpBaseUrl, target));
+          await candidate.send("Page.enable").catch(() => undefined);
+          preCapturedBuffer = await captureScreenshot(candidate);
+          screenshotClient = candidate;
+          closeScreenshotClient = true;
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          this.log(`Targeted screenshot connection attempt ${attempt + 1}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
-      screenshotClient = await connect(debuggerUrlFor(this.cdpBaseUrl, target));
-      closeScreenshotClient = true;
-      await screenshotClient.send("Page.enable").catch(() => undefined);
+      if (lastError) {
+        throw lastError;
+      }
     }
     try {
-      const buffer = await captureScreenshot(screenshotClient);
+      const buffer = preCapturedBuffer ?? await captureScreenshot(screenshotClient);
       await writeFile(join(this.outDir, fileName), buffer);
       this.screenshots.push(fileName);
       const bodyText = await evaluate(screenshotClient, "document.body.innerText").catch(() => "");
