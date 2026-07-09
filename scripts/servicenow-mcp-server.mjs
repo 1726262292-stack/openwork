@@ -13,6 +13,7 @@ const MCP_PATHS = ["/mcp", "/sncapps/mcp-server/mcp/sn_openwork_it"];
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const SCOPES = ["incidents.read", "incidents.write"];
 const canonicalResource = `${issuer}/mcp`;
+const resourceAudiences = new Set(MCP_PATHS.map((path) => `${issuer}${path}`));
 
 const clients = new Map([
   [
@@ -416,9 +417,9 @@ function isMcpPath(pathname) {
   return MCP_PATHS.includes(normalized) ? normalized : null;
 }
 
-function protectedResourceMetadata() {
+function protectedResourceMetadata(resource = canonicalResource) {
   return {
-    resource: canonicalResource,
+    resource,
     authorization_servers: [issuer],
     scopes_supported: SCOPES,
     bearer_methods_supported: ["header"],
@@ -447,6 +448,16 @@ function wellKnownMatches(pathname, kind) {
     if (pathname === `${mcpPath}/.well-known/${kind}`) return true;
   }
   return false;
+}
+
+function protectedResourceMcpPath(pathname) {
+  const root = "/.well-known/oauth-protected-resource";
+  if (pathname === root) return "/mcp";
+  for (const mcpPath of MCP_PATHS) {
+    if (pathname === `${root}${mcpPath}`) return mcpPath;
+    if (pathname === `${mcpPath}/.well-known/oauth-protected-resource`) return mcpPath;
+  }
+  return null;
 }
 
 function basicClient(req) {
@@ -719,9 +730,16 @@ async function issueToken(req, res) {
   oauthError(res, 400, "unsupported_grant_type", `Unsupported grant_type ${grantType}`);
 }
 
-function bearerFailureHeader(description) {
+function normalizeResourceAudience(value) {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+function bearerFailureHeader(description, mcpPath = "") {
+  const resourceMetadata = mcpPath
+    ? `${issuer}/.well-known/oauth-protected-resource${mcpPath}`
+    : `${issuer}/.well-known/oauth-protected-resource`;
   const error = description ? `, error="invalid_token", error_description="${description.replaceAll('"', "'")}"` : "";
-  return `Bearer resource_metadata="${issuer}/.well-known/oauth-protected-resource"${error}`;
+  return `Bearer resource_metadata="${resourceMetadata}"${error}`;
 }
 
 function serviceNowAuthEnvelope(message = "User Not Authenticated", detail = "Required to provide Auth information") {
@@ -735,22 +753,22 @@ function tokenFromRequest(req) {
   const token = accessTokens.get(match[1]);
   if (!token) return { ok: false, description: "Access token is not recognized" };
   if (token.expiresAt < Date.now()) return { ok: false, description: "Access token is expired" };
-  if (token.audience !== canonicalResource) return { ok: false, description: "Access token audience does not match this ServiceNow MCP resource" };
+  if (!resourceAudiences.has(normalizeResourceAudience(token.audience))) return { ok: false, description: "Access token audience does not match this ServiceNow MCP resource" };
   return { ok: true, token };
 }
 
-function rejectProtected(res, validation, serviceNowEnvelope = false) {
-  const headers = { "www-authenticate": bearerFailureHeader(validation.missing ? "" : validation.description) };
+function rejectProtected(res, validation, serviceNowEnvelope = false, mcpPath = "") {
+  const headers = { "www-authenticate": bearerFailureHeader(validation.missing ? "" : validation.description, mcpPath) };
   const body = serviceNowEnvelope
     ? serviceNowAuthEnvelope("User Not Authenticated", validation.missing ? "Required to provide Auth information" : validation.description)
     : { error: validation.missing ? "missing_token" : "invalid_token", error_description: validation.description };
   json(res, 401, body, headers);
 }
 
-function requireProtected(req, res, requiredScope, serviceNowEnvelope = false) {
+function requireProtected(req, res, requiredScope, serviceNowEnvelope = false, mcpPath = "") {
   const validation = tokenFromRequest(req);
   if (!validation.ok) {
-    rejectProtected(res, validation, serviceNowEnvelope);
+    rejectProtected(res, validation, serviceNowEnvelope, mcpPath);
     return null;
   }
   if (requiredScope && !validation.token.scopes.includes(requiredScope)) {
@@ -1264,7 +1282,7 @@ async function handleMcp(req, res, path, rawBody = "") {
   }
 
   if (req.method === "GET") {
-    json(res, 405, { error: "method_not_allowed" }, { allow: "POST, DELETE" });
+    json(res, 405, { error: "method_not_allowed" }, { allow: "POST, DELETE", "www-authenticate": bearerFailureHeader("", path) });
     return;
   }
 
@@ -1274,7 +1292,7 @@ async function handleMcp(req, res, path, rawBody = "") {
     return;
   }
 
-  const token = requireProtected(req, res, null, false);
+  const token = requireProtected(req, res, null, false, path);
   if (!token) return;
   if (!token.scopes.some((scope) => SCOPES.includes(scope))) {
     json(res, 403, { error: "insufficient_scope", error_description: "Token does not include a ServiceNow incident scope" });
@@ -1298,7 +1316,7 @@ async function handleMcp(req, res, path, rawBody = "") {
   }
 
   if (req.method !== "POST") {
-    json(res, 405, { error: "method_not_allowed" }, { allow: "POST, DELETE" });
+    json(res, 405, { error: "method_not_allowed" }, { allow: "POST, DELETE", "www-authenticate": bearerFailureHeader("", path) });
     return;
   }
 
@@ -1363,8 +1381,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (wellKnownMatches(url.pathname, "oauth-protected-resource")) {
-      json(res, 200, protectedResourceMetadata());
+    const prmMcpPath = protectedResourceMcpPath(url.pathname);
+    if (prmMcpPath) {
+      json(res, 200, protectedResourceMetadata(`${issuer}${prmMcpPath}`));
       return;
     }
 

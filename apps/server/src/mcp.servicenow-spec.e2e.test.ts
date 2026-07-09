@@ -317,17 +317,17 @@ describe("servicenow mcp spec compliance", () => {
   test("serves protected-resource and authorization-server metadata without DCR or secrets", async () => {
     const base = activeServer(server).base;
     const prmPaths = [
-      "/.well-known/oauth-protected-resource",
-      "/.well-known/oauth-protected-resource/mcp",
-      "/mcp/.well-known/oauth-protected-resource",
-      "/.well-known/oauth-protected-resource/sncapps/mcp-server/mcp/sn_openwork_it",
-      "/sncapps/mcp-server/mcp/sn_openwork_it/.well-known/oauth-protected-resource",
+      { path: "/.well-known/oauth-protected-resource", resource: `${base}/mcp` },
+      { path: "/.well-known/oauth-protected-resource/mcp", resource: `${base}/mcp` },
+      { path: "/mcp/.well-known/oauth-protected-resource", resource: `${base}/mcp` },
+      { path: "/.well-known/oauth-protected-resource/sncapps/mcp-server/mcp/sn_openwork_it", resource: `${base}${DEEP_MCP_PATH}` },
+      { path: "/sncapps/mcp-server/mcp/sn_openwork_it/.well-known/oauth-protected-resource", resource: `${base}${DEEP_MCP_PATH}` },
     ];
-    for (const path of prmPaths) {
+    for (const { path, resource } of prmPaths) {
       const response = await fetch(`${base}${path}`);
       expect(response.status).toBe(200);
       const payload = recordValue(await jsonBody(response), `prm ${path}`);
-      expect(payload.resource).toBe(`${base}/mcp`);
+      expect(payload.resource).toBe(resource);
       expect(arrayValue(payload.authorization_servers, "authorization_servers")).toEqual([base]);
       expect(arrayValue(payload.scopes_supported, "scopes_supported")).toEqual(["incidents.read", "incidents.write"]);
       expect(payload.resource_name).toBe("ServiceNow (Acme Robotics IT)");
@@ -363,7 +363,7 @@ describe("servicenow mcp spec compliance", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
       });
       expect(missing.status).toBe(401);
-      expect(missing.headers.get("www-authenticate")).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource"`);
+      expect(missing.headers.get("www-authenticate")).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource${path}"`);
 
       const garbage = await fetch(`${base}${path}`, {
         method: "POST",
@@ -371,6 +371,7 @@ describe("servicenow mcp spec compliance", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
       });
       expect(garbage.status).toBe(401);
+      expect(garbage.headers.get("www-authenticate")).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource${path}"`);
       expect(garbage.headers.get("www-authenticate")).toContain('error="invalid_token"');
     }
   });
@@ -457,6 +458,14 @@ describe("servicenow mcp spec compliance", () => {
     const accepted = await mcpCall(base, MCP_PATH, canonical.accessToken, "ping");
     expect(accepted.response.status).toBe(200);
     expect(rpcResult(accepted.payload)).toEqual({});
+
+    const deepAlias = await getTokens(base, "incidents.read", `${base}${DEEP_MCP_PATH}`);
+    const acceptedDeep = await mcpCall(base, DEEP_MCP_PATH, deepAlias.accessToken, "ping");
+    expect(acceptedDeep.response.status).toBe(200);
+    expect(rpcResult(acceptedDeep.payload)).toEqual({});
+    const acceptedMcp = await mcpCall(base, MCP_PATH, deepAlias.accessToken, "ping");
+    expect(acceptedMcp.response.status).toBe(200);
+    expect(rpcResult(acceptedMcp.payload)).toEqual({});
   });
 
   test("refresh grants issue fresh access tokens and recover after access-token expiry", async () => {
@@ -554,9 +563,12 @@ describe("servicenow mcp spec compliance", () => {
     const batch = await mcpPostRaw(base, MCP_PATH, tokens.accessToken, "[]");
     expect(batch.response.status).toBe(400);
     expectRpcError(batch.payload, -32600);
-    const get = await fetch(`${base}${MCP_PATH}`);
-    expect(get.status).toBe(405);
-    expect(get.headers.get("allow")).toBe("POST, DELETE");
+    for (const path of [MCP_PATH, DEEP_MCP_PATH]) {
+      const get = await fetch(`${base}${path}`);
+      expect(get.status).toBe(405);
+      expect(get.headers.get("allow")).toBe("POST, DELETE");
+      expect(get.headers.get("www-authenticate")).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource${path}"`);
+    }
 
     const evil = await mcpCall(base, MCP_PATH, tokens.accessToken, "ping", {}, { Origin: "https://evil.example" });
     expect(evil.response.status).toBe(403);
@@ -741,7 +753,7 @@ describeMaybe("engine completes servicenow oauth (no DCR) and connects", () => {
 
       let callbackDelivered = false;
       try {
-        const res = await fetch(callbackUrl);
+        const res = await fetch(callbackUrl, { signal: AbortSignal.timeout(5_000) });
         callbackDelivered = res.ok;
       } catch {
         callbackDelivered = false;
@@ -797,9 +809,9 @@ describeMaybe("engine completes servicenow oauth (no DCR) and connects", () => {
         return;
       } catch (error) {
         console.log(`[servicenow-mcp-test] deep MCP path failed, falling back to /mcp: ${String(error)}`);
+        const fallback = await attemptEngineConnection(MCP_PATH);
+        throw new Error(`Deep MCP path failed but fallback handled ${fallback.handledPath}: ${String(error)}`);
       }
-      const fallback = await attemptEngineConnection(MCP_PATH);
-      expect(fallback.handledPath).toBe(MCP_PATH);
     },
     150_000,
   );

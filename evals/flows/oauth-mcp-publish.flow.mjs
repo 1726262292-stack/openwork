@@ -28,13 +28,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const SERVICENOW_BASE = "http://127.0.0.1:3979";
+const SERVICENOW_MCP_PATH = "/sncapps/mcp-server/mcp/sn_openwork_it";
+
 export const SHARED = {
   OWNER_EMAIL: "alex@acme.test",
   PASSWORD: "OpenWorkDemo123!",
   SKILL_NAME: "laptop-refresh-policy",
   SKILL_DESCRIPTION: "Check whether a laptop is eligible for refresh per IT policy.",
   MCP_NAME: "acme-servicenow",
-  MCP_URL: "http://127.0.0.1:3979/mcp",
+  MCP_URL: `${SERVICENOW_BASE}${SERVICENOW_MCP_PATH}`,
   OAUTH_CLIENT_ID: "acme-desktop-client",
   OAUTH_CLIENT_SECRET: "acme-oauth-secret-98765",
   OAUTH_SCOPE: "incidents.read",
@@ -45,7 +48,6 @@ export const SHARED = {
 const SKILL_CONTENT = `---\nname: ${SHARED.SKILL_NAME}\ndescription: ${SHARED.SKILL_DESCRIPTION}\n---\n\n## When to use\n- Use when someone asks if their laptop qualifies for a hardware refresh.\n\nLook up the device age and the IT refresh policy, then answer with eligibility and next steps.\n`;
 
 const CLICK_ANY = "button, [role=button], a, div, article, li, label";
-const SERVICENOW_BASE = "http://127.0.0.1:3979";
 const SERVICENOW_SCRIPT = fileURLToPath(new URL("../../scripts/servicenow-mcp-server.mjs", import.meta.url));
 
 async function serviceNowHealth() {

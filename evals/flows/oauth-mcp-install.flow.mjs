@@ -40,6 +40,7 @@ const SHARED = {
 
 const CLICK_ANY = "button, [role=button], a, div, article, li, label";
 const SERVICENOW_BASE = "http://127.0.0.1:3979";
+const SERVICENOW_MCP_PATH = "/sncapps/mcp-server/mcp/sn_openwork_it";
 const SERVICENOW_SCRIPT = fileURLToPath(new URL("../../scripts/servicenow-mcp-server.mjs", import.meta.url));
 
 async function serviceNowHealth() {
@@ -429,12 +430,12 @@ export default {
             const labels = recent.map((entry) => `${entry.method} ${entry.path}${entry.jsonrpcMethod ? ` ${entry.jsonrpcMethod}` : ""}`);
             ctx.recordEvidence({
               type: "assertion",
-              status: labels.includes("GET /oauth_auth.do") && labels.includes("POST /oauth_token.do") && labels.some((label) => label === "POST /mcp tools/list") ? "passed" : "failed",
+              status: labels.includes("GET /oauth_auth.do") && labels.includes("POST /oauth_token.do") && labels.some((label) => label === `POST ${SERVICENOW_MCP_PATH} tools/list`) ? "passed" : "failed",
               assertion: `ServiceNow saw OAuth + tools/list after member sign-in: ${labels.join(", ")}`,
             });
             ctx.assert(labels.includes("GET /oauth_auth.do"), "ServiceNow did not see GET /oauth_auth.do after Sign in.");
             ctx.assert(labels.includes("POST /oauth_token.do"), "ServiceNow did not see POST /oauth_token.do after Sign in.");
-            ctx.assert(labels.some((label) => label === "POST /mcp tools/list"), "ServiceNow did not see authenticated MCP tools/list after Sign in.");
+            ctx.assert(labels.some((label) => label === `POST ${SERVICENOW_MCP_PATH} tools/list`), "ServiceNow did not see authenticated MCP tools/list after Sign in.");
             await ctx.expectNoText(SHARED.OAUTH_CLIENT_SECRET);
             await scrollCardIntoView(ctx);
           },
