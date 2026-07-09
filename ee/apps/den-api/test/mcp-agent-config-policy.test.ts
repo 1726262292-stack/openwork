@@ -91,15 +91,24 @@ describe("agent-configurable org connections policy", () => {
   test("agent capability search source filter can restrict searches to skills", () => {
     expect(searchCapabilitySourceFilter()).toEqual({
       api: true,
+      admin: true,
       mcp: true,
       marketplace: true,
       skills: true,
     })
     expect(searchCapabilitySourceFilter("skills")).toEqual({
       api: false,
+      admin: false,
       mcp: false,
       marketplace: true,
       skills: true,
+    })
+    expect(searchCapabilitySourceFilter("admin")).toEqual({
+      api: false,
+      admin: true,
+      mcp: false,
+      marketplace: false,
+      skills: false,
     })
   })
 

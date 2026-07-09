@@ -1,11 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPTransport } from "@hono/mcp"
-import { eq } from "@openwork-ee/den-db/drizzle"
-import { AuthUserTable } from "@openwork-ee/den-db/schema"
-import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
-import { db } from "../db.js"
-import { isAdminEmailAllowed } from "../middleware/admin.js"
+import { isPlatformAdminUserId } from "../middleware/admin.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { getMcpResourceUrl, verifyMcpRequest } from "./auth.js"
 import { protectedResourceMetadata } from "./index.js"
@@ -44,22 +40,7 @@ export function registerAdminMcpRoutes<T extends { Variables: Record<string, unk
       return principal
     }
 
-    let userId: ReturnType<typeof normalizeDenTypeId<"user">> | null = null
-    try {
-      userId = normalizeDenTypeId("user", principal.userId)
-    } catch {
-      userId = null
-    }
-
-    const user = userId
-      ? (await db
-          .select({ email: AuthUserTable.email })
-          .from(AuthUserTable)
-          .where(eq(AuthUserTable.id, userId))
-          .limit(1))[0]
-      : undefined
-
-    if (!user || !(await isAdminEmailAllowed(user.email))) {
+    if (!(await isPlatformAdminUserId(principal.userId))) {
       return c.json({
         error: "admin_required",
         message: "The den-admin MCP is restricted to allowlisted platform admins.",

@@ -17,7 +17,7 @@ import { getParameters, hasJsonRequestBody, pathParameterNamesFromTemplate, type
  */
 
 export const SEARCH_CAPABILITIES_TOOL_NAME = "search_capabilities"
-export type SearchCapabilityType = "all" | "api" | "mcp" | "marketplace" | "skills"
+export type SearchCapabilityType = "all" | "api" | "admin" | "mcp" | "marketplace" | "skills"
 
 export type CapabilityMatch = {
   name: string
@@ -37,6 +37,7 @@ export function searchCapabilitySourceFilter(type?: SearchCapabilityType) {
   const capabilityType = type ?? "all"
   return {
     api: capabilityType === "all" || capabilityType === "api",
+    admin: capabilityType === "all" || capabilityType === "admin",
     mcp: capabilityType === "all" || capabilityType === "mcp",
     marketplace: capabilityType === "all" || capabilityType === "marketplace" || capabilityType === "skills",
     skills: capabilityType === "all" || capabilityType === "skills",

@@ -18,15 +18,18 @@ import { executeMarketplaceCapability, parseMarketplaceCapabilityName, searchMar
 import { executeSkillCapability, parseSkillCapabilityName, searchSkillCapabilities } from "./skill-capabilities.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { env } from "../env.js"
+import { isPlatformAdminUserId } from "../middleware/admin.js"
+import { executeAvailableAdminCapability, parseAdminCapabilityName, searchAvailableAdminCapabilities } from "./admin-capabilities.js"
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
-const searchCapabilityTypeSchema = z.enum(["all", "api", "mcp", "marketplace", "skills"])
+const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 const skillMarketplaceObjectTypes: MarketplaceCapabilityObjectType[] = ["skill"]
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 45_000
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud connection intentionally exposes exactly two tools: search_capabilities and execute_capability.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
+  "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
   "Do not tell users to configure OAuth clients or local extensions for these capabilities; organization connections are managed in the OpenWork Cloud dashboard / Settings > Connect.",
   "When a search match or execute result carries status needs_connection or a connection error, relay the fix to the user and stop — do not retry unchanged and do not improvise workarounds through other tools.",
@@ -169,6 +172,11 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
       userId: principal.userId,
       organizationId: principal.organizationId,
     })
+    let platformAdmin: Promise<boolean> | undefined
+    const resolvePlatformAdmin = () => {
+      platformAdmin ??= isPlatformAdminUserId(principal.userId)
+      return platformAdmin
+    }
     const organizationId = normalizeDenTypeId("organization", principal.organizationId)
     const organizationRows = await db
       .select({ metadata: OrganizationTable.metadata })
@@ -187,7 +195,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         description: [
           "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
           "there is no list of individually-named tools to browse. Always search first.",
-          "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts) and org-connected external MCPs such as Notion, Linear, Slack, or other services added in the OpenWork Cloud dashboard / Settings > Connect.",
+          "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
           "Each match includes pathParams/queryParams/hasBody describing exactly what execute_capability needs.",
           "Skill matches use method SKILL and return stored SKILL.md content when executed.",
@@ -195,7 +203,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         inputSchema: z.object({
           query: z.string().min(1).describe("Keywords describing the capability you need, e.g. \"create organization\" or \"list workers\"."),
           limit: z.number().int().min(1).max(20).optional().describe("Max number of matches to return. Defaults to 5."),
-          type: searchCapabilityTypeSchema.optional().describe("Optional source filter. all searches every source; api searches Den API capabilities; mcp searches connected external MCP tools; marketplace searches marketplace plugin capabilities; skills searches native skills and marketplace skill objects. Defaults to all."),
+          type: searchCapabilityTypeSchema.optional().describe("Optional source filter. all searches every available source; api searches Den API capabilities; admin searches allowlisted platform-admin tools; mcp searches connected external MCP tools; marketplace searches marketplace plugin capabilities; skills searches native skills and marketplace skill objects. Defaults to all."),
         }),
       },
       async ({ query, limit, type }) => {
@@ -203,6 +211,9 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         const sourceFilter = searchCapabilitySourceFilter(type)
         const marketplaceObjectTypes = type === "skills" ? skillMarketplaceObjectTypes : undefined
         const restMatches = sourceFilter.api ? searchCapabilities(catalog, query, boundedLimit) : []
+        const adminMatches = sourceFilter.admin
+          ? await searchAvailableAdminCapabilities(await resolvePlatformAdmin(), query, boundedLimit)
+          : []
         // Merged in from each connected External MCP Connection's live
         // tools/list (capability-sources/external-mcp-client.ts) — a
         // Notion/Linear/Stripe/... connection an admin added in Den shows
@@ -234,7 +245,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
             limit: boundedLimit,
           })
           : []
-        const matches = [...restMatches, ...externalMatches, ...marketplaceMatches, ...skillMatches]
+        const matches = [...restMatches, ...adminMatches, ...externalMatches, ...marketplaceMatches, ...skillMatches]
           .sort((a, b) => b.score - a.score)
           .slice(0, boundedLimit)
         const text = matches.length > 0
@@ -265,6 +276,11 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         return executeCapabilityWithBudget({
           capability: name,
           invoke: async (): Promise<ExecuteCapabilityToolResult> => {
+            const adminResult = parseAdminCapabilityName(name)
+              ? await executeAvailableAdminCapability(await resolvePlatformAdmin(), name, body)
+              : null
+            if (adminResult) return adminResult
+
             const external = parseExternalCapabilityName(name)
             if (external) {
               if (!externalMcpConnectionsEnabled) {

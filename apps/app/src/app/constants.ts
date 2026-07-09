@@ -176,26 +176,6 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     defaultHidden: true,
   },
   {
-    get name() { return t("mcp.quick_connect_openwork_admin_title"); },
-    serverName: "openwork-admin",
-    get description() { return t("mcp.quick_connect_openwork_admin_desc"); },
-    get url() {
-      // den-api serves the admin MCP at /mcp/admin, next to the org-scoped
-      // /mcp endpoint. Access is enforced server-side via the platform-admin
-      // allowlist, so this entry stays hidden from the default catalog.
-      try {
-        return `${getDenMcpUrl()}/admin`;
-      } catch {
-        return "https://app.openworklabs.com/api/den/mcp/admin";
-      }
-    },
-    type: "remote",
-    oauth: true,
-    kind: "mcp",
-    iconSrc: "/openwork-mark.svg",
-    defaultHidden: true,
-  },
-  {
     get name() { return t("mcp.quick_connect_openwork_ui_title"); },
     serverName: "openwork-ui",
     get description() { return t("mcp.quick_connect_openwork_ui_desc"); },
