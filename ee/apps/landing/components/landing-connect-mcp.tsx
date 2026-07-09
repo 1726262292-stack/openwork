@@ -307,37 +307,6 @@ export function LandingConnectMcp() {
           </div>
 
           <div className="flex flex-1">
-            <div className="hidden w-[170px] flex-col border-r border-gray-100 bg-gray-50/50 p-3 sm:flex">
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between rounded-2xl bg-white px-2.5 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-400" />
-                    <span className="text-[11px] font-medium text-[#011627]">Meeting Brief</span>
-                  </div>
-                  <span className="text-[9px] text-green-600">Active</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-teal-400 to-cyan-500" />
-                    <span className="truncate text-[11px] font-medium text-gray-600">Granola</span>
-                    <span className="text-[9px] text-gray-400">MCP</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-400 to-purple-500" />
-                    <span className="text-[11px] font-medium text-gray-600">review-pr</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-teal-400 to-cyan-500" />
-                    <span className="text-[11px] font-medium text-gray-600">Linear</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <div className="flex flex-1 flex-col">
               <div className="flex flex-1 flex-col gap-4 p-4">
                 <div className="self-end rounded-2xl rounded-br-md bg-gray-100 px-4 py-2.5 text-[12px] leading-relaxed text-[#011627]">
