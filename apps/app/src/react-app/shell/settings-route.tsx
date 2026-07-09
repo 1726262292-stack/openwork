@@ -2027,6 +2027,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onToggleAnalytics={() => {
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
             }}
+            desktopNotifications={local.prefs.desktopNotifications}
+            onDesktopNotificationsChange={(desktopNotifications) => {
+              local.setPrefs((previous) => ({ ...previous, desktopNotifications }));
+            }}
             memoryEnabled={memoryEnabled}
             onToggleMemory={toggleMemory}
           />

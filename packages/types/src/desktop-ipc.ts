@@ -49,6 +49,17 @@ export type EngineInfo = {
   execution: OpencodeExecutionSnapshot | null;
 };
 
+export type DesktopNotificationInput = {
+  title: string;
+  body?: string;
+  href?: string;
+  silent?: boolean;
+};
+
+export type DesktopNotificationResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
 export type OpenworkServerInfo = {
   running: boolean;
   remoteAccessEnabled: boolean;
@@ -405,6 +416,10 @@ export type DesktopCommandMap = {
 
   // App / bridge info
   appBuildInfo: { args: []; result: AppBuildInfo };
+  desktopNotificationShow: {
+    args: [input: DesktopNotificationInput];
+    result: DesktopNotificationResult;
+  };
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getOpenworkUiMcpCommand: { args: []; result: string[] };
   getComputerUseMcpCommand: { args: []; result: string[] };
