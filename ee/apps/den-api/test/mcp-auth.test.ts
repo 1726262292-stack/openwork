@@ -17,10 +17,20 @@ function seedRequiredEnv() {
 }
 
 let mcpAuth: typeof import("../src/mcp/auth.js")
+let mcpRoutes: typeof import("../src/mcp/index.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  mcpAuth = await import("../src/mcp/auth.js")
+  ;[mcpAuth, mcpRoutes] = await Promise.all([
+    import("../src/mcp/auth.js"),
+    import("../src/mcp/index.js"),
+  ])
+})
+
+test("MCP resource metadata requests an offline refresh grant", () => {
+  expect(mcpRoutes.protectedResourceMetadata(new Request("http://127.0.0.1:8790/mcp"))).toMatchObject({
+    scopes_supported: ["mcp:read", "mcp:write", "offline_access"],
+  })
 })
 
 test("MCP JWT verification pins issuer, audience, and signing algorithm", () => {

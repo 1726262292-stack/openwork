@@ -18,7 +18,7 @@ import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
 import { publicRequestUrl } from "../../request-url.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
-import type { AuthContextVariables } from "../../session.js"
+import { revokeBearerSession, type AuthContextVariables } from "../../session.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
 import { registerScimAuthRoutes } from "./scim.js"
 
@@ -70,6 +70,11 @@ export function isBetterAuthEmailPasswordRequest(request: Request) {
   const url = new URL(request.url)
   const path = getBetterAuthProxyPath(url.pathname)
   return request.method.toUpperCase() === "POST" && (path === "/sign-in/email" || path === "/sign-up/email")
+}
+
+export function isBetterAuthSignOutRequest(request: Request) {
+  const url = new URL(request.url)
+  return request.method.toUpperCase() === "POST" && getBetterAuthProxyPath(url.pathname) === "/sign-out"
 }
 
 export function canSetActiveOrganizationInSingleOrgMode(input: {
@@ -263,6 +268,15 @@ async function handleAuthRequest(request: Request) {
   const breachedPasswordResponse = await getBreachedPasswordResponse(request)
   if (breachedPasswordResponse) {
     return breachedPasswordResponse
+  }
+
+  // Desktop sessions use an Authorization bearer and intentionally send no
+  // cookies. Better Auth's sign-out endpoint only deletes the cookie-backed
+  // session, so explicitly revoke the bearer row first; auth.handler still
+  // runs to preserve its normal idempotent response and cookie cleanup for
+  // browser callers.
+  if (isBetterAuthSignOutRequest(request)) {
+    await revokeBearerSession(request.headers)
   }
 
   const response = await auth.handler(request)

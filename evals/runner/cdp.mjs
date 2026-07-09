@@ -105,6 +105,8 @@ export function connect(webSocketDebuggerUrl, { connectTimeoutMs = DEFAULT_CDP_T
       opened = true;
       if (connectTimer) clearTimeout(connectTimer);
       resolve({
+        targetId: new URL(webSocketDebuggerUrl).pathname.split("/").pop() ?? null,
+        webSocketDebuggerUrl,
         close: () => socket.close(),
         send(method, params = {}) {
           const id = nextId++;

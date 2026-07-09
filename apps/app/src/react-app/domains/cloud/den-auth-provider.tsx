@@ -33,7 +33,37 @@ import {
 } from "../../../app/lib/deep-link-bridge";
 import { parseDenAuthDeepLink } from "../../../app/lib/openwork-links";
 
-export type DenAuthStatus = "checking" | "signed_in" | "signed_out";
+export type DenAuthStatus =
+  | "checking"
+  | "signed_in"
+  | "unavailable"
+  | "signed_out";
+
+export const DEN_AUTH_SIGNAL_RETRY_COOLDOWN_MS = 5_000;
+export const DEN_AUTH_UNAVAILABLE_RETRY_INTERVAL_MS = 30_000;
+
+export function resolveDenAuthFailureStatus(
+  error: unknown,
+): Extract<DenAuthStatus, "signed_out" | "unavailable"> {
+  return error instanceof DenApiError && error.status === 401
+    ? "signed_out"
+    : "unavailable";
+}
+
+export function hasRetainedDenSession(status: DenAuthStatus): boolean {
+  return status === "signed_in" || status === "unavailable";
+}
+
+export function shouldRetryDenAuthOnSignal(input: {
+  status: DenAuthStatus;
+  online: boolean;
+  now: number;
+  lastAttemptAt: number | null;
+}): boolean {
+  if (input.status !== "unavailable" || !input.online) return false;
+  if (input.lastAttemptAt === null || input.now < input.lastAttemptAt) return true;
+  return input.now - input.lastAttemptAt >= DEN_AUTH_SIGNAL_RETRY_COOLDOWN_MS;
+}
 
 export type DenAuthStore = {
   status: DenAuthStatus;
@@ -61,7 +91,15 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
   const [error, setError] = useState<string | null>(null);
   // Monotonic token so stale async refreshes can't clobber a newer result.
   const refreshTokenRef = useRef(0);
+  const statusRef = useRef<DenAuthStatus>("checking");
+  const lastSignalRetryAtRef = useRef<number | null>(null);
+  const signalRetryInFlightRef = useRef(false);
   const handledGrantsRef = useRef<Set<string>>(new Set());
+
+  const updateStatus = useCallback((nextStatus: DenAuthStatus) => {
+    statusRef.current = nextStatus;
+    setStatus(nextStatus);
+  }, []);
 
   const refresh = useCallback(async () => {
     const currentRun = ++refreshTokenRef.current;
@@ -71,11 +109,17 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
     if (!token) {
       setUser(null);
       setError(null);
-      setStatus("signed_out");
+      lastSignalRetryAtRef.current = null;
+      updateStatus("signed_out");
       return;
     }
 
-    setStatus("checking");
+    // Keep a usable session visible during background checks. Only the first
+    // check (or a refresh from a confirmed signed-out state) should gate the
+    // app while the request is in flight.
+    if (statusRef.current === "signed_out") {
+      updateStatus("checking");
+    }
 
     try {
       const nextUser = await createDenClient({
@@ -94,23 +138,26 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
 
       setUser(nextUser);
       setError(null);
-      setStatus("signed_in");
+      lastSignalRetryAtRef.current = null;
+      updateStatus("signed_in");
     } catch (nextError) {
       if (currentRun !== refreshTokenRef.current) return;
 
-      if (nextError instanceof DenApiError && nextError.status === 401) {
+      const failureStatus = resolveDenAuthFailureStatus(nextError);
+      if (failureStatus === "signed_out") {
         clearDenSession();
+        setUser(null);
+        lastSignalRetryAtRef.current = null;
       }
 
-      setUser(null);
       setError(
         nextError instanceof Error
           ? nextError.message
           : "Failed to restore OpenWork Cloud session.",
       );
-      setStatus("signed_out");
+      updateStatus(failureStatus);
     }
-  }, []);
+  }, [updateStatus]);
 
   useEffect(() => {
     void refresh();
@@ -124,6 +171,43 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
     window.addEventListener(denSessionUpdatedEvent, handleSessionUpdated);
     return () => {
       window.removeEventListener(denSessionUpdatedEvent, handleSessionUpdated);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const retryUnavailableSession = () => {
+      const now = Date.now();
+      if (
+        signalRetryInFlightRef.current ||
+        !shouldRetryDenAuthOnSignal({
+          status: statusRef.current,
+          online: window.navigator.onLine !== false,
+          now,
+          lastAttemptAt: lastSignalRetryAtRef.current,
+        })
+      ) {
+        return;
+      }
+
+      lastSignalRetryAtRef.current = now;
+      signalRetryInFlightRef.current = true;
+      void refresh().finally(() => {
+        signalRetryInFlightRef.current = false;
+      });
+    };
+
+    window.addEventListener("online", retryUnavailableSession);
+    window.addEventListener("focus", retryUnavailableSession);
+    const retryInterval = window.setInterval(
+      retryUnavailableSession,
+      DEN_AUTH_UNAVAILABLE_RETRY_INTERVAL_MS,
+    );
+    return () => {
+      window.removeEventListener("online", retryUnavailableSession);
+      window.removeEventListener("focus", retryUnavailableSession);
+      window.clearInterval(retryInterval);
     };
   }, [refresh]);
 
@@ -220,7 +304,7 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
       status,
       user,
       error,
-      isSignedIn: status === "signed_in",
+      isSignedIn: hasRetainedDenSession(status),
       refresh,
     }),
     [error, refresh, status, user],

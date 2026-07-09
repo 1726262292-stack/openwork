@@ -83,10 +83,20 @@ export class EvalContext {
   }
 
   /** Returns focus to whichever tab was active before the last switchToNewTab(). */
-  switchBack() {
+  async switchBack() {
     const previous = this.tabStack.pop();
     if (previous) {
+      try {
+        this.client?.close();
+      } catch {
+        // The popup may already have closed itself after OAuth completion.
+      }
       this.client = previous;
+      if (this.cdpBaseUrl && previous.targetId) {
+        const baseUrl = this.cdpBaseUrl.replace(/\/$/, "");
+        await fetch(`${baseUrl}/json/activate/${encodeURIComponent(previous.targetId)}`).catch(() => undefined);
+      }
+      await previous.send("Page.bringToFront").catch(() => undefined);
     }
   }
 

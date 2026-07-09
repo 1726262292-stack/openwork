@@ -24,6 +24,7 @@ import {
   type DenSessionUpdatedDetail,
 } from "@/app/lib/den-session-events";
 import { t } from "@/i18n";
+import { useDenAuth } from "../../cloud/den-auth-provider";
 import { tryOpenBrowserAuthUrl } from "../../cloud/open-browser-auth";
 import { useCloudSession } from "./cloud-session-provider";
 import { defaultControlPlaneUrl, saveControlPlaneUrl } from "./control-plane-url";
@@ -72,6 +73,7 @@ export function useDenSession({
   developerMode,
   openLink,
 }: UseDenSessionProps) {
+  const denAuth = useDenAuth();
   const {
     authToken,
     baseUrl,
@@ -104,7 +106,7 @@ export function useDenSession({
     [activeOrgId, orgs],
   );
 
-  const isSignedIn = Boolean(user && authToken.trim());
+  const isSignedIn = Boolean(authToken.trim()) && (Boolean(user) || denAuth.isSignedIn);
 
   const summaryTone = React.useMemo<SettingsTone>(() => {
     if (authError || orgsError) {
@@ -134,6 +136,12 @@ export function useDenSession({
       activeOrgName: activeOrg?.name ?? null,
     });
   }, [activeOrg, activeOrgId, authToken, baseUrl]);
+
+  React.useEffect(() => {
+    if (authToken.trim() && denAuth.user) {
+      setUser(denAuth.user);
+    }
+  }, [authToken, denAuth.user, setUser]);
 
   React.useEffect(() => {
     setIsSignedIn(isSignedIn);
@@ -335,9 +343,9 @@ export function useDenSession({
         if (cancelled) return;
         if (error instanceof DenApiError && error.status === 401) {
           clearSignedInState();
-        } else {
-          clearSessionState();
         }
+        // A timeout, offline state, or server failure does not invalidate the
+        // last confirmed session. Keep it available while surfacing the error.
         setAuthError(error instanceof Error ? error.message : t("den.error_no_session"));
       })
       .finally(() => {
@@ -484,17 +492,21 @@ export function useDenSession({
     if (authBusy) return;
 
     setAuthBusy(true);
+    setAuthError(null);
     try {
       if (authToken.trim()) {
         await client.signOut();
       }
-    } catch {
-      // Ignore remote sign-out failures.
+      clearSignedInState(t("den.status_signed_out"));
+    } catch (error) {
+      setAuthError(
+        error instanceof DenApiError
+          ? error.message
+          : t("den.error_signout_failed"),
+      );
     } finally {
       setAuthBusy(false);
     }
-
-    clearSignedInState(t("den.status_signed_out"));
   }, [authBusy, authToken, clearSignedInState, client]);
 
   const handleActiveOrgChange = React.useCallback(

@@ -217,6 +217,10 @@ export function CloudAccountView({ developerMode, session }: CloudAccountViewPro
 
         {session.baseUrlError ? <SettingsNotice tone="error">{session.baseUrlError}</SettingsNotice> : null}
 
+        {isSignedIn && session.authError ? (
+          <SettingsNotice tone="error">{session.authError}</SettingsNotice>
+        ) : null}
+
         {statusMessage && !session.authError && !session.orgsError ? (
           <SettingsNotice>{statusMessage}</SettingsNotice>
         ) : null}

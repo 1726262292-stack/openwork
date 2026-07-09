@@ -41,6 +41,7 @@ const STORAGE_AUTH_TOKEN = "openwork.den.authToken";
 const STORAGE_ACTIVE_ORG_ID = "openwork.den.activeOrgId";
 const STORAGE_ACTIVE_ORG_SLUG = "openwork.den.activeOrgSlug";
 const STORAGE_ACTIVE_ORG_NAME = "openwork.den.activeOrgName";
+export const CLOUD_MCP_SYNC_MARKER_STORAGE_KEY = "openwork.den.mcp.sync";
 const ORG_PROXY_HEADER = "x-openwork-legacy-org-id";
 const DEFAULT_DEN_TIMEOUT_MS = 12_000;
 
@@ -749,6 +750,9 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
     window.localStorage.setItem(STORAGE_BASE_URL, baseUrl);
   }
   window.localStorage.removeItem(LEGACY_STORAGE_API_BASE_URL);
+  if (previous.baseUrl !== baseUrl || (previous.authToken ?? "") !== authToken) {
+    window.localStorage.removeItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY);
+  }
   if (authToken) {
     window.localStorage.setItem(STORAGE_AUTH_TOKEN, authToken);
   } else {
@@ -804,6 +808,7 @@ export function clearDenSession(options?: { includeBaseUrls?: boolean }) {
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_ID);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
+  window.localStorage.removeItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY);
 
   dispatchDenSettingsChanged({
     settings: readDenSettings(),
@@ -1887,7 +1892,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
     },
 
     async signOut() {
-      await requestJsonRaw(baseUrls, "/api/auth/sign-out", {
+      await requestJson<unknown>(baseUrls, "/api/auth/sign-out", {
         method: "POST",
         token,
         body: {},

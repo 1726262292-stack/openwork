@@ -37,6 +37,8 @@ const DEMO_EMAIL = process.env.DEN_DEMO_OWNER_EMAIL ?? "alex@acme.test";
 const DEMO_PASSWORD = process.env.DEN_DEMO_OWNER_PASSWORD ?? "OpenWorkDemo123!";
 const MYSQL_CONTAINER = "openwork-web-local-mysql";
 const COMPOSE_ARGS = ["compose", "-p", "openwork-den-local", "-f", "packaging/docker/docker-compose.web-local.yml"];
+const DEN_WEB_ORIGIN = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? "http://localhost:3005").replace(/\/+$/, "");
+const DEN_TRUSTED_ORIGINS = `${DEN_BASE_URL},${DEN_WEB_ORIGIN},http://localhost:5173,http://127.0.0.1:5173`;
 
 const DEN_ENV = {
   OPENWORK_DEV_MODE: "1",
@@ -45,8 +47,8 @@ const DEN_ENV = {
   DEN_DB_ENCRYPTION_KEY: "local-dev-db-encryption-key-please-change-1234567890",
   BETTER_AUTH_SECRET: "local-dev-secret-not-for-production-use!!",
   BETTER_AUTH_URL: DEN_BASE_URL,
-  DEN_BETTER_AUTH_TRUSTED_ORIGINS: `${DEN_BASE_URL},http://localhost:5173,http://127.0.0.1:5173`,
-  CORS_ORIGINS: `${DEN_BASE_URL},http://localhost:5173,http://127.0.0.1:5173`,
+  DEN_BETTER_AUTH_TRUSTED_ORIGINS: DEN_TRUSTED_ORIGINS,
+  CORS_ORIGINS: DEN_TRUSTED_ORIGINS,
   PROVISIONER_MODE: "stub",
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? "sk_test_openwork_eval",
   STRIPE_INFERENCE_PRICE_ID: process.env.STRIPE_INFERENCE_PRICE_ID ?? "price_openwork_models_eval",

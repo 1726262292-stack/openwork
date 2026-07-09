@@ -35,7 +35,11 @@ export function protectedResourceMetadata(request: Request) {
   return {
     resource,
     authorization_servers: [resource.replace(/\/mcp$/, "/api/auth")],
-    scopes_supported: ["mcp:read", "mcp:write"],
+    // The MCP SDK uses protected-resource scopes for both dynamic client
+    // registration and the authorization request. Advertising offline access
+    // lets it explicitly request a rotating refresh grant (and prompt for
+    // consent) instead of falling back to browser auth every 15 minutes.
+    scopes_supported: ["mcp:read", "mcp:write", "offline_access"],
     bearer_methods_supported: ["header"],
   }
 }

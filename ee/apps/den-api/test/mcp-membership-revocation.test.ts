@@ -9,6 +9,7 @@ function seedRequiredEnv() {
 }
 
 let selectedRows: Array<{ id: string }> = []
+let sessionUpdates: Array<{ expiresAt: Date; updatedAt: Date }> = []
 let jwtPayload: Record<string, unknown> = {}
 let mcpAuth: typeof import("../src/mcp/auth.js")
 
@@ -29,6 +30,14 @@ beforeAll(async () => {
 
   mock.module("../src/db.js", () => ({
     db: {
+      update: () => ({
+        set: (values: { expiresAt: Date; updatedAt: Date }) => ({
+          where: () => {
+            sessionUpdates.push(values)
+            return Promise.resolve()
+          },
+        }),
+      }),
       select: () => ({
         from: () => ({
           where: () => ({
@@ -73,12 +82,18 @@ test("MCP membership check rejects malformed principals", async () => {
 
 test("MCP bearer tokens tied to deleted sessions are rejected", async () => {
   const sessionId = createDenTypeId("session")
+  const now = new Date("2026-07-09T12:00:00.000Z")
 
+  sessionUpdates = []
   selectedRows = [{ id: sessionId }]
-  await expect(mcpAuth.hasActiveMcpSession(sessionId)).resolves.toBe(true)
+  await expect(mcpAuth.hasActiveMcpSession(sessionId, now)).resolves.toBe(true)
+  expect(sessionUpdates).toEqual([{
+    updatedAt: now,
+    expiresAt: new Date("2026-07-16T12:00:00.000Z"),
+  }])
 
   selectedRows = []
-  await expect(mcpAuth.hasActiveMcpSession(sessionId)).resolves.toBe(false)
+  await expect(mcpAuth.hasActiveMcpSession(sessionId, now)).resolves.toBe(false)
   await expect(mcpAuth.hasActiveMcpSession("not-a-session-id")).resolves.toBe(false)
 })
 

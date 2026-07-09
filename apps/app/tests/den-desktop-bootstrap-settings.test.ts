@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  clearDenSession,
+  CLOUD_MCP_SYNC_MARKER_STORAGE_KEY,
   initializeDenBootstrapConfig,
   readDenSettings,
   setDenBootstrapConfig,
@@ -104,5 +106,43 @@ describe("desktop Den bootstrap settings", () => {
     expect(window.localStorage.getItem("openwork.den.baseUrl")).toBeNull();
     expect(window.localStorage.getItem("openwork.den.apiBaseUrl")).toBeNull();
     expect(readDenSettings().baseUrl).toBe("https://saved.example.com");
+  });
+
+  test("session or server changes invalidate configured Cloud MCP token markers", async () => {
+    await initializeDenBootstrapConfig();
+    window.localStorage.setItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY, "stale-marker");
+
+    writeDenSettings({
+      baseUrl: "https://bootstrap.example.com",
+      authToken: "first-session",
+      activeOrgId: "org_test",
+      activeOrgSlug: null,
+      activeOrgName: null,
+    });
+    expect(window.localStorage.getItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY)).toBeNull();
+
+    window.localStorage.setItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY, "stale-marker");
+    writeDenSettings({
+      baseUrl: "https://bootstrap.example.com",
+      authToken: "next-session",
+      activeOrgId: "org_test",
+      activeOrgSlug: null,
+      activeOrgName: null,
+    });
+    expect(window.localStorage.getItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY)).toBeNull();
+
+    window.localStorage.setItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY, "stale-marker");
+    writeDenSettings({
+      baseUrl: "https://next.example.com",
+      authToken: "next-session",
+      activeOrgId: "org_test",
+      activeOrgSlug: null,
+      activeOrgName: null,
+    });
+    expect(window.localStorage.getItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY)).toBeNull();
+
+    window.localStorage.setItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY, "stale-marker");
+    clearDenSession();
+    expect(window.localStorage.getItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY)).toBeNull();
   });
 });

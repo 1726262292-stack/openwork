@@ -8,6 +8,7 @@ import {
   createDenClient,
   readDenBootstrapConfig,
   readDenSettings,
+  setDenBootstrapConfig,
 } from "../../app/lib/den";
 import { exchangeHandoffAndSignIn } from "../../app/lib/den-handoff";
 import {
@@ -15,6 +16,8 @@ import {
   denSessionUpdatedEvent,
 } from "../../app/lib/den-session-events";
 import { evalRelaunchDesktopApp } from "../../app/lib/desktop";
+import { Button } from "../../components/ui/button";
+import { t } from "../../i18n";
 import { useDenAuth } from "../domains/cloud/den-auth-provider";
 import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
 import { OrgOnboardingPage } from "../domains/cloud/org-onboarding-page";
@@ -137,7 +140,33 @@ function DenSigninGate({ children }: DenSigninGateProps) {
     return <ForcedSigninPage developerMode={false} />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {denAuth.status === "unavailable" ? (
+        <div className="pointer-events-none fixed inset-x-0 top-3 z-[100] flex justify-center px-4">
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-2xl border border-amber-7/50 bg-popover/95 px-4 py-3 text-popover-foreground shadow-md backdrop-blur-sm"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{t("den.cloud_unavailable_title")}</p>
+              <p className="text-xs text-muted-foreground">{t("den.cloud_unavailable_body")}</p>
+            </div>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={() => void denAuth.refresh()}
+            >
+              {t("den.refresh")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {children}
+    </>
+  );
 }
 
 /**
@@ -185,6 +214,39 @@ function DenAuthControlActions() {
     }),
   }), [denAuth.status, denAuth.user]);
   useControlAction(authStatusAction);
+
+  const setEvalBaseUrlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+    return {
+      id: "eval.auth.set-base-url",
+      label: "Set the eval Cloud URL",
+      description: "Point the live auth provider at an eval control plane and refresh its session state.",
+      sideEffect: "mutation",
+      requiresArgs: true,
+      args: [
+        { name: "baseUrl", type: "string", required: true, description: "Temporary Den base URL." },
+      ],
+      execute: async (args) => {
+        if (
+          !args ||
+          typeof args !== "object" ||
+          !("baseUrl" in args) ||
+          typeof args.baseUrl !== "string" ||
+          !args.baseUrl.trim()
+        ) {
+          return { ok: false, error: "baseUrl is required" };
+        }
+        const current = readDenBootstrapConfig();
+        await setDenBootstrapConfig({
+          baseUrl: args.baseUrl.trim(),
+          requireSignin: current.requireSignin,
+        });
+        await denAuth.refresh();
+        return { baseUrl: readDenBootstrapConfig().baseUrl };
+      },
+    };
+  }, [denAuth.refresh]);
+  useControlAction(setEvalBaseUrlAction);
 
   return null;
 }
