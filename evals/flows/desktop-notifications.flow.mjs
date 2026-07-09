@@ -79,17 +79,18 @@ export default {
               title: "Question needs your answer",
               body: "Question: Continue?"
             })`);
-            await ctx.eval(`document.querySelector('button[aria-label="Notifications"]')?.click()`);
+            await ctx.navigateHash("/settings/general");
           },
           assert: async () => {
             const bridgeAvailable = await ctx.eval(`Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)`);
             ctx.assert(bridgeAvailable === true, "Expected the Electron notification bridge to be available.");
-            await ctx.expectText("Important");
+            await ctx.expectText("Workspace", { timeoutMs: 30_000 });
+            await ctx.expectText("Global");
           },
           screenshot: {
             name: "desktop-notifications-attention-text",
-            requireText: ["Desktop Notifications", "Important", "Notifications"],
-            hashIncludes: "/settings/preferences",
+            requireText: ["Settings", "Workspace", "Global"],
+            hashIncludes: "/settings/general",
           },
         });
       },
