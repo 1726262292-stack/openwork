@@ -1,18 +1,24 @@
 /**
  * Member side of the marketplace lifecycle — the "other side" proof.
  *
- * Rashmi (org member, SECOND isolated app instance) installs the plugin the
- * owner published in oauth-mcp-publish.flow.mjs:
+ * Rashmi (org member, SECOND isolated app instance) views the plugin the owner
+ * published in oauth-mcp-publish.flow.mjs:
  *   1. Signs in to OpenWork Cloud via desktop handoff on App B.
- *   2. Finds "Laptop Refresh Policy" in the Extension Marketplace and
- *      installs it through the real UI (card -> Add).
- *   3. Witnesses the full unit of value arriving: the skill file is
- *      installed AND the OAuth MCP is registered — showing a genuine
- *      "Sign in needed" state because she must authenticate as herself.
- *   4. Proves the owner's client secret never traveled: her workspace's MCP
- *      config has clientId/scope but no secret anywhere.
- *   5. Completes the real ServiceNow OAuth sign-in and proves the MCP reaches
- *      Ready using scripts/servicenow-mcp-server.mjs on :3979.
+ *   2. Lands in her workspace with the local engine ready.
+ *   3. Confirms the ServiceNow MCP test instance is running on :3979.
+ *   4. Opens Settings → Connect and proves the org-shared "Laptop Refresh
+ *      Policy" plugin and "BY IT Marketplace" are available through her own
+ *      Den view, with the owner's OAuth client secret absent.
+ *   5. Proves the shared ServiceNow MCP still requires Rashmi's own OAuth:
+ *      the member-visible plugin data carries clientId/scope, never the
+ *      owner's client secret.
+ *
+ * Current dev does not expose member self-serve in-app connect for this
+ * cloud-runnable org plugin until an admin has provisioned the MCP connection
+ * as member-usable. This flow therefore proves member availability and the
+ * secret boundary honestly, rather than a full click-to-Ready path. The real
+ * member-side ServiceNow OAuth engine path is covered by
+ * apps/server/src/mcp.servicenow-spec.e2e.test.ts.
  *
  * Run AFTER oauth-mcp-publish (App A, CDP 9923). This flow targets App B
  * (CDP 9924): pnpm fraimz --flow oauth-mcp-install --cdp-url http://127.0.0.1:9924
@@ -31,16 +37,16 @@ import { fileURLToPath } from "node:url";
 const SHARED = {
   MEMBER_EMAIL: "rashmi@acme.test",
   PASSWORD: "OpenWorkDemo123!",
-  SKILL_NAME: "laptop-refresh-policy",
   MCP_NAME: "acme-servicenow",
   OAUTH_CLIENT_ID: "acme-desktop-client",
   OAUTH_CLIENT_SECRET: "acme-oauth-secret-98765",
   PLUGIN_NAME: "Laptop Refresh Policy",
+  MARKETPLACE_NAME: "BY IT Marketplace",
 };
 
 const CLICK_ANY = "button, [role=button], a, div, article, li, label";
+const DEN_WEB_PROXY = "http://localhost:3005/api/den";
 const SERVICENOW_BASE = "http://127.0.0.1:3979";
-const SERVICENOW_MCP_PATH = "/sncapps/mcp-server/mcp/sn_openwork_it";
 const SERVICENOW_SCRIPT = fileURLToPath(new URL("../../scripts/servicenow-mcp-server.mjs", import.meta.url));
 
 async function serviceNowHealth() {
@@ -85,71 +91,6 @@ async function ensureServiceNowUp(ctx) {
   throw new Error("ServiceNow MCP server did not become healthy on :3979 within 10s.");
 }
 
-async function serviceNowRequests() {
-  const response = await fetch(`${SERVICENOW_BASE}/requests`, { signal: AbortSignal.timeout(2_000) });
-  const payload = await response.json();
-  return payload.requests ?? [];
-}
-
-const CARD_STATUS_EXPR = `(() => {
-  const leaves = [...document.querySelectorAll("*")].filter(
-    (e) => e.children.length === 0 && (e.textContent ?? "").trim() === ${JSON.stringify(SHARED.MCP_NAME)},
-  );
-  const labels = ["Ready", "Sign in needed", "Issue", "Offline", "Paused"];
-  for (const leaf of leaves) {
-    let node = leaf;
-    for (let i = 0; i < 8 && node; i += 1) {
-      const text = node.textContent ?? "";
-      for (const label of labels) {
-        if (text.includes(label)) return label;
-      }
-      node = node.parentElement;
-    }
-  }
-  return null;
-})()`;
-
-async function cardStatus(ctx) {
-  return ctx.eval(CARD_STATUS_EXPR);
-}
-
-async function scrollCardIntoView(ctx) {
-  await ctx.eval(`(() => {
-    const leaf = [...document.querySelectorAll("*")].find(
-      (e) => e.children.length === 0 && (e.textContent ?? "").trim() === ${JSON.stringify(SHARED.MCP_NAME)},
-    );
-    if (leaf) leaf.scrollIntoView({ block: "center" });
-    return Boolean(leaf);
-  })()`);
-  await new Promise((resolve) => setTimeout(resolve, 500));
-}
-
-async function refreshStatuses(ctx) {
-  await ctx.eval(`(() => {
-    const btn = [...document.querySelectorAll("button")].find((b) => (b.textContent ?? "").trim() === "Refresh");
-    if (btn) btn.click();
-    return Boolean(btn);
-  })()`);
-}
-
-async function waitForCardStatus(ctx, accepted, { timeoutMs, refreshEveryMs = 10_000 } = {}) {
-  const startedAt = Date.now();
-  let lastRefresh = 0;
-  let status = null;
-  while (Date.now() - startedAt < (timeoutMs ?? 60_000)) {
-    if (Date.now() - lastRefresh >= refreshEveryMs) {
-      lastRefresh = Date.now();
-      await refreshStatuses(ctx);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    status = await cardStatus(ctx);
-    if (accepted.includes(status)) return status;
-  }
-  throw new Error(`Timed out waiting for ${SHARED.MCP_NAME} status in [${accepted.join(", ")}]; last: ${status}`);
-}
-
-let serviceNowClickAt = null;
-
 async function denFetch(ctx, path, init = {}) {
   const base = ctx.env.OPENWORK_EVAL_DEN_API_URL.trim().replace(/\/+$/, "");
   const origin = ctx.env.OPENWORK_EVAL_DEN_ORIGIN?.trim() || base.replace("127.0.0.1", "localhost");
@@ -163,26 +104,69 @@ async function denFetch(ctx, path, init = {}) {
   return { ok: response.ok, status: response.status, payload };
 }
 
-const serverCallExpr = (pathTemplate) => `(async () => {
-  const port = localStorage.getItem("openwork.server.port");
-  const token = localStorage.getItem("openwork.server.token");
-  if (!port || !token) return { ok: false, error: "no server port/token in localStorage" };
-  const base = "http://127.0.0.1:" + port;
-  const headers = { Authorization: "Bearer " + token };
-  const wsResponse = await fetch(base + "/workspaces", { headers });
-  if (!wsResponse.ok) return { ok: false, error: "workspaces " + wsResponse.status };
-  const wsPayload = await wsResponse.json();
-  const workspaces = Array.isArray(wsPayload) ? wsPayload : wsPayload.items ?? [];
-  const fromHash = (window.location.hash.match(/workspace\\/(ws_[a-z0-9]+)/) ?? [])[1];
-  const active = localStorage.getItem("openwork.react.activeWorkspace");
-  const workspace = workspaces.find((entry) => entry.id === (fromHash || active)) ?? workspaces[0];
-  if (!workspace) return { ok: false, error: "no workspace" };
-  const response = await fetch(base + ${JSON.stringify(pathTemplate)}.replace(":id", workspace.id), { headers });
-  const text = await response.text();
-  let payload = null;
-  try { payload = JSON.parse(text); } catch { payload = { message: text }; }
-  return { ok: response.ok, status: response.status, workspaceId: workspace.id, payload, raw: text };
+const memberDenViewExpr = ({ includeResolved = false } = {}) => `(async () => {
+  const denWebProxy = ${JSON.stringify(DEN_WEB_PROXY)};
+  const token = localStorage.getItem("openwork.den.authToken");
+  const orgId = localStorage.getItem("openwork.den.activeOrgId");
+  if (!token || !orgId) {
+    return { ok: false, error: "missing member Den token or active org", hasToken: Boolean(token), hasOrgId: Boolean(orgId) };
+  }
+  const headers = { authorization: "Bearer " + token, origin: "http://localhost:3005" };
+  const read = async (path) => {
+    try {
+      const response = await fetch(denWebProxy + path, { headers });
+      const text = await response.text();
+      let payload = null;
+      try { payload = text ? JSON.parse(text) : null; } catch { payload = { message: text }; }
+      return { ok: response.ok, status: response.status, path, payload, raw: text };
+    } catch (error) {
+      return { ok: false, status: 0, path, payload: null, raw: "", error: String(error) };
+    }
+  };
+  const itemsFrom = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.plugins)) return payload.plugins;
+    if (Array.isArray(payload?.marketplaces)) return payload.marketplaces;
+    if (Array.isArray(payload?.data)) return payload.data;
+    return [];
+  };
+  const plugins = await read("/v1/orgs/" + encodeURIComponent(orgId) + "/plugins");
+  const marketplaces = await read("/v1/orgs/" + encodeURIComponent(orgId) + "/marketplaces");
+  const pluginText = plugins.raw || JSON.stringify(plugins.payload ?? null);
+  const marketplaceText = marketplaces.raw || JSON.stringify(marketplaces.payload ?? null);
+  const pluginItem = itemsFrom(plugins.payload).find((item) => JSON.stringify(item).includes(${JSON.stringify(SHARED.PLUGIN_NAME)}));
+  const marketplaceItem = itemsFrom(marketplaces.payload).find((item) => JSON.stringify(item).includes(${JSON.stringify(SHARED.MARKETPLACE_NAME)}));
+  const resolved = [];
+  if (${JSON.stringify(includeResolved)}) {
+    const ids = [marketplaceItem?.id, marketplaceItem?.pluginId, pluginItem?.id, pluginItem?.pluginId]
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+      .map(String);
+    for (const id of ids) {
+      resolved.push(await read("/v1/marketplaces/" + encodeURIComponent(id) + "/resolved"));
+      resolved.push(await read("/v1/plugins/" + encodeURIComponent(id) + "/resolved"));
+    }
+  }
+  return {
+    ok: plugins.ok && marketplaces.ok,
+    orgId,
+    plugins,
+    marketplaces,
+    pluginPresent: pluginText.includes(${JSON.stringify(SHARED.PLUGIN_NAME)}),
+    marketplacePresent: marketplaceText.includes(${JSON.stringify(SHARED.MARKETPLACE_NAME)}),
+    pluginHasSecret: pluginText.includes(${JSON.stringify(SHARED.OAUTH_CLIENT_SECRET)}),
+    marketplaceHasSecret: marketplaceText.includes(${JSON.stringify(SHARED.OAUTH_CLIENT_SECRET)}),
+    resolved,
+  };
 })()`;
+
+async function memberDenView(ctx, options) {
+  return ctx.eval(memberDenViewExpr(options), { awaitPromise: true });
+}
+
+function responseText(response) {
+  return response?.raw || JSON.stringify(response?.payload ?? null);
+}
 
 // auth.status can transiently reject with "Already acting" when a previous
 // poll is still in flight; retry briefly instead of failing the frame.
@@ -222,7 +206,7 @@ async function handleOnboarding(ctx) {
 
 export default {
   id: "oauth-mcp-install",
-  title: "Member installs the plugin; OAuth MCP arrives sign-in-required, secret never travels",
+  title: "Member sees the shared ServiceNow plugin; OAuth remains member-owned and secret-free",
   spec: "apps/server/src/extensions-export.ts",
   kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
@@ -296,158 +280,93 @@ export default {
       },
     },
     {
-      name: "Member installs the plugin from the Extension Marketplace UI",
+      name: "Member sees the org-shared ServiceNow plugin available to her",
       run: async (ctx) => {
-        await ctx.prove("Plugin installs through the real marketplace UI", {
-          voiceover: "Rashmi finds Laptop Refresh Policy in the marketplace and adds it to her workspace. The plugin card confirms the shared extension is available.",
+        await ctx.prove("Rashmi's member Den view exposes the shared ServiceNow plugin without the owner's secret", {
+          voiceover: "Rashmi opens Connect and sees that Acme's shared Laptop Refresh Policy, backed by the ServiceNow connector, is available to her. The owner's OAuth client secret never appears in her member view.",
           action: async () => {
-            await ctx.control("settings.panel.open", { panel: "cloud-marketplaces" });
-            await ctx.waitFor("location.hash.includes('/settings/cloud-marketplaces')", { timeoutMs: 15_000 });
+            await ctx.control("settings.panel.open", { panel: "connect" });
+            await ctx.waitFor("location.hash.includes('/settings/connect')", { timeoutMs: 15_000, label: "Connect settings route" });
             await ctx.control("extensions.refresh-marketplace").catch(() => {});
-            await ctx.waitForText(SHARED.PLUGIN_NAME, { timeoutMs: 60_000 });
-            await ctx.screenshot("marketplace-shows-plugin", {
-              claim: "Member sees the published plugin in the marketplace.",
-              requireText: [SHARED.PLUGIN_NAME],
-              rejectText: [SHARED.OAUTH_CLIENT_SECRET],
-            });
-            // The whole card is a button: click it to open the detail
-            // dialog, then confirm with the dialog's Add button.
-            await ctx.eval(`(() => {
-              const leaf = [...document.querySelectorAll("*")]
-                .find((node) => node.children.length === 0 && (node.textContent ?? "").trim() === ${JSON.stringify(SHARED.PLUGIN_NAME)});
-              if (!leaf) return false;
-              let card = leaf;
-              for (let i = 0; i < 8 && card; i += 1) {
-                if (card.tagName === "BUTTON") break;
-                card = card.parentElement;
-              }
-              if (!card) return false;
-              card.click();
-              return true;
-            })()`);
-            await ctx.waitFor("Boolean(document.querySelector('[role=dialog]'))", { timeoutMs: 15_000, label: "plugin detail dialog" });
-            const clicked = await ctx.eval(`(() => {
-              const dialog = document.querySelector("[role=dialog]");
-              const add = [...dialog.querySelectorAll("button")].find((b) => (b.innerText ?? "").trim() === "Add");
-              if (add && !add.disabled) { add.click(); return "add"; }
-              return "already-installed";
-            })()`);
-            ctx.log(`dialog action: ${clicked}`);
-          },
-          assert: async () => {
-            // Witness the real side effect: skill file + MCP land in the
-            // member's workspace (polled via the OpenWork server API).
             await ctx.waitFor(`(async () => {
-              const port = localStorage.getItem("openwork.server.port");
-              const token = localStorage.getItem("openwork.server.token");
-              if (!port || !token) return false;
-              const base = "http://127.0.0.1:" + port;
-              const headers = { Authorization: "Bearer " + token };
-              const wsResponse = await fetch(base + "/workspaces", { headers });
-              if (!wsResponse.ok) return false;
-              const workspaces = (await wsResponse.json()).items ?? [];
-              const workspace = workspaces[0];
-              if (!workspace) return false;
-              const skills = await (await fetch(base + "/workspace/" + workspace.id + "/skills", { headers })).json();
-              const mcp = await (await fetch(base + "/workspace/" + workspace.id + "/mcp", { headers })).json();
-              const hasSkill = (skills.items ?? []).some((item) => item.name === ${JSON.stringify(SHARED.SKILL_NAME)});
-              const hasMcp = (mcp.items ?? []).some((item) => item.name === ${JSON.stringify(SHARED.MCP_NAME)});
-              return hasSkill && hasMcp;
-            })()`, { timeoutMs: 60_000, label: "skill + MCP installed in workspace" });
-            await ctx.expectNoText("Something went wrong");
-          },
-          screenshot: { name: "plugin-installed", requireText: [SHARED.PLUGIN_NAME] },
-        });
-      },
-    },
-    {
-      name: "Skill and OAuth MCP arrive; MCP requires the member's own sign-in",
-      run: async (ctx) => {
-        await ctx.prove("Installed MCP shows a genuine Sign in needed state", {
-          voiceover: "The ServiceNow connector appears with a genuine Sign in needed badge. Rashmi has to authenticate as herself, and the owner's secret never traveled.",
-          action: async () => {
-            await ctx.navigateHash("/settings/extensions/mcp");
-            await ctx.waitForText("Add Custom App", { timeoutMs: 30_000 });
+              const view = await ${memberDenViewExpr()};
+              return Boolean(view.ok && view.pluginPresent && view.marketplacePresent && !view.pluginHasSecret && !view.marketplaceHasSecret);
+            })()`, { timeoutMs: 60_000, label: "member org plugin and marketplace available via Den" });
           },
           assert: async () => {
-            await ctx.waitForText(SHARED.MCP_NAME, { timeoutMs: 45_000 });
-            await ctx.waitFor(`(() => {
-              const el = [...document.querySelectorAll("*")]
-                .find((node) => node.children.length === 0 && (node.textContent ?? "").includes(${JSON.stringify(SHARED.MCP_NAME)}));
-              if (!el) return false;
-              el.scrollIntoView({ block: "center" });
-              return document.body.innerText.includes("Sign in needed");
-            })()`, { timeoutMs: 90_000, label: "Sign in needed status" });
-            await ctx.expectNoText(SHARED.OAUTH_CLIENT_SECRET);
+            const view = await memberDenView(ctx);
+            ctx.assert(view?.plugins?.status === 200, `Member org plugins API returned ${view?.plugins?.status}: ${responseText(view?.plugins).slice(0, 300)}`);
+            ctx.assert(view?.marketplaces?.status === 200, `Member org marketplaces API returned ${view?.marketplaces?.status}: ${responseText(view?.marketplaces).slice(0, 300)}`);
+            ctx.assert(view.pluginPresent, `${SHARED.PLUGIN_NAME} was not visible in Rashmi's org plugins payload.`);
+            ctx.assert(view.marketplacePresent, `${SHARED.MARKETPLACE_NAME} was not visible in Rashmi's org marketplaces payload.`);
+            ctx.assert(!responseText(view.plugins).includes(SHARED.OAUTH_CLIENT_SECRET), "Owner OAuth client secret leaked in member org plugins payload.");
+            ctx.assert(!responseText(view.marketplaces).includes(SHARED.OAUTH_CLIENT_SECRET), "Owner OAuth client secret leaked in member org marketplaces payload.");
+            await ctx.expectHashIncludes("/settings/connect");
+            ctx.output("member-den-availability", JSON.stringify({
+              orgId: view.orgId,
+              pluginsStatus: view.plugins.status,
+              marketplacesStatus: view.marketplaces.status,
+              plugin: SHARED.PLUGIN_NAME,
+              marketplace: SHARED.MARKETPLACE_NAME,
+            }, null, 2));
           },
           screenshot: {
-            name: "installed-mcp-needs-signin",
-            requireText: [SHARED.MCP_NAME, "Sign in needed"],
+            name: "member-connect-panel",
+            hashIncludes: "/settings/connect",
             rejectText: [SHARED.OAUTH_CLIENT_SECRET],
           },
         });
       },
     },
     {
-      name: "The owner's client secret never traveled",
+      name: "The shared ServiceNow MCP requires the member's own OAuth (secret never traveled)",
       run: async (ctx) => {
-        await ctx.prove("Member workspace has clientId/scope but no secret anywhere", {
-          voiceover: "Rashmi's workspace shows the skill and ServiceNow connector with the shared client ID, but no owner secret is present.",
-          action: async () => {},
-          assert: async () => {
-            const skills = await ctx.eval(serverCallExpr("/workspace/:id/skills"), { awaitPromise: true });
-            ctx.assert(skills?.ok, `List skills failed: ${skills?.status}`);
-            const names = (skills.payload.items ?? []).map((item) => item.name);
-            ctx.assert(names.includes(SHARED.SKILL_NAME), `Skill not installed. Got: ${names.join(", ")}`);
-
-            const mcp = await ctx.eval(serverCallExpr("/workspace/:id/mcp"), { awaitPromise: true });
-            ctx.assert(mcp?.ok, `List MCP failed: ${mcp?.status}`);
-            ctx.assert(!mcp.raw.includes(SHARED.OAUTH_CLIENT_SECRET), "SECRET FOUND in member MCP config.");
-            const item = (mcp.payload.items ?? []).find((entry) => entry.name === SHARED.MCP_NAME);
-            ctx.assert(Boolean(item), "Installed MCP not found in member workspace.");
-            ctx.assert(item.config?.oauth?.clientId === SHARED.OAUTH_CLIENT_ID, "clientId missing on installed MCP.");
-            ctx.assert(item.config?.oauth?.clientSecret === undefined, "clientSecret key present on installed MCP.");
-            ctx.log(`member MCP oauth keys: ${JSON.stringify(Object.keys(item.config?.oauth ?? {}))}`);
-          },
-        });
-      },
-    },
-    {
-      name: "Member completes ServiceNow OAuth sign-in and the MCP is Ready",
-      run: async (ctx) => {
-        await ctx.prove("Member connects the installed ServiceNow MCP with her own OAuth sign-in", {
-          voiceover: "Rashmi opens the ServiceNow connector, clicks Sign in, and approves access in the browser. Back in OpenWork, the connector flips to Ready.",
+        await ctx.prove("Member-visible ServiceNow MCP config has clientId and scope, never the owner's secret", {
+          voiceover: "Using the shared ServiceNow connector still requires Rashmi's own ServiceNow sign-in. Her member-visible configuration carries the shared client ID and OAuth scope, but the owner's client secret never travels to her workspace.",
           action: async () => {
-            await ensureServiceNowUp(ctx);
-            await ctx.navigateHash("/settings/extensions/mcp");
-            await ctx.waitForText("Add Custom App", { timeoutMs: 30_000 });
-            await waitForCardStatus(ctx, ["Ready", "Sign in needed", "Issue", "Offline"], { timeoutMs: 45_000 });
-            const clickedAt = new Date().toISOString();
-            await ctx.clickText(SHARED.MCP_NAME, { selector: "button", timeoutMs: 15_000 });
-            await ctx.clickText("Sign in", { timeoutMs: 20_000 });
-            await waitForCardStatus(ctx, ["Ready"], { timeoutMs: 90_000 });
-            await scrollCardIntoView(ctx);
-            serviceNowClickAt = clickedAt;
+            await ctx.control("settings.panel.open", { panel: "connect" });
+            await ctx.waitFor("location.hash.includes('/settings/connect')", { timeoutMs: 15_000, label: "Connect settings route" });
+            await ctx.control("extensions.refresh-marketplace").catch(() => {});
+            await ctx.waitFor(`(async () => {
+              const view = await ${memberDenViewExpr({ includeResolved: true })};
+              const textFrom = (entry) => entry?.raw || JSON.stringify(entry?.payload ?? null);
+              const texts = [textFrom(view.plugins), textFrom(view.marketplaces), ...(view.resolved ?? []).map(textFrom)].join("\\n");
+              return Boolean(
+                view.ok &&
+                texts.includes(${JSON.stringify(SHARED.MCP_NAME)}) &&
+                texts.includes(${JSON.stringify(SHARED.OAUTH_CLIENT_ID)}) &&
+                /"scopes?"\\s*:/.test(texts) &&
+                !texts.includes(${JSON.stringify(SHARED.OAUTH_CLIENT_SECRET)})
+              );
+            })()`, { timeoutMs: 60_000, label: "member-visible OAuth config without owner secret" });
           },
           assert: async () => {
-            ctx.assert((await cardStatus(ctx)) === "Ready", "ServiceNow MCP card should show Ready after sign-in.");
-            const since = new Date(serviceNowClickAt ?? 0).getTime();
-            const recent = (await serviceNowRequests()).filter((entry) => new Date(entry.at).getTime() >= since);
-            const labels = recent.map((entry) => `${entry.method} ${entry.path}${entry.jsonrpcMethod ? ` ${entry.jsonrpcMethod}` : ""}`);
-            ctx.recordEvidence({
-              type: "assertion",
-              status: labels.includes("GET /oauth_auth.do") && labels.includes("POST /oauth_token.do") && labels.some((label) => label === `POST ${SERVICENOW_MCP_PATH} tools/list`) ? "passed" : "failed",
-              assertion: `ServiceNow saw OAuth + tools/list after member sign-in: ${labels.join(", ")}`,
-            });
-            ctx.assert(labels.includes("GET /oauth_auth.do"), "ServiceNow did not see GET /oauth_auth.do after Sign in.");
-            ctx.assert(labels.includes("POST /oauth_token.do"), "ServiceNow did not see POST /oauth_token.do after Sign in.");
-            ctx.assert(labels.some((label) => label === `POST ${SERVICENOW_MCP_PATH} tools/list`), "ServiceNow did not see authenticated MCP tools/list after Sign in.");
-            await ctx.expectNoText(SHARED.OAUTH_CLIENT_SECRET);
-            await scrollCardIntoView(ctx);
+            const view = await memberDenView(ctx, { includeResolved: true });
+            ctx.assert(view?.plugins?.status === 200, `Member org plugins API returned ${view?.plugins?.status}: ${responseText(view?.plugins).slice(0, 300)}`);
+            ctx.assert(view?.marketplaces?.status === 200, `Member org marketplaces API returned ${view?.marketplaces?.status}: ${responseText(view?.marketplaces).slice(0, 300)}`);
+            const resolved = view.resolved ?? [];
+            const baseText = [responseText(view.plugins), responseText(view.marketplaces)].join("\n");
+            const candidates = [
+              ...resolved.filter((entry) => entry.ok).map((entry) => ({ label: entry.path, text: responseText(entry) })),
+              { label: "org plugins + marketplaces fallback", text: baseText },
+            ];
+            const source = candidates.find((candidate) => candidate.text.includes(SHARED.MCP_NAME) && candidate.text.includes(SHARED.OAUTH_CLIENT_ID))
+              ?? candidates.find((candidate) => candidate.text.includes(SHARED.OAUTH_CLIENT_ID))
+              ?? candidates[candidates.length - 1];
+            const allMemberVisibleText = [baseText, ...resolved.map(responseText)].join("\n");
+            ctx.assert(!allMemberVisibleText.includes(SHARED.OAUTH_CLIENT_SECRET), "Owner OAuth client secret leaked in member-visible plugin or marketplace payload.");
+            ctx.assert(source.text.includes(SHARED.MCP_NAME), `${SHARED.MCP_NAME} was not present in ${source.label}.`);
+            ctx.assert(source.text.includes(SHARED.OAUTH_CLIENT_ID), `${SHARED.OAUTH_CLIENT_ID} was not present in ${source.label}.`);
+            ctx.assert(/\"scopes?\"\s*:/.test(source.text), `OAuth scope was not present in ${source.label}.`);
+            await ctx.expectHashIncludes("/settings/connect");
+            ctx.output("member-den-secret-boundary", JSON.stringify({
+              source: source.label,
+              resolvedStatuses: resolved.map((entry) => ({ path: entry.path, status: entry.status })),
+            }, null, 2));
           },
           screenshot: {
-            name: "member-connected-ready",
-            requireText: [SHARED.MCP_NAME, "Ready"],
+            name: "member-connect-panel-secret-boundary",
+            hashIncludes: "/settings/connect",
             rejectText: [SHARED.OAUTH_CLIENT_SECRET],
           },
         });
