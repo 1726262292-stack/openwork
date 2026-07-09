@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { captureScreenshot, connect, debuggerUrlFor, evaluate, listTargets, pickAppTarget } from "./cdp.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 250;
@@ -420,15 +424,47 @@ export class EvalContext {
     throw lastError;
   }
 
+  /**
+   * Real OS-level screen grab (X11, via ffmpeg x11grab) inside a Daytona
+   * sandbox. Needed for content that CDP's Page.captureScreenshot cannot see
+   * at all — an Electron BrowserView/WebContentsView embedded in another
+   * window (e.g. the built-in browser panel) is a separate compositor
+   * surface, invisible to both its own target's AND the parent window's
+   * Page.captureScreenshot. The sandbox's shell script does a true screen
+   * capture, so it sees everything actually composited on screen.
+   *
+   * The daytona CLI joins argv after `--` into one remote shell string, so
+   * nested quoting never survives — ship the whole capture+encode pipeline
+   * as base64 piped into bash (same trick used for other daytona exec calls
+   * in the flows).
+   */
+  async _captureSandboxScreenshot(sandbox) {
+    const remotePath = `/tmp/eval-screenshot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+    const script = `bash .devcontainer/capture-daytona-screenshot.sh --output ${remotePath} >/tmp/eval-screenshot-capture.log 2>&1 && base64 ${remotePath}`;
+    const encoded = Buffer.from(script, "utf8").toString("base64");
+    const { stdout } = await execFileAsync("daytona", ["exec", sandbox, "--", "echo", encoded, "|", "base64", "-d", "|", "bash"], {
+      timeout: 30_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const base64Png = stdout.trim();
+    if (!base64Png) {
+      throw new EvalError("Sandbox screenshot capture returned no data.");
+    }
+    return Buffer.from(base64Png, "base64");
+  }
+
   async screenshot(name, options = {}) {
     this.screenshotIndex += 1;
     const fileName = `${this.flowId}-${String(this.screenshotIndex).padStart(2, "0")}-${slug(name)}.png`;
-    const targetSelector = options.targetId || options.targetUrlIncludes;
+    const sandbox = options.sandboxCapture ? this.env.OPENWORK_EVAL_DAYTONA_SANDBOX?.trim() : null;
+    const targetSelector = !sandbox && (options.targetId || options.targetUrlIncludes);
     const textTargetSelector = options.textTargetId || options.textTargetUrlIncludes;
     let screenshotClient = this.client;
     let closeClients = [];
     let preCapturedBuffer = null;
-    if (targetSelector) {
+    if (sandbox) {
+      preCapturedBuffer = await this._captureSandboxScreenshot(sandbox);
+    } else if (targetSelector) {
       // Some CDP page targets (e.g. an embedded browser-panel WebContentsView
       // rather than a top-level BrowserWindow page) do not reliably answer
       // Page.captureScreenshot at all — no amount of retrying fixes that.

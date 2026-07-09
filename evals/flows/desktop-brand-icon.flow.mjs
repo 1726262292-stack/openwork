@@ -503,6 +503,7 @@ export default {
           },
           screenshot: {
             name: "frame-1-admin-icon-url",
+            sandboxCapture: true,
             textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: ["Brand Appearance", "Icon URL"],
           },
@@ -526,6 +527,7 @@ export default {
           },
           screenshot: {
             name: "frame-2-admin-icon-url-saved",
+            sandboxCapture: true,
             textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: ["Brand Appearance", "Icon URL"],
           },

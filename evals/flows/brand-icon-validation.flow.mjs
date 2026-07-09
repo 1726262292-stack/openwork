@@ -75,7 +75,14 @@ export default {
   title: "Brand Icon URL rejects web pages loudly and accepts real logo image links",
   kind: "user-facing",
   spec: "evals/voiceovers/brand-icon-validation.md",
-  requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL"],
+  // OPENWORK_EVAL_DAYTONA_SANDBOX is required (not optional, unlike
+  // desktop-brand-icon): the admin panel's Icon URL field lives in an
+  // embedded browser-panel WebContentsView, which no CDP target's
+  // Page.captureScreenshot can see. Only a real OS-level (X11) screen grab
+  // inside the sandbox shows its actual content, so without a sandbox this
+  // flow would either fail with a "duplicate blank screenshot" or need to
+  // skip the visual proof entirely — cleaner to just require it.
+  requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DAYTONA_SANDBOX"],
   steps: [
     {
       name: "setup",
@@ -113,6 +120,7 @@ export default {
           },
           screenshot: {
             name: "frame-1-admin-bad-icon-url-entered",
+            sandboxCapture: true,
             textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: ["Brand Appearance", "Icon URL"],
           },
@@ -143,6 +151,7 @@ export default {
           },
           screenshot: {
             name: "frame-2-admin-bad-icon-url-rejected",
+            sandboxCapture: true,
             textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: [ERROR_SNIPPET],
           },
@@ -187,6 +196,7 @@ export default {
           },
           screenshot: {
             name: "frame-3-admin-good-icon-url-saved",
+            sandboxCapture: true,
             textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: [SUCCESS_TEXT],
             rejectText: [ERROR_SNIPPET],
