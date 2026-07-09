@@ -11,6 +11,8 @@
  *      "Sign in needed" state because she must authenticate as herself.
  *   4. Proves the owner's client secret never traveled: her workspace's MCP
  *      config has clientId/scope but no secret anywhere.
+ *   5. Completes the real ServiceNow OAuth sign-in and proves the MCP reaches
+ *      Ready using scripts/servicenow-mcp-server.mjs on :3979.
  *
  * Run AFTER oauth-mcp-publish (App A, CDP 9923). This flow targets App B
  * (CDP 9924): pnpm fraimz --flow oauth-mcp-install --cdp-url http://127.0.0.1:9924
@@ -18,10 +20,13 @@
  * Required env:
  * - OPENWORK_EVAL_DEN_API_URL  local Den API (e.g. http://127.0.0.1:8790)
  * Prereqs: member rashmi@acme.test / OpenWorkDemo123! exists in the org.
+ * The flow auto-starts scripts/servicenow-mcp-server.mjs on :3979 when needed.
  */
+import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SHARED = {
   MEMBER_EMAIL: "rashmi@acme.test",
@@ -34,6 +39,115 @@ const SHARED = {
 };
 
 const CLICK_ANY = "button, [role=button], a, div, article, li, label";
+const SERVICENOW_BASE = "http://127.0.0.1:3979";
+const SERVICENOW_SCRIPT = fileURLToPath(new URL("../../scripts/servicenow-mcp-server.mjs", import.meta.url));
+
+async function serviceNowHealth() {
+  try {
+    const response = await fetch(`${SERVICENOW_BASE}/health`, { signal: AbortSignal.timeout(1_500) });
+    const text = await response.text();
+    let payload = null;
+    try { payload = JSON.parse(text); } catch { payload = { status: response.status, message: text.slice(0, 200) }; }
+    return response.ok ? payload : { ...payload, status: response.status };
+  } catch {
+    return null;
+  }
+}
+
+async function ensureServiceNowUp(ctx) {
+  const current = await serviceNowHealth();
+  if (current?.product === "servicenow-mcp") {
+    ctx.log(`ServiceNow MCP already healthy at ${SERVICENOW_BASE}`);
+    return;
+  }
+  if (current) {
+    throw new Error(`Port 3979 is serving a non-ServiceNow /health response: ${JSON.stringify(current).slice(0, 300)}`);
+  }
+  const child = spawn(process.execPath, [SERVICENOW_SCRIPT], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, PORT: "3979", AUTO_APPROVE: "1" },
+  });
+  child.unref();
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 10_000) {
+    const health = await serviceNowHealth();
+    if (health?.product === "servicenow-mcp") {
+      ctx.log(`ServiceNow MCP started at ${SERVICENOW_BASE}`);
+      return;
+    }
+    if (health) {
+      throw new Error(`Port 3979 became a non-ServiceNow service: ${JSON.stringify(health).slice(0, 300)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("ServiceNow MCP server did not become healthy on :3979 within 10s.");
+}
+
+async function serviceNowRequests() {
+  const response = await fetch(`${SERVICENOW_BASE}/requests`, { signal: AbortSignal.timeout(2_000) });
+  const payload = await response.json();
+  return payload.requests ?? [];
+}
+
+const CARD_STATUS_EXPR = `(() => {
+  const leaves = [...document.querySelectorAll("*")].filter(
+    (e) => e.children.length === 0 && (e.textContent ?? "").trim() === ${JSON.stringify(SHARED.MCP_NAME)},
+  );
+  const labels = ["Ready", "Sign in needed", "Issue", "Offline", "Paused"];
+  for (const leaf of leaves) {
+    let node = leaf;
+    for (let i = 0; i < 8 && node; i += 1) {
+      const text = node.textContent ?? "";
+      for (const label of labels) {
+        if (text.includes(label)) return label;
+      }
+      node = node.parentElement;
+    }
+  }
+  return null;
+})()`;
+
+async function cardStatus(ctx) {
+  return ctx.eval(CARD_STATUS_EXPR);
+}
+
+async function scrollCardIntoView(ctx) {
+  await ctx.eval(`(() => {
+    const leaf = [...document.querySelectorAll("*")].find(
+      (e) => e.children.length === 0 && (e.textContent ?? "").trim() === ${JSON.stringify(SHARED.MCP_NAME)},
+    );
+    if (leaf) leaf.scrollIntoView({ block: "center" });
+    return Boolean(leaf);
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}
+
+async function refreshStatuses(ctx) {
+  await ctx.eval(`(() => {
+    const btn = [...document.querySelectorAll("button")].find((b) => (b.textContent ?? "").trim() === "Refresh");
+    if (btn) btn.click();
+    return Boolean(btn);
+  })()`);
+}
+
+async function waitForCardStatus(ctx, accepted, { timeoutMs, refreshEveryMs = 10_000 } = {}) {
+  const startedAt = Date.now();
+  let lastRefresh = 0;
+  let status = null;
+  while (Date.now() - startedAt < (timeoutMs ?? 60_000)) {
+    if (Date.now() - lastRefresh >= refreshEveryMs) {
+      lastRefresh = Date.now();
+      await refreshStatuses(ctx);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    status = await cardStatus(ctx);
+    if (accepted.includes(status)) return status;
+  }
+  throw new Error(`Timed out waiting for ${SHARED.MCP_NAME} status in [${accepted.join(", ")}]; last: ${status}`);
+}
+
+let serviceNowClickAt = null;
 
 async function denFetch(ctx, path, init = {}) {
   const base = ctx.env.OPENWORK_EVAL_DEN_API_URL.trim().replace(/\/+$/, "");
@@ -173,6 +287,12 @@ export default {
       },
     },
     {
+      name: "ServiceNow MCP instance is running",
+      run: async (ctx) => {
+        await ensureServiceNowUp(ctx);
+      },
+    },
+    {
       name: "Member installs the plugin from the Extension Marketplace UI",
       run: async (ctx) => {
         await ctx.prove("Plugin installs through the real marketplace UI", {
@@ -282,6 +402,46 @@ export default {
             ctx.assert(item.config?.oauth?.clientId === SHARED.OAUTH_CLIENT_ID, "clientId missing on installed MCP.");
             ctx.assert(item.config?.oauth?.clientSecret === undefined, "clientSecret key present on installed MCP.");
             ctx.log(`member MCP oauth keys: ${JSON.stringify(Object.keys(item.config?.oauth ?? {}))}`);
+          },
+        });
+      },
+    },
+    {
+      name: "Member completes ServiceNow OAuth sign-in and the MCP is Ready",
+      run: async (ctx) => {
+        await ctx.prove("Member connects the installed ServiceNow MCP with her own OAuth sign-in", {
+          action: async () => {
+            await ensureServiceNowUp(ctx);
+            await ctx.navigateHash("/settings/extensions/mcp");
+            await ctx.waitForText("Add Custom App", { timeoutMs: 30_000 });
+            await waitForCardStatus(ctx, ["Ready", "Sign in needed", "Issue", "Offline"], { timeoutMs: 45_000 });
+            const clickedAt = new Date().toISOString();
+            await ctx.clickText(SHARED.MCP_NAME, { selector: "button", timeoutMs: 15_000 });
+            await ctx.clickText("Sign in", { timeoutMs: 20_000 });
+            await waitForCardStatus(ctx, ["Ready"], { timeoutMs: 90_000 });
+            await scrollCardIntoView(ctx);
+            serviceNowClickAt = clickedAt;
+          },
+          assert: async () => {
+            ctx.assert((await cardStatus(ctx)) === "Ready", "ServiceNow MCP card should show Ready after sign-in.");
+            const since = new Date(serviceNowClickAt ?? 0).getTime();
+            const recent = (await serviceNowRequests()).filter((entry) => new Date(entry.at).getTime() >= since);
+            const labels = recent.map((entry) => `${entry.method} ${entry.path}${entry.jsonrpcMethod ? ` ${entry.jsonrpcMethod}` : ""}`);
+            ctx.recordEvidence({
+              type: "assertion",
+              status: labels.includes("GET /oauth_auth.do") && labels.includes("POST /oauth_token.do") && labels.some((label) => label === "POST /mcp tools/list") ? "passed" : "failed",
+              assertion: `ServiceNow saw OAuth + tools/list after member sign-in: ${labels.join(", ")}`,
+            });
+            ctx.assert(labels.includes("GET /oauth_auth.do"), "ServiceNow did not see GET /oauth_auth.do after Sign in.");
+            ctx.assert(labels.includes("POST /oauth_token.do"), "ServiceNow did not see POST /oauth_token.do after Sign in.");
+            ctx.assert(labels.some((label) => label === "POST /mcp tools/list"), "ServiceNow did not see authenticated MCP tools/list after Sign in.");
+            await ctx.expectNoText(SHARED.OAUTH_CLIENT_SECRET);
+            await scrollCardIntoView(ctx);
+          },
+          screenshot: {
+            name: "member-connected-ready",
+            requireText: [SHARED.MCP_NAME, "Ready"],
+            rejectText: [SHARED.OAUTH_CLIENT_SECRET],
           },
         });
       },

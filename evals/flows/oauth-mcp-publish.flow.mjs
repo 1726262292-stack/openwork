@@ -6,7 +6,7 @@
  *   1. Signs in to OpenWork Cloud via desktop handoff and creates a workspace.
  *   2. Installs a skill (laptop-refresh-policy — the customer's first use
  *      case) and connects a custom MCP protected by real OAuth (the repo's
- *      mock OAuth MCP server), configured with clientId + clientSecret.
+ *      ServiceNow MCP server), configured with clientId + clientSecret.
  *      The MCP genuinely reports "Sign in needed" in Settings > Extensions.
  *   3. Exports both via POST /workspace/:id/extensions/export and proves
  *      oauth.clientSecret is redacted while clientId/scope survive.
@@ -19,12 +19,14 @@
  *
  * Required env:
  * - OPENWORK_EVAL_DEN_API_URL  local Den API (e.g. http://127.0.0.1:8790)
- * Prereqs: mock OAuth MCP on :3979 (scripts/mock-oauth-mcp-server.mjs),
- * seeded demo org (alex@acme.test / OpenWorkDemo123!).
+ * Prereqs: seeded demo org (alex@acme.test / OpenWorkDemo123!). The flow
+ * auto-starts scripts/servicenow-mcp-server.mjs on :3979 when needed.
  */
+import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const SHARED = {
   OWNER_EMAIL: "alex@acme.test",
@@ -43,6 +45,50 @@ export const SHARED = {
 const SKILL_CONTENT = `---\nname: ${SHARED.SKILL_NAME}\ndescription: ${SHARED.SKILL_DESCRIPTION}\n---\n\n## When to use\n- Use when someone asks if their laptop qualifies for a hardware refresh.\n\nLook up the device age and the IT refresh policy, then answer with eligibility and next steps.\n`;
 
 const CLICK_ANY = "button, [role=button], a, div, article, li, label";
+const SERVICENOW_BASE = "http://127.0.0.1:3979";
+const SERVICENOW_SCRIPT = fileURLToPath(new URL("../../scripts/servicenow-mcp-server.mjs", import.meta.url));
+
+async function serviceNowHealth() {
+  try {
+    const response = await fetch(`${SERVICENOW_BASE}/health`, { signal: AbortSignal.timeout(1_500) });
+    const text = await response.text();
+    let payload = null;
+    try { payload = JSON.parse(text); } catch { payload = { status: response.status, message: text.slice(0, 200) }; }
+    return response.ok ? payload : { ...payload, status: response.status };
+  } catch {
+    return null;
+  }
+}
+
+async function ensureServiceNowUp(ctx) {
+  const current = await serviceNowHealth();
+  if (current?.product === "servicenow-mcp") {
+    ctx.log(`ServiceNow MCP already healthy at ${SERVICENOW_BASE}`);
+    return;
+  }
+  if (current) {
+    throw new Error(`Port 3979 is serving a non-ServiceNow /health response: ${JSON.stringify(current).slice(0, 300)}`);
+  }
+  const child = spawn(process.execPath, [SERVICENOW_SCRIPT], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, PORT: "3979", AUTO_APPROVE: "1" },
+  });
+  child.unref();
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 10_000) {
+    const health = await serviceNowHealth();
+    if (health?.product === "servicenow-mcp") {
+      ctx.log(`ServiceNow MCP started at ${SERVICENOW_BASE}`);
+      return;
+    }
+    if (health) {
+      throw new Error(`Port 3979 became a non-ServiceNow service: ${JSON.stringify(health).slice(0, 300)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("ServiceNow MCP server did not become healthy on :3979 within 10s.");
+}
 
 async function denFetch(ctx, path, init = {}) {
   const base = ctx.env.OPENWORK_EVAL_DEN_API_URL.trim().replace(/\/+$/, "");
@@ -200,6 +246,12 @@ export default {
           "document.body.innerText.includes('Run task') || document.body.innerText.includes('Describe your task')",
           { timeoutMs: 60_000, label: "engine ready" },
         );
+      },
+    },
+    {
+      name: "ServiceNow MCP instance is running",
+      run: async (ctx) => {
+        await ensureServiceNowUp(ctx);
       },
     },
     {
