@@ -1,4 +1,6 @@
 import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { MemberTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import {
@@ -111,9 +113,55 @@ export type ExternalCapabilityMatch = CapabilityMatch & {
   hint?: string
 }
 
-function shortErrorMessage(error: unknown): string {
+const ERROR_MESSAGE_LIMIT = 300
+const LIVE_PROBE_HINT = "This is a live probe, not a cached result — repeating the same search without changing anything will return the same error."
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function cappedErrorMessage(message: string): string {
+  return message.length > ERROR_MESSAGE_LIMIT ? `${message.slice(0, ERROR_MESSAGE_LIMIT)}...` : message
+}
+
+function parsedErrorMessage(value: unknown): string | null {
+  if (!isRecord(value)) return null
+  const nestedError = value.error
+  if (isRecord(nestedError) && typeof nestedError.message === "string") {
+    return typeof nestedError.code === "number"
+      ? `${nestedError.message} (JSON-RPC ${nestedError.code})`
+      : nestedError.message
+  }
+  if (typeof value.message === "string") return value.message
+  if (typeof nestedError === "string") return nestedError
+  return null
+}
+
+export function upstreamErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
-  return message.length > 120 ? `${message.slice(0, 117)}...` : message
+  const jsonStart = message.indexOf("{")
+  if (jsonStart >= 0) {
+    try {
+      const parsed: unknown = JSON.parse(message.slice(jsonStart))
+      const parsedMessage = parsedErrorMessage(parsed)
+      if (parsedMessage) return parsedMessage
+    } catch {
+      // Fall through to the capped raw message when the SDK wrapper contains partial or invalid JSON.
+    }
+  }
+  return cappedErrorMessage(message)
+}
+
+export function isExternalMcpAuthError(error: unknown): boolean {
+  return error instanceof UnauthorizedError
+    || (error instanceof StreamableHTTPError && (error.code === 401 || error.code === 403))
+}
+
+export function externalConnectionErrorHint(connectionName: string, error: unknown, message = upstreamErrorMessage(error)): string {
+  if (isExternalMcpAuthError(error)) {
+    return `The stored credential looks invalid or expired. Reconnect "${connectionName}" from the OpenWork Cloud dashboard -> Connections, then search again. ${LIVE_PROBE_HINT}`
+  }
+  return `The provider's server rejected the request for "${connectionName}": ${message}. If the message points at app installation or approval, an admin must fix it in the provider's own admin console. Reconnecting only helps for credential errors. ${LIVE_PROBE_HINT}`
 }
 
 /**
@@ -196,7 +244,7 @@ export async function searchExternalCapabilities(input: {
     try {
       tools = await listExternalMcpTools(connection, redirectUriFor(input.redirectUriBase, connection.id), member)
     } catch (error) {
-      const message = shortErrorMessage(error)
+      const message = upstreamErrorMessage(error)
       const nameTokens = tokenize(connection.name)
       const score = scoreText(nameTokens, nameTokens, queryTokens)
       if (score > 0) {
@@ -205,12 +253,12 @@ export async function searchExternalCapabilities(input: {
           method: "MCP",
           path: connection.url,
           score,
-          summary: `[${connection.name}] This connection is set up but not responding right now (${message}).`,
+          summary: `[${connection.name}] This connection is set up but returned an error (${message}).`,
           pathParams: [],
           queryParams: [],
           hasBody: false,
           status: "error",
-          hint: `The stored credential may be expired or the server may be unreachable. Reconnect "${connection.name}" from the OpenWork Cloud dashboard -> Connections, then search again.`,
+          hint: externalConnectionErrorHint(connection.name, error, message),
         })
       }
       continue

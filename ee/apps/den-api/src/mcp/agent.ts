@@ -29,6 +29,7 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
   "Do not tell users to configure OAuth clients or local extensions for these capabilities; organization connections are managed in the OpenWork Cloud dashboard / Settings > Connect.",
+  "When a search match or execute result carries status needs_connection or a connection error, relay the fix to the user and stop — do not retry unchanged and do not improvise workarounds through other tools.",
 ].join("\n")
 
 const EXECUTE_CAPABILITY_TIMEOUT_MESSAGE = "The capability call exceeded 45s. Retry once; if it times out again, narrow the request (fewer results, tighter query) and tell the user the service is slow — do NOT tell them to reconfigure or reconnect."
