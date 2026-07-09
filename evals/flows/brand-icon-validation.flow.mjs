@@ -45,6 +45,24 @@ async function ensureMemberReady(ctx) {
   await ensureWorkspaceReady(ctx);
 }
 
+/**
+ * Scroll the Brand Appearance card into view on the panel right before a
+ * sandbox (OS-level) screenshot. Scroll position doesn't reliably survive
+ * earlier waits/re-renders, and an OS-level capture shows whatever is
+ * actually on screen — so this must run immediately before each capture,
+ * not just once after filling a field.
+ */
+async function scrollBrandCardIntoView(ctx) {
+  await panelEval(ctx, `(() => {
+    const heading = Array.from(document.querySelectorAll('h1,h2,h3,p,span')).find((element) =>
+      (element.textContent ?? '').includes('Brand Appearance')
+    );
+    heading?.scrollIntoView({ block: 'center' });
+    return Boolean(heading);
+  })()`).catch(() => undefined);
+  await sleep(200);
+}
+
 async function getIconUrlInputValue(ctx) {
   return panelEval(ctx, `(() => {
     const input = Array.from(document.querySelectorAll('input')).find((candidate) => /icon/i.test(candidate.placeholder || ''));
@@ -117,6 +135,7 @@ export default {
             const value = await getIconUrlInputValue(ctx);
             ctx.assert(value === BAD_ICON_URL, `Expected Icon URL input to contain ${BAD_ICON_URL}, got ${value}`);
             ctx.recordEvidence({ type: "assertion", status: "passed", assertion: "Admin Icon URL input contains the pasted non-image page URL", actual: value });
+            await scrollBrandCardIntoView(ctx);
           },
           screenshot: {
             name: "frame-1-admin-bad-icon-url-entered",
@@ -148,6 +167,7 @@ export default {
               assertion: "Admin panel shows the not-an-image message and Den API has no brandIconUrl",
               actual: JSON.stringify({ hasError: textState?.hasError, brandIconUrl: body.brandIconUrl ?? null }),
             });
+            await scrollBrandCardIntoView(ctx);
           },
           screenshot: {
             name: "frame-2-admin-bad-icon-url-rejected",
@@ -203,6 +223,7 @@ export default {
               assertion: "No icon error in the admin panel and Den API returns the Brandfetch brandIconUrl (server truth — this screen's success banner has a pre-existing, unrelated bug that swallows it on every save)",
               actual: JSON.stringify({ hasError: textState?.hasError, brandIconUrl: config.brandIconUrl }),
             });
+            await scrollBrandCardIntoView(ctx);
           },
           screenshot: {
             name: "frame-3-admin-good-icon-url-saved",
