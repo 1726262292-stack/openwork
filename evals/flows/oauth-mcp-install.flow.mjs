@@ -224,12 +224,14 @@ export default {
   id: "oauth-mcp-install",
   title: "Member installs the plugin; OAuth MCP arrives sign-in-required, secret never travels",
   spec: "apps/server/src/extensions-export.ts",
+  kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [
     {
       name: "App B boots; member signs in via desktop handoff",
       run: async (ctx) => {
         await ctx.prove("Member (Rashmi) is signed in on her own app instance", {
+          voiceover: "Rashmi is signed in on her own OpenWork desktop as an Acme Robotics member.",
           action: async () => {
             await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 90_000, label: "control API" });
             const status = await authStatus(ctx);
@@ -297,6 +299,7 @@ export default {
       name: "Member installs the plugin from the Extension Marketplace UI",
       run: async (ctx) => {
         await ctx.prove("Plugin installs through the real marketplace UI", {
+          voiceover: "Rashmi finds Laptop Refresh Policy in the marketplace and adds it to her workspace. The plugin card confirms the shared extension is available.",
           action: async () => {
             await ctx.control("settings.panel.open", { panel: "cloud-marketplaces" });
             await ctx.waitFor("location.hash.includes('/settings/cloud-marketplaces')", { timeoutMs: 15_000 });
@@ -361,6 +364,7 @@ export default {
       name: "Skill and OAuth MCP arrive; MCP requires the member's own sign-in",
       run: async (ctx) => {
         await ctx.prove("Installed MCP shows a genuine Sign in needed state", {
+          voiceover: "The ServiceNow connector appears with a genuine Sign in needed badge. Rashmi has to authenticate as herself, and the owner's secret never traveled.",
           action: async () => {
             await ctx.navigateHash("/settings/extensions/mcp");
             await ctx.waitForText("Add Custom App", { timeoutMs: 30_000 });
@@ -388,6 +392,7 @@ export default {
       name: "The owner's client secret never traveled",
       run: async (ctx) => {
         await ctx.prove("Member workspace has clientId/scope but no secret anywhere", {
+          voiceover: "Rashmi's workspace shows the skill and ServiceNow connector with the shared client ID, but no owner secret is present.",
           action: async () => {},
           assert: async () => {
             const skills = await ctx.eval(serverCallExpr("/workspace/:id/skills"), { awaitPromise: true });
@@ -411,6 +416,7 @@ export default {
       name: "Member completes ServiceNow OAuth sign-in and the MCP is Ready",
       run: async (ctx) => {
         await ctx.prove("Member connects the installed ServiceNow MCP with her own OAuth sign-in", {
+          voiceover: "Rashmi opens the ServiceNow connector, clicks Sign in, and approves access in the browser. Back in OpenWork, the connector flips to Ready.",
           action: async () => {
             await ensureServiceNowUp(ctx);
             await ctx.navigateHash("/settings/extensions/mcp");

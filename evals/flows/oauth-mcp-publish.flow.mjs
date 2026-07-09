@@ -196,12 +196,14 @@ export default {
   id: "oauth-mcp-publish",
   title: "Owner exports skill + OAuth MCP (secret redacted) and publishes to a marketplace",
   spec: "apps/server/src/extensions-export.ts",
+  kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [
     {
       name: "App A boots; owner signs in via desktop handoff",
       run: async (ctx) => {
         await ctx.prove("Owner is signed in to OpenWork Cloud", {
+          voiceover: "Alex is signed in to OpenWork Cloud on his own desktop, and his Acme Robotics workspace is ready.",
           action: async () => {
             await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 90_000, label: "control API" });
             const status = await authStatus(ctx);
@@ -260,6 +262,7 @@ export default {
       name: "Owner installs the skill and connects the OAuth MCP (clientId + clientSecret)",
       run: async (ctx) => {
         await ctx.prove("OAuth MCP genuinely requires sign-in in Settings > Extensions", {
+          voiceover: "Alex adds the Acme ServiceNow connector, and it appears in Extensions with a real Sign in needed badge. The secret stays hidden while the connector waits for OAuth.",
           action: async () => {
             await serverCall(ctx, `/workspace/:id/skills/${SHARED.SKILL_NAME}`, { method: "DELETE" }, { tolerate: true });
             await serverCall(ctx, "/workspace/:id/skills", {
@@ -310,6 +313,7 @@ export default {
       name: "Export redacts the OAuth client secret but keeps clientId/scope",
       run: async (ctx) => {
         await ctx.prove("Portable export never contains the client secret", {
+          voiceover: "The portable export is ready to share, and it keeps the ServiceNow connector details without showing the client secret.",
           action: async () => {},
           assert: async () => {
             const result = await serverCall(ctx, "/workspace/:id/extensions/export", {
@@ -336,6 +340,7 @@ export default {
       name: "Owner publishes the exported bundle to the BY IT Marketplace",
       run: async (ctx) => {
         await ctx.prove("Marketplace carries the plugin; published MCP has no secret", {
+          voiceover: "Alex publishes the laptop refresh plugin to the BY IT Marketplace. The marketplace copy includes the connector people need, but the secret never appears.",
           action: async () => {
             ctx.assert(exportedBundle, "Export step did not run.");
             // Fresh privileged session (den enforces 15-min freshness).
@@ -453,6 +458,7 @@ export default {
       name: "Owner sees the plugin in the Extension Marketplace UI",
       run: async (ctx) => {
         await ctx.prove("Published plugin is visible in the marketplace view", {
+          voiceover: "Alex opens the Extension Marketplace and sees Laptop Refresh Policy available for Acme Robotics. The page shows the plugin without exposing the ServiceNow secret.",
           action: async () => {
             await ctx.control("settings.panel.open", { panel: "cloud-marketplaces" });
             await ctx.waitFor("location.hash.includes('/settings/cloud-marketplaces')", { timeoutMs: 15_000 });
