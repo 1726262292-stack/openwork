@@ -373,6 +373,25 @@ async function waitForGenpactLogo(ctx) {
   })()`, { timeoutMs: 20_000, label: "Genpact sidebar logo loaded" });
 }
 
+export {
+  ORG_SETTINGS_PATH,
+  adminEnsureFreshAuth,
+  assertSignedIntoDen,
+  clickSaveSettings,
+  denFetch,
+  ensureRendererMounted,
+  memberRefresh,
+  navigateAdminOrgSettings,
+  openAdminPanel,
+  panelEval,
+  setIconUrlInPanel,
+  sleep,
+  waitForBrandIconState,
+  waitForDesktopConfig,
+  waitForPanel,
+  waitUntil,
+};
+
 export default {
   id: "desktop-brand-icon",
   title: "Org Icon URL updates the desktop OS icon live, persists through relaunch, and can be cleared",
