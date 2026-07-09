@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, asc, count, desc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
@@ -2074,15 +2074,20 @@ export async function listMarketplaces(input: { context: PluginArchActorContext;
     .where(eq(MarketplaceTable.organizationId, input.context.organizationContext.organization.id))
     .orderBy(desc(MarketplaceTable.updatedAt), desc(MarketplaceTable.id))
 
-  const memberships = await db
-    .select({ marketplaceId: MarketplacePluginTable.marketplaceId, count: MarketplacePluginTable.id })
-    .from(MarketplacePluginTable)
-    .where(isNull(MarketplacePluginTable.removedAt))
+  const marketplaceIds = rows.map((row) => row.id)
+  const memberships = marketplaceIds.length === 0
+    ? []
+    : await db
+      .select({ marketplaceId: MarketplacePluginTable.marketplaceId, count: count() })
+      .from(MarketplacePluginTable)
+      .where(and(
+        eq(MarketplacePluginTable.organizationId, input.context.organizationContext.organization.id),
+        inArray(MarketplacePluginTable.marketplaceId, marketplaceIds),
+        isNull(MarketplacePluginTable.removedAt),
+      ))
+      .groupBy(MarketplacePluginTable.marketplaceId)
 
-  const counts = memberships.reduce((accumulator, row) => {
-    accumulator.set(row.marketplaceId, (accumulator.get(row.marketplaceId) ?? 0) + 1)
-    return accumulator
-  }, new Map<string, number>())
+  const counts = new Map<string, number>(memberships.map((row) => [row.marketplaceId, row.count]))
 
   const visible: ReturnType<typeof serializeMarketplace>[] = []
   for (const row of rows) {
