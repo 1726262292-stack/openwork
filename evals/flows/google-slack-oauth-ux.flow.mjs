@@ -645,7 +645,8 @@ export default {
           },
           assert: async () => {
             await ctx.expectText("Slack MCP");
-            await ctx.expectText("https://mcp.slack.com/mcp");
+            const serverUrl = await ctx.eval(`document.querySelector('input[placeholder="https://mcp.example.com/mcp"]')?.value ?? [...document.querySelectorAll('input')].map((input) => input.value).find((value) => value.includes('mcp.slack.com')) ?? ''`);
+            ctx.assert(serverUrl.includes("https://mcp.slack.com/mcp"), `Slack MCP Server URL input should contain https://mcp.slack.com/mcp; saw ${JSON.stringify(serverUrl)}.`);
             await ctx.expectText("pre-registered Slack app");
             await ctx.expectText("automatic app registration");
             await ctx.expectText("Slack OAuth app");
@@ -655,7 +656,7 @@ export default {
           screenshot: {
             name: "slack-quick-add-preregistered-oauth-copy",
             claim: "Slack quick-add names Slack MCP, the Slack app requirement, and the client ID/secret fields up front.",
-            requireText: ["Add Slack", "Slack MCP", "https://mcp.slack.com/mcp", "pre-registered Slack app", "Slack OAuth app", "Client ID", "Client secret"],
+            requireText: ["Add Slack", "Slack MCP", "pre-registered Slack app", "automatic app registration", "Slack OAuth app", "Client ID", "Client secret"],
             rejectText: ["Something went wrong"],
           },
         });
