@@ -284,7 +284,7 @@ export default {
         // Re-runs may land on a settings page; return to the session surface.
         await ctx.navigateHash("/");
         await ctx.waitFor(
-          "document.body.innerText.includes('Run task') || document.body.innerText.includes('Describe your task')",
+          "document.body.innerText.includes('Run task') || document.body.innerText.includes('Describe your task') || document.body.innerText.includes('Ready for new tasks') || document.body.innerText.includes('Select or create a session')",
           { timeoutMs: 60_000, label: "engine ready" },
         );
       },

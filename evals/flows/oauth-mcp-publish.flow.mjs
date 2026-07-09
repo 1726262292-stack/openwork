@@ -247,7 +247,7 @@ export default {
         // Re-runs may land on a settings page; return to the session surface.
         await ctx.navigateHash("/");
         await ctx.waitFor(
-          "document.body.innerText.includes('Run task') || document.body.innerText.includes('Describe your task')",
+          "document.body.innerText.includes('Run task') || document.body.innerText.includes('Describe your task') || document.body.innerText.includes('Ready for new tasks') || document.body.innerText.includes('Select or create a session')",
           { timeoutMs: 60_000, label: "engine ready" },
         );
       },
@@ -455,15 +455,15 @@ export default {
       },
     },
     {
-      name: "Owner sees the plugin in the Extension Marketplace UI",
-      run: async (ctx) => {
-        await ctx.prove("Published plugin is visible in the marketplace view", {
-          voiceover: "Alex opens the Extension Marketplace and sees Laptop Refresh Policy available for Acme Robotics. The page shows the plugin without exposing the ServiceNow secret.",
-          action: async () => {
-            await ctx.control("settings.panel.open", { panel: "cloud-marketplaces" });
-            await ctx.waitFor("location.hash.includes('/settings/cloud-marketplaces')", { timeoutMs: 15_000 });
-            await ctx.control("extensions.refresh-marketplace").catch(() => {});
-          },
+       name: "Owner sees the plugin in the Connect UI",
+       run: async (ctx) => {
+         await ctx.prove("Published plugin is visible in the Connect view", {
+           voiceover: "Alex opens Connect and sees Laptop Refresh Policy shared with Acme Robotics. The page shows the plugin without exposing the ServiceNow secret.",
+           action: async () => {
+             await ctx.control("settings.panel.open", { panel: "connect" });
+             await ctx.waitFor("location.hash.includes('/settings/connect')", { timeoutMs: 15_000 });
+             await ctx.control("extensions.refresh-marketplace").catch(() => {});
+           },
           assert: async () => {
             await ctx.waitForText(SHARED.PLUGIN_NAME, { timeoutMs: 45_000 });
             await ctx.expectNoText(SHARED.OAUTH_CLIENT_SECRET);
