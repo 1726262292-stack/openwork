@@ -650,13 +650,15 @@ export default {
             await ctx.expectText("pre-registered Slack app");
             await ctx.expectText("automatic app registration");
             await ctx.expectText("Slack OAuth app");
+            await ctx.expectText("Agents & AI Apps");
+            await ctx.expectText("Model Context Protocol");
             await ctx.expectText("Client ID");
             await ctx.expectText("Client secret");
           },
           screenshot: {
             name: "slack-quick-add-preregistered-oauth-copy",
             claim: "Slack quick-add names Slack MCP, the Slack app requirement, and the client ID/secret fields up front.",
-            requireText: ["Add Slack", "Slack MCP", "pre-registered Slack app", "automatic app registration", "Slack OAuth app", "Client ID", "Client secret"],
+            requireText: ["Add Slack", "Slack MCP", "pre-registered Slack app", "automatic app registration", "Slack OAuth app", "Agents & AI Apps", "Model Context Protocol", "Client ID", "Client secret"],
             rejectText: ["Something went wrong"],
           },
         });

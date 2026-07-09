@@ -1307,11 +1307,22 @@ function AddConnectionDialog({
           {showOAuthClientFields ? (
             <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
               <p className="text-[13px] font-semibold text-gray-900">{isSlackPreset ? "Slack OAuth app" : "OAuth app"}</p>
-              <p className="mt-1 text-[12px] leading-5 text-gray-500">
-                {isSlackPreset
-                  ? "Create or use an internal or directory-published Slack app, then paste its Client ID and Client secret. After you create the connection, OpenWork shows the exact redirect URL to add to that Slack app."
-                  : "Create an app for your workspace, then paste its OAuth client here. Each person connects their own account with it — sign-ins stay in your org's cloud."}
-              </p>
+              {isSlackPreset ? (
+                <ol className="mt-2 list-decimal space-y-2 pl-4 text-[12px] leading-5 text-gray-600">
+                  <li>
+                    Create or use an internal or directory-published Slack app.{" "}
+                    <a href="https://api.slack.com/apps" target="_blank" rel="noopener" className="font-medium text-gray-900 underline decoration-gray-300 underline-offset-4">
+                      Open Slack apps
+                    </a>
+                  </li>
+                  <li>In the app&apos;s settings, open Agents &amp; AI Apps and turn on Model Context Protocol — Slack MCP rejects connections until this is enabled.</li>
+                  <li>Paste the app&apos;s Client ID and Client secret below. After you create the connection, OpenWork shows the exact redirect URL to add to that Slack app.</li>
+                </ol>
+              ) : (
+                <p className="mt-1 text-[12px] leading-5 text-gray-500">
+                  {"Create an app for your workspace, then paste its OAuth client here. Each person connects their own account with it — sign-ins stay in your org's cloud."}
+                </p>
+              )}
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client ID</label>
