@@ -113,7 +113,7 @@ export default {
           },
           screenshot: {
             name: "frame-1-admin-bad-icon-url-entered",
-            targetUrlIncludes: ORG_SETTINGS_PATH,
+            textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: ["Brand Appearance", "Icon URL"],
           },
         });
@@ -143,7 +143,7 @@ export default {
           },
           screenshot: {
             name: "frame-2-admin-bad-icon-url-rejected",
-            targetUrlIncludes: ORG_SETTINGS_PATH,
+            textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: [ERROR_SNIPPET],
           },
         });
@@ -187,7 +187,7 @@ export default {
           },
           screenshot: {
             name: "frame-3-admin-good-icon-url-saved",
-            targetUrlIncludes: ORG_SETTINGS_PATH,
+            textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: [SUCCESS_TEXT],
             rejectText: [ERROR_SNIPPET],
           },

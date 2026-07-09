@@ -503,7 +503,7 @@ export default {
           },
           screenshot: {
             name: "frame-1-admin-icon-url",
-            targetUrlIncludes: ORG_SETTINGS_PATH,
+            textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: ["Brand Appearance", "Icon URL"],
           },
         });
@@ -526,7 +526,7 @@ export default {
           },
           screenshot: {
             name: "frame-2-admin-icon-url-saved",
-            targetUrlIncludes: ORG_SETTINGS_PATH,
+            textTargetUrlIncludes: ORG_SETTINGS_PATH,
             requireText: ["Brand Appearance", "Icon URL"],
           },
         });

@@ -381,58 +381,83 @@ export class EvalContext {
     return result.result;
   }
 
+  /**
+   * Connect to a specific CDP page target (by id or URL substring), verifying
+   * the connection is actually responsive with a real Page.captureScreenshot
+   * call before returning it — a fresh connection's first call can
+   * intermittently time out through the Daytona proxy even though the target
+   * is healthy. Retries with a brand-new connection up to 3x. Returns the
+   * client plus the screenshot buffer captured during the responsiveness
+   * check (reuse it instead of shooting twice).
+   */
+  async _connectVerifiedTarget(targetId, targetUrlIncludes) {
+    if (!this.cdpBaseUrl) {
+      throw new EvalError("Targeting a specific CDP target requires cdpBaseUrl on the context.");
+    }
+    const attempts = 3;
+    let lastError = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const targets = await listTargets(this.cdpBaseUrl);
+        const target = targets.find((entry) => (
+          entry.type === "page" &&
+          entry.webSocketDebuggerUrl &&
+          (!targetId || entry.id === targetId) &&
+          (!targetUrlIncludes || String(entry.url ?? "").includes(targetUrlIncludes))
+        ));
+        if (!target) {
+          throw new EvalError(`No CDP target found matching ${JSON.stringify({ targetId, targetUrlIncludes })}.`);
+        }
+        const client = await connect(debuggerUrlFor(this.cdpBaseUrl, target));
+        await client.send("Page.enable").catch(() => undefined);
+        const buffer = await captureScreenshot(client);
+        return { client, buffer };
+      } catch (error) {
+        lastError = error;
+        this.log(`CDP target connection attempt ${attempt + 1}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    throw lastError;
+  }
+
   async screenshot(name, options = {}) {
     this.screenshotIndex += 1;
     const fileName = `${this.flowId}-${String(this.screenshotIndex).padStart(2, "0")}-${slug(name)}.png`;
     const targetSelector = options.targetId || options.targetUrlIncludes;
+    const textTargetSelector = options.textTargetId || options.textTargetUrlIncludes;
     let screenshotClient = this.client;
-    let closeScreenshotClient = false;
+    let closeClients = [];
     let preCapturedBuffer = null;
     if (targetSelector) {
-      if (!this.cdpBaseUrl) {
-        throw new EvalError("Targeted screenshots require cdpBaseUrl on the context.");
-      }
-      // Connecting to a second (non-primary) CDP target is intermittently
-      // flaky through the Daytona proxy — a fresh connection's first
-      // Page.captureScreenshot call can time out even though the target is
-      // healthy. Retry with a brand-new connection each attempt rather than
-      // failing the whole frame on one flaky round trip.
-      const attempts = 3;
-      let lastError = null;
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        try {
-          const targets = await listTargets(this.cdpBaseUrl);
-          const target = targets.find((entry) => (
-            entry.type === "page" &&
-            entry.webSocketDebuggerUrl &&
-            (!options.targetId || entry.id === options.targetId) &&
-            (!options.targetUrlIncludes || String(entry.url ?? "").includes(options.targetUrlIncludes))
-          ));
-          if (!target) {
-            throw new EvalError(`No CDP target found for screenshot ${JSON.stringify({ targetId: options.targetId, targetUrlIncludes: options.targetUrlIncludes })}.`);
-          }
-          const candidate = await connect(debuggerUrlFor(this.cdpBaseUrl, target));
-          await candidate.send("Page.enable").catch(() => undefined);
-          preCapturedBuffer = await captureScreenshot(candidate);
-          screenshotClient = candidate;
-          closeScreenshotClient = true;
-          lastError = null;
-          break;
-        } catch (error) {
-          lastError = error;
-          this.log(`Targeted screenshot connection attempt ${attempt + 1}/${attempts} failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      if (lastError) {
-        throw lastError;
-      }
+      // Some CDP page targets (e.g. an embedded browser-panel WebContentsView
+      // rather than a top-level BrowserWindow page) do not reliably answer
+      // Page.captureScreenshot at all — no amount of retrying fixes that.
+      // Callers who know their target renders visually within the PRIMARY
+      // window (e.g. a split-pane browser panel) should omit targetId/
+      // targetUrlIncludes for the capture and use textTargetId/
+      // textTargetUrlIncludes instead to validate text against the embedded
+      // view's own DOM.
+      const { client, buffer } = await this._connectVerifiedTarget(options.targetId, options.targetUrlIncludes);
+      screenshotClient = client;
+      preCapturedBuffer = buffer;
+      closeClients.push(client);
+    }
+    // Text/URL validation can target a DIFFERENT CDP target than the one
+    // that took the screenshot — needed when the visible pixels come from a
+    // parent window (primary target) but the relevant DOM text lives in an
+    // embedded, separately-targeted view (e.g. the built-in browser panel).
+    let textClient = screenshotClient;
+    if (textTargetSelector) {
+      const { client } = await this._connectVerifiedTarget(options.textTargetId, options.textTargetUrlIncludes);
+      textClient = client;
+      closeClients.push(client);
     }
     try {
       const buffer = preCapturedBuffer ?? await captureScreenshot(screenshotClient);
       await writeFile(join(this.outDir, fileName), buffer);
       this.screenshots.push(fileName);
-      const bodyText = await evaluate(screenshotClient, "document.body.innerText").catch(() => "");
-      const url = await evaluate(screenshotClient, "location.href").catch(() => "");
+      const bodyText = await evaluate(textClient, "document.body.innerText").catch(() => "");
+      const url = await evaluate(textClient, "location.href").catch(() => "");
       const hash = createHash("sha256").update(buffer).digest("hex");
       const dimensions = pngDimensions(buffer);
       const validations = [
@@ -470,9 +495,9 @@ export class EvalContext {
       }
       return fileName;
     } finally {
-      if (closeScreenshotClient) {
+      for (const client of closeClients) {
         try {
-          screenshotClient.close();
+          client.close();
         } catch {
           // Ignore target cleanup errors.
         }
