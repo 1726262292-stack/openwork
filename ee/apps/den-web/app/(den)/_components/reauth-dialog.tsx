@@ -325,7 +325,7 @@ export function ReauthDialog({
           <div className="grid gap-2">
             <h2 className="text-[24px] font-semibold tracking-[-0.03em] text-gray-950">Confirm it's you to continue</h2>
             <p className="text-[15px] leading-7 text-gray-600">
-              Changing workspace settings requires a recent sign-in. After you confirm, OpenWork retries the action automatically.
+              Changing workspace settings requires a recent sign-in. Choose a sign-in method below; after you confirm, OpenWork retries the pending action automatically.
             </p>
           </div>
         </div>
@@ -349,17 +349,20 @@ export function ReauthDialog({
             </DenButton>
           ) : null}
 
-          {socialProviders.map((provider) => (
-            <button
-              key={provider}
-              type="button"
-              className={buttonVariants({ variant: "secondary", className: "w-full" })}
-              disabled={busy}
-              onClick={() => void continueSocial(provider)}
-            >
-              Continue with {getSocialLabel(provider)}
-            </button>
-          ))}
+          {socialProviders.map((provider) => {
+            const primarySocial = !hasManagedOrgSignIn && (provider === "google" || socialProviders.length === 1);
+            return (
+              <button
+                key={provider}
+                type="button"
+                className={buttonVariants({ variant: primarySocial ? "primary" : "secondary", className: "w-full" })}
+                disabled={busy}
+                onClick={() => void continueSocial(provider)}
+              >
+                Continue with {getSocialLabel(provider)}
+              </button>
+            );
+          })}
 
           {hasPassword ? (
             <form className="grid gap-3" onSubmit={submitPassword}>
