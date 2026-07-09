@@ -21,6 +21,7 @@ const routeGuardExceptions = new Map<string, string>([
   ["POST /register", "MCP OAuth dynamic client registration policy validates the request"],
   ["POST /api/auth/oauth2/register", "MCP OAuth dynamic client registration policy validates the request"],
   ["GET /api/auth/oauth2/authorize", "Better Auth OAuth authorization endpoint"],
+  ["GET /v1/auth/login-options", "public deterministic auth method discovery"],
   ["ALL /api/auth/sso/saml2/callback/*", "SAML response policy validates callback responses before Better Auth"],
   ["ALL /api/auth/sso/saml2/sp/acs/*", "SAML response policy validates ACS responses before Better Auth"],
   ["GET /api/auth/*", "Better Auth route mount"],

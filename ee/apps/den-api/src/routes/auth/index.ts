@@ -1,8 +1,11 @@
 import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider"
+import { eq, sql } from "@openwork-ee/den-db/drizzle"
+import { AuthAccountTable, AuthUserTable } from "@openwork-ee/den-db/schema"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
+import { normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
 import {
   getBreachedPasswordResponse,
   getEmailPasswordLockoutResponse,
@@ -10,10 +13,12 @@ import {
   readEmailPasswordSignInAttempt,
   recordEmailPasswordSignInResult,
 } from "../../auth-protection.js"
+import { db } from "../../db.js"
 import { env } from "../../env.js"
+import { findEnterpriseAuthRequirementForEmail } from "../../enterprise-auth-requirement.js"
 import { getInvalidMcpOAuthRedirectUris } from "../../mcp/oauth-client-policy.js"
 import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
-import { publicRoute, tokenRoute } from "../../middleware/index.js"
+import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.js"
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
 import { publicRequestUrl } from "../../request-url.js"
@@ -241,6 +246,42 @@ const authPasswordScreeningUnavailableSchema = z.object({
   message: z.string(),
 }).meta({ ref: "AuthPasswordScreeningUnavailableError" })
 
+const loginOptionsQuerySchema = z.object({
+  email: z.string().trim().email().transform(normalizeLoginEmail),
+})
+
+const loginOptionKindSchema = z.union([
+  z.literal("sso"),
+  z.literal("google"),
+  z.literal("github"),
+  z.literal("password"),
+  z.literal("new_account"),
+])
+
+const loginOptionsResponseSchema = z.object({
+  email: z.string().email(),
+  nextStep: loginOptionKindSchema,
+  organizationSlug: z.string().optional(),
+  signInPath: z.string().optional(),
+  signInUrl: z.string().url().optional(),
+}).meta({ ref: "AuthLoginOptionsResponse" })
+
+async function getLoginOptionAccounts(email: string) {
+  const rows = await db
+    .select({
+      providerId: AuthAccountTable.providerId,
+      password: AuthAccountTable.password,
+    })
+    .from(AuthUserTable)
+    .innerJoin(AuthAccountTable, eq(AuthUserTable.id, AuthAccountTable.userId))
+    .where(sql`lower(${AuthUserTable.email}) = ${email}`)
+
+  return rows.map((row) => ({
+    providerId: row.providerId,
+    hasPassword: Boolean(row.password),
+  }))
+}
+
 async function handleAuthRequest(request: Request) {
   const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(request)
   if (singleOrgAuthGuardResponse) {
@@ -285,6 +326,46 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
   app.post("/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
   app.post("/api/auth/oauth2/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
   app.get("/api/auth/oauth2/authorize", tokenRoute, (c) => auth.handler(c.req.raw))
+
+  app.get(
+    "/v1/auth/login-options",
+    describeRoute({
+      tags: ["Authentication"],
+      summary: "Resolve deterministic login option",
+      description: "Returns the deterministic next authentication step for an email address. SSO is preferred before Google, password, GitHub compatibility, and new account creation.",
+      responses: {
+        200: jsonResponse("Login option resolved successfully.", loginOptionsResponseSchema),
+        400: jsonResponse("The login option query parameters were invalid.", z.object({ error: z.literal("invalid_request") })),
+      },
+    }),
+    publicRoute,
+    queryValidator(loginOptionsQuerySchema),
+    async (c) => {
+      const { email } = c.req.valid("query")
+      const singletonSsoStatus = env.orgMode === "single_org" ? await getSingletonSsoStatus() : null
+      const singletonSsoRequirement = singletonSsoStatus?.configured
+        ? {
+            organizationSlug: singletonSsoStatus.organizationSlug,
+            signInPath: singletonSsoStatus.signInPath,
+          }
+        : null
+      const requirement = singletonSsoRequirement ?? await findEnterpriseAuthRequirementForEmail(email)
+      const accounts = requirement ? [] : await getLoginOptionAccounts(email)
+      const nextStep = resolveLoginOptionKind({ requireSso: Boolean(requirement), accounts })
+
+      if (nextStep === "sso" && requirement) {
+        return c.json({
+          email,
+          nextStep,
+          organizationSlug: requirement.organizationSlug,
+          signInPath: requirement.signInPath,
+          signInUrl: new URL(requirement.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl).toString(),
+        })
+      }
+
+      return c.json({ email, nextStep })
+    },
+  )
 
   app.on(
     ["GET", "POST", "PUT", "PATCH", "DELETE"],
