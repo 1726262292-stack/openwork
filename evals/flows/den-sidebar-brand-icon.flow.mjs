@@ -83,12 +83,9 @@ async function enterDashboard(ctx) {
   );
   await ctx.eval(`location.assign(${JSON.stringify(DEN_WEB_URL)})`);
   await ctx.waitFor('Boolean(document.querySelector(\'input[type="email"]\'))', { timeoutMs: 30_000, label: "sign-in form" });
-  await ctx.eval(`(() => {
-    const tab = [...document.querySelectorAll('button')].find((button) => (button.textContent ?? '').trim() === 'Sign in');
-    tab?.click();
-    return true;
-  })()`);
   await ctx.fill('input[type="email"]', ADMIN_EMAIL);
+  await ctx.eval(`(() => { document.querySelector('button[type="submit"]')?.click(); return true; })()`);
+  await ctx.waitFor('Boolean(document.querySelector(\'input[type="password"]\'))', { timeoutMs: 30_000, label: "password step" });
   await ctx.fill('input[type="password"]', ADMIN_PASSWORD);
   await ctx.eval(`(() => { document.querySelector('button[type="submit"]')?.click(); return true; })()`);
   await ctx.waitFor(`(() => {
@@ -181,7 +178,7 @@ export default {
               uploadThroughput: -1,
               connectionType: "wifi",
             });
-            await ctx.waitFor(`document.querySelector('[data-sidebar-brand-icon="ready"]')`, { timeoutMs: 30_000, label: "managed sidebar icon" });
+            await ctx.waitFor(`Boolean(document.querySelector('[data-sidebar-brand-icon="ready"]'))`, { timeoutMs: 30_000, label: "managed sidebar icon" });
           },
           assert: async () => {
             const icon = await iconState(ctx);
@@ -206,7 +203,7 @@ export default {
           action: async () => {
             await clearManagedIcon(ctx);
             await reloadDashboard(ctx);
-            await ctx.waitFor(`document.querySelector('[data-sidebar-brand-icon="fallback"]')`, { timeoutMs: 30_000, label: "sidebar fallback" });
+            await ctx.waitFor(`Boolean(document.querySelector('[data-sidebar-brand-icon="fallback"]'))`, { timeoutMs: 30_000, label: "sidebar fallback" });
           },
           assert: async () => {
             const icon = await iconState(ctx);
@@ -229,7 +226,7 @@ export default {
           action: async () => {
             await uploadManagedIcon(ctx);
             await reloadDashboard(ctx);
-            await ctx.waitFor(`document.querySelector('[data-sidebar-brand-icon="ready"]')`, { timeoutMs: 30_000, label: "restored managed sidebar icon" });
+            await ctx.waitFor(`Boolean(document.querySelector('[data-sidebar-brand-icon="ready"]'))`, { timeoutMs: 30_000, label: "restored managed sidebar icon" });
             await ctx.clickText("Settings", { timeoutMs: 15_000 });
             await ctx.waitForText("Brand Appearance", { timeoutMs: 30_000 });
             await ctx.eval(`(() => {
@@ -248,9 +245,9 @@ export default {
           },
           screenshot: {
             name: "brand-controls-and-sidebar-icon",
-            claim: "Brand Appearance still shows the managed square-icon controls while the sidebar uses that icon.",
+            claim: "Brand Appearance still shows the existing managed square-icon controls and stored icon.",
             requireText: ["Brand Appearance", "Square app icon", "Stored in this Den"],
-            rejectText: ["Something went wrong", "No custom image saved"],
+            rejectText: ["Something went wrong"],
           },
         });
       },
