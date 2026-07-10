@@ -157,6 +157,14 @@ export default {
         await withClient(ctx, DESKTOP_CDP_URL, async () => {
           await ctx.prove("The first-run screen uses Acme's name and loaded wordmark while preserving normal sign-in", {
             voiceover: vo[4],
+            action: async () => {
+              await ctx.client.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab" });
+              await ctx.client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab" });
+              await ctx.waitFor("document.activeElement?.tagName === 'BUTTON'", {
+                timeoutMs: 5_000,
+                label: "keyboard focus on normal sign-in controls",
+              });
+            },
             assert: async () => {
               const logo = await ctx.eval(`(() => {
                 const image = [...document.images].find((entry) => entry.alt === "Acme Work logo");
