@@ -266,6 +266,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     const apiBaseUrl = typeof input?.apiBaseUrl === "string" ? input.apiBaseUrl.trim() : "";
     const brandAppName = typeof input?.brandAppName === "string" ? input.brandAppName.trim().slice(0, 64) : "";
     const brandLogoUrl = typeof input?.brandLogoUrl === "string" ? input.brandLogoUrl.trim() : "";
+    const brandIconUrl = typeof input?.brandIconUrl === "string" ? input.brandIconUrl.trim() : "";
 
     return {
       baseUrl,
@@ -273,6 +274,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       requireSignin: forceRequireSignin || input?.requireSignin === true,
       ...(brandAppName ? { brandAppName } : {}),
       ...(brandLogoUrl ? { brandLogoUrl } : {}),
+      ...(brandIconUrl ? { brandIconUrl } : {}),
       ...(writtenAt ? { writtenAt } : {}),
       ...(claimLinks.length > 0 ? { claimLinks } : {}),
       ...(normalizedHandoff ? { handoff: normalizedHandoff } : {}),

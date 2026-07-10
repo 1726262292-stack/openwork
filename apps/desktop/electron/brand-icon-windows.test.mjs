@@ -9,6 +9,7 @@ import {
   windowsBrandAppUserModelId,
   windowsBrandShortcutDetails,
   windowsBrandShortcutFileName,
+  windowsInstalledShortcutFileName,
   writeWindowsBrandShortcut,
   windowsIconFromNativeImage,
 } from "./brand-icon-windows.mjs";
@@ -157,7 +158,8 @@ test("restores a visible taskbar button when refresh staging fails", async () =>
 });
 
 test("builds a per-user Start Menu shortcut with the branded Windows identity", () => {
-  assert.equal(windowsBrandShortcutFileName('Agent: Blue/West'), "Agent- Blue-West Organization.lnk");
+  assert.equal(windowsBrandShortcutFileName('Agent: Blue/West'), "Agent- Blue-West.lnk");
+  assert.equal(windowsInstalledShortcutFileName("OpenWork"), "OpenWork.lnk");
   assert.deepEqual(windowsBrandShortcutDetails({
     target: "C:\\Program Files\\OpenWork\\OpenWork.exe",
     appId: "com.differentai.openwork.brand.1234",

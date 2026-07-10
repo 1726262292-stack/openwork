@@ -38,6 +38,7 @@ import {
   windowsBrandAppUserModelId,
   windowsBrandShortcutDetails,
   windowsBrandShortcutFileName,
+  windowsInstalledShortcutFileName,
   writeWindowsBrandShortcut,
   windowsIconFromNativeImage,
 } from "./brand-icon-windows.mjs";
@@ -315,8 +316,27 @@ function windowsBrandShortcutPath() {
     "Windows",
     "Start Menu",
     "Programs",
-    windowsBrandShortcutFileName(APP_NAME),
+    windowsBrandShortcutFileName(currentDisplayAppName),
   );
+}
+
+function windowsInstalledShortcutPath() {
+  return path.join(
+    app.getPath("appData"),
+    "Microsoft",
+    "Windows",
+    "Start Menu",
+    "Programs",
+    windowsInstalledShortcutFileName(APP_NAME),
+  );
+}
+
+function windowsBrandShortcutMarkerPath() {
+  return path.join(app.getPath("userData"), "windows-brand-shortcut.txt");
+}
+
+async function readWindowsBrandShortcutMarker() {
+  return (await readFile(windowsBrandShortcutMarkerPath(), "utf8").catch(() => "")).trim();
 }
 
 async function registerWindowsBrandShortcut(appId, appIconPath) {
@@ -329,15 +349,25 @@ async function registerWindowsBrandShortcut(appId, appIconPath) {
     target: process.execPath,
     appId,
     appIconPath,
-    appName: APP_NAME,
+    appName: currentDisplayAppName,
   }), existsSync(shortcutPath));
   if (!written) throw new Error(`Windows rejected the organization shortcut: ${shortcutPath}`);
+  const previousShortcutPath = await readWindowsBrandShortcutMarker();
+  if (previousShortcutPath && previousShortcutPath !== shortcutPath) {
+    await rm(previousShortcutPath, { force: true });
+  }
+  if (windowsInstalledShortcutPath() !== shortcutPath) {
+    await rm(windowsInstalledShortcutPath(), { force: true });
+  }
+  await writeFile(windowsBrandShortcutMarkerPath(), shortcutPath, "utf8");
   return shortcutPath;
 }
 
 async function removeWindowsBrandShortcut() {
   if (process.platform !== "win32") return;
-  await rm(windowsBrandShortcutPath(), { force: true });
+  const shortcutPath = await readWindowsBrandShortcutMarker();
+  if (shortcutPath) await rm(shortcutPath, { force: true });
+  await rm(windowsBrandShortcutMarkerPath(), { force: true });
 }
 
 function resolveBrandIconImage() {
@@ -379,19 +409,20 @@ async function applyAppIconImage(image, { taskbarIconPath = null, taskbarAppId =
       return { ok: true };
     }
 
-    if (!mainWindow) return brandIconFailure("window-unavailable");
     if (process.platform === "win32") {
       if (!taskbarIconPath || !existsSync(taskbarIconPath)) {
         return brandIconFailure("taskbar-icon-missing");
       }
+      if (!mainWindow) return { ok: true };
       await applyWindowsTaskbarIcon(mainWindow, {
         image,
         appId: taskbarAppId,
         appIconPath: taskbarIconPath,
         relaunchCommand: process.execPath,
-        relaunchDisplayName: APP_NAME,
+        relaunchDisplayName: currentDisplayAppName,
       });
     } else {
+      if (!mainWindow) return brandIconFailure("window-unavailable");
       mainWindow.setIcon(image);
     }
     return { ok: true };
@@ -431,6 +462,13 @@ async function applyDefaultAppIconImage(expectedSequence = null) {
     // Preserve the pre-existing no-op fallback on platforms whose packaged
     // application icon is managed entirely by the bundle.
     return process.platform === "win32" ? brandIconFailure("stock-icon-unavailable") : { ok: true };
+  }
+  if (process.platform === "win32" && taskbarIconPath) {
+    try {
+      await registerWindowsBrandShortcut(APP_IDENTIFIER, taskbarIconPath);
+    } catch (error) {
+      return brandIconFailure("shortcut-write-failed", error);
+    }
   }
   if (expectedSequence !== null && expectedSequence !== brandIconApplySequence) {
     return { ok: false, reason: "stale" };
@@ -1716,9 +1754,18 @@ const desktopCommandHandlers = {
   "__applyBrandAppName": async (event, ...args) => {
       const requested = args[0] === null ? "" : String(args[0] ?? "").trim();
       currentDisplayAppName = requested.slice(0, 64) || APP_NAME;
-      applicationMenu.setAppName(currentDisplayAppName);
-      mainWindow?.setTitle(currentDisplayAppName);
-      return { ok: true, appName: currentDisplayAppName };
+    applicationMenu.setAppName(currentDisplayAppName);
+    mainWindow?.setTitle(currentDisplayAppName);
+    if (process.platform === "win32") {
+      const sidecar = await readBrandIconSidecar();
+      const sourceUrl = typeof sidecar?.sourceUrl === "string" ? sidecar.sourceUrl : null;
+      const cachedImage = sourceUrl ? resolveBrandIconImage() : null;
+      if (cachedImage && sourceUrl) {
+        const iconPath = await ensureWindowsBrandIcon(cachedImage);
+        await registerWindowsBrandShortcut(windowsBrandAppUserModelId(APP_IDENTIFIER, sourceUrl), iconPath);
+      }
+    }
+    return { ok: true, appName: currentDisplayAppName };
   },
   "__applyBrandIcon": async (event, ...args) => {
       const value = args[0] === null ? null : String(args[0] ?? "");
@@ -2175,8 +2222,15 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     installMediaPermissionHandlers(session, () => mainWindow);
-    applicationMenu.install();
     await workspaceStore.importBundledDesktopBootstrapConfigIfPreferred();
+    const bootstrapConfig = await workspaceStore.getDesktopBootstrapConfig();
+    currentDisplayAppName = bootstrapConfig.brandAppName?.slice(0, 64) || APP_NAME;
+    app.setName(currentDisplayAppName);
+    applicationMenu.setAppName(currentDisplayAppName);
+    if (process.platform === "win32" && bootstrapConfig.brandIconUrl) {
+      await applyBrandIconUrl(bootstrapConfig.brandIconUrl);
+    }
+    applicationMenu.install();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
     // Use Tauri's existing workspace state file as canonical so rollback and

@@ -129,6 +129,7 @@ function buildInstallConfig(input: { organization: { name: string; logo: string 
     apiUrl: resolvePublicOrigin(input.request, env.apiPublicUrl),
     requireSignin: true,
     logoUrl: typeof metadata.brandLogoUrl === "string" ? metadata.brandLogoUrl : input.organization.logo ?? null,
+    iconUrl: typeof metadata.brandIconUrl === "string" ? metadata.brandIconUrl : null,
   })
 }
 
@@ -400,6 +401,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         requireSignin: resolved.config.requireSignin,
         brandAppName: resolved.config.appName,
         brandLogoUrl: resolved.config.logoUrl ?? undefined,
+        brandIconUrl: resolved.config.iconUrl ?? undefined,
         writtenAt: new Date().toISOString(),
       })
       const bundle = createStoredZipStream([

@@ -379,6 +379,7 @@ test("imports the newest organization bootstrap beside a Windows installer when 
       requireSignin: true,
       brandAppName: "Example Org Work",
       brandLogoUrl: "https://openwork.internal.example/logo.png",
+      brandIconUrl: "https://openwork.internal.example/icon.png",
       writtenAt: "2026-07-10T12:00:00.000Z",
     });
 
@@ -390,6 +391,7 @@ test("imports the newest organization bootstrap beside a Windows installer when 
       requireSignin: true,
       brandAppName: "Example Org Work",
       brandLogoUrl: "https://openwork.internal.example/logo.png",
+      brandIconUrl: "https://openwork.internal.example/icon.png",
       writtenAt: "2026-07-10T12:00:00.000Z",
     });
     const persisted = JSON.parse(await readFile(canonicalPath, "utf8"));
