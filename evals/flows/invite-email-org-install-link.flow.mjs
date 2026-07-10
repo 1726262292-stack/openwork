@@ -323,7 +323,7 @@ export default {
             }
             await ctx.expectText(`Download OpenWork for ${ORGANIZATION_NAME}`);
             await ctx.expectText("Download for Windows");
-            await ctx.eval(`(() => { history.replaceState(null, '', '/install?token=%5Bredacted%5D'); return true; })()`);
+            await ctx.eval(`(() => { History.prototype.replaceState.call(history, null, '', '/install?token=%5Bredacted%5D'); return true; })()`);
           },
           screenshot: {
             name: "invite-email-org-link-windows-page",
