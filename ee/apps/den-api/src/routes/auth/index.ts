@@ -214,6 +214,32 @@ async function handleMcpClientRegistrationRequest(request: Request, path: string
   return rewritten instanceof Response ? rewritten : auth.handler(rewritten)
 }
 
+// Better Auth includes RFC 9207 `iss` on successful code responses but not on
+// every compatibility path. Keep clients tolerant of an absent value; clients
+// still validate it against `issuer` whenever the callback does include it.
+async function makeAuthorizationResponseIssuerOptional(response: Response) {
+  const metadata: unknown = await response.clone().json()
+  if (!isRecord(metadata)) {
+    return response
+  }
+
+  const headers = new Headers(response.headers)
+  headers.delete("content-length")
+  metadata.authorization_response_iss_parameter_supported = false
+  return new Response(JSON.stringify(metadata), {
+    status: response.status,
+    headers,
+  })
+}
+
+async function getOAuthAuthorizationServerMetadata(request: Request) {
+  return makeAuthorizationResponseIssuerOptional(await oauthProviderAuthServerMetadata(auth)(request))
+}
+
+async function getOAuthOpenIdConfiguration(request: Request) {
+  return makeAuthorizationResponseIssuerOptional(await oauthProviderOpenIdConfigMetadata(auth)(request))
+}
+
 const authLoginLockedSchema = z.object({
   error: z.literal("login_locked"),
   message: z.string(),
@@ -271,12 +297,12 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
   // Better Auth uses this configured base URL for the callback `iss` value.
   // Keep discovery on that same canonical issuer even when these routes are
   // reached through a separate API or reverse-proxy origin.
-  app.get("/api/auth/.well-known/oauth-authorization-server", publicRoute, (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw))
-  app.get("/api/auth/.well-known/openid-configuration", publicRoute, (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw))
-  app.get("/.well-known/oauth-authorization-server/api/auth", publicRoute, (c) => oauthProviderAuthServerMetadata(auth)(c.req.raw))
-  app.get("/.well-known/openid-configuration/api/auth", publicRoute, (c) => oauthProviderOpenIdConfigMetadata(auth)(c.req.raw))
-  app.get("/.well-known/oauth-authorization-server", publicRoute, (c) => oauthProviderAuthServerMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/oauth-authorization-server")))
-  app.get("/.well-known/openid-configuration", publicRoute, (c) => oauthProviderOpenIdConfigMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/openid-configuration")))
+  app.get("/api/auth/.well-known/oauth-authorization-server", publicRoute, (c) => getOAuthAuthorizationServerMetadata(c.req.raw))
+  app.get("/api/auth/.well-known/openid-configuration", publicRoute, (c) => getOAuthOpenIdConfiguration(c.req.raw))
+  app.get("/.well-known/oauth-authorization-server/api/auth", publicRoute, (c) => getOAuthAuthorizationServerMetadata(c.req.raw))
+  app.get("/.well-known/openid-configuration/api/auth", publicRoute, (c) => getOAuthOpenIdConfiguration(c.req.raw))
+  app.get("/.well-known/oauth-authorization-server", publicRoute, (c) => getOAuthAuthorizationServerMetadata(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/oauth-authorization-server")))
+  app.get("/.well-known/openid-configuration", publicRoute, (c) => getOAuthOpenIdConfiguration(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/openid-configuration")))
   app.post("/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
   app.post("/api/auth/oauth2/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
   app.get("/api/auth/oauth2/authorize", tokenRoute, async (c) => {

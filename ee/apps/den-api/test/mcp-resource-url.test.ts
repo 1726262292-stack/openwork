@@ -75,6 +75,9 @@ if (authMetadataUrl) {
   if (metadata.issuer !== expectedAuthIssuer) {
     throw new Error(\`Expected auth issuer \${expectedAuthIssuer}, got \${metadata.issuer}\`)
   }
+  if (metadata.authorization_response_iss_parameter_supported !== false) {
+    throw new Error("Expected authorization response issuer support to remain optional")
+  }
   for (const key of ["authorization_endpoint", "token_endpoint", "registration_endpoint"]) {
     const endpoint = metadata[key]
     if (typeof endpoint !== "string" || !endpoint.startsWith(\`\${expectedAuthIssuer}/\`)) {
