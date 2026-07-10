@@ -2,8 +2,8 @@
 
 PR-2 of the invite-to-desktop track: org install links. An admin mints a
 shareable link; the installer it serves is the one generic signed binary,
-stamped per org at serve time (zip sidecar on macOS, Content-Disposition
-filename tag on Windows, install script on Linux). The installer writes
+stamped per org at serve time (zip sidecar on macOS and Windows, install
+script on Linux). The installer writes
 `desktop-bootstrap.json` with the org's server and `requireSignin: true`, so
 the app's first boot is the forced sign-in against the right deployment — no
 per-org builds anywhere. The generic release asset ships in PR-3; evals point

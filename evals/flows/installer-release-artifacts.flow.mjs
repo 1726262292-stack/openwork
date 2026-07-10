@@ -24,7 +24,8 @@ const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.t
 const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 
 const MAC_ASSET = "openwork-installer-mac-arm64.zip";
-const WIN_ASSET = "openwork-installer-win-x64.exe";
+const WIN_X64_ASSET = "openwork-installer-win-x64.zip";
+const WIN_ARM64_ASSET = "openwork-installer-win-arm64.zip";
 const INSTALL_SIDECAR_FILENAME = "openwork-installer.json";
 const APP_BUNDLE_NAME = "OpenWork Installer.app";
 // Must match den-api's default OPENWORK_INSTALLER_CACHE_DIR (env.installerCacheDir).
@@ -89,7 +90,7 @@ export default {
               const release = await response.json();
               const assets = Array.isArray(release.assets) ? release.assets : [];
               const published = {};
-              for (const name of [MAC_ASSET, "openwork-installer-mac-x64.zip", WIN_ASSET]) {
+              for (const name of [MAC_ASSET, "openwork-installer-mac-x64.zip", WIN_X64_ASSET, WIN_ARM64_ASSET]) {
                 const asset = assets.find((entry) => entry.name === name);
                 ctx.assert(Boolean(asset), `Release ${RELEASE_TAG} is missing public asset ${name}.`);
                 published[name] = { size: asset.size, downloadUrl: asset.browser_download_url, updatedAt: asset.updated_at };
@@ -274,17 +275,31 @@ export default {
       name: "Frame 4",
       run: async (ctx) => {
         await withClient(ctx, INVITEE_CDP_URL, async () => {
-          await ctx.prove("The same install link serves Windows the tagged exe and Linux the org setup script, all from one release", {
+          await ctx.prove("The same install link serves both Windows architectures as stamped zips and Linux the org setup script", {
             voiceover: vo[3],
             // "And the very same link keeps working for the whole fleet..."
             action: async () => {
               const token = requireStateValue(state.installToken, "install token");
 
-              const win = await timedInstallDownload(ctx, "win-x64");
-              const disposition = win.contentDisposition;
-              const expectedFilename = new RegExp(`^attachment; filename="OpenWork-Installer--127\\.0\\.0\\.1_8790--${token}\\.exe"$`);
-              ctx.assert(win.status === 200, `Windows install download returned ${win.status}.`);
-              ctx.assert(expectedFilename.test(disposition), `Windows Content-Disposition was ${disposition}.`);
+              const winX64 = await timedInstallDownload(ctx, "win-x64");
+              const winArm64 = await timedInstallDownload(ctx, "win-arm64");
+              ctx.assert(winX64.status === 200, `Windows x64 install download returned ${winX64.status}.`);
+              ctx.assert(winArm64.status === 200, `Windows ARM64 install download returned ${winArm64.status}.`);
+              ctx.assert(/OpenWork-Installer-[a-z0-9._-]+-win-x64\.zip/.test(winX64.contentDisposition), `Windows x64 Content-Disposition was ${winX64.contentDisposition}.`);
+              ctx.assert(/OpenWork-Installer-[a-z0-9._-]+-win-arm64\.zip/.test(winArm64.contentDisposition), `Windows ARM64 Content-Disposition was ${winArm64.contentDisposition}.`);
+
+              const winDir = mkdtempSync(path.join(os.tmpdir(), "ow-release-windows-"));
+              const winZipPath = path.join(winDir, "OpenWork-Installer.zip");
+              const winExtractedDir = path.join(winDir, "extracted");
+              mkdirSync(winExtractedDir);
+              writeFileSync(winZipPath, winX64.bytes);
+              unzip(winZipPath, winExtractedDir);
+              const winExecutablePath = path.join(winExtractedDir, "OpenWork Installer.exe");
+              const winSidecarPath = path.join(winExtractedDir, INSTALL_SIDECAR_FILENAME);
+              ctx.assert(existsSync(winExecutablePath), "Windows zip did not contain OpenWork Installer.exe.");
+              ctx.assert(existsSync(winSidecarPath), `Windows zip did not contain ${INSTALL_SIDECAR_FILENAME}.`);
+              const winSidecar = JSON.parse(readFileSync(winSidecarPath, "utf8"));
+              ctx.assert(winSidecar.clientName === "Acme Robotics", `Windows sidecar clientName was ${winSidecar.clientName}.`);
 
               const linuxResponse = await fetch(`${DEN_API_URL}/v1/install/linux-x64?token=${encodeURIComponent(token)}`);
               const linuxScript = await linuxResponse.text();
@@ -295,7 +310,12 @@ export default {
                 "fleet-downloads-from-one-release",
                 JSON.stringify(
                   {
-                    windows: { status: win.status, bytes: win.bytes.length, contentDisposition: disposition },
+                    windows: {
+                      x64: { status: winX64.status, bytes: winX64.bytes.length, contentDisposition: winX64.contentDisposition },
+                      arm64: { status: winArm64.status, bytes: winArm64.bytes.length, contentDisposition: winArm64.contentDisposition },
+                      zipEntries: ["OpenWork Installer.exe", INSTALL_SIDECAR_FILENAME],
+                      sidecar: winSidecar,
+                    },
                     linux: {
                       status: linuxResponse.status,
                       contentDisposition: linuxResponse.headers.get("content-disposition"),
@@ -314,11 +334,11 @@ export default {
               // and keeps this frame visually distinct from frame 2.
               await navigateToAbsolute(ctx, requireStateValue(state.installPageUrl, "install page URL"));
               await ctx.waitForText("Download OpenWork for Acme Robotics", { timeoutMs: 30_000 });
-              await ctx.waitForText("Windows", { timeoutMs: 15_000 });
+              await ctx.waitForText("Windows (x64)", { timeoutMs: 15_000 });
               await ctx.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
               await ctx.client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
               const focusRing = await ctx.eval(`(() => {
-                const link = [...document.querySelectorAll("a")].find((candidate) => (candidate.textContent ?? "").trim() === "Windows");
+                const link = [...document.querySelectorAll("a")].find((candidate) => (candidate.textContent ?? "").trim() === "Windows (x64)");
                 if (!link) return "missing";
                 link.scrollIntoView({ block: "center" });
                 link.focus();
@@ -327,12 +347,13 @@ export default {
               ctx.assert(focusRing === "focus-visible", `Windows platform link did not get a keyboard focus ring (${focusRing}).`);
             },
             assert: async () => {
-              await ctx.expectText("Windows");
+              await ctx.expectText("Windows (x64)");
+              await ctx.expectText("Windows (ARM64)");
               await ctx.expectText("Linux (x64)");
             },
             screenshot: {
               name: "one-link-whole-fleet",
-              requireText: ["Windows", "Linux (x64)"],
+              requireText: ["Windows (x64)", "Windows (ARM64)", "Linux (x64)"],
             },
           });
         });

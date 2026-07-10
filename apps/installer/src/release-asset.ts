@@ -9,7 +9,7 @@ export type ReleaseAsset = {
 
 /**
  * Release assets follow a fixed naming scheme (see the stable release
- * workflow): openwork-mac-<arch>-<v>.dmg, openwork-win-x64-<v>.exe,
+ * workflow): openwork-mac-<arch>-<v>.dmg, openwork-win-<arch>-<v>.exe,
  * openwork-linux-x86_64|arm64-<v>.AppImage — so the download URL is
  * deterministic from (version, platform, arch); no releases-API listing needed.
  */
@@ -35,8 +35,7 @@ export function releaseAssetFor(
     return build(`openwork-mac-${arch}-${normalized}.dmg`, "dmg")
   }
   if (platform === "win32") {
-    if (arch !== "x64") throw new Error(`unsupported Windows architecture: ${arch}`)
-    return build(`openwork-win-x64-${normalized}.exe`, "exe")
+    return build(`openwork-win-${arch}-${normalized}.exe`, "exe")
   }
   if (platform === "linux") {
     // The AppImage uses x86_64 in its name while the tarball uses x64.

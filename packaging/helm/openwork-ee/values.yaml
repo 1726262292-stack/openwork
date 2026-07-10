@@ -35,7 +35,9 @@ config:
     bootstrapAdminEmails: ""
     openworkAppConnectUrl: ""
     installerReleaseTag: ""
+    installerReleaseBaseUrl: ""
     installerReleaseRepo: ""
+    installerAllowGithubFallback: "false"
     authCallbackUrl: https://openwork.example.com
   internal:
     apiBaseUrl: ""

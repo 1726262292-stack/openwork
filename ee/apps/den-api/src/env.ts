@@ -51,7 +51,9 @@ const EnvSchema = z.object({
   DEN_API_PUBLIC_URL: z.string().optional(),
   OPENWORK_INSTALLER_ARTIFACTS_DIR: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_TAG: z.string().optional(),
+  OPENWORK_INSTALLER_RELEASE_BASE_URL: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_REPO: z.string().optional(),
+  OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK: z.string().optional(),
   OPENWORK_INSTALLER_CACHE_DIR: z.string().optional(),
   DEN_DESKTOP_DEN_BASE_URL: z.string().optional(),
   DEN_MARKETING_URL: z.string().optional(),
@@ -218,6 +220,22 @@ function normalizeOrigin(origin: string) {
   return value.replace(/\/+$/, "")
 }
 
+function optionalAbsoluteHttpUrl(envName: string, value: string | undefined) {
+  const normalized = optionalString(value)
+  if (!normalized) return undefined
+
+  let url: URL
+  try {
+    url = new URL(normalized)
+  } catch {
+    throw new Error(`${envName} must be an absolute HTTP(S) URL`)
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`${envName} must be an absolute HTTP(S) URL`)
+  }
+  return normalizeOrigin(url.toString())
+}
+
 function normalizeAbsoluteUrlCsv(envName: string, value: string | undefined) {
   const entries = splitCsv(value)
   const invalidEntries: string[] = []
@@ -363,7 +381,10 @@ export const env = {
   // release tag to download from, defaulting to the pinned app release this
   // den-api build shipped with.
   installerReleaseTag: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_TAG) ?? `v${denApiAppVersion.latestAppVersion}`,
+  installerReleaseBaseUrl: optionalAbsoluteHttpUrl("OPENWORK_INSTALLER_RELEASE_BASE_URL", parsed.OPENWORK_INSTALLER_RELEASE_BASE_URL),
   installerReleaseRepo: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_REPO) ?? "different-ai/openwork",
+  installerAllowGitHubFallback:
+    (parsed.OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK ?? "false").trim().toLowerCase() === "true",
   installerCacheDir: optionalString(parsed.OPENWORK_INSTALLER_CACHE_DIR) ?? path.join(os.tmpdir(), "openwork-installer-artifacts"),
   // Google endpoint overrides for evals/self-host testing: point the native
   // google-workspace provider at a protocol-identical mock instead of the

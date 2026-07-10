@@ -6,7 +6,8 @@ import { startInstallerServer } from "./server"
 
 const rawArgs = Bun.argv.slice(2)
 const args = new Set(rawArgs)
-const headless = args.has("--headless") || process.env.OPENWORK_INSTALLER_HEADLESS === "1"
+const checkConfig = args.has("--check-config")
+const headless = args.has("--headless") || checkConfig || process.env.OPENWORK_INSTALLER_HEADLESS === "1"
 const dryRun = args.has("--dry-run") || process.env.OPENWORK_INSTALLER_DRY_RUN === "1"
 const smokeExitMs = Number.parseInt(process.env.OPENWORK_INSTALLER_SMOKE_EXIT_MS ?? "", 10)
 
@@ -172,6 +173,10 @@ if (headless) {
   const { config, source } = resolution
   console.log(`OpenWork Installer — ${config.clientName}`)
   console.log(`[openwork-installer] Configured via ${installerConfigSourceLabel(source)}.`)
+  if (checkConfig) {
+    console.log(`[openwork-installer] Configuration is valid for ${config.webUrl}.`)
+    process.exit(0)
+  }
   const result = await runInstall(config, {
     dryRun,
     onStatus: (status) => {

@@ -6,15 +6,17 @@ import { env } from "../env.js"
 
 /**
  * Resolves a generic installer artifact (openwork-installer-mac-arm64.zip,
- * openwork-installer-mac-x64.zip, openwork-installer-win-x64.exe) so
- * install-link downloads work without any local artifact directory:
+ * openwork-installer-mac-x64.zip, and openwork-installer-win-<arch>.zip) so
+ * install-link downloads can remain entirely inside an on-prem deployment:
  *
  *   1. OPENWORK_INSTALLER_ARTIFACTS_DIR file, when set and present
  *      (self-hosted/dev override — the pre-#2480 behavior, moved here).
  *   2. Disk cache under OPENWORK_INSTALLER_CACHE_DIR/<releaseTag>/<fileName>.
- *   3. The public release asset published by release-generic-installer.yml:
- *      https://github.com/<repo>/releases/download/<releaseTag>/<fileName>,
- *      streamed to a temp file then atomically renamed into the cache.
+ *   3. OPENWORK_INSTALLER_RELEASE_BASE_URL/<releaseTag>/<fileName>, when set.
+ *   4. GitHub releases only when OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK=true.
+ *
+ * Remote assets are streamed to a temp file then atomically renamed into the
+ * cache. With the default configuration, a cache miss performs no network I/O.
  *
  * A missing asset (404) resolves to null so the route can 503. Concurrent
  * requests for the same artifact share one in-flight download.
@@ -26,7 +28,9 @@ type InstallerArtifactOptions = {
   artifactsDir?: string
   cacheDir?: string
   releaseTag?: string
+  releaseBaseUrl?: string
   releaseRepo?: string
+  allowGitHubFallback?: boolean
   fetcher?: InstallerArtifactFetcher
 }
 
@@ -66,21 +70,20 @@ async function streamResponseToFile(response: Response, filePath: string) {
 async function downloadReleaseAsset(input: {
   fileName: string
   cachePath: string
-  releaseTag: string
-  releaseRepo: string
+  sourceUrl: string
+  sourceLabel: string
   fetcher: InstallerArtifactFetcher
 }): Promise<Buffer | null> {
-  const url = `https://github.com/${input.releaseRepo}/releases/download/${encodeURIComponent(input.releaseTag)}/${encodeURIComponent(input.fileName)}`
-  console.info(`[installer-artifacts] downloading ${input.fileName} from ${input.releaseTag}`)
+  console.info(`[installer-artifacts] downloading ${input.fileName} from ${input.sourceLabel}`)
 
   const tempPath = `${input.cachePath}.download-${process.pid}-${randomUUID()}`
   try {
-    const response = await input.fetcher(url, {
+    const response = await input.fetcher(input.sourceUrl, {
       redirect: "follow",
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     })
     if (!response.ok) {
-      console.warn(`[installer-artifacts] ${input.fileName} unavailable at ${input.releaseTag} (${response.status})`)
+      console.warn(`[installer-artifacts] ${input.fileName} unavailable from ${input.sourceLabel} (${response.status})`)
       return null
     }
     await mkdir(path.dirname(input.cachePath), { recursive: true })
@@ -95,6 +98,12 @@ async function downloadReleaseAsset(input: {
   }
 }
 
+function releaseAssetUrl(baseUrl: string, releaseTag: string, fileName: string) {
+  const url = new URL(baseUrl)
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/${encodeURIComponent(releaseTag)}/${encodeURIComponent(fileName)}`
+  return url.toString()
+}
+
 export async function resolveInstallerArtifact(fileName: string, options: InstallerArtifactOptions = {}): Promise<Buffer | null> {
   const artifactsDir = options.artifactsDir ?? env.installerArtifactsDir
   if (artifactsDir) {
@@ -105,9 +114,7 @@ export async function resolveInstallerArtifact(fileName: string, options: Instal
   }
 
   const releaseTag = options.releaseTag ?? env.installerReleaseTag
-  const releaseRepo = options.releaseRepo ?? env.installerReleaseRepo
   const cacheDir = options.cacheDir ?? env.installerCacheDir
-  const fetcher = options.fetcher ?? fetch
   const cachePath = path.join(cacheDir, releaseTag, fileName)
 
   const cached = await readFileOrNull(cachePath)
@@ -116,12 +123,47 @@ export async function resolveInstallerArtifact(fileName: string, options: Instal
     return cached
   }
 
-  const inFlight = inFlightDownloads.get(cachePath)
+  const releaseBaseUrl = options.releaseBaseUrl ?? env.installerReleaseBaseUrl
+  const allowGitHubFallback = options.allowGitHubFallback ?? env.installerAllowGitHubFallback
+  if (!releaseBaseUrl && !allowGitHubFallback) {
+    console.warn(`[installer-artifacts] ${fileName} is not mounted or cached; remote fallback is disabled`)
+    return null
+  }
+
+  const releaseRepo = options.releaseRepo ?? env.installerReleaseRepo
+  const fetcher = options.fetcher ?? fetch
+  const sources = [
+    ...(releaseBaseUrl
+      ? [{
+          url: releaseAssetUrl(releaseBaseUrl, releaseTag, fileName),
+          label: `configured private release ${releaseTag}`,
+        }]
+      : []),
+    ...(allowGitHubFallback
+      ? [{
+          url: `https://github.com/${releaseRepo}/releases/download/${encodeURIComponent(releaseTag)}/${encodeURIComponent(fileName)}`,
+          label: `GitHub release ${releaseRepo}@${releaseTag}`,
+        }]
+      : []),
+  ]
+  const inFlightKey = `${cachePath}\n${sources.map((source) => source.url).join("\n")}`
+  const inFlight = inFlightDownloads.get(inFlightKey)
   if (inFlight) {
     return inFlight
   }
-  const download = downloadReleaseAsset({ fileName, cachePath, releaseTag, releaseRepo, fetcher })
-    .finally(() => inFlightDownloads.delete(cachePath))
-  inFlightDownloads.set(cachePath, download)
+  const download = (async () => {
+    for (const source of sources) {
+      const artifact = await downloadReleaseAsset({
+        fileName,
+        cachePath,
+        sourceUrl: source.url,
+        sourceLabel: source.label,
+        fetcher,
+      })
+      if (artifact) return artifact
+    }
+    return null
+  })().finally(() => inFlightDownloads.delete(inFlightKey))
+  inFlightDownloads.set(inFlightKey, download)
   return download
 }

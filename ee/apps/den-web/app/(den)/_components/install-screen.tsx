@@ -1,8 +1,15 @@
 "use client";
 
+import { detectPlatform, type DetectedPlatform } from "@openwork/ui/react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage, requestJson } from "../_lib/den-flow";
+import {
+  installPlatformOptions,
+  installPlatformsForOs,
+  recommendedInstallPlatform,
+  type InstallPlatform,
+} from "../_lib/install-platform";
 import { isMobileUserAgent } from "../_lib/platform";
 
 type InstallConfig = {
@@ -12,16 +19,6 @@ type InstallConfig = {
   requireSignin: boolean;
   logoUrl: string | null;
 };
-
-type InstallPlatform = "mac-arm64" | "mac-x64" | "win-x64" | "linux-x64" | "linux-arm64";
-
-const platformOptions: Array<{ value: InstallPlatform; label: string }> = [
-  { value: "mac-arm64", label: "Mac (Apple silicon)" },
-  { value: "mac-x64", label: "Mac (Intel)" },
-  { value: "win-x64", label: "Windows" },
-  { value: "linux-x64", label: "Linux (x64)" },
-  { value: "linux-arm64", label: "Linux (ARM64)" },
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -63,22 +60,6 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
   };
 }
 
-function detectPlatform(): InstallPlatform {
-  if (typeof navigator === "undefined") {
-    return "mac-arm64";
-  }
-
-  const platform = navigator.platform.toLowerCase();
-  const userAgent = navigator.userAgent.toLowerCase();
-  if (platform.includes("win") || userAgent.includes("windows")) {
-    return "win-x64";
-  }
-  if (platform.includes("linux") || userAgent.includes("linux")) {
-    return userAgent.includes("aarch64") || userAgent.includes("arm64") ? "linux-arm64" : "linux-x64";
-  }
-  return "mac-arm64";
-}
-
 function apiOrigin(config: InstallConfig) {
   return new URL(config.apiUrl).origin;
 }
@@ -94,12 +75,22 @@ export function InstallScreen() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
-  const [platform, setPlatform] = useState<InstallPlatform>("mac-arm64");
+  const [detectedPlatform, setDetectedPlatform] = useState<DetectedPlatform | null>(null);
+  const [detectionComplete, setDetectionComplete] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setIsMobile(isMobileUserAgent());
-    setPlatform(detectPlatform());
+    let cancelled = false;
+    void detectPlatform().then((detected) => {
+      if (!cancelled) {
+        setDetectedPlatform(detected);
+        setDetectionComplete(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -149,7 +140,15 @@ export function InstallScreen() {
     };
   }, [token]);
 
-  const secondaryPlatforms = useMemo(() => platformOptions.filter((option) => option.value !== platform), [platform]);
+  const platform = useMemo(() => recommendedInstallPlatform(detectedPlatform), [detectedPlatform]);
+  const sameOsPlatforms = useMemo(
+    () => installPlatformsForOs(detectedPlatform?.os),
+    [detectedPlatform?.os],
+  );
+  const secondaryPlatforms = useMemo(
+    () => installPlatformOptions.filter((option) => option.value !== platform),
+    [platform],
+  );
 
   async function copyCurrentLink() {
     await navigator.clipboard.writeText(window.location.href);
@@ -183,11 +182,20 @@ export function InstallScreen() {
     );
   }
 
-  const primaryHref = installHref(config, platform, token);
-  const primaryLabel = platformOptions.find((option) => option.value === platform)?.label ?? "your computer";
+  const primaryHref = platform ? installHref(config, platform, token) : null;
+  const primaryLabel = installPlatformOptions.find((option) => option.value === platform)?.label ?? "your computer";
+  const uncertainPlatforms = detectionComplete && !platform && sameOsPlatforms.length > 0
+    ? sameOsPlatforms
+    : installPlatformOptions;
 
   return (
-    <section className="den-page py-4 lg:py-6" data-testid="install-page">
+    <section
+      className="den-page py-4 lg:py-6"
+      data-testid="install-page"
+      data-detected-os={detectedPlatform?.os}
+      data-detected-arch={detectedPlatform ? detectedPlatform.arch ?? "unknown" : undefined}
+      data-detection-source={detectedPlatform?.source}
+    >
       <div className="den-frame grid max-w-[48rem] gap-6 p-6 md:p-8">
         <div className="grid gap-3">
           <p className="den-eyebrow">OpenWork Desktop</p>
@@ -205,16 +213,34 @@ export function InstallScreen() {
           </div>
         ) : (
           <div className="grid gap-4">
-            <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary">
-              Download for {primaryLabel}
-            </a>
-            <div className="flex flex-wrap gap-2">
-              {secondaryPlatforms.map((option) => (
-                <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)}>
-                  {option.label}
-                </a>
-              ))}
-            </div>
+            {primaryHref ? (
+              <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary">
+                Download for {primaryLabel}
+              </a>
+            ) : (
+              <div className="den-frame-inset grid gap-3 rounded-[1.5rem] p-5" data-testid="install-architecture-choice">
+                <p className="m-0 text-base font-medium text-[var(--dls-text-primary)]">
+                  {detectedPlatform?.os === "macos" ? "Choose your Mac" : detectedPlatform?.os === "windows" ? "Choose your Windows PC" : "Choose your computer"}
+                </p>
+                <p className="den-copy">We could not safely determine the processor, so choose the option that matches this computer.</p>
+                <div className="flex flex-wrap gap-2">
+                  {uncertainPlatforms.map((option) => (
+                    <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)}>
+                      {option.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {primaryHref ? (
+              <div className="flex flex-wrap gap-2">
+                {secondaryPlatforms.map((option) => (
+                  <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)}>
+                    {option.label}
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
 

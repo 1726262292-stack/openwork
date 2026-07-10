@@ -54,20 +54,27 @@ Den resolves Mac and Windows installer artifacts in this order:
 
 1. `OPENWORK_INSTALLER_ARTIFACTS_DIR`, when set and the file exists.
 2. `OPENWORK_INSTALLER_CACHE_DIR/<tag>/<file>`, defaulting to the OS temp dir.
-3. The GitHub release asset for `OPENWORK_INSTALLER_RELEASE_REPO` and
-   `OPENWORK_INSTALLER_RELEASE_TAG`.
+3. A private/internal asset root from `OPENWORK_INSTALLER_RELEASE_BASE_URL`,
+   resolved as `<base-url>/<tag>/<file>`.
+4. A GitHub release asset only when
+   `OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK=true`.
+
+The default is zero egress: if no mounted/cached artifact or private release
+base is configured, Den returns `503` without making a network request.
 
 | Mode | Configure | Behavior |
 |---|---|---|
-| Internet-connected | Default. `OPENWORK_INSTALLER_RELEASE_TAG` resolves to `v<pinned app version>`; override it when needed. `v0.17.9` is the first tag carrying installer assets. | Den downloads the public release asset on first Mac/Windows download, then serves cached bytes. |
-| Fork/mirror | Set `OPENWORK_INSTALLER_RELEASE_REPO`, for example `your-org/openwork`. | Den downloads assets from your fork or mirror release instead of `different-ai/openwork`. |
-| Air-gapped | Mount a volume at `OPENWORK_INSTALLER_ARTIFACTS_DIR` containing exactly `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`. | The mounted artifact directory takes precedence and requires zero egress. |
+| Private artifact service | Set `OPENWORK_INSTALLER_RELEASE_BASE_URL` to an internal HTTPS artifact root. Optionally override `OPENWORK_INSTALLER_RELEASE_TAG`, which otherwise follows the pinned app version. | Den downloads from `<base-url>/<tag>/<file>` on the first Mac/Windows request, then serves cached bytes. |
+| Public GitHub fallback | Set `OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK=true`. Optionally set `OPENWORK_INSTALLER_RELEASE_REPO`, for example `your-org/openwork`. | After mounted, cached, and private sources miss, Den may download a GitHub release asset. This is never enabled implicitly. |
+| Air-gapped | Mount a volume at `OPENWORK_INSTALLER_ARTIFACTS_DIR` containing exactly `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, `openwork-installer-win-x64.zip`, and `openwork-installer-win-arm64.zip`. | The mounted artifact directory takes precedence and requires zero egress while Den serves the bootstrap packages. |
 
 ## Egress
 
-`den-api` makes outbound HTTPS requests to `github.com` only when serving a Mac
-or Windows installer download and the artifact is not already cached. The Linux
-setup script and every other install-link feature need no egress.
+`den-api` performs no installer-artifact network request by default. A private
+release base allows internal-only fetches. It contacts `github.com` only when
+the public fallback is explicitly enabled and higher-priority sources miss.
+This guarantee covers the outer bootstrap package; configuring a private
+desktop binary and update feed is a separate deployment concern.
 
 ## Distribute configuration with MDM (no custom installer)
 
@@ -116,17 +123,20 @@ managed file is enough for a fully self-hosted desktop rollout.
 ## Security notes
 
 - Install-link tokens are stored SHA-256 hashed.
-- Minting a new link rotates by default and revokes older active links.
+- Minting a new link rotates by default and revokes older active links. Mac and
+  Windows packages already downloaded remain usable because their resolved
+  configuration travels beside the signed executable inside the zip.
 - A leaked link reveals the org name and server URLs only; users still must
   sign in to access the workspace.
 - Public install-link endpoints are rate-limited.
-- Stamped Mac zips keep the signed `.app` byte-identical, so Gatekeeper
-  verification still applies.
+- Stamped zips keep the signed macOS `.app` and Windows `.exe` byte-identical,
+  so Gatekeeper and Authenticode verification still apply.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `503` mentions a release tag | That release has no installer assets. Pin `OPENWORK_INSTALLER_RELEASE_TAG` to a tag with assets, or publish them with the `release-generic-installer` workflow. |
+| Installer download returns `503` | Mount or prefill the four generic ZIPs, configure `OPENWORK_INSTALLER_RELEASE_BASE_URL`, or explicitly enable the public GitHub fallback. |
 | Links point at the wrong host | Put your den-web origin first in `DEN_BETTER_AUTH_TRUSTED_ORIGINS`, then restart `den-api`. |
 | Re-uploaded assets under the same tag keep serving old bytes | Clear the installer cache directory or bump the tag. The cache key is `<cacheDir>/<tag>/<file>`. |
+| Windows zip contains an unsigned setup executable | Public generic-installer releases require SignPath and fail rather than publishing an unsigned Windows package. Workflow artifacts may be unsigned only for explicit test builds. |

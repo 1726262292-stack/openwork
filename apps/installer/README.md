@@ -21,8 +21,8 @@ is unavailable, the same UI opens in the default browser.
 ## Install-link stamping
 
 The Den API serves one generic installer artifact and stamps it at download time:
-macOS zips receive `openwork-installer.json`, Windows installers receive a filename
-tag, and Linux receives a small shell setup script. An unstamped UI build asks the
+macOS and Windows zips receive `openwork-installer.json`, while Linux receives a
+small shell setup script. An unstamped UI build asks the
 user to paste their OpenWork install link.
 
 ## Local development
@@ -41,6 +41,9 @@ bun run src/index.ts --headless --dry-run
 # UI mode (uses install-link stamp, sidecar, filename tag, build config, or env overrides):
 bun run dev
 
+# Resolve and validate configuration without downloading desktop assets:
+bun run src/index.ts --check-config
+
 # Single binary:
 bun run compile
 ```
@@ -48,3 +51,7 @@ bun run compile
 `src/generated/build-config.ts` is a committed placeholder for legacy/dev builds.
 Empty placeholder values make headless mode require `--install-link`; UI mode prompts
 for the install link instead of pointing users at the wrong deployment.
+
+`--check-config` is intended for on-prem packaging validation. It proves that a
+renamed executable still resolves its adjacent sidecar without contacting the
+desktop release feed.

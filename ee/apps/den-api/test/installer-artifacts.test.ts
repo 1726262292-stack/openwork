@@ -44,6 +44,7 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v9.9.9",
       releaseRepo: "different-ai/openwork",
+      allowGitHubFallback: true,
       fetcher: fetcherReturning(200, "from-network", calls),
     })
 
@@ -61,6 +62,7 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v9.9.9",
       releaseRepo: "different-ai/openwork",
+      allowGitHubFallback: true,
       fetcher: fetcherReturning(200, "from-network", calls),
     })
 
@@ -75,6 +77,7 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v9.9.9",
       releaseRepo: "different-ai/openwork",
+      allowGitHubFallback: true,
       fetcher: fetcherReturning(200, "from-network", calls),
     }
 
@@ -102,10 +105,45 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v0.0.0-missing",
       releaseRepo: "different-ai/openwork",
+      allowGitHubFallback: true,
       fetcher: fetcherReturning(404, null, calls),
     })
 
     expect(resolved).toBeNull()
     expect(calls.length).toBe(1)
+  })
+
+  test("performs no network request when remote fallback is not configured", async () => {
+    const calls: string[] = []
+
+    const resolved = await resolveInstallerArtifact(FILE_NAME, {
+      cacheDir: tempDir("ow-installer-cache-"),
+      releaseTag: "v9.9.9",
+      allowGitHubFallback: false,
+      fetcher: fetcherReturning(200, "from-network", calls),
+    })
+
+    expect(resolved).toBeNull()
+    expect(calls).toEqual([])
+  })
+
+  test("downloads from a private release base before an optional GitHub fallback", async () => {
+    const cacheDir = tempDir("ow-installer-cache-")
+    const calls: string[] = []
+
+    const resolved = await resolveInstallerArtifact(FILE_NAME, {
+      cacheDir,
+      releaseTag: "v9.9.9",
+      releaseBaseUrl: "https://artifacts.internal/openwork/installers/?access=private",
+      releaseRepo: "different-ai/openwork",
+      allowGitHubFallback: true,
+      fetcher: (url) => {
+        calls.push(url)
+        return Promise.resolve(new Response(url.startsWith("https://artifacts.internal/") ? "from-private" : "from-github"))
+      },
+    })
+
+    expect(resolved?.toString("utf8")).toBe("from-private")
+    expect(calls).toEqual([`https://artifacts.internal/openwork/installers/v9.9.9/${FILE_NAME}?access=private`])
   })
 })

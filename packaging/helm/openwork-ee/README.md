@@ -379,8 +379,11 @@ Optional installer artifact values:
 ```yaml
 config:
   public:
-    installerReleaseTag: "v0.17.9"
-    installerReleaseRepo: "different-ai/openwork"
+    # Internal/private root; Den requests <base>/<tag>/<file>.
+    installerReleaseBaseUrl: "https://artifacts.example.internal/openwork/installers"
+    installerReleaseTag: "vREPLACE_OPENWORK_VERSION"
+    # Public GitHub access is an explicit fallback and defaults to false.
+    installerAllowGithubFallback: "false"
 
 installerArtifacts:
   enabled: true
@@ -388,7 +391,11 @@ installerArtifacts:
   mountPath: /var/lib/openwork/installer-artifacts
 ```
 
-Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. The mounted directory must contain `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`.
+Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. The mounted directory must contain `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, `openwork-installer-win-x64.zip`, and `openwork-installer-win-arm64.zip`.
+
+Mounted and cached installer artifacts require no network access. To use public
+release assets instead, set `installerAllowGithubFallback: "true"` and
+optionally set `installerReleaseRepo`; GitHub is never contacted by default.
 
 ## Health Probes
 

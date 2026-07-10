@@ -35,9 +35,13 @@ data:
   {{ if .Values.config.public.installerReleaseTag }}
   OPENWORK_INSTALLER_RELEASE_TAG: {{ .Values.config.public.installerReleaseTag | quote }}
   {{ end }}
+  {{ if .Values.config.public.installerReleaseBaseUrl }}
+  OPENWORK_INSTALLER_RELEASE_BASE_URL: {{ .Values.config.public.installerReleaseBaseUrl | quote }}
+  {{ end }}
   {{ if .Values.config.public.installerReleaseRepo }}
   OPENWORK_INSTALLER_RELEASE_REPO: {{ .Values.config.public.installerReleaseRepo | quote }}
   {{ end }}
+  OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK: {{ .Values.config.public.installerAllowGithubFallback | quote }}
   PROVISIONER_MODE: {{ .Values.config.provisioner.mode | quote }}
   WORKER_PROVISIONING_RECONCILE_INTERVAL_MS: {{ .Values.config.provisioner.reconcileIntervalMs | quote }}
   WORKER_PROVISIONING_RECONCILE_STALE_MS: {{ .Values.config.provisioner.reconcileStaleMs | quote }}

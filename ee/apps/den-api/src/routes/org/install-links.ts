@@ -37,7 +37,7 @@ const installLinkQuerySchema = z.object({
   token: z.string().trim().regex(INSTALL_LINK_TOKEN_PATTERN).max(255),
 })
 
-const installPlatformSchema = z.enum(["mac-arm64", "mac-x64", "win-x64", "linux-x64", "linux-arm64"])
+const installPlatformSchema = z.enum(["mac-arm64", "mac-x64", "win-x64", "win-arm64", "linux-x64", "linux-arm64"])
 
 const installPlatformParamSchema = z.object({
   platform: installPlatformSchema,
@@ -158,28 +158,16 @@ function contentDisposition(filename: string) {
 }
 
 function artifactFileName(platform: InstallPlatform) {
-  return platform.startsWith("mac-")
+  return platform.startsWith("mac-") || platform.startsWith("win-")
     ? `openwork-installer-${platform}.zip`
-    : platform === "win-x64"
-      ? `openwork-installer-${platform}.exe`
-      : null
+    : null
 }
 
 function installerArtifactsUnavailable() {
   return {
     error: "installer_artifacts_unavailable",
-    message: `Installer artifacts are unavailable in this environment (tried release ${env.installerReleaseTag}). They ship with the OpenWork release pipeline.`,
+    message: "Installer artifacts are unavailable. Mount or cache the generic installer ZIPs, configure a private installer release URL, or explicitly enable the GitHub fallback.",
   }
-}
-
-function encodeHostForFilename(apiUrl: string) {
-  return new URL(apiUrl).host.replace(/:/g, "_")
-}
-
-function responseBodyFromBuffer(buffer: Buffer) {
-  const bytes = new Uint8Array(buffer.byteLength)
-  bytes.set(buffer)
-  return bytes.buffer
 }
 
 function shellQuote(value: string) {
@@ -399,23 +387,15 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         return c.json(installerArtifactsUnavailable(), 503)
       }
 
-      if (platform.startsWith("mac-")) {
-        const sidecar = Buffer.from(JSON.stringify(resolved.config), "utf8")
-        const stampedZip = appendStoredEntryToZip(artifact, INSTALL_SIDECAR_FILENAME, sidecar)
-        return new Response(stampedZip, {
-          headers: {
-            "content-type": "application/zip",
-            "content-disposition": contentDisposition(`OpenWork-Installer-${safeAttachmentSlug(resolved.organizationSlug)}.zip`),
-            "cache-control": "no-store",
-          },
-        })
-      }
-
-      const stampedHost = encodeHostForFilename(resolved.config.apiUrl)
-      return new Response(responseBodyFromBuffer(artifact), {
+      const sidecar = Buffer.from(`${JSON.stringify(resolved.config)}\n`, "utf8")
+      const stampedZip = appendStoredEntryToZip(artifact, INSTALL_SIDECAR_FILENAME, sidecar)
+      const attachmentName = platform.startsWith("win-")
+        ? `OpenWork-Installer-${safeAttachmentSlug(resolved.organizationSlug)}-${platform}.zip`
+        : `OpenWork-Installer-${safeAttachmentSlug(resolved.organizationSlug)}.zip`
+      return new Response(stampedZip, {
         headers: {
-          "content-type": "application/vnd.microsoft.portable-executable",
-          "content-disposition": contentDisposition(`OpenWork-Installer--${stampedHost}--${input.token}.exe`),
+          "content-type": "application/zip",
+          "content-disposition": contentDisposition(attachmentName),
           "cache-control": "no-store",
         },
       })

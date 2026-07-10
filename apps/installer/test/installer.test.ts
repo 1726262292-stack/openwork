@@ -42,6 +42,7 @@ describe("releaseAssetFor", () => {
     expect(releaseAssetFor("v0.17.7", "darwin", "arm64").fileName).toBe("openwork-mac-arm64-0.17.7.dmg")
     expect(releaseAssetFor("0.17.7", "darwin", "x64").fileName).toBe("openwork-mac-x64-0.17.7.dmg")
     expect(releaseAssetFor("0.17.7", "win32", "x64").fileName).toBe("openwork-win-x64-0.17.7.exe")
+    expect(releaseAssetFor("0.17.7", "win32", "arm64").fileName).toBe("openwork-win-arm64-0.17.7.exe")
     expect(releaseAssetFor("0.17.7", "linux", "x64").fileName).toBe("openwork-linux-x86_64-0.17.7.AppImage")
     expect(releaseAssetFor("0.17.7", "linux", "arm64").fileName).toBe("openwork-linux-arm64-0.17.7.AppImage")
   })
@@ -53,7 +54,7 @@ describe("releaseAssetFor", () => {
   })
 
   test("rejects unsupported targets", () => {
-    expect(() => releaseAssetFor("0.17.7", "win32", "arm64")).toThrow()
+    expect(() => releaseAssetFor("0.17.7", "win32", "ia32")).toThrow()
     expect(() => releaseAssetFor("", "darwin", "arm64")).toThrow()
   })
 })

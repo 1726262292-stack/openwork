@@ -91,7 +91,7 @@ Run the install-link migration once against the Den database:
 docker compose -f packaging/docker/docker-compose.den-dev.yml exec den sh -lc "pnpm --dir /app/ee/packages/den-db run db:bootstrap"
 ```
 
-Set `DEN_BOOTSTRAP_ADMIN_EMAILS` on the Den API service, restart it, open `/admin`, and toggle `Install links` for each org. Optional installer artifact env vars are `OPENWORK_INSTALLER_RELEASE_TAG`, `OPENWORK_INSTALLER_RELEASE_REPO`, and `OPENWORK_INSTALLER_ARTIFACTS_DIR`; see the [operator guide](../../docs/org-install-links.md).
+Set `DEN_BOOTSTRAP_ADMIN_EMAILS` on the Den API service, restart it, open `/admin`, and toggle `Install links` for each org. Installer artifacts are zero-egress by default: mount `OPENWORK_INSTALLER_ARTIFACTS_DIR`, prefill `OPENWORK_INSTALLER_CACHE_DIR`, or set an internal `OPENWORK_INSTALLER_RELEASE_BASE_URL`. Public release access requires `OPENWORK_INSTALLER_ALLOW_GITHUB_FALLBACK=true`; `OPENWORK_INSTALLER_RELEASE_TAG` and `OPENWORK_INSTALLER_RELEASE_REPO` select that release. See the [operator guide](../../docs/org-install-links.md).
 
 ### Faster inner-loop alternative
 
