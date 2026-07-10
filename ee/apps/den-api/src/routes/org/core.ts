@@ -7,6 +7,7 @@ import { z } from "zod"
 import { auth } from "../../auth.js"
 import { validateBrandIconUrl } from "../../brand-icon-validation.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
+import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
 import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "../../entitlements.js"
 import { env } from "../../env.js"
@@ -525,6 +526,9 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
           // /admin reads the raw capability from its own endpoint.
           mcpConnections: memberFacingMcpConnectionsEnabled(payload.organization.metadata, {
             gatingEnabled: env.mcpConnectionsGatingEnabled,
+          }),
+          installLinks: organizationInstallLinksEnabled(payload.organization.metadata, {
+            gatingEnabled: env.installLinksGatingEnabled,
           }),
         },
         authMethods: {

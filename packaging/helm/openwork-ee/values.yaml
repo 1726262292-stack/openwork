@@ -33,6 +33,7 @@ config:
     betterAuthTrustedOrigins: https://openwork.example.com
     webAppHosts: openwork.example.com
     bootstrapAdminEmails: ""
+    installLinksGatingEnabled: "false"
     openworkAppConnectUrl: ""
     installerReleaseTag: ""
     installerReleaseRepo: ""

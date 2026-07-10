@@ -23,11 +23,13 @@ async function withIsolatedBootstrapStore(callback) {
   const previousHome = process.env.HOME;
   const previousXdg = process.env.XDG_CONFIG_HOME;
   const previousOverride = process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH;
+  const previousBundleDir = process.env.OPENWORK_BOOTSTRAP_BUNDLE_DIR;
   const previousDevMode = process.env.OPENWORK_DEV_MODE;
 
   process.env.HOME = home;
   process.env.XDG_CONFIG_HOME = xdg;
   delete process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH;
+  delete process.env.OPENWORK_BOOTSTRAP_BUNDLE_DIR;
   delete process.env.OPENWORK_DEV_MODE;
 
   try {
@@ -42,12 +44,14 @@ async function withIsolatedBootstrapStore(callback) {
       store,
       canonicalPath: path.join(xdg, "openwork", "desktop-bootstrap.json"),
       legacyPath: path.join(home, ".config", "openwork", "desktop-bootstrap.json"),
+      root,
       userDataPath: path.join(root, "userData"),
     });
   } finally {
     restoreEnv("HOME", previousHome);
     restoreEnv("XDG_CONFIG_HOME", previousXdg);
     restoreEnv("OPENWORK_DESKTOP_BOOTSTRAP_PATH", previousOverride);
+    restoreEnv("OPENWORK_BOOTSTRAP_BUNDLE_DIR", previousBundleDir);
     restoreEnv("OPENWORK_DEV_MODE", previousDevMode);
   }
 }
@@ -278,6 +282,74 @@ test("desktop bootstrap writes include a fresh writtenAt stamp", async () => {
     const persisted = JSON.parse(await readFile(canonicalPath, "utf8"));
     assert.equal(persisted.baseUrl, "https://canonical.example.com");
     assert.equal(Number.isFinite(Date.parse(persisted.writtenAt)), true);
+  });
+});
+
+test("imports a newer organization bootstrap beside the standard installer", async () => {
+  await withIsolatedBootstrapStore(async ({ store, canonicalPath, root }) => {
+    const bundleDir = path.join(root, "downloads", "OpenWork-acme");
+    process.env.OPENWORK_BOOTSTRAP_BUNDLE_DIR = bundleDir;
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(path.join(bundleDir, "openwork-mac-arm64-9.9.9.dmg"), "signed installer", "utf8");
+    await writeBootstrapConfig(path.join(bundleDir, "desktop-bootstrap.json"), {
+      baseUrl: "https://acme.example.com",
+      apiBaseUrl: "https://api.acme.example.com",
+      requireSignin: true,
+      brandAppName: "Acme Work",
+      brandLogoUrl: "https://acme.example.com/logo.png",
+      writtenAt: "2026-07-10T12:00:00.000Z",
+    });
+
+    assert.equal(await store.importBundledDesktopBootstrapConfigIfNewer(), true);
+    const config = await store.getDesktopBootstrapConfig();
+    assert.deepEqual(config, {
+      baseUrl: "https://acme.example.com",
+      apiBaseUrl: "https://api.acme.example.com",
+      requireSignin: true,
+      brandAppName: "Acme Work",
+      brandLogoUrl: "https://acme.example.com/logo.png",
+      writtenAt: "2026-07-10T12:00:00.000Z",
+    });
+    const persisted = JSON.parse(await readFile(canonicalPath, "utf8"));
+    assert.equal(persisted.baseUrl, "https://acme.example.com");
+  });
+});
+
+test("ignores a downloaded bootstrap that is not beside a standard installer", async () => {
+  await withIsolatedBootstrapStore(async ({ store, canonicalPath, root }) => {
+    const bundleDir = path.join(root, "downloads");
+    process.env.OPENWORK_BOOTSTRAP_BUNDLE_DIR = bundleDir;
+    await writeBootstrapConfig(path.join(bundleDir, "desktop-bootstrap.json"), {
+      baseUrl: "https://untrusted.example.com",
+      requireSignin: true,
+      writtenAt: "2026-07-10T12:00:00.000Z",
+    });
+
+    assert.equal(await store.importBundledDesktopBootstrapConfigIfNewer(), false);
+    await assert.rejects(readFile(canonicalPath, "utf8"));
+  });
+});
+
+test("does not replace a newer canonical bootstrap with an older download bundle", async () => {
+  await withIsolatedBootstrapStore(async ({ store, canonicalPath, root }) => {
+    const bundleDir = path.join(root, "downloads");
+    process.env.OPENWORK_BOOTSTRAP_BUNDLE_DIR = bundleDir;
+    await writeBootstrapConfig(canonicalPath, {
+      baseUrl: "https://current.example.com",
+      requireSignin: true,
+      writtenAt: "2026-07-10T13:00:00.000Z",
+    });
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(path.join(bundleDir, "openwork-win-x64-9.9.9.exe"), "signed installer", "utf8");
+    await writeBootstrapConfig(path.join(bundleDir, "desktop-bootstrap.json"), {
+      baseUrl: "https://old.example.com",
+      requireSignin: true,
+      writtenAt: "2026-07-10T12:00:00.000Z",
+    });
+
+    assert.equal(await store.importBundledDesktopBootstrapConfigIfNewer(), false);
+    const config = await store.getDesktopBootstrapConfig();
+    assert.equal(config.baseUrl, "https://current.example.com");
   });
 });
 

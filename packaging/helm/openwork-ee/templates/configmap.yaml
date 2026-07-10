@@ -28,6 +28,7 @@ data:
   DEN_BETTER_AUTH_TRUSTED_ORIGINS: {{ .Values.config.public.betterAuthTrustedOrigins | quote }}
   DEN_WEB_APP_HOSTS: {{ .Values.config.public.webAppHosts | quote }}
   DEN_BOOTSTRAP_ADMIN_EMAILS: {{ .Values.config.public.bootstrapAdminEmails | quote }}
+  DEN_INSTALL_LINKS_GATING_ENABLED: {{ .Values.config.public.installLinksGatingEnabled | quote }}
   CORS_ORIGINS: {{ .Values.config.public.corsOrigins | quote }}
   DEN_CORS_ORIGINS: {{ .Values.config.public.corsOrigins | quote }}
   DEN_API_PUBLIC_URL: {{ .Values.config.public.apiOrigin | quote }}

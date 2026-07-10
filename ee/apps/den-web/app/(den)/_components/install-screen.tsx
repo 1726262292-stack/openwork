@@ -196,7 +196,7 @@ export function InstallScreen() {
             <img src={config.logoUrl} alt={`${config.clientName} wordmark`} className="max-h-16 max-w-64 object-contain object-left" />
           ) : null}
           <h1 className="den-title-xl">Download {config.appName} for {config.clientName}</h1>
-          <p className="den-copy">Run it, then sign in — your team's workspace is preconfigured.</p>
+          <p className="den-copy">Mac and Windows downloads include the standard OpenWork installer and your team's setup file in one ZIP. Keep them together, run the installer, then sign in.</p>
         </div>
 
         {isMobile ? (

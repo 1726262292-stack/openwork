@@ -188,6 +188,40 @@ function toArrayBuffer(buffer: Buffer) {
   return bytes.buffer
 }
 
+export function createStoredZip(entries: Array<{ name: string; content: Buffer }>): ArrayBuffer {
+  if (entries.length === 0) {
+    return toArrayBuffer(createEndOfCentralDirectory(0, 0, 0, Buffer.alloc(0)))
+  }
+
+  const localChunks: Buffer[] = []
+  const centralDirectoryChunks: Buffer[] = []
+  let localHeaderOffset = 0
+  const { time, date } = dosTimestamp()
+
+  for (const entry of entries) {
+    const entryName = Buffer.from(entry.name, "utf8")
+    const checksum = crc32(entry.content)
+    const localHeader = createLocalHeader(entryName, entry.content, time, date, checksum)
+    localChunks.push(localHeader, entry.content)
+    centralDirectoryChunks.push(
+      createCentralDirectoryHeader(entryName, entry.content, localHeaderOffset, time, date, checksum),
+    )
+    localHeaderOffset += localHeader.length + entry.content.length
+  }
+
+  const centralDirectorySize = centralDirectoryChunks.reduce((total, chunk) => total + chunk.length, 0)
+  const eocd = createEndOfCentralDirectory(entries.length, centralDirectorySize, localHeaderOffset, Buffer.alloc(0))
+  const output = Buffer.alloc(localHeaderOffset + centralDirectorySize + eocd.length)
+  let outputOffset = 0
+
+  for (const chunk of [...localChunks, ...centralDirectoryChunks, eocd]) {
+    writeBytes(output, chunk, outputOffset)
+    outputOffset += chunk.length
+  }
+
+  return toArrayBuffer(output)
+}
+
 export function appendStoredEntryToZip(sourceZip: Buffer, entryNameInput: string, contentInput: Buffer): ArrayBuffer {
   const source = sourceZip
   const entryName = Buffer.from(entryNameInput, "utf8")

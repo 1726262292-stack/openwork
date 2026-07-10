@@ -4,7 +4,7 @@ import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { appendStoredEntryToZip } from "../src/utils/zip-append.js"
+import { appendStoredEntryToZip, createStoredZip } from "../src/utils/zip-append.js"
 
 function run(command: string, args: string[], cwd: string) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8" })
@@ -40,6 +40,31 @@ describe("appendStoredEntryToZip", () => {
 
       expect(sha256(readFileSync(path.join(outputDir, "hello.txt")))).toBe(sha256(originalContent))
       expect(readFileSync(path.join(outputDir, "openwork-installer.json"), "utf8")).toBe(sidecarJson)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("createStoredZip", () => {
+  test("packages the standard installer and desktop bootstrap without changing their bytes", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-zip-create-"))
+    try {
+      const outputDir = path.join(dir, "output")
+      const zipPath = path.join(dir, "organization-download.zip")
+      mkdirSync(outputDir)
+      const installer = Buffer.from("byte-identical signed desktop installer", "utf8")
+      const bootstrap = Buffer.from('{"baseUrl":"https://openwork.example.com"}\n', "utf8")
+      const bundle = createStoredZip([
+        { name: "openwork-mac-arm64-9.9.9.dmg", content: installer },
+        { name: "desktop-bootstrap.json", content: bootstrap },
+      ])
+      writeFileSync(zipPath, new Uint8Array(bundle))
+
+      run("unzip", ["-q", zipPath, "-d", outputDir], dir)
+
+      expect(sha256(readFileSync(path.join(outputDir, "openwork-mac-arm64-9.9.9.dmg")))).toBe(sha256(installer))
+      expect(readFileSync(path.join(outputDir, "desktop-bootstrap.json"), "utf8")).toBe(bootstrap.toString("utf8"))
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

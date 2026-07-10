@@ -3,9 +3,9 @@ import { InstallLinkTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { createHash, randomBytes } from "node:crypto"
 import { OPENWORK_DOWNLOAD_URL } from "./CONSTS.js"
+import { organizationInstallLinksEnabled } from "./capability-sources/install-links-rollout.js"
 import { db } from "./db.js"
 import { env } from "./env.js"
-import { organizationHasCapability } from "./organization-capabilities.js"
 
 type InstallLinkInsert = typeof InstallLinkTable.$inferInsert
 
@@ -28,7 +28,7 @@ function installPageUrl(token: string) {
 }
 
 export async function mintOrganizationInstallLink(input: MintOrganizationInstallLinkInput) {
-  if (!organizationHasCapability(input.metadata, "installLinks")) {
+  if (!organizationInstallLinksEnabled(input.metadata, { gatingEnabled: env.installLinksGatingEnabled })) {
     return null
   }
 

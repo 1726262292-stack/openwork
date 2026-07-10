@@ -11,15 +11,16 @@ function seedRequiredEnv() {
 }
 
 let installerReleaseAssetUrl: typeof import("../src/utils/installer-artifacts.js")["installerReleaseAssetUrl"]
+let desktopReleaseAssetName: typeof import("../src/utils/installer-artifacts.js")["desktopReleaseAssetName"]
 let resolveInstallerArtifact: typeof import("../src/utils/installer-artifacts.js")["resolveInstallerArtifact"]
 let resolveInstallerFallbackUrl: typeof import("../src/utils/installer-artifacts.js")["resolveInstallerFallbackUrl"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ installerReleaseAssetUrl, resolveInstallerArtifact, resolveInstallerFallbackUrl } = await import("../src/utils/installer-artifacts.js"))
+  ;({ desktopReleaseAssetName, installerReleaseAssetUrl, resolveInstallerArtifact, resolveInstallerFallbackUrl } = await import("../src/utils/installer-artifacts.js"))
 })
 
-const FILE_NAME = "openwork-installer-mac-arm64.zip"
+const FILE_NAME = "openwork-mac-arm64-9.9.9.dmg"
 
 function tempDir(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -33,11 +34,19 @@ function fetcherReturning(status: number, body: string | null, calls: string[]) 
 }
 
 describe("resolveInstallerArtifact", () => {
-  test("builds a generic installer asset URL for the configured release", () => {
+  test("builds a standard desktop asset URL for the configured release", () => {
     expect(installerReleaseAssetUrl(FILE_NAME, {
       releaseTag: "v9.9.9+build 2",
       releaseRepo: "different-ai/openwork",
     })).toBe(`https://github.com/different-ai/openwork/releases/download/v9.9.9%2Bbuild%202/${FILE_NAME}`)
+  })
+
+  test.each([
+    ["mac-arm64", "v9.9.9", "openwork-mac-arm64-9.9.9.dmg"],
+    ["mac-x64", "9.9.9", "openwork-mac-x64-9.9.9.dmg"],
+    ["win-x64", "v9.9.9", "openwork-win-x64-9.9.9.exe"],
+  ])("maps %s to the standard release artifact", (platform, releaseTag, expected) => {
+    expect(desktopReleaseAssetName(platform, releaseTag)).toBe(expected)
   })
 
   test.each([

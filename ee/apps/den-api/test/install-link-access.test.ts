@@ -1,12 +1,17 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, beforeEach, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
+import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
   process.env.DEN_DB_ENCRYPTION_KEY = process.env.DEN_DB_ENCRYPTION_KEY ?? "x".repeat(32)
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
+  process.env.DEN_INSTALL_LINKS_GATING_ENABLED = "true"
 }
 
 const userId = createDenTypeId("user")
@@ -125,7 +130,7 @@ beforeEach(() => {
   sessionCreatedAt = new Date()
 })
 
-function createApp(options: { installerFallbackUrl?: string } = {}) {
+function createApp(options: { installerFallbackUrl?: string; installerArtifact?: Buffer } = {}) {
   const app = new Hono()
   const installerFallbackUrl = options.installerFallbackUrl
   app.use("*", async (c, next) => {
@@ -147,10 +152,10 @@ function createApp(options: { installerFallbackUrl?: string } = {}) {
   })
   installLinkModule.registerOrgInstallLinkRoutes(
     app,
-    installerFallbackUrl
+    installerFallbackUrl || options.installerArtifact
       ? {
-          resolveArtifact: () => Promise.resolve(null),
-          resolveFallbackUrl: () => Promise.resolve(installerFallbackUrl),
+          resolveArtifact: () => Promise.resolve(options.installerArtifact ?? null),
+          resolveFallbackUrl: () => Promise.resolve(installerFallbackUrl ?? officialWindowsInstallerUrl),
         }
       : undefined,
   )
@@ -283,4 +288,47 @@ test("missing server-side artifacts redirect the browser to the official release
   expect(response.status).toBe(302)
   expect(response.headers.get("location")).toBe(officialWindowsInstallerUrl)
   expect(response.headers.get("location")).not.toContain("opaque-token")
+})
+
+test.each([
+  ["mac-arm64", ".dmg"],
+  ["win-x64", ".exe"],
+])("organization %s downloads contain the untouched standard installer and desktop bootstrap", async (platform, extension) => {
+  const installerArtifact = Buffer.from(`signed-standard-${platform}-bytes`, "utf8")
+  const response = await createApp({ installerArtifact }).request(`http://den.local/v1/install/${platform}?token=opaque-token`)
+
+  expect(response.status).toBe(200)
+  expect(response.headers.get("content-type")).toBe("application/zip")
+  expect(response.headers.get("content-disposition")).toContain(`OpenWork-acme-robotics-${platform}.zip`)
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-org-download-"))
+  try {
+    const archivePath = path.join(dir, "download.zip")
+    const outputDir = path.join(dir, "output")
+    mkdirSync(outputDir)
+    writeFileSync(archivePath, new Uint8Array(await response.arrayBuffer()))
+    const unzip = spawnSync("unzip", ["-q", archivePath, "-d", outputDir], { encoding: "utf8" })
+    if (unzip.status !== 0) {
+      throw new Error(`unzip failed: ${unzip.stderr || unzip.stdout}`)
+    }
+
+    const entries = readdirSync(outputDir)
+    const installerName = entries.find((entry) => entry.endsWith(extension))
+    expect(installerName).toBeTruthy()
+    expect(entries).toContain("desktop-bootstrap.json")
+    expect(entries.some((entry) => entry.includes("openwork-installer"))).toBe(false)
+    expect(readFileSync(path.join(outputDir, installerName ?? "missing"))).toEqual(installerArtifact)
+
+    const bootstrap = JSON.parse(readFileSync(path.join(outputDir, "desktop-bootstrap.json"), "utf8"))
+    expect(bootstrap).toMatchObject({
+      baseUrl: process.env.BETTER_AUTH_URL,
+      requireSignin: true,
+      brandAppName: "OpenWork",
+    })
+    expect(bootstrap.apiBaseUrl).toBe("http://den.local")
+    expect(Number.isFinite(Date.parse(bootstrap.writtenAt))).toBe(true)
+    expect(JSON.stringify(bootstrap)).not.toContain("opaque-token")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

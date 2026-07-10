@@ -47,6 +47,8 @@ config:
     betterAuthTrustedOrigins: "https://openwork.example.com"
     webAppHosts: "openwork.example.com"
     bootstrapAdminEmails: "admin@example.com"
+    # Self-hosted default: every organization gets install downloads.
+    installLinksGatingEnabled: "false"
     authCallbackUrl: "https://openwork.example.com"
   githubConnector:
     appId: ""

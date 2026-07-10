@@ -1,4 +1,8 @@
-import { installConfigSchema, INSTALL_SIDECAR_FILENAME } from "@openwork/install-config"
+import {
+  DESKTOP_BOOTSTRAP_FILENAME,
+  desktopBootstrapConfigSchema,
+  installConfigSchema,
+} from "@openwork/install-config"
 import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable, OrganizationTable, RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
@@ -8,15 +12,16 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
 import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
+import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
 import { hashInstallLinkToken, mintOrganizationInstallLink } from "../../install-links.js"
 import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
-import { organizationCapabilityKeySchema, organizationHasCapability } from "../../organization-capabilities.js"
+import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
-import { resolveInstallerArtifact, resolveInstallerFallbackUrl } from "../../utils/installer-artifacts.js"
-import { appendStoredEntryToZip } from "../../utils/zip-append.js"
+import { desktopReleaseAssetName, resolveInstallerArtifact, resolveInstallerFallbackUrl } from "../../utils/installer-artifacts.js"
+import { createStoredZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
 
@@ -166,21 +171,7 @@ function contentDisposition(filename: string) {
 }
 
 function artifactFileName(platform: InstallPlatform) {
-  return platform.startsWith("mac-")
-    ? `openwork-installer-${platform}.zip`
-    : platform === "win-x64"
-      ? `openwork-installer-${platform}.exe`
-      : null
-}
-
-function encodeHostForFilename(apiUrl: string) {
-  return new URL(apiUrl).host.replace(/:/g, "_")
-}
-
-function responseBodyFromBuffer(buffer: Buffer) {
-  const bytes = new Uint8Array(buffer.byteLength)
-  bytes.set(buffer)
-  return bytes.buffer
+  return desktopReleaseAssetName(platform, env.installerReleaseTag)
 }
 
 function shellQuote(value: string) {
@@ -278,9 +269,9 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       const input = c.req.valid("json")
       const payload = c.get("organizationContext")
 
-      // Org capability gate: install links ship dark and are enabled
-      // org-by-org from the platform /admin backoffice.
-      if (!organizationHasCapability(payload.organization.metadata, "installLinks")) {
+      if (!organizationInstallLinksEnabled(payload.organization.metadata, {
+        gatingEnabled: env.installLinksGatingEnabled,
+      })) {
         return c.json({ error: "capability_disabled", capability: "installLinks" }, 403)
       }
 
@@ -353,7 +344,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     describeRoute({
       tags: ["Organizations"],
       summary: "Download stamped installer",
-      description: "Serves the generic OpenWork installer artifact stamped at download time for this organization, or redirects to a verified normal desktop download when Den cannot prepare it.",
+      description: "Packages the standard signed OpenWork desktop installer with this organization's bootstrap configuration, or redirects to the verified standard download when Den cannot prepare the bundle.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
         302: emptyResponse("Den redirected the browser to a verified normal desktop download."),
@@ -403,23 +394,23 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         return c.redirect(await installer.resolveFallbackUrl(platform), 302)
       }
 
-      if (platform.startsWith("mac-")) {
-        const sidecar = Buffer.from(JSON.stringify(resolved.config), "utf8")
-        const stampedZip = appendStoredEntryToZip(artifact, INSTALL_SIDECAR_FILENAME, sidecar)
-        return new Response(stampedZip, {
-          headers: {
-            "content-type": "application/zip",
-            "content-disposition": contentDisposition(`OpenWork-Installer-${safeAttachmentSlug(resolved.organizationSlug)}.zip`),
-            "cache-control": "no-store",
-          },
-        })
-      }
+      const bootstrap = desktopBootstrapConfigSchema.parse({
+        baseUrl: resolved.config.webUrl,
+        apiBaseUrl: resolved.config.apiUrl,
+        requireSignin: resolved.config.requireSignin,
+        brandAppName: resolved.config.appName,
+        brandLogoUrl: resolved.config.logoUrl ?? undefined,
+        writtenAt: new Date().toISOString(),
+      })
+      const bundle = createStoredZip([
+        { name: fileName, content: artifact },
+        { name: DESKTOP_BOOTSTRAP_FILENAME, content: Buffer.from(`${JSON.stringify(bootstrap, null, 2)}\n`, "utf8") },
+      ])
 
-      const stampedHost = encodeHostForFilename(resolved.config.apiUrl)
-      return new Response(responseBodyFromBuffer(artifact), {
+      return new Response(bundle, {
         headers: {
-          "content-type": "application/vnd.microsoft.portable-executable",
-          "content-disposition": contentDisposition(`OpenWork-Installer--${stampedHost}--${input.token}.exe`),
+          "content-type": "application/zip",
+          "content-disposition": contentDisposition(`OpenWork-${safeAttachmentSlug(resolved.organizationSlug)}-${platform}.zip`),
           "cache-control": "no-store",
         },
       })

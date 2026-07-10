@@ -90,6 +90,7 @@ const EnvSchema = z.object({
   VERCEL_TEAM_SLUG: z.string().optional(),
   VERCEL_DNS_DOMAIN: z.string().optional(),
   DEN_PLAN_GATING_ENABLED: z.string().optional(),
+  DEN_INSTALL_LINKS_GATING_ENABLED: z.string().optional(),
   DEN_MCP_CONNECTIONS_GATING_ENABLED: z.string().optional(),
   SCIM_MAINTENANCE_INTERVAL_MS: z.string().optional(),
   POLAR_FEATURE_GATE_ENABLED: z.string().optional(),
@@ -257,6 +258,12 @@ const polarFeatureGateEnabled =
 const planGatingEnabled =
   (parsed.DEN_PLAN_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
+// Hosted deployments normally enable plan gating and retain per-org rollout.
+// Self-hosted deployments default to no gating, so install links work without
+// access to the hosted platform-admin control plane. An explicit setting wins.
+const installLinksGatingEnabled =
+  (parsed.DEN_INSTALL_LINKS_GATING_ENABLED ?? String(planGatingEnabled)).toLowerCase() === "true"
+
 // Staged rollout for member-facing org MCP connections: when gating is
 // enabled (hosted deployments), GET /v1/mcp-connections?scope=usable returns
 // an empty list unless the organization opted in via the mcpConnections
@@ -322,6 +329,7 @@ export const env = {
   devMode,
   allowPrivateMcpUrls,
   planGatingEnabled,
+  installLinksGatingEnabled,
   mcpConnectionsGatingEnabled,
   scimMaintenanceIntervalMs: Number(parsed.SCIM_MAINTENANCE_INTERVAL_MS ?? "300000"),
   requireEmailVerification,
@@ -371,12 +379,11 @@ export const env = {
   apiPublicUrl,
   publicUrlTrustedOrigins,
   installerArtifactsDir: optionalString(parsed.OPENWORK_INSTALLER_ARTIFACTS_DIR),
-  // Generic installer release assets (release-generic-installer.yml): the
-  // release tag to download from, defaulting to the pinned app release this
-  // den-api build shipped with.
+  // Standard desktop release assets: the release tag to download from,
+  // defaulting to the pinned app release this den-api build shipped with.
   installerReleaseTag: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_TAG) ?? `v${denApiAppVersion.latestAppVersion}`,
   installerReleaseRepo: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_REPO) ?? "different-ai/openwork",
-  installerCacheDir: optionalString(parsed.OPENWORK_INSTALLER_CACHE_DIR) ?? path.join(os.tmpdir(), "openwork-installer-artifacts"),
+  installerCacheDir: optionalString(parsed.OPENWORK_INSTALLER_CACHE_DIR) ?? path.join(os.tmpdir(), "openwork-desktop-artifacts"),
   // Native-provider endpoint overrides for evals/self-host testing. Unset in
   // production so Google, Microsoft Entra, and Graph use their public APIs.
   googleOAuthAuthorizeUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_AUTHORIZE_URL),

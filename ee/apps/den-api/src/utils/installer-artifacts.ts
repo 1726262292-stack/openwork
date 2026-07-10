@@ -5,14 +5,13 @@ import path from "node:path"
 import { env } from "../env.js"
 
 /**
- * Resolves a generic installer artifact (openwork-installer-mac-arm64.zip,
- * openwork-installer-mac-x64.zip, openwork-installer-win-x64.exe) so
- * install-link downloads work without any local artifact directory:
+ * Resolves the standard signed desktop artifact so organization install-link
+ * downloads work without building a second installer application:
  *
  *   1. OPENWORK_INSTALLER_ARTIFACTS_DIR file, when set and present
  *      (self-hosted/dev override — the pre-#2480 behavior, moved here).
  *   2. Disk cache under OPENWORK_INSTALLER_CACHE_DIR/<releaseTag>/<fileName>.
- *   3. The public release asset published by release-generic-installer.yml:
+ *   3. The normal public desktop release asset:
  *      https://github.com/<repo>/releases/download/<releaseTag>/<fileName>,
  *      streamed to a temp file then atomically renamed into the cache.
  *
@@ -48,7 +47,7 @@ export function installerReleaseAssetUrl(
   return `https://github.com/${releaseRepo}/releases/download/${encodeURIComponent(releaseTag)}/${encodeURIComponent(fileName)}`
 }
 
-function desktopReleaseAssetName(platform: string, releaseTag: string) {
+export function desktopReleaseAssetName(platform: string, releaseTag: string) {
   const version = releaseTag.startsWith("v") ? releaseTag.slice(1) : releaseTag
   if (platform === "mac-arm64" || platform === "mac-x64") {
     return `openwork-${platform}-${version}.dmg`

@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 export const INSTALL_SIDECAR_FILENAME = "openwork-installer.json"
+export const DESKTOP_BOOTSTRAP_FILENAME = "desktop-bootstrap.json"
 
 export const installConfigSchema = z.object({
   appName: z.string().trim().min(1).max(64).default("OpenWork"),
@@ -12,6 +13,17 @@ export const installConfigSchema = z.object({
 }).meta({ ref: "InstallConfig" })
 
 export type InstallConfig = z.infer<typeof installConfigSchema>
+
+export const desktopBootstrapConfigSchema = z.object({
+  baseUrl: z.string().trim().url(),
+  apiBaseUrl: z.string().trim().url().optional(),
+  requireSignin: z.boolean(),
+  brandAppName: z.string().trim().min(1).max(64).optional(),
+  brandLogoUrl: z.string().trim().url().optional(),
+  writtenAt: z.string().datetime(),
+}).meta({ ref: "DesktopBootstrapConfig" })
+
+export type DesktopBootstrapConfig = z.infer<typeof desktopBootstrapConfigSchema>
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,}$/
 const FILENAME_TAG_PATTERN = /^.+--([A-Za-z0-9.-]+(?:_[0-9]+)?)--([A-Za-z0-9_-]{8,})(?:\.exe)?$/
