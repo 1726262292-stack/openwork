@@ -23,6 +23,20 @@ for command in openssl curl node pnpm; do
   fi
 done
 
+# A fresh Daytona server snapshot installs workspace dependencies and starts
+# Den from source, but may not have built every linked package that a second
+# one-shot Den process imports. Build only the missing artifacts so the repro
+# behaves the same on a clean sandbox and an already-built checkout.
+if [ ! -f "$ROOT_DIR/packages/email/dist/index.js" ]; then
+  (cd "$ROOT_DIR" && pnpm --filter @openwork/email build)
+fi
+if [ ! -f "$ROOT_DIR/packages/install-config/dist/index.js" ]; then
+  (cd "$ROOT_DIR" && pnpm --filter @openwork/install-config build)
+fi
+if [ ! -f "$ROOT_DIR/ee/packages/den-db/dist/index.js" ]; then
+  (cd "$ROOT_DIR" && pnpm --filter @openwork-ee/den-db build)
+fi
+
 cat > "$TMP_DIR/server.ext" <<'EOF'
 basicConstraints=critical,CA:FALSE
 keyUsage=critical,digitalSignature,keyEncipherment
