@@ -198,6 +198,9 @@ async function latestInvitationEmail(ctx) {
   const response = await fetch(`${DEN_API_URL}/v1/dev/emails/last?template=organizationInvite`);
   const html = await response.text();
   witness(ctx, response.ok, "The rendered invitation email is available", response.status);
+  const invitationMatch = html.match(/href="([^"]*\/join-org\?invite=[^"]+)"/);
+  const invitationUrl = new URL(decodeHtmlAttribute(invitationMatch?.[1] ?? ""));
+  witness(ctx, invitationUrl.origin === new URL(DEN_WEB_URL).origin, "The invitation acceptance link uses this deployment's public Den Web origin", { origin: invitationUrl.origin, pathname: invitationUrl.pathname });
   const match = html.match(/href="([^"]*\/install\?token=[^"]+)"/);
   const installUrl = decodeHtmlAttribute(match?.[1] ?? "");
   witness(ctx, installUrl.length > 0, "The invitation email contains an organization install link", redactedInstallUrl(installUrl));
@@ -231,6 +234,12 @@ export default {
             await clickExactText(ctx, "Send invite", "button");
             await ctx.waitForText(INVITEE_EMAIL, { timeoutMs: 30_000 });
             await ctx.waitForText("Pending", { timeoutMs: 20_000 });
+            await ctx.waitFor(`(() => {
+              const email = [...document.querySelectorAll('p')]
+                .find((candidate) => candidate.textContent?.trim() === ${JSON.stringify(INVITEE_EMAIL)});
+              email?.scrollIntoView({ block: 'center' });
+              return Boolean(email);
+            })()`, { timeoutMs: 20_000, label: "scroll Maya's pending invitation into view" });
           },
           assert: async () => {
             await assertPendingInvitation(ctx);
