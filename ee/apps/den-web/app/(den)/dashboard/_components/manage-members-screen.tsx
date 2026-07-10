@@ -33,6 +33,7 @@ import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-templ
 import { DenButton } from "../../_components/ui/button";
 import { DenCard } from "../../_components/ui/card";
 import { DenInput } from "../../_components/ui/input";
+import { DenNotice } from "../../_components/ui/notice";
 import { DenSelect } from "../../_components/ui/select";
 import { createOrganizationInstallLink } from "./install-link-data";
 import { OrgMemberIdentity } from "./org-member-identity";
@@ -715,9 +716,7 @@ export function ManageMembersScreen() {
       />
 
       {pageError ? (
-        <div className="mb-6 rounded-[28px] border border-red-200 bg-red-50 px-6 py-4 text-[14px] text-red-700">
-          {pageError}
-        </div>
+        <DenNotice message={pageError} className="mb-6" />
       ) : null}
 
       <UnderlineTabs

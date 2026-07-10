@@ -2,13 +2,14 @@
 
 import { Check, Copy, ImageUp, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { getErrorMessage, requestJson } from "../../_lib/den-flow";
+import { getErrorMessage, getRequestError, requestJson } from "../../_lib/den-flow";
 import { getAllowedDesktopVersionsFromMetadata, getManagedBrandAssetFromMetadata, getRequireSsoFromMetadata, parseOrganizationMetadata, type DenManagedBrandAsset } from "../../_lib/den-org";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../_components/ui/button";
 import { DenCard } from "../../_components/ui/card";
 import { DenInput } from "../../_components/ui/input";
 import { DenTextarea } from "../../_components/ui/textarea";
+import { DenNotice } from "../../_components/ui/notice";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
 
@@ -286,6 +287,7 @@ export function OrgSettingsScreen() {
     orgBusy,
     orgError,
     mutationBusy,
+    runReauthableAction,
     updateOrganizationSettings,
   } = useOrgDashboard();
   const [orgNameDraft, setOrgNameDraft] = useState("");
@@ -564,20 +566,27 @@ export function OrgSettingsScreen() {
 
   async function uploadBrandAssetDrafts() {
     if (!brandLogoDraft && !brandIconDraft) return;
-    const body = new FormData();
-    if (brandLogoDraft) body.set("logo", brandLogoDraft.file);
-    if (brandIconDraft) body.set("icon", brandIconDraft.file);
 
     setBrandAssetUploadBusy(true);
     try {
-      const { response, payload } = await requestJson(
-        "/v1/org/brand-assets",
-        { method: "POST", body },
-        30000,
-      );
-      if (!response.ok) {
-        throw new Error(getErrorMessage(payload, `Could not upload brand images (${response.status}).`));
-      }
+      await runReauthableAction("upload-brand-assets", async () => {
+        const body = new FormData();
+        if (brandLogoDraft) body.set("logo", brandLogoDraft.file);
+        if (brandIconDraft) body.set("icon", brandIconDraft.file);
+
+        const { response, payload } = await requestJson(
+          "/v1/org/brand-assets",
+          { method: "POST", body },
+          30000,
+        );
+        if (!response.ok) {
+          throw getRequestError(
+            payload,
+            response,
+            `Could not upload brand images (${response.status}).`,
+          );
+        }
+      });
     } finally {
       setBrandAssetUploadBusy(false);
     }
@@ -632,9 +641,7 @@ export function OrgSettingsScreen() {
         <EnterprisePlanNotice feature="Enforced SSO and desktop version control" />
       ) : null}
       {pageError ? (
-        <div className="mb-6 rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-700">
-          {pageError}
-        </div>
+        <DenNotice message={pageError} className="mb-6" />
       ) : null}
       {pageSuccess ? (
         <div className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-[14px] text-emerald-700">
