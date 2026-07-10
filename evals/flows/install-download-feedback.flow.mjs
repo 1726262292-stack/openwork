@@ -18,10 +18,6 @@ async function openInstallPage(ctx) {
     method: "PATCH",
     body: JSON.stringify({ name: ORG_NAME }),
   });
-  await denFetch(ctx, `/v1/admin/organizations/${orgId}/capabilities`, {
-    method: "PUT",
-    body: JSON.stringify({ capabilities: { installLinks: true } }),
-  });
   const minted = await denFetch(ctx, `/v1/orgs/${orgId}/install-links`, {
     method: "POST",
     body: JSON.stringify({ rotate: false }),
