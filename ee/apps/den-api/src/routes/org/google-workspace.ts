@@ -7,6 +7,7 @@ import { env } from "../../env.js"
 import { jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "../../middleware/index.js"
 import { jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { buildGmailDraftRaw, readGmailDraftIds } from "../../capability-sources/gmail.js"
+import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
 import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
 import {
   buildDriveSearchQuery,
@@ -28,8 +29,17 @@ const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 const DRIVE_FULL_SCOPE = "https://www.googleapis.com/auth/drive"
 const GOOGLE_WORKSPACE_API_TIMEOUT_MS = 30_000
+const MAX_GMAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_GMAIL_ATTACHMENTS_TOTAL_BYTES = 20 * 1024 * 1024
+const MAX_GMAIL_ATTACHMENT_BASE64_LENGTH = Math.ceil(MAX_GMAIL_ATTACHMENT_BYTES / 3) * 4
 
 const CONNECT_GOOGLE_ACCOUNT_MESSAGE = "Connect your Google account first: open Settings > Connect and use Connect your account on the Google Workspace row, or connect from the OpenWork Cloud dashboard."
+
+const gmailDraftAttachmentSchema = z.object({
+  filename: z.string().trim().min(1).max(255).refine((value) => !/[\r\n]/.test(value), "Filename must not contain line breaks.").describe("Filename to show in Gmail."),
+  mimeType: z.string().trim().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/).describe("Attachment MIME type."),
+  dataBase64: z.string().min(1).max(MAX_GMAIL_ATTACHMENT_BASE64_LENGTH).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).describe("File bytes encoded as standard base64. Read the file from the active workspace and base64-encode it. Maximum decoded size: 10 MiB per file and 20 MiB total."),
+}).strict()
 
 const createDraftBodySchema = z.object({
   to: z.string().trim().min(3).max(320).describe("Recipient email address."),
@@ -38,7 +48,17 @@ const createDraftBodySchema = z.object({
   subject: z.string().trim().min(1).max(500).describe("Draft subject line."),
   body: z.string().min(1).max(50_000).describe("Plain-text draft body."),
   threadId: z.string().trim().min(1).max(512).optional().describe("Optional Gmail thread id to reply on. Get it from the gmail-messages capability. When set, the draft is attached to that thread as a reply — keep the thread's subject (e.g. 'Re: …')."),
-}).strict()
+  attachments: z.array(gmailDraftAttachmentSchema).min(1).max(10).optional().describe("Optional files from the active workspace to attach to this draft."),
+}).strict().superRefine((input, context) => {
+  const totalBytes = (input.attachments ?? []).reduce((total, attachment) => total + Buffer.byteLength(attachment.dataBase64, "base64"), 0)
+  if (totalBytes > MAX_GMAIL_ATTACHMENTS_TOTAL_BYTES) {
+    context.addIssue({
+      code: "custom",
+      path: ["attachments"],
+      message: "Attachments must be 20 MiB or less in total.",
+    })
+  }
+})
 
 const createDraftResponseSchema = z.object({
   ok: z.literal(true),
@@ -47,6 +67,11 @@ const createDraftResponseSchema = z.object({
   to: z.string(),
   subject: z.string(),
   threadId: z.string().nullable(),
+  attachments: z.array(z.object({
+    filename: z.string(),
+    mimeType: z.string(),
+    size: z.number().int().nonnegative(),
+  })).optional(),
 }).meta({ ref: "GoogleWorkspaceDraftResponse" })
 
 const needsConnectionSchema = z.object({
@@ -741,8 +766,8 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
     "/v1/capabilities/google-workspace/gmail-drafts",
     describeRoute({
       tags: ["Capability Sources"],
-      summary: "Create a Gmail draft or threaded reply draft as the calling member",
-      description: "Creates a plain-text Gmail draft in the calling member own mailbox, with optional Cc/Bcc recipients. Set threadId to attach the draft to an existing Gmail thread as a reply using the thread's matching subject. Returns needs_connection when the member has not connected their Google account yet or when a threaded reply needs Gmail read permission.",
+      summary: "Create a Gmail draft or threaded reply draft; attach workspace files with body.attachments: [{ filename, mimeType, dataBase64 }], where dataBase64 is the file bytes encoded as standard base64",
+      description: "Creates a plain-text Gmail draft in the calling member own mailbox, with optional Cc/Bcc recipients and files read from the active workspace. Set threadId to attach the draft to an existing Gmail thread as a reply using the thread's matching subject. Returns needs_connection when the member has not connected their Google account yet or when a threaded reply needs Gmail read permission.",
       responses: {
         200: jsonResponse("Draft created.", createDraftResponseSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
@@ -765,7 +790,12 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         return c.json({ error: "needs_connection", message: token.message }, 409)
       }
 
-      const { to, cc, bcc, subject, body, threadId } = c.req.valid("json")
+      const { to, cc, bcc, subject, body, threadId, attachments: attachmentInputs } = c.req.valid("json")
+      const attachments: GmailDraftAttachment[] = (attachmentInputs ?? []).map((attachment) => ({
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        content: Buffer.from(attachment.dataBase64, "base64"),
+      }))
       const headers: { name: string; value: string }[] = []
       if (threadId) {
         if (missingScope(token.account, [GMAIL_READ_SCOPE])) {
@@ -794,7 +824,7 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         )
       }
 
-      const message: { raw: string; threadId?: string } = { raw: buildGmailDraftRaw({ to, cc, bcc, subject, body, headers }) }
+      const message: { raw: string; threadId?: string } = { raw: buildGmailDraftRaw({ to, cc, bcc, subject, body, headers, attachments }) }
       if (threadId) {
         message.threadId = threadId
       }
@@ -816,7 +846,25 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         return c.json({ error: "google_api_error", message: "Gmail returned no draft id." }, 502)
       }
 
-      return c.json({ ok: true, draftId, messageId, to, subject, threadId: threadId ?? null })
+      const result = {
+        ok: true,
+        draftId,
+        messageId,
+        to,
+        subject,
+        threadId: threadId ?? null,
+      }
+      if (attachments.length === 0) {
+        return c.json(result)
+      }
+      return c.json({
+        ...result,
+        attachments: attachments.map((attachment) => ({
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          size: attachment.content.byteLength,
+        })),
+      })
     },
   )
 }

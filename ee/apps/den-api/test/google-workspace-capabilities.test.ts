@@ -544,6 +544,36 @@ test("gmail plain draft supports cc without requiring a thread", async () => {
   expect(body).toEqual({ ok: true, draftId: "draft_1", messageId: "draft_msg_1", to, subject, threadId: null })
 })
 
+test("gmail plain draft attaches active workspace file bytes with filename and MIME type", async () => {
+  const attachmentBytes = Buffer.from("%PDF-1.4\nworkspace invoice\n", "utf8")
+  const response = await request("/v1/capabilities/google-workspace/gmail-drafts", {
+    method: "POST",
+    body: {
+      to: "accounts@acme.test",
+      subject: "Workspace invoice",
+      body: "Please see the attached invoice.",
+      attachments: [{
+        filename: "invoice-2026.pdf",
+        mimeType: "application/pdf",
+        dataBase64: attachmentBytes.toString("base64"),
+      }],
+    },
+  })
+  expect(response.status).toBe(200)
+  expect(googleCallCount).toBe(1)
+  const decoded = decodeDraftRaw()
+  expect(decoded).toContain("Content-Type: multipart/mixed;")
+  expect(decoded).toContain('Content-Type: application/pdf; name="invoice-2026.pdf"')
+  expect(decoded).toContain('Content-Disposition: attachment; filename="invoice-2026.pdf"')
+  expect(decoded).toContain(attachmentBytes.toString("base64"))
+  const body: unknown = await response.json()
+  expect(expectRecord(body, "attachment draft response").attachments).toEqual([{
+    filename: "invoice-2026.pdf",
+    mimeType: "application/pdf",
+    size: attachmentBytes.byteLength,
+  }])
+})
+
 test("gmail threaded reply draft reads thread metadata and sends reply headers", async () => {
   const response = await request("/v1/capabilities/google-workspace/gmail-drafts", {
     method: "POST",
@@ -553,6 +583,11 @@ test("gmail threaded reply draft reads thread metadata and sends reply headers",
       subject: "Quarterly plan",
       threadId: "thread_1",
       body: "Reply body",
+      attachments: [{
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        dataBase64: Buffer.from("workspace notes", "utf8").toString("base64"),
+      }],
     },
   })
   expect(response.status).toBe(200)
@@ -569,9 +604,71 @@ test("gmail threaded reply draft reads thread metadata and sends reply headers",
   const decoded = decodeDraftRaw()
   expect(decoded).toContain("In-Reply-To: <orig-2@mail.gmail.com>\r\n")
   expect(decoded).toContain("References: <orig-1@mail.gmail.com> <orig-2@mail.gmail.com>\r\n")
+  expect(decoded).toContain('Content-Disposition: attachment; filename="notes.txt"')
+  expect(decoded).toContain(Buffer.from("workspace notes", "utf8").toString("base64"))
   const body: unknown = await response.json()
   const responseBody = expectRecord(body, "threaded draft response")
   expect(responseBody.threadId).toBe("thread_1")
+})
+
+test("gmail draft rejects invalid attachment encoding and MIME type without calling Google", async () => {
+  for (const attachment of [
+    { filename: "invoice.pdf", mimeType: "application/pdf", dataBase64: "not base64!" },
+    { filename: "invoice.pdf", mimeType: "invalid mime type", dataBase64: "aW52b2ljZQ==" },
+    { filename: "invoice.pdf\r\nBcc: attacker@acme.test", mimeType: "application/pdf", dataBase64: "aW52b2ljZQ==" },
+  ]) {
+    resetFakeGoogle()
+    const response = await request("/v1/capabilities/google-workspace/gmail-drafts", {
+      method: "POST",
+      body: {
+        to: "sam@acme.test",
+        subject: "Quarterly plan",
+        body: "Draft body",
+        attachments: [attachment],
+      },
+    })
+    expect(response.status).toBe(400)
+    expect(googleCallCount).toBe(0)
+    const body: unknown = await response.json()
+    expect(expectRecord(body, "invalid attachment response").error).toBe("invalid_request")
+  }
+})
+
+test("gmail draft rejects attachments over per-file and aggregate size limits without calling Google", async () => {
+  const overPerFile = Buffer.alloc((10 * 1024 * 1024) + 1).toString("base64")
+  const aggregateFiles = Array.from({ length: 3 }, (_, index) => ({
+    filename: `part-${index}.bin`,
+    mimeType: "application/octet-stream",
+    dataBase64: Buffer.alloc(7 * 1024 * 1024).toString("base64"),
+  }))
+  for (const attachments of [
+    [{ filename: "large.bin", mimeType: "application/octet-stream", dataBase64: overPerFile }],
+    aggregateFiles,
+  ]) {
+    resetFakeGoogle()
+    const response = await request("/v1/capabilities/google-workspace/gmail-drafts", {
+      method: "POST",
+      body: { to: "sam@acme.test", subject: "Quarterly plan", body: "Draft body", attachments },
+    })
+    expect(response.status).toBe(400)
+    expect(googleCallCount).toBe(0)
+  }
+})
+
+test("gmail draft rejects empty and excessive attachment lists without calling Google", async () => {
+  for (const attachments of [[], Array.from({ length: 11 }, (_, index) => ({
+    filename: `file-${index}.txt`,
+    mimeType: "text/plain",
+    dataBase64: "ZmlsZQ==",
+  }))]) {
+    resetFakeGoogle()
+    const response = await request("/v1/capabilities/google-workspace/gmail-drafts", {
+      method: "POST",
+      body: { to: "sam@acme.test", subject: "Quarterly plan", body: "Draft body", attachments },
+    })
+    expect(response.status).toBe(400)
+    expect(googleCallCount).toBe(0)
+  }
 })
 
 test("gmail threaded reply draft requires Gmail read scope before calling Google", async () => {
@@ -709,6 +806,10 @@ test("Google Workspace capability tools are discoverable and keep readable names
   expect(searchCapabilities(catalog, "add meet link existing event", 10)[0]?.name).toBe("patchCapabilitiesGoogleWorkspaceCalendarEvent")
   expect(searchCapabilities(catalog, "drive files", 10)[0]?.name).toBe("getCapabilitiesGoogleWorkspaceDriveFiles")
   expect(searchCapabilities(catalog, "gmail search read messages", 10)[0]?.name).toBe("getCapabilitiesGoogleWorkspaceGmailMessages")
+  const draftMatch = searchCapabilities(catalog, "gmail draft workspace attachment", 10)[0]
+  expect(draftMatch?.name).toBe("postCapabilitiesGoogleWorkspaceGmailDrafts")
+  expect(draftMatch?.summary).toContain("attachments: [{ filename, mimeType, dataBase64 }]")
+  expect(draftMatch?.summary).toContain("standard base64")
 
   const expectedNames = [
     "getCapabilitiesGoogleWorkspaceGmailMessages",
@@ -718,6 +819,7 @@ test("Google Workspace capability tools are discoverable and keep readable names
     "patchCapabilitiesGoogleWorkspaceCalendarEvent",
     "getCapabilitiesGoogleWorkspaceDriveFiles",
     "getCapabilitiesGoogleWorkspaceDriveFile",
+    "postCapabilitiesGoogleWorkspaceGmailDrafts",
   ]
   const catalogNames = new Set(catalog.map((tool) => tool.name))
   for (const name of expectedNames) {

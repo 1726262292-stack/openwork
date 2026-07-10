@@ -104,6 +104,26 @@ describe("buildGmailDraftRaw", () => {
       "MIME-Version: 1.0",
     ])
   })
+
+  test("encodes attachments as multipart MIME while preserving filename, MIME type, and bytes", () => {
+    const decoded = decodeRaw(gmail.buildGmailDraftRaw({
+      to: "sam@acme.test",
+      subject: "Invoice",
+      body: "Please review the attached invoice.",
+      attachments: [{
+        filename: 'invoice "final".pdf',
+        mimeType: "application/pdf",
+        content: Buffer.from("%PDF attachment bytes", "utf8"),
+      }],
+    }))
+    const boundary = decoded.match(/boundary="([^"]+)"/)?.[1]
+    expect(boundary).toStartWith("openwork-")
+    expect(decoded).toContain("Content-Type: multipart/mixed;")
+    expect(decoded).toContain('Content-Type: application/pdf; name="invoice \\"final\\".pdf"')
+    expect(decoded).toContain('Content-Disposition: attachment; filename="invoice \\"final\\".pdf"')
+    expect(decoded).toContain(Buffer.from("%PDF attachment bytes", "utf8").toString("base64"))
+    expect(decoded).toContain(`--${boundary}--\r\n`)
+  })
 })
 
 describe("extractGmailThreadReplyContext", () => {
