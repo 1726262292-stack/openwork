@@ -34,6 +34,15 @@ const DOWNLOAD_TIMEOUT_MS = 60_000
 
 const inFlightDownloads = new Map<string, Promise<Buffer | null>>()
 
+export function installerReleaseAssetUrl(
+  fileName: string,
+  options: Pick<InstallerArtifactOptions, "releaseRepo" | "releaseTag"> = {},
+) {
+  const releaseRepo = options.releaseRepo ?? env.installerReleaseRepo
+  const releaseTag = options.releaseTag ?? env.installerReleaseTag
+  return `https://github.com/${releaseRepo}/releases/download/${encodeURIComponent(releaseTag)}/${encodeURIComponent(fileName)}`
+}
+
 async function readFileOrNull(filePath: string) {
   try {
     return await readFile(filePath)
@@ -70,7 +79,10 @@ async function downloadReleaseAsset(input: {
   releaseRepo: string
   fetcher: InstallerArtifactFetcher
 }): Promise<Buffer | null> {
-  const url = `https://github.com/${input.releaseRepo}/releases/download/${encodeURIComponent(input.releaseTag)}/${encodeURIComponent(input.fileName)}`
+  const url = installerReleaseAssetUrl(input.fileName, {
+    releaseRepo: input.releaseRepo,
+    releaseTag: input.releaseTag,
+  })
   console.info(`[installer-artifacts] downloading ${input.fileName} from ${input.releaseTag}`)
 
   const tempPath = `${input.cachePath}.download-${process.pid}-${randomUUID()}`

@@ -14,11 +14,17 @@ const memberId = createDenTypeId("member")
 const organizationId = createDenTypeId("organization")
 const insertedRows: unknown[] = []
 const revokedRows: unknown[] = []
+const officialWindowsInstallerUrl = "https://github.com/different-ai/openwork/releases/download/v9.9.9/openwork-installer-win-x64.exe"
 
 let role = "member"
 let isOwner = false
 let capabilityEnabled = true
 let sessionCreatedAt = new Date()
+
+mock.module("../src/utils/installer-artifacts.js", () => ({
+  installerReleaseAssetUrl: (fileName: string) => `https://github.com/different-ai/openwork/releases/download/v9.9.9/${fileName}`,
+  resolveInstallerArtifact: () => Promise.resolve(null),
+}))
 
 mock.module("../src/db.js", () => ({
   db: {
@@ -28,13 +34,29 @@ mock.module("../src/db.js", () => ({
         return Promise.resolve()
       },
     }),
-    select: (_selection: unknown) => ({
-      from: (_table: unknown) => ({
-        where: (_condition: unknown) => ({
-          limit: (_count: number) => Promise.resolve([]),
+    select: (selection: unknown) => {
+      const rows = isRecord(selection) && "installLink" in selection && "organization" in selection
+        ? [{
+            installLink: { organizationId },
+            organization: {
+              id: organizationId,
+              name: "Acme Robotics",
+              slug: "acme-robotics",
+              logo: null,
+              metadata: { capabilities: { installLinks: true } },
+            },
+          }]
+        : []
+      const where = (_condition: unknown) => ({
+        limit: (_count: number) => Promise.resolve(rows),
+      })
+      return {
+        from: (_table: unknown) => ({
+          where,
+          innerJoin: (_joinedTable: unknown, _condition: unknown) => ({ where }),
         }),
-      }),
-    }),
+      }
+    },
     update: (_table: unknown) => ({
       set: (values: unknown) => ({
         where: (_condition: unknown) => {
@@ -195,4 +217,13 @@ test("members cannot mint an install link for another organization", async () =>
   expect(response.status).toBe(404)
   await expect(response.json()).resolves.toEqual({ error: "organization_not_found" })
   expect(insertedInstallLinks()).toHaveLength(0)
+})
+
+test("missing server-side artifacts redirect the browser to the official release", async () => {
+  const response = await createApp().request("http://den.local/v1/install/win-x64?token=opaque-token", {
+    redirect: "manual",
+  })
+
+  expect(response.status).toBe(302)
+  expect(response.headers.get("location")).toBe(officialWindowsInstallerUrl)
 })

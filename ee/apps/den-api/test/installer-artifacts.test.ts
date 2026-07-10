@@ -10,11 +10,12 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
+let installerReleaseAssetUrl: typeof import("../src/utils/installer-artifacts.js")["installerReleaseAssetUrl"]
 let resolveInstallerArtifact: typeof import("../src/utils/installer-artifacts.js")["resolveInstallerArtifact"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ resolveInstallerArtifact } = await import("../src/utils/installer-artifacts.js"))
+  ;({ installerReleaseAssetUrl, resolveInstallerArtifact } = await import("../src/utils/installer-artifacts.js"))
 })
 
 const FILE_NAME = "openwork-installer-mac-arm64.zip"
@@ -31,6 +32,13 @@ function fetcherReturning(status: number, body: string | null, calls: string[]) 
 }
 
 describe("resolveInstallerArtifact", () => {
+  test("builds the official browser fallback URL for the configured release", () => {
+    expect(installerReleaseAssetUrl(FILE_NAME, {
+      releaseTag: "v9.9.9+build 2",
+      releaseRepo: "different-ai/openwork",
+    })).toBe(`https://github.com/different-ai/openwork/releases/download/v9.9.9%2Bbuild%202/${FILE_NAME}`)
+  })
+
   test("prefers the local artifacts dir over cache and network", async () => {
     const artifactsDir = tempDir("ow-installer-artifacts-dir-")
     const cacheDir = tempDir("ow-installer-cache-")

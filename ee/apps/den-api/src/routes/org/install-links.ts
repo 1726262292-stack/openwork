@@ -12,10 +12,10 @@ import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
 import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../middleware/index.js"
-import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
+import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
 import { organizationCapabilityKeySchema, organizationHasCapability } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
-import { resolveInstallerArtifact } from "../../utils/installer-artifacts.js"
+import { installerReleaseAssetUrl, resolveInstallerArtifact } from "../../utils/installer-artifacts.js"
 import { appendStoredEntryToZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
@@ -53,11 +53,6 @@ const capabilityDisabledSchema = z.object({
   error: z.literal("capability_disabled"),
   capability: organizationCapabilityKeySchema,
 }).meta({ ref: "CapabilityDisabledError" })
-
-const installerArtifactsUnavailableSchema = z.object({
-  error: z.literal("installer_artifacts_unavailable"),
-  message: z.string(),
-}).meta({ ref: "InstallerArtifactsUnavailableError" })
 
 const rateLimitedSchema = z.object({
   error: z.literal("rate_limited"),
@@ -174,13 +169,6 @@ function artifactFileName(platform: InstallPlatform) {
     : platform === "win-x64"
       ? `openwork-installer-${platform}.exe`
       : null
-}
-
-function installerArtifactsUnavailable() {
-  return {
-    error: "installer_artifacts_unavailable",
-    message: `Installer artifacts are unavailable in this environment (tried release ${env.installerReleaseTag}). They ship with the OpenWork release pipeline.`,
-  }
 }
 
 function encodeHostForFilename(apiUrl: string) {
@@ -374,13 +362,13 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     describeRoute({
       tags: ["Organizations"],
       summary: "Download stamped installer",
-      description: "Serves the generic OpenWork installer artifact stamped at download time for this organization.",
+      description: "Serves the generic OpenWork installer artifact stamped at download time for this organization, or redirects to the official release asset when Den cannot prepare it.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
+        302: emptyResponse("Den redirected the browser to the official release asset."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many installer download attempts.", rateLimitedSchema),
-        503: jsonResponse("Installer artifacts are unavailable in this environment.", installerArtifactsUnavailableSchema),
       },
     }),
     publicRoute,
@@ -416,12 +404,12 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
 
       const fileName = artifactFileName(platform)
       if (!fileName) {
-        return c.json(installerArtifactsUnavailable(), 503)
+        return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
       const artifact = await resolveInstallerArtifact(fileName)
       if (!artifact) {
-        return c.json(installerArtifactsUnavailable(), 503)
+        return c.redirect(installerReleaseAssetUrl(fileName), 302)
       }
 
       if (platform.startsWith("mac-")) {

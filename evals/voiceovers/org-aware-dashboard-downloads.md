@@ -1,6 +1,6 @@
 # org-aware-dashboard-downloads — Every workspace member downloads the preconfigured desktop app
 
-Daytona validation uses a single-org Acme deployment and a generic Windows artifact mounted through `OPENWORK_INSTALLER_ARTIFACTS_DIR`. The flow does not require GitHub or other public download egress.
+Daytona validation uses a single-org Acme deployment and a generic Windows artifact mounted through `OPENWORK_INSTALLER_ARTIFACTS_DIR`. The preferred path remains organization-configured and does not require public download egress. If Den cannot prepare that artifact in a GitHub-enabled deployment, the browser falls through to the matching official OpenWork release download instead of showing an infrastructure error.
 
 1. Alex opens Acme’s admin dashboard. The download card now sets up OpenWork for Acme instead of offering anonymous files from public releases.
 
