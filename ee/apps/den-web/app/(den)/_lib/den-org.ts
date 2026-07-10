@@ -342,6 +342,10 @@ export function getManagedBrandAssetFromMetadata(
   };
 }
 
+export function getManagedBrandIconUrl(metadata: string | null): string | null {
+  return getManagedBrandAssetFromMetadata(metadata, "icon")?.url ?? null;
+}
+
 function parsePermissionRecord(value: unknown): Record<string, string[]> {
   if (!isRecord(value)) {
     return {};

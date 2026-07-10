@@ -34,6 +34,7 @@ import {
   getIntegrationsRoute,
   getInferenceRoute,
   getMcpConnectionsRoute,
+  getManagedBrandIconUrl,
   getMembersRoute,
   getYourConnectionsRoute,
   getOrgDashboardRoute,
@@ -117,6 +118,51 @@ function OpenWorkMark({ className = "h-9 w-auto" }: { className?: string }) {
         d="M443.216 29.48C452.02 29.0815 460.018 30.0261 467.903 34.1434C489.625 45.4892 510.693 58.4477 532.373 69.8693C514.905 78.2946 493.564 90.995 476.372 100.542L386.895 149.628C376.357 155.498 365.774 161.287 355.148 166.992C337.373 176.588 322.776 183.695 307.595 197.464C287.772 215.608 273.675 239.14 267.014 265.17C262.116 284.284 262.909 298.302 262.917 317.836L262.939 357.47L262.926 471.524L262.961 530.447C262.98 532.198 263.562 543.941 263.164 544.751L262.58 544.549L215.582 518.061C189.232 503.261 169.189 495.747 169.845 460.795C170.068 448.934 169.804 435.617 169.812 423.605L169.831 344.391L169.818 269.769C169.814 254.383 168.977 231.859 171.873 217.311C175.825 198.048 184.641 180.127 197.478 165.236C204.056 157.596 211.686 150.929 220.143 145.432C231.916 137.708 249.246 128.979 262.061 121.995L328.787 85.3185L391.28 50.97C401.594 45.3095 412 39.3027 422.528 34.3441C428.812 31.3849 436.148 30.2484 443.216 29.48Z"
       />
     </svg>
+  );
+}
+
+export function SidebarBrandMark({
+  metadata,
+  organizationName,
+}: {
+  metadata: string | null | undefined;
+  organizationName: string;
+}) {
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+
+  if (metadata === undefined) {
+    return (
+      <div
+        className="h-10 w-10 rounded-xl bg-gray-100"
+        aria-label="Loading organization icon"
+        data-sidebar-brand-icon="loading"
+      />
+    );
+  }
+
+  const iconUrl = getManagedBrandIconUrl(metadata);
+  if (!iconUrl || failedUrl === iconUrl) {
+    return (
+      <div data-sidebar-brand-icon="fallback">
+        <OpenWorkMark />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="h-10 w-10 overflow-hidden rounded-xl bg-gray-100"
+      data-sidebar-brand-icon={loadedUrl === iconUrl ? "ready" : "loading"}
+    >
+      <img
+        src={iconUrl}
+        alt={`${organizationName} icon`}
+        className={`h-full w-full object-cover transition-opacity ${loadedUrl === iconUrl ? "opacity-100" : "opacity-0"}`}
+        onLoad={() => setLoadedUrl(iconUrl)}
+        onError={() => setFailedUrl(iconUrl)}
+      />
+    </div>
   );
 }
 
@@ -474,7 +520,10 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     <div className="flex flex-1 flex-col">
       <div className="border-b border-gray-100 px-4 pb-4 pt-5">
         <div className="flex items-center justify-between gap-3">
-          <OpenWorkMark />
+          <SidebarBrandMark
+            metadata={orgContext?.organization.metadata}
+            organizationName={activeOrg?.name ?? runtimeConfig.singleOrgName}
+          />
           <button
             type="button"
             className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 md:hidden"
