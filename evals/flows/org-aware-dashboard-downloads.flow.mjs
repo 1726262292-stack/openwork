@@ -333,12 +333,12 @@ export default {
           action: async () => {
             await uiSignIn(ctx, MEMBER_EMAIL, MEMBER_PASSWORD);
             await navigateTo(ctx, `${DEN_WEB_URL}/dashboard`);
-            await ctx.waitForText("Workspace Member", { timeoutMs: 30_000 });
+            await ctx.waitForText("WORKSPACE MEMBER", { timeoutMs: 30_000 });
             await ctx.waitForText("Download for this workspace", { timeoutMs: 30_000 });
           },
           assert: async () => {
             await ctx.expectText(`Download OpenWork for ${ORGANIZATION_NAME}`);
-            await ctx.expectText("Workspace Member");
+            await ctx.expectText("WORKSPACE MEMBER");
             await ctx.expectNoText("Copy install link");
             const rotate = await denApiFetch(`/v1/orgs/${state.organizationId}/install-links`, {
               method: "POST",
@@ -349,7 +349,7 @@ export default {
           },
           screenshot: {
             name: "member-acme-download-card",
-            requireText: ["Workspace Member", `Download OpenWork for ${ORGANIZATION_NAME}`, "Download for this workspace"],
+            requireText: ["WORKSPACE MEMBER", `Download OpenWork for ${ORGANIZATION_NAME}`, "Download for this workspace"],
             rejectText: ["Copy install link", "Pending invites"],
           },
         });
