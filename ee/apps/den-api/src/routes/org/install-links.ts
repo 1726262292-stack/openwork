@@ -15,7 +15,7 @@ import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
 import { organizationCapabilityKeySchema, organizationHasCapability } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
-import { installerReleaseAssetUrl, resolveInstallerArtifact } from "../../utils/installer-artifacts.js"
+import { resolveInstallerArtifact, resolveInstallerFallbackUrl } from "../../utils/installer-artifacts.js"
 import { appendStoredEntryToZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
@@ -63,12 +63,12 @@ type InstallPlatform = z.infer<typeof installPlatformSchema>
 
 type InstallerDependencies = {
   resolveArtifact: typeof resolveInstallerArtifact
-  releaseAssetUrl: typeof installerReleaseAssetUrl
+  resolveFallbackUrl: (platform: string) => Promise<string>
 }
 
 const defaultInstallerDependencies: InstallerDependencies = {
   resolveArtifact: resolveInstallerArtifact,
-  releaseAssetUrl: installerReleaseAssetUrl,
+  resolveFallbackUrl: (platform) => resolveInstallerFallbackUrl(platform, OPENWORK_DOWNLOAD_URL),
 }
 
 function sha256(value: string) {
@@ -375,10 +375,10 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     describeRoute({
       tags: ["Organizations"],
       summary: "Download stamped installer",
-      description: "Serves the generic OpenWork installer artifact stamped at download time for this organization, or redirects to the official release asset when Den cannot prepare it.",
+      description: "Serves the generic OpenWork installer artifact stamped at download time for this organization, or redirects to a verified normal desktop download when Den cannot prepare it.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
-        302: emptyResponse("Den redirected the browser to the official release asset."),
+        302: emptyResponse("Den redirected the browser to a verified normal desktop download."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many installer download attempts.", rateLimitedSchema),
@@ -422,7 +422,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
 
       const artifact = await installer.resolveArtifact(fileName)
       if (!artifact) {
-        return c.redirect(installer.releaseAssetUrl(fileName), 302)
+        return c.redirect(await installer.resolveFallbackUrl(platform), 302)
       }
 
       if (platform.startsWith("mac-")) {
