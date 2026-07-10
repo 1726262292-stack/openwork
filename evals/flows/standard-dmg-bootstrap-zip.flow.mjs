@@ -135,7 +135,6 @@ export default {
           await ctx.prove("The standard desktop imported the bootstrap before showing sign-in", {
             voiceover: vo[3],
             action: async () => {
-              await ctx.client.send("Page.reload", { ignoreCache: true });
               await ctx.waitForText("Welcome to Acme Work", { timeoutMs: 45_000 });
             },
             assert: async () => {
