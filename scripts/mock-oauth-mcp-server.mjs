@@ -1,14 +1,22 @@
 #!/usr/bin/env node
 import http from "node:http";
+import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 3978);
-const issuer = process.env.ISSUER || `http://${host}:${port}`;
+const tlsCertFile = process.env.TLS_CERT_FILE?.trim();
+const tlsKeyFile = process.env.TLS_KEY_FILE?.trim();
+const issuer = process.env.ISSUER || `${tlsCertFile ? "https" : "http"}://${host}:${port}`;
 const autoApprove = process.env.AUTO_APPROVE !== "0";
 const disableDcr = process.env.DISABLE_DCR === "1";
 const mockClientId = process.env.MOCK_CLIENT_ID || "mock-preregistered-client";
 const mockClientSecret = process.env.MOCK_CLIENT_SECRET || "mock-preregistered-secret";
+
+if (Boolean(tlsCertFile) !== Boolean(tlsKeyFile)) {
+  throw new Error("TLS_CERT_FILE and TLS_KEY_FILE must be set together.");
+}
 
 const clients = new Map();
 const codes = new Map();
@@ -329,7 +337,7 @@ async function handleMcp(req, res) {
   json(res, 200, Array.isArray(body) ? responses : responses[0]);
 }
 
-const server = http.createServer(async (req, res) => {
+const requestListener = async (req, res) => {
   try {
     const url = new URL(req.url || "/", issuer);
     record(req, url);
@@ -418,10 +426,18 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     json(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }
-});
+};
+
+const server = tlsCertFile && tlsKeyFile
+  ? https.createServer({
+      cert: readFileSync(tlsCertFile),
+      key: readFileSync(tlsKeyFile),
+    }, requestListener)
+  : http.createServer(requestListener);
 
 server.listen(port, host, () => {
   console.log(`[mock-oauth-mcp] listening on ${issuer}`);
+  console.log(`[mock-oauth-mcp] transport: ${tlsCertFile ? "HTTPS" : "HTTP"}`);
   console.log(`[mock-oauth-mcp] MCP URL: ${issuer}/mcp`);
   console.log(`[mock-oauth-mcp] set AUTO_APPROVE=0 to require an approval click`);
 });
