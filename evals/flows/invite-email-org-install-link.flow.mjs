@@ -27,9 +27,16 @@ function cleanBaseUrl(value) {
   return (value ?? "").trim().replace(/\/+$/, "");
 }
 
-function redactedInstallUrl(value) {
+function redactedInstallUrl(value, secrets = []) {
+  let sanitized = value;
+  for (const secret of secrets) {
+    if (!secret) continue;
+    sanitized = sanitized
+      .replaceAll(secret, "[redacted]")
+      .replaceAll(encodeURIComponent(secret), "%5Bredacted%5D");
+  }
   try {
-    const url = new URL(value);
+    const url = new URL(sanitized);
     if (url.searchParams.has("token")) url.searchParams.set("token", "[redacted]");
     return url.toString();
   } catch {
@@ -351,16 +358,16 @@ export default {
             witness(ctx, config.response.ok && typeof config.body?.apiUrl === "string", "The email install token resolves its public API URL", { status: config.response.status, body: config.body });
             const configuredApi = new URL(config.body.apiUrl);
             const expectedPath = `${configuredApi.pathname.replace(/\/+$/, "")}/v1/install/win-x64`;
-            witness(ctx, download.origin === configuredApi.origin && download.pathname === expectedPath, "Windows download preserves the configured public API origin and path prefix", { href: redactedInstallUrl(state.windowsDownloadUrl), configuredApi: config.body.apiUrl, expectedPath });
+            witness(ctx, download.origin === configuredApi.origin && download.pathname === expectedPath, "Windows download preserves the configured public API origin and path prefix", { href: redactedInstallUrl(state.windowsDownloadUrl, [installToken]), configuredApi: config.body.apiUrl, expectedPath });
 
             const firstResponse = await fetch(state.windowsDownloadUrl, { redirect: "manual" });
             const location = firstResponse.headers.get("location") ?? "";
             if (firstResponse.status === 302) {
-              witness(ctx, location.length > 0, "A missing generic artifact returns a fallback location", redactedInstallUrl(location));
-              witness(ctx, !location.includes(download.searchParams.get("token") ?? ""), "The fallback URL contains no organization token", redactedInstallUrl(location));
+              witness(ctx, location.length > 0, "A missing generic artifact returns a fallback location", redactedInstallUrl(location, [installToken]));
+              witness(ctx, !location.includes(installToken), "The fallback URL contains no organization token", redactedInstallUrl(location, [installToken]));
               const fallback = await fetch(location, { method: "HEAD", redirect: "follow" });
-              witness(ctx, fallback.ok && fallback.url.toLowerCase().includes(".exe"), "The verified fallback resolves to a real Windows executable", { status: fallback.status, url: redactedInstallUrl(fallback.url) });
-              ctx.output("windows-invite-download", JSON.stringify({ mode: "verified normal fallback", denStatus: firstResponse.status, location: redactedInstallUrl(location), finalStatus: fallback.status, finalUrl: redactedInstallUrl(fallback.url) }, null, 2));
+              witness(ctx, fallback.ok && fallback.url.toLowerCase().includes(".exe"), "The verified fallback resolves to a real Windows executable", { status: fallback.status, url: redactedInstallUrl(fallback.url, [installToken]) });
+              ctx.output("windows-invite-download", JSON.stringify({ mode: "verified normal fallback", denStatus: firstResponse.status, location: redactedInstallUrl(location, [installToken]), finalStatus: fallback.status, finalUrl: redactedInstallUrl(fallback.url, [installToken]) }, null, 2));
             } else {
               witness(ctx, firstResponse.ok, "Den serves the generic Windows installer", firstResponse.status);
               witness(ctx, (firstResponse.headers.get("content-type") ?? "").includes("portable-executable"), "The generic response is a Windows executable", firstResponse.headers.get("content-type"));
