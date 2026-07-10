@@ -19,6 +19,7 @@ import {
   useOrgLlmProviders,
 } from "./llm-provider-data";
 import { useMarketplaces } from "./marketplace-data";
+import { OrganizationDownloadCard } from "./organization-download-card";
 import { getPluginPartsSummary, usePlugins } from "./plugin-data";
 
 type MemberInferenceStatus = {
@@ -166,6 +167,12 @@ export function MemberDashboardScreen() {
           </div>
         </div>
       </section>
+
+      {activeOrg && orgContext?.capabilities.installLinks ? (
+        <div className="mt-5">
+          <OrganizationDownloadCard organizationId={activeOrg.id} organizationName={activeOrg.name} />
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard

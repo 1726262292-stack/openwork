@@ -17,15 +17,16 @@ import { organizationCapabilityKeySchema, organizationHasCapability } from "../.
 import { resolveInstallerArtifact } from "../../utils/installer-artifacts.js"
 import { appendStoredEntryToZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureInviteManager, getInvitationOrigin, orgAccessFailureStatus } from "./shared.js"
+import { ensureOrganizationAdmin, getInvitationOrigin, orgAccessFailureStatus } from "./shared.js"
 
 const INSTALL_LINK_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 60
+const INSTALL_LINK_MINT_RATE_LIMIT_MAX = 30
 const INSTALL_CONFIG_RATE_LIMIT_MAX = 60
 const INSTALL_ARTIFACT_RATE_LIMIT_MAX = 20
 const INSTALL_LINK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,}$/
 
 const createInstallLinkBodySchema = z.object({
-  rotate: z.boolean().optional(),
+  rotate: z.boolean().optional().default(false),
 }).meta({ ref: "CreateInstallLinkRequest" })
 
 const createInstallLinkResponseSchema = z.object({
@@ -257,24 +258,20 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     describeRoute({
       tags: ["Organizations"],
       summary: "Create organization install link",
-      description: "Mints a shareable OpenWork desktop install link for this organization. By default, older active install links for the organization are revoked.",
+      description: "Mints a shareable OpenWork desktop install link for a signed-in organization member. Older active links remain valid unless an owner or admin explicitly requests rotation.",
       responses: {
         200: jsonResponse("Install link created successfully.", createInstallLinkResponseSchema),
         400: jsonResponse("The install-link request was invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to create install links.", unauthorizedSchema),
-        403: jsonResponse("Only workspace owners and admins can create install links, and the organization needs the installLinks capability enabled.", forbiddenSchema.or(capabilityDisabledSchema)),
+        403: jsonResponse("The organization needs the installLinks capability enabled, and only workspace owners and admins can rotate existing links.", forbiddenSchema.or(capabilityDisabledSchema)),
         404: jsonResponse("The organization could not be found.", notFoundSchema),
+        429: jsonResponse("The member has created too many install links.", rateLimitedSchema),
       },
     }),
     setActiveOrganizationFromParam,
-    orgRoleRoute(["admin"]),
+    orgRoleRoute(["member"]),
     jsonValidator(createInstallLinkBodySchema),
     async (c) => {
-      const permission = ensureInviteManager(c)
-      if (!permission.ok) {
-        return c.json(permission.response, orgAccessFailureStatus(permission.response))
-      }
-
       const input = c.req.valid("json")
       const payload = c.get("organizationContext")
 
@@ -283,10 +280,28 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       if (!organizationHasCapability(payload.organization.metadata, "installLinks")) {
         return c.json({ error: "capability_disabled", capability: "installLinks" }, 403)
       }
-      const now = new Date()
+
+      if (input.rotate) {
+        const permission = ensureOrganizationAdmin(c, "Only workspace owners and admins can rotate install links.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
+      }
+
+      const retryAfter = await checkRateLimit(
+        `install:mint:user:${payload.currentMember.userId}`,
+        INSTALL_LINK_MINT_RATE_LIMIT_MAX,
+        Date.now(),
+      )
+      if (retryAfter !== null) {
+        c.header("Retry-After", String(retryAfter))
+        return c.json({ error: "rate_limited", message: "Too many install links created. Try again later." }, 429)
+      }
+
       const token = randomBytes(32).toString("base64url")
 
-      if (input.rotate !== false) {
+      if (input.rotate) {
+        const now = new Date()
         await db
           .update(InstallLinkTable)
           .set({ revokedAt: now })

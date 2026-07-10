@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { DownloadOpenWorkCard, type DownloadCardInstallers } from "@openwork/ui/react";
 import {
   ArrowRight,
   ChevronRight,
@@ -14,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { requestJson } from "../../_lib/den-flow";
 import { useDenFlow } from "../../_providers/den-flow-provider";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
+import { OrganizationDownloadCard } from "./organization-download-card";
 
 /* ── Types ── */
 
@@ -24,21 +24,6 @@ type AdoptionData = {
   activeUsers30d: number;
   weeklyTrend: number[];
 };
-
-type ReleaseAsset = {
-  name?: string;
-  browser_download_url?: string;
-};
-
-type Release = {
-  draft?: boolean;
-  prerelease?: boolean;
-  html_url?: string;
-  tag_name?: string;
-  assets?: ReleaseAsset[];
-};
-
-type Installers = DownloadCardInstallers;
 
 /* ── Data ── */
 
@@ -56,82 +41,6 @@ async function fetchAdoption(): Promise<AdoptionData | null> {
     };
   } catch {
     return null;
-  }
-}
-
-const FALLBACK_RELEASE = "https://github.com/different-ai/openwork/releases";
-
-function selectAsset(assets: ReleaseAsset[], extensions: string[], keywords: string[] = []): ReleaseAsset | null {
-  const matches = assets.filter((asset) => {
-    if (!asset?.name || !asset?.browser_download_url) return false;
-    const name = asset.name.toLowerCase();
-    const extOk = extensions.some((ext) => name.endsWith(ext));
-    const kwOk = keywords.length === 0 || keywords.some((kw) => name.includes(kw));
-    return extOk && kwOk;
-  });
-  if (matches.length === 0) return null;
-  return (
-    matches.find((a) => a.name?.toLowerCase().includes("adhoc")) ||
-    matches.find((a) => a.name?.toLowerCase().includes("universal")) ||
-    matches.find((a) => a.name?.toLowerCase().includes("aarch64")) ||
-    matches.find((a) => a.name?.toLowerCase().includes("arm64")) ||
-    matches[0]
-  );
-}
-
-async function fetchInstallers(): Promise<{ installers: Installers; releaseTag: string; releaseUrl: string }> {
-  const fallback: Installers = {
-    macos: { appleSilicon: FALLBACK_RELEASE, intel: FALLBACK_RELEASE },
-    windows: { x64: FALLBACK_RELEASE, arm64: FALLBACK_RELEASE },
-    linux: {
-      appImageX64: FALLBACK_RELEASE,
-      appImageArm64: FALLBACK_RELEASE,
-      tarX64: FALLBACK_RELEASE,
-      tarArm64: FALLBACK_RELEASE,
-    },
-  };
-  try {
-    const res = await fetch("https://api.github.com/repos/different-ai/openwork/releases/latest", {
-      headers: { Accept: "application/vnd.github+json" },
-    });
-    if (!res.ok) return { installers: fallback, releaseTag: "", releaseUrl: FALLBACK_RELEASE };
-    const release = (await res.json()) as Release;
-    const assets = Array.isArray(release?.assets) ? release.assets : [];
-    const releaseUrl = release?.html_url || FALLBACK_RELEASE;
-    const releaseTag = release?.tag_name || "";
-
-    const macApple = selectAsset(assets, [".dmg"], ["mac-arm64"]);
-    const macIntel = selectAsset(assets, [".dmg"], ["mac-x64"]);
-    const dmg = selectAsset(assets, [".dmg"], ["openwork-mac-"]);
-    const winX64 = selectAsset(assets, [".exe"], ["win-x64"]);
-    const winArm64 = selectAsset(assets, [".exe"], ["win-arm64"]);
-    const linuxAppX64 = selectAsset(assets, [".appimage"], ["linux-x86_64"]) || selectAsset(assets, [".appimage"], ["linux-x64"]);
-    const linuxAppArm64 = selectAsset(assets, [".appimage"], ["linux-arm64"]);
-    const linuxTarX64 = selectAsset(assets, [".tar.gz"], ["linux-x64"]);
-    const linuxTarArm64 = selectAsset(assets, [".tar.gz"], ["linux-arm64"]);
-
-    return {
-      installers: {
-        macos: {
-          appleSilicon: macApple?.browser_download_url || dmg?.browser_download_url || releaseUrl,
-          intel: macIntel?.browser_download_url || dmg?.browser_download_url || releaseUrl,
-        },
-        windows: {
-          x64: winX64?.browser_download_url || releaseUrl,
-          arm64: winArm64?.browser_download_url || releaseUrl,
-        },
-        linux: {
-          appImageX64: linuxAppX64?.browser_download_url || releaseUrl,
-          appImageArm64: linuxAppArm64?.browser_download_url || releaseUrl,
-          tarX64: linuxTarX64?.browser_download_url || releaseUrl,
-          tarArm64: linuxTarArm64?.browser_download_url || releaseUrl,
-        },
-      },
-      releaseTag,
-      releaseUrl,
-    };
-  } catch {
-    return { installers: fallback, releaseTag: "", releaseUrl: FALLBACK_RELEASE };
   }
 }
 
@@ -181,15 +90,8 @@ export function DashboardOverviewScreen() {
     queryFn: fetchAdoption,
   });
 
-  const { data: releaseData } = useQuery({
-    queryKey: ["github", "releases"],
-    queryFn: fetchInstallers,
-    staleTime: 1000 * 60 * 60,
-  });
-
   const members = adoption?.members ?? orgContext?.members.length ?? 0;
   const pending = adoption?.pendingInvites ?? (orgContext?.invitations ?? []).filter((i) => i.status === "pending").length;
-  const inst = releaseData?.installers;
 
   return (
     <div className="mx-auto max-w-[1100px] px-4 pb-8 pt-4 sm:px-6 md:px-8">
@@ -221,9 +123,11 @@ export function DashboardOverviewScreen() {
       </section>
 
       {/* Download OpenWork */}
-      <section className="mt-4">
-        <DownloadOpenWorkCard installers={inst ?? null} releaseTag={releaseData?.releaseTag} />
-      </section>
+      {activeOrg && orgContext?.capabilities.installLinks ? (
+        <div className="mt-4">
+          <OrganizationDownloadCard organizationId={activeOrg.id} organizationName={activeOrg.name} />
+        </div>
+      ) : null}
 
       {/* Live org data */}
       <div className="mt-5 grid gap-3.5 md:grid-cols-2">

@@ -24,7 +24,7 @@ import {
   getMembersRoute,
   splitRoleString,
 } from "../../_lib/den-org";
-import { type OrgLimitError, type OrgPaymentRequiredError, getErrorMessage, getOrgLimitError, getOrgPaymentRequiredError, requestJson } from "../../_lib/den-flow";
+import { type OrgLimitError, type OrgPaymentRequiredError, getOrgLimitError, getOrgPaymentRequiredError } from "../../_lib/den-flow";
 import { buildDenFeedbackUrl } from "../../_lib/feedback";
 import { OrgLimitDialog } from "../../_components/org-limit-dialog";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -34,6 +34,7 @@ import { DenButton } from "../../_components/ui/button";
 import { DenCard } from "../../_components/ui/card";
 import { DenInput } from "../../_components/ui/input";
 import { DenSelect } from "../../_components/ui/select";
+import { createOrganizationInstallLink } from "./install-link-data";
 import { OrgMemberIdentity } from "./org-member-identity";
 
 type MembersTab = "members" | "teams" | "roles";
@@ -245,15 +246,6 @@ export function ManageMembersScreen() {
     setShowRoleForm(false);
   }
 
-  function getInstallPageUrl(payload: unknown) {
-    if (!payload || typeof payload !== "object" || !("installPageUrl" in payload)) {
-      return null;
-    }
-    return typeof payload.installPageUrl === "string" && payload.installPageUrl.trim()
-      ? payload.installPageUrl.trim()
-      : null;
-  }
-
   function selectInstallLinkShareInput() {
     const input = document.getElementById("install-link-share-url");
     if (input instanceof HTMLInputElement) {
@@ -289,22 +281,7 @@ export function ManageMembersScreen() {
     setInstallLinkBusy(true);
     try {
       await runReauthableAction("copy-install-link", async () => {
-        const { response, payload } = await requestJson(
-          `/v1/orgs/${encodeURIComponent(activeOrg.id)}/install-links`,
-          { method: "POST", body: JSON.stringify({ rotate: true }) },
-          12000,
-        );
-
-        if (!response.ok) {
-          throw new Error(getErrorMessage(payload, `Could not create install link (${response.status}).`));
-        }
-
-        const installPageUrl = getInstallPageUrl(payload);
-        if (!installPageUrl) {
-          throw new Error("The install link response was incomplete.");
-        }
-
-        mintedInstallPageUrl = installPageUrl;
+        mintedInstallPageUrl = await createOrganizationInstallLink(activeOrg.id);
       });
 
       if (!mintedInstallPageUrl) {
