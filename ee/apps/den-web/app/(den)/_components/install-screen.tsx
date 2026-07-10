@@ -175,7 +175,7 @@ export function InstallScreen() {
     downloadStartedTimer.current = window.setTimeout(() => {
       setDownloadState("started");
       downloadStartedTimer.current = null;
-    }, 1500);
+    }, 5000);
   }
 
   if (busy) {
