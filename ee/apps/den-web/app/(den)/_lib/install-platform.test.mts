@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { installPlatformsForOs, recommendedInstallPlatform } from "./install-platform";
+import { installPlatformsForOs, recommendedInstallPlatform } from "./install-platform.ts";
 
 describe("recommendedInstallPlatform", () => {
   it("recommends Intel for a detected Intel Mac", () => {
