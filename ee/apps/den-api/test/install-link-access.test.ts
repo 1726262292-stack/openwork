@@ -113,14 +113,17 @@ mock.module("../src/orgs.js", () => ({
 
 let installLinkModule: typeof import("../src/routes/org/install-links.js")
 let installLinkMintingModule: typeof import("../src/install-links.js")
+let envModule: typeof import("../src/env.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
+  envModule = await import("../src/env.js")
   installLinkMintingModule = await import("../src/install-links.js")
   installLinkModule = await import("../src/routes/org/install-links.js")
 })
 
 beforeEach(() => {
+  envModule.env.installLinksGatingEnabled = true
   insertedRows.length = 0
   revokedRows.length = 0
   role = "member"
