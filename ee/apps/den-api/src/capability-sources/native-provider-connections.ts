@@ -6,6 +6,7 @@ import {
   type NativeOAuthProviderConfig,
 } from "./provider-registry.js"
 import { getConnectedAccount, getOrgOAuthClient } from "./oauth-credentials.js"
+import { readProviderTenantId } from "./oauth-tenant.js"
 
 /**
  * Native providers (google-workspace, ...) surface in the SAME member-facing
@@ -29,6 +30,9 @@ export type NativeProviderConnectionEntry = {
   connectedForMe: boolean
   needsReconnect: boolean
   missingFeatures: string[]
+  externalAccountId?: string | null
+  grantedScopes?: string[]
+  tenantId?: string | null
   access: null
 }
 
@@ -60,7 +64,14 @@ function resolveReconnectState(
 
 export function buildNativeProviderEntry(
   provider: NativeOAuthProviderConfig,
-  state: { clientConfigured: boolean; connectedForMe: boolean; reconnect?: NativeProviderReconnectState },
+  state: {
+    clientConfigured: boolean
+    connectedForMe: boolean
+    externalAccountId?: string | null
+    grantedScopes?: string[] | null
+    reconnect?: NativeProviderReconnectState
+    tenantId?: string | null
+  },
 ): NativeProviderConnectionEntry | null {
   if (!state.clientConfigured) {
     return null
@@ -76,6 +87,9 @@ export function buildNativeProviderEntry(
     connectedForMe: state.connectedForMe,
     needsReconnect: state.reconnect?.needsReconnect ?? false,
     missingFeatures: state.reconnect?.missingFeatures ?? [],
+    ...(state.externalAccountId !== undefined ? { externalAccountId: state.externalAccountId } : {}),
+    ...(state.grantedScopes ? { grantedScopes: state.grantedScopes } : {}),
+    ...(state.tenantId !== undefined ? { tenantId: state.tenantId } : {}),
     access: null,
   }
 }
@@ -96,6 +110,11 @@ export async function listNativeProviderUsableEntries(input: {
     const entry = buildNativeProviderEntry(provider, {
       clientConfigured: true,
       connectedForMe: Boolean(account?.accessToken),
+      ...(account?.externalAccountId ? { externalAccountId: account.externalAccountId } : {}),
+      ...(account?.scopes ? { grantedScopes: account.scopes } : {}),
+      ...(provider.tenantIdExtraKey
+        ? { tenantId: readProviderTenantId(client.extra, provider.tenantIdExtraKey) }
+        : {}),
       reconnect: account?.accessToken
         ? resolveReconnectState(provider, client.extra, account.scopes)
         : { needsReconnect: false, missingFeatures: [] },

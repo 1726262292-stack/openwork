@@ -2,63 +2,29 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronRight, Plug } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 import { capturePosthogEvent } from "../lib/posthog-client";
+import {
+  ANY_CLIENT_COMMAND,
+  CLAUDE_CODE_COMMAND,
+  CODEX_COMMAND,
+  CODEX_CONNECTIONS_DEEPLINK,
+  CONNECT_CLIENTS,
+  CURSOR_DEEPLINK,
+  CURSOR_SNIPPET,
+  MCP_SERVER_URL,
+  OPENCODE_SNIPPET,
+  VS_CODE_COMMAND,
+} from "./openwork-connect-installer-config";
+import type { OpenWorkConnectClientId } from "./openwork-connect-installer-config";
 
-const MCP_SERVER_URL = "https://api.openworklabs.com/mcp/agent";
-const DOCS_URL = "https://openworklabs.com/docs/cloud/run-in-the-cloud/cloud-mcp";
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-function encodeBase64(value: string) {
-  let encoded = "";
-
-  for (let index = 0; index < value.length; index += 3) {
-    const first = value.charCodeAt(index);
-    const hasSecond = index + 1 < value.length;
-    const hasThird = index + 2 < value.length;
-    const second = hasSecond ? value.charCodeAt(index + 1) : 0;
-    const third = hasThird ? value.charCodeAt(index + 2) : 0;
-    const bits = (first << 16) | (second << 8) | third;
-
-    encoded += BASE64_ALPHABET.charAt((bits >> 18) & 63);
-    encoded += BASE64_ALPHABET.charAt((bits >> 12) & 63);
-    encoded += hasSecond ? BASE64_ALPHABET.charAt((bits >> 6) & 63) : "=";
-    encoded += hasThird ? BASE64_ALPHABET.charAt(bits & 63) : "=";
-  }
-
-  return encoded;
-}
-
-const CURSOR_CONFIG_JSON = JSON.stringify({ url: MCP_SERVER_URL });
-const CURSOR_DEEPLINK = `https://cursor.com/en/install-mcp?name=openwork&config=${encodeURIComponent(
-  encodeBase64(CURSOR_CONFIG_JSON)
-)}`;
-const CURSOR_SNIPPET = `{
-  "mcpServers": {
-    "openwork": {
-      "url": "${MCP_SERVER_URL}"
-    }
-  }
-}`;
-const CLAUDE_CODE_COMMAND = `claude mcp add --transport http openwork ${MCP_SERVER_URL}`;
-const OPENCODE_SNIPPET = `{
-  "mcp": {
-    "openwork": {
-      "type": "remote",
-      "enabled": true,
-      "url": "${MCP_SERVER_URL}",
-      "oauth": {}
-    }
-  }
-}`;
-const VS_CODE_COMMAND = `code --add-mcp '{"name":"openwork","type":"http","url":"${MCP_SERVER_URL}"}'`;
-const ANY_CLIENT_COMMAND = `npx install-mcp ${MCP_SERVER_URL} --client <your-client>`;
-
+const DOCS_URL = "https://openworklabs.com/docs/cloud/run-in-the-cloud/cloud-mcp#connect-mcp-install-codex";
 const SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
 
 type CopyMethod = "clipboard" | "execCommand" | "none";
-type ClientId = "cursor" | "claude-code" | "opencode" | "vs-code" | "any-client";
+type ClientId = OpenWorkConnectClientId;
 
 type ClientInstall = {
   id: ClientId;
@@ -68,7 +34,7 @@ type ClientInstall = {
   helper: string;
 };
 
-const CLIENT_ORDER: ClientId[] = ["cursor", "claude-code", "opencode", "vs-code", "any-client"];
+const CLIENT_ORDER: ClientId[] = CONNECT_CLIENTS;
 const revealSteps = ["Create your free account or sign in", "Pick your org", "Your team's tools appear"];
 const CURSOR_ICON_PATH = "M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z";
 const CLAUDE_ICON_PATH = "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z";
@@ -76,6 +42,8 @@ const VS_CODE_ICON_PATH = "M23.15 2.587L18.21.21a1.494 1.494 0 0 0-1.705.29l-9.4
 
 const clientIconClass: Record<ClientId, string> = {
   cursor: "text-[#111111]",
+  codex: "text-[#111111]",
+  "chatgpt-desktop": "text-[#10A37F]",
   "claude-code": "text-[#D97757]",
   opencode: "text-[#656363]",
   "vs-code": "text-[#007ACC]",
@@ -89,6 +57,20 @@ const CLIENT_INSTALLS: Record<ClientId, ClientInstall> = {
     eyebrow: "One-click install or ~/.cursor/mcp.json",
     copyText: CURSOR_SNIPPET,
     helper: "Use the one-click button, or paste this into ~/.cursor/mcp.json."
+  },
+  codex: {
+    id: "codex",
+    label: "Codex",
+    eyebrow: "Codex desktop, CLI, and IDE",
+    copyText: CODEX_COMMAND,
+    helper: "Add OpenWork once. Codex desktop, the CLI, and the IDE extension share this MCP configuration."
+  },
+  "chatgpt-desktop": {
+    id: "chatgpt-desktop",
+    label: "ChatGPT Desktop",
+    eyebrow: "Guided desktop setup",
+    copyText: MCP_SERVER_URL,
+    helper: "Open MCP connections, then paste the copied OpenWork server URL."
   },
   "claude-code": {
     id: "claude-code",
@@ -121,6 +103,14 @@ const CLIENT_INSTALLS: Record<ClientId, ClientInstall> = {
 };
 
 function ClientIcon({ clientId, className }: { clientId: ClientId; className: string }) {
+  if (clientId === "codex") {
+    return <Image className={`${className} rounded-[3px]`} src="/connect-icons/codex.png" width={20} height={20} alt="" data-product-icon="codex" />;
+  }
+
+  if (clientId === "chatgpt-desktop") {
+    return <Image className={`${className} rounded-[3px]`} src="/connect-icons/chatgpt.png" width={20} height={20} alt="" data-product-icon="chatgpt" />;
+  }
+
   if (clientId === "cursor") {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -339,6 +329,7 @@ export function LandingConnectMcp() {
       </div>
 
       <div
+        id="connect-mcp-install"
         data-testid="connect-mcp-install"
         className="mt-8 border-t border-gray-100 pt-6"
       >
@@ -349,7 +340,7 @@ export function LandingConnectMcp() {
           <div className="flex min-w-0 shrink-0 items-center gap-2 text-gray-400">
             <Plug size={14} aria-hidden="true" />
             <span className="text-xs text-gray-400">
-              Works with Claude Code, Cursor, VS Code — any MCP agent
+              Works with Codex, ChatGPT, Claude Code, Cursor — any MCP agent
             </span>
           </div>
         </div>
@@ -358,7 +349,7 @@ export function LandingConnectMcp() {
           <div
             role="tablist"
             aria-label="OpenWork MCP client install options"
-            className="landing-chip mb-4 flex flex-nowrap gap-2 overflow-x-auto rounded-full p-1"
+            className="landing-chip mb-4 flex flex-nowrap gap-1 overflow-x-auto rounded-full p-1"
           >
             {CLIENT_ORDER.map((clientId) => {
               const client = CLIENT_INSTALLS[clientId];
@@ -374,7 +365,7 @@ export function LandingConnectMcp() {
                   aria-controls={`connect-mcp-panel-${client.id}`}
                   tabIndex={selected ? 0 : -1}
                   onClick={() => setActiveClient(client.id)}
-                  className={`relative shrink-0 cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  className={`relative shrink-0 cursor-pointer whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition-colors ${
                     selected ? "text-[#011627]" : "text-gray-600 hover:text-gray-900"
                   }`}
                 >
@@ -430,6 +421,16 @@ export function LandingConnectMcp() {
                             className="inline-flex min-h-[42px] shrink-0 items-center justify-center rounded-full bg-[#011627] px-5 text-sm font-medium text-white shadow-[0_14px_32px_-16px_rgba(1,22,39,0.55)] transition-colors hover:bg-black"
                           >
                             Add to Cursor
+                          </a>
+                        ) : install.id === "codex" || install.id === "chatgpt-desktop" ? (
+                          <a
+                            href={CODEX_CONNECTIONS_DEEPLINK}
+                            onClick={() => {
+                              void writeClipboardText(MCP_SERVER_URL);
+                            }}
+                            className="inline-flex min-h-[42px] shrink-0 items-center justify-center rounded-full bg-[#011627] px-5 text-sm font-medium text-white shadow-[0_14px_32px_-16px_rgba(1,22,39,0.55)] transition-colors hover:bg-black"
+                          >
+                            Open settings + copy URL
                           </a>
                         ) : null}
                       </div>

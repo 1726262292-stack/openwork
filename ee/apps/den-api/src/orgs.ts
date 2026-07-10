@@ -2,6 +2,7 @@ import { and, asc, count, eq, gt, inArray, isNull, sql } from "@openwork-ee/den-
 import {
   AuthSessionTable,
   AuthUserTable,
+  ConnectedAccountTable,
   InvitationTable,
   MemberTable,
   OrganizationRoleTable,
@@ -24,7 +25,12 @@ import {
   type MemberLifecycleValidation,
 } from "./organization-member-guards.js"
 import { runPostOrganizationMemberChangeHooks } from "./organization-member-hooks.js"
-import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata, serializeOrganizationMetadata } from "./organization-limits.js"
+import {
+  DEFAULT_ORGANIZATION_LIMITS,
+  normalizeOrganizationMetadata,
+  serializeOrganizationMetadata,
+  type ManagedBrandAssetMetadata,
+} from "./organization-limits.js"
 import {
   denDefaultDynamicOrganizationRoles,
   denOrganizationStaticRoles,
@@ -962,8 +968,11 @@ export async function updateOrganizationSettings(input: {
   allowedEmailDomains?: readonly string[] | null
   allowedDesktopVersions?: readonly string[] | null
   requireSso?: boolean
+  brandAppName?: string | null
   brandLogoUrl?: string | null
   brandIconUrl?: string | null
+  brandLogoAsset?: ManagedBrandAssetMetadata | null
+  brandIconAsset?: ManagedBrandAssetMetadata | null
   brandAccentColor?: string | null
 }) {
   const nextName = typeof input.name === "string" ? input.name.trim() : null
@@ -978,7 +987,7 @@ export async function updateOrganizationSettings(input: {
   if (input.allowedEmailDomains !== undefined) {
     updates.allowedEmailDomains = normalizeAllowedEmailDomains(input.allowedEmailDomains).domains
   }
-  if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.brandLogoUrl !== undefined || input.brandIconUrl !== undefined || input.brandAccentColor !== undefined) {
+  if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.brandAppName !== undefined || input.brandLogoUrl !== undefined || input.brandIconUrl !== undefined || input.brandLogoAsset !== undefined || input.brandIconAsset !== undefined || input.brandAccentColor !== undefined) {
     const rows = await db
       .select({ metadata: OrganizationTable.metadata })
       .from(OrganizationTable)
@@ -1006,11 +1015,22 @@ export async function updateOrganizationSettings(input: {
       nextMetadata.requireSso = input.requireSso
     }
 
+    if (input.brandAppName !== undefined) {
+      if (input.brandAppName === null) {
+        delete nextMetadata.brandAppName
+      } else {
+        nextMetadata.brandAppName = input.brandAppName
+      }
+    }
+
     if (input.brandLogoUrl !== undefined) {
       if (input.brandLogoUrl === null) {
         delete nextMetadata.brandLogoUrl
       } else {
         nextMetadata.brandLogoUrl = input.brandLogoUrl
+      }
+      if (input.brandLogoAsset === undefined) {
+        delete nextMetadata.brandLogoAsset
       }
     }
 
@@ -1019,6 +1039,25 @@ export async function updateOrganizationSettings(input: {
         delete nextMetadata.brandIconUrl
       } else {
         nextMetadata.brandIconUrl = input.brandIconUrl
+      }
+      if (input.brandIconAsset === undefined) {
+        delete nextMetadata.brandIconAsset
+      }
+    }
+
+    if (input.brandLogoAsset !== undefined) {
+      if (input.brandLogoAsset === null) {
+        delete nextMetadata.brandLogoAsset
+      } else {
+        nextMetadata.brandLogoAsset = input.brandLogoAsset
+      }
+    }
+
+    if (input.brandIconAsset !== undefined) {
+      if (input.brandIconAsset === null) {
+        delete nextMetadata.brandIconAsset
+      } else {
+        nextMetadata.brandIconAsset = input.brandIconAsset
       }
     }
 
@@ -1623,7 +1662,26 @@ export async function removeOrganizationMember(input: {
     userId: member.userId,
   })
 
-  await db.transaction(async (tx) => {
+  const removed = await db.transaction(async (tx) => {
+    const lockedMembers = await tx
+      .select({ id: MemberTable.id })
+      .from(MemberTable)
+      .where(and(
+        eq(MemberTable.id, member.id),
+        eq(MemberTable.organizationId, input.organizationId),
+        isNull(MemberTable.removedAt),
+      ))
+      .limit(1)
+      .for("update")
+    if (!lockedMembers[0]) return false
+
+    await tx
+      .delete(ConnectedAccountTable)
+      .where(and(
+        eq(ConnectedAccountTable.organizationId, input.organizationId),
+        eq(ConnectedAccountTable.orgMembershipId, member.id),
+      ))
+
     await tx
       .delete(TeamMemberTable)
       .where(eq(TeamMemberTable.orgMembershipId, member.id))
@@ -1632,7 +1690,9 @@ export async function removeOrganizationMember(input: {
       .update(MemberTable)
       .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null, userId: null })
       .where(eq(MemberTable.id, member.id))
+    return true
   })
+  if (!removed) return memberNotFound()
 
   await runPostOrganizationMemberChangeHooks({ organizationId: input.organizationId, memberId: member.id, change: "removed" })
 

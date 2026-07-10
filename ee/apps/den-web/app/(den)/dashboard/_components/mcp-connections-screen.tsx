@@ -11,6 +11,7 @@ import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-templ
 import { getPluginRoute } from "../../_lib/den-org";
 import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { IntegrationIcon } from "./integration-icon";
+import { Microsoft365Dialog } from "./microsoft-365-dialog";
 import { shouldShowMcpConnectionsStagingBanner } from "./mcp-connections-capability";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { marketplaceQueryKeys, useMarketplaces } from "./marketplace-data";
@@ -31,8 +32,10 @@ import {
   useNativeProviderClient,
   useSaveNativeProviderClient,
   useStartMcpConnectionOAuth,
+  useTelegramConnection,
 } from "./mcp-connections-data";
 import { getPluginPartsSummary, pluginQueryKeys, usePlugins } from "./plugin-data";
+import { TelegramDialog } from "./telegram-dialog";
 
 const OAUTH_POLL_INTERVAL_MS = 2000;
 const OAUTH_POLL_TIMEOUT_MS = 90_000;
@@ -200,7 +203,11 @@ export function McpConnectionsScreen() {
   const [formPreset, setFormPreset] = useState<ExternalMcpPreset | null>(null);
   const [pluginDialogOpen, setPluginDialogOpen] = useState(false);
   const [googleDialogOpen, setGoogleDialogOpen] = useState(false);
+  const [microsoftDialogOpen, setMicrosoftDialogOpen] = useState(false);
+  const [telegramDialogOpen, setTelegramDialogOpen] = useState(false);
   const googleConfigured = usableConnections.some((connection) => connection.id === "google-workspace");
+  const microsoftConfigured = usableConnections.some((connection) => connection.id === "microsoft-365");
+  const telegramConnection = useTelegramConnection(true);
   const showStagingBanner = orgContext ? shouldShowMcpConnectionsStagingBanner(orgContext.capabilities) : false;
   const [pollingConnectionId, setPollingConnectionId] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -342,6 +349,44 @@ export function McpConnectionsScreen() {
             {googleConfigured ? "Configured — tap to update" : "Tap to set up"}
           </p>
         </button>
+        <button
+          type="button"
+          data-testid="quick-add-microsoft-365"
+          onClick={() => setMicrosoftDialogOpen(true)}
+          className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:border-gray-300 hover:shadow-sm"
+        >
+          <div className="flex items-start gap-3">
+            <IntegrationIcon name="Microsoft 365" simpleIconSlug="microsoft" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-semibold text-gray-900">Microsoft 365</p>
+              <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">
+                Outlook mail, calendar, and OneDrive. Each teammate connects their own work account.
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 text-[12px] font-medium text-gray-900">
+            {microsoftConfigured ? "Configured — tap to update" : "Tap to set up"}
+          </p>
+        </button>
+        <button
+          type="button"
+          data-testid="quick-add-telegram"
+          onClick={() => setTelegramDialogOpen(true)}
+          className="rounded-2xl border border-gray-100 bg-white px-4 py-4 text-left transition hover:border-gray-300 hover:shadow-sm"
+        >
+          <div className="flex items-start gap-3">
+            <IntegrationIcon name="Telegram" simpleIconSlug="telegram" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-semibold text-gray-900">Telegram</p>
+              <p className="mt-1 text-[12px] leading-[1.5] text-gray-500">
+                Pair a private Telegram chat to a cloud worker for tasks and replies.
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 text-[12px] font-medium text-gray-900">
+            {telegramConnection.data ? "Connected — tap to manage" : "Tap to set up"}
+          </p>
+        </button>
         {presets.map((preset) => {
           const alreadyAdded = connections.some((connection) => connection.url === preset.url);
           return (
@@ -423,6 +468,19 @@ export function McpConnectionsScreen() {
           setGoogleDialogOpen(false);
         }}
       />
+
+      <Microsoft365Dialog
+        open={microsoftDialogOpen}
+        submitting={saveNativeClient.isPending}
+        error={saveNativeClient.error}
+        onClose={() => setMicrosoftDialogOpen(false)}
+        onSubmit={async (input) => {
+          await saveNativeClient.mutateAsync({ providerId: "microsoft-365", ...input });
+          setMicrosoftDialogOpen(false);
+        }}
+      />
+
+      <TelegramDialog open={telegramDialogOpen} onClose={() => setTelegramDialogOpen(false)} />
     </DashboardPageTemplate>
   );
 }

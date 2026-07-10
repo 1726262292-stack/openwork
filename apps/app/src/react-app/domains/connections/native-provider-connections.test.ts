@@ -10,13 +10,15 @@ import { resolveOrgMcpConnectionCardState } from "./use-org-mcp-connections";
 import { resolveConnectionRowGroup } from "../settings/connect-cloud-readiness";
 
 describe("native provider connections", () => {
-  test("recognizes the Google Workspace native provider id", () => {
+  test("recognizes native provider ids", () => {
     expect(isNativeProviderConnectionId("google-workspace")).toBe(true);
+    expect(isNativeProviderConnectionId("microsoft-365")).toBe(true);
     expect(isNativeProviderConnectionId("emc_google_workspace")).toBe(false);
   });
 
   test("shows disconnect only for the connected calling member", () => {
     expect(canDisconnectNativeProviderAccount({ id: "google-workspace", connectedForMe: true })).toBe(true);
+    expect(canDisconnectNativeProviderAccount({ id: "microsoft-365", connectedForMe: true })).toBe(true);
     expect(canDisconnectNativeProviderAccount({ id: "google-workspace", connectedForMe: false })).toBe(false);
     expect(canDisconnectNativeProviderAccount({ id: "emc_google_workspace", connectedForMe: true })).toBe(false);
   });

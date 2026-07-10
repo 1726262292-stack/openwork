@@ -1,6 +1,7 @@
 import os from "node:os"
 import path from "node:path"
 import { DEN_WORKER_POLL_INTERVAL_MS } from "./CONSTS.js"
+import { normalizeConfiguredPublicApiBaseUrl } from "./request-url.js"
 import { denApiAppVersion } from "./version.js"
 import { z } from "zod"
 
@@ -46,6 +47,9 @@ const EnvSchema = z.object({
   DEN_GOOGLE_OAUTH_AUTHORIZE_URL: z.string().optional(),
   DEN_GOOGLE_OAUTH_TOKEN_URL: z.string().optional(),
   DEN_GOOGLE_API_BASE_URL: z.string().optional(),
+  DEN_MICROSOFT_OAUTH_AUTHORIZE_URL: z.string().optional(),
+  DEN_MICROSOFT_OAUTH_TOKEN_URL: z.string().optional(),
+  DEN_MICROSOFT_GRAPH_BASE_URL: z.string().optional(),
   PORT: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
   DEN_API_PUBLIC_URL: z.string().optional(),
@@ -262,6 +266,13 @@ const mcpConnectionsGatingEnabled =
   (parsed.DEN_MCP_CONNECTIONS_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
+const apiPublicUrl = normalizeConfiguredPublicApiBaseUrl(parsed.DEN_API_PUBLIC_URL, {
+  allowInsecureHttp: devMode,
+})
+const publicUrlTrustedOrigins = Array.from(new Set([
+  ...corsOrigins,
+  ...betterAuthTrustedOrigins,
+])).filter((origin) => origin !== "*")
 const orgMode = parseDenOrgMode(parsed.DEN_ORG_MODE)
 // SSRF guard for External MCP Connection URLs: on hosted (multi-tenant)
 // deployments, Den must not fetch private/reserved addresses on behalf of
@@ -357,7 +368,8 @@ export const env = {
   port,
   workerProxyPort: Number(parsed.WORKER_PROXY_PORT ?? "8789"),
   corsOrigins,
-  apiPublicUrl: optionalString(parsed.DEN_API_PUBLIC_URL),
+  apiPublicUrl,
+  publicUrlTrustedOrigins,
   installerArtifactsDir: optionalString(parsed.OPENWORK_INSTALLER_ARTIFACTS_DIR),
   // Generic installer release assets (release-generic-installer.yml): the
   // release tag to download from, defaulting to the pinned app release this
@@ -365,12 +377,14 @@ export const env = {
   installerReleaseTag: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_TAG) ?? `v${denApiAppVersion.latestAppVersion}`,
   installerReleaseRepo: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_REPO) ?? "different-ai/openwork",
   installerCacheDir: optionalString(parsed.OPENWORK_INSTALLER_CACHE_DIR) ?? path.join(os.tmpdir(), "openwork-installer-artifacts"),
-  // Google endpoint overrides for evals/self-host testing: point the native
-  // google-workspace provider at a protocol-identical mock instead of the
-  // real Google endpoints. Unset in production.
+  // Native-provider endpoint overrides for evals/self-host testing. Unset in
+  // production so Google, Microsoft Entra, and Graph use their public APIs.
   googleOAuthAuthorizeUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_AUTHORIZE_URL),
   googleOAuthTokenUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_TOKEN_URL),
   googleApiBaseUrl: optionalString(parsed.DEN_GOOGLE_API_BASE_URL),
+  microsoftOAuthAuthorizeUrl: optionalString(parsed.DEN_MICROSOFT_OAUTH_AUTHORIZE_URL),
+  microsoftOAuthTokenUrl: optionalString(parsed.DEN_MICROSOFT_OAUTH_TOKEN_URL),
+  microsoftGraphBaseUrl: optionalString(parsed.DEN_MICROSOFT_GRAPH_BASE_URL),
   desktopDenBaseUrl: optionalString(parsed.DEN_DESKTOP_DEN_BASE_URL),
   marketingUrl: optionalString(parsed.DEN_MARKETING_URL),
   mcpClaimNamespace: normalizeOrigin(optionalString(parsed.DEN_MCP_CLAIM_NAMESPACE) ?? parsed.BETTER_AUTH_URL),

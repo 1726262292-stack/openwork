@@ -24,7 +24,7 @@ import {
   readDenSettings,
   type DenDesktopConfig,
 } from "../../../app/lib/den";
-import { applyBrandIcon } from "../../../app/lib/desktop";
+import { applyBrandAppName, applyBrandIcon } from "../../../app/lib/desktop";
 import { createOpenworkServerClient } from "../../../app/lib/openwork-server";
 import {
   denSessionUpdatedEvent,
@@ -55,6 +55,7 @@ const DESKTOP_CONFIG_CACHE_PREFIX = "openwork.den.desktopConfig:";
 const DESKTOP_CONFIG_ITEMS = [
   ...desktopPolicyKeys,
   "allowedDesktopVersions",
+  "brandAppName",
   "brandLogoUrl",
   "brandIconUrl",
   "brandAccentColor",
@@ -176,7 +177,20 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     if (brandIconAction) {
       void applyBrandIcon(
         typeof brandIconAction.nextValue === "string" ? brandIconAction.nextValue : null,
-      ).catch(() => null);
+      ).then((result) => {
+        if (!result.ok) {
+          console.warn(`[brand-icon] Desktop icon was not applied: ${result.reason ?? "unknown failure"}`);
+        }
+      }).catch((error: unknown) => {
+        console.warn("[brand-icon] Desktop icon apply request failed", error);
+      });
+    }
+
+    const brandAppNameAction = actions.find((action) => action.item === "brandAppName");
+    if (brandAppNameAction) {
+      const appName = typeof brandAppNameAction.nextValue === "string" ? brandAppNameAction.nextValue : null;
+      document.title = appName ?? "OpenWork";
+      void applyBrandAppName(appName).catch(() => null);
     }
 
     currentDesktopConfigRef.current = normalizedConfig;

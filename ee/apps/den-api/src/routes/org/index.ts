@@ -2,6 +2,7 @@ import type { Hono } from "hono"
 import { delegatedRoute } from "../../middleware/index.js"
 import { registerOrgApiKeyRoutes } from "./api-keys.js"
 import { registerOrgBillingRoutes } from "./billing.js"
+import { registerOrgBrandAssetRoutes } from "./brand-assets.js"
 import { LEGACY_ORG_PROXY_HEADER } from "../../middleware/user-organizations.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { registerOrgCoreRoutes } from "./core.js"
@@ -13,6 +14,7 @@ import { registerOrgInferenceRoutes } from "./inference.js"
 import { registerOrgLlmProviderRoutes } from "./llm-providers.js"
 import { registerOrgMemberRoutes } from "./members.js"
 import { registerMcpConnectionRoutes } from "./mcp-connections.js"
+import { registerMicrosoft365Routes } from "./microsoft-365.js"
 import { registerOAuthProviderRoutes } from "./oauth-providers.js"
 import { registerPluginArchRoutes } from "./plugin-system/routes.js"
 import { registerOrgRoleRoutes } from "./roles.js"
@@ -21,6 +23,7 @@ import { registerOrgSsoRoutes } from "./sso.js"
 import { registerOrgSkillRoutes } from "./skills.js"
 import { registerOrgResourceRoutes } from "./resources.js"
 import { registerOrgTeamRoutes } from "./teams.js"
+import { registerTelegramOrgRoutes } from "./telegram.js"
 
 const LEGACY_ORG_PATH_PREFIX = "/v1/orgs/"
 
@@ -52,6 +55,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables }>(ap
   registerOrgCoreRoutes(app)
   registerOrgApiKeyRoutes(app)
   registerOrgBillingRoutes(app)
+  registerOrgBrandAssetRoutes(app)
   registerOrgDesktopPolicyRoutes(app)
   registerOrgInferenceRoutes(app)
   registerOrgScimRoutes(app)
@@ -62,12 +66,14 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables }>(ap
   registerOrgMemberRoutes(app)
   registerOAuthProviderRoutes(app)
   registerGoogleWorkspaceRoutes(app)
+  registerMicrosoft365Routes(app)
   registerMcpConnectionRoutes(app)
   registerPluginArchRoutes(app)
   registerOrgRoleRoutes(app)
   registerOrgResourceRoutes(app)
   registerOrgSkillRoutes(app)
   registerOrgTeamRoutes(app)
+  registerTelegramOrgRoutes(app)
 
   app.all("/v1/orgs/:orgId/*", delegatedRoute, async (c) => {
     const url = new URL(c.req.raw.url)

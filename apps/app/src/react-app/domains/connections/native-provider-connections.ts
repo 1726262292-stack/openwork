@@ -4,8 +4,7 @@ export type NativeProviderDisconnectableConnection = {
 };
 
 export function isNativeProviderConnectionId(id: string): boolean {
-  // Today google-workspace is the only native provider connection id; a follow-up generalizes this for external per-member connections.
-  return id === "google-workspace";
+  return id === "google-workspace" || id === "microsoft-365";
 }
 
 export function canDisconnectNativeProviderAccount(connection: NativeProviderDisconnectableConnection): boolean {

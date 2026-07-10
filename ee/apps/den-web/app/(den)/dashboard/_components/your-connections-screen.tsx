@@ -160,6 +160,9 @@ function YourConnectionRow({
   const needsMyConnect = isPerMember && !connection.connectedForMe;
   const needsAdminConnect = isAdmin && !isPerMember && connection.authType === "oauth" && !connection.connectedForMe;
   const canDisconnect = canDisconnectNativeProviderAccount(connection);
+  const microsoftScopes = connection.id === "microsoft-365"
+    ? (connection.grantedScopes ?? []).filter((scope) => ["Mail.Read", "Calendars.Read", "Files.Read"].includes(scope))
+    : [];
 
   return (
     <div className="flex items-center justify-between gap-4 px-6 py-4">
@@ -198,6 +201,19 @@ function YourConnectionRow({
             )}
           </div>
           <p className="mt-0.5 truncate text-[12px] text-gray-500">{connection.url}</p>
+          {connection.id === "microsoft-365" && connection.tenantId ? (
+            <p className="mt-1 text-[11px] text-gray-500">
+              Tenant <span className="font-mono text-gray-700">{connection.tenantId}</span>
+              {connection.externalAccountId ? <> · {connection.externalAccountId}</> : null}
+            </p>
+          ) : null}
+          {microsoftScopes.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Approved Microsoft 365 capabilities">
+              {microsoftScopes.map((scope) => (
+                <span key={scope} className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[10px] text-blue-700">{scope}</span>
+              ))}
+            </div>
+          ) : null}
           {errorMessage ? <p className="mt-1 text-[12px] text-red-600">{errorMessage}</p> : null}
         </div>
       </div>

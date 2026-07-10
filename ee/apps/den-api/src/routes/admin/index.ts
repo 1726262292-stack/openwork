@@ -4,6 +4,7 @@ import {
   AuthApiKeyTable,
   AuthSessionTable,
   AuthUserTable,
+  ConnectedAccountTable,
   DesktopHandoffGrantTable,
   ExternalIdentityTable,
   InvitationTable,
@@ -269,10 +270,11 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         return c.json({ error: "not_found", message: "User not found." }, 404)
       }
 
-      const activeMembershipRows = await db
-        .select({ organizationId: MemberTable.organizationId })
+      const membershipRows = await db
+        .select({ id: MemberTable.id, organizationId: MemberTable.organizationId, removedAt: MemberTable.removedAt })
         .from(MemberTable)
-        .where(and(eq(MemberTable.userId, userId), isNull(MemberTable.removedAt)))
+        .where(eq(MemberTable.userId, userId))
+      const activeMembershipRows = membershipRows.filter((member) => !member.removedAt)
 
       await db.transaction(async (tx) => {
         const removedAt = new Date()
@@ -287,6 +289,12 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         await tx.delete(DesktopHandoffGrantTable).where(eq(DesktopHandoffGrantTable.user_id, userId))
         await tx.delete(ExternalIdentityTable).where(eq(ExternalIdentityTable.userId, userId))
         await tx.delete(ScimSyncEventTable).where(eq(ScimSyncEventTable.userId, userId))
+        if (membershipRows.length > 0) {
+          await tx.delete(ConnectedAccountTable).where(inArray(
+            ConnectedAccountTable.orgMembershipId,
+            membershipRows.map((member) => member.id),
+          ))
+        }
         await tx.update(MemberTable).set({ removedAt }).where(eq(MemberTable.userId, userId))
         await tx.update(WorkerTable).set({ created_by_user_id: null }).where(eq(WorkerTable.created_by_user_id, userId))
         await tx.delete(AuthUserTable).where(eq(AuthUserTable.id, userId))

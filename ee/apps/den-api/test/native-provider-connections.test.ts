@@ -221,6 +221,66 @@ describe("buildNativeProviderEntry", () => {
     expect(entry?.missingFeatures).toEqual(["gmailDraft", "driveFile"])
   })
 
+  test("a late token refresh cannot recreate or overwrite a disconnected grant", async () => {
+    const seeded = await seedMember("RefreshFence")
+    const original = await oauthCredentials.upsertConnectedAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+      accessToken: "expired-access",
+      refreshToken: "original-refresh",
+      expiresAt: new Date("2001-01-01T00:00:00.000Z"),
+    })
+
+    await oauthCredentials.disconnectAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+    })
+    await expect(oauthCredentials.refreshConnectedAccountForActiveMember({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+      expectedAccountId: original.id,
+      expectedAccessToken: "expired-access",
+      expectedRefreshToken: "original-refresh",
+      accessToken: "late-access",
+      refreshToken: "late-refresh",
+      expiresAt: new Date(Date.now() + 3_600_000),
+    })).resolves.toBeNull()
+    await expect(oauthCredentials.getConnectedAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+    })).resolves.toBeNull()
+
+    const replacement = await oauthCredentials.upsertConnectedAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+      accessToken: "replacement-access",
+      refreshToken: "replacement-refresh",
+    })
+    await expect(oauthCredentials.refreshConnectedAccountForActiveMember({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+      expectedAccountId: original.id,
+      expectedAccessToken: "expired-access",
+      expectedRefreshToken: "original-refresh",
+      accessToken: "late-access",
+    })).resolves.toBeNull()
+    await expect(oauthCredentials.getConnectedAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+    })).resolves.toMatchObject({
+      id: replacement.id,
+      accessToken: "replacement-access",
+      refreshToken: "replacement-refresh",
+    })
+  })
+
   test("external connection list rows omit native reconnect fields", async () => {
     const seeded = await seedMember("ExternalRows")
     const connection = await createExternalMcpConnection({

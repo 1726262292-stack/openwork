@@ -75,6 +75,15 @@ if (authMetadataUrl) {
   if (metadata.issuer !== expectedAuthIssuer) {
     throw new Error(\`Expected auth issuer \${expectedAuthIssuer}, got \${metadata.issuer}\`)
   }
+  if (metadata.authorization_response_iss_parameter_supported !== false) {
+    throw new Error("Expected authorization response issuer support to remain optional")
+  }
+  for (const key of ["authorization_endpoint", "token_endpoint", "registration_endpoint"]) {
+    const endpoint = metadata[key]
+    if (typeof endpoint !== "string" || !endpoint.startsWith(\`\${expectedAuthIssuer}/\`)) {
+      throw new Error(\`Expected \${key} to use canonical auth issuer \${expectedAuthIssuer}, got \${endpoint}\`)
+    }
+  }
 }
 
 console.log("ok")
@@ -131,7 +140,19 @@ describe("getMcpResourceUrl", () => {
       expectedResource: "https://api.example.com/mcp",
       metadataUrl: "https://api.example.com/mcp/agent",
       expectedMetadataResource: "https://api.example.com/mcp",
-      expectedAuthorizationServer: "https://api.example.com/api/auth",
+      expectedAuthorizationServer: "https://app.example.com/api/auth",
+    })
+  })
+
+  test("auto-trusts a path-prefixed public API resource", () => {
+    runMcpResourceProbe({
+      betterAuthUrl: "https://app.example.com",
+      apiPublicUrl: "https://openwork.example/api/den",
+      requestUrl: "https://openwork.example/api/den/mcp/agent",
+      expectedResource: "https://openwork.example/api/den/mcp",
+      metadataUrl: "https://openwork.example/api/den/mcp/agent",
+      expectedMetadataResource: "https://openwork.example/api/den/mcp",
+      expectedAuthorizationServer: "https://app.example.com/api/auth",
     })
   })
 
@@ -144,9 +165,9 @@ describe("getMcpResourceUrl", () => {
       expectedResource: "https://api.example.com/mcp",
       metadataUrl: "http://api.example.com/mcp/agent",
       expectedMetadataResource: "https://api.example.com/mcp",
-      expectedAuthorizationServer: "https://api.example.com/api/auth",
+      expectedAuthorizationServer: "https://app.example.com/api/auth",
       authMetadataUrl: "http://api.example.com/api/auth/.well-known/oauth-authorization-server",
-      expectedAuthIssuer: "https://api.example.com/api/auth",
+      expectedAuthIssuer: "https://app.example.com/api/auth",
     })
   })
 
@@ -167,7 +188,7 @@ describe("getMcpResourceUrl", () => {
       expectedResource: "https://api.openworklabs.com/mcp",
       metadataUrl: "https://api.openworklabs.com/mcp/agent",
       expectedMetadataResource: "https://api.openworklabs.com/mcp",
-      expectedAuthorizationServer: "https://api.openworklabs.com/api/auth",
+      expectedAuthorizationServer: "https://app.openworklabs.com/api/auth",
     })
   })
 
@@ -179,15 +200,13 @@ describe("getMcpResourceUrl", () => {
     })
   })
 
-  test("ignores malformed and empty public API URLs", () => {
-    for (const apiPublicUrl of ["not a url", ""]) {
-      runMcpResourceProbe({
-        betterAuthUrl: "https://app.example.com",
-        apiPublicUrl,
-        requestUrl: "https://api.example.com/mcp/agent",
-        expectedResource: "https://app.example.com/api/den/mcp",
-      })
-    }
+  test("treats an empty public API URL as unset", () => {
+    runMcpResourceProbe({
+      betterAuthUrl: "https://app.example.com",
+      apiPublicUrl: "",
+      requestUrl: "https://api.example.com/mcp/agent",
+      expectedResource: "https://app.example.com/api/den/mcp",
+    })
   })
 
   test("honors the proxied web-app resource derived from BETTER_AUTH_URL", () => {
@@ -197,7 +216,7 @@ describe("getMcpResourceUrl", () => {
       expectedResource: "https://app.example.com/api/den/mcp",
       metadataUrl: "https://app.example.com/api/den/mcp",
       expectedMetadataResource: "https://app.example.com/api/den/mcp",
-      expectedAuthorizationServer: "https://app.example.com/api/den/api/auth",
+      expectedAuthorizationServer: "https://app.example.com/api/auth",
     })
   })
 })
