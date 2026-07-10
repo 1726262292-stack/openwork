@@ -61,6 +61,16 @@ const rateLimitedSchema = z.object({
 
 type InstallPlatform = z.infer<typeof installPlatformSchema>
 
+type InstallerDependencies = {
+  resolveArtifact: typeof resolveInstallerArtifact
+  releaseAssetUrl: typeof installerReleaseAssetUrl
+}
+
+const defaultInstallerDependencies: InstallerDependencies = {
+  resolveArtifact: resolveInstallerArtifact,
+  releaseAssetUrl: installerReleaseAssetUrl,
+}
+
 function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex")
 }
@@ -250,7 +260,10 @@ const setActiveOrganizationFromParam: MiddlewareHandler<{ Variables: OrgRouteVar
   await next()
 }
 
-export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
+export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVariables }>(
+  app: Hono<T>,
+  installer: InstallerDependencies = defaultInstallerDependencies,
+) {
   app.post(
     "/v1/orgs/:organizationId/install-links",
     describeRoute({
@@ -407,9 +420,9 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
-      const artifact = await resolveInstallerArtifact(fileName)
+      const artifact = await installer.resolveArtifact(fileName)
       if (!artifact) {
-        return c.redirect(installerReleaseAssetUrl(fileName), 302)
+        return c.redirect(installer.releaseAssetUrl(fileName), 302)
       }
 
       if (platform.startsWith("mac-")) {

@@ -21,11 +21,6 @@ let isOwner = false
 let capabilityEnabled = true
 let sessionCreatedAt = new Date()
 
-mock.module("../src/utils/installer-artifacts.js", () => ({
-  installerReleaseAssetUrl: (fileName: string) => `https://github.com/different-ai/openwork/releases/download/v9.9.9/${fileName}`,
-  resolveInstallerArtifact: () => Promise.resolve(null),
-}))
-
 mock.module("../src/db.js", () => ({
   db: {
     insert: (_table: unknown) => ({
@@ -123,7 +118,7 @@ beforeEach(() => {
   sessionCreatedAt = new Date()
 })
 
-function createApp() {
+function createApp(options: { installerUnavailable?: boolean } = {}) {
   const app = new Hono()
   app.use("*", async (c, next) => {
     c.set("user", {
@@ -142,7 +137,15 @@ function createApp() {
     })
     await next()
   })
-  installLinkModule.registerOrgInstallLinkRoutes(app)
+  installLinkModule.registerOrgInstallLinkRoutes(
+    app,
+    options.installerUnavailable
+      ? {
+          resolveArtifact: () => Promise.resolve(null),
+          releaseAssetUrl: (fileName: string) => `https://github.com/different-ai/openwork/releases/download/v9.9.9/${fileName}`,
+        }
+      : undefined,
+  )
   return app
 }
 
@@ -220,7 +223,7 @@ test("members cannot mint an install link for another organization", async () =>
 })
 
 test("missing server-side artifacts redirect the browser to the official release", async () => {
-  const response = await createApp().request("http://den.local/v1/install/win-x64?token=opaque-token", {
+  const response = await createApp({ installerUnavailable: true }).request("http://den.local/v1/install/win-x64?token=opaque-token", {
     redirect: "manual",
   })
 
