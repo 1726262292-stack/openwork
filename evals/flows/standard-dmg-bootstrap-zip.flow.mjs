@@ -29,7 +29,9 @@ function witness(ctx, condition, assertion, actual) {
 }
 
 async function navigate(ctx, url) {
-  await ctx.eval(`location.assign(${JSON.stringify(url)}); true`);
+  await ctx.eval(`location.assign(${JSON.stringify(url)}); true`).catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await ctx.reconnect();
   await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: `load ${url}` });
 }
 
