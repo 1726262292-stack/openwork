@@ -18,7 +18,6 @@ export const DEN_MCP_DEFAULT_CLIENT_SCOPES = [
   "profile",
   "email",
   DEN_MCP_READ_SCOPE,
-  DEN_MCP_WRITE_SCOPE,
 ]
 
 export const DEN_MCP_DEFAULT_TOKEN_SCOPES: readonly DenMcpTokenScope[] = [DEN_MCP_READ_SCOPE]
