@@ -170,7 +170,7 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     oauth: true,
     kind: "mcp",
     iconSrc: "/openwork-mark.svg",
-    // Auto-managed by the signed-in cloud reconciler (syncCloudControlMcp):
+    // Auto-managed by the signed-in cloud reconciler:
     // configured + enabled while signed in to OpenWork Cloud. Hidden from the
     // default catalog; "Show hidden" reveals it.
     defaultHidden: true,

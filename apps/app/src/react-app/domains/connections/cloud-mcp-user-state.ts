@@ -4,7 +4,7 @@ import { CLOUD_MCP_SYNC_MARKER_STORAGE_KEY } from "../../../app/lib/den";
  * Durable record of the user's intent for the auto-configured OpenWork
  * Cloud Control MCP ("openwork-cloud").
  *
- * A background reconciler (`syncCloudControlMcp`) keeps that entry
+ * A background reconciler (`syncCloudControlMcpInBackground`) keeps that entry
  * configured with a fresh first-party token while the user is signed in to
  * OpenWork Cloud. Its writes hardcode `enabled: true` and recreate removed
  * entries, so without a durable record of "the user turned this off" the
@@ -69,7 +69,7 @@ export function writeCloudMcpUserState(state: CloudMcpUserState) {
     getStorage()?.setItem(CLOUD_MCP_USER_STATE_KEY, state);
   } catch {
     // Storage unavailable — the reconciler may resurrect the entry; the
-    // enabled-flag guard in syncCloudControlMcp still applies.
+    // enabled-flag guard in syncCloudControlMcpInBackground still applies.
   }
 }
 

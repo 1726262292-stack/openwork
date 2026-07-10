@@ -51,6 +51,7 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
+import { syncCloudControlMcpInBackground } from "@/react-app/domains/connections/use-session-mcp-maintenance";
 import { useOrgMcpConnections } from "@/react-app/domains/connections/use-org-mcp-connections";
 import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "@/react-app/domains/connections/openwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
@@ -1483,10 +1484,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // the settings route owns the provider-auth store.
   useCloudProviderAutoSync(providerAuthStore.runCloudProviderSync);
 
-  // Keep the Den cloud MCP configured with a fresh first-party token while
-  // signed in: connects on sign-in, re-mints on org switch and before expiry.
-  useCloudProviderAutoSync(() => connectionsStore.syncCloudControlMcp());
-
   useEffect(() => {
     if (route.tab !== "cloud-providers") return;
     void providerAuthStore.runCloudProviderSync("settings_cloud_opened");
@@ -2072,7 +2069,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               // Force-sync the cloud MCP first (re-mint token + rewrite
               // config, bypassing the freshness marker) so Refresh really
               // means "make everything current now", then refresh the rest.
-              void connectionsStore.syncCloudControlMcp({ force: true }).then(() => {
+              const cloudMcpRefresh = selectedWorkspaceEndpoint
+                ? syncCloudControlMcpInBackground({
+                    client: selectedWorkspaceEndpoint.client,
+                    workspaceId: selectedWorkspaceEndpoint.workspaceId,
+                    force: true,
+                  }).catch(() => "skipped")
+                : Promise.resolve("skipped");
+              void cloudMcpRefresh.then(() => {
                 void connectionsStore.refreshMcpServers();
               });
               void extensionsStore.refreshPlugins();

@@ -391,7 +391,6 @@ export function SessionRoute() {
     onHostInfo: setOpenworkServerHostInfoState,
   });
   useSessionMcpMaintenance({
-    cloudSignedIn: denAuth.isSignedIn,
     client: selectedWorkspaceEndpoint?.client ?? null,
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
     opencodeClient,

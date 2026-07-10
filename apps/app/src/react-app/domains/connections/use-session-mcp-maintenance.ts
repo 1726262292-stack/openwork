@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { getMcpServerName, MCP_QUICK_CONNECT } from "../../../app/constants";
 import {
+  isLegacyWebAppMcpUrl,
   mintCloudControlMcpToken,
   readDenSettings,
   resolveCloudMcpResourceUrl,
@@ -26,19 +27,32 @@ export const CLOUD_MCP_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
 type CloudMcpMaintenanceClient = Pick<OpenworkServerClient, "baseUrl" | "listMcp" | "addMcp">;
 
 const maintenanceInFlight = new Set<string>();
+const cloudMcpSyncInFlight = new Map<string, Promise<void>>();
 
 export function getSessionMcpMaintenanceTargetKey(input: {
   client: Pick<OpenworkServerClient, "baseUrl" | "token">;
-  cloudSignedIn: boolean;
   workspaceId: string;
   directory: string;
 }): string {
   return JSON.stringify([
     input.client.baseUrl.trim().replace(/\/+$/, ""),
     input.client.token?.trim() ?? "",
-    input.cloudSignedIn ? "signed-in" : "local-only",
     input.workspaceId.trim(),
     input.directory.trim(),
+  ]);
+}
+
+export function getCloudControlMcpSyncTargetKey(input: {
+  denBaseUrl: string;
+  serverBaseUrl: string;
+  orgId: string;
+  workspaceId: string;
+}): string {
+  return JSON.stringify([
+    input.denBaseUrl.trim().replace(/\/+$/, ""),
+    input.serverBaseUrl.trim().replace(/\/+$/, ""),
+    input.orgId.trim(),
+    input.workspaceId.trim(),
   ]);
 }
 
@@ -68,56 +82,90 @@ export async function syncCloudControlMcpInBackground(input: {
   const settings = input.settings ?? readDenSettings();
   const orgId = settings.activeOrgId?.trim() ?? "";
   if (!workspaceId || !orgId || !settings.authToken?.trim()) return "skipped";
-  if (readCloudMcpUserState() !== null) return "skipped";
-
-  const cloudEntry = MCP_QUICK_CONNECT.find((entry) => entry.serverName === CLOUD_MCP_SERVER_NAME);
-  if (!cloudEntry) return "skipped";
-  const slug = cloudEntry.id ?? getMcpServerName(cloudEntry);
-  const listed = await input.client.listMcp(workspaceId);
-  const configured = listed.items.find((entry) => entry.name === slug);
-  if (configured?.config.enabled === false) return "skipped";
-
-  const marker = readCloudMcpSyncMarker({
+  const targetKey = getCloudControlMcpSyncTargetKey({
     denBaseUrl: settings.baseUrl,
     serverBaseUrl: input.client.baseUrl,
     orgId,
     workspaceId,
   });
-  const markerFresh =
-    marker !== null &&
-    marker.orgId === orgId &&
-    marker.workspaceId === workspaceId &&
-    isCloudMcpSyncMarkerFresh({
-      expiresAt: marker.expiresAt,
-      now: input.now ?? Date.now(),
-      refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
+  while (cloudMcpSyncInFlight.has(targetKey)) {
+    const current = cloudMcpSyncInFlight.get(targetKey);
+    if (!current) break;
+    if (!input.force) return "skipped";
+    await current;
+  }
+
+  let resolveInFlight = () => {};
+  const currentInFlight = new Promise<void>((resolve) => {
+    resolveInFlight = resolve;
+  });
+  cloudMcpSyncInFlight.set(targetKey, currentInFlight);
+  try {
+    if (readCloudMcpUserState() !== null) return "skipped";
+
+    const cloudEntry = MCP_QUICK_CONNECT.find((entry) => entry.serverName === CLOUD_MCP_SERVER_NAME);
+    if (!cloudEntry) return "skipped";
+    const slug = cloudEntry.id ?? getMcpServerName(cloudEntry);
+    const listed = await input.client.listMcp(workspaceId);
+    const configured = listed.items.find((entry) => entry.name === slug);
+    if (configured?.config.enabled === false) return "skipped";
+    const configuredUrl = configured?.config.type === "remote" && typeof configured.config.url === "string"
+      ? configured.config.url
+      : null;
+    const hasLegacyUrl = isLegacyWebAppMcpUrl(configuredUrl);
+
+    const marker = readCloudMcpSyncMarker({
+      denBaseUrl: settings.baseUrl,
+      serverBaseUrl: input.client.baseUrl,
+      orgId,
+      workspaceId,
     });
-  if (!input.force && configured && markerFresh) return "unchanged";
+    const markerFresh =
+      marker !== null &&
+      marker.orgId === orgId &&
+      marker.workspaceId === workspaceId &&
+      isCloudMcpSyncMarkerFresh({
+        expiresAt: marker.expiresAt,
+        now: input.now ?? Date.now(),
+        refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
+      });
+    if (!input.force && configured && markerFresh && !hasLegacyUrl) return "unchanged";
 
-  const minted = await (input.mintToken ?? mintCloudControlMcpToken)();
-  if (!minted) return "skipped";
-  const healedResource = resolveCloudMcpResourceUrl(minted.resource);
-  const url = healedResource ? `${healedResource}/agent` : cloudEntry.url;
-  if (!url) return "skipped";
+    let minted: DenMcpToken | null = null;
+    try {
+      minted = await (input.mintToken ?? mintCloudControlMcpToken)();
+    } catch {
+      return "skipped";
+    }
+    if (!minted) return "skipped";
+    const healedResource = resolveCloudMcpResourceUrl(minted.resource);
+    const url = healedResource ? `${healedResource}/agent` : cloudEntry.url;
+    if (!url) return "skipped";
 
-  await input.client.addMcp(workspaceId, {
-    name: slug,
-    config: {
-      type: "remote",
-      enabled: true,
-      url,
-      headers: { Authorization: `Bearer ${minted.token}` },
-      oauth: false,
-    },
-  });
-  writeCloudMcpSyncMarker({
-    denBaseUrl: settings.baseUrl,
-    serverBaseUrl: input.client.baseUrl,
-    orgId,
-    workspaceId,
-    expiresAt: minted.expiresAt,
-  });
-  return "synced";
+    await input.client.addMcp(workspaceId, {
+      name: slug,
+      config: {
+        type: "remote",
+        enabled: true,
+        url,
+        headers: { Authorization: `Bearer ${minted.token}` },
+        oauth: false,
+      },
+    });
+    writeCloudMcpSyncMarker({
+      denBaseUrl: settings.baseUrl,
+      serverBaseUrl: input.client.baseUrl,
+      orgId,
+      workspaceId,
+      expiresAt: minted.expiresAt,
+    });
+    return "synced";
+  } finally {
+    if (cloudMcpSyncInFlight.get(targetKey) === currentInFlight) {
+      cloudMcpSyncInFlight.delete(targetKey);
+    }
+    resolveInFlight();
+  }
 }
 
 export async function healWorkspaceMcpInBackground(input: {
@@ -147,7 +195,6 @@ export async function healWorkspaceMcpInBackground(input: {
 }
 
 export function useSessionMcpMaintenance(input: {
-  cloudSignedIn: boolean;
   client: OpenworkServerClient | null;
   workspaceId: string | null;
   opencodeClient: Client | null;
@@ -161,7 +208,6 @@ export function useSessionMcpMaintenance(input: {
     if (!client || !opencodeClient || !workspaceId || !directory) return;
     const targetKey = getSessionMcpMaintenanceTargetKey({
       client,
-      cloudSignedIn: input.cloudSignedIn,
       workspaceId,
       directory,
     });
@@ -172,18 +218,12 @@ export function useSessionMcpMaintenance(input: {
       await runSessionMcpMaintenanceTask({
         targetKey,
         task: async () => {
-        if (input.cloudSignedIn) {
-          await syncCloudControlMcpInBackground({
+          await healWorkspaceMcpInBackground({
             client,
             workspaceId,
-          }).catch(() => "skipped");
-        }
-        await healWorkspaceMcpInBackground({
-          client,
-          workspaceId,
-          opencodeClient,
-          directory,
-        }).catch(() => false);
+            opencodeClient,
+            directory,
+          }).catch(() => false);
         },
       });
     };
@@ -202,5 +242,5 @@ export function useSessionMcpMaintenance(input: {
       window.removeEventListener("focus", handleFocus);
       window.clearInterval(interval);
     };
-  }, [input.client, input.cloudSignedIn, input.directory, input.opencodeClient, input.workspaceId]);
+  }, [input.client, input.directory, input.opencodeClient, input.workspaceId]);
 }

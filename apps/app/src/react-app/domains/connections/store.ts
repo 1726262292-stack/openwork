@@ -10,9 +10,7 @@ import {
 } from "../../../app/constants";
 import { extensionResource } from "../../../app/extensions";
 import {
-  isLegacyWebAppMcpUrl,
   mintCloudControlMcpToken,
-  readDenSettings,
   resolveCloudMcpResourceUrl,
 } from "../../../app/lib/den";
 import { createClient, unwrap } from "../../../app/lib/opencode";
@@ -42,24 +40,11 @@ import type { OpenworkServerStore } from "./openwork-server-store";
 import { attemptSilentMcpReauth } from "./mcp-silent-reauth";
 import {
   CLOUD_MCP_SERVER_NAME,
-  clearCloudMcpUnhealthyRemintAttempt,
   clearCloudMcpUserState,
-  isCloudMcpSyncMarkerFresh,
-  readCloudMcpSyncMarker,
-  readCloudMcpUnhealthyRemintAttempt,
-  readCloudMcpUserState,
-  writeCloudMcpSyncMarker,
-  writeCloudMcpUnhealthyRemintAttempt,
   writeCloudMcpUserState,
 } from "./cloud-mcp-user-state";
 
 type SetStateAction<T> = T | ((current: T) => T);
-
-// Re-mint when less than a day of token validity remains. Must be well
-// below the minted token TTL (7 days, DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS in
-// den-api): when the two were equal, the marker was stale the instant it
-// was written and every sync tick re-wrote the MCP config.
-const CLOUD_MCP_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
 
 export type ConnectionsStoreSnapshot = {
   mcpServers: McpServerEntry[];
@@ -377,8 +362,8 @@ export function createConnectionsStore(options: {
    * engine only refreshes tokens reactively (once per transport), so an
    * expired access token strands the entry until the user clicks Sign in.
    * `mcp.connect` retries the stored refresh-token grant on a fresh
-   * transport — silently, never opening a browser or modal. Mirrors
-   * syncCloudControlMcp, but for user-added connectors.
+   * transport — silently, never opening a browser or modal. Mirrors the
+   * app-wide Cloud MCP reconciler's quiet behavior for user-added connectors.
    */
   async function healUnhealthyMcpEntries(servers: McpServerEntry[], statuses: McpStatusMap) {
     if (disposed || snapshot.mcpAuthModalOpen || snapshot.mcpConnectingName) return;
@@ -853,122 +838,6 @@ export function createConnectionsStore(options: {
     }
   }
 
-  // Guards the unhealthy-status self-heal in syncCloudControlMcp with a
-  // persisted marker that survives settings-route store remounts: each
-  // re-mint writes a new token to config, which marks an engine reload as
-  // required. Until that reload happens the status stays needs_auth, so
-  // retrying on every sync tick produced an endless "MCP 'openwork-cloud'
-  // was updated. Reload to connect." nag. One attempt per unhealthy episode;
-  // reset when the entry reports connected again.
-  let cloudMcpUnhealthyRemintAttempted = false;
-
-  /**
-   * Background reconciliation for the Den cloud MCP: when the desktop is
-   * signed in to OpenWork Cloud with an active org, keep the
-   * `openwork-cloud` MCP entry configured with a fresh first-party token.
-   * Quiet by design — a failed mint never opens the OAuth modal.
-   *
-   * `force` bypasses the freshness marker: used by the user-facing Refresh
-   * button so "make my cloud connection current NOW" is one click (re-mint
-   * token + rewrite config + reconnect) instead of sign-out/sign-in or
-   * waiting for the marker to expire.
-   */
-  async function syncCloudControlMcp(options?: { force?: boolean }): Promise<"synced" | "unchanged" | "skipped"> {
-    const settings = readDenSettings();
-    const orgId = settings.activeOrgId?.trim() ?? "";
-    if (!orgId || !settings.authToken?.trim()) return "skipped";
-    const workspaceId = await resolveOpenworkWorkspaceId();
-    if (!workspaceId) return "skipped";
-    const serverBaseUrl = getOpenworkSnapshot().openworkServerClient?.baseUrl.trim() ?? "";
-    if (!serverBaseUrl) return "skipped";
-
-    const entry = MCP_QUICK_CONNECT.find((candidate) => candidate.serverName === CLOUD_MCP_SERVER_NAME);
-    if (!entry) return "skipped";
-    const slug = entry.id ?? getMcpServerName(entry);
-
-    // Respect explicit user intent: a Cloud Control MCP the user disabled
-    // or removed must stay that way. Without this guard the reconciler
-    // rewrote the entry with `enabled: true` on every tick, making it
-    // impossible to turn off. Any explicit reconnect clears the record.
-    if (readCloudMcpUserState() !== null) return "skipped";
-    const configuredEntry = snapshot.mcpServers.find((server) => server.name === slug);
-    if (configuredEntry?.config.enabled === false) return "skipped";
-    if (options?.force) {
-      cloudMcpUnhealthyRemintAttempted = false;
-      clearCloudMcpUnhealthyRemintAttempt();
-    }
-
-    const marker = readCloudMcpSyncMarker({
-      denBaseUrl: settings.baseUrl,
-      serverBaseUrl,
-      orgId,
-      workspaceId,
-    });
-    const markerFresh =
-      marker !== null &&
-      marker.orgId === orgId &&
-      marker.workspaceId === workspaceId &&
-      isCloudMcpSyncMarkerFresh({
-        expiresAt: marker.expiresAt,
-        now: Date.now(),
-        refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
-      });
-
-    // A revoked/expired token surfaces as needs_auth or failed from opencode;
-    // while signed in, that means re-mint instead of standing pat — but only
-    // once per unhealthy episode (see cloudMcpUnhealthyRemintAttempted).
-    const entryStatus = snapshot.mcpStatuses[slug]?.status;
-    if (entryStatus === "connected") {
-      cloudMcpUnhealthyRemintAttempted = false;
-      clearCloudMcpUnhealthyRemintAttempt();
-    }
-    const entryUnhealthy = entryStatus === "needs_auth" || entryStatus === "failed";
-    const attempted = cloudMcpUnhealthyRemintAttempted || readCloudMcpUnhealthyRemintAttempt()?.orgId === orgId;
-    const shouldRemintForHealth = entryUnhealthy && !attempted;
-
-    // Builds before #2116's follow-up wrote the MCP URL against the bare
-    // web-app origin (https://app.openworklabs.com/mcp), which 404s.
-    // Reconfigure those entries even when the marker is still fresh.
-    const hasLegacyUrl =
-      configuredEntry?.config.type === "remote" && isLegacyWebAppMcpUrl(configuredEntry.config.url);
-
-    // The marker is the source of truth for "configured recently". Do NOT
-    // gate this on snapshot.mcpServers: the store is recreated on every
-    // settings mount with an empty (or refresh-errored) server list, and
-    // treating that as "not configured" re-minted a token and rewrote config
-    // on every visit — endless "Reload to connect" toasts. If a user
-    // manually removed the entry, we respect that until the marker expires
-    // instead of silently re-adding it.
-    if (!options?.force && markerFresh && !shouldRemintForHealth && !hasLegacyUrl) {
-      return "unchanged";
-    }
-    if (shouldRemintForHealth) {
-      cloudMcpUnhealthyRemintAttempted = true;
-      writeCloudMcpUnhealthyRemintAttempt({ orgId });
-    }
-
-    // Validate the session up front so a failed mint never reaches
-    // connectMcp's signed-out fallback (which opens the OAuth modal).
-    const minted = await mintCloudControlMcpToken().catch(() => null);
-    if (!minted) return "skipped";
-
-    // Trust connectMcp's own result. Judging success via snapshot.mcpServers
-    // broke whenever the post-connect refresh errored: the marker was never
-    // written, so every subsequent tick re-minted and re-wrote config.
-    const connected = await connectMcp(entry);
-    if (!connected) {
-      return "skipped";
-    }
-    writeCloudMcpSyncMarker({
-      denBaseUrl: settings.baseUrl,
-      serverBaseUrl,
-      orgId,
-      workspaceId,
-      expiresAt: minted.expiresAt,
-    });
-    return "synced";
-  }
-
   function authorizeMcp(entry: McpServerEntry) {
     if (entry.config.type !== "remote" || entry.config.oauth === false) {
       setStateField("mcpStatus", t("mcp.login_unavailable"));
@@ -1268,7 +1137,6 @@ export function createConnectionsStore(options: {
     readMcpConfigFile,
     refreshMcpServers,
     connectMcp,
-    syncCloudControlMcp,
     authorizeMcp,
     logoutMcpAuth,
     removeMcp,

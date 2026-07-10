@@ -27,6 +27,7 @@ import { LoadingOverlay } from "./loading-overlay";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
 import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
 import { AppMenuProvider } from "./app-menu";
+import { CloudMcpAutoSync } from "./cloud-mcp-auto-sync";
 import {
   OpenworkControlProvider,
   OpenworkRouteControlActions,
@@ -317,6 +318,7 @@ export function AppRoot() {
           <OpenworkRouteControlActions />
           <DenAuthControlActions />
           <BrandThemeControlActions />
+          <CloudMcpAutoSync />
           <DenSigninGate>
             <Routes>
               <Route

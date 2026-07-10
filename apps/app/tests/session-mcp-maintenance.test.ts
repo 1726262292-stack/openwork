@@ -229,9 +229,302 @@ describe("session MCP maintenance", () => {
       },
       workspaceId: WORKSPACE_ID,
       settings: SETTINGS,
+      force: true,
       mintToken: async () => MINTED,
     })).resolves.toBe("skipped");
     expect(listed).toBe(false);
+  });
+
+  test("explicit disabled intent skips before list, mint, or write", async () => {
+    writeCloudMcpUserState("disabled");
+    let listCount = 0;
+    let mintCount = 0;
+    let writeCount = 0;
+
+    await expect(syncCloudControlMcpInBackground({
+      client: {
+        baseUrl: "https://worker.openwork.test",
+        listMcp: async () => {
+          listCount += 1;
+          return { items: [] };
+        },
+        addMcp: async () => {
+          writeCount += 1;
+          return { items: [] };
+        },
+      },
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      force: true,
+      mintToken: async () => {
+        mintCount += 1;
+        return MINTED;
+      },
+    })).resolves.toBe("skipped");
+
+    expect(listCount).toBe(0);
+    expect(mintCount).toBe(0);
+    expect(writeCount).toBe(0);
+  });
+
+  test("configured enabled:false skips mint and write even when forced", async () => {
+    let mintCount = 0;
+    let writeCount = 0;
+
+    await expect(syncCloudControlMcpInBackground({
+      client: {
+        baseUrl: "https://worker.openwork.test",
+        listMcp: async () => ({
+          items: [{
+            name: "openwork-cloud",
+            config: { type: "remote", enabled: false, url: "https://api.openwork.test/mcp/agent" },
+          }],
+        }),
+        addMcp: async () => {
+          writeCount += 1;
+          return { items: [] };
+        },
+      },
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      force: true,
+      mintToken: async () => {
+        mintCount += 1;
+        return MINTED;
+      },
+    })).resolves.toBe("skipped");
+
+    expect(mintCount).toBe(0);
+    expect(writeCount).toBe(0);
+  });
+
+  test("force bypasses a fresh marker and rewrites the Cloud MCP", async () => {
+    let mintCount = 0;
+    let writeCount = 0;
+    const client = {
+      baseUrl: "https://worker.openwork.test",
+      listMcp: async () => ({
+        items: [{
+          name: "openwork-cloud",
+          config: { type: "remote", enabled: true, url: "https://api.openwork.test/mcp/agent" },
+        }],
+      }),
+      addMcp: async () => {
+        writeCount += 1;
+        return { items: [] };
+      },
+    };
+    const mintToken = async () => {
+      mintCount += 1;
+      return MINTED;
+    };
+
+    await expect(syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      now: NOW,
+      mintToken,
+    })).resolves.toBe("synced");
+    mintCount = 0;
+    writeCount = 0;
+
+    await expect(syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      now: NOW + 1_000,
+      force: true,
+      mintToken,
+    })).resolves.toBe("synced");
+
+    expect(mintCount).toBe(1);
+    expect(writeCount).toBe(1);
+  });
+
+  test("legacy bare web-app MCP URL bypasses a fresh marker and rewrites healed URL", async () => {
+    const healedMinted: DenMcpToken = {
+      ...MINTED,
+      token: "healed-token",
+      resource: "https://app.openworklabs.com/mcp",
+    };
+    const writes: Array<{ config: Record<string, unknown> }> = [];
+    let mintCount = 0;
+    let listLegacyUrl = false;
+    const client = {
+      baseUrl: "https://worker.openwork.test",
+      listMcp: async () => ({
+        items: listLegacyUrl
+          ? [{
+              name: "openwork-cloud",
+              config: {
+                type: "remote",
+                enabled: true,
+                url: "https://app.openworklabs.com/mcp",
+              },
+            }]
+          : [],
+      }),
+      addMcp: async (_workspaceId: string, payload: { config: Record<string, unknown> }) => {
+        writes.push({ config: payload.config });
+        return { items: [] };
+      },
+    };
+    const mintToken = async () => {
+      mintCount += 1;
+      return healedMinted;
+    };
+
+    await expect(syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      now: NOW,
+      mintToken,
+    })).resolves.toBe("synced");
+    mintCount = 0;
+    writes.length = 0;
+    listLegacyUrl = true;
+
+    await expect(syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      now: NOW + 1_000,
+      mintToken,
+    })).resolves.toBe("synced");
+
+    expect(mintCount).toBe(1);
+    expect(writes).toEqual([{
+      config: {
+        type: "remote",
+        enabled: true,
+        url: "https://app.openworklabs.com/api/den/mcp/agent",
+        headers: { Authorization: "Bearer healed-token" },
+        oauth: false,
+      },
+    }]);
+  });
+
+  test("null or failed mint skips without writing", async () => {
+    let writeCount = 0;
+    const client = {
+      baseUrl: "https://worker.openwork.test",
+      listMcp: async () => ({ items: [] }),
+      addMcp: async () => {
+        writeCount += 1;
+        return { items: [] };
+      },
+    };
+
+    await expect(syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      mintToken: async () => null,
+    })).resolves.toBe("skipped");
+    await expect(syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      mintToken: async () => {
+        throw new Error("mint failed");
+      },
+    })).resolves.toBe("skipped");
+
+    expect(writeCount).toBe(0);
+  });
+
+  test("deduplicates overlapping Cloud MCP reconciliation for the same target", async () => {
+    let mintCount = 0;
+    let writeCount = 0;
+    let releaseMint: (value: DenMcpToken | null) => void = () => {};
+    const mintBlocked = new Promise<DenMcpToken | null>((resolve) => {
+      releaseMint = resolve;
+    });
+    const client = {
+      baseUrl: "https://worker.openwork.test",
+      listMcp: async () => ({ items: [] }),
+      addMcp: async () => {
+        writeCount += 1;
+        return { items: [] };
+      },
+    };
+
+    const first = syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      mintToken: async () => {
+        mintCount += 1;
+        return mintBlocked;
+      },
+    });
+    const second = syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      mintToken: async () => {
+        mintCount += 1;
+        return MINTED;
+      },
+    });
+
+    await expect(second).resolves.toBe("skipped");
+    releaseMint(MINTED);
+    await expect(first).resolves.toBe("synced");
+    expect(mintCount).toBe(1);
+    expect(writeCount).toBe(1);
+  });
+
+  test("forced overlapping Cloud MCP reconciliation waits and rewrites after the current sync", async () => {
+    const writes: string[] = [];
+    let mintCount = 0;
+    let releaseMint: (value: DenMcpToken | null) => void = () => {};
+    const mintBlocked = new Promise<DenMcpToken | null>((resolve) => {
+      releaseMint = resolve;
+    });
+    const client = {
+      baseUrl: "https://worker.openwork.test",
+      listMcp: async () => ({ items: [] }),
+      addMcp: async (_workspaceId: string, payload: { config: Record<string, unknown> }) => {
+        const headers = payload.config.headers;
+        const authorization = headers &&
+          typeof headers === "object" &&
+          "Authorization" in headers &&
+          typeof headers.Authorization === "string"
+          ? headers.Authorization
+          : "";
+        writes.push(authorization);
+        return { items: [] };
+      },
+    };
+
+    const first = syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      mintToken: async () => {
+        mintCount += 1;
+        return mintBlocked;
+      },
+    });
+    const forced = syncCloudControlMcpInBackground({
+      client,
+      workspaceId: WORKSPACE_ID,
+      settings: SETTINGS,
+      force: true,
+      mintToken: async () => {
+        mintCount += 1;
+        return { ...MINTED, token: "forced-token" };
+      },
+    });
+
+    releaseMint({ ...MINTED, token: "normal-token" });
+    await expect(first).resolves.toBe("synced");
+    await expect(forced).resolves.toBe("synced");
+    expect(mintCount).toBe(2);
+    expect(writes).toEqual(["Bearer normal-token", "Bearer forced-token"]);
   });
 
   test("deduplicates the same target without blocking another workspace", async () => {
@@ -239,19 +532,16 @@ describe("session MCP maintenance", () => {
     const recreatedClient = { baseUrl: "https://worker.openwork.test/", token: "worker-token" };
     const targetA = getSessionMcpMaintenanceTargetKey({
       client: firstClient,
-      cloudSignedIn: true,
       workspaceId: "workspace_a",
       directory: "/workspace/a",
     });
     const recreatedTargetA = getSessionMcpMaintenanceTargetKey({
       client: recreatedClient,
-      cloudSignedIn: true,
       workspaceId: "workspace_a",
       directory: "/workspace/a",
     });
     const targetB = getSessionMcpMaintenanceTargetKey({
       client: recreatedClient,
-      cloudSignedIn: true,
       workspaceId: "workspace_b",
       directory: "/workspace/b",
     });
