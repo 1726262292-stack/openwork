@@ -19,12 +19,16 @@ const officialWindowsInstallerUrl = "https://github.com/different-ai/openwork/re
 let role = "member"
 let isOwner = false
 let capabilityEnabled = true
+let failInstallLinkInsert = false
 let sessionCreatedAt = new Date()
 
 mock.module("../src/db.js", () => ({
   db: {
     insert: (_table: unknown) => ({
       values: (values: unknown) => {
+        if (failInstallLinkInsert && isRecord(values) && typeof values.tokenHash === "string") {
+          return Promise.reject(new Error("install link storage unavailable"))
+        }
         insertedRows.push(values)
         return Promise.resolve()
       },
@@ -103,9 +107,11 @@ mock.module("../src/orgs.js", () => ({
 }))
 
 let installLinkModule: typeof import("../src/routes/org/install-links.js")
+let installLinkMintingModule: typeof import("../src/install-links.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
+  installLinkMintingModule = await import("../src/install-links.js")
   installLinkModule = await import("../src/routes/org/install-links.js")
 })
 
@@ -115,6 +121,7 @@ beforeEach(() => {
   role = "member"
   isOwner = false
   capabilityEnabled = true
+  failInstallLinkInsert = false
   sessionCreatedAt = new Date()
 })
 
@@ -207,6 +214,51 @@ test("the organization capability still gates member install links", async () =>
 
   expect(response.status).toBe(403)
   await expect(response.json()).resolves.toEqual({ error: "capability_disabled", capability: "installLinks" })
+  expect(insertedInstallLinks()).toHaveLength(0)
+})
+
+test("invitation downloads mint the same org install page without storing the raw token", async () => {
+  const downloadUrl = await installLinkMintingModule.resolveInvitationDownloadUrl({
+    organizationId,
+    createdByUserId: userId,
+    metadata: { capabilities: { installLinks: true } },
+  })
+
+  const url = new URL(downloadUrl)
+  const token = url.searchParams.get("token")
+  const rows = insertedInstallLinks()
+
+  expect(url.pathname).toBe("/install")
+  expect(url.origin).toBe(new URL(process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790").origin)
+  expect(token).toBeTruthy()
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).not.toHaveProperty("token")
+  expect(rows[0]).not.toHaveProperty("installPageUrl")
+  expect(isRecord(rows[0]) ? rows[0].tokenHash : null).toBe(installLinkMintingModule.hashInstallLinkToken(token ?? ""))
+  expect(revokedRows).toHaveLength(0)
+})
+
+test("invitation downloads keep the generic URL when install links are disabled", async () => {
+  const downloadUrl = await installLinkMintingModule.resolveInvitationDownloadUrl({
+    organizationId,
+    createdByUserId: userId,
+    metadata: { capabilities: { installLinks: false } },
+  })
+
+  expect(downloadUrl).toBe("https://openworklabs.com/download")
+  expect(insertedInstallLinks()).toHaveLength(0)
+})
+
+test("invitation delivery can fall back when install-link storage fails", async () => {
+  failInstallLinkInsert = true
+
+  const downloadUrl = await installLinkMintingModule.resolveInvitationDownloadUrl({
+    organizationId,
+    createdByUserId: userId,
+    metadata: { capabilities: { installLinks: true } },
+  })
+
+  expect(downloadUrl).toBe("https://openworklabs.com/download")
   expect(insertedInstallLinks()).toHaveLength(0)
 })
 

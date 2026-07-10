@@ -2,7 +2,6 @@ import { installConfigSchema, INSTALL_SIDECAR_FILENAME } from "@openwork/install
 import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable, OrganizationTable, RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
-import { createHash, randomBytes } from "node:crypto"
 import type { MiddlewareHandler } from "hono"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -11,6 +10,7 @@ import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
 import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
+import { hashInstallLinkToken, mintOrganizationInstallLink } from "../../install-links.js"
 import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
 import { organizationCapabilityKeySchema, organizationHasCapability } from "../../organization-capabilities.js"
@@ -71,10 +71,6 @@ const defaultInstallerDependencies: InstallerDependencies = {
   resolveFallbackUrl: (platform) => resolveInstallerFallbackUrl(platform, OPENWORK_DOWNLOAD_URL),
 }
 
-function sha256(value: string) {
-  return createHash("sha256").update(value).digest("hex")
-}
-
 function requestAddress(headers: Headers) {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
   return forwarded || headers.get("x-real-ip")?.trim() || "unknown"
@@ -112,10 +108,6 @@ async function enforceRateLimit(headers: Headers, scope: string, maxRequests: nu
   return checkRateLimit(`install:${scope}:${requestAddress(headers)}`, maxRequests, Date.now())
 }
 
-function installPageUrl(token: string) {
-  return new URL(`/install?token=${encodeURIComponent(token)}`, env.betterAuthUrl).toString()
-}
-
 function organizationMetadataInput(value: unknown): Record<string, unknown> | string | null {
   if (typeof value === "string" || value === null) {
     return value
@@ -136,7 +128,7 @@ function buildInstallConfig(input: { organization: { name: string; logo: string 
 }
 
 async function resolveInstallConfigForToken(token: string, request: Request) {
-  const tokenHash = sha256(token)
+  const tokenHash = hashInstallLinkToken(token)
   const now = new Date()
   const [row] = await db
     .select({ installLink: InstallLinkTable, organization: OrganizationTable })
@@ -309,32 +301,18 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         return c.json({ error: "rate_limited", message: "Too many install links created. Try again later." }, 429)
       }
 
-      const token = randomBytes(32).toString("base64url")
-
-      if (input.rotate) {
-        const now = new Date()
-        await db
-          .update(InstallLinkTable)
-          .set({ revokedAt: now })
-          .where(
-            and(
-              eq(InstallLinkTable.organizationId, payload.organization.id),
-              isNull(InstallLinkTable.revokedAt),
-              or(isNull(InstallLinkTable.expiresAt), gt(InstallLinkTable.expiresAt, now)),
-            ),
-          )
-      }
-
-      await db.insert(InstallLinkTable).values({
-        id: createDenTypeId("installLink"),
+      const installLink = await mintOrganizationInstallLink({
         organizationId: payload.organization.id,
-        tokenHash: sha256(token),
         createdByUserId: payload.currentMember.userId,
-        expiresAt: null,
-        revokedAt: null,
+        metadata: payload.organization.metadata,
+        rotate: input.rotate,
       })
 
-      return c.json({ token, installPageUrl: installPageUrl(token) })
+      if (!installLink) {
+        return c.json({ error: "capability_disabled", capability: "installLinks" }, 403)
+      }
+
+      return c.json(installLink)
     },
   )
 

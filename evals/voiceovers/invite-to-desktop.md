@@ -3,8 +3,9 @@
 PR-1 of the invite-to-desktop experience: an enriched invite email that sells
 the desktop app, a post-accept "get the app" step with mobile-aware handling,
 a "send me the download link" email, and a "Joining a team? Sign in"
-affordance on the desktop welcome screen. Download CTAs point at the generic
-download page for now; the org-stamped installer is a follow-up PR.
+affordance on the desktop welcome screen. Organization invitation CTAs use the
+same org-specific installer flow as the dashboard; the standalone "email me"
+download message remains a general OpenWork download link.
 
 1. Alex runs Acme Robotics on OpenWork, and inviting Maya is one line on the team page — type her email, pick a role, send.
 

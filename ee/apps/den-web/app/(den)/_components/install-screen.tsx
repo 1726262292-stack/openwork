@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage, requestJson } from "../_lib/den-flow";
+import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
 
 type InstallConfig = {
@@ -13,8 +14,6 @@ type InstallConfig = {
   requireSignin: boolean;
   logoUrl: string | null;
 };
-
-type InstallPlatform = "mac-arm64" | "mac-x64" | "win-x64" | "linux-x64" | "linux-arm64";
 
 const platformOptions: Array<{ value: InstallPlatform; label: string }> = [
   { value: "mac-arm64", label: "Mac (Apple silicon)" },
@@ -82,12 +81,8 @@ function detectPlatform(): InstallPlatform {
   return "mac-arm64";
 }
 
-function apiOrigin(config: InstallConfig) {
-  return new URL(config.apiUrl).origin;
-}
-
 function installHref(config: InstallConfig, platform: InstallPlatform, token: string) {
-  return `${apiOrigin(config)}/v1/install/${platform}?token=${encodeURIComponent(token)}`;
+  return buildInstallDownloadHref(config.apiUrl, platform, token);
 }
 
 export function InstallScreen() {

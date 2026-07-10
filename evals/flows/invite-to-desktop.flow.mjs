@@ -25,6 +25,7 @@ const state = {
   adminToken: null,
   mayaInviteLink: null,
   mayaInviteToken: null,
+  mayaInstallLink: null,
   rileyInviteLink: null,
   rileyInviteToken: null,
   copiedDesktopUrl: null,
@@ -95,11 +96,12 @@ export default {
             ctx.assert(html.includes("Automate tasks"), "Invite email is missing Automate tasks.");
             ctx.assert(html.includes("Download the desktop app"), "Invite email is missing the desktop download CTA.");
             ctx.assert(html.includes("Accept invite"), "Invite email is missing Accept invite.");
-            ctx.assert(html.includes(DOWNLOAD_URL), `Invite email is missing ${DOWNLOAD_URL}.`);
+            ctx.assert(!html.includes(DOWNLOAD_URL), `Organization invite email still points at ${DOWNLOAD_URL}.`);
+            state.mayaInstallLink = extractInstallFromHtml(html, ctx);
             const invite = extractInviteFromHtml(html, ctx);
             state.mayaInviteToken = invite.token;
             state.mayaInviteLink = rewriteInviteLink(invite.link);
-            ctx.output("maya-invite-email", JSON.stringify({ to: entry.to, subject: entry.subject, inviteLink: state.mayaInviteLink }, null, 2));
+            ctx.output("maya-invite-email", JSON.stringify({ to: entry.to, subject: entry.subject, inviteLink: state.mayaInviteLink, installLink: state.mayaInstallLink }, null, 2));
             await withClient(ctx, ADMIN_CDP_URL, async () => {
               await ctx.expectText("Edit spreadsheets");
               await ctx.expectText("Automate tasks");
@@ -649,6 +651,19 @@ function extractInviteFromHtml(html, ctx) {
   const token = parsed.searchParams.get("invite")?.trim() ?? "";
   ctx.assert(token.length > 0, `Invite link did not include an invite token: ${link}`);
   return { link: parsed.toString(), token };
+}
+
+function extractInstallFromHtml(html, ctx) {
+  const absoluteMatch = html.match(/https?:\/\/[^"'<>\s]+\/install\?token=[^"'<>\s]+/);
+  const relativeMatch = html.match(/\/install\?token=[^"'<>\s]+/);
+  const rawLink = absoluteMatch?.[0] ?? relativeMatch?.[0] ?? "";
+  const link = decodeHtmlAttribute(rawLink);
+  ctx.assert(link.length > 0, "Invite email did not contain an /install?token= link.");
+  const parsed = new URL(link, DEN_WEB_URL);
+  const token = parsed.searchParams.get("token")?.trim() ?? "";
+  ctx.assert(token.length > 0, `Install link did not include an opaque token: ${link}`);
+  ctx.assert(parsed.pathname === "/install", `Invite desktop CTA did not target /install: ${link}`);
+  return parsed.toString();
 }
 
 function rewriteInviteLink(inviteLink) {

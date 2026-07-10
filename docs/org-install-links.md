@@ -2,14 +2,16 @@
 
 Status: self-host operator guide
 Owner: platform/self-host
-Related: `ee/apps/den-api/src/routes/org/install-links.ts`, `ee/apps/den-api/src/utils/installer-artifacts.ts`, `packaging/helm/openwork-ee/README.md`
+Related: `ee/apps/den-api/src/install-links.ts`, `ee/apps/den-api/src/routes/org/install-links.ts`, `ee/apps/den-api/src/utils/installer-artifacts.ts`, `packaging/helm/openwork-ee/README.md`
 
 ## What it is
 
-Organization install links let org admins mint shareable desktop install links
-for their workspace. Den serves one generic signed installer and stamps it per
-org at serve time. The installed app boots into forced sign-in against your
-deployment, so possession of an install link does not grant workspace access.
+Organization install links let workspace members mint shareable desktop install
+links for their workspace. When the capability is enabled, invitation emails
+automatically use the same organization-specific install page as the dashboard.
+Den serves one generic installer and stamps it per org at serve time. The
+installed app boots into forced sign-in against your deployment, so possession
+of an install link does not grant workspace access.
 
 ## Upgrade checklist
 
@@ -41,12 +43,16 @@ deployment, so possession of an install link does not grant workspace access.
 3. Sign in to den-web, open `/admin`, and toggle `Install links` for each org
    that should be allowed to mint links.
 
-## Trusted origins requirement
+## Public origins requirement
 
-> **Hard requirement:** The first entry of
-> `DEN_BETTER_AUTH_TRUSTED_ORIGINS` must be your den-web origin (for example,
-> `https://openwork.example.com`). Minted install links and invitation links
-> are both built from that origin.
+> **Hard requirement:** Set `BETTER_AUTH_URL` to the externally reachable
+> den-web origin (for example, `https://openwork.example.com`). Dashboard and
+> invitation-email install links are built from this value. Set
+> `DEN_API_PUBLIC_URL` to the Den API origin that invitees' computers can reach.
+
+Invitation acceptance links use the first non-wildcard entry of
+`DEN_BETTER_AUTH_TRUSTED_ORIGINS`, falling back to `BETTER_AUTH_URL`. In the
+normal single-origin setup, put the same den-web origin in both settings.
 
 ## Installer artifacts
 
@@ -56,18 +62,22 @@ Den resolves Mac and Windows installer artifacts in this order:
 2. `OPENWORK_INSTALLER_CACHE_DIR/<tag>/<file>`, defaulting to the OS temp dir.
 3. The GitHub release asset for `OPENWORK_INSTALLER_RELEASE_REPO` and
    `OPENWORK_INSTALLER_RELEASE_TAG`.
+4. When a generic artifact is unavailable, a verified normal versioned desktop
+   release for that platform. If that is also unavailable, the stable OpenWork
+   download page.
 
 | Mode | Configure | Behavior |
 |---|---|---|
-| Internet-connected | Default. `OPENWORK_INSTALLER_RELEASE_TAG` resolves to `v<pinned app version>`; override it when needed. `v0.17.9` is the first tag carrying installer assets. | Den downloads the public release asset on first Mac/Windows download, then serves cached bytes. |
+| Internet-connected | Default. `OPENWORK_INSTALLER_RELEASE_TAG` resolves to `v<pinned app version>`; override it when needed. | Den downloads the public release asset on the first Mac/Windows download, then serves cached bytes. If a legacy release lacks the generic asset, Den redirects to that release's verified normal DMG/EXE without including the organization token. |
 | Fork/mirror | Set `OPENWORK_INSTALLER_RELEASE_REPO`, for example `your-org/openwork`. | Den downloads assets from your fork or mirror release instead of `different-ai/openwork`. |
-| Air-gapped | Mount a volume at `OPENWORK_INSTALLER_ARTIFACTS_DIR` containing exactly `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`. | The mounted artifact directory takes precedence and requires zero egress. |
+| Air-gapped | Mount a volume at `OPENWORK_INSTALLER_ARTIFACTS_DIR` containing exactly `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`. | The mounted artifact directory takes precedence, preserves organization stamping, and requires zero egress. |
 
 ## Egress
 
 `den-api` makes outbound HTTPS requests to `github.com` only when serving a Mac
-or Windows installer download and the artifact is not already cached. The Linux
-setup script and every other install-link feature need no egress.
+or Windows installer download and the artifact is not already cached, or when
+it verifies a normal release fallback. The Linux setup script and every other
+install-link feature need no egress.
 
 ## Distribute configuration with MDM (no custom installer)
 
@@ -116,7 +126,9 @@ managed file is enough for a fully self-hosted desktop rollout.
 ## Security notes
 
 - Install-link tokens are stored SHA-256 hashed.
-- Minting a new link rotates by default and revokes older active links.
+- Minting a new link does not revoke older links, so previously distributed
+  invitation emails and dashboard links keep working. An owner or admin can
+  explicitly rotate links to revoke every older active link for the workspace.
 - A leaked link reveals the org name and server URLs only; users still must
   sign in to access the workspace.
 - Public install-link endpoints are rate-limited.
@@ -127,6 +139,6 @@ managed file is enough for a fully self-hosted desktop rollout.
 
 | Symptom | Fix |
 |---|---|
-| `503` mentions a release tag | That release has no installer assets. Pin `OPENWORK_INSTALLER_RELEASE_TAG` to a tag with assets, or publish them with the `release-generic-installer` workflow. |
-| Links point at the wrong host | Put your den-web origin first in `DEN_BETTER_AUTH_TRUSTED_ORIGINS`, then restart `den-api`. |
+| A download opens the normal OpenWork installer instead of the organization-configured installer | The selected release has no generic artifact. Publish or mount the three generic assets; air-gapped deployments must use `OPENWORK_INSTALLER_ARTIFACTS_DIR`. |
+| Install links point at the wrong host | Set `BETTER_AUTH_URL` to the externally reachable den-web origin, then restart `den-api`. For invitation acceptance links, also put that origin first in `DEN_BETTER_AUTH_TRUSTED_ORIGINS`. |
 | Re-uploaded assets under the same tag keep serving old bytes | Clear the installer cache directory or bump the tag. The cache key is `<cacheDir>/<tag>/<file>`. |

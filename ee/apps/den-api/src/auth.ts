@@ -20,6 +20,7 @@ import { DEN_ACCOUNT_CONFIG } from "./account-linking-policy.js";
 import { SCIM_TOKEN_STORAGE_STRATEGY } from "./scim-token-storage.js";
 import { syncDenSignupContact } from "./loops.js";
 import { sendEmail } from "./utils/email/send-email.js";
+import { resolveInvitationDownloadUrl } from "./install-links.js";
 import {
   DEN_API_KEY_DEFAULT_PREFIX,
   DEN_API_KEY_EXPIRES_IN_DAYS,
@@ -555,6 +556,12 @@ export const auth = betterAuth({
         },
       },
       async sendInvitationEmail(data) {
+        const downloadUrl = await resolveInvitationDownloadUrl({
+          organizationId: data.organization.id,
+          createdByUserId: data.inviter.user.id,
+          metadata: data.organization.metadata,
+        });
+
         await sendEmail({
           to: data.email,
           template: "organizationInvite",
@@ -564,6 +571,7 @@ export const auth = betterAuth({
             invitedByEmail: data.inviter.user.email,
             organizationName: data.organization.name,
             role: data.role,
+            downloadUrl,
           },
         });
       },
