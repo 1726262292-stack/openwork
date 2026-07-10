@@ -95,7 +95,12 @@ export default {
         await ctx.prove("The member sees the standard platform choices for Acme", {
           voiceover: vo[1],
           action: async () => {
-            await ctx.eval("document.querySelector('[data-testid=install-download-primary]')?.focus(); true");
+            await ctx.client.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab" });
+            await ctx.client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab" });
+            await ctx.waitFor("document.activeElement?.matches('[data-testid=install-download-primary]')", {
+              timeoutMs: 5_000,
+              label: "keyboard focus on primary organization download",
+            });
           },
           assert: async () => {
             await ctx.expectText("Mac (Apple silicon)");
