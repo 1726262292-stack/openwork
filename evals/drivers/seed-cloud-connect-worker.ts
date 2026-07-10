@@ -1,11 +1,11 @@
-import { and, eq } from "@openwork-ee/den-db/drizzle"
+import { and, eq } from "../../ee/packages/den-db/src/drizzle.js"
 import {
   OrganizationTable,
   WorkerInstanceTable,
   WorkerTable,
   WorkerTokenTable,
-} from "@openwork-ee/den-db/schema"
-import { createDenTypeId } from "@openwork-ee/utils/typeid"
+} from "../../ee/packages/den-db/src/schema.js"
+import { createDenTypeId } from "../../ee/packages/utils/src/typeid.js"
 import { db } from "../../ee/apps/den-api/src/db.js"
 
 const organizationSlug = process.env.DEN_DEMO_ORG_SLUG?.trim() || "acme-robotics-demo"
@@ -67,5 +67,9 @@ async function seed() {
   process.stdout.write(`${JSON.stringify({ organizationId: organization.id, workerId, workerName, workerUrl })}\n`)
 }
 
-await seed()
-process.exit(0)
+seed()
+  .then(() => process.exit(0))
+  .catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  })
