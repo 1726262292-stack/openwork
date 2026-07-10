@@ -17,7 +17,7 @@ import { organizationCapabilityKeySchema, organizationHasCapability } from "../.
 import { resolveInstallerArtifact } from "../../utils/installer-artifacts.js"
 import { appendStoredEntryToZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationAdmin, getInvitationOrigin, orgAccessFailureStatus } from "./shared.js"
+import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
 
 const INSTALL_LINK_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 60
 const INSTALL_LINK_MINT_RATE_LIMIT_MAX = 30
@@ -107,13 +107,13 @@ async function enforceRateLimit(headers: Headers, scope: string, maxRequests: nu
 }
 
 function installPageUrl(token: string) {
-  return new URL(`/install?token=${encodeURIComponent(token)}`, getInvitationOrigin()).toString()
+  return new URL(`/install?token=${encodeURIComponent(token)}`, env.betterAuthUrl).toString()
 }
 
 function buildInstallConfig(input: { organization: { name: string; logo: string | null }; request: Request }) {
   return installConfigSchema.parse({
     clientName: input.organization.name,
-    webUrl: getInvitationOrigin(),
+    webUrl: env.betterAuthUrl,
     apiUrl: resolvePublicOrigin(input.request, env.apiPublicUrl),
     requireSignin: true,
     logoUrl: input.organization.logo ?? null,
