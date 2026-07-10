@@ -284,7 +284,14 @@ export default {
               userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
               platform: "Win32",
             });
-            await clickExactText(ctx, "Download the desktop app", "a");
+            await ctx.eval(`(() => {
+              const link = [...document.querySelectorAll('a')]
+                .find((candidate) => candidate.textContent?.trim() === 'Download the desktop app');
+              if (!link) return false;
+              link.target = '_self';
+              return true;
+            })()`);
+            await ctx.trustedClick('a[href*="/install?token="]');
             await ctx.waitFor("location.pathname === '/install'", { timeoutMs: 30_000, label: "Acme install page" });
             await ctx.waitForText(`Download OpenWork for ${ORGANIZATION_NAME}`, { timeoutMs: 30_000 });
             await ctx.waitForText("Download for Windows", { timeoutMs: 20_000 });
