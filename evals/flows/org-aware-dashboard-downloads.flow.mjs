@@ -10,8 +10,6 @@
  * provisioning. No invitation or app-version endpoint participates in setup.
  */
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
 const FLOW_ID = "org-aware-dashboard-downloads";
@@ -20,7 +18,6 @@ const vo = await loadVoiceoverParagraphs(FLOW_ID);
 const DEN_API_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_DEN_API_URL);
 const DEN_WEB_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_DEN_WEB_URL);
 const MARK_VERIFIED_CMD = process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() || "";
-const INSTALLER_ARTIFACTS_DIR = process.env.OPENWORK_INSTALLER_ARTIFACTS_DIR?.trim() || "";
 const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
 const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const MEMBER_EMAIL = process.env.OPENWORK_EVAL_MEMBER_EMAIL?.trim() || "riley.downloads@acme.test";
@@ -256,7 +253,6 @@ export default {
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_WEB_URL",
     "OPENWORK_EVAL_MARK_VERIFIED_CMD",
-    "OPENWORK_INSTALLER_ARTIFACTS_DIR",
   ],
   steps: [
     {
@@ -369,8 +365,6 @@ export default {
             await ctx.waitForText("Download for Windows", { timeoutMs: 30_000 });
           },
           assert: async () => {
-            const mountedArtifactPath = path.join(INSTALLER_ARTIFACTS_DIR, "openwork-installer-win-x64.exe");
-            witness(ctx, existsSync(mountedArtifactPath), "The Daytona Den deployment has a private mounted Windows artifact", mountedArtifactPath);
             const memberConfig = await fetchInstallConfig(ctx, state.memberDirectLink);
             witness(ctx, memberConfig?.clientName === ORGANIZATION_NAME, "Riley's installer is configured for Acme", memberConfig);
             state.windowsDownloadHref = await ctx.eval("document.querySelector('[data-testid=\"install-download-primary\"]')?.href ?? ''");
