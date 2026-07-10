@@ -4,8 +4,8 @@ import { env } from "./env.js";
 import { deriveDenMcpResource } from "./mcp/resource.js";
 import { getDenAuthIssuer, getDenJwtOptions } from "./mcp/jwt-policy.js";
 import {
+  addRequestedMcpClientScopes,
   DEN_MCP_DEFAULT_CLIENT_SCOPES,
-  DEN_MCP_OFFLINE_SCOPE,
   DEN_MCP_SCOPES,
 } from "./mcp/scopes.js";
 import {
@@ -347,19 +347,20 @@ export const auth = betterAuth({
         const clientId = maybeString(ctx.query?.client_id);
         const requestedScopes = maybeString(ctx.query?.scope)?.split(/\s+/).filter(Boolean) ?? [];
 
-        if (clientId && requestedScopes.includes(DEN_MCP_OFFLINE_SCOPE)) {
+        if (clientId) {
           const client = await ctx.context.adapter.findOne<{ scopes?: unknown }>({
             model: "oauthClient",
             where: [{ field: "clientId", value: clientId }],
           });
           const clientScopes = stringArray(client?.scopes);
+          const nextScopes = addRequestedMcpClientScopes(clientScopes, requestedScopes);
 
-          if (hasMcpScope(clientScopes) && !clientScopes.includes(DEN_MCP_OFFLINE_SCOPE)) {
+          if (nextScopes.length > clientScopes.length) {
             await ctx.context.adapter.update({
               model: "oauthClient",
               where: [{ field: "clientId", value: clientId }],
               update: {
-                scopes: [...clientScopes, DEN_MCP_OFFLINE_SCOPE],
+                scopes: nextScopes,
                 updatedAt: new Date(),
               },
             });

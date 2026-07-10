@@ -123,7 +123,7 @@ test("legacy MCP registration gains offline access and rotates a thirty-day refr
   const scopes = metadata.scopes_supported.filter((scope): scope is string => typeof scope === "string")
   expect(scopes).toContain("offline_access")
   const scope = scopes.join(" ")
-  const legacyScope = scopes.filter((entry) => entry !== "offline_access").join(" ")
+  const legacyScope = "mcp:read"
 
   const registrationResponse = await app.fetch(new Request(`${API_ORIGIN}/register`, {
     method: "POST",
@@ -202,9 +202,11 @@ test("legacy MCP registration gains offline access and rotates a thirty-day refr
   }
   expect({ status: tokenResponse.status, tokens }).toMatchObject({ status: 200 })
   const firstRefreshToken = requiredString(tokens, "refresh_token")
+  const grantedScopes = requiredString(tokens, "scope").split(" ")
   expect(firstRefreshToken).toStartWith("ow_mcp_rt_")
   expect(isRecord(tokens) && tokens.expires_in).toBe(15 * 60)
-  expect(isRecord(tokens) && typeof tokens.scope === "string" && tokens.scope.split(" ")).toContain("offline_access")
+  expect(grantedScopes).toContain("offline_access")
+  expect(grantedScopes).toContain("mcp:write")
 
   const [firstGrant] = await db
     .select({
