@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react"
+import React, { type CSSProperties } from "react"
 import { Body, Button, Container, Head, Heading, Hr, Html, Preview, Section, Text } from "@react-email/components"
 import { DEFAULT_OPENWORK_DOWNLOAD_URL, desktopCapabilities } from "./desktop-capabilities.js"
 
