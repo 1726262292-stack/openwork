@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/openwork-den-corporate-ca.XXXXXX")"
-PORT="${DEN_TLS_REPRO_PORT:-3979}"
+PORT="${DEN_TLS_REPRO_PORT:-$((39000 + RANDOM % 2000))}"
 ISSUER="https://localhost:${PORT}"
 MOCK_PID=""
 
@@ -56,15 +56,12 @@ openssl x509 -req -days 1 -sha256 \
   -extfile "$TMP_DIR/server.ext" \
   -out "$TMP_DIR/server.pem" >/dev/null 2>&1
 
-(
-  cd "$ROOT_DIR"
-  HOST=127.0.0.1 \
+HOST=127.0.0.1 \
   PORT="$PORT" \
   ISSUER="$ISSUER" \
   TLS_CERT_FILE="$TMP_DIR/server.pem" \
   TLS_KEY_FILE="$TMP_DIR/server.key" \
-  node scripts/mock-oauth-mcp-server.mjs > "$TMP_DIR/mock.log" 2>&1
-) &
+  node "$ROOT_DIR/scripts/mock-oauth-mcp-server.mjs" > "$TMP_DIR/mock.log" 2>&1 &
 MOCK_PID=$!
 
 for _ in $(seq 1 50); do
