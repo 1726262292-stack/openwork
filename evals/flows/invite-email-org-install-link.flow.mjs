@@ -85,8 +85,14 @@ async function ensureAdminToken(ctx) {
 async function ensureOrganizationInstallLinks(ctx) {
   const orgAdminToken = await ensureAdminToken(ctx);
   const org = await denApiFetch("/v1/org", { headers: authHeaders(orgAdminToken) });
-  witness(ctx, org.response.ok, "Alex can load the organization", { status: org.response.status, body: org.body });
-  witness(ctx, org.body?.organization?.name === ORGANIZATION_NAME, "The eval organization is Acme Robotics", org.body?.organization);
+  witness(ctx, org.response.ok, "Alex can load the organization", {
+    status: org.response.status,
+    organization: { id: org.body?.organization?.id, name: org.body?.organization?.name },
+  });
+  witness(ctx, org.body?.organization?.name === ORGANIZATION_NAME, "The eval organization is Acme Robotics", {
+    id: org.body?.organization?.id,
+    name: org.body?.organization?.name,
+  });
   state.organizationId = org.body?.organization?.id ?? null;
   witness(ctx, typeof state.organizationId === "string", "Acme exposes an organization id", state.organizationId);
 
@@ -111,7 +117,10 @@ async function ensurePlatformAdmin(ctx) {
     method: "POST",
     body: JSON.stringify({ name: "Priya Platform", email: PLATFORM_ADMIN_EMAIL, password: PLATFORM_ADMIN_PASSWORD }),
   });
-  witness(ctx, signup.response.ok || [400, 403, 409, 422].includes(signup.response.status), "The allowlisted platform-admin account exists", { status: signup.response.status, body: signup.body });
+  witness(ctx, signup.response.ok || [400, 403, 409, 422].includes(signup.response.status), "The allowlisted platform-admin account exists", {
+    status: signup.response.status,
+    email: PLATFORM_ADMIN_EMAIL,
+  });
   markEmailVerified(ctx, PLATFORM_ADMIN_EMAIL);
 
   const signedIn = await denApiFetch("/api/auth/sign-in/email", {
@@ -178,7 +187,10 @@ async function assertPendingInvitation(ctx) {
   const org = await denApiFetch("/v1/org", { headers: authHeaders(token) });
   const invitations = Array.isArray(org.body?.invitations) ? org.body.invitations : [];
   const pending = invitations.find((entry) => entry?.email === INVITEE_EMAIL && entry?.status === "pending") ?? null;
-  witness(ctx, org.response.ok && Boolean(pending), `Maya's invitation is pending in the server`, { status: org.response.status, pending });
+  witness(ctx, org.response.ok && Boolean(pending), `Maya's invitation is pending in the server`, {
+    status: org.response.status,
+    pending: pending ? { id: pending.id, email: pending.email, role: pending.role, status: pending.status } : null,
+  });
 }
 
 function decodeHtmlAttribute(value) {
@@ -192,8 +204,9 @@ function decodeHtmlAttribute(value) {
 async function latestInvitationEmail(ctx) {
   const list = await denApiFetch("/v1/dev/emails?template=organizationInvite");
   const emails = Array.isArray(list.body?.emails) ? list.body.emails : [];
-  witness(ctx, list.response.ok && emails.some((entry) => entry?.to === INVITEE_EMAIL), "The dev outbox contains Maya's real invitation email", emails);
-  witness(ctx, emails[0]?.to === INVITEE_EMAIL, "Maya's invitation is the newest rendered organization email", emails[0]);
+  const emailSummaries = emails.map((entry) => ({ template: entry?.template, to: entry?.to, subject: entry?.subject, at: entry?.at }));
+  witness(ctx, list.response.ok && emails.some((entry) => entry?.to === INVITEE_EMAIL), "The dev outbox contains Maya's real invitation email", emailSummaries);
+  witness(ctx, emails[0]?.to === INVITEE_EMAIL, "Maya's invitation is the newest rendered organization email", emailSummaries[0]);
 
   const response = await fetch(`${DEN_API_URL}/v1/dev/emails/last?template=organizationInvite`);
   const html = await response.text();
@@ -265,6 +278,25 @@ export default {
             witness(ctx, !email.html.includes("https://openworklabs.com/download"), "The organization invitation no longer uses the generic marketing download", "generic URL absent");
             ctx.output("invite-email-install-link", JSON.stringify({ to: INVITEE_EMAIL, installPage: `${parsed.origin}${parsed.pathname}`, opaqueTokenLength: parsed.searchParams.get("token")?.length }, null, 2));
             await navigateTo(ctx, `${DEN_API_URL}/v1/dev/emails/last?template=organizationInvite`);
+            const invitationEvidenceRedacted = await ctx.eval(`(() => {
+              const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+              let redactedTextNodes = 0;
+              let node = walker.nextNode();
+              while (node) {
+                if (node.nodeValue?.includes('/join-org?invite=')) {
+                  node.nodeValue = node.nodeValue.replace(/([?&]invite=)[^&\\s]+/g, '$1[redacted]');
+                  redactedTextNodes += 1;
+                }
+                node = walker.nextNode();
+              }
+              let redactedLinks = 0;
+              for (const link of document.querySelectorAll('a[href*="/join-org?invite="]')) {
+                link.href = ${JSON.stringify(`${DEN_WEB_URL}/join-org?invite=%5Bredacted%5D`)};
+                redactedLinks += 1;
+              }
+              return redactedTextNodes > 0 && redactedLinks > 0;
+            })()`);
+            witness(ctx, invitationEvidenceRedacted === true, "Published email evidence redacts the invitation credential", invitationEvidenceRedacted);
             await ctx.waitForText("Accept invite", { timeoutMs: 20_000 });
             await ctx.waitForText("Download the desktop app", { timeoutMs: 20_000 });
           },
@@ -300,14 +332,18 @@ export default {
               link.target = '_self';
               return true;
             })()`);
-            await ctx.trustedClick('a[href*="/install?token="]');
-            await ctx.waitFor("location.pathname === '/install'", { timeoutMs: 30_000, label: "Acme install page" });
-            await ctx.waitForText(`Download OpenWork for ${ORGANIZATION_NAME}`, { timeoutMs: 30_000 });
-            await ctx.waitForText("Download for Windows", { timeoutMs: 20_000 });
+            try {
+              await ctx.trustedClick('a[href*="/install?token="]');
+              await ctx.waitFor("location.pathname === '/install'", { timeoutMs: 30_000, label: "Acme install page" });
+              const currentUrl = await ctx.eval("location.href");
+              witness(ctx, currentUrl === state.emailInstallUrl, "The email opens the exact organization install link", redactedInstallUrl(currentUrl));
+              await ctx.waitForText(`Download OpenWork for ${ORGANIZATION_NAME}`, { timeoutMs: 30_000 });
+              await ctx.waitForText("Download for Windows", { timeoutMs: 20_000 });
+            } finally {
+              await ctx.eval(`(() => { History.prototype.replaceState.call(history, null, '', '/install?token=%5Bredacted%5D'); return true; })()`);
+            }
           },
           assert: async () => {
-            const currentUrl = await ctx.eval("location.href");
-            witness(ctx, currentUrl === state.emailInstallUrl, "The email opens the exact organization install link", redactedInstallUrl(currentUrl));
             state.windowsDownloadUrl = await ctx.eval("document.querySelector('[data-testid=\"install-download-primary\"]')?.href ?? ''");
             const download = new URL(state.windowsDownloadUrl);
             const installToken = new URL(state.emailInstallUrl).searchParams.get("token") ?? "";
@@ -320,11 +356,11 @@ export default {
             const firstResponse = await fetch(state.windowsDownloadUrl, { redirect: "manual" });
             const location = firstResponse.headers.get("location") ?? "";
             if (firstResponse.status === 302) {
-              witness(ctx, location.length > 0, "A missing generic artifact returns a fallback location", location);
-              witness(ctx, !location.includes(download.searchParams.get("token") ?? ""), "The fallback URL contains no organization token", location);
+              witness(ctx, location.length > 0, "A missing generic artifact returns a fallback location", redactedInstallUrl(location));
+              witness(ctx, !location.includes(download.searchParams.get("token") ?? ""), "The fallback URL contains no organization token", redactedInstallUrl(location));
               const fallback = await fetch(location, { method: "HEAD", redirect: "follow" });
-              witness(ctx, fallback.ok && fallback.url.toLowerCase().includes(".exe"), "The verified fallback resolves to a real Windows executable", { status: fallback.status, url: fallback.url });
-              ctx.output("windows-invite-download", JSON.stringify({ mode: "verified normal fallback", denStatus: firstResponse.status, location, finalStatus: fallback.status, finalUrl: fallback.url }, null, 2));
+              witness(ctx, fallback.ok && fallback.url.toLowerCase().includes(".exe"), "The verified fallback resolves to a real Windows executable", { status: fallback.status, url: redactedInstallUrl(fallback.url) });
+              ctx.output("windows-invite-download", JSON.stringify({ mode: "verified normal fallback", denStatus: firstResponse.status, location: redactedInstallUrl(location), finalStatus: fallback.status, finalUrl: redactedInstallUrl(fallback.url) }, null, 2));
             } else {
               witness(ctx, firstResponse.ok, "Den serves the generic Windows installer", firstResponse.status);
               witness(ctx, (firstResponse.headers.get("content-type") ?? "").includes("portable-executable"), "The generic response is a Windows executable", firstResponse.headers.get("content-type"));
@@ -332,7 +368,6 @@ export default {
             }
             await ctx.expectText(`Download OpenWork for ${ORGANIZATION_NAME}`);
             await ctx.expectText("Download for Windows");
-            await ctx.eval(`(() => { History.prototype.replaceState.call(history, null, '', '/install?token=%5Bredacted%5D'); return true; })()`);
           },
           screenshot: {
             name: "invite-email-org-link-windows-page",
