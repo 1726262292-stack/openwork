@@ -61,7 +61,9 @@ export default {
       run: async (ctx) => {
         await ctx.prove("Redundant team and server metadata are absent from the install page", {
           voiceover: vo[1],
-          action: async () => {},
+          action: async () => {
+            await ctx.eval(`Array.from(document.querySelectorAll('a')).find((link) => link.textContent?.trim() === 'Windows')?.focus()`);
+          },
           assert: async () => {
             const text = await ctx.eval("document.body.innerText");
             ctx.assert(!text.includes(`Team · ${ORG_NAME}`), "The redundant team footer is still visible.");
