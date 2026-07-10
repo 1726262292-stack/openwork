@@ -41,7 +41,7 @@ export default {
       name: "OpenWork Cloud MCP receives requested write access",
       run: async (ctx) => {
         let result;
-        await ctx.prove("New MCP connections include write access and legacy connections can explicitly opt in", {
+        await ctx.prove("MCP connections remain read-only until authorization explicitly requests write access", {
           voiceover: vo[0],
           action: async () => {
             result = runTest("test/mcp-scopes.test.ts");
@@ -49,9 +49,9 @@ export default {
           assert: async () => {
             const output = commandOutput(result);
             witness(ctx, result.status === 0, "The MCP scope policy tests pass", output);
-            witness(ctx, output.includes("MCP OAuth client defaults include read and write access"), "New MCP OAuth clients receive mcp:write by default");
-            witness(ctx, output.includes("a legacy MCP client can opt in to requested write access"), "A legacy MCP client accepts an explicitly requested mcp:write scope");
-            witness(ctx, output.includes("a legacy MCP client is not implicitly upgraded to write access"), "A legacy MCP client stays read-only when authorization does not request mcp:write");
+            witness(ctx, output.includes("MCP OAuth client defaults remain read-only"), "New MCP OAuth clients remain read-only by default");
+            witness(ctx, output.includes("a read-only MCP client can opt in to requested write access"), "A read-only MCP client accepts an explicitly requested mcp:write scope");
+            witness(ctx, output.includes("write access is not added when authorization requests only offline access"), "An MCP client does not gain mcp:write when authorization does not request it");
             ctx.output("$ bun --conditions=development test test/mcp-scopes.test.ts", output);
           },
         });
