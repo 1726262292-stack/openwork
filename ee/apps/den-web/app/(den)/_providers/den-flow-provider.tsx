@@ -97,6 +97,7 @@ type DenFlowContextValue = {
   cancelVerification: () => void;
   beginSocialAuth: (provider: SocialAuthProvider) => Promise<void>;
   signOut: () => Promise<void>;
+  updateUserProfile: (input: { firstName: string; lastName: string }) => Promise<AuthUser>;
   resolveUserLandingRoute: () => Promise<string | null>;
   billingSummary: BillingSummary | null;
   billingBusy: boolean;
@@ -1292,6 +1293,30 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function updateUserProfile(input: { firstName: string; lastName: string }) {
+    const { response, payload } = await requestJson(
+      "/v1/me/profile",
+      {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      },
+      12000,
+    );
+
+    if (!response.ok) {
+      throw new Error(getErrorMessage(payload, `Failed to update profile (${response.status}).`));
+    }
+
+    const nextUser = getUser(payload);
+    if (!nextUser) {
+      throw new Error("Profile update response did not include a user.");
+    }
+
+    setUser(nextUser);
+    identifyPosthogUser(nextUser);
+    return nextUser;
+  }
+
   async function launchWorker(options: { source?: "manual" | "signup_auto"; workerNameOverride?: string } = {}) {
     if (!user) {
       setAuthError("Sign in before launching a worker.");
@@ -2083,6 +2108,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     cancelVerification,
     beginSocialAuth,
     signOut,
+    updateUserProfile,
     resolveUserLandingRoute,
     billingSummary,
     billingBusy,
