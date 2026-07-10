@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fetchDeploymentDesktopRelease } from "./desktop-release.mjs";
 
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 
@@ -30,12 +31,11 @@ function resolveAppVersion(app) {
   return _cachedAppVersion;
 }
 const ELECTRON_UPDATER_FEEDS = Object.freeze({
-  stable: "https://github.com/different-ai/openwork/releases/latest/download",
-  alpha: "https://github.com/different-ai/openwork/releases/download/alpha-macos-latest",
+  linuxStable: "https://github.com/different-ai/openwork/releases/latest/download",
 });
 
-function normalizeElectronUpdaterChannel(value) {
-  if (value === "alpha" && process.platform === "darwin") return "alpha";
+function normalizeElectronUpdaterChannel(value, platform = process.platform) {
+  if (value === "alpha" && platform === "darwin") return "alpha";
   return "stable";
 }
 
@@ -65,8 +65,23 @@ async function writeElectronUpdaterChannel(app, channel) {
   return normalized;
 }
 
-function electronUpdaterFeedUrl(channel) {
-  return ELECTRON_UPDATER_FEEDS[normalizeElectronUpdaterChannel(channel)];
+export async function electronUpdaterFeedUrl(
+  channel,
+  getDesktopBootstrapConfig,
+  fetcher,
+  platform = process.platform,
+) {
+  const normalized = normalizeElectronUpdaterChannel(channel, platform);
+  // Linux delivery remains unchanged and is outside the air-gapped Mac/Windows scope.
+  if (platform === "linux") return ELECTRON_UPDATER_FEEDS.linuxStable;
+  const release = await fetchDeploymentDesktopRelease({ getDesktopBootstrapConfig, fetcher });
+  if (normalized === "alpha") {
+    if (!release.alphaUpdateFeedUrl) {
+      throw new Error("Deployment does not publish an alpha desktop update feed.");
+    }
+    return release.alphaUpdateFeedUrl;
+  }
+  return release.updateFeedUrl;
 }
 
 function parseComparableVersion(value) {
@@ -141,24 +156,24 @@ function isVersionNewer(candidate, current) {
   return comparison === null ? candidate !== current : comparison > 0;
 }
 
-function updaterChannelState(app, channel) {
+async function updaterChannelState(app, channel, getDesktopBootstrapConfig, fetcher) {
   const normalized = normalizeElectronUpdaterChannel(channel);
   return {
     channel: normalized,
-    feedUrl: electronUpdaterFeedUrl(normalized),
+    feedUrl: await electronUpdaterFeedUrl(normalized, getDesktopBootstrapConfig, fetcher),
     currentVersion: resolveAppVersion(app),
   };
 }
 
-async function applyElectronUpdaterFeed(app, updater) {
+async function applyElectronUpdaterFeed(app, updater, getDesktopBootstrapConfig, fetcher) {
   const channel = await readElectronUpdaterChannel(app);
-  const state = updaterChannelState(app, channel);
+  const state = await updaterChannelState(app, channel, getDesktopBootstrapConfig, fetcher);
   updater.allowPrerelease = state.channel === "alpha";
   // Moving from alpha back to stable can be a semver downgrade; still show
   // the latest stable so users can return to the stable channel deliberately.
   updater.allowDowngrade = state.channel === "stable";
   if (updater?.setFeedURL) {
-    updater.setFeedURL({ provider: "generic", url: state.feedUrl });
+    updater.setFeedURL({ provider: "generic", url: `${state.feedUrl.replace(/\/+$/, "")}/` });
   }
   return state;
 }
@@ -215,7 +230,7 @@ async function cleanStaleUpdaterState(app) {
 
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
-export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
+export function registerUpdaterIpc({ app, ipcMain, getMainWindow, getDesktopBootstrapConfig, fetcher = fetch }) {
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
   let checkedUpdateVersion = null;
@@ -264,7 +279,6 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
             delta: info.delta ?? 0,
           });
         });
-        await applyElectronUpdaterFeed(app, autoUpdaterInstance);
       }
     } catch (error) {
       console.warn("[updater] electron-updater not available", error);
@@ -275,7 +289,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
 
   ipcMain.handle("openwork:updater:getChannel", async () => {
     const channel = await readElectronUpdaterChannel(app);
-    return updaterChannelState(app, channel);
+    return updaterChannelState(app, channel, getDesktopBootstrapConfig, fetcher);
   });
 
   ipcMain.handle("openwork:updater:setChannel", async (_event, rawChannel) => {
@@ -283,9 +297,9 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     checkedUpdateVersion = null;
     const updater = await ensureAutoUpdater();
     if (updater) {
-      return applyElectronUpdaterFeed(app, updater);
+      return applyElectronUpdaterFeed(app, updater, getDesktopBootstrapConfig, fetcher);
     }
-    return updaterChannelState(app, channel);
+    return updaterChannelState(app, channel, getDesktopBootstrapConfig, fetcher);
   });
 
   ipcMain.handle("openwork:updater:check", async (_event, rawChannel) => {
@@ -294,8 +308,8 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     }
     const updater = await ensureAutoUpdater();
     const channelState = updater
-      ? await applyElectronUpdaterFeed(app, updater)
-      : updaterChannelState(app, await readElectronUpdaterChannel(app));
+      ? await applyElectronUpdaterFeed(app, updater, getDesktopBootstrapConfig, fetcher)
+      : await updaterChannelState(app, await readElectronUpdaterChannel(app), getDesktopBootstrapConfig, fetcher);
     if (!updater) return { available: false, reason: "unavailable", ...channelState };
     try {
       const result = await updater.checkForUpdates();
@@ -321,7 +335,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     const updater = await ensureAutoUpdater();
     if (!updater) return { ok: false, reason: "unavailable" };
     try {
-      await applyElectronUpdaterFeed(app, updater);
+      await applyElectronUpdaterFeed(app, updater, getDesktopBootstrapConfig, fetcher);
       const currentVersion = resolveAppVersion(app);
       if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
         const result = await updater.checkForUpdates();

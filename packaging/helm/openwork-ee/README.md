@@ -381,6 +381,9 @@ config:
   public:
     installerReleaseTag: "v0.17.9"
     installerReleaseRepo: "different-ai/openwork"
+    # Keep false for private-network installs. Set true only when GitHub is an
+    # intentional fallback for generic installer wrappers.
+    installerReleaseFallbackEnabled: "false"
 
 installerArtifacts:
   enabled: true
@@ -389,6 +392,37 @@ installerArtifacts:
 ```
 
 Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. The mounted directory must contain `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`.
+
+For a deployment where desktop installation and updates must stay inside the
+organization network, mount the signed desktop release as a separate,
+versioned repository:
+
+```yaml
+desktopReleases:
+  enabled: true
+  existingClaim: openwork-desktop-releases
+  mountPath: /var/lib/openwork/desktop-releases
+```
+
+For Den version `0.17.19`, place the unmodified release files under
+`0.17.19/`: `latest-mac.yml`, `latest.yml`, both Mac DMGs and updater ZIPs,
+the Windows x64 EXE, and any `.blockmap` files referenced by those manifests.
+To support Windows ARM64, also mount the ARM64 EXE and include it in
+`latest.yml`; x64-only repositories continue to work and omit ARM64 from Den's
+download metadata.
+Den serves those bytes from `/v1/desktop-releases/0.17.19/…`; the installer and
+desktop updater learn the internal URLs from `/v1/app-version`.
+
+If a connected deployment intentionally uses a mirror instead, leave
+`desktopReleases.enabled=false` and set
+`config.public.desktopReleasesPublicBaseUrl` to an absolute URL. The optional
+`{version}` placeholder is expanded from Den's supported app version. There is
+no implicit public desktop-release fallback.
+
+The macOS alpha channel also fails closed. Set
+`config.public.desktopAlphaUpdateFeedUrl` only when the deployment intentionally
+publishes a private or external alpha feed; OpenWork never falls back to the
+upstream GitHub alpha feed on Mac or Windows.
 
 ## Health Probes
 

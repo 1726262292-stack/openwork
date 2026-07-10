@@ -12,7 +12,8 @@ import { env } from "../env.js"
  *   1. OPENWORK_INSTALLER_ARTIFACTS_DIR file, when set and present
  *      (self-hosted/dev override — the pre-#2480 behavior, moved here).
  *   2. Disk cache under OPENWORK_INSTALLER_CACHE_DIR/<releaseTag>/<fileName>.
- *   3. The public release asset published by release-generic-installer.yml:
+ *   3. When OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED=true, the public
+ *      release asset published by release-generic-installer.yml:
  *      https://github.com/<repo>/releases/download/<releaseTag>/<fileName>,
  *      streamed to a temp file then atomically renamed into the cache.
  *
@@ -27,6 +28,7 @@ type InstallerArtifactOptions = {
   cacheDir?: string
   releaseTag?: string
   releaseRepo?: string
+  releaseFallbackEnabled?: boolean
   fetcher?: InstallerArtifactFetcher
 }
 
@@ -114,6 +116,11 @@ export async function resolveInstallerArtifact(fileName: string, options: Instal
   if (cached) {
     console.info(`[installer-artifacts] cache hit ${fileName}`)
     return cached
+  }
+
+  const releaseFallbackEnabled = options.releaseFallbackEnabled ?? env.installerReleaseFallbackEnabled
+  if (!releaseFallbackEnabled) {
+    return null
   }
 
   const inFlight = inFlightDownloads.get(cachePath)

@@ -38,6 +38,13 @@ data:
   {{ if .Values.config.public.installerReleaseRepo }}
   OPENWORK_INSTALLER_RELEASE_REPO: {{ .Values.config.public.installerReleaseRepo | quote }}
   {{ end }}
+  OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED: {{ .Values.config.public.installerReleaseFallbackEnabled | quote }}
+  {{ if .Values.config.public.desktopReleasesPublicBaseUrl }}
+  OPENWORK_DESKTOP_RELEASES_PUBLIC_BASE_URL: {{ .Values.config.public.desktopReleasesPublicBaseUrl | quote }}
+  {{ end }}
+  {{ if .Values.config.public.desktopAlphaUpdateFeedUrl }}
+  OPENWORK_DESKTOP_ALPHA_UPDATE_FEED_URL: {{ .Values.config.public.desktopAlphaUpdateFeedUrl | quote }}
+  {{ end }}
   PROVISIONER_MODE: {{ .Values.config.provisioner.mode | quote }}
   WORKER_PROVISIONING_RECONCILE_INTERVAL_MS: {{ .Values.config.provisioner.reconcileIntervalMs | quote }}
   WORKER_PROVISIONING_RECONCILE_STALE_MS: {{ .Values.config.provisioner.reconcileStaleMs | quote }}

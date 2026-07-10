@@ -54,20 +54,46 @@ Den resolves Mac and Windows installer artifacts in this order:
 
 1. `OPENWORK_INSTALLER_ARTIFACTS_DIR`, when set and the file exists.
 2. `OPENWORK_INSTALLER_CACHE_DIR/<tag>/<file>`, defaulting to the OS temp dir.
-3. The GitHub release asset for `OPENWORK_INSTALLER_RELEASE_REPO` and
+3. Only when `OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED=true`, the GitHub
+   release asset for `OPENWORK_INSTALLER_RELEASE_REPO` and
    `OPENWORK_INSTALLER_RELEASE_TAG`.
 
 | Mode | Configure | Behavior |
 |---|---|---|
-| Internet-connected | Default. `OPENWORK_INSTALLER_RELEASE_TAG` resolves to `v<pinned app version>`; override it when needed. `v0.17.9` is the first tag carrying installer assets. | Den downloads the public release asset on first Mac/Windows download, then serves cached bytes. |
-| Fork/mirror | Set `OPENWORK_INSTALLER_RELEASE_REPO`, for example `your-org/openwork`. | Den downloads assets from your fork or mirror release instead of `different-ai/openwork`. |
+| Internet-connected | Set `OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED=true`. `OPENWORK_INSTALLER_RELEASE_TAG` resolves to `v<pinned app version>`; override it when needed. `v0.17.9` is the first tag carrying installer assets. | Den downloads the public release asset on first Mac/Windows download, then serves cached bytes. |
+| Fork/mirror | Set `OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED=true` and `OPENWORK_INSTALLER_RELEASE_REPO`, for example `your-org/openwork`. | Den downloads assets from your fork or mirror release instead of `different-ai/openwork`. |
 | Air-gapped | Mount a volume at `OPENWORK_INSTALLER_ARTIFACTS_DIR` containing exactly `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`. | The mounted artifact directory takes precedence and requires zero egress. |
+
+The generic installer wrapper is only the first download. For a fully
+air-gapped Mac/Windows deployment, also mount the signed desktop app release at
+`OPENWORK_DESKTOP_RELEASES_DIR/<version>/`. Copy `latest-mac.yml`, `latest.yml`,
+the Mac DMGs and updater ZIPs, the Windows x64 EXE, and referenced blockmaps
+without modifying them. `/v1/app-version` then returns Den-internal download
+and update-feed URLs, so first install and later updates use the same private
+host. `OPENWORK_DESKTOP_RELEASES_PUBLIC_BASE_URL` is the explicit connected
+fallback and may contain `{version}`; it is unset by default. Den validates that
+the mounted manifests reference only relative files from the mounted release,
+so a copied public pointer manifest cannot silently restore public egress.
+
+Windows ARM64 is backward-compatible and opt-in for mounted repositories. Add
+`openwork-win-arm64-<version>.exe` and its entry in `latest.yml` to advertise it
+to ARM64 installers and updaters. Existing x64-only mounts remain valid and do
+not advertise a nonexistent ARM64 download. An explicitly configured external
+desktop release base is expected to carry both Windows architectures.
+
+The macOS alpha channel is disabled unless
+`OPENWORK_DESKTOP_ALPHA_UPDATE_FEED_URL` is explicitly configured. This keeps
+an organization-managed desktop from bypassing Den through the upstream alpha
+feed.
 
 ## Egress
 
-`den-api` makes outbound HTTPS requests to `github.com` only when serving a Mac
-or Windows installer download and the artifact is not already cached. The Linux
-setup script and every other install-link feature need no egress.
+With the defaults above, `den-api` makes no outbound release request. It contacts
+GitHub for a missing generic installer wrapper only when
+`OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED=true`; desktop installation and
+updates contact an external release host only when an operator configures one
+of the explicit desktop release URLs. The Linux setup script needs no egress
+from Den.
 
 ## Distribute configuration with MDM (no custom installer)
 

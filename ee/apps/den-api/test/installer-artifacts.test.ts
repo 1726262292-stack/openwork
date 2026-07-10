@@ -44,6 +44,7 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v9.9.9",
       releaseRepo: "different-ai/openwork",
+      releaseFallbackEnabled: true,
       fetcher: fetcherReturning(200, "from-network", calls),
     })
 
@@ -61,6 +62,7 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v9.9.9",
       releaseRepo: "different-ai/openwork",
+      releaseFallbackEnabled: true,
       fetcher: fetcherReturning(200, "from-network", calls),
     })
 
@@ -75,6 +77,7 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v9.9.9",
       releaseRepo: "different-ai/openwork",
+      releaseFallbackEnabled: true,
       fetcher: fetcherReturning(200, "from-network", calls),
     }
 
@@ -102,10 +105,27 @@ describe("resolveInstallerArtifact", () => {
       cacheDir,
       releaseTag: "v0.0.0-missing",
       releaseRepo: "different-ai/openwork",
+      releaseFallbackEnabled: true,
       fetcher: fetcherReturning(404, null, calls),
     })
 
     expect(resolved).toBeNull()
     expect(calls.length).toBe(1)
+  })
+
+  test("does not contact a public release unless fallback is explicitly enabled", async () => {
+    const cacheDir = tempDir("ow-installer-cache-")
+    const calls: string[] = []
+
+    const resolved = await resolveInstallerArtifact(FILE_NAME, {
+      cacheDir,
+      releaseTag: "v9.9.9",
+      releaseRepo: "different-ai/openwork",
+      releaseFallbackEnabled: false,
+      fetcher: fetcherReturning(200, "from-network", calls),
+    })
+
+    expect(resolved).toBeNull()
+    expect(calls).toEqual([])
   })
 })

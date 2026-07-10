@@ -245,9 +245,11 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       return id && role && url && expiresAt ? [{ id, role, ...(token ? { token } : {}), url, expiresAt }] : [];
     });
     const writtenAt = typeof input?.writtenAt === "string" ? input.writtenAt.trim() : "";
+    const apiBaseUrl = typeof input?.apiBaseUrl === "string" ? input.apiBaseUrl.trim() : "";
 
     return {
       baseUrl,
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
       requireSignin: forceRequireSignin || input?.requireSignin === true,
       ...(writtenAt ? { writtenAt } : {}),
       ...(claimLinks.length > 0 ? { claimLinks } : {}),

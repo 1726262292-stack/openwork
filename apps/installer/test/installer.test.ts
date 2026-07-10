@@ -7,7 +7,7 @@ import { installConfigUrlFor, parseInstallerFilenameTag } from "@openwork/instal
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
 import { isTranslocatedPath, parseMountTableLine, readSidecarConfig, resolveTranslocatedOriginalPath } from "../src/config-sources"
-import { writeBootstrapConfig } from "../src/install"
+import { releaseAssetFromVersionPayload, writeBootstrapConfig } from "../src/install"
 import { releaseAssetFor } from "../src/release-asset"
 
 describe("desktopBootstrapPath", () => {
@@ -39,22 +39,67 @@ describe("desktopBootstrapPath", () => {
 
 describe("releaseAssetFor", () => {
   test("resolves per-platform asset names", () => {
-    expect(releaseAssetFor("v0.17.7", "darwin", "arm64").fileName).toBe("openwork-mac-arm64-0.17.7.dmg")
-    expect(releaseAssetFor("0.17.7", "darwin", "x64").fileName).toBe("openwork-mac-x64-0.17.7.dmg")
-    expect(releaseAssetFor("0.17.7", "win32", "x64").fileName).toBe("openwork-win-x64-0.17.7.exe")
-    expect(releaseAssetFor("0.17.7", "linux", "x64").fileName).toBe("openwork-linux-x86_64-0.17.7.AppImage")
-    expect(releaseAssetFor("0.17.7", "linux", "arm64").fileName).toBe("openwork-linux-arm64-0.17.7.AppImage")
+    const url = "https://den.examplecorp.test/v1/desktop-releases/0.17.7/artifact"
+    expect(releaseAssetFor({ version: "v0.17.7", url, platform: "darwin", arch: "arm64" }).fileName).toBe("openwork-mac-arm64-0.17.7.dmg")
+    expect(releaseAssetFor({ version: "0.17.7", url, platform: "darwin", arch: "x64" }).fileName).toBe("openwork-mac-x64-0.17.7.dmg")
+    expect(releaseAssetFor({ version: "0.17.7", url, platform: "win32", arch: "x64" }).fileName).toBe("openwork-win-x64-0.17.7.exe")
+    expect(releaseAssetFor({ version: "0.17.7", url, platform: "win32", arch: "arm64" }).fileName).toBe("openwork-win-arm64-0.17.7.exe")
+    expect(releaseAssetFor({ version: "0.17.7", url, platform: "linux", arch: "x64" }).fileName).toBe("openwork-linux-x86_64-0.17.7.AppImage")
+    expect(releaseAssetFor({ version: "0.17.7", url, platform: "linux", arch: "arm64" }).fileName).toBe("openwork-linux-arm64-0.17.7.AppImage")
   })
 
-  test("builds the release download URL from the version tag", () => {
-    expect(releaseAssetFor("0.17.7", "darwin", "arm64").url).toBe(
-      "https://github.com/different-ai/openwork/releases/download/v0.17.7/openwork-mac-arm64-0.17.7.dmg",
-    )
+  test("uses the deployment-owned release URL verbatim", () => {
+    const url = "https://den.examplecorp.test/v1/desktop-releases/0.17.7/openwork-mac-arm64-0.17.7.dmg"
+    expect(releaseAssetFor({ version: "0.17.7", url, platform: "darwin", arch: "arm64" }).url).toBe(url)
   })
 
   test("rejects unsupported targets", () => {
-    expect(() => releaseAssetFor("0.17.7", "win32", "arm64")).toThrow()
-    expect(() => releaseAssetFor("", "darwin", "arm64")).toThrow()
+    const url = "https://den.examplecorp.test/release"
+    expect(() => releaseAssetFor({ version: "0.17.7", url, platform: "win32", arch: "ia32" })).toThrow()
+    expect(() => releaseAssetFor({ version: "", url, platform: "darwin", arch: "arm64" })).toThrow()
+  })
+})
+
+describe("releaseAssetFromVersionPayload", () => {
+  test("selects the Den-owned Windows download without inventing a public host", () => {
+    const url = "https://den.examplecorp.test/v1/desktop-releases/0.17.7/openwork-win-x64-0.17.7.exe"
+    const asset = releaseAssetFromVersionPayload({
+      latestAppVersion: "0.17.7",
+      desktopRelease: { version: "0.17.7", downloads: { "win-x64": url } },
+    }, "win32", "x64")
+
+    expect(asset.url).toBe(url)
+    expect(asset.fileName).toBe("openwork-win-x64-0.17.7.exe")
+  })
+
+  test("selects a Den-owned Windows ARM64 release when the deployment publishes it", () => {
+    const url = "https://den.examplecorp.test/v1/desktop-releases/0.17.7/openwork-win-arm64-0.17.7.exe"
+    const asset = releaseAssetFromVersionPayload({
+      latestAppVersion: "0.17.7",
+      desktopRelease: { version: "0.17.7", downloads: { "win-arm64": url } },
+    }, "win32", "arm64")
+
+    expect(asset.url).toBe(url)
+    expect(asset.fileName).toBe("openwork-win-arm64-0.17.7.exe")
+  })
+
+  test("fails closed when Den does not publish a platform URL", () => {
+    expect(() => releaseAssetFromVersionPayload({
+      latestAppVersion: "0.17.7",
+      desktopRelease: { version: "0.17.7", downloads: {} },
+    }, "win32", "x64")).toThrow(
+      "Deployment did not publish an internal desktop release",
+    )
+  })
+
+  test("rejects release metadata for a different supported version", () => {
+    expect(() => releaseAssetFromVersionPayload({
+      latestAppVersion: "0.17.7",
+      desktopRelease: {
+        version: "0.17.8",
+        downloads: { "win-x64": "https://den.examplecorp.test/release" },
+      },
+    }, "win32", "x64")).toThrow("does not match latestAppVersion")
   })
 })
 

@@ -36,6 +36,9 @@ config:
     openworkAppConnectUrl: ""
     installerReleaseTag: ""
     installerReleaseRepo: ""
+    installerReleaseFallbackEnabled: "false"
+    desktopReleasesPublicBaseUrl: ""
+    desktopAlphaUpdateFeedUrl: ""
     authCallbackUrl: https://openwork.example.com
   internal:
     apiBaseUrl: ""
@@ -134,6 +137,12 @@ installerArtifacts:
   existingClaim: ""
   hostPath: ""
   mountPath: /var/lib/openwork/installer-artifacts
+
+desktopReleases:
+  enabled: false
+  existingClaim: ""
+  hostPath: ""
+  mountPath: /var/lib/openwork/desktop-releases
 
 denApi:
   replicaCount: 1

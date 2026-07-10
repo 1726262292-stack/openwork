@@ -5,7 +5,7 @@ import path from "node:path"
 
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "./bootstrap-path"
 import type { InstallerConfig } from "./config"
-import { releaseAssetFor, type ReleaseAsset } from "./release-asset"
+import { releaseAssetFor, releasePlatformKey, type ReleaseAsset } from "./release-asset"
 
 export type InstallStep = "write-config" | "check-version" | "download" | "install"
 
@@ -81,8 +81,49 @@ export function writeBootstrapConfig(config: InstallerConfig, env: NodeJS.Proces
   return target
 }
 
-/** Ask the deployment's Den API which desktop version it supports. */
-export async function fetchLatestSupportedVersion(apiUrl: string): Promise<string> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+export function releaseAssetFromVersionPayload(
+  payload: unknown,
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+) {
+  const version = isRecord(payload) && typeof payload.latestAppVersion === "string"
+    ? payload.latestAppVersion.trim()
+    : ""
+  if (!version || version === "0.0.0") {
+    throw new Error("Deployment did not declare a desktop app version (latestAppVersion missing)")
+  }
+  const desktopRelease = isRecord(payload) && isRecord(payload.desktopRelease)
+    ? payload.desktopRelease
+    : null
+  const releaseVersion = desktopRelease && typeof desktopRelease.version === "string"
+    ? desktopRelease.version.trim()
+    : ""
+  if (releaseVersion !== version) {
+    throw new Error("Deployment desktop release version does not match latestAppVersion")
+  }
+  const downloads = desktopRelease && isRecord(desktopRelease.downloads)
+    ? desktopRelease.downloads
+    : null
+  const platformKey = releasePlatformKey(platform, arch)
+  const url = downloads && typeof downloads[platformKey] === "string"
+    ? downloads[platformKey].trim()
+    : ""
+  if (!url) {
+    throw new Error(`Deployment did not publish an internal desktop release for ${platformKey}`)
+  }
+  return releaseAssetFor({ version, url, platform, arch })
+}
+
+/** Ask Den for both the supported version and this platform's deployment-owned URL. */
+export async function fetchSupportedReleaseAsset(
+  apiUrl: string,
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): Promise<ReleaseAsset> {
   const response = await fetch(`${apiUrl}/v1/app-version`, {
     headers: { accept: "application/json" },
     signal: AbortSignal.timeout(15_000),
@@ -90,12 +131,8 @@ export async function fetchLatestSupportedVersion(apiUrl: string): Promise<strin
   if (!response.ok) {
     throw new Error(`Deployment version check failed (${response.status} ${response.statusText})`)
   }
-  const payload = (await response.json()) as { latestAppVersion?: unknown }
-  const version = typeof payload.latestAppVersion === "string" ? payload.latestAppVersion.trim() : ""
-  if (!version || version === "0.0.0") {
-    throw new Error("Deployment did not declare a desktop app version (latestAppVersion missing)")
-  }
-  return version
+  const payload: unknown = await response.json()
+  return releaseAssetFromVersionPayload(payload, platform, arch)
 }
 
 async function downloadAsset(asset: ReleaseAsset, targetPath: string, opts: InstallOptions): Promise<void> {
@@ -202,8 +239,8 @@ export async function runInstall(config: InstallerConfig, opts: InstallOptions =
   try {
     const bootstrapPath = writeBootstrapConfig(config)
     update({ step: "check-version", message: "Checking your deployment for the supported app version..." }, opts.onStatus)
-    const version = await fetchLatestSupportedVersion(config.apiUrl)
-    const asset = releaseAssetFor(version)
+    const asset = await fetchSupportedReleaseAsset(config.apiUrl)
+    const version = asset.version
     update({ version, message: `Deployment supports OpenWork ${version}.` }, opts.onStatus)
 
     if (opts.dryRun) {

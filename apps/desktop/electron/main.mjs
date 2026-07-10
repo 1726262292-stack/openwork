@@ -22,6 +22,7 @@ import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./me
 import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
+import { desktopReleaseDownloadUrl, fetchDeploymentDesktopRelease } from "./desktop-release.mjs";
 import {
   checkComputerUsePermissions,
   getComputerUseMcpCommand,
@@ -48,8 +49,8 @@ const APP_NAME =
 const APP_IDENTIFIER =
   process.env.OPENWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER);
-const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
-const RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
+const LINUX_RELEASE_DOWNLOAD_BASE_URL = "https://github.com/different-ai/openwork/releases/latest/download";
+const LINUX_RELEASE_PAGE_URL = "https://github.com/different-ai/openwork/releases/latest";
 const DOCS_PAGE_URL = "https://openworklabs.com/docs";
 const applicationMenu = createApplicationMenu({
   appName: APP_NAME,
@@ -174,29 +175,6 @@ function resolveSystemArch() {
   return normalizeRuntimeArch(os.arch());
 }
 
-function platformDownloadSlug() {
-  if (process.platform === "darwin") return "mac";
-  if (process.platform === "win32") return "win";
-  return "linux";
-}
-
-function downloadAssetArch(arch) {
-  if (process.platform === "linux" && arch === "x64") return "x86_64";
-  return arch;
-}
-
-function downloadAssetExtension() {
-  if (process.platform === "darwin") return "dmg";
-  if (process.platform === "win32") return "exe";
-  return "AppImage";
-}
-
-function updaterManifestName(arch) {
-  if (process.platform === "darwin") return "latest-mac.yml";
-  if (process.platform === "win32") return "latest.yml";
-  return arch === "arm64" ? "latest-linux-arm64.yml" : "latest-linux.yml";
-}
-
 function archLabel(arch) {
   if (arch === "arm64") return "ARM";
   if (arch === "x64") return "Intel";
@@ -214,40 +192,39 @@ function parseUpdaterManifestFiles(raw) {
       continue;
     }
     const prop = line.match(/^\s{4}([A-Za-z][A-Za-z0-9_-]*):\s*(.+?)\s*$/);
-    if (prop && current) {
-      current[prop[1]] = prop[2].trim().replace(/^['"]|['"]$/g, "");
-    }
+    if (prop && current) current[prop[1]] = prop[2].trim().replace(/^['"]|['"]$/g, "");
   }
   return files.filter((file) => file.url);
 }
 
-function selectDownloadFile(files, arch) {
-  const assetArch = downloadAssetArch(arch);
-  const expected = `-${assetArch}-`;
-  const extension = downloadAssetExtension();
-  const matchingArch = files.filter((file) => file.url.includes(expected));
-  return (
-    matchingArch.find((file) => file.url.endsWith(`.${extension}`)) ||
-    matchingArch.find((file) => file.url.endsWith(".zip")) ||
-    matchingArch[0] ||
-    null
-  );
-}
-
 async function resolveCorrectArchitectureDownloadUrl(arch) {
-  const manifestUrl = `${RELEASE_DOWNLOAD_BASE_URL}/${updaterManifestName(arch)}`;
+  if (process.platform === "linux") {
+    const manifestName = arch === "arm64" ? "latest-linux-arm64.yml" : "latest-linux.yml";
+    try {
+      const response = await fetch(`${LINUX_RELEASE_DOWNLOAD_BASE_URL}/${manifestName}`, {
+        headers: { Accept: "text/yaml, text/plain, */*" },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const assetArch = arch === "x64" ? "x86_64" : arch;
+      const selected = parseUpdaterManifestFiles(await response.text())
+        .find((file) => file.url.includes(`-${assetArch}-`) && file.url.endsWith(".AppImage"));
+      if (!selected?.url) return null;
+      return /^https?:\/\//i.test(selected.url)
+        ? selected.url
+        : new URL(selected.url, `${LINUX_RELEASE_DOWNLOAD_BASE_URL}/`).toString();
+    } catch (error) {
+      console.warn("[architecture] failed to resolve latest Linux download URL", error);
+      return null;
+    }
+  }
   try {
-    const response = await fetch(manifestUrl, {
-      headers: { Accept: "text/yaml, text/plain, */*" },
+    const release = await fetchDeploymentDesktopRelease({
+      getDesktopBootstrapConfig: () => workspaceStore.getDesktopBootstrapConfig(),
+      fetcher: electronNet.fetch.bind(electronNet),
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
-    if (!selected?.url) return null;
-    return /^https?:\/\//i.test(selected.url)
-      ? selected.url
-      : new URL(selected.url, `${RELEASE_DOWNLOAD_BASE_URL}/`).toString();
+    return desktopReleaseDownloadUrl(release, process.platform, arch);
   } catch (error) {
-    console.warn("[architecture] failed to resolve latest download URL", error);
+    console.warn("[architecture] deployment did not provide a compatible download URL", error);
     return null;
   }
 }
@@ -257,8 +234,10 @@ async function resolveArchitectureInfo() {
   const systemArch = resolveSystemArch();
   const version = app.getVersion();
   const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
-  const assetName = `openwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
   const latestDownloadUrl = await resolveCorrectArchitectureDownloadUrl(targetArch);
+  const bootstrap = await workspaceStore.getDesktopBootstrapConfig().catch(() => null);
+  const linuxAssetArch = targetArch === "x64" ? "x86_64" : targetArch;
+  const linuxAssetName = `openwork-linux-${linuxAssetArch}-${version}.AppImage`;
   const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
   return {
     appArch,
@@ -268,8 +247,8 @@ async function resolveArchitectureInfo() {
     mismatch: appArch !== systemArch && hasCorrectArchitectureDownload,
     platform: process.platform === "win32" ? "windows" : process.platform,
     version,
-    downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_BASE_URL}/${assetName}`,
-    releaseUrl: RELEASE_PAGE_URL,
+    downloadUrl: latestDownloadUrl || (process.platform === "linux" ? `${LINUX_RELEASE_DOWNLOAD_BASE_URL}/${linuxAssetName}` : ""),
+    releaseUrl: process.platform === "linux" ? LINUX_RELEASE_PAGE_URL : (bootstrap?.baseUrl ?? ""),
   };
 }
 
@@ -1900,7 +1879,13 @@ ipcMain.handle("openwork:terminal:kill", (event, terminalId) => {
 browserPanel.registerIpc(ipcMain);
 
 registerMigrationIpc({ app, ipcMain });
-const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
+const { ensureAutoUpdater } = registerUpdaterIpc({
+  app,
+  ipcMain,
+  getMainWindow: () => mainWindow,
+  getDesktopBootstrapConfig: () => workspaceStore.getDesktopBootstrapConfig(),
+  fetcher: electronNet.fetch.bind(electronNet),
+});
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

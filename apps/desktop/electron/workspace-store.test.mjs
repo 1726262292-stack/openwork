@@ -281,6 +281,21 @@ test("desktop bootstrap writes include a fresh writtenAt stamp", async () => {
   });
 });
 
+test("desktop bootstrap preserves an explicit Den API URL for updater traffic", async () => {
+  await withIsolatedBootstrapStore(async ({ store, canonicalPath }) => {
+    await writeBootstrapConfig(canonicalPath, {
+      baseUrl: "https://examplecorp.example.com",
+      apiBaseUrl: "https://den.examplecorp.example.com",
+      requireSignin: true,
+    });
+
+    const config = await store.getDesktopBootstrapConfig();
+    assert.equal(config.baseUrl, "https://examplecorp.example.com");
+    assert.equal(config.apiBaseUrl, "https://den.examplecorp.example.com");
+    assert.equal(config.requireSignin, true);
+  });
+});
+
 test("clearDesktopBootstrapConfig removes bootstrap files without deleting workspace state", async () => {
   await withIsolatedBootstrapStore(async ({ store, canonicalPath, legacyPath, userDataPath }) => {
     const workspaceStatePath = path.join(userDataPath, "openwork-workspaces.json");

@@ -50,9 +50,13 @@ const EnvSchema = z.object({
   CORS_ORIGINS: z.string().optional(),
   DEN_API_PUBLIC_URL: z.string().optional(),
   OPENWORK_INSTALLER_ARTIFACTS_DIR: z.string().optional(),
+  OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_TAG: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_REPO: z.string().optional(),
   OPENWORK_INSTALLER_CACHE_DIR: z.string().optional(),
+  OPENWORK_DESKTOP_RELEASES_DIR: z.string().optional(),
+  OPENWORK_DESKTOP_RELEASES_PUBLIC_BASE_URL: z.string().optional(),
+  OPENWORK_DESKTOP_ALPHA_UPDATE_FEED_URL: z.string().optional(),
   DEN_DESKTOP_DEN_BASE_URL: z.string().optional(),
   DEN_MARKETING_URL: z.string().optional(),
   DEN_MCP_CLAIM_NAMESPACE: z.string().optional(),
@@ -359,12 +363,17 @@ export const env = {
   corsOrigins,
   apiPublicUrl: optionalString(parsed.DEN_API_PUBLIC_URL),
   installerArtifactsDir: optionalString(parsed.OPENWORK_INSTALLER_ARTIFACTS_DIR),
+  installerReleaseFallbackEnabled:
+    (parsed.OPENWORK_INSTALLER_RELEASE_FALLBACK_ENABLED ?? "false").trim().toLowerCase() === "true",
   // Generic installer release assets (release-generic-installer.yml): the
   // release tag to download from, defaulting to the pinned app release this
   // den-api build shipped with.
   installerReleaseTag: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_TAG) ?? `v${denApiAppVersion.latestAppVersion}`,
   installerReleaseRepo: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_REPO) ?? "different-ai/openwork",
   installerCacheDir: optionalString(parsed.OPENWORK_INSTALLER_CACHE_DIR) ?? path.join(os.tmpdir(), "openwork-installer-artifacts"),
+  desktopReleasesDir: optionalString(parsed.OPENWORK_DESKTOP_RELEASES_DIR),
+  desktopReleasesPublicBaseUrl: optionalString(parsed.OPENWORK_DESKTOP_RELEASES_PUBLIC_BASE_URL),
+  desktopAlphaUpdateFeedUrl: optionalString(parsed.OPENWORK_DESKTOP_ALPHA_UPDATE_FEED_URL),
   // Google endpoint overrides for evals/self-host testing: point the native
   // google-workspace provider at a protocol-identical mock instead of the
   // real Google endpoints. Unset in production.

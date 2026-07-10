@@ -60,7 +60,18 @@ spec:
       {{- if not (or .Values.installerArtifacts.existingClaim .Values.installerArtifacts.hostPath) }}
       {{- fail "installerArtifacts.existingClaim or installerArtifacts.hostPath is required when installerArtifacts.enabled=true" }}
       {{- end }}
+      {{- end }}
+      {{- if .Values.desktopReleases.enabled }}
+      {{- if and .Values.desktopReleases.existingClaim .Values.desktopReleases.hostPath }}
+      {{- fail "desktopReleases.existingClaim and desktopReleases.hostPath are mutually exclusive" }}
+      {{- end }}
+      {{- if not (or .Values.desktopReleases.existingClaim .Values.desktopReleases.hostPath) }}
+      {{- fail "desktopReleases.existingClaim or desktopReleases.hostPath is required when desktopReleases.enabled=true" }}
+      {{- end }}
+      {{- end }}
+      {{- if or .Values.installerArtifacts.enabled .Values.desktopReleases.enabled }}
       volumes:
+        {{- if .Values.installerArtifacts.enabled }}
         - name: installer-artifacts
           {{- if .Values.installerArtifacts.existingClaim }}
           persistentVolumeClaim:
@@ -70,6 +81,18 @@ spec:
             path: {{ .Values.installerArtifacts.hostPath | quote }}
             type: Directory
           {{- end }}
+        {{- end }}
+        {{- if .Values.desktopReleases.enabled }}
+        - name: desktop-releases
+          {{- if .Values.desktopReleases.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.desktopReleases.existingClaim | quote }}
+          {{- else }}
+          hostPath:
+            path: {{ .Values.desktopReleases.hostPath | quote }}
+            type: Directory
+          {{- end }}
+        {{- end }}
       {{- end }}
       containers:
         - name: den-api
@@ -78,11 +101,18 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.denApi.containerPort }}
-          {{- if .Values.installerArtifacts.enabled }}
+          {{- if or .Values.installerArtifacts.enabled .Values.desktopReleases.enabled }}
           volumeMounts:
+            {{- if .Values.installerArtifacts.enabled }}
             - name: installer-artifacts
               mountPath: {{ .Values.installerArtifacts.mountPath | quote }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.desktopReleases.enabled }}
+            - name: desktop-releases
+              mountPath: {{ .Values.desktopReleases.mountPath | quote }}
+              readOnly: true
+            {{- end }}
           {{- end }}
           envFrom:
             - configMapRef:
@@ -95,6 +125,10 @@ spec:
             {{- if .Values.installerArtifacts.enabled }}
             - name: OPENWORK_INSTALLER_ARTIFACTS_DIR
               value: {{ .Values.installerArtifacts.mountPath | quote }}
+            {{- end }}
+            {{- if .Values.desktopReleases.enabled }}
+            - name: OPENWORK_DESKTOP_RELEASES_DIR
+              value: {{ .Values.desktopReleases.mountPath | quote }}
             {{- end }}
             {{- range $key, $value := .Values.denApi.env }}
             - name: {{ $key }}
