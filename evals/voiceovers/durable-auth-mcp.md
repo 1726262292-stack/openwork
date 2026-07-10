@@ -13,3 +13,5 @@
 6. Maya attempts a genuinely sensitive action, such as transferring ownership, rotating an API key, or changing SSO. OpenWork asks her to confirm her identity once and automatically resumes the pending action.
 
 7. When Maya explicitly signs out, an administrator removes her membership, or credentials are revoked, her OpenWork sessions and MCP access stop immediately.
+
+8. An MCP client connected before this update asks for offline access so it can refresh quietly. OpenWork upgrades that client's refresh permission and shows workspace authorization instead of returning an invalid-scope error.

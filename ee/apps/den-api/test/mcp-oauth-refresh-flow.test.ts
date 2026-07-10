@@ -112,7 +112,7 @@ afterAll(async () => {
   mock.restore()
 })
 
-test("standard MCP authorization receives and rotates a thirty-day refresh grant", async () => {
+test("legacy MCP registration gains offline access and rotates a thirty-day refresh grant", async () => {
   const metadataResponse = await app.fetch(new Request(`${API_ORIGIN}/mcp/.well-known/oauth-protected-resource`))
   expect(metadataResponse.status).toBe(200)
   const metadata: unknown = await metadataResponse.json()
@@ -123,6 +123,7 @@ test("standard MCP authorization receives and rotates a thirty-day refresh grant
   const scopes = metadata.scopes_supported.filter((scope): scope is string => typeof scope === "string")
   expect(scopes).toContain("offline_access")
   const scope = scopes.join(" ")
+  const legacyScope = scopes.filter((entry) => entry !== "offline_access").join(" ")
 
   const registrationResponse = await app.fetch(new Request(`${API_ORIGIN}/register`, {
     method: "POST",
@@ -136,13 +137,13 @@ test("standard MCP authorization receives and rotates a thirty-day refresh grant
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      scope,
+      scope: legacyScope,
     }),
   }))
   expect(registrationResponse.status).toBe(200)
   const registration: unknown = await registrationResponse.json()
   oauthClientId = requiredString(registration, "client_id")
-  expect(requiredString(registration, "scope").split(" ")).toEqual(scopes)
+  expect(requiredString(registration, "scope")).toBe(legacyScope)
 
   const verifier = `mcp-refresh-verifier-${createDenTypeId("verification")}`
   const authorizeUrl = new URL(`${API_ORIGIN}/api/auth/oauth2/authorize`)
@@ -277,4 +278,14 @@ test("standard MCP authorization receives and rotates a thirty-day refresh grant
     .from(schema.OAuthRefreshTokenTable)
     .where(drizzle.eq(schema.OAuthRefreshTokenTable.clientId, oauthClientId))
   expect(grantsAfterReplay).toEqual([])
+
+  const overbroadAuthorizeUrl = new URL(authorizeUrl)
+  overbroadAuthorizeUrl.searchParams.set("scope", `${scope} email`)
+  const overbroadResponse = await app.fetch(new Request(overbroadAuthorizeUrl, {
+    headers: { cookie: sessionCookie },
+  }))
+  expect(overbroadResponse.status).toBe(302)
+  const overbroadCallback = new URL(overbroadResponse.headers.get("location") ?? REDIRECT_URI)
+  expect(overbroadCallback.searchParams.get("error")).toBe("invalid_scope")
+  expect(overbroadCallback.searchParams.get("error_description")).toContain("email")
 })

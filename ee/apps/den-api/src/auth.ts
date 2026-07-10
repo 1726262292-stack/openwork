@@ -5,6 +5,7 @@ import { deriveDenMcpResource } from "./mcp/resource.js";
 import { getDenAuthIssuer, getDenJwtOptions } from "./mcp/jwt-policy.js";
 import {
   DEN_MCP_DEFAULT_CLIENT_SCOPES,
+  DEN_MCP_OFFLINE_SCOPE,
   DEN_MCP_SCOPES,
 } from "./mcp/scopes.js";
 import {
@@ -149,6 +150,12 @@ function maybeString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((entry: unknown): entry is string => typeof entry === "string")
+    : [];
+}
+
 function pickRemoteIdentity(userInfo: Record<string, unknown>) {
   return (
     maybeString(userInfo.sub) ??
@@ -287,6 +294,30 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/oauth2/authorize") {
+        const clientId = maybeString(ctx.query?.client_id);
+        const requestedScopes = maybeString(ctx.query?.scope)?.split(/\s+/).filter(Boolean) ?? [];
+
+        if (clientId && requestedScopes.includes(DEN_MCP_OFFLINE_SCOPE)) {
+          const client = await ctx.context.adapter.findOne<{ scopes?: unknown }>({
+            model: "oauthClient",
+            where: [{ field: "clientId", value: clientId }],
+          });
+          const clientScopes = stringArray(client?.scopes);
+
+          if (hasMcpScope(clientScopes) && !clientScopes.includes(DEN_MCP_OFFLINE_SCOPE)) {
+            await ctx.context.adapter.update({
+              model: "oauthClient",
+              where: [{ field: "clientId", value: clientId }],
+              update: {
+                scopes: [...clientScopes, DEN_MCP_OFFLINE_SCOPE],
+                updatedAt: new Date(),
+              },
+            });
+          }
+        }
+      }
+
       if (ctx.path !== "/sign-in/email" && ctx.path !== "/sign-up/email") {
         return;
       }

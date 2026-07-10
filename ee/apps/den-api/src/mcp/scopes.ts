@@ -1,5 +1,6 @@
 export const DEN_MCP_READ_SCOPE = "mcp:read"
 export const DEN_MCP_WRITE_SCOPE = "mcp:write"
+export const DEN_MCP_OFFLINE_SCOPE = "offline_access"
 
 export type DenMcpTokenScope = typeof DEN_MCP_READ_SCOPE | typeof DEN_MCP_WRITE_SCOPE
 
@@ -7,7 +8,7 @@ export const DEN_MCP_SCOPES = [
   "openid",
   "profile",
   "email",
-  "offline_access",
+  DEN_MCP_OFFLINE_SCOPE,
   DEN_MCP_READ_SCOPE,
   DEN_MCP_WRITE_SCOPE,
 ]

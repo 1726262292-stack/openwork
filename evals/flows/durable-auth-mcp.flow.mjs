@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
@@ -17,6 +18,7 @@ const execFileAsync = promisify(execFile);
 
 const DEN_API_URL = (process.env.OPENWORK_EVAL_DEN_API_URL ?? "").trim().replace(/\/+$/, "");
 const DEN_WEB_URL = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? "").trim().replace(/\/+$/, "");
+const DEN_BROWSER_API_URL = DEN_API_URL.replace("://127.0.0.1", "://localhost");
 const DEMO_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
 const DEMO_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const MYSQL_CONTAINER = process.env.OPENWORK_EVAL_DEN_MYSQL_CONTAINER?.trim() || "openwork-web-local-mysql";
@@ -48,6 +50,7 @@ const state = {
   secondConsentStartedAt: null,
   secondConnectionSkippedReauth: false,
   engineRestarted: false,
+  legacyClientId: null,
 };
 
 let mockChild = null;
@@ -218,6 +221,10 @@ async function cleanupDesktopEvalWorkspaces(ctx) {
 async function prepareCloudState(ctx) {
   await cleanupEvalBrowserTargets(ctx);
   await cleanupDesktopEvalWorkspaces(ctx);
+  await runMysql(ctx, "DELETE FROM oauthAccessToken WHERE client_id IN (SELECT client_id FROM oauthClient WHERE name LIKE 'Legacy MCP client %');");
+  await runMysql(ctx, "DELETE FROM oauthRefreshToken WHERE client_id IN (SELECT client_id FROM oauthClient WHERE name LIKE 'Legacy MCP client %');");
+  await runMysql(ctx, "DELETE FROM oauthConsent WHERE client_id IN (SELECT client_id FROM oauthClient WHERE name LIKE 'Legacy MCP client %');");
+  await runMysql(ctx, "DELETE FROM oauthClient WHERE name LIKE 'Legacy MCP client %';");
   await startMock(ctx);
   state.adminSession = await signInApi(DEMO_EMAIL, DEMO_PASSWORD);
   ctx.assert(Boolean(state.adminSession), `Admin sign-in failed for ${DEMO_EMAIL}.`);
@@ -605,6 +612,42 @@ async function revokedMcpResponse() {
   return { status: response.status, ok: response.ok, text: await response.text() };
 }
 
+async function openLegacyMcpAuthorization(ctx) {
+  const registered = await denApiFetch("/register", {
+    method: "POST",
+    body: JSON.stringify({
+      client_name: `Legacy MCP client ${RUN_TAG}`,
+      redirect_uris: ["http://127.0.0.1:49152/oauth/callback"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      scope: "mcp:read mcp:write",
+    }),
+  });
+  ctx.assert(registered.response.ok && typeof registered.body?.client_id === "string", `Legacy client registration failed: ${registered.response.status}`);
+  state.legacyClientId = registered.body.client_id;
+
+  await openDenWebTab(ctx);
+  const verifier = `durable-auth-legacy-client-${RUN_TAG}`;
+  const authorizeUrl = new URL("/api/auth/oauth2/authorize", DEN_BROWSER_API_URL);
+  authorizeUrl.searchParams.set("client_id", state.legacyClientId);
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("redirect_uri", "http://127.0.0.1:49152/oauth/callback");
+  authorizeUrl.searchParams.set("scope", "mcp:read mcp:write offline_access");
+  authorizeUrl.searchParams.set("resource", `${DEN_API_URL}/mcp`);
+  authorizeUrl.searchParams.set("code_challenge", createHash("sha256").update(verifier).digest("base64url"));
+  authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  authorizeUrl.searchParams.set("prompt", "consent");
+  await ctx.eval(`(() => { location.assign(${JSON.stringify(authorizeUrl.toString())}); return true; })()`);
+  await ctx.waitFor("location.pathname === '/mcp/select-organization'", { timeoutMs: 45_000, label: "legacy MCP workspace authorization redirect" });
+  await ctx.eval(`(() => {
+    if (location.origin === ${JSON.stringify(new URL(DEN_WEB_URL).origin)}) return true;
+    location.assign(${JSON.stringify(DEN_WEB_URL)} + location.pathname + location.search);
+    return true;
+  })()`);
+  await ctx.waitForText("Authorize and continue", { timeoutMs: 45_000 });
+}
+
 export default {
   id: FLOW_ID,
   title: "Active OpenWork and MCP sessions renew silently while real security boundaries still hold",
@@ -861,6 +904,35 @@ export default {
       },
     },
     {
+      name: "Frame 8",
+      run: async (ctx) => {
+        await ctx.prove("A legacy MCP client reaches workspace authorization when it adds offline access", {
+          voiceover: vo[7],
+          action: async () => {
+            await openLegacyMcpAuthorization(ctx);
+          },
+          assert: async () => {
+            const storedScopes = await runMysql(
+              ctx,
+              `SELECT scopes FROM oauthClient WHERE client_id = ${sqlString(state.legacyClientId)} LIMIT 1;`,
+            );
+            const currentUrl = await ctx.eval("location.href");
+            recordAssertion(ctx, "The legacy MCP client gained only the refresh-enabling scope it requested", storedScopes.includes("mcp:read") && storedScopes.includes("mcp:write") && storedScopes.includes("offline_access"), storedScopes);
+            recordAssertion(ctx, "Authorization reached workspace selection instead of an invalid-scope callback", !currentUrl.includes("invalid_scope"), currentUrl);
+            await ctx.expectText("Authorize and continue");
+            await ctx.expectNoText("The following scopes are invalid");
+          },
+          screenshot: {
+            name: "legacy-mcp-offline-access-authorizes",
+            claim: "A previously registered MCP client reaches OpenWork workspace authorization after requesting offline access.",
+            targetUrlIncludes: "/mcp/select-organization",
+            requireText: ["Where should this client work?", "OpenWork", "Authorize and continue"],
+            rejectText: ["The following scopes are invalid", "No authorization code received"],
+          },
+        });
+      },
+    },
+    {
       name: "Cleanup: remove eval connections and stop the OAuth MCP provider",
       run: async (ctx) => {
         const cleanupSession = await signInApi(DEMO_EMAIL, DEMO_PASSWORD);
@@ -868,6 +940,12 @@ export default {
           state.adminSession = cleanupSession;
           await selectAdminOrganization(ctx);
           await cleanupConnections(ctx, cleanupSession);
+        }
+        if (state.legacyClientId) {
+          await runMysql(ctx, `DELETE FROM oauthAccessToken WHERE client_id = ${sqlString(state.legacyClientId)};`);
+          await runMysql(ctx, `DELETE FROM oauthRefreshToken WHERE client_id = ${sqlString(state.legacyClientId)};`);
+          await runMysql(ctx, `DELETE FROM oauthConsent WHERE client_id = ${sqlString(state.legacyClientId)};`);
+          await runMysql(ctx, `DELETE FROM oauthClient WHERE client_id = ${sqlString(state.legacyClientId)};`);
         }
         await stopMock(ctx);
       },
