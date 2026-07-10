@@ -20,6 +20,39 @@ export type ConnectedAccountRow = typeof ConnectedAccountTable.$inferSelect
 type OrganizationId = DenTypeId<"organization">
 type OrgMembershipId = DenTypeId<"member">
 
+function parsedJson(value: unknown): unknown {
+  if (typeof value !== "string") return value
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+export function normalizeOAuthClientExtra(value: unknown): Record<string, unknown> | null {
+  const parsed = parsedJson(value)
+  return isRecord(parsed) ? parsed : null
+}
+
+export function normalizeConnectedAccountScopes(value: unknown): string[] | null {
+  const parsed = parsedJson(value)
+  if (!Array.isArray(parsed) || !parsed.every((scope) => typeof scope === "string")) return null
+  return parsed
+}
+
+function normalizeOrgOAuthClientRow(row: OrgOAuthClientRow): OrgOAuthClientRow {
+  return { ...row, extra: normalizeOAuthClientExtra(row.extra) }
+}
+
+function normalizeConnectedAccountRow(row: ConnectedAccountRow): ConnectedAccountRow {
+  return { ...row, scopes: normalizeConnectedAccountScopes(row.scopes) }
+}
+
 export type ConnectedAccountUpsertInput = {
   organizationId: OrganizationId
   orgMembershipId: OrgMembershipId
@@ -51,7 +84,7 @@ export async function getOrgOAuthClient(organizationId: OrganizationId, provider
     .from(OrgOAuthClientTable)
     .where(and(eq(OrgOAuthClientTable.organizationId, organizationId), eq(OrgOAuthClientTable.providerId, providerId)))
     .limit(1)
-  return rows[0] ?? null
+  return rows[0] ? normalizeOrgOAuthClientRow(rows[0]) : null
 }
 
 export async function upsertOrgOAuthClient(input: {
@@ -102,7 +135,7 @@ export async function getConnectedAccount(input: {
       eq(ConnectedAccountTable.providerId, input.providerId),
     ))
     .limit(1)
-  return rows[0] ?? null
+  return rows[0] ? normalizeConnectedAccountRow(rows[0]) : null
 }
 
 /** Upsert used both to stash a pending PKCE verifier before redirect, and to save real tokens after exchange. */
@@ -192,7 +225,7 @@ async function updateExistingConnectedAccountForActiveMember(
         eq(ConnectedAccountTable.providerId, input.providerId),
       ))
       .limit(1)
-    return saved[0] ?? null
+    return saved[0] ? normalizeConnectedAccountRow(saved[0]) : null
   })
 }
 
