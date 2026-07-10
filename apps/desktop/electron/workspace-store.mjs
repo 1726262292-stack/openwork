@@ -363,16 +363,12 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return Array.from(new Set(candidates));
   }
 
-  async function importBundledDesktopBootstrapConfigIfNewer() {
+  async function importBundledDesktopBootstrapConfigIfMissing() {
     const configPath = desktopBootstrapPath();
     const primary = await readDesktopBootstrapCandidate(configPath);
     const legacyPath = legacyDesktopBootstrapPath();
     const legacy = legacyPath ? await readDesktopBootstrapCandidate(legacyPath) : null;
-    const currentCandidates = [primary, legacy].filter((candidate) => candidate?.ok);
-    const currentTimeMs = currentCandidates.reduce(
-      (latest, candidate) => Math.max(latest, desktopBootstrapCandidateTimeMs(candidate)),
-      Number.NEGATIVE_INFINITY,
-    );
+    if (primary.ok || legacy?.ok) return false;
 
     const bundledCandidates = [];
     for (const candidatePath of await bundledDesktopBootstrapPaths()) {
@@ -382,7 +378,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     }
     bundledCandidates.sort((left, right) => desktopBootstrapCandidateTimeMs(right) - desktopBootstrapCandidateTimeMs(left));
     const newest = bundledCandidates[0];
-    if (!newest || desktopBootstrapCandidateTimeMs(newest) <= currentTimeMs) return false;
+    if (!newest) return false;
 
     try {
       await writeJsonFileAtomic(configPath, newest.normalized);
@@ -1213,7 +1209,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     forgetWorkspace,
     getDesktopBootstrapConfig,
     importConfig,
-    importBundledDesktopBootstrapConfigIfNewer,
+    importBundledDesktopBootstrapConfigIfMissing,
     listLocalWorkspacePaths,
     migrateLegacyElectronWorkspaceStateIfNeeded,
     readWorkspaceOpenworkConfig,
