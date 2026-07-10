@@ -1,10 +1,7 @@
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 import {
-  assertSignedIntoDen,
   denFetch,
   ensureRendererMounted,
-  ensureWorkspaceReady,
-  memberRefresh,
   panelEval,
   waitForPanel,
 } from "./desktop-brand-icon.flow.mjs";
@@ -50,9 +47,6 @@ export default {
         await ensureRendererMounted(ctx);
         await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 30_000, label: "desktop control surface" });
         await ctx.ensureLightMode();
-        await assertSignedIntoDen(ctx);
-        await ensureWorkspaceReady(ctx);
-        await memberRefresh(ctx);
         await openInstallPage(ctx);
       },
     },
