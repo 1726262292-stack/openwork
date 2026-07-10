@@ -255,7 +255,7 @@ export default {
             const logoLoaded = await panelEval(ctx, `(() => { const image = document.querySelector('img[alt="${ORG_NAME} wordmark"]'); return Boolean(image?.complete && image?.naturalWidth > 0); })()`);
             ctx.assert(logoLoaded, "Example Corp wordmark did not load on the install page.");
           },
-          screenshot: { name: "frame-2-acme-work-install-page", sandboxCapture: true, textTargetUrlIncludes: "/install?token=", requireText: [`Download ${APP_NAME} for ${ORG_NAME}`, `Team · ${ORG_NAME}`] },
+          screenshot: { name: "frame-2-acme-work-install-page", sandboxCapture: true, textTargetUrlIncludes: "/install?token=", requireText: [`Download ${APP_NAME} for ${ORG_NAME}`], rejectText: [`Team · ${ORG_NAME}`] },
         });
       },
     },

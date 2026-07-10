@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage, requestJson } from "../_lib/den-flow";
 import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
@@ -94,6 +94,10 @@ export function InstallScreen() {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [platform, setPlatform] = useState<InstallPlatform>("mac-arm64");
   const [copied, setCopied] = useState(false);
+  const [downloadState, setDownloadState] = useState<"idle" | "preparing" | "started">("idle");
+  const [downloadLabel, setDownloadLabel] = useState("");
+  const [downloadHref, setDownloadHref] = useState("");
+  const downloadStartedTimer = useRef<number | null>(null);
 
   useEffect(() => {
     setIsMobile(isMobileUserAgent());
@@ -147,6 +151,12 @@ export function InstallScreen() {
     };
   }, [token]);
 
+  useEffect(() => () => {
+    if (downloadStartedTimer.current !== null) {
+      window.clearTimeout(downloadStartedTimer.current);
+    }
+  }, []);
+
   const secondaryPlatforms = useMemo(() => platformOptions.filter((option) => option.value !== platform), [platform]);
 
   async function copyCurrentLink() {
@@ -155,10 +165,23 @@ export function InstallScreen() {
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  function beginDownload(label: string, href: string) {
+    setDownloadLabel(label);
+    setDownloadHref(href);
+    setDownloadState("preparing");
+    if (downloadStartedTimer.current !== null) {
+      window.clearTimeout(downloadStartedTimer.current);
+    }
+    downloadStartedTimer.current = window.setTimeout(() => {
+      setDownloadState("started");
+      downloadStartedTimer.current = null;
+    }, 1500);
+  }
+
   if (busy) {
     return (
-      <section className="den-page py-4 lg:py-6" data-testid="install-page">
-        <div className="den-frame grid max-w-[44rem] gap-4 p-6 md:p-8">
+      <section className="den-page grid min-h-dvh place-items-center py-4 lg:py-6" data-testid="install-page">
+        <div className="den-frame grid w-full max-w-[44rem] gap-4 p-6 md:p-8">
           <p className="den-eyebrow">OpenWork Desktop</p>
           <h1 className="den-title-lg">Loading your install link.</h1>
           <p className="den-copy">Checking your team's OpenWork setup...</p>
@@ -169,8 +192,8 @@ export function InstallScreen() {
 
   if (!config) {
     return (
-      <section className="den-page py-4 lg:py-6" data-testid="install-page">
-        <div className="den-frame grid max-w-[44rem] gap-6 p-6 md:p-8">
+      <section className="den-page grid min-h-dvh place-items-center py-4 lg:py-6" data-testid="install-page">
+        <div className="den-frame grid w-full max-w-[44rem] gap-6 p-6 md:p-8">
           <div className="grid gap-2">
             <p className="den-eyebrow">OpenWork Desktop</p>
             <h1 className="den-title-lg">This install link can't be opened.</h1>
@@ -185,15 +208,15 @@ export function InstallScreen() {
   const primaryLabel = platformOptions.find((option) => option.value === platform)?.label ?? "your computer";
 
   return (
-    <section className="den-page py-4 lg:py-6" data-testid="install-page">
-      <div className="den-frame grid max-w-[48rem] gap-6 p-6 md:p-8">
-        <div className="grid gap-3">
+    <section className="den-page grid min-h-dvh place-items-center py-4 lg:py-6" data-testid="install-page">
+      <div className="den-frame grid w-full max-w-[44rem] gap-6 p-6 text-center md:p-8" data-testid="install-card">
+        <div className="grid justify-items-center gap-3">
           <p className="den-eyebrow">{config.appName} Desktop</p>
           {config.logoUrl ? (
             // Organization logos may be served by private on-prem hosts that
             // are intentionally absent from this deployment's image allowlist.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={config.logoUrl} alt={`${config.clientName} wordmark`} className="max-h-16 max-w-64 object-contain object-left" />
+            <img src={config.logoUrl} alt={`${config.clientName} wordmark`} className="max-h-16 max-w-64 object-contain object-center" />
           ) : null}
           <h1 className="den-title-xl">Download {config.appName} for {config.clientName}</h1>
           <p className="den-copy">Mac and Windows downloads include the standard OpenWork installer and your team's setup file in one ZIP. Keep them together, run the installer, then sign in.</p>
@@ -208,24 +231,38 @@ export function InstallScreen() {
             </button>
           </div>
         ) : (
-          <div className="grid gap-4">
-            <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary">
+          <div className="grid justify-items-center gap-4">
+            <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary" onClick={() => beginDownload(primaryLabel, primaryHref)}>
               Download for {primaryLabel}
             </a>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-center gap-2">
               {secondaryPlatforms.map((option) => (
-                <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)}>
+                <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)} onClick={() => beginDownload(option.label, installHref(config, option.value, token))}>
                   {option.label}
                 </a>
               ))}
             </div>
+            {downloadState !== "idle" ? (
+              <div className="den-frame-inset grid w-full justify-items-center gap-2 rounded-[1.25rem] p-4" aria-live="polite" data-testid="install-download-status">
+                {downloadState === "preparing" ? (
+                  <>
+                    <span className="size-5 animate-spin rounded-full border-2 border-[var(--dls-border-strong)] border-t-[var(--dls-accent)]" aria-hidden="true" />
+                    <p className="m-0 font-medium text-[var(--dls-text-primary)]">Preparing your {downloadLabel} download...</p>
+                    <p className="den-copy">The first download may take up to a minute. Your browser will begin downloading when it is ready.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="m-0 font-medium text-[var(--dls-text-primary)]">Download started</p>
+                    <p className="den-copy">Your browser is preparing the file. If it does not appear, try the download again.</p>
+                    <a className="den-button-secondary" href={downloadHref} onClick={() => beginDownload(downloadLabel, downloadHref)}>
+                      Try again
+                    </a>
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
         )}
-
-        <div className="den-meta-row">
-          <span className="den-kicker">Team · {config.clientName}</span>
-          <span>{config.webUrl}</span>
-        </div>
       </div>
     </section>
   );
