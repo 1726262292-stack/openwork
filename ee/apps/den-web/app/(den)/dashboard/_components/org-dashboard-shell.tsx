@@ -576,7 +576,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#fafafa] md:flex-row">
+    <div className="flex min-h-screen flex-col bg-[#fafafa] md:h-screen md:flex-row">
       {/* Desktop sidebar — always visible at md+ */}
       <aside className="hidden shrink-0 border-r border-gray-100 bg-white md:flex md:min-h-screen md:w-[260px] md:flex-col">
         {sidebarContent}
