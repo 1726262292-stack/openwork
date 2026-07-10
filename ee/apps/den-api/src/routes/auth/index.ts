@@ -19,6 +19,7 @@ import { getSingletonSsoStatus } from "../../orgs.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
 import { revokeBearerSession, type AuthContextVariables } from "../../session.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
+import { normalizeOAuthAuthorizeRedirect } from "./oauth-redirect.js"
 import { registerScimAuthRoutes } from "./scim.js"
 
 function rewriteAuthRequest(request: Request, path: string) {
@@ -278,7 +279,10 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
   app.get("/.well-known/openid-configuration", publicRoute, (c) => oauthProviderOpenIdConfigMetadata(auth)(rewriteAuthRequest(c.req.raw, "/api/auth/.well-known/openid-configuration")))
   app.post("/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
   app.post("/api/auth/oauth2/register", publicRoute, async (c) => handleMcpClientRegistrationRequest(c.req.raw, "/api/auth/oauth2/register"))
-  app.get("/api/auth/oauth2/authorize", tokenRoute, (c) => auth.handler(c.req.raw))
+  app.get("/api/auth/oauth2/authorize", tokenRoute, async (c) => {
+    const response = await auth.handler(c.req.raw)
+    return normalizeOAuthAuthorizeRedirect(response)
+  })
 
   app.on(
     ["GET", "POST", "PUT", "PATCH", "DELETE"],
