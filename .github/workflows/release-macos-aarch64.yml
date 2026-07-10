@@ -228,20 +228,19 @@ jobs:
             exit 0
           fi
 
-          DRAFT_FLAG=""
           PRERELEASE_FLAG=""
-          if [ "${{ steps.resolve.outputs.draft }}" = "true" ]; then
-            DRAFT_FLAG="--draft"
-          fi
           if [ "${{ steps.resolve.outputs.prerelease }}" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
 
+          # A new release must never be public while its artifacts are still
+          # building. The final publish-release job is the only place that
+          # removes draft status, after every required asset has been checked.
           gh release create "${{ steps.resolve.outputs.release_tag }}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "${{ steps.resolve.outputs.release_name }}" \
             --notes-file "$BODY_FILE" \
-            $DRAFT_FLAG $PRERELEASE_FLAG
+            --draft $PRERELEASE_FLAG
 
   verify-release:
     name: Verify Release Versions
