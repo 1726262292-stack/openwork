@@ -48,9 +48,89 @@ test("upstreamErrorMessage handles non-Error inputs", () => {
 test("externalConnectionErrorHint gives reconnect guidance for HTTP auth errors", () => {
   const hint = externalCapabilities.externalConnectionErrorHint("Acme MCP", new StreamableHTTPError(401, "Unauthorized"))
 
-  expect(hint).toContain("The stored credential looks invalid or expired")
+  expect(hint).toContain('The stored credential for "Acme MCP" is invalid or expired')
   expect(hint).toContain('Reconnect "Acme MCP"')
+  expect(hint).toContain("OpenWork Cloud itself is still connected")
   expect(hint).toContain("This is a live probe, not a cached result")
+})
+
+test("JSON-RPC refresh failures are classified as downstream connector reauthorization", () => {
+  const error = new Error('Streamable HTTP error: Error POSTing to endpoint: {"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Invalid refresh token"}}')
+  const message = externalCapabilities.upstreamErrorMessage(error)
+  const hint = externalCapabilities.externalConnectionErrorHint("Knowledge Hub", error, message, "per_member")
+
+  expect(externalCapabilities.externalMcpAuthErrorCode(error, message)).toBe("invalid_refresh_token")
+  expect(externalCapabilities.isExternalMcpAuthError(error)).toBe(true)
+  expect(hint).toContain('Reconnect "Knowledge Hub"')
+  expect(hint).toContain("OpenWork Cloud -> Your Connections")
+  expect(hint).toContain("OpenWork Cloud itself is still connected")
+})
+
+test("invalid_grant is classified without connector-specific special casing", () => {
+  const error = new Error("OAuth token refresh failed: invalid_grant")
+
+  expect(externalCapabilities.externalMcpAuthErrorCode(error)).toBe("invalid_grant")
+})
+
+test("generic connector recovery routes members and organization admins without provider names", () => {
+  const memberStatus = externalCapabilities.buildExternalConnectionStatus({
+    connection: { id: "connection-1", name: "Knowledge Hub", authType: "oauth", credentialMode: "per_member" },
+    state: "reauth_required",
+    errorCode: "invalid_refresh_token",
+    message: "Invalid refresh token",
+  })
+  const networkStatus = externalCapabilities.buildExternalConnectionStatus({
+    connection: { id: "connection-2", name: "Ticketing", authType: "none", credentialMode: "shared" },
+    state: "provider_error",
+    errorCode: "provider_error",
+    message: "Connection refused",
+  })
+  const apiKeyStatus = externalCapabilities.buildExternalConnectionStatus({
+    connection: { id: "connection-3", name: "CRM", authType: "apikey", credentialMode: "shared" },
+    state: "reauth_required",
+    errorCode: "unauthorized",
+    message: "Unauthorized",
+  })
+
+  expect(memberStatus).toMatchObject({
+    layer: "downstream_provider",
+    connectionName: "Knowledge Hub",
+    actor: "member",
+    action: { type: "reconnect", surface: "openwork_your_connections" },
+  })
+  expect(networkStatus).toMatchObject({
+    connectionName: "Ticketing",
+    actor: "organization_admin",
+    action: { type: "inspect_connection", surface: "openwork_organization_connections" },
+  })
+  expect(apiKeyStatus).toMatchObject({
+    authType: "apikey",
+    actor: "organization_admin",
+    action: { type: "update_credentials", surface: "openwork_organization_connections" },
+  })
+})
+
+test("provider installation failures route to the provider admin console", () => {
+  const status = externalCapabilities.buildExternalConnectionStatus({
+    connection: { id: "connection-4", name: "Documents", authType: "oauth", credentialMode: "shared" },
+    state: "provider_error",
+    errorCode: "provider_error",
+    message: "App is not installed on this workspace",
+  })
+
+  expect(status).toMatchObject({
+    actor: "provider_admin",
+    action: { type: "fix_provider", surface: "provider_admin_console" },
+  })
+})
+
+test("generic provider failures route to connector inspection instead of cloud reauthorization", () => {
+  const hint = externalCapabilities.externalConnectionErrorHint("Ticketing", new Error("Connection refused"))
+
+  expect(hint).toContain('inspect "Ticketing"')
+  expect(hint).toContain("dashboard -> Connections")
+  expect(hint).toContain("OpenWork Cloud itself is still connected")
+  expect(hint).not.toContain("Reconnect OpenWork Cloud")
 })
 
 test("externalConnectionErrorHint gives provider-admin guidance for JSON-RPC rejections", () => {
@@ -63,4 +143,5 @@ test("externalConnectionErrorHint gives provider-admin guidance for JSON-RPC rej
   expect(hint).toContain("provider's own admin console")
   expect(hint).toContain("This is a live probe, not a cached result")
   expect(hint).not.toContain("expired")
+  expect(externalCapabilities.isExternalMcpAuthError(error)).toBe(false)
 })

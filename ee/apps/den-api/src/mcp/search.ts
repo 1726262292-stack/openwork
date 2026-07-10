@@ -33,6 +33,12 @@ export type CapabilityMatch = {
   hasBody: boolean
 }
 
+export function compareCapabilityMatches(a: CapabilityMatch, b: CapabilityMatch): number {
+  const statusPriority = Number("kind" in b && b.kind === "connection_status")
+    - Number("kind" in a && a.kind === "connection_status")
+  return statusPriority || (b.score - a.score) || a.name.localeCompare(b.name)
+}
+
 export function searchCapabilitySourceFilter(type?: SearchCapabilityType) {
   const capabilityType = type ?? "all"
   return {
@@ -118,6 +124,6 @@ export function searchCapabilities(
       hasBody: hasJsonRequestBody(operation.operation),
     }))
     .filter((match) => match.score > 0)
-    .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name))
+    .sort(compareCapabilityMatches)
     .slice(0, boundedLimit)
 }

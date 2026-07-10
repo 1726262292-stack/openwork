@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
+import { ErrorCode, McpError, type ToolAnnotations } from "@modelcontextprotocol/sdk/types.js"
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { OrganizationTable } from "@openwork-ee/den-db/schema"
@@ -12,7 +12,7 @@ import { db } from "../db.js"
 import { getMcpResourceUrl, verifyMcpRequest } from "./auth.js"
 import { invokeMcpOperation, normalizeToolBody, normalizeToolRecord } from "./invoke.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
-import { SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities, searchCapabilitySourceFilter } from "./search.js"
+import { compareCapabilityMatches, SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities, searchCapabilitySourceFilter, type CapabilityMatch } from "./search.js"
 import { executeExternalCapability, parseExternalCapabilityName, resolveMcpMemberIdentity, searchExternalCapabilities } from "./external-capabilities.js"
 import { executeMarketplaceCapability, parseMarketplaceCapabilityName, searchMarketplaceCapabilities, type MarketplaceCapabilityObjectType } from "./marketplace-capabilities.js"
 import { executeSkillCapability, parseSkillCapabilityName, searchSkillCapabilities } from "./skill-capabilities.js"
@@ -25,6 +25,56 @@ export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 const skillMarketplaceObjectTypes: MarketplaceCapabilityObjectType[] = ["skill"]
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 45_000
+export const SEARCH_CAPABILITIES_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+}
+export const EXECUTE_CAPABILITY_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: true,
+}
+
+const connectionStatusOutputSchema = z.object({
+  layer: z.literal("downstream_provider"),
+  connectionId: z.string(),
+  connectionName: z.string(),
+  authType: z.enum(["oauth", "apikey", "none"]),
+  credentialMode: z.enum(["shared", "per_member"]),
+  state: z.enum(["needs_connection", "reauth_required", "provider_error"]),
+  errorCode: z.enum(["not_connected", "invalid_refresh_token", "invalid_grant", "unauthorized", "provider_error"]),
+  message: z.string(),
+  actor: z.enum(["member", "organization_admin", "provider_admin"]),
+  action: z.object({
+    type: z.enum(["connect", "reconnect", "update_credentials", "inspect_connection", "fix_provider"]),
+    label: z.string(),
+    surface: z.enum(["openwork_your_connections", "openwork_organization_connections", "provider_admin_console"]),
+    retry: z.literal("search_capabilities"),
+  }),
+})
+
+const capabilityMatchOutputSchema = z.object({
+  name: z.string(),
+  method: z.string(),
+  path: z.string(),
+  score: z.number(),
+  summary: z.string(),
+  pathParams: z.array(z.string()),
+  queryParams: z.array(z.string()),
+  hasBody: z.boolean(),
+  kind: z.string().optional(),
+  status: z.string().optional(),
+  hint: z.string().optional(),
+  connectionStatus: connectionStatusOutputSchema.optional(),
+}).passthrough()
+
+export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
+  matches: z.array(capabilityMatchOutputSchema),
+  hint: z.string().optional(),
+})
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud connection intentionally exposes exactly two tools: search_capabilities and execute_capability.",
@@ -32,7 +82,9 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
   "Do not tell users to configure OAuth clients or local extensions for these capabilities; organization connections are managed in the OpenWork Cloud dashboard / Settings > Connect.",
-  "When a search match or execute result carries status needs_connection or a connection error, relay the fix to the user and stop — do not retry unchanged and do not improvise workarounds through other tools.",
+  "A successful search_capabilities call proves this OpenWork Cloud MCP connection is authorized. Never tell the user to reconnect OpenWork Cloud because a downstream connector failed.",
+  "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
+  "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
 
 const EXECUTE_CAPABILITY_TIMEOUT_MESSAGE = "The capability call exceeded 45s. Retry once; if it times out again, narrow the request (fewer results, tighter query) and tell the user the service is slow — do NOT tell them to reconfigure or reconnect."
@@ -44,6 +96,16 @@ export type ExecuteCapabilityToolResult = {
 
 function textContent(text: string): { text: string; type: "text" }[] {
   return [{ type: "text", text }]
+}
+
+export function capabilitySearchToolResult<T extends CapabilityMatch>(matches: T[]) {
+  const result = matches.length > 0
+    ? { matches }
+    : { matches, hint: "No matches. Try broader or different keywords." }
+  return {
+    content: textContent(JSON.stringify(result, null, 2)),
+    structuredContent: result,
+  }
 }
 
 function unknownCapabilityText(name: string): string {
@@ -200,11 +262,13 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "Each match includes pathParams/queryParams/hasBody describing exactly what execute_capability needs.",
           "Skill matches use method SKILL and return stored SKILL.md content when executed.",
         ].join(" "),
+        annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
         inputSchema: z.object({
           query: z.string().min(1).describe("Keywords describing the capability you need, e.g. \"create organization\" or \"list workers\"."),
           limit: z.number().int().min(1).max(20).optional().describe("Max number of matches to return. Defaults to 5."),
           type: searchCapabilityTypeSchema.optional().describe("Optional source filter. all searches every available source; api searches Den API capabilities; admin searches allowlisted platform-admin tools; mcp searches connected external MCP tools; marketplace searches marketplace plugin capabilities; skills searches native skills and marketplace skill objects. Defaults to all."),
         }),
+        outputSchema: SEARCH_CAPABILITIES_OUTPUT_SCHEMA,
       },
       async ({ query, limit, type }) => {
         const boundedLimit = limit ?? 5
@@ -246,12 +310,9 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           })
           : []
         const matches = [...restMatches, ...adminMatches, ...externalMatches, ...marketplaceMatches, ...skillMatches]
-          .sort((a, b) => b.score - a.score)
+          .sort(compareCapabilityMatches)
           .slice(0, boundedLimit)
-        const text = matches.length > 0
-          ? JSON.stringify({ matches }, null, 2)
-          : JSON.stringify({ matches: [], hint: "No matches. Try broader or different keywords." }, null, 2)
-        return { content: [{ type: "text" as const, text }] }
+        return capabilitySearchToolResult(matches)
       },
     )
 
@@ -265,6 +326,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "For skill:<id> matches, this returns that skill's stored SKILL.md content.",
           "Returns unknown_capability if name doesn't match a current capability — call search_capabilities again.",
         ].join(" "),
+        annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
         inputSchema: z.object({
           name: z.string().min(1).describe("The exact tool name returned by search_capabilities."),
           path: z.union([z.record(z.string(), z.unknown()), z.string()]).optional().describe("Path parameters, only if the match's pathParams is non-empty."),

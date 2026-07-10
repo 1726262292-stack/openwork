@@ -3,6 +3,7 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js"
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { beforeAll, expect, test } from "bun:test"
 import type { ExecuteCapabilityToolResult } from "../src/mcp/agent.js"
+import { compareCapabilityMatches, type CapabilityMatch } from "../src/mcp/search.js"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -105,7 +106,88 @@ test("agent MCP server exposes steering instructions during initialize", async (
   expect(client.getInstructions()).toContain("search_capabilities and execute_capability")
   expect(client.getInstructions()).toContain("Gmail read/search")
   expect(client.getInstructions()).toContain("Settings > Connect")
+  expect(client.getInstructions()).toContain("Never tell the user to reconnect OpenWork Cloud")
+  expect(client.getInstructions()).toContain("connectionStatus.connectionName")
 
   await client.close()
   await server.close()
+})
+
+test("capability search results include structured output alongside text compatibility", () => {
+  const matches = [{
+    name: "getOrganizations",
+    method: "GET",
+    path: "/v1/organizations",
+    score: 10,
+    summary: "List organizations",
+    pathParams: [],
+    queryParams: [],
+    hasBody: false,
+  }]
+  const result = agentModule.capabilitySearchToolResult(matches)
+
+  expect(result.structuredContent).toEqual({ matches })
+  expect(JSON.parse(result.content[0]?.text ?? "{}")).toEqual({ matches })
+})
+
+test("structured search output remains compatible with marketplace match kinds and statuses", () => {
+  const result = agentModule.SEARCH_CAPABILITIES_OUTPUT_SCHEMA.safeParse({
+    matches: [{
+      name: "marketplace:plugin:skill",
+      method: "MARKETPLACE",
+      path: "marketplace://plugin/skill",
+      score: 8,
+      summary: "Install a shared skill",
+      pathParams: [],
+      queryParams: [],
+      hasBody: false,
+      kind: "skill",
+      status: "needs_install",
+    }],
+  })
+
+  expect(result.success).toBe(true)
+})
+
+test("capability discovery is marked read-only while generic execution remains guarded", () => {
+  expect(agentModule.SEARCH_CAPABILITIES_ANNOTATIONS).toMatchObject({
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+  })
+  expect(agentModule.EXECUTE_CAPABILITY_ANNOTATIONS).toMatchObject({
+    readOnlyHint: false,
+    destructiveHint: true,
+  })
+})
+
+test("connection status ranks above unrelated callable tools without distorting relevance scores", () => {
+  type ConnectionStatusMatch = CapabilityMatch & { kind: "connection_status" }
+  const callableMatch: CapabilityMatch = {
+    name: "slack_search_emojis",
+    method: "MCP",
+    path: "https://mcp.slack.test",
+    score: 20,
+    summary: "Search custom emoji",
+    pathParams: [],
+    queryParams: [],
+    hasBody: true,
+  }
+  const statusMatch: ConnectionStatusMatch = {
+    kind: "connection_status",
+    name: "mcp:notion:*",
+    method: "MCP",
+    path: "https://mcp.notion.test",
+    score: 7,
+    summary: "Notion needs attention",
+    pathParams: [],
+    queryParams: [],
+    hasBody: false,
+  }
+  const matches: CapabilityMatch[] = [callableMatch, statusMatch]
+
+  matches.sort(compareCapabilityMatches)
+
+  expect(matches[0]?.kind).toBe("connection_status")
+  expect(matches[0]?.score).toBe(7)
 })

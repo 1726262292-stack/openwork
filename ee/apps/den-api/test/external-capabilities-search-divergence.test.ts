@@ -279,10 +279,23 @@ test("shared-oauth-never-connected: Connections list sees Slack and search retur
   const matches = await search(seed, "slack")
   expect(matches.length).toBe(1)
   expect(matches[0]?.name).toBe(`mcp:${connection.id}:*`)
+  expect(matches[0]?.kind).toBe("connection_status")
   expect(matches[0]?.status).toBe("needs_connection")
   expect(matches[0]?.score).toBeGreaterThanOrEqual(7)
   expect(matches[0]?.hint).toContain("admin")
   expect(matches[0]?.hint).toContain("Slack")
+  expect(matches[0]?.connectionStatus).toMatchObject({
+    layer: "downstream_provider",
+    connectionName: "Slack",
+    credentialMode: "shared",
+    state: "needs_connection",
+    actor: "organization_admin",
+    action: {
+      type: "connect",
+      surface: "openwork_organization_connections",
+      retry: "search_capabilities",
+    },
+  })
 })
 
 test("status-row execute returns a clean needs_connection error", async () => {
@@ -323,8 +336,14 @@ test("dead-url: Connections list sees Slack and search returns an error status",
   expect(matches.length).toBe(1)
   expect(matches[0]?.name).toBe(`mcp:${connection.id}:*`)
   expect(matches[0]?.status).toBe("error")
+  expect(matches[0]?.connectionStatus).toMatchObject({
+    state: "provider_error",
+    errorCode: "provider_error",
+    actor: "organization_admin",
+    action: { type: "inspect_connection" },
+  })
   expect(matches[0]?.summary).toContain("not responding")
-  expect(matches[0]?.hint).toContain("Reconnect")
+  expect(matches[0]?.hint).toContain("inspect")
 })
 
 test("stale-apikey-looks-connected: stored API key looks connected and search returns an error status", async () => {
@@ -353,6 +372,12 @@ test("stale-apikey-looks-connected: stored API key looks connected and search re
   expect(matches.length).toBe(1)
   expect(matches[0]?.name).toBe(`mcp:${connection.id}:*`)
   expect(matches[0]?.status).toBe("error")
+  expect(matches[0]?.connectionStatus).toMatchObject({
+    state: "reauth_required",
+    errorCode: "unauthorized",
+    actor: "organization_admin",
+    action: { type: "update_credentials" },
+  })
 })
 
 test("stale-oauth-token-looks-connected: stored OAuth token looks connected and search returns an error status", async () => {
