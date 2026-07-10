@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { connect, debuggerUrlFor, listTargets } from "../runner/cdp.mjs";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
 const FLOW_ID = "standard-dmg-bootstrap-zip";
@@ -12,7 +13,7 @@ const INSTALL_TOKEN = process.env.OPENWORK_EVAL_INSTALL_TOKEN?.trim() ?? "";
 const BUNDLE_ZIP = process.env.OPENWORK_EVAL_BUNDLE_ZIP?.trim() ?? "";
 const BUNDLE_DIR = process.env.OPENWORK_EVAL_BUNDLE_DIR?.trim() ?? "";
 const BOOTSTRAP_PATH = process.env.OPENWORK_EVAL_BOOTSTRAP_PATH?.trim() ?? "";
-const APP_URL = process.env.OPENWORK_EVAL_APP_URL?.trim() || "http://localhost:5173/";
+const DESKTOP_CDP_URL = cleanUrl(process.env.OPENWORK_EVAL_DESKTOP_CDP_URL);
 
 function cleanUrl(value) {
   return (value ?? "").trim().replace(/\/+$/, "");
@@ -29,10 +30,23 @@ function witness(ctx, condition, assertion, actual) {
 }
 
 async function navigate(ctx, url) {
-  await ctx.eval(`location.assign(${JSON.stringify(url)}); true`).catch(() => undefined);
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await ctx.reconnect();
+  await ctx.client.send("Page.navigate", { url });
   await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: `load ${url}` });
+}
+
+async function withClient(ctx, cdpBaseUrl, callback) {
+  const previous = ctx.client;
+  const targets = await listTargets(cdpBaseUrl);
+  const target = targets.find((entry) => entry.type === "page" && entry.webSocketDebuggerUrl);
+  if (!target) throw new Error(`No page target available at ${cdpBaseUrl}`);
+  const client = await connect(debuggerUrlFor(cdpBaseUrl, target));
+  ctx.client = client;
+  try {
+    return await callback();
+  } finally {
+    ctx.client = previous;
+    client.close();
+  }
 }
 
 function readJson(filePath) {
@@ -55,6 +69,7 @@ export default {
     "OPENWORK_EVAL_BUNDLE_ZIP",
     "OPENWORK_EVAL_BUNDLE_DIR",
     "OPENWORK_EVAL_BOOTSTRAP_PATH",
+    "OPENWORK_EVAL_DESKTOP_CDP_URL",
   ],
   steps: [
     {
@@ -111,39 +126,42 @@ export default {
     {
       name: "First launch imports the adjacent bootstrap",
       run: async (ctx) => {
-        await ctx.prove("The standard desktop imported the bootstrap before showing sign-in", {
-          voiceover: vo[3],
-          action: async () => {
-            await navigate(ctx, APP_URL);
-            await ctx.waitForText("Welcome to Acme Work", { timeoutMs: 45_000 });
-          },
-          assert: async () => {
-            const bundled = readJson(path.join(BUNDLE_DIR, "desktop-bootstrap.json"));
-            const canonical = readJson(BOOTSTRAP_PATH);
-            witness(ctx, JSON.stringify(canonical) === JSON.stringify(bundled), "The adjacent bundle bootstrap was copied byte-for-value to the canonical desktop config", { bundled, canonical });
-            await ctx.expectText("Sign in to Acme Work");
-            await ctx.expectText(new URL(bundled.baseUrl).host);
-            ctx.output("canonical-desktop-bootstrap.json", JSON.stringify(canonical, null, 2));
-          },
-          screenshot: { name: "standard-desktop-imported-bootstrap", requireText: ["Welcome to Acme Work", "Sign in to Acme Work"] },
+        await withClient(ctx, DESKTOP_CDP_URL, async () => {
+          await ctx.prove("The standard desktop imported the bootstrap before showing sign-in", {
+            voiceover: vo[3],
+            action: async () => {
+              await ctx.waitForText("Welcome to Acme Work", { timeoutMs: 45_000 });
+            },
+            assert: async () => {
+              const bundled = readJson(path.join(BUNDLE_DIR, "desktop-bootstrap.json"));
+              const canonical = readJson(BOOTSTRAP_PATH);
+              witness(ctx, JSON.stringify(canonical) === JSON.stringify(bundled), "The adjacent bundle bootstrap was copied byte-for-value to the canonical desktop config", { bundled, canonical });
+              await ctx.expectText("Sign in to Acme Work");
+              await ctx.expectText(new URL(bundled.baseUrl).host);
+              ctx.output("canonical-desktop-bootstrap.json", JSON.stringify(canonical, null, 2));
+            },
+            screenshot: { name: "standard-desktop-imported-bootstrap", requireText: ["Welcome to Acme Work", "Sign in to Acme Work"] },
+          });
         });
       },
     },
     {
       name: "Configured name and wordmark appear without changing sign-in",
       run: async (ctx) => {
-        await ctx.prove("The first-run screen uses Acme's name and loaded wordmark while preserving normal sign-in", {
-          voiceover: vo[4],
-          assert: async () => {
-            const logo = await ctx.eval(`(() => {
-              const image = [...document.images].find((entry) => entry.alt === "Acme Work logo");
-              return image ? { src: image.src, complete: image.complete, naturalWidth: image.naturalWidth } : null;
-            })()`);
-            witness(ctx, logo?.complete === true && logo.naturalWidth > 0, "The configured Acme wordmark loaded successfully", logo);
-            await ctx.expectText("Sign in to Acme Work");
-            await ctx.expectText("Paste sign-in code");
-          },
-          screenshot: { name: "acme-branding-normal-signin", requireText: ["Welcome to Acme Work", "Paste sign-in code"] },
+        await withClient(ctx, DESKTOP_CDP_URL, async () => {
+          await ctx.prove("The first-run screen uses Acme's name and loaded wordmark while preserving normal sign-in", {
+            voiceover: vo[4],
+            assert: async () => {
+              const logo = await ctx.eval(`(() => {
+                const image = [...document.images].find((entry) => entry.alt === "Acme Work logo");
+                return image ? { src: image.src, complete: image.complete, naturalWidth: image.naturalWidth } : null;
+              })()`);
+              witness(ctx, logo?.complete === true && logo.naturalWidth > 0, "The configured Acme wordmark loaded successfully", logo);
+              await ctx.expectText("Sign in to Acme Work");
+              await ctx.expectText("Paste sign-in code");
+            },
+            screenshot: { name: "acme-branding-normal-signin", requireText: ["Welcome to Acme Work", "Paste sign-in code"] },
+          });
         });
       },
     },
