@@ -35,7 +35,6 @@ export default {
     {
       name: "setup",
       run: async (ctx) => {
-        await ctx.ensureLightMode();
         await openInstallPage(ctx);
       },
     },
