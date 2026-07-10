@@ -4,7 +4,7 @@ import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { appendStoredEntryToZip, createStoredZip } from "../src/utils/zip-append.js"
+import { appendStoredEntryToZip, createStoredZip, createStoredZipStream } from "../src/utils/zip-append.js"
 
 function run(command: string, args: string[], cwd: string) {
   const result = spawnSync(command, args, { cwd, encoding: "utf8" })
@@ -68,5 +68,20 @@ describe("createStoredZip", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  test("streams the same valid archive with a deterministic content length", async () => {
+    const installer = Buffer.alloc(3 * 1024 * 1024 + 17, 42)
+    const bootstrap = Buffer.from('{"baseUrl":"https://openwork.example.com"}\n', "utf8")
+    const entries = [
+      { name: "openwork-mac-arm64-9.9.9.dmg", content: installer },
+      { name: "desktop-bootstrap.json", content: bootstrap },
+    ]
+    const streamed = createStoredZipStream(entries)
+    const streamedBytes = Buffer.from(await new Response(streamed.body).arrayBuffer())
+    const bufferedBytes = Buffer.from(createStoredZip(entries))
+
+    expect(streamed.byteLength).toBe(streamedBytes.length)
+    expect(streamedBytes).toEqual(bufferedBytes)
   })
 })

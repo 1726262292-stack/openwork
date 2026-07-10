@@ -21,7 +21,7 @@ import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, 
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import { desktopReleaseAssetName, resolveInstallerArtifact, resolveInstallerFallbackUrl } from "../../utils/installer-artifacts.js"
-import { createStoredZip } from "../../utils/zip-append.js"
+import { createStoredZipStream } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
 
@@ -402,14 +402,15 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         brandLogoUrl: resolved.config.logoUrl ?? undefined,
         writtenAt: new Date().toISOString(),
       })
-      const bundle = createStoredZip([
+      const bundle = createStoredZipStream([
         { name: fileName, content: artifact },
         { name: DESKTOP_BOOTSTRAP_FILENAME, content: Buffer.from(`${JSON.stringify(bootstrap, null, 2)}\n`, "utf8") },
       ])
 
-      return new Response(bundle, {
+      return new Response(bundle.body, {
         headers: {
           "content-type": "application/zip",
+          "content-length": String(bundle.byteLength),
           "content-disposition": contentDisposition(`OpenWork-${safeAttachmentSlug(resolved.organizationSlug)}-${platform}.zip`),
           "cache-control": "no-store",
         },
