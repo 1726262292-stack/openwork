@@ -225,6 +225,13 @@
       "when": 1783659724738,
       "tag": "0032_new_outlaw_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1783661302153,
+      "tag": "0033_lethal_the_professor",
+      "breakpoints": true
     }
   ]
 }

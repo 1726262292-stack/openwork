@@ -25,6 +25,8 @@ export type NativeOAuthProviderConfig = {
   usesPkce: boolean
   /** Extra fixed authorize-url params beyond client_id/redirect_uri/response_type/scope/state/PKCE. */
   extraAuthorizeParams?: Record<string, string>
+  /** OrgOAuthClient.extra key used to bind authorize and token endpoints to one tenant. */
+  tenantIdExtraKey?: string
 }
 
 export const NATIVE_OAUTH_PROVIDERS: Record<string, NativeOAuthProviderConfig> = {
@@ -59,6 +61,22 @@ export const NATIVE_OAUTH_PROVIDERS: Record<string, NativeOAuthProviderConfig> =
       access_type: "offline",
       prompt: "consent",
     },
+  },
+  "microsoft-365": {
+    providerId: "microsoft-365",
+    displayName: "Microsoft 365",
+    authorizeUrl: env.microsoftOAuthAuthorizeUrl ?? "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize",
+    tokenUrl: env.microsoftOAuthTokenUrl ?? "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token",
+    websiteUrl: "https://www.microsoft.com/microsoft-365",
+    defaultScopes: ["openid", "profile", "email", "offline_access", "User.Read"],
+    defaultFeatures: ["mailRead", "calendarRead", "filesRead"],
+    optionalFeatures: {
+      mailRead: ["Mail.Read"],
+      calendarRead: ["Calendars.Read"],
+      filesRead: ["Files.Read"],
+    },
+    usesPkce: true,
+    tenantIdExtraKey: "tenantId",
   },
 }
 

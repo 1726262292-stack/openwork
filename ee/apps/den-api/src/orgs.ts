@@ -2,6 +2,7 @@ import { and, asc, count, eq, gt, inArray, isNull, sql } from "@openwork-ee/den-
 import {
   AuthSessionTable,
   AuthUserTable,
+  ConnectedAccountTable,
   InvitationTable,
   MemberTable,
   OrganizationRoleTable,
@@ -1661,7 +1662,26 @@ export async function removeOrganizationMember(input: {
     userId: member.userId,
   })
 
-  await db.transaction(async (tx) => {
+  const removed = await db.transaction(async (tx) => {
+    const lockedMembers = await tx
+      .select({ id: MemberTable.id })
+      .from(MemberTable)
+      .where(and(
+        eq(MemberTable.id, member.id),
+        eq(MemberTable.organizationId, input.organizationId),
+        isNull(MemberTable.removedAt),
+      ))
+      .limit(1)
+      .for("update")
+    if (!lockedMembers[0]) return false
+
+    await tx
+      .delete(ConnectedAccountTable)
+      .where(and(
+        eq(ConnectedAccountTable.organizationId, input.organizationId),
+        eq(ConnectedAccountTable.orgMembershipId, member.id),
+      ))
+
     await tx
       .delete(TeamMemberTable)
       .where(eq(TeamMemberTable.orgMembershipId, member.id))
@@ -1670,7 +1690,9 @@ export async function removeOrganizationMember(input: {
       .update(MemberTable)
       .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null, userId: null })
       .where(eq(MemberTable.id, member.id))
+    return true
   })
+  if (!removed) return memberNotFound()
 
   await runPostOrganizationMemberChangeHooks({ organizationId: input.organizationId, memberId: member.id, change: "removed" })
 

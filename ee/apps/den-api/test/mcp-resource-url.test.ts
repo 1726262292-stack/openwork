@@ -135,6 +135,18 @@ describe("getMcpResourceUrl", () => {
     })
   })
 
+  test("auto-trusts a path-prefixed public API resource", () => {
+    runMcpResourceProbe({
+      betterAuthUrl: "https://app.example.com",
+      apiPublicUrl: "https://openwork.example/api/den",
+      requestUrl: "https://openwork.example/api/den/mcp/agent",
+      expectedResource: "https://openwork.example/api/den/mcp",
+      metadataUrl: "https://openwork.example/api/den/mcp/agent",
+      expectedMetadataResource: "https://openwork.example/api/den/mcp",
+      expectedAuthorizationServer: "https://openwork.example/api/den/api/auth",
+    })
+  })
+
   test("selects the https public API resource behind a TLS-terminating proxy", () => {
     runMcpResourceProbe({
       betterAuthUrl: "https://app.example.com",
@@ -179,15 +191,13 @@ describe("getMcpResourceUrl", () => {
     })
   })
 
-  test("ignores malformed and empty public API URLs", () => {
-    for (const apiPublicUrl of ["not a url", ""]) {
-      runMcpResourceProbe({
-        betterAuthUrl: "https://app.example.com",
-        apiPublicUrl,
-        requestUrl: "https://api.example.com/mcp/agent",
-        expectedResource: "https://app.example.com/api/den/mcp",
-      })
-    }
+  test("treats an empty public API URL as unset", () => {
+    runMcpResourceProbe({
+      betterAuthUrl: "https://app.example.com",
+      apiPublicUrl: "",
+      requestUrl: "https://api.example.com/mcp/agent",
+      expectedResource: "https://app.example.com/api/den/mcp",
+    })
   })
 
   test("honors the proxied web-app resource derived from BETTER_AUTH_URL", () => {

@@ -1,6 +1,7 @@
-import { and, eq } from "@openwork-ee/den-db/drizzle"
+import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   ConnectedAccountTable,
+  MemberTable,
   OrgOAuthClientTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
@@ -18,6 +19,31 @@ export type ConnectedAccountRow = typeof ConnectedAccountTable.$inferSelect
 
 type OrganizationId = DenTypeId<"organization">
 type OrgMembershipId = DenTypeId<"member">
+
+export type ConnectedAccountUpsertInput = {
+  organizationId: OrganizationId
+  orgMembershipId: OrgMembershipId
+  providerId: string
+  externalAccountId?: string | null
+  scopes?: string[] | null
+  accessToken?: string | null
+  refreshToken?: string | null
+  tokenType?: string | null
+  expiresAt?: Date | null
+  pendingCodeVerifier?: string | null
+}
+
+function connectedAccountChanges(input: ConnectedAccountUpsertInput) {
+  return {
+    ...(input.externalAccountId !== undefined ? { externalAccountId: input.externalAccountId } : {}),
+    ...(input.scopes !== undefined ? { scopes: input.scopes } : {}),
+    ...(input.accessToken !== undefined ? { accessToken: input.accessToken } : {}),
+    ...(input.refreshToken !== undefined ? { refreshToken: input.refreshToken } : {}),
+    ...(input.tokenType !== undefined ? { tokenType: input.tokenType } : {}),
+    ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+    ...(input.pendingCodeVerifier !== undefined ? { pendingCodeVerifier: input.pendingCodeVerifier } : {}),
+  }
+}
 
 export async function getOrgOAuthClient(organizationId: OrganizationId, providerId: string): Promise<OrgOAuthClientRow | null> {
   const rows = await db
@@ -80,31 +106,12 @@ export async function getConnectedAccount(input: {
 }
 
 /** Upsert used both to stash a pending PKCE verifier before redirect, and to save real tokens after exchange. */
-export async function upsertConnectedAccount(input: {
-  organizationId: OrganizationId
-  orgMembershipId: OrgMembershipId
-  providerId: string
-  externalAccountId?: string | null
-  scopes?: string[] | null
-  accessToken?: string | null
-  refreshToken?: string | null
-  tokenType?: string | null
-  expiresAt?: Date | null
-  pendingCodeVerifier?: string | null
-}): Promise<ConnectedAccountRow> {
+export async function upsertConnectedAccount(input: ConnectedAccountUpsertInput): Promise<ConnectedAccountRow> {
   const existing = await getConnectedAccount(input)
   if (existing) {
     await db
       .update(ConnectedAccountTable)
-      .set({
-        ...(input.externalAccountId !== undefined ? { externalAccountId: input.externalAccountId } : {}),
-        ...(input.scopes !== undefined ? { scopes: input.scopes } : {}),
-        ...(input.accessToken !== undefined ? { accessToken: input.accessToken } : {}),
-        ...(input.refreshToken !== undefined ? { refreshToken: input.refreshToken } : {}),
-        ...(input.tokenType !== undefined ? { tokenType: input.tokenType } : {}),
-        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
-        ...(input.pendingCodeVerifier !== undefined ? { pendingCodeVerifier: input.pendingCodeVerifier } : {}),
-      })
+      .set(connectedAccountChanges(input))
       .where(eq(ConnectedAccountTable.id, existing.id))
     return (await getConnectedAccount(input))!
   }
@@ -126,6 +133,94 @@ export async function upsertConnectedAccount(input: {
   return (await getConnectedAccount(input))!
 }
 
+/**
+ * Update-only credential persistence shared by callback completion and token
+ * refresh. The member and exact account are locked before comparing secrets in
+ * memory (encrypted DB columns cannot be used as equality predicates).
+ */
+async function updateExistingConnectedAccountForActiveMember(
+  input: ConnectedAccountUpsertInput & {
+    expectedAccountId: ConnectedAccountRow["id"]
+    expectedAccessToken?: string
+    expectedPendingCodeVerifier?: string
+    expectedRefreshToken?: string
+  },
+): Promise<ConnectedAccountRow | null> {
+  return db.transaction(async (tx) => {
+    const activeMembers = await tx
+      .select({ id: MemberTable.id })
+      .from(MemberTable)
+      .where(and(
+        eq(MemberTable.id, input.orgMembershipId),
+        eq(MemberTable.organizationId, input.organizationId),
+        isNull(MemberTable.removedAt),
+      ))
+      .limit(1)
+      .for("update")
+    if (!activeMembers[0]) return null
+
+    const existingRows = await tx
+      .select()
+      .from(ConnectedAccountTable)
+      .where(and(
+        eq(ConnectedAccountTable.organizationId, input.organizationId),
+        eq(ConnectedAccountTable.orgMembershipId, input.orgMembershipId),
+        eq(ConnectedAccountTable.providerId, input.providerId),
+      ))
+      .limit(1)
+      .for("update")
+    const existing = existingRows[0]
+    if (
+      !existing
+      || existing.id !== input.expectedAccountId
+      || (input.expectedAccessToken !== undefined && existing.accessToken !== input.expectedAccessToken)
+      || (input.expectedPendingCodeVerifier !== undefined && existing.pendingCodeVerifier !== input.expectedPendingCodeVerifier)
+      || (input.expectedRefreshToken !== undefined && existing.refreshToken !== input.expectedRefreshToken)
+    ) return null
+
+    await tx
+      .update(ConnectedAccountTable)
+      .set(connectedAccountChanges(input))
+      .where(eq(ConnectedAccountTable.id, existing.id))
+
+    const saved = await tx
+      .select()
+      .from(ConnectedAccountTable)
+      .where(and(
+        eq(ConnectedAccountTable.organizationId, input.organizationId),
+        eq(ConnectedAccountTable.orgMembershipId, input.orgMembershipId),
+        eq(ConnectedAccountTable.providerId, input.providerId),
+      ))
+      .limit(1)
+    return saved[0] ?? null
+  })
+}
+
+/**
+ * A late callback can only finish the exact pending request it exchanged. A
+ * disconnect, client rotation, newer connect attempt, or member removal wins
+ * by deleting/changing the row before this update-only transaction commits.
+ */
+export async function completeConnectedAccountForActiveMember(
+  input: ConnectedAccountUpsertInput & {
+    expectedAccountId: ConnectedAccountRow["id"]
+    expectedPendingCodeVerifier: string
+  },
+): Promise<ConnectedAccountRow | null> {
+  return updateExistingConnectedAccountForActiveMember(input)
+}
+
+/** A remote refresh can update only the exact active grant it started from. */
+export async function refreshConnectedAccountForActiveMember(
+  input: ConnectedAccountUpsertInput & {
+    expectedAccountId: ConnectedAccountRow["id"]
+    expectedAccessToken: string
+    expectedRefreshToken: string
+  },
+): Promise<ConnectedAccountRow | null> {
+  return updateExistingConnectedAccountForActiveMember(input)
+}
+
 export async function disconnectAccount(input: {
   organizationId: OrganizationId
   orgMembershipId: OrgMembershipId
@@ -135,4 +230,14 @@ export async function disconnectAccount(input: {
   if (!existing) return false
   await db.delete(ConnectedAccountTable).where(eq(ConnectedAccountTable.id, existing.id))
   return true
+}
+
+export async function disconnectProviderAccountsForOrganization(input: {
+  organizationId: OrganizationId
+  providerId: string
+}): Promise<void> {
+  await db.delete(ConnectedAccountTable).where(and(
+    eq(ConnectedAccountTable.organizationId, input.organizationId),
+    eq(ConnectedAccountTable.providerId, input.providerId),
+  ))
 }

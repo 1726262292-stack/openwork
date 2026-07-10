@@ -208,6 +208,9 @@ export type DenExternalMcpConnection = {
   connectedForMe: boolean;
   needsReconnect?: boolean;
   missingFeatures?: string[];
+  externalAccountId?: string | null;
+  grantedScopes?: string[];
+  tenantId?: string | null;
 };
 
 export type DenMcpConnectionConnectStart = {
@@ -1164,6 +1167,9 @@ function parseDenExternalMcpConnection(value: unknown): DenExternalMcpConnection
     connectedForMe: value.connectedForMe === true,
     ...(typeof value.needsReconnect === "boolean" ? { needsReconnect: value.needsReconnect } : {}),
     ...(Array.isArray(value.missingFeatures) ? { missingFeatures: readStringArray(value.missingFeatures) } : {}),
+    ...(typeof value.externalAccountId === "string" || value.externalAccountId === null ? { externalAccountId: value.externalAccountId } : {}),
+    ...(Array.isArray(value.grantedScopes) ? { grantedScopes: readStringArray(value.grantedScopes) } : {}),
+    ...(typeof value.tenantId === "string" || value.tenantId === null ? { tenantId: value.tenantId } : {}),
   };
 }
 

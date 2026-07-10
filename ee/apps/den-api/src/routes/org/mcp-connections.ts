@@ -92,6 +92,12 @@ const connectionResponseSchema = z.object({
   needsReconnect: z.boolean().optional(),
   /** Native provider feature ids whose scopes are missing from the member's saved grant. */
   missingFeatures: z.array(z.string()).optional(),
+  /** Native provider account label when the provider supplied one. Never a token. */
+  externalAccountId: z.string().nullable().optional(),
+  /** Delegated scopes the calling member granted to a native provider. */
+  grantedScopes: z.array(z.string()).optional(),
+  /** Tenant selected by the admin for tenant-scoped native providers. */
+  tenantId: z.string().nullable().optional(),
   /** Present only for scope=manageable (admin) listings. */
   access: accessSummarySchema.nullable(),
 }).meta({ ref: "ExternalMcpConnectionResponse" })

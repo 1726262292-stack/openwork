@@ -1,11 +1,14 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
+import { z } from "zod"
+import { env } from "../env.js"
 import { publicRequestUrl } from "../request-url.js"
 import { clientSelectedFeatures, resolveProviderScopes, type NativeOAuthProviderConfig } from "./provider-registry.js"
+import { readProviderTenantId, resolveTenantEndpointTemplate } from "./oauth-tenant.js"
 import {
   getConnectedAccount,
   getOrgOAuthClient,
-  upsertConnectedAccount,
+  refreshConnectedAccountForActiveMember,
   type ConnectedAccountRow,
   type OrgOAuthClientRow,
 } from "./oauth-credentials.js"
@@ -18,6 +21,8 @@ import {
  */
 
 const TOKEN_EXPIRY_SAFETY_WINDOW_MS = 60_000
+const TOKEN_REQUEST_TIMEOUT_MS = 15_000
+const TOKEN_RESPONSE_MAX_BYTES = 64 * 1024
 
 function base64UrlEncode(input: Buffer | string) {
   const buffer = typeof input === "string" ? Buffer.from(input, "utf8") : input
@@ -25,7 +30,9 @@ function base64UrlEncode(input: Buffer | string) {
 }
 
 /**
- * The origin an external OAuth server should redirect back to. Behind a
+ * The public API base URL an external OAuth server should redirect back to.
+ * A configured pathname is preserved for self-hosted deployments that expose
+ * Den behind a prefix such as `/api/den`. Behind a
  * reverse proxy (e.g. Daytona's port-forwarding proxy), `request.url`
  * reflects the *internal* bind address (http://127.0.0.1:8788) rather than
  * the public URL the browser actually called, since the proxy doesn't
@@ -33,12 +40,17 @@ function base64UrlEncode(input: Buffer | string) {
  * scheme, while `DEN_API_PUBLIC_URL`, when set, is still needed when the
  * proxy does not preserve the public host.
  */
-export function resolvePublicOrigin(request: Request, apiPublicUrl: string | undefined): string {
+export function resolvePublicApiBaseUrl(request: Request, apiPublicUrl: string | undefined): string {
   if (apiPublicUrl) {
-    return new URL(apiPublicUrl).origin
+    const url = new URL(apiPublicUrl)
+    const pathname = url.pathname.replace(/\/+$/, "")
+    return `${url.origin}${pathname === "/" ? "" : pathname}`
   }
-  return publicRequestUrl(request).origin
+  return publicRequestUrl(request, { trustedOrigins: env.publicUrlTrustedOrigins }).origin
 }
+
+/** Compatibility name retained for existing callback and webhook builders. */
+export const resolvePublicOrigin = resolvePublicApiBaseUrl
 
 export function createPkcePair() {
   const verifier = base64UrlEncode(randomBytes(32))
@@ -113,7 +125,7 @@ export function buildAuthorizeUrl(input: {
   redirectUri: string
   codeChallenge?: string
 }) {
-  const url = new URL(input.provider.authorizeUrl)
+  const url = new URL(resolveOAuthEndpointUrl({ provider: input.provider, client: input.client, endpoint: "authorize" }))
   url.searchParams.set("client_id", input.client.clientId)
   url.searchParams.set("redirect_uri", input.redirectUri)
   url.searchParams.set("response_type", "code")
@@ -137,15 +149,89 @@ type TokenResponse = {
   scope?: string
 }
 
+const tokenResponseSchema = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1).optional(),
+  expires_in: z.number().nonnegative().optional(),
+  token_type: z.string().min(1).optional(),
+  scope: z.string().optional(),
+})
+
 export class OAuthTokenExchangeError extends Error {}
+export class OAuthClientConfigurationError extends Error {}
+
+export function parseOAuthTokenResponse(value: unknown): TokenResponse {
+  const parsed = tokenResponseSchema.safeParse(value)
+  if (!parsed.success) {
+    throw new OAuthTokenExchangeError("Token endpoint returned an invalid OAuth response.")
+  }
+  return parsed.data
+}
+
+async function readBoundedTokenResponse(response: Response): Promise<string> {
+  const declaredBytes = Number(response.headers.get("content-length"))
+  if (Number.isFinite(declaredBytes) && declaredBytes > TOKEN_RESPONSE_MAX_BYTES) {
+    throw new OAuthTokenExchangeError("Token endpoint response exceeded the allowed size.")
+  }
+  if (!response.body) return ""
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const result = await reader.read()
+    if (result.done) break
+    totalBytes += result.value.byteLength
+    if (totalBytes > TOKEN_RESPONSE_MAX_BYTES) {
+      await reader.cancel()
+      throw new OAuthTokenExchangeError("Token endpoint response exceeded the allowed size.")
+    }
+    chunks.push(result.value)
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
+}
+
+export function resolveOAuthEndpointUrl(input: {
+  provider: NativeOAuthProviderConfig
+  client: OrgOAuthClientRow
+  endpoint: "authorize" | "token"
+}): string {
+  const template = input.endpoint === "authorize" ? input.provider.authorizeUrl : input.provider.tokenUrl
+  const tenantIdExtraKey = input.provider.tenantIdExtraKey
+  if (!tenantIdExtraKey) return template
+
+  const tenantId = readProviderTenantId(input.client.extra, tenantIdExtraKey)
+  if (!tenantId) {
+    throw new OAuthClientConfigurationError(`${input.provider.displayName} requires a valid tenant ID or verified tenant domain.`)
+  }
+  try {
+    return resolveTenantEndpointTemplate(template, tenantId)
+  } catch (error) {
+    throw new OAuthClientConfigurationError(error instanceof Error ? error.message : "Tenant-scoped OAuth endpoint is invalid.")
+  }
+}
 
 async function postTokenRequest(tokenUrl: string, params: URLSearchParams): Promise<TokenResponse> {
-  const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: params,
-  })
-  const text = await response.text()
+  let response: Response
+  try {
+    response = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params,
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    })
+  } catch {
+    throw new OAuthTokenExchangeError("Token endpoint could not be reached before the request deadline.")
+  }
+
+  const text = await readBoundedTokenResponse(response)
   let body: unknown
   try {
     body = JSON.parse(text)
@@ -153,9 +239,9 @@ async function postTokenRequest(tokenUrl: string, params: URLSearchParams): Prom
     body = text
   }
   if (!response.ok) {
-    throw new OAuthTokenExchangeError(`Token request failed: ${response.status} ${typeof body === "string" ? body : JSON.stringify(body)}`)
+    throw new OAuthTokenExchangeError(`Token request failed with status ${response.status}.`)
   }
-  return body as TokenResponse
+  return parseOAuthTokenResponse(body)
 }
 
 export async function exchangeCodeForTokens(input: {
@@ -173,7 +259,7 @@ export async function exchangeCodeForTokens(input: {
   })
   if (input.client.clientSecret) params.set("client_secret", input.client.clientSecret)
   if (input.provider.usesPkce && input.codeVerifier) params.set("code_verifier", input.codeVerifier)
-  return postTokenRequest(input.provider.tokenUrl, params)
+  return postTokenRequest(resolveOAuthEndpointUrl({ provider: input.provider, client: input.client, endpoint: "token" }), params)
 }
 
 async function refreshTokens(input: {
@@ -187,7 +273,7 @@ async function refreshTokens(input: {
     client_id: input.client.clientId,
   })
   if (input.client.clientSecret) params.set("client_secret", input.client.clientSecret)
-  return postTokenRequest(input.provider.tokenUrl, params)
+  return postTokenRequest(resolveOAuthEndpointUrl({ provider: input.provider, client: input.client, endpoint: "token" }), params)
 }
 
 /**
@@ -226,15 +312,35 @@ export async function getValidAccessToken(input: {
 
   const refreshed = await refreshTokens({ provider: input.provider, client, refreshToken: account.refreshToken })
   const expiresAt = refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000) : null
-  const updated = await upsertConnectedAccount({
+  const updated = await refreshConnectedAccountForActiveMember({
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
     providerId: input.provider.providerId,
+    expectedAccountId: account.id,
+    expectedAccessToken: account.accessToken,
+    expectedRefreshToken: account.refreshToken,
     accessToken: refreshed.access_token,
     // Most providers (Google included) omit refresh_token on refresh responses; keep the existing one.
     refreshToken: refreshed.refresh_token ?? account.refreshToken,
     tokenType: refreshed.token_type ?? account.tokenType,
     expiresAt,
   })
-  return { accessToken: updated.accessToken!, account: updated }
+  if (updated?.accessToken) {
+    return { accessToken: updated.accessToken, account: updated }
+  }
+
+  // Another in-flight refresh may have won the compare-and-set. Reuse its
+  // fresh token, but never recreate a row deleted by disconnect/removal/rotation.
+  const current = await getConnectedAccount({
+    organizationId: input.organizationId,
+    orgMembershipId: input.orgMembershipId,
+    providerId: input.provider.providerId,
+  })
+  if (
+    current?.accessToken
+    && (!current.expiresAt || current.expiresAt.getTime() - TOKEN_EXPIRY_SAFETY_WINDOW_MS > Date.now())
+  ) {
+    return { accessToken: current.accessToken, account: current }
+  }
+  return { error: "not_connected" }
 }
