@@ -2176,7 +2176,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     installMediaPermissionHandlers(session, () => mainWindow);
     applicationMenu.install();
-    await workspaceStore.importBundledDesktopBootstrapConfigIfMissing();
+    await workspaceStore.importBundledDesktopBootstrapConfigIfPreferred();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
     // Use Tauri's existing workspace state file as canonical so rollback and

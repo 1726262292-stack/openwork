@@ -122,6 +122,22 @@ const DEFAULT_DESKTOP_BOOTSTRAP_PATH = (() => {
 const LEGACY_DESKTOP_BOOTSTRAP_PATH = path.join(os.homedir(), ".config", "openwork", "desktop-bootstrap.json");
 const DESKTOP_BOOTSTRAP_FILENAME = "desktop-bootstrap.json";
 const STANDARD_DESKTOP_INSTALLER_PATTERN = /^openwork-(?:mac-(?:arm64|x64)-.+\.dmg|win-x64-.+\.exe)$/i;
+const HOSTED_DESKTOP_WEB_URL = "https://app.openworklabs.com";
+const HOSTED_DESKTOP_API_URL = "https://api.openworklabs.com";
+
+function bootstrapUrlOrigin(value) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  try {
+    return new URL(value.trim()).origin;
+  } catch {
+    return value.trim().replace(/\/+$/, "");
+  }
+}
+
+function isHostedDesktopBootstrapConfig(config) {
+  const baseUrlOrigin = bootstrapUrlOrigin(config?.baseUrl);
+  return baseUrlOrigin === HOSTED_DESKTOP_WEB_URL || baseUrlOrigin === HOSTED_DESKTOP_API_URL;
+}
 
 export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSignin, forceRequireSignin }) {
   function desktopBootstrapPath() {
@@ -270,6 +286,11 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return Number.isFinite(writtenAtMs) ? writtenAtMs : candidate.mtimeMs;
   }
 
+  function compareDesktopBootstrapCandidates(left, right) {
+    const classDifference = Number(!isHostedDesktopBootstrapConfig(left.normalized)) - Number(!isHostedDesktopBootstrapConfig(right.normalized));
+    return classDifference || desktopBootstrapCandidateTimeMs(left) - desktopBootstrapCandidateTimeMs(right);
+  }
+
   async function readDesktopBootstrapCandidate(candidatePath) {
     let exists = false;
     let mtimeMs = 0;
@@ -363,12 +384,15 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return Array.from(new Set(candidates));
   }
 
-  async function importBundledDesktopBootstrapConfigIfMissing() {
+  async function importBundledDesktopBootstrapConfigIfPreferred() {
     const configPath = desktopBootstrapPath();
     const primary = await readDesktopBootstrapCandidate(configPath);
     const legacyPath = legacyDesktopBootstrapPath();
     const legacy = legacyPath ? await readDesktopBootstrapCandidate(legacyPath) : null;
-    if (primary.ok || legacy?.ok) return false;
+    const installedCandidates = [primary, legacy].filter((candidate) => candidate?.ok);
+    installedCandidates.sort((left, right) => compareDesktopBootstrapCandidates(right, left));
+    const installed = installedCandidates[0];
+    if (installed && !isHostedDesktopBootstrapConfig(installed.normalized)) return false;
 
     const bundledCandidates = [];
     for (const candidatePath of await bundledDesktopBootstrapPaths()) {
@@ -376,9 +400,9 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       const candidate = await readDesktopBootstrapCandidate(candidatePath);
       if (candidate.ok) bundledCandidates.push(candidate);
     }
-    bundledCandidates.sort((left, right) => desktopBootstrapCandidateTimeMs(right) - desktopBootstrapCandidateTimeMs(left));
+    bundledCandidates.sort((left, right) => compareDesktopBootstrapCandidates(right, left));
     const newest = bundledCandidates[0];
-    if (!newest) return false;
+    if (!newest || (installed && compareDesktopBootstrapCandidates(newest, installed) <= 0)) return false;
 
     try {
       await writeJsonFileAtomic(configPath, newest.normalized);
@@ -400,7 +424,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     const legacy = legacyPath ? await readDesktopBootstrapCandidate(legacyPath) : null;
 
     if (primary.ok && legacy?.ok) {
-      if (desktopBootstrapCandidateTimeMs(legacy) > desktopBootstrapCandidateTimeMs(primary)) {
+      if (compareDesktopBootstrapCandidates(legacy, primary) > 0) {
         await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
         return legacy.normalized;
       }
@@ -410,10 +434,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     if (primary.ok) return primary.normalized;
 
     if (legacy?.ok) {
-      if (!primary.exists || desktopBootstrapCandidateTimeMs(legacy) >= desktopBootstrapCandidateTimeMs(primary)) {
-        await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
-        return legacy.normalized;
-      }
+      await migrateLegacyDesktopBootstrapConfig(configPath, legacy);
+      return legacy.normalized;
     }
 
     console.warn("[desktop-bootstrap] falling back to defaults", {
@@ -1209,7 +1231,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     forgetWorkspace,
     getDesktopBootstrapConfig,
     importConfig,
-    importBundledDesktopBootstrapConfigIfMissing,
+    importBundledDesktopBootstrapConfigIfPreferred,
     listLocalWorkspacePaths,
     migrateLegacyElectronWorkspaceStateIfNeeded,
     readWorkspaceOpenworkConfig,

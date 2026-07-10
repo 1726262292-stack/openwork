@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
@@ -37,6 +37,54 @@ const status: InstallStatus = {
   error: null,
 }
 
+const HOSTED_DESKTOP_WEB_URL = "https://app.openworklabs.com"
+const HOSTED_DESKTOP_API_URL = "https://api.openworklabs.com"
+
+type BootstrapCandidate = {
+  config: Record<string, unknown>
+  mtimeMs: number
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function bootstrapUrlOrigin(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return ""
+  try {
+    return new URL(value.trim()).origin
+  } catch {
+    return value.trim().replace(/\/+$/, "")
+  }
+}
+
+function isHostedBootstrapConfig(config: Record<string, unknown>): boolean {
+  const baseUrlOrigin = bootstrapUrlOrigin(config.baseUrl)
+  return baseUrlOrigin === HOSTED_DESKTOP_WEB_URL || baseUrlOrigin === HOSTED_DESKTOP_API_URL
+}
+
+function readBootstrapCandidate(candidatePath: string): BootstrapCandidate | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(candidatePath, "utf8"))
+    if (!isRecord(parsed)) return null
+    if (typeof parsed.baseUrl !== "string" || !parsed.baseUrl.trim()) return null
+    return { config: parsed, mtimeMs: statSync(candidatePath).mtimeMs }
+  } catch {
+    return null
+  }
+}
+
+function bootstrapCandidateTimeMs(candidate: BootstrapCandidate): number {
+  const writtenAt = typeof candidate.config.writtenAt === "string" ? candidate.config.writtenAt.trim() : ""
+  const writtenAtMs = writtenAt ? Date.parse(writtenAt) : Number.NaN
+  return Number.isFinite(writtenAtMs) ? writtenAtMs : candidate.mtimeMs
+}
+
+function compareBootstrapCandidates(left: BootstrapCandidate, right: BootstrapCandidate): number {
+  const classDifference = Number(!isHostedBootstrapConfig(left.config)) - Number(!isHostedBootstrapConfig(right.config))
+  return classDifference || bootstrapCandidateTimeMs(left) - bootstrapCandidateTimeMs(right)
+}
+
 export function installStatus(): InstallStatus {
   return { ...status }
 }
@@ -47,34 +95,46 @@ function update(partial: Partial<InstallStatus>, onStatus?: (status: InstallStat
 }
 
 /**
- * Merge the deployment config into any existing bootstrap file rather than
- * replacing it: a re-run must not destroy prepared/claimLinks state written by
- * the bootstrap CLI, but one-time handoff grants must not survive reinstall
- * (see normalizeDesktopBootstrapConfig in the Electron shell for the full shape).
+ * Prefer an installed organization deployment over hosted defaults while
+ * retaining prepared/claimLinks state. One-time handoff grants must not survive
+ * reinstall (see normalizeDesktopBootstrapConfig in the Electron shell).
  */
-export function writeBootstrapConfig(config: InstallerConfig, env: NodeJS.ProcessEnv = process.env): string {
-  const target = desktopBootstrapPath(env)
-  let existing: Record<string, unknown> = {}
-  try {
-    const parsed = JSON.parse(readFileSync(target, "utf8"))
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) existing = parsed
-  } catch {
-    // Missing or invalid file: start fresh.
-  }
-
-  const next = {
+export function writeBootstrapConfig(
+  config: InstallerConfig,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const target = desktopBootstrapPath(env, platform)
+  const legacy = legacyDesktopBootstrapPath(env, platform)
+  const canonicalCandidate = readBootstrapCandidate(target)
+  const legacyCandidate = path.resolve(legacy) === path.resolve(target) ? null : readBootstrapCandidate(legacy)
+  const installedCandidates: BootstrapCandidate[] = []
+  if (canonicalCandidate) installedCandidates.push(canonicalCandidate)
+  if (legacyCandidate) installedCandidates.push(legacyCandidate)
+  installedCandidates.sort((left, right) => compareBootstrapCandidates(right, left))
+  const installed = installedCandidates[0]
+  const existing = installed ? installed.config : {}
+  const preserveInstalledDeployment = installed ? !isHostedBootstrapConfig(installed.config) : false
+  const prepared = canonicalCandidate?.config.prepared ?? legacyCandidate?.config.prepared
+  const claimLinks = canonicalCandidate?.config.claimLinks ?? legacyCandidate?.config.claimLinks
+  const next: Record<string, unknown> = {
     ...existing,
-    baseUrl: config.webUrl,
-    apiBaseUrl: config.apiUrl,
-    requireSignin: config.requireSignin,
-    brandAppName: config.appName,
-    ...(config.logoUrl ? { brandLogoUrl: config.logoUrl } : {}),
+    ...(!preserveInstalledDeployment
+      ? {
+          baseUrl: config.webUrl,
+          apiBaseUrl: config.apiUrl,
+          requireSignin: config.requireSignin,
+          brandAppName: config.appName,
+          ...(config.logoUrl ? { brandLogoUrl: config.logoUrl } : {}),
+        }
+      : {}),
+    ...(prepared !== undefined ? { prepared } : {}),
+    ...(claimLinks !== undefined ? { claimLinks } : {}),
     writtenAt: new Date().toISOString(),
   }
   delete next.handoff
   mkdirSync(path.dirname(target), { recursive: true })
   writeFileSync(target, `${JSON.stringify(next, null, 2)}\n`, "utf8")
-  const legacy = legacyDesktopBootstrapPath(env)
   try {
     if (path.resolve(legacy) !== path.resolve(target) && existsSync(legacy)) rmSync(legacy, { force: true })
   } catch {

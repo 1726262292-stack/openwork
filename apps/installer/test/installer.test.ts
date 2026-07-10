@@ -301,42 +301,125 @@ describe("install link helpers", () => {
 })
 
 describe("writeBootstrapConfig", () => {
-  test("writes the deployment config, stamps it, drops handoff, and removes stale legacy", () => {
+  test("migrates a legacy organization config instead of replacing it with hosted defaults", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-test-"))
-    const target = path.join(dir, "canonical", "desktop-bootstrap.json")
-    const home = path.join(dir, "home")
-    const legacy = path.join(home, ".config", "openwork", "desktop-bootstrap.json")
-    const previousHome = process.env.HOME
+    const env = {
+      LOCALAPPDATA: path.join(dir, "LocalAppData"),
+      USERPROFILE: path.join(dir, "profile"),
+    }
+    const target = desktopBootstrapPath(env, "win32")
+    const legacy = legacyDesktopBootstrapPath(env, "win32")
     try {
-      process.env.HOME = home
       mkdirSync(path.dirname(target), { recursive: true })
       mkdirSync(path.dirname(legacy), { recursive: true })
-      writeFileSync(legacy, JSON.stringify({ baseUrl: "https://legacy.example.com" }))
       writeFileSync(target, JSON.stringify({
-        baseUrl: "https://old.example.com",
+        baseUrl: "https://app.openworklabs.com/api/den/",
+        writtenAt: "2026-07-10T13:00:00.000Z",
+      }))
+      writeFileSync(legacy, JSON.stringify({
+        baseUrl: "https://openwork.organization.internal.example",
+        apiBaseUrl: "https://api.organization.internal.example",
         handoff: { grant: "drop-me" },
-        prepared: { orgId: "org" },
-        claimLinks: [{ id: "claim" }],
+        prepared: { orgId: "org_example" },
+        claimLinks: [{ id: "claim_example" }],
+        writtenAt: "2026-07-09T12:00:00.000Z",
       }))
       const written = writeBootstrapConfig(
-        { appName: "Acme Work", clientName: "Acme", webUrl: "https://openwork.acme.com", apiUrl: "https://openwork-api.acme.com", requireSignin: true, logoUrl: "https://openwork.acme.com/assets/wordmark.svg" },
-        { OPENWORK_DESKTOP_BOOTSTRAP_PATH: target, HOME: home, USERPROFILE: home },
+        { appName: "OpenWork", clientName: "Hosted", webUrl: "https://app.openworklabs.com/", apiUrl: "https://api.openworklabs.com/", requireSignin: false, logoUrl: null },
+        env,
+        "win32",
       )
       expect(written).toBe(target)
       const parsed = JSON.parse(readFileSync(target, "utf8"))
-      expect(parsed.baseUrl).toBe("https://openwork.acme.com")
-      expect(parsed.apiBaseUrl).toBe("https://openwork-api.acme.com")
-      expect(parsed.requireSignin).toBe(true)
-      expect(parsed.brandAppName).toBe("Acme Work")
-      expect(parsed.brandLogoUrl).toBe("https://openwork.acme.com/assets/wordmark.svg")
+      expect(parsed.baseUrl).toBe("https://openwork.organization.internal.example")
+      expect(parsed.apiBaseUrl).toBe("https://api.organization.internal.example")
       expect(parsed.handoff).toBeUndefined()
-      expect(parsed.prepared).toEqual({ orgId: "org" })
-      expect(parsed.claimLinks).toEqual([{ id: "claim" }])
+      expect(parsed.prepared).toEqual({ orgId: "org_example" })
+      expect(parsed.claimLinks).toEqual([{ id: "claim_example" }])
       expect(Number.isFinite(Date.parse(parsed.writtenAt))).toBe(true)
       expect(existsSync(legacy)).toBe(false)
     } finally {
-      if (previousHome === undefined) delete process.env.HOME
-      else process.env.HOME = previousHome
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("keeps a canonical organization config across repeated hosted reinstalls", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-test-"))
+    const env = {
+      LOCALAPPDATA: path.join(dir, "LocalAppData"),
+      USERPROFILE: path.join(dir, "profile"),
+    }
+    const target = desktopBootstrapPath(env, "win32")
+    try {
+      mkdirSync(path.dirname(target), { recursive: true })
+      writeFileSync(target, JSON.stringify({
+        baseUrl: "https://openwork.organization.internal.example",
+        apiBaseUrl: "https://api.organization.internal.example",
+        handoff: { grant: "drop-me" },
+        prepared: { orgId: "org_example" },
+        claimLinks: [{ id: "claim_example" }],
+      }))
+      const hostedConfig = {
+        appName: "OpenWork",
+        clientName: "Hosted",
+        webUrl: "https://api.openworklabs.com/v1/",
+        apiUrl: "https://api.openworklabs.com/",
+        requireSignin: false,
+        logoUrl: null,
+      }
+
+      writeBootstrapConfig(hostedConfig, env, "win32")
+      writeBootstrapConfig(hostedConfig, env, "win32")
+
+      const parsed = JSON.parse(readFileSync(target, "utf8"))
+      expect(parsed.baseUrl).toBe("https://openwork.organization.internal.example")
+      expect(parsed.apiBaseUrl).toBe("https://api.organization.internal.example")
+      expect(parsed.handoff).toBeUndefined()
+      expect(parsed.prepared).toEqual({ orgId: "org_example" })
+      expect(parsed.claimLinks).toEqual([{ id: "claim_example" }])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("replaces an installed hosted default with a custom organization config", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-test-"))
+    const env = {
+      LOCALAPPDATA: path.join(dir, "LocalAppData"),
+      USERPROFILE: path.join(dir, "profile"),
+    }
+    const target = desktopBootstrapPath(env, "win32")
+    try {
+      mkdirSync(path.dirname(target), { recursive: true })
+      writeFileSync(target, JSON.stringify({
+        baseUrl: "https://app.openworklabs.com/api/den/",
+        apiBaseUrl: "https://api.openworklabs.com/",
+        prepared: { orgId: "org_example" },
+        claimLinks: [{ id: "claim_example" }],
+      }))
+
+      writeBootstrapConfig(
+        {
+          appName: "Example Org Work",
+          clientName: "Example Org",
+          webUrl: "https://openwork.custom.internal.example",
+          apiUrl: "https://api.custom.internal.example",
+          requireSignin: true,
+          logoUrl: "https://openwork.custom.internal.example/assets/wordmark.svg",
+        },
+        env,
+        "win32",
+      )
+
+      const parsed = JSON.parse(readFileSync(target, "utf8"))
+      expect(parsed.baseUrl).toBe("https://openwork.custom.internal.example")
+      expect(parsed.apiBaseUrl).toBe("https://api.custom.internal.example")
+      expect(parsed.requireSignin).toBe(true)
+      expect(parsed.brandAppName).toBe("Example Org Work")
+      expect(parsed.brandLogoUrl).toBe("https://openwork.custom.internal.example/assets/wordmark.svg")
+      expect(parsed.prepared).toEqual({ orgId: "org_example" })
+      expect(parsed.claimLinks).toEqual([{ id: "claim_example" }])
+    } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
