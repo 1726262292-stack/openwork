@@ -203,7 +203,17 @@ async function uiSignIn(ctx, email, password) {
     return buttons.length > 0;
   })()`);
   witness(ctx, submitted === true, `The sign-in form was submitted for ${email}`, submitted);
-  await ctx.waitFor("location.pathname.startsWith('/dashboard')", { timeoutMs: 45_000, label: "dashboard after sign-in" });
+  try {
+    await ctx.waitFor("location.pathname.startsWith('/dashboard')", { timeoutMs: 8_000, label: "dashboard after sign-in" });
+  } catch {
+    // Daytona's proxied Next.js page can retain its pre-sign-in hydration
+    // state even after Better Auth has set the session cookie. A real hard
+    // refresh immediately resolves the authenticated route, so keep that
+    // infrastructure repair explicit in the proof instead of hiding it.
+    ctx.output("daytona-signin-hydration-reload", `Refreshing the signed-in ${email} session without cached page data.`);
+    await ctx.client.send("Page.reload", { ignoreCache: true });
+    await ctx.waitFor("location.pathname.startsWith('/dashboard')", { timeoutMs: 30_000, label: "dashboard after sign-in reload" });
+  }
   await ctx.waitFor("Boolean(document.querySelector('nav'))", { timeoutMs: 30_000, label: "dashboard navigation" });
   await sleep(600);
 }
