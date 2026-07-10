@@ -121,11 +121,11 @@ export async function openYourConnections(ctx) {
 }
 
 /** Mints an agent MCP token for a signed-in session (POST /v1/mcp/token). */
-export async function mintMcpToken(sessionToken, ctx) {
+export async function mintMcpToken(sessionToken, ctx, scopes) {
   const { response, body } = await denApiFetch("/v1/mcp/token", {
     method: "POST",
     headers: { authorization: `Bearer ${sessionToken}` },
-    body: "{}",
+    body: JSON.stringify(scopes ? { scopes } : {}),
   });
   ctx.assert(response.ok, `Minting an MCP token failed: ${response.status}`);
   return body.token;

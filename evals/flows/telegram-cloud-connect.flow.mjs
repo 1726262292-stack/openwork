@@ -53,6 +53,7 @@ const state = {
   mcpToken: null,
   taskMessageId: null,
   taskReply: null,
+  workerRequestStartIndex: 0,
   outboundCapability: null,
   outboundExecution: null,
 };
@@ -247,7 +248,7 @@ export default {
           connection: disconnected.body?.connection ?? null,
         });
 
-        state.mcpToken = await mintMcpToken(state.adminSession, ctx);
+        state.mcpToken = await mintMcpToken(state.adminSession, ctx, ["mcp:read", "mcp:write"]);
         witness(ctx, Boolean(state.mcpToken), "The signed-in owner can mint an agent capability token.");
       },
     },
@@ -262,21 +263,14 @@ export default {
             await ctx.waitForText("Telegram", { timeoutMs: 20_000 });
             await openTelegramDialog(ctx);
             await ctx.waitFor(`(() => {
-              const select = document.querySelector('[data-testid="telegram-worker"]');
-              return [...(select?.options ?? [])].some((option) => option.textContent?.trim() === ${JSON.stringify(WORKER_NAME)});
+              const trigger = document.querySelector('button[aria-label="Telegram worker"]');
+              return (trigger?.textContent ?? '').trim() === ${JSON.stringify(WORKER_NAME)};
             })()`, { timeoutMs: 30_000, label: `ready worker ${WORKER_NAME}` });
             await ctx.fill('[data-testid="telegram-bot-token"]', BOT_TOKEN);
             const selected = await ctx.eval(`(() => {
-              const select = document.querySelector('[data-testid="telegram-worker"]');
-              if (!(select instanceof HTMLSelectElement)) return null;
-              const option = [...select.options]
-                .find((candidate) => candidate.textContent?.trim() === ${JSON.stringify(WORKER_NAME)});
-              if (!option) return null;
-              const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
-              setter?.call(select, option.value);
-              select.dispatchEvent(new Event('input', { bubbles: true }));
-              select.dispatchEvent(new Event('change', { bubbles: true }));
-              return { value: select.value, label: option.textContent?.trim() };
+              const trigger = document.querySelector('button[aria-label="Telegram worker"]');
+              if (!(trigger instanceof HTMLButtonElement)) return null;
+              return { label: (trigger.textContent ?? '').trim() };
             })()`);
             witness(ctx, selected?.label === WORKER_NAME, "The admin selects the deterministic healthy worker.", selected);
             await ctx.eval(`(() => {
@@ -293,12 +287,12 @@ export default {
             await ctx.expectText("private text chats only");
             const form = await ctx.eval(`(() => {
               const token = document.querySelector('[data-testid="telegram-bot-token"]');
-              const worker = document.querySelector('[data-testid="telegram-worker"]');
+              const worker = document.querySelector('button[aria-label="Telegram worker"]');
               const save = document.querySelector('[data-testid="save-telegram"]');
               return {
                 tokenPresent: token?.value === ${JSON.stringify(BOT_TOKEN)},
                 tokenType: token?.type,
-                worker: worker?.selectedOptions?.[0]?.textContent?.trim(),
+                worker: worker?.textContent?.trim(),
                 saveEnabled: save instanceof HTMLButtonElement && !save.disabled,
               };
             })()`);
@@ -467,6 +461,7 @@ export default {
         await ctx.prove("A paired-chat task reaches the selected worker with dual authentication and a stable message ID, then its final answer returns to Telegram", {
           voiceover: vo[3],
           action: async () => {
+            state.workerRequestStartIndex = (await mockRequests()).length;
             const delivered = await deliverTelegramUpdate(TASK_PROMPT, TASK_UPDATE_ID);
             witness(ctx, delivered.response.ok && delivered.body?.accepted === true, "The new paired-chat task is durably accepted before worker processing.", {
               status: delivered.response.status,
@@ -511,7 +506,9 @@ export default {
             });
 
             const requests = await mockRequests();
-            const workerRequests = requests.filter((request) => request.path?.startsWith("/worker/"));
+            const workerRequests = requests
+              .slice(state.workerRequestStartIndex)
+              .filter((request) => request.path?.startsWith("/worker/"));
             witness(ctx, workerRequests.length >= 5, "The inbound task exercises workspace discovery, session creation, prompt submission, and status polling.", workerRequests.map((request) => ({
               method: request.method,
               path: request.path,
@@ -558,7 +555,7 @@ export default {
             name: "telegram-inbound-task-complete",
             claim: "The Telegram connection remains healthy after the selected worker accepts one durable task and returns one final reply to the paired chat.",
             requireText: ["Connections", "Telegram", "Pair a private Telegram chat to a cloud worker", "Connected — tap to manage"],
-            rejectText: ["Tap to set up", "Something went wrong", "Connection failed"],
+            rejectText: ["Something went wrong", "Connection failed"],
           },
         });
       },

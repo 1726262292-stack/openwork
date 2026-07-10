@@ -117,6 +117,15 @@ function recentCompletedUpdate(
 }
 
 describe("Telegram durable queue (MySQL)", () => {
+  test("recognizes duplicate entries wrapped by the database adapter", () => {
+    expect(store.isDuplicateDatabaseEntry({
+      message: "Failed query",
+      cause: { code: "ER_DUP_ENTRY", errno: 1062 },
+    })).toBe(true)
+    expect(store.isDuplicateDatabaseEntry({ cause: { message: "Duplicate entry for unique constraint" } })).toBe(true)
+    expect(store.isDuplicateDatabaseEntry({ cause: { code: "ER_LOCK_DEADLOCK" } })).toBe(false)
+  })
+
   test("pairing rotation and redemption serialize without letting the old token bind", async () => {
     const connectionId = await seedConnection("pairing-race", { dispatchToken: "pairing-dispatch" })
     await store.createTelegramPairing({

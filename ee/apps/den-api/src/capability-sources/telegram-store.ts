@@ -17,12 +17,20 @@ export type TelegramUpdateRow = typeof TelegramUpdateTable.$inferSelect
 export type TelegramUpdateStatus = NonNullable<typeof TelegramUpdateTable.$inferInsert.status>
 
 export function isDuplicateDatabaseEntry(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false
-  if ("code" in error && error.code === "ER_DUP_ENTRY") return true
-  if ("errno" in error && error.errno === 1062) return true
-  return "message" in error
-    && typeof error.message === "string"
-    && /duplicate entry|unique constraint/i.test(error.message)
+  const visited = new Set<object>()
+  let current = error
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current)
+    if ("code" in current && current.code === "ER_DUP_ENTRY") return true
+    if ("errno" in current && current.errno === 1062) return true
+    if (
+      "message" in current
+      && typeof current.message === "string"
+      && /duplicate entry|unique constraint/i.test(current.message)
+    ) return true
+    current = "cause" in current ? current.cause : null
+  }
+  return false
 }
 
 export async function getTelegramConnectionByOrganization(

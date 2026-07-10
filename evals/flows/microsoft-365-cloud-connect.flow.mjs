@@ -335,10 +335,14 @@ export default {
             await ctx.waitFor(microsoftRowScript("Connect your account"), { timeoutMs: 30_000, label: "Microsoft 365 needs member connection" });
             const scheduled = await ctx.eval(scheduleMicrosoftRowButtonScript("Connect"));
             witness(ctx, scheduled, "The member uses the Connect button on the Microsoft 365 row.", { scheduled });
-            await ctx.switchToNewTab({ timeoutMs: 20_000, label: "Microsoft 365 OAuth popup" });
+            const oauthTab = await ctx.switchToNewTab({ timeoutMs: 20_000, label: "Microsoft 365 OAuth popup" });
             await ctx.waitForText("Connected", { timeoutMs: 30_000 });
             await ctx.expectText("Microsoft 365 is connected");
             ctx.switchBack();
+            const closed = await fetch(`${ctx.cdpBaseUrl.replace(/\/$/, "")}/json/close/${encodeURIComponent(oauthTab.id)}`).catch(() => null);
+            witness(ctx, Boolean(closed?.ok), "The completed OAuth popup closes before returning to OpenWork.", {
+              status: closed?.status ?? null,
+            });
           },
           assert: async () => {
             await ctx.waitFor(microsoftRowScript("Connected as you"), { timeoutMs: 60_000, label: "Microsoft 365 connected for calling member" });
