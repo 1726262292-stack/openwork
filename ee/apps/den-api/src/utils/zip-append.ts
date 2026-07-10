@@ -247,7 +247,7 @@ export function createStoredZipStream(entries: Array<{ name: string; content: Bu
           continue
         }
         const end = Math.min(chunk.length, chunkOffset + maxChunkSize)
-        controller.enqueue(chunk.subarray(chunkOffset, end))
+        controller.enqueue(Uint8Array.from(chunk.subarray(chunkOffset, end)))
         chunkOffset = end
         return
       }
