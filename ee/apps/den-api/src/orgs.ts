@@ -678,7 +678,23 @@ export async function acceptInvitationForUser(input: {
     return null
   }
 
-  if (getInvitationStatus(invitation) !== "pending") {
+  const invitationStatus = getInvitationStatus(invitation)
+  if (invitationStatus !== "pending") {
+    if (invitationStatus === "accepted") {
+      const memberRows = await db
+        .select()
+        .from(MemberTable)
+        .where(and(eq(MemberTable.organizationId, invitation.organizationId), eq(MemberTable.userId, input.userId), isNull(MemberTable.removedAt)))
+        .limit(1)
+      const member = memberRows[0]
+      if (member) {
+        return {
+          invitation,
+          member,
+        }
+      }
+    }
+
     return null
   }
 

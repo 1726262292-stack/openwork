@@ -258,7 +258,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         200: jsonResponse("Invitation accepted successfully.", invitationAcceptedResponseSchema),
         400: jsonResponse("The invitation acceptance request body was invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to accept an invitation.", unauthorizedSchema),
-        403: jsonResponse("API keys cannot accept invitations, or the account email is unverified.", forbiddenSchema),
+        403: jsonResponse("API keys cannot accept invitations, or the deployment requires a verified account email.", forbiddenSchema),
         409: jsonResponse("The current account email is not allowed to join this organization.", accountEmailDomainNotAllowedSchema),
         404: jsonResponse("The invitation could not be found.", notFoundSchema),
       },
@@ -281,7 +281,10 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       return c.json({ error: "user_email_required" }, 400)
     }
 
-    const verification = validateInvitationAcceptVerification({ emailVerified: user.emailVerified })
+    const verification = validateInvitationAcceptVerification({
+      emailVerified: user.emailVerified,
+      emailVerificationRequired: env.requireEmailVerification,
+    })
     if (!verification.ok) {
       return c.json({ error: verification.error, message: verification.message }, 403)
     }
