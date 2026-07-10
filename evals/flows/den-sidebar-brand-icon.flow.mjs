@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
 const vo = await loadVoiceoverParagraphs("den-sidebar-brand-icon");
@@ -34,22 +33,37 @@ async function signInApi(ctx) {
 }
 
 async function uploadManagedIcon(ctx) {
-  const png = await sharp({
-    create: { width: 128, height: 128, channels: 4, background: "#0f766e" },
-  })
-    .composite([
-      {
-        input: Buffer.from('<svg width="128" height="128"><circle cx="64" cy="64" r="38" fill="#ccfbf1"/><path d="M43 65l14 14 30-34" fill="none" stroke="#0f766e" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
-      },
-    ])
-    .png()
-    .toBuffer();
-  const form = new FormData();
-  form.set("icon", new Blob([png], { type: "image/png" }), "den-sidebar-icon.png");
-  const { response, body } = await apiRequest("/v1/org/brand-assets", { method: "POST", body: form });
-  ctx.assert(response.ok, `Managed icon upload failed: ${response.status} ${JSON.stringify(body)}`);
-  state.iconUrl = body.assets?.icon?.url ?? null;
-  ctx.assert(typeof state.iconUrl === "string", `Upload did not return a managed icon: ${JSON.stringify(body)}`);
+  const result = await ctx.eval(`new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#0f766e';
+    context.fillRect(0, 0, 128, 128);
+    context.fillStyle = '#ccfbf1';
+    context.beginPath();
+    context.arc(64, 64, 38, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = '#0f766e';
+    context.lineWidth = 10;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.beginPath();
+    context.moveTo(43, 65);
+    context.lineTo(57, 79);
+    context.lineTo(87, 45);
+    context.stroke();
+    canvas.toBlob(async (blob) => {
+      if (!blob) return resolve({ status: 0, body: { error: 'canvas_blob_failed' } });
+      const form = new FormData();
+      form.set('icon', blob, 'den-sidebar-icon.png');
+      const response = await fetch('/api/den/v1/org/brand-assets', { method: 'POST', body: form });
+      resolve({ status: response.status, body: await response.json() });
+    }, 'image/png');
+  })`, { awaitPromise: true });
+  ctx.assert(result.status === 200, `Managed icon upload failed: ${result.status} ${JSON.stringify(result.body)}`);
+  state.iconUrl = result.body.assets?.icon?.url ?? null;
+  ctx.assert(typeof state.iconUrl === "string", `Upload did not return a managed icon: ${JSON.stringify(result.body)}`);
 }
 
 async function clearManagedIcon(ctx) {
@@ -116,8 +130,8 @@ export default {
       run: async (ctx) => {
         await signInApi(ctx);
         await clearManagedIcon(ctx);
-        await uploadManagedIcon(ctx);
         await enterDashboard(ctx);
+        await uploadManagedIcon(ctx);
       },
     },
     {
