@@ -92,9 +92,9 @@ jobs:
             os_type: windows
             artifact: installer-windows-x64
             bun_target: bun-windows-x64
-          # Bun cross-compiles the Windows ARM64 executable reliably on Linux;
-          # the Windows x64 host cannot unpack Bun's ARM64 compiler runtime.
-          - platform: ubuntu-22.04
+          # Use the same native Windows ARM64 runner as the desktop release;
+          # Windows x64 cannot unpack Bun's ARM64 compiler runtime.
+          - platform: windows-11-arm
             os_type: windows
             artifact: installer-windows-arm64
             bun_target: bun-windows-arm64
@@ -175,8 +175,8 @@ jobs:
             --outfile "dist/openwork-installer"
 
       - name: Smoke test (headless dry run against the client deployment)
-        # Cross-compiled mac x64 and Windows ARM64 outputs cannot run on their host runners.
-        if: github.event.inputs.smoke_check_deployment == 'true' && matrix.bun_target != 'bun-darwin-x64' && matrix.bun_target != 'bun-windows-arm64'
+        # The cross-compiled mac x64 output cannot run on the arm64 runner.
+        if: github.event.inputs.smoke_check_deployment == 'true' && matrix.bun_target != 'bun-darwin-x64'
         shell: bash
         env:
           OPENWORK_DESKTOP_BOOTSTRAP_PATH: ${{ runner.temp }}/smoke/desktop-bootstrap.json

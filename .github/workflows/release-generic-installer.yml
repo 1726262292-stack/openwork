@@ -117,7 +117,7 @@ jobs:
             {"platform_id":"mac-arm64","runner":"macos-14","os_type":"macos","bun_target":"bun-darwin-arm64","asset":"openwork-installer-mac-arm64.zip","smoke_test":true},
             {"platform_id":"mac-x64","runner":"macos-14","os_type":"macos","bun_target":"bun-darwin-x64","asset":"openwork-installer-mac-x64.zip","smoke_test":false},
             {"platform_id":"win-x64","runner":"windows-2022","os_type":"windows","bun_target":"bun-windows-x64","asset":"openwork-installer-win-x64.zip","smoke_test":true},
-            {"platform_id":"win-arm64","runner":"ubuntu-22.04","os_type":"windows","bun_target":"bun-windows-arm64","asset":"openwork-installer-win-arm64.zip","smoke_test":false}
+            {"platform_id":"win-arm64","runner":"windows-11-arm","os_type":"windows","bun_target":"bun-windows-arm64","asset":"openwork-installer-win-arm64.zip","smoke_test":true}
           ]'
           MATRIX=$(jq -cn --arg csv "$PLATFORMS" --argjson all "$ALL" \
             '$all | map(select(.platform_id as $id | ($csv | split(",") | map(gsub("\\s";"")) | index($id)) != null))')
@@ -426,7 +426,7 @@ jobs:
           fi
 
       - name: Verify signed Windows executable
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true' && runner.os == 'Windows'
+        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true'
         shell: pwsh
         run: |
           $signature = Get-AuthenticodeSignature -FilePath "$env:RUNNER_TEMP\windows-package\OpenWork Installer.exe"
@@ -435,19 +435,8 @@ jobs:
           }
           Write-Host "Verified publisher: $($signature.SignerCertificate.Subject)"
 
-      - name: Verify signed Windows executable (cross-compiled ARM64)
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true' && runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y osslsigncode
-          verification=$(osslsigncode verify -in "$RUNNER_TEMP/windows-package/OpenWork Installer.exe" 2>&1)
-          printf '%s\n' "$verification"
-          grep -q "Succeeded" <<<"$verification"
-
-      - name: Package Windows zip (Windows host)
-        if: matrix.os_type == 'windows' && runner.os == 'Windows'
+      - name: Package Windows zip
+        if: matrix.os_type == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\out" | Out-Null
@@ -455,15 +444,6 @@ jobs:
             -LiteralPath "$env:RUNNER_TEMP\windows-package\OpenWork Installer.exe" `
             -DestinationPath "$env:RUNNER_TEMP\out\${{ matrix.asset }}" `
             -CompressionLevel Optimal
-
-      - name: Package Windows zip (Linux cross-compile host)
-        if: matrix.os_type == 'windows' && runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/out"
-          cd "$RUNNER_TEMP/windows-package"
-          zip -q "$RUNNER_TEMP/out/${{ matrix.asset }}" "OpenWork Installer.exe"
 
       - name: Upload release asset
         if: env.PUBLISH_MODE == 'release'
