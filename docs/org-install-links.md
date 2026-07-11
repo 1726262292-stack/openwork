@@ -72,8 +72,9 @@ openwork-win-x64-0.18.0.exe
 ```
 
 The generic Mac ZIP contains the signed and notarized `OpenWork Installer.app`.
-The generic Windows EXE is the signed installer launcher. Den does not modify
-either executable or the standard app artifact; it only combines them with the
+The generic Windows EXE is the release installer launcher and is signed when
+Windows signing is enabled for that release. Den does not modify either
+executable or the standard app artifact; it only combines them with the
 organization JSON in the downloaded ZIP.
 
 ### Fully air-gapped / zero public egress
