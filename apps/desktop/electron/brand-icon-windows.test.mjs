@@ -10,6 +10,7 @@ import {
   windowsBrandShortcutDetails,
   windowsBrandShortcutFileName,
   windowsInstalledShortcutFileName,
+  windowsInstalledExecutablePath,
   writeWindowsBrandShortcut,
   windowsIconFromNativeImage,
 } from "./brand-icon-windows.mjs";
@@ -173,6 +174,15 @@ test("builds a per-user Start Menu shortcut with the branded Windows identity", 
     iconIndex: 0,
     appUserModelId: "com.differentai.openwork.brand.1234",
   });
+});
+
+test("anchors a packaged shortcut target to the active Windows user profile", () => {
+  assert.equal(windowsInstalledExecutablePath({
+    packaged: true,
+    execPath: "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local\\Programs\\@openworkdesktop\\OpenWork.exe",
+    resourcesPath: "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local\\Programs\\@openworkdesktop\\resources",
+    appDataPath: "C:\\Users\\Administrator\\AppData\\Roaming",
+  }), "C:\\Users\\Administrator\\AppData\\Local\\Programs\\@openworkdesktop\\OpenWork.exe");
 });
 
 test("creates a branded shortcut after callers remove stale Windows metadata", () => {

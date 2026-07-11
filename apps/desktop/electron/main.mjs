@@ -39,6 +39,7 @@ import {
   windowsBrandShortcutDetails,
   windowsBrandShortcutFileName,
   windowsInstalledShortcutFileName,
+  windowsInstalledExecutablePath,
   writeWindowsBrandShortcut,
   windowsIconFromNativeImage,
 } from "./brand-icon-windows.mjs";
@@ -336,7 +337,12 @@ function windowsBrandShortcutMarkerPath() {
 }
 
 function windowsExecutablePath() {
-  return app.isPackaged ? app.getPath("exe") : process.execPath;
+  return windowsInstalledExecutablePath({
+    packaged: app.isPackaged,
+    execPath: app.getPath("exe"),
+    resourcesPath: process.resourcesPath,
+    appDataPath: app.getPath("appData"),
+  });
 }
 
 async function readWindowsBrandShortcutMarker() {

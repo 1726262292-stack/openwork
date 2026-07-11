@@ -80,6 +80,17 @@ export function windowsInstalledShortcutFileName(appName) {
   return `${safeName}.lnk`;
 }
 
+export function windowsInstalledExecutablePath({ packaged, execPath, resourcesPath, appDataPath }) {
+  if (!packaged) return execPath;
+  return [
+    appDataPath.replace(/[\\/]Roaming$/i, ""),
+    "Local",
+    "Programs",
+    resourcesPath.replace(/[\\/]resources$/i, "").split(/[\\/]/).pop(),
+    execPath.split(/[\\/]/).pop(),
+  ].join("\\");
+}
+
 export function windowsBrandShortcutDetails({ target, appId, appIconPath, appName }) {
   return {
     target,
