@@ -313,16 +313,8 @@ function defaultAppWindowsIconPath() {
 let cachedWindowsProgramsPath = null;
 function windowsProgramsPath() {
   if (cachedWindowsProgramsPath) return cachedWindowsProgramsPath;
-  try {
-    cachedWindowsProgramsPath = execFileSync("powershell.exe", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "[Environment]::GetFolderPath('Programs')",
-    ], { encoding: "utf8", windowsHide: true }).trim();
-  } catch {
-    cachedWindowsProgramsPath = path.join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs");
-  }
+  const userProfile = app.getPath("userData").split(/[\\/]AppData[\\/]/i)[0];
+  cachedWindowsProgramsPath = path.join(userProfile, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs");
   return cachedWindowsProgramsPath;
 }
 
@@ -679,6 +671,22 @@ async function ensureWindowsBrandIcon(image) {
   const windowsPath = brandIconWindowsPath();
   if (!existsSync(windowsPath)) await writeWindowsIconFile(image, windowsPath);
   return windowsPath;
+}
+
+async function registerWindowsDisplayShortcut() {
+  if (process.platform !== "win32") return;
+  const sidecar = await readBrandIconSidecar();
+  const sourceUrl = typeof sidecar?.sourceUrl === "string" ? sidecar.sourceUrl : null;
+  const brandedImage = sourceUrl ? resolveBrandIconImage() : null;
+  if (brandedImage && sourceUrl) {
+    const iconPath = await ensureWindowsBrandIcon(brandedImage);
+    await registerWindowsBrandShortcut(windowsBrandAppUserModelId(APP_IDENTIFIER, sourceUrl), iconPath);
+    return;
+  }
+  const stockImage = APP_ICON_IMAGE ?? await app.getFileIcon(windowsExecutablePath(), { size: "large" });
+  const iconPath = defaultAppWindowsIconPath();
+  await writeWindowsIconFile(stockImage, iconPath);
+  await registerWindowsBrandShortcut(APP_IDENTIFIER, iconPath);
 }
 
 async function applyCachedBrandIcon(image, sourceUrl, expectedSequence = null) {
@@ -1794,13 +1802,7 @@ const desktopCommandHandlers = {
     applicationMenu.setAppName(currentDisplayAppName);
     mainWindow?.setTitle(currentDisplayAppName);
     if (process.platform === "win32") {
-      const sidecar = await readBrandIconSidecar();
-      const sourceUrl = typeof sidecar?.sourceUrl === "string" ? sidecar.sourceUrl : null;
-      const cachedImage = sourceUrl ? resolveBrandIconImage() : null;
-      if (cachedImage && sourceUrl) {
-        const iconPath = await ensureWindowsBrandIcon(cachedImage);
-        await registerWindowsBrandShortcut(windowsBrandAppUserModelId(APP_IDENTIFIER, sourceUrl), iconPath);
-      }
+      await registerWindowsDisplayShortcut();
     }
     return { ok: true, appName: currentDisplayAppName };
   },
@@ -2264,6 +2266,9 @@ if (!app.requestSingleInstanceLock()) {
     currentDisplayAppName = bootstrapConfig.brandAppName?.slice(0, 64) || APP_NAME;
     app.setName(currentDisplayAppName);
     applicationMenu.setAppName(currentDisplayAppName);
+    if (process.platform === "win32") {
+      await registerWindowsDisplayShortcut();
+    }
     if (process.platform === "win32" && bootstrapConfig.brandIconUrl) {
       await applyBrandIconUrl(bootstrapConfig.brandIconUrl);
     }
