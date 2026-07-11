@@ -157,7 +157,7 @@ test("restores a visible taskbar button when refresh staging fails", async () =>
 });
 
 test("builds a per-user Start Menu shortcut with the branded Windows identity", () => {
-  assert.equal(windowsBrandShortcutFileName('Agent: Blue/West'), "Agent- Blue-West Organization.lnk");
+  assert.equal(windowsBrandShortcutFileName('Agent: Blue/West'), "Agent- Blue-West.lnk");
   assert.deepEqual(windowsBrandShortcutDetails({
     target: "C:\\Program Files\\OpenWork\\OpenWork.exe",
     appId: "com.differentai.openwork.brand.1234",
@@ -166,7 +166,7 @@ test("builds a per-user Start Menu shortcut with the branded Windows identity", 
   }), {
     target: "C:\\Program Files\\OpenWork\\OpenWork.exe",
     cwd: "C:\\Program Files\\OpenWork",
-    description: "OpenWork organization desktop",
+    description: "OpenWork desktop",
     icon: "C:\\Users\\Admin\\brand-icon.ico",
     iconIndex: 0,
     appUserModelId: "com.differentai.openwork.brand.1234",

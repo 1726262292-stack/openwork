@@ -70,14 +70,14 @@ export function windowsBrandShortcutFileName(appName) {
   const safeName = String(appName ?? "OpenWork")
     .replace(/[<>:"/\\|?*]/g, "-")
     .trim() || "OpenWork";
-  return `${safeName} Organization.lnk`;
+  return `${safeName}.lnk`;
 }
 
 export function windowsBrandShortcutDetails({ target, appId, appIconPath, appName }) {
   return {
     target,
     cwd: target.replace(/[\\/][^\\/]+$/, ""),
-    description: `${appName} organization desktop`,
+    description: `${appName} desktop`,
     icon: appIconPath,
     iconIndex: 0,
     appUserModelId: appId,

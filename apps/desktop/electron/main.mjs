@@ -308,14 +308,14 @@ function defaultAppWindowsIconPath() {
   return path.join(app.getPath("userData"), "openwork-stock.ico");
 }
 
-function windowsBrandShortcutPath() {
+function windowsBrandShortcutPath(appName = currentDisplayAppName) {
   return path.join(
     app.getPath("appData"),
     "Microsoft",
     "Windows",
     "Start Menu",
     "Programs",
-    windowsBrandShortcutFileName(APP_NAME),
+    windowsBrandShortcutFileName(appName),
   );
 }
 
@@ -323,13 +323,17 @@ async function registerWindowsBrandShortcut(appId, appIconPath) {
   if (process.platform !== "win32") return null;
   const shortcutPath = windowsBrandShortcutPath();
   await mkdir(path.dirname(shortcutPath), { recursive: true });
+  const stockShortcutPath = windowsBrandShortcutPath(APP_NAME);
+  if (stockShortcutPath !== shortcutPath) {
+    await rm(stockShortcutPath, { force: true });
+  }
   // Create is required for a first-time link; refreshes and relaunches replace
   // the same per-user link so its icon and AppUserModelID stay current.
   const written = writeWindowsBrandShortcut(shell, shortcutPath, windowsBrandShortcutDetails({
     target: process.execPath,
     appId,
     appIconPath,
-    appName: APP_NAME,
+    appName: currentDisplayAppName,
   }), existsSync(shortcutPath));
   if (!written) throw new Error(`Windows rejected the organization shortcut: ${shortcutPath}`);
   return shortcutPath;
@@ -337,7 +341,10 @@ async function registerWindowsBrandShortcut(appId, appIconPath) {
 
 async function removeWindowsBrandShortcut() {
   if (process.platform !== "win32") return;
-  await rm(windowsBrandShortcutPath(), { force: true });
+  await Promise.all([
+    rm(windowsBrandShortcutPath(), { force: true }),
+    rm(windowsBrandShortcutPath(APP_NAME), { force: true }),
+  ]);
 }
 
 function resolveBrandIconImage() {
@@ -389,7 +396,7 @@ async function applyAppIconImage(image, { taskbarIconPath = null, taskbarAppId =
         appId: taskbarAppId,
         appIconPath: taskbarIconPath,
         relaunchCommand: process.execPath,
-        relaunchDisplayName: APP_NAME,
+        relaunchDisplayName: currentDisplayAppName,
       });
     } else {
       mainWindow.setIcon(image);
@@ -2176,7 +2183,6 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     installMediaPermissionHandlers(session, () => mainWindow);
     applicationMenu.install();
-    await workspaceStore.importBundledDesktopBootstrapConfigIfPreferred();
     await runtimeManager.prepareFreshRuntime().catch(() => undefined);
 
     // Use Tauri's existing workspace state file as canonical so rollback and
