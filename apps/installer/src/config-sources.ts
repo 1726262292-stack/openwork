@@ -305,6 +305,7 @@ export function installerConfigSourceLabel(source: InstallerConfigSource) {
     case "build":
       return "built-in deployment config"
     case "sidecar":
+      return "organization setup file"
     case "filename":
     case "install-link":
       return "install link"
