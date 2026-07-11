@@ -349,6 +349,23 @@ async function readWindowsBrandShortcutMarker() {
   return (await readFile(windowsBrandShortcutMarkerPath(), "utf8").catch(() => "")).trim();
 }
 
+function repairWindowsShortcutTarget(shortcutPath, details) {
+  const payload = Buffer.from(JSON.stringify({ shortcutPath, ...details }), "utf8").toString("base64");
+  const script = [
+    `$value = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json`,
+    "$shell = New-Object -ComObject WScript.Shell",
+    "$link = $shell.CreateShortcut($value.shortcutPath)",
+    "$link.TargetPath = $value.target",
+    "$link.WorkingDirectory = $value.cwd",
+    "$link.Description = $value.description",
+    "$link.IconLocation = \"$($value.icon),$($value.iconIndex)\"",
+    "$link.Save()",
+  ].join("\n");
+  execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+    windowsHide: true,
+  });
+}
+
 async function registerWindowsBrandShortcut(appId, appIconPath) {
   if (process.platform !== "win32") return null;
   const shortcutPath = windowsBrandShortcutPath();
@@ -358,14 +375,18 @@ async function registerWindowsBrandShortcut(appId, appIconPath) {
   // target and search metadata when a prior installer owned this path.
   await rm(shortcutPath, { force: true });
   await rm(shortcutTempPath, { force: true });
-  const written = writeWindowsBrandShortcut(shell, shortcutTempPath, windowsBrandShortcutDetails({
+  const details = windowsBrandShortcutDetails({
     target: windowsExecutablePath(),
     appId,
     appIconPath,
     appName: currentDisplayAppName,
-  }), false);
+  });
+  const written = writeWindowsBrandShortcut(shell, shortcutTempPath, details, false);
   if (!written) throw new Error(`Windows rejected the organization shortcut: ${shortcutPath}`);
   await rename(shortcutTempPath, shortcutPath);
+  if (shell.readShortcutLink(shortcutPath).target !== details.target) {
+    repairWindowsShortcutTarget(shortcutPath, details);
+  }
   const previousShortcutPath = await readWindowsBrandShortcutMarker();
   if (previousShortcutPath && previousShortcutPath !== shortcutPath) {
     await rm(previousShortcutPath, { force: true });
