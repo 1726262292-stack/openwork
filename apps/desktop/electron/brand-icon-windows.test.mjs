@@ -181,7 +181,7 @@ test("anchors a packaged shortcut target to the active Windows user profile", ()
     packaged: true,
     execPath: "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local\\Programs\\@openworkdesktop\\OpenWork.exe",
     resourcesPath: "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Local\\Programs\\@openworkdesktop\\resources",
-    appDataPath: "C:\\Users\\Administrator\\AppData\\Roaming",
+    userDataPath: "C:\\Users\\Administrator\\AppData\\Roaming\\com.differentai.openwork",
   }), "C:\\Users\\Administrator\\AppData\\Local\\Programs\\@openworkdesktop\\OpenWork.exe");
 });
 

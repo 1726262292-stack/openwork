@@ -341,7 +341,7 @@ function windowsExecutablePath() {
     packaged: app.isPackaged,
     execPath: app.getPath("exe"),
     resourcesPath: process.resourcesPath,
-    appDataPath: app.getPath("appData"),
+    userDataPath: app.getPath("userData"),
   });
 }
 
