@@ -310,26 +310,28 @@ function defaultAppWindowsIconPath() {
   return path.join(app.getPath("userData"), "openwork-stock.ico");
 }
 
+let cachedWindowsProgramsPath = null;
+function windowsProgramsPath() {
+  if (cachedWindowsProgramsPath) return cachedWindowsProgramsPath;
+  try {
+    cachedWindowsProgramsPath = execFileSync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "[Environment]::GetFolderPath('Programs')",
+    ], { encoding: "utf8", windowsHide: true }).trim();
+  } catch {
+    cachedWindowsProgramsPath = path.join(app.getPath("appData"), "Microsoft", "Windows", "Start Menu", "Programs");
+  }
+  return cachedWindowsProgramsPath;
+}
+
 function windowsBrandShortcutPath() {
-  return path.join(
-    app.getPath("appData"),
-    "Microsoft",
-    "Windows",
-    "Start Menu",
-    "Programs",
-    windowsBrandShortcutFileName(currentDisplayAppName),
-  );
+  return path.join(windowsProgramsPath(), windowsBrandShortcutFileName(currentDisplayAppName));
 }
 
 function windowsInstalledShortcutPath() {
-  return path.join(
-    app.getPath("appData"),
-    "Microsoft",
-    "Windows",
-    "Start Menu",
-    "Programs",
-    windowsInstalledShortcutFileName(APP_NAME),
-  );
+  return path.join(windowsProgramsPath(), windowsInstalledShortcutFileName(APP_NAME));
 }
 
 function windowsBrandShortcutMarkerPath() {
