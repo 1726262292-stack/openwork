@@ -108,7 +108,6 @@ test("recovers empty desktop workspace state from token store paths", async () =
     else process.env.OPENWORK_SERVER_CONFIG = previous;
   }
 });
-
 test("prefers server config workspaces when desktop state is empty", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "openwork-workspace-store-"));
   const userData = path.join(root, "userData");

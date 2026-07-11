@@ -97,7 +97,10 @@ mock.module("../src/orgs.js", () => ({
             name: "Acme Robotics",
             slug: "acme-robotics",
             logo: null,
-            metadata: { capabilities: { installLinks: capabilityEnabled } },
+            metadata: {
+              capabilities: { installLinks: capabilityEnabled },
+              brandIconUrl: "https://assets.blueyonder.test/icon.png",
+            },
           },
           currentMember: {
             id: memberId,

@@ -12,7 +12,7 @@ export const installConfigSchema = z.object({
   apiUrl: z.string().trim().url(),
   requireSignin: z.boolean(),
   logoUrl: z.string().trim().url().nullable(),
-  iconUrl: z.string().trim().url().nullable().optional(),
+  iconUrl: z.string().trim().url().nullable().default(null),
 }).meta({ ref: "InstallConfig" })
 
 export type InstallConfig = z.infer<typeof installConfigSchema>

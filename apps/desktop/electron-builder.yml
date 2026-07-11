@@ -107,4 +107,6 @@ win:
         - versions.json-x86_64-pc-windows-msvc.exe
   target:
     - nsis
+nsis:
+  include: build/installer.nsh
 artifactName: openwork-${os}-${arch}-${version}.${ext}
