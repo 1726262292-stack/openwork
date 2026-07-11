@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto"
-import type { Hono } from "hono"
+import type { Context, Hono } from "hono"
 import { env } from "./env.js"
 import type { findActiveInferenceKey as findActiveInferenceKeyFn, getOpenRouterProviderKey as getOpenRouterProviderKeyFn } from "./keys.js"
 import type { ensureUsableBuckets as ensureUsableBucketsFn } from "./limits.js"
-import { resolveModelAlias } from "./model-catalog.js"
+import { listModelCatalog, resolveModelAlias } from "./model-catalog.js"
 
 type JsonObject = Record<string, unknown>
 type PreparedBody = {
@@ -14,7 +14,16 @@ type PreparedBody = {
 type PreparedBodyResult = PreparedBody | { error: Response }
 type ProxyRequestInit = RequestInit & { duplex: "half" }
 
-const bodylessMethods = new Set(["GET", "HEAD"])
+const chatCompletionsPath = "/api/v1/chat/completions"
+const modelsPath = "/api/v1/models"
+const topLevelModelSelectorFields = ["models", "fallbacks", "preset", "route"]
+const pluginModelSelectorFields = ["model", "analysis_models", "allowed_models"]
+const blockedServerToolTypes = new Set([
+  "openrouter:advisor",
+  "openrouter:subagent",
+  "openrouter:fusion",
+  "openrouter:image_generation",
+])
 
 const defaultProxyDependencies: ProxyDependencies = {
   async findActiveInferenceKey(rawKey) {
@@ -62,20 +71,77 @@ function isJsonContentType(contentType: string | null) {
     && mediaType.length > applicationPrefix.length + jsonSuffix.length
 }
 
-function isBodylessMethod(method: string) {
-  return bodylessMethods.has(method)
-}
-
 function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function sanitizeHeaders(request: Request, apiKey: string, openworkRequestId: string) {
-  const headers = new Headers(request.headers)
-  for (const name of ["authorization", "x-api-key", "host", "content-length", "connection", "accept-encoding"]) {
-    headers.delete(name)
+function hasOwnField(value: JsonObject, field: string) {
+  return Object.prototype.hasOwnProperty.call(value, field)
+}
+
+function findPresentField(value: JsonObject, fields: string[]) {
+  return fields.find((field) => hasOwnField(value, field)) ?? null
+}
+
+function normalizeOpenRouterToolType(type: string) {
+  return type.trim().toLowerCase().replace(/-/g, "_")
+}
+
+function findBlockedPluginSelector(json: JsonObject) {
+  const plugins = json.plugins
+  if (!Array.isArray(plugins)) return null
+
+  for (const plugin of plugins) {
+    if (!isJsonObject(plugin)) continue
+
+    if (typeof plugin.id === "string" && plugin.id.trim().toLowerCase() === "fusion") {
+      return "plugins[].id"
+    }
+
+    const field = findPresentField(plugin, pluginModelSelectorFields)
+    if (field) return `plugins[].${field}`
+
+    if (isJsonObject(plugin.parameters)) {
+      const parametersField = findPresentField(plugin.parameters, pluginModelSelectorFields)
+      if (parametersField) return `plugins[].parameters.${parametersField}`
+    }
   }
+
+  return null
+}
+
+function findBlockedServerTool(json: JsonObject) {
+  const tools = json.tools
+  if (!Array.isArray(tools)) return null
+
+  for (const tool of tools) {
+    if (!isJsonObject(tool) || typeof tool.type !== "string") continue
+    const type = normalizeOpenRouterToolType(tool.type)
+    if (blockedServerToolTypes.has(type)) return tool.type
+  }
+
+  return null
+}
+
+function validateModelSelection(json: JsonObject) {
+  const topLevelField = findPresentField(json, topLevelModelSelectorFields)
+  if (topLevelField) return `top-level ${topLevelField}`
+
+  const pluginSelector = findBlockedPluginSelector(json)
+  if (pluginSelector) return pluginSelector
+
+  const serverTool = findBlockedServerTool(json)
+  if (serverTool) return `server tool ${serverTool}`
+
+  return null
+}
+
+function sanitizeHeaders(request: Request, apiKey: string, openworkRequestId: string) {
+  const headers = new Headers()
+  const accept = request.headers.get("accept")
+  if (accept) headers.set("accept", accept)
   headers.set("authorization", `Bearer ${apiKey}`)
+  headers.set("content-type", "application/json")
   headers.set("x-openwork-request-id", openworkRequestId)
   if (env.proxyBaseUrl) {
     headers.set("http-referer", env.proxyBaseUrl)
@@ -157,16 +223,12 @@ async function prepareBody(request: Request, input: {
   inferenceKeyId: string
   openworkRequestId: string
 }): Promise<PreparedBodyResult> {
-  if (isBodylessMethod(request.method)) {
-    return { body: request.body, modelAlias: "unknown", upstreamModel: null }
-  }
-
   if (!isJsonRequest(request)) {
     return { error: openAiError(415, "unsupported_media_type", "Inference requests with a body must use a JSON Content-Type.") }
   }
 
   const json: unknown = await request.json()
-  if (!isJsonObject(json) || typeof json.model !== "string") {
+  if (!isJsonObject(json)) {
     logProxyError("Missing model in JSON request body", {
       openworkRequestId: input.openworkRequestId,
       organizationId: input.organizationId,
@@ -174,6 +236,27 @@ async function prepareBody(request: Request, input: {
     })
     return { error: openAiError(400, "model_required", "JSON request body must include a string model.") }
   }
+
+  const blockedSelection = validateModelSelection(json)
+  if (blockedSelection) {
+    logProxyError("Unsupported OpenRouter model selection feature", {
+      openworkRequestId: input.openworkRequestId,
+      organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
+      blockedSelection,
+    })
+    return { error: openAiError(400, "unsupported_model_selection", `OpenWork inference does not allow alternate model selection (${blockedSelection}).`) }
+  }
+
+  if (typeof json.model !== "string") {
+    logProxyError("Missing model in JSON request body", {
+      openworkRequestId: input.openworkRequestId,
+      organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
+    })
+    return { error: openAiError(400, "model_required", "JSON request body must include a string model.") }
+  }
+
   const requestedModel = json.model
   const body = json
   const model = resolveModelAlias(requestedModel)
@@ -189,7 +272,7 @@ async function prepareBody(request: Request, input: {
 
   body.model = model.upstreamModel
   body.user = input.orgMembershipId
-  body.session_id = typeof body.session_id === "string" ? body.session_id : input.openworkRequestId
+  body.session_id = input.openworkRequestId
   body.trace = {
     trace_id: input.openworkRequestId,
     trace_name: "OpenWork Inference",
@@ -206,8 +289,30 @@ async function prepareBody(request: Request, input: {
   }
 }
 
+function listOpenAiModels() {
+  return {
+    object: "list",
+    data: listModelCatalog().map((model) => ({
+      id: model.alias,
+      object: "model",
+      created: 0,
+      owned_by: "openwork",
+    })),
+  }
+}
+
+function localRouteRejection(path: string, method: string) {
+  if (path === chatCompletionsPath) {
+    return openAiError(405, "method_not_allowed", `Method ${method} is not allowed for ${path}. Use POST.`)
+  }
+  if (path === modelsPath) {
+    return openAiError(405, "method_not_allowed", `Method ${method} is not allowed for ${path}. Use GET.`)
+  }
+  return openAiError(404, "not_found", `Unsupported OpenWork inference route: ${method} ${path}.`)
+}
+
 export function registerProxyRoutes(app: Hono, dependencies: ProxyDependencies = defaultProxyDependencies) {
-  app.all("/api/v1/*", async (c) => {
+  async function handleApiRequest(c: Context) {
     const rawKey = readApiKey(c.req.raw)
     if (!rawKey) {
       logProxyError("Missing inference API key", { path: c.req.path, method: c.req.method })
@@ -218,6 +323,18 @@ export function registerProxyRoutes(app: Hono, dependencies: ProxyDependencies =
     if (!inferenceKey) {
       logProxyError("Invalid inference API key", { path: c.req.path, method: c.req.method })
       return c.json({ error: { message: "Invalid OpenWork inference API key.", type: "authentication_error", code: "invalid_api_key" } }, 401)
+    }
+
+    if (c.req.path === modelsPath && c.req.method === "GET") {
+      return c.json(listOpenAiModels())
+    }
+
+    if (c.req.path !== chatCompletionsPath || c.req.method !== "POST") {
+      return localRouteRejection(c.req.path, c.req.method)
+    }
+
+    if (new URL(c.req.url).search) {
+      return openAiError(400, "unsupported_query_parameters", "OpenWork chat completions does not accept query parameters.")
     }
 
     const openworkRequestId = buildRequestId()
@@ -276,13 +393,13 @@ export function registerProxyRoutes(app: Hono, dependencies: ProxyDependencies =
     }
 
     const upstreamPath = c.req.path.replace(/^\/api\/v1/, "")
-    const upstreamUrl = new URL(`${env.openRouterUpstreamUrl}${upstreamPath}${new URL(c.req.url).search}`)
+    const upstreamUrl = new URL(`${env.openRouterUpstreamUrl}${upstreamPath}`)
     let upstream: Response
     try {
       const upstreamInit: ProxyRequestInit = {
         method: c.req.method,
         headers: sanitizeHeaders(c.req.raw, providerKey.encrypted_api_key, openworkRequestId),
-        body: isBodylessMethod(c.req.method) ? undefined : prepared.body,
+        body: prepared.body,
         duplex: "half",
       }
       upstream = await dependencies.fetch(upstreamUrl, upstreamInit)
@@ -314,5 +431,8 @@ export function registerProxyRoutes(app: Hono, dependencies: ProxyDependencies =
       async () => {},
       async () => {},
     ), { status: upstream.status, statusText: upstream.statusText, headers })
-  })
+  }
+
+  app.all("/api/v1", handleApiRequest)
+  app.all("/api/v1/*", handleApiRequest)
 }
