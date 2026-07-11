@@ -116,10 +116,12 @@ body to a `githubusercontent.com` release host. GitHub's firewall guidance uses
 the same wildcard for action and release downloads:
 https://docs.github.com/en/code-security/reference/supply-chain-security/automatic-dependency-submission#configure-network-access-for-self-hosted-runners.
 
-If policy forbids wildcard external hosts, use either
-`OPENWORK_INSTALLER_ARTIFACTS_DIR` or set
-`OPENWORK_INSTALLER_RELEASE_REPO` to an approved internal mirror. Mounted or
-mirrored artifacts are preferable to depending on changing CDN IP addresses.
+If policy forbids wildcard external hosts, mount the release files through
+`OPENWORK_INSTALLER_ARTIFACTS_DIR` or pre-populate
+`OPENWORK_INSTALLER_CACHE_DIR/<tag>/`. `OPENWORK_INSTALLER_RELEASE_REPO`
+selects a repository on `github.com`; it does not change the release host to an
+arbitrary internal mirror. Mounted artifacts are preferable to depending on
+changing CDN IP addresses.
 
 For Microsoft Entra sign-in, the normal global-cloud browser authentication
 endpoint is `login.microsoftonline.com`; sovereign clouds use different hosts.
@@ -127,6 +129,15 @@ Conditional Access, device registration, federation, and other providers may
 require additional customer-specific endpoints. Follow the identity provider's
 official network requirements rather than treating this installer list as a
 complete SSO allowlist.
+
+For an external MCP or SaaS connection, allow the exact customer endpoint from
+the component that executes that connection. For example, a ServiceNow MCP
+connection normally needs outbound TCP 443 from OpenWork Connect / Den to the
+customer instance such as `https://example.service-now.com`; its OAuth browser
+also needs that instance and the configured Den callback origin. Private DNS,
+private endpoints, proxies, or customer-managed certificate authorities add
+deployment-specific requirements and should not be replaced with a blanket
+public wildcard.
 
 ## Bundle contents and explicit selection
 
