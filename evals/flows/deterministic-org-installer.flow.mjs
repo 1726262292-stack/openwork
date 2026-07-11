@@ -109,14 +109,14 @@ export default {
           },
           assert: async () => {
             await ctx.expectText("Acme Work Installer");
-            await ctx.expectText("http://127.0.0.1:8790");
+            await ctx.expectText("http://127.0.0.1:3005");
             await ctx.expectText("Configured via organization setup file");
             await ctx.expectText("Install");
             ctx.assert(!existsSync(BOOTSTRAP_PATH), "Installer changed bootstrap state before confirmation.");
           },
           screenshot: {
             name: "explicit-installer-confirmation",
-            requireText: ["Acme Work Installer", "Acme Manufacturing", "http://127.0.0.1:8790", "Install"],
+            requireText: ["Acme Work Installer", "Acme Manufacturing", "http://127.0.0.1:3005", "Install"],
           },
         });
       },
