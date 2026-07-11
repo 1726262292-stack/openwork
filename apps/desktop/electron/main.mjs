@@ -335,6 +335,11 @@ function windowsBrandShortcutMarkerPath() {
   return path.join(app.getPath("userData"), "windows-brand-shortcut.txt");
 }
 
+function windowsExecutablePath() {
+  if (!app.isPackaged) return process.execPath;
+  return path.join(path.dirname(process.resourcesPath), path.basename(process.execPath));
+}
+
 async function readWindowsBrandShortcutMarker() {
   return (await readFile(windowsBrandShortcutMarkerPath(), "utf8").catch(() => "")).trim();
 }
@@ -347,7 +352,7 @@ async function registerWindowsBrandShortcut(appId, appIconPath) {
   // target and search metadata when a prior installer owned this path.
   await rm(shortcutPath, { force: true });
   const written = writeWindowsBrandShortcut(shell, shortcutPath, windowsBrandShortcutDetails({
-    target: process.execPath,
+    target: windowsExecutablePath(),
     appId,
     appIconPath,
     appName: currentDisplayAppName,
@@ -419,7 +424,7 @@ async function applyAppIconImage(image, { taskbarIconPath = null, taskbarAppId =
         image,
         appId: taskbarAppId,
         appIconPath: taskbarIconPath,
-        relaunchCommand: process.execPath,
+        relaunchCommand: windowsExecutablePath(),
         relaunchDisplayName: currentDisplayAppName,
       });
     } else {
