@@ -80,10 +80,11 @@ export function windowsInstalledShortcutFileName(appName) {
   return `${safeName}.lnk`;
 }
 
-export function windowsInstalledExecutablePath({ packaged, execPath, resourcesPath, userDataPath }) {
+export function windowsInstalledExecutablePath({ packaged, execPath, resourcesPath, shortcutPath }) {
   if (!packaged) return execPath;
   return [
-    userDataPath.replace(/[\\/]Roaming[\\/][^\\/]+$/i, ""),
+    shortcutPath.split(/[\\/]AppData[\\/]/i)[0],
+    "AppData",
     "Local",
     "Programs",
     resourcesPath.replace(/[\\/]resources$/i, "").split(/[\\/]/).pop(),
