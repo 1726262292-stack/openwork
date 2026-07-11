@@ -183,7 +183,7 @@ function BrandAssetUploadField({
       : null;
 
   return (
-    <div className="grid gap-3 rounded-2xl border border-gray-200 bg-white p-4" data-testid={`brand-${kind}-asset-field`}>
+    <div className="grid min-w-0 gap-3 rounded-2xl border border-gray-200 bg-white p-4" data-testid={`brand-${kind}-asset-field`}>
       <div className="grid gap-1">
         <span className="text-[14px] font-medium text-gray-800">{title}</span>
         <span className="text-[11px] leading-5 text-gray-400">{description}</span>
@@ -200,7 +200,7 @@ function BrandAssetUploadField({
           <span className="text-center text-[12px] text-gray-400">Default OpenWork {kind}</span>
         )}
       </div>
-      <div className="min-h-9 text-[11px] leading-5 text-gray-500" data-testid={`brand-${kind}-status`}>
+      <div className="min-h-9 min-w-0 break-words text-[11px] leading-5 text-gray-500" data-testid={`brand-${kind}-status`}>
         {draft ? `Ready to upload: ${draft.file.name} · ${dimensions}` : null}
         {!draft && clearPending ? "Will restore the default after saving." : null}
         {!draft && !clearPending && managedAsset ? `Stored in this Den · ${dimensions} · version ${managedAsset.version.slice(0, 10)}` : null}
@@ -649,7 +649,7 @@ export function OrgSettingsScreen() {
         </div>
       ) : null}
 
-      <form className="grid gap-6" onSubmit={handleSaveSettings}>
+      <form className="grid min-w-0 grid-cols-1 gap-6" onSubmit={handleSaveSettings}>
         <DenCard size="spacious" className="grid gap-6">
           <div className="grid gap-2">
             <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400">
@@ -921,7 +921,7 @@ export function OrgSettingsScreen() {
               </span>
             </label>
 
-            <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid min-w-0 gap-5 lg:grid-cols-2">
               <BrandAssetUploadField
                 kind="logo"
                 title="Wordmark"
@@ -993,7 +993,7 @@ export function OrgSettingsScreen() {
           )}
         </DenCard>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <p className="text-[13px] text-gray-500">
             {!isOwner && "Only workspace owners can change these settings."}
           </p>

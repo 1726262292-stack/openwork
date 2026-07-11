@@ -743,16 +743,17 @@ export function AppSidebar(props: AppSidebarProps) {
         {hasManagedBrand ? (
           <div
             data-testid="brand-logo"
-            className="flex shrink-0 items-center gap-2 px-3 pb-3 pt-2 mac:pt-0"
+            className="flex h-14 shrink-0 items-center px-3 pb-3 pt-2 mac:pt-0"
           >
             {brandLogoUrl ? (
               <img
                 src={brandLogoUrl}
                 alt={`${brandAppName} logo`}
-                className="h-9 max-h-9 w-auto max-w-[140px] object-contain object-left"
+                className="max-h-9 w-auto max-w-[140px] object-contain object-left"
               />
-            ) : null}
-            <span className="truncate text-sm font-semibold" data-testid="brand-app-name">{brandAppName}</span>
+            ) : (
+              <span className="truncate text-sm font-semibold" data-testid="brand-app-name">{brandAppName}</span>
+            )}
           </div>
         ) : null}
         {props.onOpenSessionSearch ? (
