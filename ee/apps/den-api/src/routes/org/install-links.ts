@@ -337,7 +337,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     describeRoute({
       tags: ["Organizations"],
       summary: "Download stamped installer",
-      description: "Packages the generic signed OpenWork installer, the unchanged standard desktop artifact, and this organization's explicit installer configuration, or redirects to the verified standard download when Den cannot prepare the bundle.",
+      description: "Packages the lightweight generic signed OpenWork installer with this organization's explicit installer configuration, or redirects to the normal public download when Den cannot resolve the generic installer.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
         302: emptyResponse("Den redirected the browser to the normal public download page."),
