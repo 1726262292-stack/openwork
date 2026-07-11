@@ -175,7 +175,7 @@ test("builds a per-user Start Menu shortcut with the branded Windows identity", 
   });
 });
 
-test("creates a first-time branded shortcut and replaces it on repeat applies", () => {
+test("creates a branded shortcut after callers remove stale Windows metadata", () => {
   const calls = [];
   const details = { appUserModelId: "com.differentai.openwork.brand.1234" };
   const shellApi = {
@@ -187,12 +187,6 @@ test("creates a first-time branded shortcut and replaces it on repeat applies", 
   const shortcutPath = "C:\\Users\\Admin\\OpenWork Organization.lnk";
 
   const created = writeWindowsBrandShortcut(shellApi, shortcutPath, details, false);
-  const replaced = writeWindowsBrandShortcut(shellApi, shortcutPath, details, true);
-
   assert.equal(created, true);
-  assert.equal(replaced, true);
-  assert.deepEqual(calls, [
-    [shortcutPath, "create", details],
-    [shortcutPath, "replace", details],
-  ]);
+  assert.deepEqual(calls, [[shortcutPath, "create", details]]);
 });

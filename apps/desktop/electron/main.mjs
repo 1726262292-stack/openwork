@@ -343,14 +343,15 @@ async function registerWindowsBrandShortcut(appId, appIconPath) {
   if (process.platform !== "win32") return null;
   const shortcutPath = windowsBrandShortcutPath();
   await mkdir(path.dirname(shortcutPath), { recursive: true });
-  // Create is required for a first-time link; refreshes and relaunches replace
-  // the same per-user link so its icon and AppUserModelID stay current.
+  // Recreate instead of replacing in place. Explorer can retain the old
+  // target and search metadata when a prior installer owned this path.
+  await rm(shortcutPath, { force: true });
   const written = writeWindowsBrandShortcut(shell, shortcutPath, windowsBrandShortcutDetails({
     target: process.execPath,
     appId,
     appIconPath,
     appName: currentDisplayAppName,
-  }), existsSync(shortcutPath));
+  }), false);
   if (!written) throw new Error(`Windows rejected the organization shortcut: ${shortcutPath}`);
   const previousShortcutPath = await readWindowsBrandShortcutMarker();
   if (previousShortcutPath && previousShortcutPath !== shortcutPath) {
