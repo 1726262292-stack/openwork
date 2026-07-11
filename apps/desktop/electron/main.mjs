@@ -336,8 +336,7 @@ function windowsBrandShortcutMarkerPath() {
 }
 
 function windowsExecutablePath() {
-  if (!app.isPackaged) return process.execPath;
-  return path.join(path.dirname(process.resourcesPath), path.basename(process.execPath));
+  return app.isPackaged ? app.getPath("exe") : process.execPath;
 }
 
 async function readWindowsBrandShortcutMarker() {
