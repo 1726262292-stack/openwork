@@ -47,7 +47,10 @@ mock.module("../src/db.js", () => ({
               name: "Acme Robotics",
               slug: "acme-robotics",
               logo: null,
-              metadata: { capabilities: { installLinks: true } },
+              metadata: {
+                capabilities: { installLinks: true },
+                brandIconUrl: "https://assets.blueyonder.test/icon.png",
+              },
             },
           }]
         : []
@@ -89,7 +92,10 @@ mock.module("../src/orgs.js", () => ({
             name: "Acme Robotics",
             slug: "acme-robotics",
             logo: null,
-            metadata: { capabilities: { installLinks: capabilityEnabled } },
+            metadata: {
+              capabilities: { installLinks: capabilityEnabled },
+              brandIconUrl: "https://assets.blueyonder.test/icon.png",
+            },
           },
           currentMember: {
             id: memberId,
@@ -327,6 +333,7 @@ test.each([
       baseUrl: process.env.BETTER_AUTH_URL,
       requireSignin: true,
       brandAppName: "OpenWork",
+      brandIconUrl: "https://assets.blueyonder.test/icon.png",
     })
     expect(bootstrap.apiBaseUrl).toBe("http://den.local")
     expect(Number.isFinite(Date.parse(bootstrap.writtenAt))).toBe(true)
