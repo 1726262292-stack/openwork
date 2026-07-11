@@ -213,21 +213,21 @@ jobs:
         run: |
           set -euo pipefail
           cd apps/installer
-          windows_metadata=()
           if [ "${{ matrix.os_type }}" = "windows" ]; then
-            windows_metadata+=(
-              --windows-icon=../desktop/resources/icons/icon.ico
-              --windows-title="OpenWork Installer"
-              --windows-description="Install OpenWork for your organization"
-              --windows-publisher="Different AI"
-              --windows-version="1.0.0.0"
+            bun build --compile --minify --target=${{ matrix.bun_target }} \
+              src/index.ts src/server-worker.ts \
+              --outfile "dist/openwork-installer" \
+              --windows-icon=../desktop/resources/icons/icon.ico \
+              --windows-title="OpenWork Installer" \
+              --windows-description="Install OpenWork for your organization" \
+              --windows-publisher="Different AI" \
+              --windows-version="1.0.0.0" \
               --windows-hide-console
-            )
+          else
+            bun build --compile --minify --target=${{ matrix.bun_target }} \
+              src/index.ts src/server-worker.ts \
+              --outfile "dist/openwork-installer"
           fi
-          bun build --compile --minify --target=${{ matrix.bun_target }} \
-            src/index.ts src/server-worker.ts \
-            --outfile "dist/openwork-installer" \
-            "${windows_metadata[@]}"
 
       - name: Smoke test (generic build refuses to run unconfigured)
         # Cross-compiled mac x64 output cannot run on the arm64 runner.
