@@ -51,7 +51,7 @@ export default {
         await ctx.prove("The organization download is one ZIP around the standard application", {
           voiceover: vo[0],
           action: async () => {
-            prepareBundle(ctx);
+            await prepareBundle(ctx);
             await navigateTo(ctx, `${state.proofServer.url}/download`);
           },
           assert: async () => {
@@ -259,7 +259,7 @@ export default {
   ],
 };
 
-function prepareBundle(ctx) {
+async function prepareBundle(ctx) {
   if (state.bundle) return;
   ctx.assert(existsSync(INSTALLER_BIN), `Installer binary is missing: ${INSTALLER_BIN}`);
   state.root = mkdtempSync(path.join(os.tmpdir(), "openwork-deterministic-installer-"));
@@ -275,7 +275,7 @@ function prepareBundle(ctx) {
   writeFileSync(appImagePath, "#!/bin/sh\nprintf 'standard OpenWork application\\n'\n");
   chmodSync(appImagePath, 0o755);
 
-  state.proofServer = startProofServer();
+  state.proofServer = await startProofServer();
   state.config = {
     schemaVersion: 1,
     appVersion: VERSION,
@@ -293,7 +293,7 @@ function prepareBundle(ctx) {
   ctx.assert(zipped.status === 0, `Could not create setup ZIP: ${zipped.stderr}`);
 }
 
-function startProofServer() {
+async function startProofServer() {
   let server;
   server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -307,7 +307,10 @@ function startProofServer() {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(page(title, body));
   });
-  server.listen(0, "127.0.0.1");
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Could not start proof server.");
   return { url: `http://127.0.0.1:${address.port}`, stop: () => server.close() };
