@@ -313,7 +313,13 @@ async function startProofServer() {
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Could not start proof server.");
-  return { url: `http://127.0.0.1:${address.port}`, stop: () => server.close() };
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    stop: () => {
+      server.closeAllConnections?.();
+      server.close();
+    },
+  };
 }
 
 function page(title, body) {
