@@ -19,7 +19,7 @@ import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
-import { desktopReleaseAssetName, genericInstallerAssetName, resolveInstallerArtifact, resolveInstallerFallbackUrl } from "../../utils/installer-artifacts.js"
+import { genericInstallerAssetName, resolveInstallerArtifact } from "../../utils/installer-artifacts.js"
 import { appendStoredEntriesToZipStream, createStoredZipStream } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
@@ -63,16 +63,12 @@ const rateLimitedSchema = z.object({
   message: z.string(),
 }).meta({ ref: "RateLimitedError" })
 
-type InstallPlatform = z.infer<typeof installPlatformSchema>
-
 type InstallerDependencies = {
   resolveArtifact: typeof resolveInstallerArtifact
-  resolveFallbackUrl: (platform: string) => Promise<string>
 }
 
 const defaultInstallerDependencies: InstallerDependencies = {
   resolveArtifact: resolveInstallerArtifact,
-  resolveFallbackUrl: (platform) => resolveInstallerFallbackUrl(platform, OPENWORK_DOWNLOAD_URL),
 }
 
 function requestAddress(headers: Headers) {
@@ -169,10 +165,6 @@ function safeAttachmentSlug(value: string) {
 
 function contentDisposition(filename: string) {
   return `attachment; filename="${filename.replace(/["\\]/g, "-")}"`
-}
-
-function desktopArtifactFileName(platform: InstallPlatform) {
-  return desktopReleaseAssetName(platform, env.installerReleaseTag)
 }
 
 function shellQuote(value: string) {
@@ -348,7 +340,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       description: "Packages the generic signed OpenWork installer, the unchanged standard desktop artifact, and this organization's explicit installer configuration, or redirects to the verified standard download when Den cannot prepare the bundle.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
-        302: emptyResponse("Den redirected the browser to a verified normal desktop download."),
+        302: emptyResponse("Den redirected the browser to the normal public download page."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many installer download attempts.", rateLimitedSchema),
@@ -385,30 +377,24 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         })
       }
 
-      const desktopFileName = desktopArtifactFileName(platform)
       const genericFileName = genericInstallerAssetName(platform)
-      if (!desktopFileName || !genericFileName) {
+      if (!genericFileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
-      const [desktopArtifact, genericInstallerArtifact] = await Promise.all([
-        installer.resolveArtifact(desktopFileName),
-        installer.resolveArtifact(genericFileName),
-      ])
-      if (!desktopArtifact || !genericInstallerArtifact) {
-        return c.redirect(await installer.resolveFallbackUrl(platform), 302)
+      const genericInstallerArtifact = await installer.resolveArtifact(genericFileName)
+      if (!genericInstallerArtifact) {
+        return c.redirect(OPENWORK_DOWNLOAD_URL, 302)
       }
 
       const sidecar = Buffer.from(`${JSON.stringify(resolved.config, null, 2)}\n`, "utf8")
       const bundle = platform.startsWith("mac-")
         ? appendStoredEntriesToZipStream(genericInstallerArtifact, [
             { name: INSTALL_SIDECAR_FILENAME, content: sidecar },
-            { name: desktopFileName, content: desktopArtifact },
           ])
         : createStoredZipStream([
             { name: "OpenWork Installer.exe", content: genericInstallerArtifact },
             { name: INSTALL_SIDECAR_FILENAME, content: sidecar },
-            { name: desktopFileName, content: desktopArtifact },
           ])
 
       return new Response(bundle.body, {

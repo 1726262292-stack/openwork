@@ -11,18 +11,17 @@ Related: `ee/apps/den-api/src/routes/org/install-links.ts`, `apps/installer`, `p
 Organization install links let workspace members download the normal signed
 OpenWork desktop application already configured for their organization. Den
 does not compile a different OpenWork application for every organization.
-Instead, it creates one ZIP from three independently verifiable inputs:
+Instead, it creates one lightweight ZIP from two independently verifiable inputs:
 
 1. The generic signed **OpenWork Installer** for the selected platform.
-2. The unchanged standard signed OpenWork DMG or EXE for the Den-supported app
-   version.
-3. `openwork-installer.json`, containing the deployment and branding settings.
+2. `openwork-installer.json`, containing the deployment, exact app version, and
+   branding settings.
 
 The user explicitly launches the installer. It shows the organization name and
 server URL before making changes, writes `desktop-bootstrap.json` to the
-canonical per-user location, installs the adjacent standard app artifact, and
-then launches OpenWork. The desktop app never searches Downloads or Desktop for
-configuration files.
+canonical per-user location, downloads the exact standard signed app release
+directly on the user's computer, and then launches OpenWork. The desktop app
+never searches Downloads or Desktop for configuration files.
 
 Possession of an install link or setup ZIP does not create a workspace session.
 Users must still authenticate against the configured deployment.
@@ -47,46 +46,46 @@ per-organization opt-in.
 1. Keep `migrations.enabled=true` for the upgrade that creates the install-link
    table.
 2. Configure the public origins above.
-3. Choose connected, mirrored, or air-gapped artifact delivery below.
+3. Mount the three lightweight generic installer artifacts when Den has no
+   public egress, as described below.
 4. Restart the deployment. No raw database or feature-flag change is required
    for normal self-hosted installations.
 
 ## Artifact delivery
 
-`OPENWORK_INSTALLER_RELEASE_TAG` pins both the standard app and generic
-installer to one release. Den resolves each required artifact in this order:
+`OPENWORK_INSTALLER_RELEASE_TAG` pins the standard app version recorded in the
+sidecar and the generic installer release. Den resolves each generic installer
+artifact in this order:
 
 1. `OPENWORK_INSTALLER_ARTIFACTS_DIR`.
 2. `OPENWORK_INSTALLER_CACHE_DIR/<tag>/<file>`.
 3. `https://github.com/<OPENWORK_INSTALLER_RELEASE_REPO>/releases/download/<tag>/<file>`.
 
-For release `v0.18.0`, a complete Mac/Windows artifact set is:
+For release `v0.18.0`, the complete Den-side Mac/Windows artifact set is:
 
 ```text
 openwork-installer-mac-arm64.zip
 openwork-installer-mac-x64.zip
 openwork-installer-win-x64.exe
-openwork-mac-arm64-0.18.0.dmg
-openwork-mac-x64-0.18.0.dmg
-openwork-win-x64-0.18.0.exe
 ```
 
 The generic Mac ZIP contains the signed and notarized `OpenWork Installer.app`.
 The generic Windows EXE is the release installer launcher and is signed when
-Windows signing is enabled for that release. Den does not modify either
-executable or the standard app artifact; it only combines them with the
-organization JSON in the downloaded ZIP.
+Windows signing is enabled for that release. Both generic installers carry the
+native OpenWork icon. Den does not modify either executable; it only combines
+the installer with the organization JSON in the downloaded ZIP.
 
-### Fully air-gapped / zero public egress
+### Den with zero public egress
 
-Mount all six matching files above into
+Mount the three matching files above into
 `OPENWORK_INSTALLER_ARTIFACTS_DIR`. Den then builds organization downloads
-entirely from the mounted volume. The end-user installer uses the standard DMG
-or EXE already beside it, so neither Den nor the user device needs GitHub.
+entirely from the mounted volume and never fetches the large desktop app. The
+end-user computer downloads the exact standard DMG or EXE directly from public
+OpenWork release hosting.
 
-The user device still needs HTTPS access to services that are part of the
-customer deployment:
+The user device needs outbound HTTPS access to:
 
+- `github.com` and `*.githubusercontent.com` for the standard app release;
 - the configured Den Web origin;
 - the configured Den API origin;
 - the host serving `logoUrl` and `iconUrl` (normally Den itself);
@@ -97,15 +96,10 @@ customer deployment:
 Keep uploaded branding assets on the on-prem Den origin to avoid adding an
 external image CDN to the client allowlist.
 
-The macOS installer app and DMG are notarized and stapled by the release
-workflows. Apple documents that a stapled notarization ticket lets Gatekeeper
-verify a distribution without a network connection:
-https://developer.apple.com/documentation/security/customizing-the-notarization-workflow.
+### Connected Den allowlist
 
-### Connected deployment allowlist
-
-When artifacts are not mounted or mirrored, **Den API**, not each desktop,
-downloads them over outbound TCP 443. Allow:
+When the three generic artifacts are not mounted or cached, Den may resolve
+them over outbound TCP 443. Allow:
 
 ```text
 github.com
@@ -117,8 +111,8 @@ body to a `githubusercontent.com` release host. GitHub's firewall guidance uses
 the same wildcard for action and release downloads:
 https://docs.github.com/en/code-security/reference/supply-chain-security/automatic-dependency-submission#configure-network-access-for-self-hosted-runners.
 
-If policy forbids wildcard external hosts, mount the release files through
-`OPENWORK_INSTALLER_ARTIFACTS_DIR` or pre-populate
+If policy forbids wildcard external hosts on Den, mount the three generic files
+through `OPENWORK_INSTALLER_ARTIFACTS_DIR` or pre-populate
 `OPENWORK_INSTALLER_CACHE_DIR/<tag>/`. `OPENWORK_INSTALLER_RELEASE_REPO`
 selects a repository on `github.com`; it does not change the release host to an
 arbitrary internal mirror. Mounted artifacts are preferable to depending on
@@ -147,7 +141,6 @@ Mac:
 ```text
 OpenWork Installer.app/
 openwork-installer.json
-openwork-mac-arm64-0.18.0.dmg
 ```
 
 Windows:
@@ -155,7 +148,6 @@ Windows:
 ```text
 OpenWork Installer.exe
 openwork-installer.json
-openwork-win-x64-0.18.0.exe
 ```
 
 The installer reads only the JSON beside the installer the user launched. Two
@@ -164,8 +156,8 @@ app. Switching deployments requires launching the other installer and
 confirming the new organization and server address.
 
 macOS App Translocation is supported: if Gatekeeper relocates the running
-installer, it resolves the original app path from the nullfs mount and reads the
-JSON and DMG from that exact extracted bundle.
+installer, it resolves the original app path from the nullfs mount and reads
+the JSON beside that exact extracted bundle.
 
 ## Installer JSON
 
@@ -188,9 +180,8 @@ Example:
 - `logoUrl` is the wordmark used inside OpenWork and on sign-in surfaces.
 - `iconUrl` is the square image used for the macOS Dock and Windows native
   shortcut/taskbar surfaces.
-- `appVersion` identifies the adjacent standard signed app artifact, removing
-  the need to contact release hosting or query version metadata during an
-  air-gapped install.
+- `appVersion` identifies the exact standard signed app release the desktop
+  installer downloads, avoiding a mutable “latest” lookup.
 - The JSON contains no install token, auth session, or long-lived secret.
 
 The installer writes the normalized result here:
@@ -204,6 +195,13 @@ Existing Tauri/Electron compatibility rules still read the legacy
 `~/.config/openwork/desktop-bootstrap.json` path and migrate the newest valid
 state. Standard desktop updates do not invoke the organization installer, so
 upgrading the app preserves the canonical deployment configuration.
+
+The installer writes this bootstrap before it downloads the app. Electron
+reads it before creating the first window and fetches/caches the square icon
+before that window appears. The first visible sign-in surface therefore uses
+the configured company name, wordmark, server, and native Dock/taskbar icon;
+no first-run restart is required. The signed app bundle remains named OpenWork
+on disk so its release signature stays intact.
 
 ## MDM deployment
 
@@ -219,7 +217,7 @@ already provides deterministic per-user file placement.
   session.
 - The installer requires explicit confirmation before applying a deployment.
 - The standard app and generic installer signatures remain byte-identical to
-  their release assets.
+  their release assets; runtime branding does not rewrite the signed bundle.
 - The native app validates and bounds downloaded icon images before caching
   them.
 - Admins can rotate install links to revoke older links; existing downloaded
@@ -229,9 +227,9 @@ already provides deterministic per-user file placement.
 
 | Symptom | Resolution |
 |---|---|
-| Download redirects to the normal public app instead of returning an organization ZIP | Den could not resolve either the generic installer or standard app artifact. Mount the complete matching artifact set or repair GitHub/mirror access. |
+| Download redirects to the normal public app instead of returning an organization ZIP | Den could not resolve the lightweight generic installer. Mount the three matching generic artifacts or repair Den's GitHub access. |
 | Installer asks for an install link | `openwork-installer.json` is missing or was separated from the launched installer. Re-extract the organization ZIP and keep its files together. |
-| Installer tries to reach GitHub | The adjacent standard artifact filename does not match `appVersion`/platform, or it is missing. Mount/package the matching release artifact. |
+| Installer cannot download OpenWork | The desktop cannot reach `github.com` or the redirected `*.githubusercontent.com` release host, or the pinned release is missing its platform artifact. |
 | Wrong organization is shown | Exit without confirming, then launch the installer from the intended extracted bundle. Files elsewhere are ignored. |
-| Branding text appears but the native icon does not | Verify `iconUrl` is the square managed icon URL and that the desktop can reach its host over HTTPS. |
+| Branding text appears but the native icon does not | Verify `iconUrl` is a reachable square image. The installer applies it before the first window, with a 10-second network timeout. |
 | Install links point at localhost or the wrong host | Correct `BETTER_AUTH_URL`, `DEN_API_PUBLIC_URL`, and `DEN_BETTER_AUTH_TRUSTED_ORIGINS`, then restart Den API. |

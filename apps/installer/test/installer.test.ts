@@ -7,7 +7,7 @@ import { installConfigUrlFor, parseInstallerFilenameTag } from "@openwork/instal
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
 import { isTranslocatedPath, parseMountTableLine, readSidecarConfig, resolveTranslocatedOriginalPath } from "../src/config-sources"
-import { bundledReleaseAssetPath, runInstall, writeBootstrapConfig } from "../src/install"
+import { runInstall, writeBootstrapConfig } from "../src/install"
 import { releaseAssetFor } from "../src/release-asset"
 
 describe("desktopBootstrapPath", () => {
@@ -57,17 +57,6 @@ describe("releaseAssetFor", () => {
     expect(() => releaseAssetFor("", "darwin", "arm64")).toThrow()
   })
 
-  test("resolves only the exact standard artifact beside the explicit installer", () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-bundled-artifact-"))
-    try {
-      const fileName = "openwork-win-x64-9.9.9.exe"
-      writeFileSync(path.join(dir, fileName), "signed standard app", "utf8")
-      expect(bundledReleaseAssetPath(fileName, [dir])).toBe(path.join(dir, fileName))
-      expect(bundledReleaseAssetPath("openwork-win-x64-9.9.8.exe", [dir])).toBeNull()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
 })
 
 describe("resolveInstallerConfig", () => {
@@ -442,12 +431,11 @@ describe("writeBootstrapConfig", () => {
     }
   })
 
-  test("a bundled standard artifact completes a dry run without release-host access", async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-airgap-"))
+  test("the lightweight installer checks the exact public desktop release", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-public-release-"))
     const previousBootstrapPath = process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH
+    const requests: Array<{ url: string; method: string }> = []
     try {
-      const fileName = releaseAssetFor("9.9.9").fileName
-      writeFileSync(path.join(dir, fileName), "signed standard app", "utf8")
       process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH = path.join(dir, "state", "desktop-bootstrap.json")
       const result = await runInstall({
         appName: "Acme Work",
@@ -458,9 +446,22 @@ describe("writeBootstrapConfig", () => {
         logoUrl: null,
         iconUrl: null,
         requireSignin: true,
-      }, { dryRun: true, bundleDirectories: [dir] })
+      }, {
+        dryRun: true,
+        fetcher: async (input, init) => {
+          requests.push({
+            url: input instanceof Request ? input.url : input.toString(),
+            method: init?.method ?? "GET",
+          })
+          return new Response(null, { status: 200 })
+        },
+      })
       expect(result.state).toBe("done")
-      expect(result.message).toContain("bundled")
+      expect(result.message).toContain("available")
+      expect(requests).toEqual([{
+        url: releaseAssetFor("9.9.9").url,
+        method: "HEAD",
+      }])
     } finally {
       if (previousBootstrapPath === undefined) delete process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH
       else process.env.OPENWORK_DESKTOP_BOOTSTRAP_PATH = previousBootstrapPath

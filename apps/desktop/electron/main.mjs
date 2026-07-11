@@ -2268,7 +2268,7 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform === "win32") {
       await registerWindowsDisplayShortcut();
     }
-    if (process.platform === "win32" && bootstrapConfig.brandIconUrl) {
+    if (bootstrapConfig.brandIconUrl) {
       await applyBrandIconUrl(bootstrapConfig.brandIconUrl);
     }
     applicationMenu.install();

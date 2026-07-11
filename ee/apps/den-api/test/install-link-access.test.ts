@@ -20,7 +20,7 @@ const memberId = createDenTypeId("member")
 const organizationId = createDenTypeId("organization")
 const insertedRows: unknown[] = []
 const revokedRows: unknown[] = []
-const officialWindowsInstallerUrl = "https://github.com/different-ai/openwork/releases/download/v9.9.9/openwork-win-x64-9.9.9.exe"
+const officialDownloadUrl = "https://openworklabs.com/download"
 const brandLogoUrl = "https://den.acme.test/assets/wordmark.png"
 const brandIconUrl = "https://den.acme.test/assets/icon.png"
 
@@ -144,9 +144,8 @@ beforeEach(() => {
   sessionCreatedAt = new Date()
 })
 
-function createApp(options: { installerFallbackUrl?: string; installerArtifacts?: Record<string, Buffer> } = {}) {
+function createApp(options: { installerArtifacts?: Record<string, Buffer> } = {}) {
   const app = new Hono()
-  const installerFallbackUrl = options.installerFallbackUrl
   app.use("*", async (c, next) => {
     c.set("user", {
       id: userId,
@@ -166,10 +165,9 @@ function createApp(options: { installerFallbackUrl?: string; installerArtifacts?
   })
   installLinkModule.registerOrgInstallLinkRoutes(
     app,
-    installerFallbackUrl || options.installerArtifacts
+    options.installerArtifacts
       ? {
           resolveArtifact: (fileName) => Promise.resolve(options.installerArtifacts?.[fileName] ?? null),
-          resolveFallbackUrl: () => Promise.resolve(installerFallbackUrl ?? officialWindowsInstallerUrl),
         }
       : undefined,
   )
@@ -294,28 +292,26 @@ test("members cannot mint an install link for another organization", async () =>
   expect(insertedInstallLinks()).toHaveLength(0)
 })
 
-test("missing server-side artifacts redirect the browser to the official release", async () => {
-  const response = await createApp({ installerFallbackUrl: officialWindowsInstallerUrl }).request("http://den.local/v1/install/win-x64?token=opaque-token", {
+test("missing generic installer redirects the browser without Den probing public release hosts", async () => {
+  const response = await createApp({ installerArtifacts: {} }).request("http://den.local/v1/install/win-x64?token=opaque-token", {
     redirect: "manual",
   })
 
   expect(response.status).toBe(302)
-  expect(response.headers.get("location")).toBe(officialWindowsInstallerUrl)
+  expect(response.headers.get("location")).toBe(officialDownloadUrl)
   expect(response.headers.get("location")).not.toContain("opaque-token")
 })
 
 test.each([
   ["mac-arm64", "openwork-mac-arm64-9.9.9.dmg", "openwork-installer-mac-arm64.zip"],
   ["win-x64", "openwork-win-x64-9.9.9.exe", "openwork-installer-win-x64.exe"],
-])("organization %s downloads contain the generic installer, untouched standard app, and explicit config", async (platform, desktopFileName, genericFileName) => {
+])("organization %s downloads contain only the lightweight installer and explicit config", async (platform, desktopFileName, genericFileName) => {
   envModule.env.installerReleaseTag = "v9.9.9"
-  const desktopArtifact = Buffer.from(`signed-standard-${platform}-bytes`, "utf8")
   const genericInstallerArtifact = platform.startsWith("mac-")
     ? Buffer.from(createStoredZip([{ name: "OpenWork Installer.app/binary", content: Buffer.from("signed-generic-mac", "utf8") }]))
     : Buffer.from("signed-generic-windows", "utf8")
   const response = await createApp({
     installerArtifacts: {
-      [desktopFileName]: desktopArtifact,
       [genericFileName]: genericInstallerArtifact,
     },
   }).request(`http://den.local/v1/install/${platform}?token=opaque-token`)
@@ -336,10 +332,9 @@ test.each([
     }
 
     const entries = readdirSync(outputDir)
-    expect(entries).toContain(desktopFileName)
+    expect(entries).not.toContain(desktopFileName)
     expect(entries).toContain("openwork-installer.json")
     expect(entries).toContain(platform.startsWith("mac-") ? "OpenWork Installer.app" : "OpenWork Installer.exe")
-    expect(readFileSync(path.join(outputDir, desktopFileName))).toEqual(desktopArtifact)
 
     const config = JSON.parse(readFileSync(path.join(outputDir, "openwork-installer.json"), "utf8"))
     expect(config).toMatchObject({

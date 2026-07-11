@@ -4,7 +4,6 @@ import os from "node:os"
 import path from "node:path"
 
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "./bootstrap-path"
-import { installerBundleDirectories } from "./config-sources"
 import type { InstallerConfig } from "./config"
 import { releaseAssetFor, type ReleaseAsset } from "./release-asset"
 
@@ -24,8 +23,8 @@ export type InstallStatus = {
 export type InstallOptions = {
   /** Stop after resolving + HEAD-checking the download; used by CI smoke tests. */
   dryRun?: boolean
-  /** Explicit bundle roots used by tests and managed launchers. */
-  bundleDirectories?: string[]
+  /** Injectable transport used by deterministic tests. */
+  fetcher?: typeof fetch
   onStatus?: (status: InstallStatus) => void
 }
 
@@ -126,18 +125,6 @@ export function writeBootstrapConfig(
   return target
 }
 
-export function bundledReleaseAssetPath(fileName: string, directories = installerBundleDirectories()): string | null {
-  for (const directory of directories) {
-    const candidate = path.join(directory, fileName)
-    try {
-      if (statSync(candidate).isFile()) return candidate
-    } catch {
-      // A missing adjacent artifact is normal for the standalone installer.
-    }
-  }
-  return null
-}
-
 /** Ask the deployment's Den API which desktop version it supports. */
 export async function fetchLatestSupportedVersion(apiUrl: string): Promise<string> {
   const response = await fetch(`${apiUrl}/v1/app-version`, {
@@ -156,7 +143,7 @@ export async function fetchLatestSupportedVersion(apiUrl: string): Promise<strin
 }
 
 async function downloadAsset(asset: ReleaseAsset, targetPath: string, opts: InstallOptions): Promise<void> {
-  const response = await fetch(asset.url, { redirect: "follow" })
+  const response = await (opts.fetcher ?? fetch)(asset.url, { redirect: "follow" })
   if (!response.ok || !response.body) {
     throw new Error(`Download failed (${response.status} ${response.statusText}): ${asset.url}`)
   }
@@ -261,16 +248,13 @@ export async function runInstall(config: InstallerConfig, opts: InstallOptions =
     update({ step: "check-version", message: "Checking the supported app version..." }, opts.onStatus)
     const version = config.appVersion ?? await fetchLatestSupportedVersion(config.apiUrl)
     const asset = releaseAssetFor(version)
-    const bundledArtifact = bundledReleaseAssetPath(asset.fileName, opts.bundleDirectories)
-    update({ version, message: bundledArtifact ? `OpenWork ${version} is ready in this setup bundle.` : `Deployment supports OpenWork ${version}.` }, opts.onStatus)
+    update({ version, message: `Deployment supports OpenWork ${version}.` }, opts.onStatus)
 
     if (opts.dryRun) {
-      if (!bundledArtifact) {
-        const head = await fetch(asset.url, { method: "HEAD", redirect: "follow" })
-        if (!head.ok) throw new Error(`Release asset missing (${head.status}): ${asset.url}`)
-      }
+      const head = await (opts.fetcher ?? fetch)(asset.url, { method: "HEAD", redirect: "follow" })
+      if (!head.ok) throw new Error(`Release asset missing (${head.status}): ${asset.url}`)
       update(
-        { state: "done", step: null, message: `Dry run ok: ${asset.fileName} ${bundledArtifact ? "bundled" : "available"}; config written to ${bootstrapPath}.` },
+        { state: "done", step: null, message: `Dry run ok: ${asset.fileName} available; config written to ${bootstrapPath}.` },
         opts.onStatus,
       )
       return installStatus()
@@ -279,14 +263,9 @@ export async function runInstall(config: InstallerConfig, opts: InstallOptions =
     const workDir = path.join(os.tmpdir(), `openwork-installer-${process.pid}-${Math.random().toString(36).slice(2)}`)
     mkdirSync(workDir, { recursive: true })
     try {
-      const artifactPath = bundledArtifact ?? path.join(workDir, asset.fileName)
-      if (bundledArtifact) {
-        const bundledBytes = statSync(bundledArtifact).size
-        update({ step: "install", message: `Using bundled OpenWork ${version}...`, downloadedBytes: bundledBytes, totalBytes: bundledBytes }, opts.onStatus)
-      } else {
-        update({ step: "download", message: `Downloading OpenWork ${version}...` }, opts.onStatus)
-        await downloadAsset(asset, artifactPath, opts)
-      }
+      const artifactPath = path.join(workDir, asset.fileName)
+      update({ step: "download", message: `Downloading OpenWork ${version}...` }, opts.onStatus)
+      await downloadAsset(asset, artifactPath, opts)
 
       update({ step: "install", message: "Installing OpenWork..." }, opts.onStatus)
       const installedPath =

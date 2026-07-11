@@ -1,8 +1,9 @@
 name: Release Generic Installer
 
 # Builds the GENERIC (unbranded) OpenWork installer. Organization downloads
-# combine this unchanged signed installer with the unchanged standard desktop
-# artifact and an explicit openwork-installer.json sidecar. The committed
+# combine this unchanged signed installer with an explicit
+# openwork-installer.json sidecar. The installer downloads the exact standard
+# desktop release directly on the user's computer. The committed
 # apps/installer build-config placeholder stays empty, so the binary carries
 # no deployment values and resolves its config at run time (sidecar stamped by
 # den-api, filename tag, or pasted install link; see #2480) — and publishes it
@@ -210,10 +211,23 @@ jobs:
       - name: Compile installer
         shell: bash
         run: |
+          set -euo pipefail
           cd apps/installer
+          windows_metadata=()
+          if [ "${{ matrix.os_type }}" = "windows" ]; then
+            windows_metadata+=(
+              --windows-icon=../desktop/resources/icons/icon.ico
+              --windows-title="OpenWork Installer"
+              --windows-description="Install OpenWork for your organization"
+              --windows-publisher="Different AI"
+              --windows-version="1.0.0.0"
+              --windows-hide-console
+            )
+          fi
           bun build --compile --minify --target=${{ matrix.bun_target }} \
             src/index.ts src/server-worker.ts \
-            --outfile "dist/openwork-installer"
+            --outfile "dist/openwork-installer" \
+            "${windows_metadata[@]}"
 
       - name: Smoke test (generic build refuses to run unconfigured)
         # Cross-compiled mac x64 output cannot run on the arm64 runner.
@@ -247,8 +261,9 @@ jobs:
           cd apps/installer
           APP="dist/OpenWork Installer.app"
           rm -rf "$APP"
-          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp dist/openwork-installer "$APP/Contents/MacOS/openwork-installer"
+          cp ../desktop/resources/icons/icon.icns "$APP/Contents/Resources/OpenWorkInstaller.icns"
           cat > "$APP/Contents/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -258,6 +273,7 @@ jobs:
             <key>CFBundleDisplayName</key><string>OpenWork Installer</string>
             <key>CFBundleIdentifier</key><string>com.differentai.openwork.installer</string>
             <key>CFBundleExecutable</key><string>openwork-installer</string>
+            <key>CFBundleIconFile</key><string>OpenWorkInstaller</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>1.0.0</string>
             <key>CFBundleVersion</key><string>1</string>

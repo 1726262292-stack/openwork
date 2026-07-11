@@ -57,6 +57,7 @@ export function renderInstallerHtml(resolution: InstallerConfigResolution | null
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(appName)} Installer</title>
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(OPENWORK_LOGO_SVG)}" />
 <style>
   :root { color-scheme: light; }
   html, body { height: 100%; margin: 0; }

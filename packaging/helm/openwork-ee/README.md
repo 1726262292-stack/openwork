@@ -390,7 +390,7 @@ installerArtifacts:
   mountPath: /var/lib/openwork/installer-artifacts
 ```
 
-Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. For zero-egress Mac/Windows downloads, the mounted directory must contain the three generic installer assets plus the three standard DMG/EXE assets matching `config.public.installerReleaseTag`. The complete filename list is in the [operator guide](../../../docs/org-install-links.md#artifact-delivery).
+Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. When Den has zero public egress, the mounted directory only needs the three lightweight generic installer assets matching `config.public.installerReleaseTag`; the user's desktop downloads the standard app release directly. The complete filename list and desktop allowlist are in the [operator guide](../../../docs/org-install-links.md#artifact-delivery).
 
 ## Health Probes
 
