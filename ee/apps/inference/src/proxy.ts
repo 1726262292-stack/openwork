@@ -1,11 +1,43 @@
 import { createHash } from "node:crypto"
 import type { Hono } from "hono"
 import { env } from "./env.js"
-import { findActiveInferenceKey, getOpenRouterProviderKey } from "./keys.js"
-import { ensureUsableBuckets } from "./limits.js"
+import type { findActiveInferenceKey as findActiveInferenceKeyFn, getOpenRouterProviderKey as getOpenRouterProviderKeyFn } from "./keys.js"
+import type { ensureUsableBuckets as ensureUsableBucketsFn } from "./limits.js"
 import { resolveModelAlias } from "./model-catalog.js"
 
 type JsonObject = Record<string, unknown>
+type PreparedBody = {
+  body: BodyInit | null
+  modelAlias: string
+  upstreamModel: string | null
+}
+type PreparedBodyResult = PreparedBody | { error: Response }
+type ProxyRequestInit = RequestInit & { duplex: "half" }
+
+const bodylessMethods = new Set(["GET", "HEAD"])
+
+const defaultProxyDependencies: ProxyDependencies = {
+  async findActiveInferenceKey(rawKey) {
+    const keys = await import("./keys.js")
+    return keys.findActiveInferenceKey(rawKey)
+  },
+  async getOpenRouterProviderKey(organizationId) {
+    const keys = await import("./keys.js")
+    return keys.getOpenRouterProviderKey(organizationId)
+  },
+  async ensureUsableBuckets(organizationId) {
+    const limits = await import("./limits.js")
+    return limits.ensureUsableBuckets(organizationId)
+  },
+  fetch,
+}
+
+type ProxyDependencies = {
+  findActiveInferenceKey: typeof findActiveInferenceKeyFn
+  getOpenRouterProviderKey: typeof getOpenRouterProviderKeyFn
+  ensureUsableBuckets: typeof ensureUsableBucketsFn
+  fetch: typeof fetch
+}
 
 function readApiKey(request: Request) {
   const auth = request.headers.get("authorization")
@@ -16,7 +48,26 @@ function readApiKey(request: Request) {
 }
 
 function isJsonRequest(request: Request) {
-  return request.headers.get("content-type")?.toLowerCase().includes("application/json") ?? false
+  return isJsonContentType(request.headers.get("content-type"))
+}
+
+function isJsonContentType(contentType: string | null) {
+  if (!contentType) return false
+  const mediaType = contentType.split(";")[0].trim().toLowerCase()
+  if (mediaType === "application/json") return true
+  const applicationPrefix = "application/"
+  const jsonSuffix = "+json"
+  return mediaType.startsWith(applicationPrefix)
+    && mediaType.endsWith(jsonSuffix)
+    && mediaType.length > applicationPrefix.length + jsonSuffix.length
+}
+
+function isBodylessMethod(method: string) {
+  return bodylessMethods.has(method)
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function sanitizeHeaders(request: Request, apiKey: string, openworkRequestId: string) {
@@ -105,13 +156,17 @@ async function prepareBody(request: Request, input: {
   orgMembershipId: string
   inferenceKeyId: string
   openworkRequestId: string
-}) {
-  if (!isJsonRequest(request)) {
-    return { body: request.body, modelAlias: "unknown", upstreamModel: null as string | null }
+}): Promise<PreparedBodyResult> {
+  if (isBodylessMethod(request.method)) {
+    return { body: request.body, modelAlias: "unknown", upstreamModel: null }
   }
 
-  const body = await request.json() as JsonObject
-  if (typeof body.model !== "string") {
+  if (!isJsonRequest(request)) {
+    return { error: openAiError(415, "unsupported_media_type", "Inference requests with a body must use a JSON Content-Type.") }
+  }
+
+  const json: unknown = await request.json()
+  if (!isJsonObject(json) || typeof json.model !== "string") {
     logProxyError("Missing model in JSON request body", {
       openworkRequestId: input.openworkRequestId,
       organizationId: input.organizationId,
@@ -119,15 +174,17 @@ async function prepareBody(request: Request, input: {
     })
     return { error: openAiError(400, "model_required", "JSON request body must include a string model.") }
   }
-  const model = resolveModelAlias(body.model)
+  const requestedModel = json.model
+  const body = json
+  const model = resolveModelAlias(requestedModel)
   if (!model) {
     logProxyError("Unknown OpenWork model alias", {
       openworkRequestId: input.openworkRequestId,
       organizationId: input.organizationId,
       orgMembershipId: input.orgMembershipId,
-      requestedModel: body.model,
+      requestedModel,
     })
-    return { error: openAiError(404, "model_not_found", `Unknown OpenWork model alias: ${body.model}`) }
+    return { error: openAiError(404, "model_not_found", `Unknown OpenWork model alias: ${requestedModel}`) }
   }
 
   body.model = model.upstreamModel
@@ -149,7 +206,7 @@ async function prepareBody(request: Request, input: {
   }
 }
 
-export function registerProxyRoutes(app: Hono) {
+export function registerProxyRoutes(app: Hono, dependencies: ProxyDependencies = defaultProxyDependencies) {
   app.all("/api/v1/*", async (c) => {
     const rawKey = readApiKey(c.req.raw)
     if (!rawKey) {
@@ -157,13 +214,30 @@ export function registerProxyRoutes(app: Hono) {
       return c.json({ error: { message: "Missing OpenWork inference API key.", type: "authentication_error", code: "missing_api_key" } }, 401)
     }
 
-    const inferenceKey = await findActiveInferenceKey(rawKey)
+    const inferenceKey = await dependencies.findActiveInferenceKey(rawKey)
     if (!inferenceKey) {
       logProxyError("Invalid inference API key", { path: c.req.path, method: c.req.method })
       return c.json({ error: { message: "Invalid OpenWork inference API key.", type: "authentication_error", code: "invalid_api_key" } }, 401)
     }
 
-    const limits = await ensureUsableBuckets(inferenceKey.organization_id)
+    const openworkRequestId = buildRequestId()
+    const prepared = await prepareBody(c.req.raw, {
+      organizationId: inferenceKey.organization_id,
+      orgMembershipId: inferenceKey.org_membership_id,
+      inferenceKeyId: inferenceKey.id,
+      openworkRequestId,
+    })
+    if ("error" in prepared) {
+      logProxyError("Invalid inference proxy request", {
+        openworkRequestId,
+        path: c.req.path,
+        organizationId: inferenceKey.organization_id,
+        orgMembershipId: inferenceKey.org_membership_id,
+      })
+      return prepared.error
+    }
+
+    const limits = await dependencies.ensureUsableBuckets(inferenceKey.organization_id)
     if (!limits.ok) {
       logProxyError("Inference usage limit exceeded", {
         path: c.req.path,
@@ -191,7 +265,7 @@ export function registerProxyRoutes(app: Hono) {
       }, 429)
     }
 
-    const providerKey = await getOpenRouterProviderKey(inferenceKey.organization_id)
+    const providerKey = await dependencies.getOpenRouterProviderKey(inferenceKey.organization_id)
     if (!providerKey) {
       logProxyError("Missing active OpenRouter provider key", {
         path: c.req.path,
@@ -201,33 +275,17 @@ export function registerProxyRoutes(app: Hono) {
       return c.json({ error: { message: "No active OpenRouter provider key configured for organization.", type: "invalid_request_error", code: "missing_provider_key" } }, 400)
     }
 
-    const openworkRequestId = buildRequestId()
-    const prepared = await prepareBody(c.req.raw, {
-      organizationId: inferenceKey.organization_id,
-      orgMembershipId: inferenceKey.org_membership_id,
-      inferenceKeyId: inferenceKey.id,
-      openworkRequestId,
-    })
-    if ("error" in prepared) {
-      logProxyError("Invalid inference proxy request", {
-        openworkRequestId,
-        path: c.req.path,
-        organizationId: inferenceKey.organization_id,
-        orgMembershipId: inferenceKey.org_membership_id,
-      })
-      return prepared.error
-    }
-
     const upstreamPath = c.req.path.replace(/^\/api\/v1/, "")
     const upstreamUrl = new URL(`${env.openRouterUpstreamUrl}${upstreamPath}${new URL(c.req.url).search}`)
     let upstream: Response
     try {
-      upstream = await fetch(upstreamUrl, {
+      const upstreamInit: ProxyRequestInit = {
         method: c.req.method,
         headers: sanitizeHeaders(c.req.raw, providerKey.encrypted_api_key, openworkRequestId),
-        body: ["GET", "HEAD"].includes(c.req.method) ? undefined : prepared.body,
+        body: isBodylessMethod(c.req.method) ? undefined : prepared.body,
         duplex: "half",
-      } as RequestInit)
+      }
+      upstream = await dependencies.fetch(upstreamUrl, upstreamInit)
     } catch (error) {
       logProxyError("Failed to reach OpenRouter upstream", {
         openworkRequestId,
