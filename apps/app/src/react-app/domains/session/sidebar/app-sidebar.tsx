@@ -54,7 +54,9 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Collapsible,
   CollapsibleContent,
@@ -609,7 +611,43 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
 }
 
+function CollapsedSidebarEdgeAffordance() {
+  const { state, toggleSidebar } = useSidebar();
+  const collapsed = state === "collapsed";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            data-sidebar-collapsed-affordance="true"
+            aria-hidden={!collapsed}
+            aria-label={t("sidebar.expand")}
+            tabIndex={collapsed ? 0 : -1}
+            className={cn(
+              "fixed left-0 top-1/2 z-40 hidden h-16 w-4 -translate-y-1/2 rounded-l-none rounded-r-full border border-l-0 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground shadow-sm transition-opacity [transition-duration:var(--sidebar-motion-duration)] [transition-timing-function:var(--sidebar-motion-easing)] motion-reduce:transition-none md:flex mac:top-[55%]",
+              collapsed
+                ? "opacity-70 hover:opacity-100 focus-visible:opacity-100"
+                : "pointer-events-none opacity-0",
+            )}
+            onClick={toggleSidebar}
+          >
+            <ChevronRight className="size-3.5" />
+            <span className="sr-only">{t("sidebar.expand")}</span>
+          </Button>
+        }
+      />
+      <TooltipContent side="right" hidden={!collapsed}>{t("sidebar.expand")}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function AppSidebar(props: AppSidebarProps) {
+  const { state: sidebarState } = useSidebar();
+  const sidebarExpanded = sidebarState === "expanded";
   const [expandedWorkspaceIds, setExpandedWorkspaceIds] = React.useState<Set<string>>(
     () => new Set(),
   );
@@ -803,7 +841,7 @@ export function AppSidebar(props: AppSidebarProps) {
             layoutScroll
             data-slot="sidebar-content"
             data-sidebar="content"
-            className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
+            className="no-scrollbar @container/sidebar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
           >
             <Reorder.Group
               as="div"
@@ -837,14 +875,18 @@ export function AppSidebar(props: AppSidebarProps) {
           </SidebarMenu>
         </SidebarFooter>
         <SidebarRail
-          aria-label={props.onStartResize ? t("session.resize_workspace_column") : undefined}
-          title={props.onStartResize ? t("session.resize_workspace_column") : undefined}
+          data-sidebar-resize-rail="true"
+          aria-hidden={!sidebarExpanded}
+          aria-label={sidebarExpanded && props.onStartResize ? t("session.resize_workspace_column") : undefined}
+          title={sidebarExpanded && props.onStartResize ? t("session.resize_workspace_column") : undefined}
+          className={cn(!sidebarExpanded && "pointer-events-none opacity-0")}
           onClick={props.onStartResize ? (event) => {
             event.preventDefault();
           } : undefined}
-          onPointerDown={props.onStartResize}
+          onPointerDown={sidebarExpanded ? props.onStartResize : undefined}
         />
       </Sidebar>
+      <CollapsedSidebarEdgeAffordance />
     </SidebarContext.Provider>
   );
 }
@@ -1637,7 +1679,7 @@ function SessionMenuButtonContent({
           </span>
         ) : null}
       </span>
-      <span className="ml-auto hidden w-14 shrink-0 truncate text-right text-[11px] tabular-nums text-muted-foreground/70 transition-opacity group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 sm:block">
+      <span className="ml-auto hidden w-14 shrink-0 truncate text-right text-[11px] tabular-nums text-muted-foreground/70 transition-opacity group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 @xs/sidebar:block">
         {relativeTimestamp}
       </span>
       {showChevron ? (

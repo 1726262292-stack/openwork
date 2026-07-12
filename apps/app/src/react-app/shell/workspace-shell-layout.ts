@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   DEFAULT_WORKSPACE_LEFT_SIDEBAR_WIDTH,
@@ -7,6 +7,7 @@ import {
   DEFAULT_WORKSPACE_RIGHT_SIDEBAR_EXPANDED_WIDTH,
   MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH,
   MAX_WORKSPACE_RIGHT_SIDEBAR_WIDTH,
+  MIN_WORKSPACE_MAIN_SURFACE_WIDTH,
   MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH,
   MIN_WORKSPACE_RIGHT_SIDEBAR_WIDTH,
   useUiStateStore,
@@ -24,6 +25,47 @@ type WorkspaceShellLayoutOptions = {
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+type EffectiveWorkspaceLeftSidebarWidthOptions = {
+  minLeftWidth?: number;
+  maxLeftWidth?: number;
+  minMainWidth?: number;
+};
+
+export function getEffectiveWorkspaceLeftSidebarWidth(
+  preferredWidth: number,
+  viewportWidth: number | null | undefined,
+  options: EffectiveWorkspaceLeftSidebarWidthOptions = {},
+) {
+  const minLeftWidth = Math.max(180, options.minLeftWidth ?? MIN_WORKSPACE_LEFT_SIDEBAR_WIDTH);
+  const maxLeftWidth = Math.max(minLeftWidth, options.maxLeftWidth ?? MAX_WORKSPACE_LEFT_SIDEBAR_WIDTH);
+  const preferredClampedWidth = clampNumber(preferredWidth, minLeftWidth, maxLeftWidth);
+
+  if (typeof viewportWidth !== "number" || !Number.isFinite(viewportWidth)) {
+    return preferredClampedWidth;
+  }
+
+  const minMainWidth = Math.max(0, options.minMainWidth ?? MIN_WORKSPACE_MAIN_SURFACE_WIDTH);
+  const viewportAwareMax = Math.max(minLeftWidth, Math.floor(viewportWidth - minMainWidth));
+
+  return clampNumber(preferredClampedWidth, minLeftWidth, Math.min(maxLeftWidth, viewportAwareMax));
+}
+
+function useViewportWidth() {
+  const [viewportWidth, setViewportWidth] = useState(() => (
+    typeof window === "undefined" ? null : window.innerWidth
+  ));
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateViewportWidth);
+    return () => window.removeEventListener("resize", updateViewportWidth);
+  }, []);
+
+  return viewportWidth;
 }
 
 export function useWorkspaceShellLayout(options: WorkspaceShellLayoutOptions) {
@@ -47,9 +89,18 @@ export function useWorkspaceShellLayout(options: WorkspaceShellLayoutOptions) {
     maxRightWidth,
   );
 
-  const leftSidebarWidth = useUiStateStore((state) =>
+  const viewportWidth = useViewportWidth();
+  const preferredLeftSidebarWidth = useUiStateStore((state) =>
     clampNumber(state.workspaceLeftSidebarWidth || defaultLeftWidth, minLeftWidth, maxLeftWidth),
   );
+  const leftSidebarWidth = getEffectiveWorkspaceLeftSidebarWidth(preferredLeftSidebarWidth, viewportWidth, {
+    minLeftWidth,
+    maxLeftWidth,
+  });
+  const maxDisplayedLeftSidebarWidth = getEffectiveWorkspaceLeftSidebarWidth(maxLeftWidth, viewportWidth, {
+    minLeftWidth,
+    maxLeftWidth,
+  });
   const leftSidebarResizing = useUiStateStore((state) => state.workspaceLeftSidebarResizing);
   const rightSidebarExpanded = useUiStateStore((state) => state.workspaceRightSidebarExpanded);
   const rightSidebarExpandedWidth = useUiStateStore((state) =>
@@ -82,7 +133,7 @@ export function useWorkspaceShellLayout(options: WorkspaceShellLayoutOptions) {
 
       const handleMove = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - initialX;
-        setLeftSidebarWidth(clampNumber(initialWidth + delta, minLeftWidth, maxLeftWidth));
+        setLeftSidebarWidth(clampNumber(initialWidth + delta, minLeftWidth, maxDisplayedLeftSidebarWidth));
       };
 
       const handleStop = () => {
@@ -107,7 +158,7 @@ export function useWorkspaceShellLayout(options: WorkspaceShellLayoutOptions) {
 
       event.preventDefault();
     },
-    [leftSidebarWidth, maxLeftWidth, minLeftWidth, setLeftSidebarResizing, setLeftSidebarWidth, stopLeftSidebarResize],
+    [leftSidebarWidth, maxDisplayedLeftSidebarWidth, minLeftWidth, setLeftSidebarResizing, setLeftSidebarWidth, stopLeftSidebarResize],
   );
 
   useEffect(() => {

@@ -1409,8 +1409,8 @@ function activeWindowFromEvent(event) {
   return BrowserWindow.fromWebContents(event.sender) ?? mainWindow ?? undefined;
 }
 
-function macosVibrancyForCurrentTheme() {
-  return nativeTheme.shouldUseDarkColors ? "under-window" : "sidebar";
+function nativeWindowBackgroundColor(useDarkColors = nativeTheme.shouldUseDarkColors) {
+  return useDarkColors ? "#0b1020" : "#f8fafc";
 }
 
 function applyNativeTheme(mode) {
@@ -1420,8 +1420,7 @@ function applyNativeTheme(mode) {
     return true;
   }
 
-  mainWindow?.setVibrancy(macosVibrancyForCurrentTheme());
-  mainWindow?.setBackgroundColor("#00000001");
+  mainWindow?.setBackgroundColor(nativeWindowBackgroundColor());
 
   return true;
 }
@@ -2028,10 +2027,8 @@ async function createMainWindow() {
   const windowAppearanceOptions = {};
   if (process.platform === "darwin") {
     Object.assign(windowAppearanceOptions, {
-      backgroundColor: "#00000001",
+      backgroundColor: nativeWindowBackgroundColor(),
       titleBarStyle: "hiddenInset",
-      vibrancy: macosVibrancyForCurrentTheme(),
-      visualEffectState: "active",
     });
   }
 
