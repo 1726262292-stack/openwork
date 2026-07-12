@@ -100,6 +100,11 @@ import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sy
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { buildOpenworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
 import {
+  buildVisibleConversationSystemContext,
+  composeSystemContexts,
+  type VisibleConversationSystemContextInput,
+} from "@/react-app/domains/session/sync/visible-context";
+import {
   applySessionRevert,
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
@@ -329,6 +334,14 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 // app relaunch, matching BOOT_STARTED in desktop-runtime-boot.ts.
 let firstRunLoaderPhase: "unarmed" | "armed" | "done" = "unarmed";
 
+type LastOutboundSystemContext = {
+  at: number;
+  sessionId: string;
+  system: string | null;
+  envContext: string | null;
+  visibleContext: string | null;
+};
+
 export function SessionRoute() {
   const navigate = useNavigate();
   const platform = usePlatform();
@@ -397,6 +410,13 @@ export function SessionRoute() {
     opencodeClient,
     directory: selectedWorkspaceRoot,
   });
+  const handleVisibleContextSnapshotChange = useCallback((contexts: VisibleConversationSystemContextInput[]) => {
+    const next = new Map<string, VisibleConversationSystemContextInput>();
+    for (const context of contexts) {
+      next.set(context.originSessionId, context);
+    }
+    visibleContextBySessionRef.current = next;
+  }, []);
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -412,8 +432,14 @@ export function SessionRoute() {
   // Agent-screen-first onboarding: a one-shot provider selection intercepting
   // the first send (the first-run default workspace is created further down).
   const [providerStepOpen, setProviderStepOpen] = useState(false);
-  const pendingProviderDraftRef = useRef<{ draft: ComposerDraft; sessionId: string } | null>(null);
+  const pendingProviderDraftRef = useRef<{
+    draft: ComposerDraft;
+    sessionId: string;
+    visibleContext?: VisibleConversationSystemContextInput;
+  } | null>(null);
   const providerStepResendRef = useRef(false);
+  const lastOutboundSystemContextRef = useRef<LastOutboundSystemContext | null>(null);
+  const visibleContextBySessionRef = useRef(new Map<string, VisibleConversationSystemContextInput>());
   const firstRunSessionRef = useRef(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
@@ -852,9 +878,10 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, visibleContext?: VisibleConversationSystemContextInput) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
+        const liveVisibleContext = visibleContextBySessionRef.current.get(targetSessionId) ?? visibleContext;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
         // One-shot provider selection on the first send whenever no user-added
@@ -867,7 +894,7 @@ export function SessionRoute() {
           userProviderConnectedIds.length === 0 &&
           draft.mode !== "shell"
         ) {
-          pendingProviderDraftRef.current = { draft, sessionId: targetSessionId };
+          pendingProviderDraftRef.current = { draft, sessionId: targetSessionId, visibleContext: liveVisibleContext };
           setProviderStepOpen(true);
           return;
         }
@@ -918,13 +945,25 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
+        const visibleSystemContext = buildVisibleConversationSystemContext(liveVisibleContext);
+        const systemContext = composeSystemContexts([envSystemContext, visibleSystemContext]);
+        if (import.meta.env.DEV) {
+          lastOutboundSystemContextRef.current = {
+            at: Date.now(),
+            sessionId: targetSessionId,
+            system: systemContext ?? null,
+            envContext: envSystemContext ?? null,
+            visibleContext: visibleSystemContext ?? null,
+          };
+          recordInspectorEvent("visible_context.outbound_system_context", lastOutboundSystemContextRef.current);
+        }
         const result = await opencodeClient.session.promptAsync({
           sessionID: targetSessionId,
           parts,
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(envSystemContext ? { system: envSystemContext } : {}),
+          ...(systemContext ? { system: systemContext } : {}),
         });
         if (result.error) {
           throw new Error(serializeSDKError(result.error));
@@ -1067,8 +1106,9 @@ export function SessionRoute() {
     pendingProviderDraftRef.current = null;
     const send = surfacePropsRef.current?.onSendDraft;
     if (pending && send) {
+      const liveVisibleContext = visibleContextBySessionRef.current.get(pending.sessionId) ?? pending.visibleContext;
       providerStepResendRef.current = true;
-      void Promise.resolve(send(pending.draft, pending.sessionId))
+      void Promise.resolve(send(pending.draft, pending.sessionId, liveVisibleContext))
         .catch((error) => setRouteError(describeRouteError(error)))
         .finally(() => {
           providerStepResendRef.current = false;
@@ -1430,6 +1470,23 @@ export function SessionRoute() {
     execute: () => setCommandPaletteOpen(true),
   }), []);
   useControlAction(commandPaletteControlAction);
+
+  const visibleContextWitnessControlAction = useMemo<OpenworkControlAction | false>(() => (
+    import.meta.env.DEV ? {
+      id: "eval.visible_context.last_outbound_context",
+      label: "Read last visible-context prompt injection",
+      description: "DEV-only witness for the exact bounded system context sent with the latest normal prompt.",
+      sideEffect: "none",
+      execute: () => lastOutboundSystemContextRef.current ?? {
+        at: null,
+        sessionId: null,
+        system: null,
+        envContext: null,
+        visibleContext: null,
+      },
+    } : false
+  ), []);
+  useControlAction(visibleContextWitnessControlAction);
 
   const addProviderControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "settings.provider.add",
@@ -2016,6 +2073,7 @@ export function SessionRoute() {
       onSessionTabsChange={(tabs) => {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
+      onVisibleContextSnapshotChange={handleVisibleContextSnapshotChange}
       sidebar={{
         workspaceSessionGroups,
         selectedWorkspaceId,

@@ -69,6 +69,12 @@ import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
 import { cn } from "@/lib/utils";
+import type {
+  VisibleConversationItem,
+  VisibleConversationPosition,
+  VisibleConversationSystemContextInput,
+  VisibleUtilityPanel,
+} from "../sync/visible-context";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -194,6 +200,7 @@ export type SessionPageProps = {
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
+  onVisibleContextSnapshotChange?: (contexts: VisibleConversationSystemContextInput[]) => void;
 };
 
 function getSidebarInitialLoading(props: SessionPageSidebarProps) {
@@ -354,6 +361,10 @@ export function SessionPage(props: SessionPageProps) {
   const [sessionActionId, setSessionActionId] = useState<string | null>(null);
   const [sessionTabs, setSessionTabs] = useState<OpenSessionTab[]>([]);
   const [splitSessionId, setSplitSessionId] = useState<string | null>(null);
+  const splitLayoutRef = useRef<HTMLDivElement>(null);
+  const [splitOrientation, setSplitOrientation] = useState<"horizontal" | "vertical">(() => (
+    typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches ? "horizontal" : "vertical"
+  ));
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
@@ -664,6 +675,27 @@ export function SessionPage(props: SessionPageProps) {
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
   );
+  const splitSessionTitle = useMemo(
+    () => sessionTitleForId(props.sidebar.workspaceSessionGroups, splitSessionId),
+    [props.sidebar.workspaceSessionGroups, splitSessionId],
+  );
+  const activeRightUtilityPanel = useMemo<VisibleUtilityPanel | null>(() => {
+    if (activeSidePanel !== "panel" || !activePanelTab) return null;
+    if (activePanelTab.type === "browser") {
+      return {
+        type: "browser",
+        url: activePanelTab.url,
+      };
+    }
+
+    const artifactTarget = accessibleTargets.find((target) => target.id === activePanelTab.id && target.kind === "file");
+
+    return {
+      type: "artifact",
+      label: activePanelTab.label,
+      path: artifactTarget?.value ?? "",
+    };
+  }, [accessibleTargets, activePanelTab, activeSidePanel]);
   useEffect(() => {
     setSessionTabs((current) => {
       const currentWorkspaceTabs = current.filter((tab) => tab.workspaceId === props.selectedWorkspaceId);
@@ -751,6 +783,73 @@ export function SessionPage(props: SessionPageProps) {
   );
   const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
   const findButtonSessionId = props.selectedSessionId;
+
+  const updateSplitOrientation = useCallback(() => {
+    const container = splitLayoutRef.current;
+    const primary = container?.querySelector('[data-visible-context-pane="primary"]');
+    const split = container?.querySelector('[data-visible-context-pane="split"]');
+    if (!primary || !split) return;
+
+    const primaryRect = primary.getBoundingClientRect();
+    const splitRect = split.getBoundingClientRect();
+    const next = splitRect.left >= primaryRect.right - 1 ? "horizontal" : "vertical";
+    setSplitOrientation((current) => current === next ? current : next);
+  }, []);
+
+  useEffect(() => {
+    if (!canRenderSplitSurface) return;
+    const update = () => updateSplitOrientation();
+    update();
+    window.addEventListener("resize", update);
+    const container = splitLayoutRef.current;
+    const observer = typeof ResizeObserver !== "undefined" && container ? new ResizeObserver(update) : null;
+    if (container) observer?.observe(container);
+    return () => {
+      window.removeEventListener("resize", update);
+      observer?.disconnect();
+    };
+  }, [canRenderSplitSurface, updateSplitOrientation]);
+
+  const visibleConversations = useMemo<VisibleConversationItem[]>(() => {
+    if (!props.selectedSessionId) return [];
+    const primaryPosition: VisibleConversationPosition = canRenderSplitSurface
+      ? splitOrientation === "horizontal" ? "left" : "top"
+      : "current";
+    const conversations: VisibleConversationItem[] = [{
+      sessionId: props.selectedSessionId,
+      title: selectedSessionTitle || t("session.default_title"),
+      position: primaryPosition,
+    }];
+    if (canRenderSplitSurface && splitSessionId) {
+      conversations.push({
+        sessionId: splitSessionId,
+        title: splitSessionTitle || t("session.default_title"),
+        position: splitOrientation === "horizontal" ? "right" : "bottom",
+      });
+    }
+    return conversations;
+  }, [canRenderSplitSurface, props.selectedSessionId, selectedSessionTitle, splitOrientation, splitSessionId, splitSessionTitle]);
+  const primaryVisibleContext = useMemo<VisibleConversationSystemContextInput | undefined>(() => {
+    if (!props.selectedSessionId) return undefined;
+    return {
+      originSessionId: props.selectedSessionId,
+      conversations: visibleConversations,
+      utilityPanel: activeRightUtilityPanel,
+    };
+  }, [activeRightUtilityPanel, props.selectedSessionId, visibleConversations]);
+  const splitVisibleContext = useMemo<VisibleConversationSystemContextInput | undefined>(() => {
+    if (!splitSessionId) return undefined;
+    return {
+      originSessionId: splitSessionId,
+      conversations: visibleConversations,
+      utilityPanel: activeRightUtilityPanel,
+    };
+  }, [activeRightUtilityPanel, splitSessionId, visibleConversations]);
+  useEffect(() => {
+    const contexts = [primaryVisibleContext, splitVisibleContext]
+      .filter((context): context is VisibleConversationSystemContextInput => Boolean(context));
+    props.onVisibleContextSnapshotChange?.(contexts);
+  }, [primaryVisibleContext, props.onVisibleContextSnapshotChange, splitVisibleContext]);
 
   const openSessionTab = useCallback((workspaceId: string, sessionId: string) => {
     setSessionTabs((current) => {
@@ -1059,8 +1158,8 @@ export function SessionPage(props: SessionPageProps) {
                       })}
                     </div>
                   ) : null}
-                  <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-                    <div className={cn("min-h-0 min-w-0 flex-1", canRenderSplitSurface && "lg:border-r lg:border-border")}>
+                  <div ref={splitLayoutRef} className="flex min-h-0 flex-1 flex-col lg:flex-row">
+                    <div data-visible-context-pane="primary" className={cn("min-h-0 min-w-0 flex-1", canRenderSplitSurface && "lg:border-r lg:border-border")}>
                       <SessionSurface
                         // Spread `surface` first so the explicit per-workspace
                         // routing props below CAN'T be silently overridden by
@@ -1084,10 +1183,11 @@ export function SessionPage(props: SessionPageProps) {
                         respondQuestion={props.respondQuestion}
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
+                        visibleContext={primaryVisibleContext}
                       />
                     </div>
                     {canRenderSplitSurface ? (
-                      <div className="min-h-0 min-w-0 flex-1 border-t border-border lg:border-t-0">
+                      <div data-visible-context-pane="split" className="min-h-0 min-w-0 flex-1 border-t border-border lg:border-t-0">
                         <SessionSurface
                           {...props.surface!}
                           client={props.openworkServerClient!}
@@ -1098,6 +1198,7 @@ export function SessionPage(props: SessionPageProps) {
                           openworkToken={reactSessionToken}
                           todos={[]}
                           onOpenTarget={openTarget}
+                          visibleContext={splitVisibleContext}
                         />
                       </div>
                     ) : null}
