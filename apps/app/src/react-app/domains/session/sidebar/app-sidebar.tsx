@@ -36,6 +36,7 @@ import {
   isRemoteConnectionWorkspace,
   isMacPlatform,
   isWindowsPlatform,
+  formatRelativeTime,
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { useBrandAppName, useBrandLogoUrl } from "../../cloud/brand-theme";
@@ -100,6 +101,9 @@ import {
   usePinnedSessionIds,
   useSessionOrder,
   useWorkspaceGroups,
+  useSessionReadWatermarks,
+  getSessionReadTimestamp,
+  isSessionUnreadForReadWatermarks,
   type SessionGroupDefinition,
 } from "./session-management-store";
 import { cn } from "@/lib/utils";
@@ -698,6 +702,25 @@ export function AppSidebar(props: AppSidebarProps) {
     props.workspaceSessionGroups,
   ]);
 
+  React.useEffect(() => {
+    const store = useSessionManagementStore.getState();
+    for (const group of props.workspaceSessionGroups) {
+      store.seedSessionReadWatermarks(group.workspace.id, group.sessions);
+    }
+  }, [props.workspaceSessionGroups]);
+
+  React.useEffect(() => {
+    const selectedSessionId = props.selectedSessionId;
+    if (!selectedSessionId) return;
+
+    for (const group of props.workspaceSessionGroups) {
+      const session = group.sessions.find((item) => item.id === selectedSessionId);
+      if (!session) continue;
+      useSessionManagementStore.getState().markSessionRead(group.workspace.id, session);
+      return;
+    }
+  }, [props.selectedSessionId, props.workspaceSessionGroups]);
+
   const contextValue: SidebarContextValue = {
     selectedWorkspaceId: props.selectedWorkspaceId,
     selectedSessionId: props.selectedSessionId,
@@ -736,8 +759,8 @@ export function AppSidebar(props: AppSidebarProps) {
   return (
     <SidebarContext.Provider value={contextValue}>
       <Sidebar
+        variant="floating"
         collapsible="offcanvas"
-        className="mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-14 mac:block mac:titlebar-drag"/>
         {hasManagedBrand ? (
@@ -1560,6 +1583,72 @@ function PinnedIndicator({ isPinned }: { isPinned: boolean }) {
   );
 }
 
+function UnreadIndicator({ isUnread }: { isUnread: boolean }) {
+  if (!isUnread) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="size-1.5 shrink-0 rounded-full bg-sky-9"
+    />
+  );
+}
+
+type SessionMenuButtonContentProps = {
+  displayTitle: string;
+  isPinned: boolean;
+  isUnread: boolean;
+  relativeTimestamp: string | null;
+  sessionActivityStatus?: string;
+  isSessionStreaming: boolean;
+  isSessionActive: boolean;
+  showChevron?: boolean;
+};
+
+function SessionMenuButtonContent({
+  displayTitle,
+  isPinned,
+  isUnread,
+  relativeTimestamp,
+  sessionActivityStatus,
+  isSessionStreaming,
+  isSessionActive,
+  showChevron = false,
+}: SessionMenuButtonContentProps) {
+  const hasActivity = isSessionStreaming || isSessionActive;
+
+  return (
+    <>
+      <PinnedIndicator isPinned={isPinned} />
+      <UnreadIndicator isUnread={isUnread} />
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+        <span
+          className={cn("min-w-0 truncate", isUnread && "font-semibold text-sidebar-foreground")}
+          title={displayTitle}
+        >
+          {displayTitle}
+        </span>
+        {hasActivity ? (
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            <SessionStatusIndicator
+              status={sessionActivityStatus}
+              isStreaming={isSessionStreaming}
+              isActive={isSessionActive}
+            />
+          </span>
+        ) : null}
+      </span>
+      <span className="ml-auto hidden w-14 shrink-0 truncate text-right text-[11px] tabular-nums text-muted-foreground/70 transition-opacity group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 sm:block">
+        {relativeTimestamp}
+      </span>
+      {showChevron ? (
+        <span className="ml-1 flex size-6 shrink-0 items-center justify-center">
+          <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 type SessionMenuItemProps = {
   session: SessionListItem;
   depth: number;
@@ -1588,8 +1677,32 @@ function SessionMenuItem({
   const isSessionActive = tree.activeIds.has(session.id);
   const isSessionStreaming = tree.streamingIds.has(session.id) || isStreamingSessionStatus(sessionActivityStatus);
   const isArchived = isSessionArchived(session);
+  const readWatermarks = useSessionReadWatermarks(workspaceId);
+  const sessionReadTimestamp = getSessionReadTimestamp(session);
+  const relativeTimestamp = sessionReadTimestamp === null ? null : formatRelativeTime(sessionReadTimestamp);
+  const isUnread = !isSessionStreaming && isSessionUnreadForReadWatermarks(readWatermarks, session, ctx.selectedSessionId);
+  const isSessionLoading = isSessionStreaming;
+  const sessionActivityState = sessionActivityStatus === "waiting"
+    ? "waiting"
+    : sessionActivityStatus === "error"
+      ? "error"
+      : isSessionStreaming
+        ? "streaming"
+        : isSessionActive
+          ? "active"
+          : "idle";
+  const sessionRowDataAttributes = {
+    "data-session-row": "true",
+    "data-session-id": session.id,
+    "data-session-selected": isSelected ? "true" : "false",
+    "data-session-unread": isUnread ? "true" : "false",
+    "data-session-activity-state": sessionActivityState,
+    "data-session-loading": isSessionLoading ? "true" : "false",
+    "data-session-streaming": sessionActivityState === "streaming" ? "true" : "false",
+  };
 
   const openSession = () => {
+    useSessionManagementStore.getState().markSessionRead(workspaceId, session);
     ctx.onOpenSession(workspaceId, session.id);
   };
 
@@ -1620,22 +1733,23 @@ function SessionMenuItem({
           <CollapsibleTrigger
             render={
               <SidebarMenuSubButton
-                className={cn("relative", depth > 0 && "ps-13")}
+                className={cn("relative pe-2 data-active:bg-sidebar-accent/70", depth > 0 && "ps-13")}
                 isActive={isSelected}
                 onClick={openSession}
                 onPointerEnter={prefetchSession}
                 onFocus={prefetchSession}
+                {...sessionRowDataAttributes}
               >
-                <PinnedIndicator isPinned={isPinned} />
-                <span
-                  className={cn("min-w-0 flex-1 truncate transition-[padding] duration-75 group-hover/menu-sub-item:pe-12 group-has-data-popup-open/menu-sub-item:pe-12 pe-4", isSessionStreaming || isSessionActive && "pe-12")}
-                  title={displayTitle}
-                >
-                  {displayTitle}
-                </span>
-                <span className="flex items-center justify-center size-6 absolute right-2 top-1/2 -translate-y-1/2">
-                  <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
-                </span>
+                <SessionMenuButtonContent
+                  displayTitle={displayTitle}
+                  isPinned={isPinned}
+                  isUnread={isUnread}
+                  relativeTimestamp={relativeTimestamp}
+                  sessionActivityStatus={sessionActivityStatus}
+                  isSessionStreaming={isSessionStreaming}
+                  isSessionActive={isSessionActive}
+                  showChevron
+                />
               </SidebarMenuSubButton>
             }
           />
@@ -1647,7 +1761,6 @@ function SessionMenuItem({
           isArchived={isArchived}
           className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
         />
-        <SessionStatusIndicator className="absolute right-9 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 pointer-events-none select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
@@ -1658,10 +1771,18 @@ function SessionMenuItem({
           onClick={openSession}
           onPointerEnter={prefetchSession}
           onFocus={prefetchSession}
-          className={cn("transition-[padding] duration-75 group-hover/menu-sub-item:pe-8 group-has-data-popup-open/menu-sub-item:pe-8", depth > 0 && "ps-13", isSessionStreaming || isSessionActive && "pe-8")}
+          className={cn("pe-2 data-active:bg-sidebar-accent/70", depth > 0 && "ps-13")}
+          {...sessionRowDataAttributes}
         >
-          <PinnedIndicator isPinned={isPinned} />
-          <span className="truncate" title={displayTitle}>{displayTitle}</span>
+          <SessionMenuButtonContent
+            displayTitle={displayTitle}
+            isPinned={isPinned}
+            isUnread={isUnread}
+            relativeTimestamp={relativeTimestamp}
+            sessionActivityStatus={sessionActivityStatus}
+            isSessionStreaming={isSessionStreaming}
+            isSessionActive={isSessionActive}
+          />
         </SidebarMenuSubButton>
       </SessionContextMenu>
       <SessionActions
@@ -1671,7 +1792,6 @@ function SessionMenuItem({
         isArchived={isArchived}
         className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/menu-sub-item:opacity-100 data-popup-open:opacity-100"
       />
-      <SessionStatusIndicator className="absolute right-3 top-1/2 -translate-y-1/2 opacity-100 group-hover/menu-sub-item:opacity-0 group-has-data-popup-open/menu-sub-item:opacity-0 pointer-events-none select-none" status={sessionActivityStatus} isStreaming={isSessionStreaming} isActive={isSessionActive} />
     </SidebarMenuSubItem>
   );
 

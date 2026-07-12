@@ -1,7 +1,7 @@
 /**
  * Zustand store for session management primitives (pin, manual order, custom
- * group mirror + expanded state). Persisted to localStorage via
- * zustand/middleware/persist.
+ * group mirror, expanded state, and read watermarks). Persisted to localStorage
+ * via zustand/middleware/persist.
  *
  * Archive is server-side (OpenCode session.time.archived). Session groups are
  * synced server-side; this store keeps a local optimistic mirror plus UI-only
@@ -26,6 +26,17 @@ export type SessionGroupServerState = {
   groups: SessionGroupDefinition[];
   assignments: Record<string, string>;
 };
+
+export type SessionReadWatermarkSource = {
+  id: string;
+  time?: {
+    updated?: number | null;
+    created?: number | null;
+  };
+};
+
+export type SessionReadWatermarks = Record<string, number>;
+export type SessionReadWatermarksByWorkspace = Record<string, SessionReadWatermarks>;
 
 type SessionGroupSyncHandler = {
   createGroup: (workspaceId: string, group: SessionGroupDefinition) => Promise<SessionGroupServerState | null>;
@@ -57,11 +68,14 @@ type SessionManagementState = {
   pinnedIds: string[];
   orderByWorkspace: Record<string, string[]>;
   groupsByWorkspace: Record<string, WorkspaceGroupState>;
+  readWatermarksByWorkspace: SessionReadWatermarksByWorkspace;
 };
 
 type SessionManagementActions = {
   togglePin: (sessionId: string) => void;
   reorderSessions: (workspaceId: string, sessionIds: string[]) => void;
+  seedSessionReadWatermarks: (workspaceId: string, sessions: SessionReadWatermarkSource[]) => void;
+  markSessionRead: (workspaceId: string, session: SessionReadWatermarkSource) => void;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => void;
   createGroup: (workspaceId: string, label: string) => void;
   reorderGroups: (workspaceId: string, groupIds: string[]) => void;
@@ -75,9 +89,69 @@ type SessionManagementActions = {
 type SessionManagementStore = SessionManagementState & SessionManagementActions;
 
 const EMPTY_GROUP_STATE: WorkspaceGroupState = { groups: [], assignments: {} };
+const EMPTY_READ_WATERMARKS: SessionReadWatermarks = {};
 
 let sessionGroupSyncHandler: SessionGroupSyncHandler | null = null;
 const sessionGroupSyncStatusByWorkspace: Record<string, SessionGroupSyncStatus> = {};
+
+export function getSessionReadTimestamp(session: SessionReadWatermarkSource): number | null {
+  const timestamp = session.time?.updated ?? session.time?.created ?? null;
+  return typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function seedSessionReadWatermarksForWorkspace(
+  watermarks: SessionReadWatermarksByWorkspace,
+  workspaceId: string,
+  sessions: SessionReadWatermarkSource[],
+): SessionReadWatermarksByWorkspace {
+  const current = watermarks[workspaceId] ?? EMPTY_READ_WATERMARKS;
+  let next = current;
+  let changed = false;
+
+  for (const session of sessions) {
+    const timestamp = getSessionReadTimestamp(session);
+    if (timestamp === null || typeof next[session.id] === "number") continue;
+    if (!changed) {
+      next = { ...current };
+      changed = true;
+    }
+    next[session.id] = timestamp;
+  }
+
+  if (!changed) return watermarks;
+  return { ...watermarks, [workspaceId]: next };
+}
+
+export function markSessionReadInWatermarks(
+  watermarks: SessionReadWatermarksByWorkspace,
+  workspaceId: string,
+  session: SessionReadWatermarkSource,
+): SessionReadWatermarksByWorkspace {
+  const timestamp = getSessionReadTimestamp(session);
+  if (timestamp === null) return watermarks;
+
+  const current = watermarks[workspaceId] ?? EMPTY_READ_WATERMARKS;
+  const previous = current[session.id];
+  const nextTimestamp = typeof previous === "number" ? Math.max(previous, timestamp) : timestamp;
+  if (previous === nextTimestamp) return watermarks;
+
+  return {
+    ...watermarks,
+    [workspaceId]: { ...current, [session.id]: nextTimestamp },
+  };
+}
+
+export function isSessionUnreadForReadWatermarks(
+  watermarks: SessionReadWatermarks,
+  session: SessionReadWatermarkSource,
+  selectedSessionId: string | null,
+): boolean {
+  if (selectedSessionId === session.id) return false;
+  const timestamp = getSessionReadTimestamp(session);
+  if (timestamp === null) return false;
+  const readAt = watermarks[session.id];
+  return typeof readAt === "number" && timestamp > readAt;
+}
 
 export function setSessionGroupSyncHandler(handler: SessionGroupSyncHandler | null): void {
   sessionGroupSyncHandler = handler;
@@ -168,6 +242,7 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       pinnedIds: [],
       orderByWorkspace: {},
       groupsByWorkspace: {},
+      readWatermarksByWorkspace: {},
 
       togglePin: (sessionId) =>
         set((state) => {
@@ -184,6 +259,30 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         set((state) => ({
           orderByWorkspace: { ...state.orderByWorkspace, [workspaceId]: sessionIds },
         })),
+
+      seedSessionReadWatermarks: (workspaceId, sessions) =>
+        set((state) => {
+          const readWatermarksByWorkspace = seedSessionReadWatermarksForWorkspace(
+            state.readWatermarksByWorkspace,
+            workspaceId,
+            sessions,
+          );
+          return readWatermarksByWorkspace === state.readWatermarksByWorkspace
+            ? state
+            : { readWatermarksByWorkspace };
+        }),
+
+      markSessionRead: (workspaceId, session) =>
+        set((state) => {
+          const readWatermarksByWorkspace = markSessionReadInWatermarks(
+            state.readWatermarksByWorkspace,
+            workspaceId,
+            session,
+          );
+          return readWatermarksByWorkspace === state.readWatermarksByWorkspace
+            ? state
+            : { readWatermarksByWorkspace };
+        }),
 
       assignGroup: (workspaceId, sessionId, groupId) => {
         set((state) => {
@@ -307,7 +406,12 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         set((state) => {
           const { [workspaceId]: _o, ...orderRest } = state.orderByWorkspace;
           const { [workspaceId]: _g, ...groupsRest } = state.groupsByWorkspace;
-          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest };
+          const { [workspaceId]: _r, ...readRest } = state.readWatermarksByWorkspace;
+          return {
+            orderByWorkspace: orderRest,
+            groupsByWorkspace: groupsRest,
+            readWatermarksByWorkspace: readRest,
+          };
         }),
     }),
     {
@@ -337,4 +441,8 @@ export function useSessionOrder(workspaceId: string): string[] {
 
 export function useWorkspaceGroups(workspaceId: string): WorkspaceGroupState {
   return useSessionManagementStore((s) => s.groupsByWorkspace[workspaceId] ?? EMPTY_GROUP_STATE);
+}
+
+export function useSessionReadWatermarks(workspaceId: string): SessionReadWatermarks {
+  return useSessionManagementStore((s) => s.readWatermarksByWorkspace[workspaceId] ?? EMPTY_READ_WATERMARKS);
 }
