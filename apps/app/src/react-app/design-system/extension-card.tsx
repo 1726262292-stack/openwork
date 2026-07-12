@@ -119,7 +119,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
               <ExtensionMeshAvatar
                 name={name}
                 category={kind}
-                className="size-7 rounded-md shadow-inner"
+                className="size-7 rounded-md"
               />
             )}
           </div>

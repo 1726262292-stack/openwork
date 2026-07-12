@@ -39,8 +39,7 @@ type SettingsPageFrameProps = Omit<React.ComponentProps<typeof SettingsPage>, "c
 export type SettingsShellProps = SettingsPageFrameProps & {
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
-  selectedWorkspaceColor: string;
-  workspaces: Array<{ id: string; name: string; color: string }>;
+  workspaces: Array<{ id: string; name: string }>;
   headerStatus?: string;
   busyHint?: string | null;
   onSelectWorkspace: (workspaceId: string) => void;
@@ -109,7 +108,6 @@ export function SettingsShell(props: SettingsShellProps) {
           onClose={props.onClose}
           selectedWorkspaceId={props.selectedWorkspaceId}
           selectedWorkspaceName={props.selectedWorkspaceName}
-          selectedWorkspaceColor={props.selectedWorkspaceColor}
           workspaces={props.workspaces}
           onSelectWorkspace={props.onSelectWorkspace}
         />

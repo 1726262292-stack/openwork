@@ -1,15 +1,19 @@
-# session-sidebar-states — A distinct sidebar that hides without losing context
+# session-sidebar-states — Consistent workspace identity and adaptable panels
 
-1. The sessions sidebar is a solid, contained panel on every platform, with no macOS translucency or platform-specific visual treatment.
+1. Every workspace now has one deterministic solid color from a balanced identity palette, replacing the noisy marble gradients.
 
-2. The selected, loading, and unread session states remain aligned and readable, even when the sidebar is resized to its narrowest supported width.
+2. The same workspace color appears consistently in the session sidebar, workspace switchers, and settings.
 
-3. When I hide the sidebar, the entire panel glides offscreen without squeezing or rewrapping its contents, while the conversation expands using the same timing and easing.
+3. Extensions use a restrained flat identity tile, so the puzzle icon no longer floats over a large decorative gradient.
 
-4. The header, tabs, and conversation move together as one surface, with no traffic-light padding jump or mismatched animation.
+4. The sidebar and main workspace now use the same opaque, rounded container language, spacing, border weight, and corner radius.
 
-5. A subtle edge affordance and the existing sidebar control let me reopen it, restoring the same selected session, scroll position, groups, and sidebar width.
+5. The header, tabs, conversation, composer, and tools are clipped inside one coherent main workspace panel rather than mixing rounded and square surfaces.
 
-6. Dragging the sidebar width stays immediate rather than animated, and hiding it during or after resize never leaves a stale gap.
+6. At minimum width, selected, loading, unread, and timestamp states remain readable and aligned.
 
-7. With reduced motion enabled, the same hide and reopen behavior happens instantly without losing state.
+7. Hiding the sidebar moves the complete panel offscreen while the rounded main workspace expands using synchronized motion.
+
+8. Reopening restores the selected session, groups, scroll position, and preferred width.
+
+9. Reduced motion performs the same transition instantly without losing context.

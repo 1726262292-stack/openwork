@@ -146,7 +146,6 @@ import {
 } from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
 import type { ModelRef } from "@/app/types";
-import { workspaceSwatchColor } from "@/react-app/domains/session/sidebar/utils";
 import { recordInspectorEvent } from "../../app/lib/app-inspector";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
@@ -1524,9 +1523,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const workspaceOptions = workspaces.map((workspace) => ({
     id: workspace.id,
     name: workspace.displayNameResolved,
-    color: workspaceSwatchColor(workspace.id),
   }));
-  const selectedWorkspaceColor = workspaceSwatchColor(selectedWorkspaceId);
   const workspaceType = selectedWorkspace?.workspaceType ?? "local";
   const isRemoteWorkspace = workspaceType === "remote";
   const canWriteWorkspaceSkills =
@@ -2331,7 +2328,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         developerMode={developerMode}
         selectedWorkspaceId={selectedWorkspaceId}
         selectedWorkspaceName={selectedWorkspaceName}
-        selectedWorkspaceColor={selectedWorkspaceColor}
         workspaces={workspaceOptions}
         onSelectWorkspace={handleSelectSettingsWorkspace}
         headerStatus={routeOpenworkStatus}

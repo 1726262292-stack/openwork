@@ -257,8 +257,7 @@ type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" 
   onClose: () => void;
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
-  selectedWorkspaceColor: string;
-  workspaces: Array<{ id: string; name: string; color: string }>;
+  workspaces: Array<{ id: string; name: string }>;
   onSelectWorkspace: (workspaceId: string) => void;
 };
 

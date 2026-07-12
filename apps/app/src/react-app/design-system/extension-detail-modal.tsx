@@ -249,7 +249,7 @@ export function ExtensionDetailModal({
                   <ExtensionMeshAvatar
                     name={name}
                     category={kind}
-                    className="size-9 rounded-lg shadow-inner"
+                    className="size-9 rounded-lg"
                   />
                 )}
               </div>

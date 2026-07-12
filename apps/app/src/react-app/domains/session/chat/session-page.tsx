@@ -878,8 +878,8 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         />
-        <SidebarInset className="min-h-0 overflow-hidden bg-background">
-          <div className="flex min-h-0 flex-1">
+        <SidebarInset data-session-main-panel="true" className="min-h-0">
+          <div data-session-main-content="true" className="flex min-h-0 flex-1">
           <ResizablePanelGroup
             orientation="horizontal"
             onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}

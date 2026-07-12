@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import { MarbleAvatar } from "./marble-avatar";
+import { Puzzle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type ExtensionMeshAvatarProps = {
   name: string;
@@ -10,6 +11,20 @@ type ExtensionMeshAvatarProps = {
 
 export function ExtensionMeshAvatar({ name, category = "fallback", className, square = true }: ExtensionMeshAvatarProps) {
   return (
-    <MarbleAvatar seed={`${category}:${name}`} square={square} className={className} />
+    <div
+      className={cn(
+        "flex items-center justify-center border border-dls-border bg-dls-surface text-dls-secondary",
+        square ? "rounded-md" : "rounded-full",
+        className,
+      )}
+      data-openwork-extension-avatar="true"
+      data-extension-kind={category}
+      data-extension-name={name}
+      data-extension-identity="neutral"
+      role="presentation"
+      aria-hidden="true"
+    >
+      <Puzzle className="size-[55%]" strokeWidth={1.8} />
+    </div>
   );
 }
