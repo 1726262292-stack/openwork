@@ -86,18 +86,20 @@ import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
   MAX_SESSIONS_PREVIEW,
   buildSessionTreeState,
+  buildPinnedSessionLookup,
   flattenSessionRows,
+  getGlobalPinnedSessionEntries,
   getRootSessions,
+  isPinnedSessionInLookup,
   isSessionArchived,
   isStreamingSessionStatus,
   partitionArchivedSessions,
   workspaceKindLabel,
   workspaceLabel,
 } from "./utils";
-import type { FlattenedSessionRow, SessionListItem, SessionTreeState } from "./utils";
+import type { FlattenedSessionRow, GlobalPinnedSessionEntry, PinnedSessionLookup, SessionListItem, SessionTreeState } from "./utils";
 import {
   useSessionManagementStore,
-  usePinnedSessionIds,
   useSessionOrder,
   useWorkspaceGroups,
   type SessionGroupDefinition,
@@ -186,7 +188,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
   if (variant === "dropdown") {
     return (
       <>
-        <DropdownMenuItem onClick={() => store.getState().togglePin(sessionId)}>
+        <DropdownMenuItem onClick={() => store.getState().setPin(workspaceId, sessionId, !isPinned)}>
           {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
           {isPinned ? t("session_management.unpin_session") : t("session_management.pin_session")}
         </DropdownMenuItem>
@@ -259,7 +261,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
 
   return (
     <>
-      <ContextMenuItem onClick={() => store.getState().togglePin(sessionId)}>
+      <ContextMenuItem onClick={() => store.getState().setPin(workspaceId, sessionId, !isPinned)}>
         {isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
         {isPinned ? t("session_management.unpin_session") : t("session_management.pin_session")}
       </ContextMenuItem>
@@ -732,6 +734,15 @@ export function AppSidebar(props: AppSidebarProps) {
   const brandLogoUrl = useBrandLogoUrl();
   const brandAppName = useBrandAppName();
   const hasManagedBrand = brandLogoUrl || brandAppName !== "OpenWork";
+  const pinnedIds = useSessionManagementStore((state) => state.pinnedIds);
+  const pinnedLookup = React.useMemo(
+    () => buildPinnedSessionLookup(props.workspaceSessionGroups, pinnedIds),
+    [pinnedIds, props.workspaceSessionGroups],
+  );
+  const globalPinnedSessions = React.useMemo(
+    () => getGlobalPinnedSessionEntries(props.workspaceSessionGroups, pinnedIds),
+    [pinnedIds, props.workspaceSessionGroups],
+  );
 
   return (
     <SidebarContext.Provider value={contextValue}>
@@ -782,6 +793,7 @@ export function AppSidebar(props: AppSidebarProps) {
             data-sidebar="content"
             className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
           >
+            <GlobalPinnedSessionsSection entries={globalPinnedSessions} />
             <Reorder.Group
               as="div"
               axis="y"
@@ -797,6 +809,7 @@ export function AppSidebar(props: AppSidebarProps) {
                   showInitialLoading={props.showInitialLoading}
                   previewCount={previewCount(group.workspace.id)}
                   showMoreSessions={showMoreSessions}
+                  pinnedLookup={pinnedLookup}
                 />
               ))}
             </Reorder.Group>
@@ -826,12 +839,98 @@ export function AppSidebar(props: AppSidebarProps) {
   );
 }
 
+function GlobalPinnedSessionsSection({ entries }: { entries: GlobalPinnedSessionEntry[] }) {
+  if (entries.length === 0) return null;
+
+  return (
+    <SidebarGroup className="pb-1 pt-0" data-testid="global-pinned-sessions">
+      <SidebarGroupContent>
+        <div className="flex items-center gap-1.5 px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <Pin className="size-3 shrink-0" />
+          <span>{t("session_management.pinned")}</span>
+          <span className="text-[10px] tabular-nums text-muted-foreground/70">{entries.length}</span>
+        </div>
+        <SidebarMenu data-testid="global-pinned-session-list" className="gap-px">
+          {entries.map((entry) => (
+            <GlobalPinnedSessionItem key={`${entry.workspace.id}:${entry.session.id}`} entry={entry} />
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+function GlobalPinnedSessionItem({ entry }: { entry: GlobalPinnedSessionEntry }) {
+  const ctx = useSidebarContext();
+  const store = useSessionManagementStore;
+  const displayTitle = getDisplaySessionTitle(entry.session.title);
+  const isSelected = ctx.selectedWorkspaceId === entry.workspace.id && ctx.selectedSessionId === entry.session.id;
+  const sessionActivityStatus = ctx.sessionStatusById?.[entry.session.id];
+  const isSessionActive = Boolean(sessionActivityStatus && sessionActivityStatus !== "idle");
+  const isSessionStreaming = isStreamingSessionStatus(sessionActivityStatus);
+
+  const openSession = () => {
+    ctx.onOpenSession(entry.workspace.id, entry.session.id);
+  };
+
+  const prefetchSession = () => {
+    if (entry.workspace.id !== ctx.selectedWorkspaceId) return;
+    ctx.onPrefetchSession?.(entry.workspace.id, entry.session.id);
+  };
+
+  return (
+    <SidebarMenuItem
+      data-testid="global-pinned-session"
+      data-session-id={entry.session.id}
+      data-workspace-id={entry.workspace.id}
+    >
+      <SidebarMenuButton
+        isActive={isSelected}
+        onClick={openSession}
+        onPointerEnter={prefetchSession}
+        onFocus={prefetchSession}
+        className="h-auto min-h-10 items-start py-2 pe-9"
+        aria-label={`${displayTitle} (${entry.workspaceLabel})`}
+      >
+        <Pin className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/70" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate" title={displayTitle}>{displayTitle}</span>
+          <span className="block truncate text-[11px] font-normal text-muted-foreground" title={entry.workspaceLabel}>
+            {entry.workspaceLabel}
+          </span>
+        </span>
+      </SidebarMenuButton>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`${t("session_management.unpin_session")}: ${displayTitle}`}
+        title={t("session_management.unpin_session")}
+        className="absolute right-2 top-5 size-6 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100 focus-visible:opacity-100"
+        onClick={(event) => {
+          event.stopPropagation();
+          store.getState().setPin(entry.workspace.id, entry.session.id, false);
+        }}
+      >
+        <PinOff className="size-4" />
+      </Button>
+      <SessionStatusIndicator
+        className="absolute right-3 top-5 -translate-y-1/2 opacity-100 group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 pointer-events-none select-none"
+        status={sessionActivityStatus}
+        isStreaming={isSessionStreaming}
+        isActive={isSessionActive}
+      />
+    </SidebarMenuItem>
+  );
+}
+
 type WorkspaceReorderItemProps = {
   className: string;
   group: WorkspaceSessionGroup;
   showInitialLoading?: boolean;
   previewCount: number;
   showMoreSessions: (workspaceId: string, totalRoots: number) => void;
+  pinnedLookup: PinnedSessionLookup;
 };
 
 function WorkspaceReorderItem({
@@ -840,6 +939,7 @@ function WorkspaceReorderItem({
   showInitialLoading,
   previewCount,
   showMoreSessions,
+  pinnedLookup,
 }: WorkspaceReorderItemProps) {
   const dragControls = useDragControls();
 
@@ -865,6 +965,7 @@ function WorkspaceReorderItem({
         showInitialLoading={showInitialLoading}
         previewCount={previewCount}
         showMoreSessions={showMoreSessions}
+        pinnedLookup={pinnedLookup}
         onWorkspaceTitlePointerDown={(event) => dragControls.start(event)}
       />
     </Reorder.Item>
@@ -936,6 +1037,7 @@ type WorkspaceSidebarGroupProps = {
   showInitialLoading?: boolean;
   previewCount: number;
   showMoreSessions: (workspaceId: string, totalRoots: number) => void;
+  pinnedLookup: PinnedSessionLookup;
   onWorkspaceTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
 };
 
@@ -945,6 +1047,7 @@ function WorkspaceSidebarGroup({
   showInitialLoading,
   previewCount,
   showMoreSessions,
+  pinnedLookup,
   onWorkspaceTitlePointerDown,
 }: WorkspaceSidebarGroupProps) {
   const ctx = useSidebarContext();
@@ -953,11 +1056,11 @@ function WorkspaceSidebarGroup({
 
   const forcedExpandedSessionIds = React.useMemo(
     () => new Set(
-      ctx.selectedSessionId
+      ctx.selectedWorkspaceId === workspace.id && ctx.selectedSessionId
         ? tree.ancestorIdsBySessionId.get(ctx.selectedSessionId) ?? []
         : [],
     ),
-    [ctx.selectedSessionId, tree.ancestorIdsBySessionId],
+    [ctx.selectedSessionId, ctx.selectedWorkspaceId, tree.ancestorIdsBySessionId, workspace.id],
   );
 
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
@@ -990,7 +1093,14 @@ function WorkspaceSidebarGroup({
     return workspaceKindLabel(workspace);
   })();
 
-  const pinnedIds = usePinnedSessionIds();
+  const pinnedIds = React.useMemo(
+    () => new Set(
+      group.sessions
+        .filter((session) => isPinnedSessionInLookup(pinnedLookup, workspace.id, session.id))
+        .map((session) => session.id),
+    ),
+    [group.sessions, pinnedLookup, workspace.id],
+  );
   const orderIds = useSessionOrder(workspace.id);
   const { groups: wsGroups, assignments: wsAssignments } = useWorkspaceGroups(workspace.id);
   const store = useSessionManagementStore;
@@ -1025,7 +1135,7 @@ function WorkspaceSidebarGroup({
     : t("workspace_list.show_more_fallback");
 
   return (
-    <SidebarGroup className={className}>
+    <SidebarGroup className={className} data-testid="workspace-sidebar-group" data-workspace-id={workspace.id}>
       <SidebarGroupContent>
         <SidebarMenu>
           <Collapsible
@@ -1066,6 +1176,7 @@ function WorkspaceSidebarGroup({
               <Button
                 variant="ghost"
                 size="icon"
+                data-testid="workspace-expand-toggle"
                 className="absolute right-2 top-1/2 size-6 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
                 aria-label={isExpanded ? t("sidebar.collapse") : t("sidebar.expand")}
                 aria-expanded={isExpanded}
@@ -1177,6 +1288,7 @@ function WorkspaceSidebarGroup({
                         sessions={archivedSessions}
                         tree={tree}
                         workspaceId={workspace.id}
+                        pinnedLookup={pinnedLookup}
                         forcedExpandedSessionIds={forcedExpandedSessionIds}
                         expanded={archivedExpanded}
                         onToggle={() => setArchivedExpanded((value) => !value)}
@@ -1230,6 +1342,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, onRemove, onT
   return (
     <button
       type="button"
+      data-testid="session-group-toggle"
       onClick={onToggle}
       className="group/separator flex w-full items-center gap-1.5 rounded px-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50"
       aria-expanded={expanded}
@@ -1580,7 +1693,7 @@ function SessionMenuItem({
   draggable = false,
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
-  const isSelected = ctx.selectedSessionId === session.id;
+  const isSelected = ctx.selectedWorkspaceId === workspaceId && ctx.selectedSessionId === session.id;
   const displayTitle = getDisplaySessionTitle(session.title);
   const hasChildren = (tree.descendantCountBySessionId.get(session.id) ?? 0) > 0;
   const isExpanded = ctx.expandedSessionIds.has(session.id) || forcedExpandedSessionIds.has(session.id);
@@ -1695,6 +1808,7 @@ type ArchivedSessionsSectionProps = {
   sessions: SessionListItem[];
   tree: SessionTreeState;
   workspaceId: string;
+  pinnedLookup: PinnedSessionLookup;
   forcedExpandedSessionIds: Set<string>;
   expanded: boolean;
   onToggle: () => void;
@@ -1704,11 +1818,11 @@ function ArchivedSessionsSection({
   sessions,
   tree,
   workspaceId,
+  pinnedLookup,
   forcedExpandedSessionIds,
   expanded,
   onToggle,
 }: ArchivedSessionsSectionProps) {
-  const pinned = usePinnedSessionIds();
   return (
     <Collapsible open={expanded} onOpenChange={onToggle} className="group/archived">
       <CollapsibleTrigger
@@ -1735,7 +1849,7 @@ function ArchivedSessionsSection({
             tree={tree}
             workspaceId={workspaceId}
             forcedExpandedSessionIds={forcedExpandedSessionIds}
-            isPinned={pinned.has(session.id)}
+            isPinned={isPinnedSessionInLookup(pinnedLookup, workspaceId, session.id)}
           />
         ))}
       </CollapsibleContent>

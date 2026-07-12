@@ -2,11 +2,25 @@ import type { WorkspaceInfo } from "../../../../app/lib/desktop";
 import type { WorkspaceSessionGroup } from "../../../../app/types";
 import { isSandboxWorkspace } from "../../../../app/utils";
 import { t } from "../../../../i18n";
+import {
+  getPinnedSessionStorageId,
+  isSessionPinnedInWorkspace,
+  parsePinnedSessionStorageId,
+} from "./session-management-store";
 
 export const MAX_SESSIONS_PREVIEW = 6;
 
 export type SessionListItem = WorkspaceSessionGroup["sessions"][number];
 export type FlattenedSessionRow = { session: SessionListItem; depth: number };
+export type GlobalPinnedSessionEntry = {
+  session: SessionListItem;
+  workspace: WorkspaceInfo;
+  workspaceLabel: string;
+};
+export type PinnedSessionLookup = {
+  pinnedIds: string[];
+  ownerCountBySessionId: Map<string, number>;
+};
 export type SessionTreeState = {
   childrenByParent: Map<string, SessionListItem[]>;
   ancestorIdsBySessionId: Map<string, string[]>;
@@ -174,6 +188,78 @@ export const workspaceLabel = (workspace: WorkspaceInfo) =>
   workspace.name?.trim() ||
   workspace.path?.trim() ||
   t("workspace_list.workspace_fallback");
+
+export const getGlobalPinnedSessionEntries = (
+  workspaceSessionGroups: WorkspaceSessionGroup[],
+  pinnedSessionIds: string[],
+): GlobalPinnedSessionEntry[] => {
+  const byScopedPinId = new Map<string, { session: SessionListItem; workspace: WorkspaceInfo }>();
+  const bySessionId = new Map<string, { session: SessionListItem; workspace: WorkspaceInfo }>();
+  const ownerCountBySessionId = getSessionOwnerCountById(workspaceSessionGroups);
+
+  for (const group of workspaceSessionGroups) {
+    for (const session of group.sessions) {
+      const entry = { session, workspace: group.workspace };
+      byScopedPinId.set(getPinnedSessionStorageId(group.workspace.id, session.id), entry);
+      if ((ownerCountBySessionId.get(session.id) ?? 0) === 1) bySessionId.set(session.id, entry);
+    }
+  }
+
+  const used = new Set<string>();
+  const entries: GlobalPinnedSessionEntry[] = [];
+  for (const pinId of pinnedSessionIds) {
+    const scoped = parsePinnedSessionStorageId(pinId);
+    const match = scoped ? byScopedPinId.get(pinId) : bySessionId.get(pinId);
+    if (!match) continue;
+    const scopedPinId = getPinnedSessionStorageId(match.workspace.id, match.session.id);
+    if (used.has(scopedPinId)) continue;
+    used.add(scopedPinId);
+    entries.push({
+      session: match.session,
+      workspace: match.workspace,
+      workspaceLabel: workspaceLabel(match.workspace),
+    });
+  }
+  return entries;
+};
+
+export const getSessionOwnerCountById = (
+  workspaceSessionGroups: WorkspaceSessionGroup[],
+): Map<string, number> => {
+  const workspaceIdsBySessionId = new Map<string, Set<string>>();
+  for (const group of workspaceSessionGroups) {
+    for (const session of group.sessions) {
+      const workspaceIds = workspaceIdsBySessionId.get(session.id) ?? new Set<string>();
+      workspaceIds.add(group.workspace.id);
+      workspaceIdsBySessionId.set(session.id, workspaceIds);
+    }
+  }
+
+  const ownerCountBySessionId = new Map<string, number>();
+  for (const [sessionId, workspaceIds] of workspaceIdsBySessionId) {
+    ownerCountBySessionId.set(sessionId, workspaceIds.size);
+  }
+  return ownerCountBySessionId;
+};
+
+export const buildPinnedSessionLookup = (
+  workspaceSessionGroups: WorkspaceSessionGroup[],
+  pinnedIds: string[],
+): PinnedSessionLookup => ({
+  pinnedIds,
+  ownerCountBySessionId: getSessionOwnerCountById(workspaceSessionGroups),
+});
+
+export const isPinnedSessionInLookup = (
+  lookup: PinnedSessionLookup,
+  workspaceId: string,
+  sessionId: string,
+): boolean => isSessionPinnedInWorkspace(
+  lookup.pinnedIds,
+  workspaceId,
+  sessionId,
+  lookup.ownerCountBySessionId.get(sessionId) ?? 0,
+);
 
 export const workspaceKindLabel = (workspace: WorkspaceInfo) =>
   workspace.workspaceType === "remote"

@@ -6,7 +6,7 @@ import type { OpenworkServerClient, OpenworkWorkspaceInfo } from "../../../../ap
 import { setSessionArchived } from "../../../../app/lib/opencode-session";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
-import { useSessionManagementStore } from "../sidebar/session-management-store";
+import { isSessionPinnedInWorkspace, useSessionManagementStore } from "../sidebar/session-management-store";
 
 type SessionLike = {
   id?: string;
@@ -46,7 +46,15 @@ function findSessionWorkspace(
   sessionsByWorkspaceId: Record<string, SessionLike[]>,
   sessionId: string,
 ) {
-  return workspaces.find((workspace) => (
+  return findSessionWorkspaces(workspaces, sessionsByWorkspaceId, sessionId)[0];
+}
+
+function findSessionWorkspaces(
+  workspaces: SessionControlWorkspace[],
+  sessionsByWorkspaceId: Record<string, SessionLike[]>,
+  sessionId: string,
+) {
+  return workspaces.filter((workspace) => (
     sessionsByWorkspaceId[workspace.id] ?? []
   ).some((session) => session.id === sessionId));
 }
@@ -231,18 +239,41 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
   const pinControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.pin",
     label: "Pin or unpin a session",
-    description: "Toggle pin on a session. Pinned sessions float to the top of the sidebar.",
+    description: "Toggle pin on a session. Pinned sessions appear in the global Pinned section and float to the top of their workspace.",
     sideEffect: "mutation",
     requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true, description: "Session ID to pin/unpin." }],
+    args: [
+      { name: "sessionId", type: "string", required: true, description: "Session ID to pin/unpin." },
+      { name: "workspaceId", type: "string", required: false, description: "Workspace ID. Required when multiple workspaces have the same session ID." },
+    ],
     execute: (args) => {
       const sessionId = stringArg(args, "sessionId");
       if (!sessionId) return { ok: false, error: "sessionId is required" };
-      store.getState().togglePin(sessionId);
-      const pinned = store.getState().pinnedIds.includes(sessionId);
-      return { ok: true, sessionId, pinned };
+      const workspaceArg = stringArg(args, "workspaceId");
+      const requestedWorkspaceId = workspaceArg ? resolveWorkspaceId(workspaceArg) : undefined;
+      const ownerWorkspaces = findSessionWorkspaces(workspaces, sessionsByWorkspaceId, sessionId);
+      const targetWorkspace = requestedWorkspaceId
+        ? ownerWorkspaces.find((workspace) => workspace.id === requestedWorkspaceId)
+        : ownerWorkspaces.length === 1
+          ? ownerWorkspaces[0]
+          : undefined;
+
+      if (!targetWorkspace) {
+        return ownerWorkspaces.length > 1
+          ? { ok: false, error: "workspaceId is required because this session ID exists in multiple workspaces" }
+          : { ok: false, error: "Session was not found in the current session list" };
+      }
+
+      const currentPinned = isSessionPinnedInWorkspace(
+        store.getState().pinnedIds,
+        targetWorkspace.id,
+        sessionId,
+        ownerWorkspaces.length,
+      );
+      store.getState().setPin(targetWorkspace.id, sessionId, !currentPinned);
+      return { ok: true, sessionId, workspaceId: targetWorkspace.id, pinned: !currentPinned };
     },
-  }), []);
+  }), [resolveWorkspaceId, sessionsByWorkspaceId, workspaces]);
   useControlAction(pinControlAction);
 
   const archiveControlAction = useMemo<OpenworkControlAction>(() => ({

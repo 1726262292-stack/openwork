@@ -1,5 +1,6 @@
 /**
- * Zustand store for session management primitives (pin, manual order, custom
+ * Zustand store for session management primitives (workspace-scoped pin,
+ * manual order, custom
  * group mirror + expanded state). Persisted to localStorage via
  * zustand/middleware/persist.
  *
@@ -60,7 +61,8 @@ type SessionManagementState = {
 };
 
 type SessionManagementActions = {
-  togglePin: (sessionId: string) => void;
+  setPin: (workspaceId: string, sessionId: string, pinned: boolean) => void;
+  togglePin: (workspaceId: string, sessionId: string) => void;
   reorderSessions: (workspaceId: string, sessionIds: string[]) => void;
   assignGroup: (workspaceId: string, sessionId: string, groupId: string | null) => void;
   createGroup: (workspaceId: string, label: string) => void;
@@ -75,6 +77,47 @@ type SessionManagementActions = {
 type SessionManagementStore = SessionManagementState & SessionManagementActions;
 
 const EMPTY_GROUP_STATE: WorkspaceGroupState = { groups: [], assignments: {} };
+const PIN_ID_PREFIX = "workspace:";
+
+export type ScopedPinnedSessionId = {
+  workspaceId: string;
+  sessionId: string;
+};
+
+export function getPinnedSessionStorageId(workspaceId: string, sessionId: string): string {
+  return `${PIN_ID_PREFIX}${encodeURIComponent(workspaceId)}:${encodeURIComponent(sessionId)}`;
+}
+
+export function parsePinnedSessionStorageId(pinId: string): ScopedPinnedSessionId | null {
+  if (!pinId.startsWith(PIN_ID_PREFIX)) return null;
+  const encoded = pinId.slice(PIN_ID_PREFIX.length);
+  const separatorIndex = encoded.indexOf(":");
+  if (separatorIndex <= 0 || separatorIndex === encoded.length - 1) return null;
+
+  try {
+    return {
+      workspaceId: decodeURIComponent(encoded.slice(0, separatorIndex)),
+      sessionId: decodeURIComponent(encoded.slice(separatorIndex + 1)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function isSessionPinnedInWorkspace(
+  pinnedIds: string[],
+  workspaceId: string,
+  sessionId: string,
+  sessionOwnerCount: number,
+): boolean {
+  return pinnedIds.includes(getPinnedSessionStorageId(workspaceId, sessionId)) ||
+    (sessionOwnerCount === 1 && pinnedIds.includes(sessionId));
+}
+
+function withoutPinId(pinnedIds: string[], workspaceId: string, sessionId: string): string[] {
+  const scopedId = getPinnedSessionStorageId(workspaceId, sessionId);
+  return pinnedIds.filter((pinId) => pinId !== scopedId && pinId !== sessionId);
+}
 
 let sessionGroupSyncHandler: SessionGroupSyncHandler | null = null;
 const sessionGroupSyncStatusByWorkspace: Record<string, SessionGroupSyncStatus> = {};
@@ -169,15 +212,22 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
       orderByWorkspace: {},
       groupsByWorkspace: {},
 
-      togglePin: (sessionId) =>
+      setPin: (workspaceId, sessionId, pinned) =>
         set((state) => {
-          const idx = state.pinnedIds.indexOf(sessionId);
+          const nextPinnedIds = withoutPinId(state.pinnedIds, workspaceId, sessionId);
           return {
-            pinnedIds:
-              idx >= 0
-                ? state.pinnedIds.filter((id) => id !== sessionId)
-                : [...state.pinnedIds, sessionId],
+            pinnedIds: pinned
+              ? [...nextPinnedIds, getPinnedSessionStorageId(workspaceId, sessionId)]
+              : nextPinnedIds,
           };
+        }),
+
+      togglePin: (workspaceId, sessionId) =>
+        set((state) => {
+          const scopedId = getPinnedSessionStorageId(workspaceId, sessionId);
+          const pinned = state.pinnedIds.includes(scopedId);
+          const nextPinnedIds = withoutPinId(state.pinnedIds, workspaceId, sessionId);
+          return { pinnedIds: pinned ? nextPinnedIds : [...nextPinnedIds, scopedId] };
         }),
 
       reorderSessions: (workspaceId, sessionIds) =>
@@ -307,7 +357,11 @@ export const useSessionManagementStore = create<SessionManagementStore>()(
         set((state) => {
           const { [workspaceId]: _o, ...orderRest } = state.orderByWorkspace;
           const { [workspaceId]: _g, ...groupsRest } = state.groupsByWorkspace;
-          return { orderByWorkspace: orderRest, groupsByWorkspace: groupsRest };
+          const pinnedIds = state.pinnedIds.filter((pinId) => {
+            const scoped = parsePinnedSessionStorageId(pinId);
+            return scoped?.workspaceId !== workspaceId;
+          });
+          return { pinnedIds, orderByWorkspace: orderRest, groupsByWorkspace: groupsRest };
         }),
     }),
     {
