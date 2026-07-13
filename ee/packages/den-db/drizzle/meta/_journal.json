@@ -239,6 +239,13 @@
       "when": 1783817428501,
       "tag": "0034_wooden_nehzno",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1783929835159,
+      "tag": "0035_wide_omega_flight",
+      "breakpoints": true
     }
   ]
 }
