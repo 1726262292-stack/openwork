@@ -304,6 +304,36 @@ test("missing server-side artifacts redirect the browser to the official release
   expect(response.headers.get("location")).not.toContain("opaque-token")
 })
 
+test("installer preparation reports ready only after artifacts resolve", async () => {
+  envModule.env.installerReleaseTag = "v9.9.9"
+
+  const response = await createApp({
+    installerArtifacts: {
+      "openwork-win-x64-9.9.9.exe": Buffer.from("standard-app", "utf8"),
+      "openwork-installer-win-x64.exe": Buffer.from("generic-installer", "utf8"),
+    },
+  }).request("http://den.local/v1/install/win-x64/prepare?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({ status: "ready", stage: "bundle" })
+})
+
+test("installer preparation reports fallback without leaking the install token", async () => {
+  const response = await createApp({ installerFallbackUrl: officialWindowsInstallerUrl }).request("http://den.local/v1/install/win-x64/prepare?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  const payload = await response.json()
+  expect(payload).toEqual({ status: "fallback", stage: "standard-download", fallbackUrl: officialWindowsInstallerUrl })
+  expect(JSON.stringify(payload)).not.toContain("opaque-token")
+})
+
+test("linux installer preparation is ready without desktop artifact caching", async () => {
+  const response = await createApp().request("http://den.local/v1/install/linux-x64/prepare?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({ status: "ready", stage: "script" })
+})
+
 test.each([
   ["mac-arm64", "openwork-mac-arm64-9.9.9.dmg", "openwork-installer-mac-arm64.zip"],
   ["win-x64", "openwork-win-x64-9.9.9.exe", "openwork-installer-win-x64.exe"],

@@ -3,11 +3,15 @@ import {
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
   ConfigObjectVersionTable,
+  ExternalMcpConnectionAccessGrantTable,
+  ExternalMcpConnectionTable,
   MarketplacePluginTable,
   MarketplaceTable,
   PluginAccessGrantTable,
   PluginConfigObjectTable,
   PluginTable,
+  SkillHubSkillTable,
+  SkillTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
@@ -23,11 +27,15 @@ type TableName =
   | "config_object"
   | "config_object_access_grant"
   | "config_object_version"
+  | "external_mcp_connection"
+  | "external_mcp_connection_access_grant"
   | "marketplace"
   | "marketplace_plugin"
   | "plugin"
   | "plugin_access_grant"
   | "plugin_config_object"
+  | "skill"
+  | "skill_hub_skill"
 
 type Row = Record<string, unknown>
 
@@ -50,6 +58,7 @@ type WriteBuilder = {
 }
 
 type TransactionStub = {
+  delete: (table: unknown) => WriteBuilder
   insert: (table: unknown) => WriteBuilder
   select: () => QueryChain
   update: (table: unknown) => WriteBuilder
@@ -64,22 +73,30 @@ const tableNames: TableName[] = [
   "config_object",
   "config_object_access_grant",
   "config_object_version",
+  "external_mcp_connection",
+  "external_mcp_connection_access_grant",
   "marketplace",
   "marketplace_plugin",
   "plugin",
   "plugin_access_grant",
   "plugin_config_object",
+  "skill",
+  "skill_hub_skill",
 ]
 
 const rowsByTable: Record<TableName, Row[]> = {
   config_object: [],
   config_object_access_grant: [],
   config_object_version: [],
+  external_mcp_connection: [],
+  external_mcp_connection_access_grant: [],
   marketplace: [],
   marketplace_plugin: [],
   plugin: [],
   plugin_access_grant: [],
   plugin_config_object: [],
+  skill: [],
+  skill_hub_skill: [],
 }
 
 const recordedInserts: InsertRecord[] = []
@@ -90,11 +107,15 @@ function tableName(table: unknown): TableName | null {
   if (table === ConfigObjectTable) return "config_object"
   if (table === ConfigObjectAccessGrantTable) return "config_object_access_grant"
   if (table === ConfigObjectVersionTable) return "config_object_version"
+  if (table === ExternalMcpConnectionTable) return "external_mcp_connection"
+  if (table === ExternalMcpConnectionAccessGrantTable) return "external_mcp_connection_access_grant"
   if (table === MarketplaceTable) return "marketplace"
   if (table === MarketplacePluginTable) return "marketplace_plugin"
   if (table === PluginTable) return "plugin"
   if (table === PluginAccessGrantTable) return "plugin_access_grant"
   if (table === PluginConfigObjectTable) return "plugin_config_object"
+  if (table === SkillTable) return "skill"
+  if (table === SkillHubSkillTable) return "skill_hub_skill"
   return null
 }
 
@@ -119,11 +140,18 @@ function rowsFor(table: TableName | null) {
   return rowsByTable[table]
 }
 
-function queryChain(): QueryChain {
+function queryChain(options: { wrapConnection?: boolean } = {}): QueryChain {
   let selectedTable: TableName | null = null
   const resolveRows = (count?: number) => {
+    if (selectedTable === "plugin_config_object" && count === 1) {
+      return []
+    }
     const rows = rowsFor(selectedTable)
-    return count === undefined ? [...rows] : rows.slice(0, count)
+    const selectedRows = count === undefined ? [...rows] : rows.slice(0, count)
+    if (options.wrapConnection) {
+      return selectedRows.map((row) => ({ connection: row }))
+    }
+    return selectedRows
   }
   const chain: QueryChain = {
     from: (table) => {
@@ -163,16 +191,38 @@ function insertBuilder(table: unknown): WriteBuilder {
   }
 }
 
-function updateBuilder(_table: unknown): WriteBuilder {
+function deleteBuilder(table: unknown): WriteBuilder {
+  const name = tableName(table)
   updateCalls += 1
   return {
     set: () => ({ where: () => Promise.resolve() }),
+    values: () => Promise.resolve(),
+    where: () => {
+      if (name) rowsByTable[name] = []
+      return Promise.resolve()
+    },
+  }
+}
+
+function updateBuilder(table: unknown): WriteBuilder {
+  const name = tableName(table)
+  updateCalls += 1
+  return {
+    set: (value) => ({
+      where: () => {
+        if (name && isRecord(value)) {
+          rowsByTable[name] = rowsByTable[name].map((row) => ({ ...row, ...value }))
+        }
+        return Promise.resolve()
+      },
+    }),
     values: () => Promise.resolve(),
     where: () => Promise.resolve(),
   }
 }
 
 const transactionStub: TransactionStub = {
+  delete: deleteBuilder,
   insert: insertBuilder,
   select: queryChain,
   update: updateBuilder,
@@ -180,21 +230,45 @@ const transactionStub: TransactionStub = {
 
 let storeModule: typeof import("../src/routes/org/plugin-system/store.js")
 let schemas: typeof import("../src/routes/org/plugin-system/schemas.js")
+let externalCapabilities: typeof import("../src/mcp/external-capabilities.js")
+let skillCapabilities: typeof import("../src/mcp/skill-capabilities.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
 
   mock.module("../src/db.js", () => ({
     db: {
+      delete: deleteBuilder,
       insert: insertBuilder,
       select: queryChain,
+      selectDistinct: () => queryChain({ wrapConnection: true }),
       transaction: async <TResult>(callback: (tx: TransactionStub) => Promise<TResult>) => callback(transactionStub),
       update: updateBuilder,
     },
   }))
 
+  mock.module("../src/capability-sources/url-guard.js", () => ({
+    PrivateUrlError: class PrivateUrlError extends Error {},
+    assertPublicUrl: () => Promise.resolve(),
+  }))
+
+  mock.module("../src/capability-sources/external-mcp-client.js", () => ({
+    callExternalMcpTool: () => Promise.resolve({ content: [{ text: "employee directory ok", type: "text" }] }),
+    createExternalMcpLifecycleDeadline: () => {
+      const controller = new AbortController()
+      return {
+        abort: (reason?: unknown) => controller.abort(reason),
+        expiresAt: Date.now() + 1000,
+        signal: controller.signal,
+      }
+    },
+    listExternalMcpTools: () => Promise.resolve([{ description: "Search employee directory", name: "search_employee_directory" }]),
+  }))
+
   schemas = await import("../src/routes/org/plugin-system/schemas.js")
   storeModule = await import("../src/routes/org/plugin-system/store.js")
+  externalCapabilities = await import("../src/mcp/external-capabilities.js")
+  skillCapabilities = await import("../src/mcp/skill-capabilities.js")
 })
 
 afterAll(() => {
@@ -314,9 +388,10 @@ test("createPluginBundle composes component creation, org-wide grants, and marke
     orgWide: true,
   })
 
-  expect(recordedInserts).toHaveLength(9)
+  expect(recordedInserts).toHaveLength(10)
   expect(recordedInserts.filter((entry) => entry.table === "plugin")).toHaveLength(1)
   expect(recordedInserts.filter((entry) => entry.table === "plugin_access_grant")).toHaveLength(2)
+  expect(recordedInserts.filter((entry) => entry.table === "skill")).toHaveLength(1)
   expect(recordedInserts.filter((entry) => entry.table === "config_object")).toHaveLength(1)
   expect(recordedInserts.filter((entry) => entry.table === "config_object_version")).toHaveLength(1)
   expect(recordedInserts.filter((entry) => entry.table === "config_object_access_grant")).toHaveLength(2)
@@ -325,4 +400,115 @@ test("createPluginBundle composes component creation, org-wide grants, and marke
   expect(recordedInserts.some((entry) => entry.table === "config_object_access_grant" && entry.value.orgWide === true && entry.value.role === "viewer")).toBe(true)
   expect(recordedInserts.some((entry) => entry.table === "plugin_access_grant" && entry.value.orgWide === true && entry.value.role === "viewer")).toBe(true)
   expect(recordedInserts.some((entry) => entry.table === "marketplace_plugin" && entry.value.marketplaceId === marketplace.id)).toBe(true)
+})
+
+test("manual plugin bundles materialize one native skill and one Connect MCP without duplicating on update, then clean owned resources on archive", async () => {
+  const organizationId = createDenTypeId("organization")
+  const memberId = createDenTypeId("member")
+  const now = new Date("2026-07-05T00:00:00.000Z")
+  const marketplace = {
+    id: createDenTypeId("marketplace"),
+    organizationId,
+    name: "OpenWork Marketplace",
+    description: "Company extensions",
+    logoUrl: null,
+    status: "active",
+    createdByOrgMembershipId: memberId,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  }
+  resetDb({ marketplace: [marketplace] })
+
+  const context = ownerContext(organizationId, memberId)
+  const plugin = await storeModule.createPluginBundle({
+    components: [
+      {
+        type: "skill",
+        value: {
+          metadata: { name: "Inactive Account Check", description: "Find employees whose accounts should be reviewed" },
+          rawSourceText: "---\nname: inactive-account-check\ndescription: Find employees whose accounts should be reviewed\n---\nUse the Employee Directory MCP, then list inactive accounts.",
+        },
+      },
+      {
+        type: "mcp",
+        value: {
+          metadata: { name: "Employee Directory" },
+          normalizedPayloadJson: {
+            mcpServers: {
+              employee_directory: {
+                authType: "none",
+                credentialMode: "shared",
+                type: "remote",
+                url: "https://directory.example.com/mcp",
+              },
+            },
+          },
+        },
+      },
+    ],
+    context,
+    description: "Review inactive employee accounts.",
+    marketplaceId: marketplace.id,
+    name: "Inactive Account Check",
+    orgWide: true,
+  })
+
+  expect(recordedInserts.filter((entry) => entry.table === "skill")).toHaveLength(1)
+  expect(recordedInserts.filter((entry) => entry.table === "external_mcp_connection")).toHaveLength(1)
+  expect(recordedInserts.filter((entry) => entry.table === "external_mcp_connection_access_grant")).toHaveLength(1)
+  expect(recordedInserts.filter((entry) => entry.table === "config_object")).toHaveLength(2)
+
+  const skillRow = rowsByTable.skill[0]
+  const connectionRow = rowsByTable.external_mcp_connection[0]
+  expect(skillRow?.shared).toBe("org")
+  expect(skillRow?.title).toBe("Inactive Account Check")
+  expect(connectionRow?.name).toBe("Inactive Account Check / Employee Directory")
+  expect(connectionRow?.authType).toBe("none")
+  expect(connectionRow?.credentialMode).toBe("shared")
+  expect(connectionRow?.connectedAt instanceof Date).toBe(true)
+  expect(rowsByTable.external_mcp_connection_access_grant[0]?.orgWide).toBe(true)
+
+  const skillCount = rowsByTable.skill.length
+  const connectionCount = rowsByTable.external_mcp_connection.length
+  await storeModule.updatePlugin({ context, description: "Updated description.", name: "Inactive Account Check", pluginId: plugin.id })
+  expect(rowsByTable.skill).toHaveLength(skillCount)
+  expect(rowsByTable.external_mcp_connection).toHaveLength(connectionCount)
+
+  const member = { orgMembershipId: memberId, teamIds: [] }
+  const skillId = typeof skillRow?.id === "string" ? skillRow.id : ""
+  const skillMatches = await skillCapabilities.searchSkillCapabilities({
+    organizationId,
+    member,
+    query: "inactive account",
+    limit: 5,
+  })
+  expect(skillMatches.some((match) => match.name === skillCapabilities.buildSkillCapabilityName(skillId))).toBe(true)
+  const skillExecute = await skillCapabilities.executeSkillCapability({ organizationId, member, skillId })
+  expect(skillExecute.ok).toBe(true)
+  if (!skillExecute.ok) throw new Error(skillExecute.message)
+  expect(skillExecute.skill.skillText).toContain("Employee Directory MCP")
+
+  const connectionId = typeof connectionRow?.id === "string" ? connectionRow.id : ""
+  const externalMatches = await externalCapabilities.searchExternalCapabilities({
+    organizationId,
+    member,
+    query: "employee directory",
+    redirectUriBase: "http://127.0.0.1:8790",
+    limit: 5,
+  })
+  expect(externalMatches.some((match) => match.name === externalCapabilities.buildExternalCapabilityName(connectionId, "search_employee_directory"))).toBe(true)
+  const externalExecute = await externalCapabilities.executeExternalCapability({
+    args: {},
+    connectionId,
+    member,
+    organizationId,
+    redirectUriBase: "http://127.0.0.1:8790",
+    toolName: "search_employee_directory",
+  })
+  expect(externalExecute.ok).toBe(true)
+
+  await storeModule.setPluginLifecycle({ action: "archive", context, pluginId: plugin.id })
+  expect(rowsByTable.skill).toHaveLength(0)
+  expect(rowsByTable.external_mcp_connection).toHaveLength(0)
 })

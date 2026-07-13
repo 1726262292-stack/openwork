@@ -7,6 +7,7 @@ const port = Number(process.env.PORT || 3978);
 const issuer = process.env.ISSUER || `http://${host}:${port}`;
 const autoApprove = process.env.AUTO_APPROVE !== "0";
 const disableDcr = process.env.DISABLE_DCR === "1";
+const noAuthMcp = process.env.MCP_NO_AUTH === "1" || process.env.PUBLIC_MCP_NO_AUTH === "1" || process.env.AUTH_MODE === "none";
 const mockClientId = process.env.MOCK_CLIENT_ID || "mock-preregistered-client";
 const mockClientSecret = process.env.MOCK_CLIENT_SECRET || "mock-preregistered-secret";
 
@@ -15,6 +16,21 @@ const codes = new Map();
 const tokens = new Set();
 const requests = [];
 const drafts = [];
+
+const SENSITIVE_KEYS = new Set([
+  "access_token",
+  "api_key",
+  "apikey",
+  "authorization",
+  "client_secret",
+  "code",
+  "code_verifier",
+  "password",
+  "refresh_token",
+  "secret",
+  "state",
+  "token",
+]);
 
 function json(res, status, body, headers = {}) {
   res.writeHead(status, {
@@ -67,16 +83,62 @@ async function readForm(req) {
   return Object.fromEntries(new URLSearchParams(raw));
 }
 
+function sanitizedSearch(url) {
+  const params = new URLSearchParams(url.searchParams);
+  for (const key of [...params.keys()]) {
+    if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+      params.set(key, "[redacted]");
+    }
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+function sanitizeValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeValue(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+      key,
+      SENSITIVE_KEYS.has(key.toLowerCase()) ? "[redacted]" : sanitizeValue(entry),
+    ]));
+  }
+  return value;
+}
+
+function rpcSummary(message) {
+  const params = message?.params && typeof message.params === "object" ? message.params : {};
+  const toolName = typeof params.name === "string" ? params.name : null;
+  const args = params.arguments && typeof params.arguments === "object" ? params.arguments : null;
+  return {
+    method: typeof message?.method === "string" ? message.method : null,
+    ...(toolName ? { toolName } : {}),
+    ...(args ? { arguments: sanitizeValue(args) } : {}),
+  };
+}
+
 function record(req, url) {
   const entry = {
     id: requests.length + 1,
     method: req.method,
     path: url.pathname,
-    url: `${url.pathname}${url.search}`,
+    url: `${url.pathname}${sanitizedSearch(url)}`,
     at: new Date().toISOString(),
   };
   requests.push(entry);
   console.log(`[mock-oauth-mcp] ${entry.method} ${entry.path}`);
+  return entry;
+}
+
+function recordMcpMessages(entry, body) {
+  const messages = Array.isArray(body) ? body : [body];
+  const rpc = messages
+    .filter((message) => message && typeof message === "object")
+    .map((message) => rpcSummary(message));
+  if (rpc.length > 0) {
+    entry.rpc = rpc.length === 1 ? rpc[0] : rpc;
+  }
 }
 
 function protectedResourceMetadata() {
@@ -258,9 +320,46 @@ async function issueToken(req, res) {
 }
 
 function isAuthorized(req) {
+  if (noAuthMcp) return true;
   const header = req.headers.authorization || "";
   const match = header.match(/^Bearer\s+(.+)$/i);
   return Boolean(match && tokens.has(match[1]));
+}
+
+function inactiveAccountRows(days, runNonce) {
+  const threshold = Number.isFinite(days) ? days : 30;
+  return [
+    {
+      email: "maya.chen@acme.test",
+      employeeId: "E-1042",
+      lastActiveDaysAgo: threshold + 17,
+      name: "Maya Chen",
+      recommendedAction: "Review manager approval before disabling.",
+    },
+    {
+      email: "theo.ramirez@acme.test",
+      employeeId: "E-1188",
+      lastActiveDaysAgo: threshold + 8,
+      name: "Theo Ramirez",
+      recommendedAction: "Confirm contractor end date, then suspend.",
+    },
+    {
+      email: "nora.patel@acme.test",
+      employeeId: "E-1215",
+      lastActiveDaysAgo: threshold + 3,
+      name: "Nora Patel",
+      recommendedAction: "Send reactivation reminder first.",
+    },
+  ].map((row) => ({ ...row, inactiveThresholdDays: threshold, runNonce }));
+}
+
+function inactiveAccountsText(days, runNonce) {
+  const rows = inactiveAccountRows(days, runNonce);
+  return [
+    `Employee Directory inactive account check for ${days} days${runNonce ? ` (run nonce ${runNonce})` : ""}.`,
+    ...rows.map((row) => `- ${row.name} <${row.email}> — inactive ${row.lastActiveDaysAgo} days — ${row.recommendedAction}`),
+    "Connection used: Employee Directory through OpenWork Connect.",
+  ].join("\n");
 }
 
 function mcpResult(message) {
@@ -284,9 +383,55 @@ function mcpResult(message) {
               required: ["text"],
             },
           },
+          {
+            name: "list_inactive_accounts",
+            title: "List inactive employee accounts",
+            description: "Returns deterministic Employee Directory accounts whose last activity is older than the requested number of days. Requires the runNonce issued by the organization's Inactive Account Check skill; load that skill capability first.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                days: { type: "number", description: "Inactive threshold in days. Use 30 for the approved first workflow." },
+                runNonce: { type: "string", description: "Governing-run nonce from the Inactive Account Check skill. Calls without it are rejected." },
+              },
+              required: ["days", "runNonce"],
+            },
+          },
         ],
       };
     case "tools/call":
+      if (message.params?.name === "list_inactive_accounts") {
+        const daysInput = Number(message.params?.arguments?.days ?? 30);
+        const days = Number.isFinite(daysInput) ? daysInput : 30;
+        const runNonce = typeof message.params?.arguments?.runNonce === "string" ? message.params.arguments.runNonce : "";
+        if (!/^inactive-account-check-/.test(runNonce)) {
+          // Skill-gated tool: the governing procedure (and its runNonce) lives
+          // in the organization's Inactive Account Check skill, so a direct
+          // call cannot skip loading the skill first.
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: "runNonce missing or invalid. This directory follows a governed procedure: search capabilities for the organization's 'Inactive Account Check' skill and execute that skill capability first — it contains the required runNonce and the exact steps for this check.",
+              },
+            ],
+          };
+        }
+        return {
+          content: [
+            {
+              type: "text",
+              text: inactiveAccountsText(days, runNonce),
+            },
+          ],
+          structuredContent: {
+            days,
+            runNonce,
+            source: "Employee Directory",
+            accounts: inactiveAccountRows(days, runNonce),
+          },
+        };
+      }
       return {
         content: [
           {
@@ -300,7 +445,7 @@ function mcpResult(message) {
   }
 }
 
-async function handleMcp(req, res) {
+async function handleMcp(req, res, entry) {
   if (!isAuthorized(req)) {
     json(res, 401, { error: "missing_mcp_token" }, {
       "www-authenticate": `Bearer resource_metadata="${issuer}/.well-known/oauth-protected-resource"`,
@@ -314,6 +459,7 @@ async function handleMcp(req, res) {
   }
 
   const body = await readJson(req).catch(() => ({}));
+  recordMcpMessages(entry, body);
   const messages = Array.isArray(body) ? body : [body];
   const responses = messages.flatMap((message) => {
     if (!message || typeof message !== "object" || message.id === undefined) return [];
@@ -332,7 +478,7 @@ async function handleMcp(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", issuer);
-    record(req, url);
+    const entry = record(req, url);
 
     if (req.method === "OPTIONS") {
       json(res, 204, {});
@@ -340,7 +486,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/health") {
-      json(res, 200, { ok: true, issuer, autoApprove, disableDcr, requests: requests.length });
+      json(res, 200, { ok: true, issuer, autoApprove, disableDcr, mcpAuth: noAuthMcp ? "none" : "oauth", requests: requests.length });
       return;
     }
 
@@ -387,7 +533,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/mcp") {
-      await handleMcp(req, res);
+      await handleMcp(req, res, entry);
       return;
     }
 
@@ -423,5 +569,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(port, host, () => {
   console.log(`[mock-oauth-mcp] listening on ${issuer}`);
   console.log(`[mock-oauth-mcp] MCP URL: ${issuer}/mcp`);
+  console.log(`[mock-oauth-mcp] MCP auth mode: ${noAuthMcp ? "none" : "oauth"}`);
   console.log(`[mock-oauth-mcp] set AUTO_APPROVE=0 to require an approval click`);
 });

@@ -180,10 +180,18 @@ type PublicGithubTreeSnapshot = {
   truncated: boolean
 }
 
-type GithubPluginMcpImportAccess = {
+type PluginMaterializationAccess = {
   memberIds: MemberId[]
   orgWide: boolean
   teamIds: TeamId[]
+}
+
+type GithubPluginMcpImportAccess = PluginMaterializationAccess
+
+type PluginMaterializedMcpServer = {
+  name: string
+  pluginName: string
+  url: string | null
 }
 
 type GithubPluginMcpImportServer = {
@@ -1870,8 +1878,269 @@ export async function createPlugin(input: { context: PluginArchActorContext; des
   return serializePlugin(row, 0)
 }
 
+type PluginBundleComponentInput = {
+  type: ConfigObjectRow["objectType"]
+  value: ConfigObjectInput
+}
+
+type PlannedPluginBundleComponent =
+  | { component: PluginBundleComponentInput; kind: "mcp"; servers: PluginMaterializedMcpServer[] }
+  | { component: PluginBundleComponentInput; kind: "skill"; skillText: string }
+  | { component: PluginBundleComponentInput; kind: "config" }
+
+const manualRemoteMcpTypes = new Set(["http", "remote", "streamable-http", "sse"])
+
+function configObjectMetadataString(value: ConfigObjectInput, key: string) {
+  const candidate = value.metadata?.[key]
+  return typeof candidate === "string" ? normalizeOptionalString(candidate) : null
+}
+
+function manualMcpRouteFailure(message: string) {
+  return new PluginArchRouteFailure(400, "invalid_manual_mcp", message)
+}
+
+function manualMcpPayload(value: ConfigObjectInput) {
+  if (value.normalizedPayloadJson) return value.normalizedPayloadJson
+  throw manualMcpRouteFailure("Manual plugin MCP servers must use the URL-only remote MCP field.")
+}
+
+function manualMcpConfigEntries(value: ConfigObjectInput): Array<[string, Record<string, unknown>]> {
+  const payload = manualMcpPayload(value)
+  const containers = [
+    isRecord(payload.mcpServers) ? payload.mcpServers : null,
+    isRecord(payload.mcp) ? payload.mcp : null,
+  ].filter((entry): entry is Record<string, unknown> => Boolean(entry))
+  const entries = containers.flatMap((container) => Object.entries(container))
+  if (entries.length > 0) {
+    const output: Array<[string, Record<string, unknown>]> = []
+    for (const [name, config] of entries) {
+      output.push([name, isRecord(config) ? config : {}])
+    }
+    return output
+  }
+  if (typeof payload.url === "string") {
+    const metadataName = configObjectMetadataString(value, "name")
+    return [[metadataName ?? "remote-mcp", payload]]
+  }
+  throw manualMcpRouteFailure("Manual plugin MCP servers must include an HTTPS URL.")
+}
+
+function manualPluginMcpServersFromValue(input: {
+  pluginName: string
+  value: ConfigObjectInput
+}): PluginMaterializedMcpServer[] {
+  const entries = manualMcpConfigEntries(input.value)
+  const singleServerName = entries.length === 1 ? configObjectMetadataString(input.value, "name") : null
+
+  return entries.map(([rawName, config]) => {
+    const url = typeof config.url === "string" ? config.url.trim() : ""
+    if (!url) {
+      throw manualMcpRouteFailure("Manual plugin MCP servers must include an HTTPS URL.")
+    }
+
+    const command = config.command
+    const hasLocalCommand = typeof command === "string"
+      ? Boolean(command.trim())
+      : Array.isArray(command) && command.some((part) => typeof part === "string" && Boolean(part.trim()))
+    const serverType = typeof config.type === "string" ? config.type.trim().toLowerCase() : "remote"
+    if (hasLocalCommand || !manualRemoteMcpTypes.has(serverType)) {
+      throw manualMcpRouteFailure("Manual plugin MCP servers support remote HTTPS URLs only. Add local MCP servers in OpenWork Connect instead.")
+    }
+
+    const authType = typeof config.authType === "string" ? config.authType.trim().toLowerCase() : "none"
+    const credentialMode = typeof config.credentialMode === "string" ? config.credentialMode.trim().toLowerCase() : "shared"
+    if (authType !== "none" || credentialMode !== "shared") {
+      throw manualMcpRouteFailure("Manual plugin MCP servers support shared no-auth URLs only. Configure OAuth or API-key MCP servers in OpenWork Connect first.")
+    }
+
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(url)
+    } catch {
+      throw manualMcpRouteFailure("Manual plugin MCP server URL must be a valid https:// URL.")
+    }
+    if (parsedUrl.protocol !== "https:") {
+      throw manualMcpRouteFailure("Manual plugin MCP server URL must start with https://.")
+    }
+    if (parsedUrl.username || parsedUrl.password) {
+      throw manualMcpRouteFailure("Manual plugin MCP server URLs cannot contain embedded credentials.")
+    }
+
+    return {
+      name: singleServerName ?? normalizeOptionalString(rawName) ?? input.pluginName,
+      pluginName: input.pluginName,
+      url,
+    }
+  })
+}
+
+async function assertManualMcpUrlAllowed(url: string) {
+  try {
+    await assertPublicUrl(url)
+  } catch (error) {
+    throw new PluginArchRouteFailure(
+      400,
+      "invalid_manual_mcp_url",
+      error instanceof Error ? error.message : "Manual plugin MCP server URL is not allowed.",
+    )
+  }
+}
+
+async function planPluginBundleComponents(input: {
+  components: PluginBundleComponentInput[]
+  pluginName: string
+}): Promise<PlannedPluginBundleComponent[]> {
+  const plans: PlannedPluginBundleComponent[] = []
+  for (const component of input.components) {
+    if (component.type === "mcp") {
+      const servers = manualPluginMcpServersFromValue({ pluginName: input.pluginName, value: component.value })
+      for (const server of servers) {
+        if (!server.url) throw manualMcpRouteFailure("Manual plugin MCP servers must include an HTTPS URL.")
+        await assertManualMcpUrlAllowed(server.url)
+      }
+      plans.push({ component, kind: "mcp", servers })
+      continue
+    }
+
+    if (component.type === "skill") {
+      const skillText = normalizeOptionalString(component.value.rawSourceText)
+      if (!skillText) {
+        throw new PluginArchRouteFailure(400, "invalid_manual_skill", "Manual plugin skills must include SKILL.md instructions.")
+      }
+      plans.push({ component, kind: "skill", skillText })
+      continue
+    }
+
+    plans.push({ component, kind: "config" })
+  }
+  return plans
+}
+
+function pluginBundleAccess(input: { context: PluginArchActorContext; orgWide?: boolean }): PluginMaterializationAccess {
+  return input.orgWide
+    ? { memberIds: [], orgWide: true, teamIds: [] }
+    : { memberIds: [input.context.organizationContext.currentMember.id], orgWide: false, teamIds: [] }
+}
+
+async function grantPluginBundleConfigObjectAccess(input: {
+  configObjectId: ConfigObjectId
+  context: PluginArchActorContext
+  orgWide?: boolean
+}) {
+  if (!input.orgWide) return
+  await createResourceAccessGrant({
+    context: input.context,
+    resourceId: input.configObjectId,
+    resourceKind: "config_object",
+    value: { orgWide: true, role: "viewer" },
+  })
+}
+
+async function createPluginBundleConfigObject(input: {
+  context: PluginArchActorContext
+  pluginId: PluginId
+  orgWide?: boolean
+  sourceMode: ConfigObjectRow["sourceMode"]
+  type: ConfigObjectRow["objectType"]
+  value: ConfigObjectInput
+}) {
+  const configObject = await createConfigObject({
+    context: input.context,
+    objectType: input.type,
+    pluginIds: [input.pluginId],
+    sourceMode: input.sourceMode,
+    value: input.value,
+  })
+  await grantPluginBundleConfigObjectAccess({
+    configObjectId: configObject.id,
+    context: input.context,
+    orgWide: input.orgWide,
+  })
+  return configObject
+}
+
+async function materializeManualSkillComponent(input: {
+  access: PluginMaterializationAccess
+  context: PluginArchActorContext
+  component: PluginBundleComponentInput
+  pluginId: PluginId
+  orgWide?: boolean
+  skillText: string
+}) {
+  const createdSkill = await createPluginManagedSkill({
+    access: input.access,
+    context: input.context,
+    description: configObjectMetadataString(input.component.value, "description"),
+    skillHubId: null,
+    skillText: input.skillText,
+    title: configObjectMetadataString(input.component.value, "name"),
+  })
+  await createPluginBundleConfigObject({
+    context: input.context,
+    pluginId: input.pluginId,
+    orgWide: input.orgWide,
+    sourceMode: "cloud",
+    type: "skill",
+    value: {
+      metadata: {
+        denSkillId: createdSkill.id,
+        description: createdSkill.description ?? configObjectMetadataString(input.component.value, "description") ?? "Den skill created from a manual plugin bundle.",
+        name: createdSkill.title,
+        openworkManaged: "den_skill",
+        source: "manual_plugin_bundle",
+      },
+      normalizedPayloadJson: denSkillPayload({ ownedByPlugin: true, skillId: createdSkill.id }),
+      rawSourceText: input.skillText,
+      schemaVersion: "openwork.den_skill.v1",
+    },
+  })
+}
+
+async function materializeManualMcpComponent(input: {
+  access: PluginMaterializationAccess
+  context: PluginArchActorContext
+  component: PluginBundleComponentInput
+  pluginId: PluginId
+  orgWide?: boolean
+  server: PluginMaterializedMcpServer
+}) {
+  const materializedConnection = await ensurePluginExternalMcpConnection({
+    access: input.access,
+    authType: "none",
+    context: input.context,
+    credentialMode: "shared",
+    server: input.server,
+  })
+  const connection = materializedConnection.connection
+  await createPluginBundleConfigObject({
+    context: input.context,
+    pluginId: input.pluginId,
+    orgWide: input.orgWide,
+    sourceMode: "cloud",
+    type: "mcp",
+    value: {
+      metadata: {
+        authType: "none",
+        credentialMode: "shared",
+        description: configObjectMetadataString(input.component.value, "description") ?? "Shared no-auth remote MCP connection created from a manual plugin bundle.",
+        externalMcpConnectionId: connection.id,
+        externalMcpConnectionOwnedByPlugin: materializedConnection.ownedByPlugin,
+        name: input.server.name,
+        openworkManaged: "den_external_mcp",
+        source: "manual_plugin_bundle",
+      },
+      normalizedPayloadJson: pluginExternalMcpConnectionPayload({
+        connectionId: connection.id,
+        ownedByPlugin: materializedConnection.ownedByPlugin,
+        server: input.server,
+      }),
+      schemaVersion: "openwork.den_external_mcp.v1",
+    },
+  })
+}
+
 export async function createPluginBundle(input: {
-  components?: { type: ConfigObjectRow["objectType"]; value: ConfigObjectInput }[]
+  components?: PluginBundleComponentInput[]
   context: PluginArchActorContext
   description?: string | null
   marketplaceId?: MarketplaceId
@@ -1883,24 +2152,45 @@ export async function createPluginBundle(input: {
     await ensureEditableMarketplace(input.context, input.marketplaceId)
   }
 
+  const plannedComponents = await planPluginBundleComponents({ components: input.components ?? [], pluginName: input.name })
+  const access = pluginBundleAccess({ context: input.context, orgWide: input.orgWide })
   const plugin = await createPlugin({ context: input.context, description: input.description, name: input.name })
 
-  for (const component of input.components ?? []) {
-    const configObject = await createConfigObject({
-      context: input.context,
-      objectType: component.type,
-      pluginIds: [plugin.id],
-      sourceMode: "cloud",
-      value: component.value,
-    })
-    if (input.orgWide) {
-      await createResourceAccessGrant({
+  for (const plan of plannedComponents) {
+    if (plan.kind === "skill") {
+      await materializeManualSkillComponent({
+        access,
+        component: plan.component,
         context: input.context,
-        resourceId: configObject.id,
-        resourceKind: "config_object",
-        value: { orgWide: true, role: "viewer" },
+        orgWide: input.orgWide,
+        pluginId: plugin.id,
+        skillText: plan.skillText,
       })
+      continue
     }
+
+    if (plan.kind === "mcp") {
+      for (const server of plan.servers) {
+        await materializeManualMcpComponent({
+          access,
+          component: plan.component,
+          context: input.context,
+          orgWide: input.orgWide,
+          pluginId: plugin.id,
+          server,
+        })
+      }
+      continue
+    }
+
+    await createPluginBundleConfigObject({
+      context: input.context,
+      pluginId: plugin.id,
+      orgWide: input.orgWide,
+      sourceMode: "cloud",
+      type: plan.component.type,
+      value: plan.component.value,
+    })
   }
 
   if (input.orgWide) {
@@ -1951,6 +2241,13 @@ function externalMcpConnectionIdsFromPayload(payload: unknown, options?: { owned
     }
   }
   return [...ids]
+}
+
+function denSkillIdsFromPayload(payload: unknown, options?: { ownedOnly?: boolean }): string[] {
+  if (!isRecord(payload) || payload.openworkManaged !== "den_skill") return []
+  if (options?.ownedOnly === true && payload.denSkillOwnedByPlugin !== true) return []
+  const skillId = typeof payload.denSkillId === "string" ? payload.denSkillId.trim() : ""
+  return skillId ? [skillId] : []
 }
 
 async function pluginOwnedExternalMcpConnectionIds(input: {
@@ -2024,6 +2321,81 @@ async function deletePluginOwnedExternalMcpConnections(input: {
   }
 }
 
+async function pluginOwnedSkillIds(input: {
+  context: PluginArchActorContext
+  pluginId: PluginId
+}) {
+  const memberships = await db
+    .select({ configObjectId: PluginConfigObjectTable.configObjectId })
+    .from(PluginConfigObjectTable)
+    .innerJoin(ConfigObjectTable, eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id))
+    .where(and(
+      eq(PluginConfigObjectTable.pluginId, input.pluginId),
+      eq(PluginConfigObjectTable.organizationId, input.context.organizationContext.organization.id),
+      eq(ConfigObjectTable.objectType, "skill"),
+      isNull(PluginConfigObjectTable.removedAt),
+    ))
+  const versions = await getLatestVersions(memberships.map((membership) => membership.configObjectId))
+  const ids = new Set<string>()
+  for (const membership of memberships) {
+    const payload = versions.get(membership.configObjectId)?.normalizedPayloadJson
+    for (const id of denSkillIdsFromPayload(payload, { ownedOnly: true })) ids.add(id)
+  }
+  return [...ids]
+}
+
+async function activePluginReferencesDenSkill(input: {
+  context: PluginArchActorContext
+  excludingPluginId: PluginId
+  skillId: string
+}) {
+  const memberships = await db
+    .select({
+      configObjectId: PluginConfigObjectTable.configObjectId,
+      pluginId: PluginConfigObjectTable.pluginId,
+    })
+    .from(PluginConfigObjectTable)
+    .innerJoin(ConfigObjectTable, eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id))
+    .innerJoin(PluginTable, eq(PluginConfigObjectTable.pluginId, PluginTable.id))
+    .where(and(
+      eq(PluginConfigObjectTable.organizationId, input.context.organizationContext.organization.id),
+      eq(ConfigObjectTable.objectType, "skill"),
+      eq(PluginTable.status, "active"),
+      isNull(PluginTable.deletedAt),
+      isNull(PluginConfigObjectTable.removedAt),
+    ))
+  const otherMemberships = memberships.filter((membership) => membership.pluginId !== input.excludingPluginId)
+  const versions = await getLatestVersions(otherMemberships.map((membership) => membership.configObjectId))
+  for (const membership of otherMemberships) {
+    const payload = versions.get(membership.configObjectId)?.normalizedPayloadJson
+    if (denSkillIdsFromPayload(payload).includes(input.skillId)) return true
+  }
+  return false
+}
+
+async function deletePluginOwnedSkills(input: {
+  context: PluginArchActorContext
+  pluginId: PluginId
+}) {
+  const skillIds = await pluginOwnedSkillIds(input)
+  for (const id of skillIds) {
+    const referencedElsewhere = await activePluginReferencesDenSkill({
+      context: input.context,
+      excludingPluginId: input.pluginId,
+      skillId: id,
+    })
+    if (referencedElsewhere) continue
+    const skillId = normalizeDenTypeId("skill", id)
+    await db.transaction(async (tx) => {
+      await tx.delete(SkillHubSkillTable).where(eq(SkillHubSkillTable.skillId, skillId))
+      await tx.delete(SkillTable).where(and(
+        eq(SkillTable.id, skillId),
+        eq(SkillTable.organizationId, input.context.organizationContext.organization.id),
+      ))
+    })
+  }
+}
+
 export async function setPluginLifecycle(input: { action: "archive" | "restore"; context: PluginArchActorContext; pluginId: PluginId }) {
   const row = await ensureVisiblePlugin(input.context, input.pluginId)
   await requirePluginArchResourceRole({ context: input.context, resourceId: row.id, resourceKind: "plugin", role: "manager" })
@@ -2035,6 +2407,7 @@ export async function setPluginLifecycle(input: { action: "archive" | "restore";
   }).where(eq(PluginTable.id, row.id))
   if (input.action === "archive") {
     await deletePluginOwnedExternalMcpConnections({ context: input.context, pluginId: row.id })
+    await deletePluginOwnedSkills({ context: input.context, pluginId: row.id })
   }
   return getPluginDetail(input.context, row.id)
 }
@@ -3632,8 +4005,8 @@ function sameStringSet(left: string[], right: string[]) {
     && normalizedLeft.every((value, index) => value === normalizedRight[index])
 }
 
-async function requireExistingExternalMcpConnectionMatchesImport(input: {
-  access: GithubPluginMcpImportAccess
+async function requireExistingExternalMcpConnectionMatchesPlugin(input: {
+  access: PluginMaterializationAccess
   authType: "none" | "oauth"
   connectionId: Parameters<typeof listExternalMcpConnectionAccess>[0]
   credentialMode: "per_member" | "shared"
@@ -3645,7 +4018,7 @@ async function requireExistingExternalMcpConnectionMatchesImport(input: {
     throw new PluginArchRouteFailure(
       409,
       "external_mcp_connection_config_mismatch",
-      "An External MCP Connection already exists for this URL with different authentication or credential mode. Edit the existing connection or import with matching settings.",
+      "An External MCP Connection already exists for this URL with different authentication or credential mode. Edit the existing connection or use matching settings.",
     )
   }
 
@@ -3661,20 +4034,20 @@ async function requireExistingExternalMcpConnectionMatchesImport(input: {
     throw new PluginArchRouteFailure(
       409,
       "external_mcp_connection_access_mismatch",
-      "An External MCP Connection already exists for this URL with different sharing settings. Edit the existing connection or choose an import audience that matches it.",
+      "An External MCP Connection already exists for this URL with different sharing settings. Edit the existing connection or choose an audience that matches it.",
     )
   }
 }
 
-async function ensureImportedExternalMcpConnection(input: {
-  access: GithubPluginMcpImportAccess
+async function ensurePluginExternalMcpConnection(input: {
+  access: PluginMaterializationAccess
   authType: "none" | "oauth"
   context: PluginArchActorContext
   credentialMode: "per_member" | "shared"
-  server: GithubPluginMcpImportServer
-}): Promise<{ connection: Awaited<ReturnType<typeof createExternalMcpConnection>>; ownedByImportedPlugin: boolean }> {
+  server: PluginMaterializedMcpServer
+}): Promise<{ connection: Awaited<ReturnType<typeof createExternalMcpConnection>>; ownedByPlugin: boolean }> {
   if (!input.server.url) {
-    throw new PluginArchRouteFailure(400, "invalid_mcp_import", "MCP server URL is required.")
+    throw new PluginArchRouteFailure(400, "invalid_mcp_materialization", "MCP server URL is required.")
   }
 
   await assertPublicUrl(input.server.url)
@@ -3690,7 +4063,7 @@ async function ensureImportedExternalMcpConnection(input: {
   }
 
   if (existing) {
-    await requireExistingExternalMcpConnectionMatchesImport({
+    await requireExistingExternalMcpConnectionMatchesPlugin({
       access,
       connectionId: existing.id,
       authType: input.authType,
@@ -3701,7 +4074,7 @@ async function ensureImportedExternalMcpConnection(input: {
     if (input.authType === "none") {
       await markImportedExternalMcpConnectionConnected(existing.id)
     }
-    return { connection: existing, ownedByImportedPlugin: false }
+    return { connection: existing, ownedByPlugin: false }
   }
 
   const created = await createExternalMcpConnection({
@@ -3716,7 +4089,7 @@ async function ensureImportedExternalMcpConnection(input: {
   if (input.authType === "none") {
     await markImportedExternalMcpConnectionConnected(created.id)
   }
-  return { connection: created, ownedByImportedPlugin: true }
+  return { connection: created, ownedByPlugin: true }
 }
 
 async function markImportedExternalMcpConnectionConnected(connectionId: typeof ExternalMcpConnectionTable.$inferSelect.id) {
@@ -3726,10 +4099,10 @@ async function markImportedExternalMcpConnectionConnected(connectionId: typeof E
     .where(eq(ExternalMcpConnectionTable.id, connectionId))
 }
 
-function importedConnectionBackedMcpPayload(input: {
+function pluginExternalMcpConnectionPayload(input: {
   connectionId: string
-  ownedByImportedPlugin: boolean
-  server: GithubPluginMcpImportServer
+  ownedByPlugin: boolean
+  server: PluginMaterializedMcpServer
 }) {
   const serverName = slugifyPluginMcpName(input.server.name)
   return {
@@ -3739,18 +4112,19 @@ function importedConnectionBackedMcpPayload(input: {
         url: input.server.url,
         openworkManaged: "den_external_mcp",
         externalMcpConnectionId: input.connectionId,
-        externalMcpConnectionOwnedByPlugin: input.ownedByImportedPlugin,
+        externalMcpConnectionOwnedByPlugin: input.ownedByPlugin,
       },
     },
     openworkManaged: "den_external_mcp",
     externalMcpConnectionId: input.connectionId,
-    externalMcpConnectionOwnedByPlugin: input.ownedByImportedPlugin,
+    externalMcpConnectionOwnedByPlugin: input.ownedByPlugin,
   }
 }
 
-function importedDenSkillPayload(skillId: SkillId) {
+function denSkillPayload(input: { ownedByPlugin: boolean; skillId: SkillId }) {
   return {
-    denSkillId: skillId,
+    denSkillId: input.skillId,
+    denSkillOwnedByPlugin: input.ownedByPlugin,
     openworkManaged: "den_skill",
   }
 }
@@ -3802,17 +4176,19 @@ async function createSkillHubForImportedSkills(input: {
   return skillHubId
 }
 
-async function createImportedSkill(input: {
-  access: GithubPluginMcpImportAccess
+async function createPluginManagedSkill(input: {
+  access: PluginMaterializationAccess
   context: PluginArchActorContext
-  skill: GithubPluginSkillImportSkill
+  description?: string | null
   skillHubId: typeof SkillHubTable.$inferSelect.id | null
+  skillText: string
+  title?: string | null
 }) {
-  const skillText = input.skill.rawSourceText
-  if (!skillText) {
-    throw new PluginArchRouteFailure(400, "invalid_skill_import", "Selected skill content was unavailable.")
+  const parsedMetadata = skillMetadataFromText(input.skillText)
+  const metadata = {
+    description: normalizeOptionalString(input.description) ?? parsedMetadata.description,
+    title: normalizeOptionalString(input.title) ?? parsedMetadata.title,
   }
-  const metadata = skillMetadataFromText(skillText)
   const now = new Date()
   const skillId = createDenTypeId("skill")
   const createdByOrgMembershipId = input.context.organizationContext.currentMember.id
@@ -3824,7 +4200,7 @@ async function createImportedSkill(input: {
       createdByOrgMembershipId,
       title: metadata.title,
       description: metadata.description,
-      skillText,
+      skillText: input.skillText,
       shared: input.access.orgWide ? "org" : null,
       createdAt: now,
       updatedAt: now,
@@ -3842,9 +4218,27 @@ async function createImportedSkill(input: {
   return {
     description: metadata.description,
     id: skillId,
-    skillText,
+    skillText: input.skillText,
     title: metadata.title,
   }
+}
+
+async function createImportedSkill(input: {
+  access: GithubPluginMcpImportAccess
+  context: PluginArchActorContext
+  skill: GithubPluginSkillImportSkill
+  skillHubId: typeof SkillHubTable.$inferSelect.id | null
+}) {
+  const skillText = input.skill.rawSourceText
+  if (!skillText) {
+    throw new PluginArchRouteFailure(400, "invalid_skill_import", "Selected skill content was unavailable.")
+  }
+  return createPluginManagedSkill({
+    access: input.access,
+    context: input.context,
+    skillHubId: input.skillHubId,
+    skillText,
+  })
 }
 
 function importedPluginName(plan: GithubPluginMcpImportPlan) {
@@ -3949,7 +4343,7 @@ export async function importGithubPluginMcps(input: {
   const imported: Array<{ connectionId: string; name: string; url: string }> = []
   const importedSkills: Array<{ name: string; skillId: SkillId; sourcePath: string }> = []
   for (const server of supportedServers) {
-    const importedConnection = await ensureImportedExternalMcpConnection({
+    const importedConnection = await ensurePluginExternalMcpConnection({
       access,
       authType: input.authType,
       context: input.context,
@@ -3957,9 +4351,9 @@ export async function importGithubPluginMcps(input: {
       server,
     })
     const connection = importedConnection.connection
-    const payload = importedConnectionBackedMcpPayload({
+    const payload = pluginExternalMcpConnectionPayload({
       connectionId: connection.id,
-      ownedByImportedPlugin: importedConnection.ownedByImportedPlugin,
+      ownedByPlugin: importedConnection.ownedByPlugin,
       server,
     })
     const configObject = await createConfigObject({
@@ -3971,7 +4365,7 @@ export async function importGithubPluginMcps(input: {
         metadata: {
           description: `Den-hosted MCP connection imported from ${server.sourcePath}.`,
           externalMcpConnectionId: connection.id,
-          externalMcpConnectionOwnedByPlugin: importedConnection.ownedByImportedPlugin,
+          externalMcpConnectionOwnedByPlugin: importedConnection.ownedByPlugin,
           githubUrl: input.githubUrl,
           name: externalMcpConnectionName({ pluginName: server.pluginName, serverName: server.name }),
           openworkManaged: "den_external_mcp",
@@ -4020,7 +4414,7 @@ export async function importGithubPluginMcps(input: {
           repositoryFullName: plan.repositoryFullName,
           sourcePath: skill.sourcePath,
         },
-        normalizedPayloadJson: importedDenSkillPayload(createdSkill.id),
+        normalizedPayloadJson: denSkillPayload({ ownedByPlugin: true, skillId: createdSkill.id }),
         schemaVersion: "openwork.den_skill.v1",
       },
     })

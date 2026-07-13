@@ -67,6 +67,7 @@ export type PluginMcp = {
   description: string;
   transport: PluginMcpTransport;
   toolCount: number;
+  connectionBacked?: boolean;
 };
 
 export type PluginAgent = {
@@ -450,6 +451,23 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+export function resolvePluginMcpPresentation(
+  payload: Record<string, unknown> | null | undefined,
+): { connectionBacked: boolean; transport: PluginMcpTransport } {
+  const directTransport = asString(payload?.transport);
+  if (directTransport === "stdio" || directTransport === "http" || directTransport === "sse") {
+    return { connectionBacked: Boolean(asString(payload?.externalMcpConnectionId)), transport: directTransport };
+  }
+
+  const servers = isRecord(payload?.mcpServers) ? payload.mcpServers : null;
+  const server = servers ? Object.values(servers).find(isRecord) : null;
+  const serverType = asString(server?.type);
+  return {
+    connectionBacked: Boolean(asString(payload?.externalMcpConnectionId)),
+    transport: serverType === "sse" ? "sse" : serverType === "remote" || serverType === "http" ? "http" : "stdio",
+  };
+}
+
 function parseMembershipConfigObject(entry: unknown) {
   if (!isRecord(entry) || !isRecord(entry.configObject)) {
     return null;
@@ -552,13 +570,17 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
     } satisfies PluginHook));
   const mcps = membershipItems
     .filter((item) => item.objectType === "mcp")
-    .map((item) => ({
-      description: item.description,
-      id: item.id,
-      name: item.title,
-      toolCount: typeof item.normalizedPayload?.toolCount === "number" ? item.normalizedPayload.toolCount : 0,
-      transport: (asString(item.normalizedPayload?.transport) as PluginMcpTransport | null) ?? "stdio",
-    } satisfies PluginMcp));
+    .map((item) => {
+      const presentation = resolvePluginMcpPresentation(item.normalizedPayload);
+      return {
+        connectionBacked: presentation.connectionBacked,
+        description: item.description,
+        id: item.id,
+        name: item.title,
+        toolCount: typeof item.normalizedPayload?.toolCount === "number" ? item.normalizedPayload.toolCount : 0,
+        transport: presentation.transport,
+      } satisfies PluginMcp;
+    });
 
   const marketplaces = Array.isArray(pluginItem.marketplaces)
     ? pluginItem.marketplaces.flatMap((entry) => {

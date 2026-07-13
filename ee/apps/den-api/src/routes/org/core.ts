@@ -12,6 +12,7 @@ import { db } from "../../db.js"
 import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "../../entitlements.js"
 import { env } from "../../env.js"
 import { findEnterpriseAuthRequirementForEmail } from "../../enterprise-auth-requirement.js"
+import { resolveInvitationDownloadUrl } from "../../install-links.js"
 import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, resolveMemberTeamsMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { normalizeOrganizationCapabilities } from "../../organization-capabilities.js"
@@ -98,6 +99,7 @@ const invitationAcceptedResponseSchema = z.object({
   organizationId: denTypeIdSchema("organization"),
   organizationSlug: z.string().nullable(),
   invitationId: denTypeIdSchema("invitation"),
+  installPageUrl: z.string().url(),
 }).meta({ ref: "InvitationAcceptedResponse" })
 
 const organizationContextResponseSchema = z.object({
@@ -316,16 +318,23 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     await setRequestActiveOrganization(c, accepted.member.organizationId)
 
     const orgRows = await db
-      .select({ slug: OrganizationTable.slug })
+      .select({ slug: OrganizationTable.slug, metadata: OrganizationTable.metadata })
       .from(OrganizationTable)
       .where(eq(OrganizationTable.id, accepted.member.organizationId))
       .limit(1)
+    const organization = orgRows[0] ?? null
+    const installPageUrl = await resolveInvitationDownloadUrl({
+      organizationId: accepted.member.organizationId,
+      createdByUserId: user.id,
+      metadata: organization?.metadata ?? null,
+    })
 
     return c.json({
       accepted: true,
       organizationId: accepted.member.organizationId,
-      organizationSlug: orgRows[0]?.slug ?? null,
+      organizationSlug: organization?.slug ?? null,
       invitationId: accepted.invitation.id,
+      installPageUrl,
     })
     },
   )

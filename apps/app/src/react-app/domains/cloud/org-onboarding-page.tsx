@@ -21,10 +21,12 @@ import {
   readDenSettings,
   resolveDenBaseUrls,
   writeDenSettings,
+  type DenExternalMcpConnection,
   type DenOrgLlmProvider,
   type DenOrgMarketplace,
   type DenOrgSummary,
 } from "@/app/lib/den";
+import type { DenOrgSkillCard } from "@/app/types";
 import { getDesktopBootstrapConfig } from "@/app/lib/desktop";
 import { usePlatform } from "../../kernel/platform";
 import { useBootState } from "../../shell/boot-state";
@@ -65,8 +67,10 @@ import {
   RadioGroupItem,
 } from "@/components/ui/radio-group"
 import { useOrgListWindow } from "./use-org-list-window";
+import { savePendingSessionPrompt } from "../session/sync/draft-store";
 
 const RELOAD_AFTER_ONBOARDING_KEY = "openwork.reloadAfterOrgOnboarding";
+export const INACTIVE_ACCOUNT_CHECK_PROMPT = "Show me which employee accounts have been inactive for 30 days.";
 
 function useDenClient() {
   const settings = useMemo(() => readDenSettings(), []);
@@ -129,17 +133,167 @@ const FIRST_TASK_IDEAS = [
   "Draft a short intro email about OpenWork I can send my team.",
 ];
 
+type SkillPromptSource = {
+  title: string;
+  description?: string | null;
+  skillText?: string | null;
+};
+
+export type FirstWorkflow = {
+  skill: DenOrgSkillCard;
+  connection: DenExternalMcpConnection | null;
+  suggestedPrompt: string | null;
+};
+
+const SUGGESTED_PROMPT_MARKERS = [
+  "suggested prompt:",
+  "first prompt:",
+  "starter prompt:",
+];
+const WORKFLOW_CONNECTION_HINTS = ["directory", "employee", "people", "hr"];
+
+function focusPromptSoon() {
+  [0, 120, 320, 600].forEach((delay) =>
+    window.setTimeout(() => window.dispatchEvent(new Event("openwork:focusPrompt")), delay),
+  );
+}
+
+function normalizeLookupText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function skillLookupText(skill: SkillPromptSource) {
+  return normalizeLookupText([
+    skill.title,
+    skill.description ?? "",
+    skill.skillText ?? "",
+  ].join(" "));
+}
+
+function extractSuggestedPrompt(source: string | null | undefined) {
+  const raw = source?.trim() ?? "";
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  for (const marker of SUGGESTED_PROMPT_MARKERS) {
+    const start = lower.indexOf(marker);
+    if (start === -1) continue;
+    const promptLine = raw.slice(start + marker.length).split(/\r?\n/)[0]?.trim() ?? "";
+    const prompt = promptLine.replace(/^["“”']+|["“”']+$/g, "").trim();
+    if (prompt) return prompt;
+  }
+  return null;
+}
+
+function isInactiveAccountSkill(skill: SkillPromptSource) {
+  return normalizeLookupText(skill.title) === "inactive account check";
+}
+
+export function resolveSuggestedPromptForSkill(skill: SkillPromptSource) {
+  const explicitPrompt = extractSuggestedPrompt(skill.description) ?? extractSuggestedPrompt(skill.skillText);
+  if (explicitPrompt) return explicitPrompt;
+
+  const lookup = skillLookupText(skill);
+  if (
+    isInactiveAccountSkill(skill) ||
+    (lookup.includes("inactive") &&
+      lookup.includes("account") &&
+      (lookup.includes("30") || lookup.includes("thirty")))
+  ) {
+    return INACTIVE_ACCOUNT_CHECK_PROMPT;
+  }
+
+  return null;
+}
+
+export function shouldAutoSelectOnlyOrganization(
+  orgs: DenOrgSummary[],
+  hasSelectedOrganization: boolean,
+) {
+  return !hasSelectedOrganization && orgs.length === 1 ? orgs[0] : null;
+}
+
+export function isMcpConnectionReady(connection: DenExternalMcpConnection) {
+  return connection.connectedForMe &&
+    connection.needsReconnect !== true &&
+    (connection.missingFeatures?.length ?? 0) === 0;
+}
+
+function connectionTokens(connection: DenExternalMcpConnection) {
+  return normalizeLookupText(connection.name)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 3);
+}
+
+function selectFirstWorkflowSkill(skills: DenOrgSkillCard[]) {
+  return skills.find((skill) => resolveSuggestedPromptForSkill(skill)) ??
+    skills.find((skill) => skill.shared === "org") ??
+    skills[0] ??
+    null;
+}
+
+function selectFirstWorkflowConnection(
+  connections: DenExternalMcpConnection[],
+  skill: DenOrgSkillCard | null,
+) {
+  const readyConnections = connections.filter(isMcpConnectionReady);
+  const candidates = readyConnections.length > 0 ? readyConnections : connections;
+  if (!skill) return candidates[0] ?? null;
+
+  const skillText = skillLookupText(skill);
+  const matchingConnection = candidates.find((connection) =>
+    connectionTokens(connection).some((token) => skillText.includes(token)),
+  );
+  if (matchingConnection) return matchingConnection;
+
+  return candidates.find((connection) => {
+    const connectionName = normalizeLookupText(connection.name);
+    return WORKFLOW_CONNECTION_HINTS.some((hint) =>
+      connectionName.includes(hint) || skillText.includes(hint),
+    );
+  }) ?? candidates[0] ?? null;
+}
+
+export function resolveFirstWorkflow(
+  skills: DenOrgSkillCard[],
+  connections: DenExternalMcpConnection[],
+): FirstWorkflow | null {
+  const skill = selectFirstWorkflowSkill(skills);
+  if (!skill) return null;
+  return {
+    skill,
+    connection: selectFirstWorkflowConnection(connections, skill),
+    suggestedPrompt: resolveSuggestedPromptForSkill(skill),
+  };
+}
+
+function getFirstWorkflowCtaLabel(workflow: FirstWorkflow | null) {
+  if (!workflow?.suggestedPrompt) return null;
+  return isInactiveAccountSkill(workflow.skill)
+    ? "Start inactive account check"
+    : "Start first workflow";
+}
+
+function getMcpConnectionReadyLabel(connection: DenExternalMcpConnection) {
+  if (isMcpConnectionReady(connection)) {
+    return `${connection.name} connection ready`;
+  }
+  if (connection.connectedForMe) {
+    return `${connection.name} connection needs attention`;
+  }
+  return `${connection.name} connection needs your sign-in`;
+}
+
 function PreparedWorkspacePage({ prepared }: { prepared: PreparedBootstrapSummary }) {
   const navigate = useNavigate();
   const platform = usePlatform();
   const ownerClaim = prepared.claimLinks.find((link) => link.role === "owner") ?? prepared.claimLinks[0] ?? null;
+  const suggestedPrompt = resolveSuggestedPromptForSkill({ title: prepared.skillTitle });
+  const firstTaskIdeas = suggestedPrompt ? [suggestedPrompt] : FIRST_TASK_IDEAS;
 
   const startFirstTask = () => {
+    if (suggestedPrompt) savePendingSessionPrompt(suggestedPrompt);
     navigate("/session", { replace: true });
-    // Drop the cursor into the composer so the user can type their first task.
-    [0, 120, 320, 600].forEach((delay) =>
-      window.setTimeout(() => window.dispatchEvent(new Event("openwork:focusPrompt")), delay),
-    );
+    focusPromptSoon();
   };
 
   return (
@@ -181,7 +335,7 @@ function PreparedWorkspacePage({ prepared }: { prepared: PreparedBootstrapSummar
                 Try asking
               </div>
               <ul className="flex flex-col gap-2">
-                {FIRST_TASK_IDEAS.map((idea) => (
+                {firstTaskIdeas.map((idea) => (
                   <li
                     key={idea}
                     className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
@@ -193,7 +347,11 @@ function PreparedWorkspacePage({ prepared }: { prepared: PreparedBootstrapSummar
             </div>
 
             <Button size="lg" className="w-full" onClick={startFirstTask}>
-              Open your workspace and try a task
+              {suggestedPrompt
+                ? isInactiveAccountSkill({ title: prepared.skillTitle })
+                  ? "Start inactive account check"
+                  : "Start first workflow"
+                : "Open your workspace and try a task"}
               <ArrowRight data-icon="inline-end" />
             </Button>
 
@@ -239,6 +397,8 @@ export function OrgOnboardingPage() {
   const { markRouteReady } = useBootState();
   const prepared = usePreparedBootstrap();
   const [hasSelectedOrganization, setHasSelectedOrganization] = useState(false);
+  const [autoSelectError, setAutoSelectError] = useState<string | null>(null);
+  const [autoSelectRetry, setAutoSelectRetry] = useState(0);
   
   useEffect(() => {
     window.dispatchEvent(new CustomEvent(orgOnboardingVisibilityEvent, { detail: { visible: true } }));
@@ -262,6 +422,41 @@ export function OrgOnboardingPage() {
     enabled: Boolean(authToken),
     queryFn: () => denClient.listOrgs(),
   });
+  const onlyOrganization = data
+    ? shouldAutoSelectOnlyOrganization(data.orgs, hasSelectedOrganization)
+    : null;
+
+  useEffect(() => {
+    if (!authToken || !data || error || isPending || !onlyOrganization) return;
+    let cancelled = false;
+    setAutoSelectError(null);
+
+    void (async () => {
+      try {
+        if (data.activeOrgId !== onlyOrganization.id) {
+          await denClient.setActiveOrganization({ organizationId: onlyOrganization.id });
+        }
+        writeDenSettings({
+          ...settings,
+          authToken: authToken || null,
+          activeOrgId: onlyOrganization.id,
+          activeOrgSlug: onlyOrganization.slug,
+          activeOrgName: onlyOrganization.name,
+        });
+        if (!cancelled) setHasSelectedOrganization(true);
+      } catch (caught) {
+        if (!cancelled) {
+          setAutoSelectError(
+            caught instanceof Error ? caught.message : "Unable to connect your organization.",
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, autoSelectRetry, data, denClient, error, isPending, onlyOrganization, settings]);
 
   if (!authToken) {
     return prepared ? <PreparedWorkspacePage prepared={prepared} /> : null;
@@ -313,6 +508,16 @@ export function OrgOnboardingPage() {
     );
   }
 
+  if (onlyOrganization) {
+    return (
+      <AutoOrganizationConnectPage
+        org={onlyOrganization}
+        error={autoSelectError}
+        onRetry={() => setAutoSelectRetry((value) => value + 1)}
+      />
+    );
+  }
+
   if ((data?.orgs.length ?? 0) > 0 && !hasSelectedOrganization) {
     return (
       <OrganizationSelectionPage
@@ -327,6 +532,64 @@ export function OrgOnboardingPage() {
   }
 
   return <ResourceSelectionPage />;
+}
+
+function AutoOrganizationConnectPage({
+  org,
+  error,
+  onRetry,
+}: {
+  org: DenOrgSummary;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  return (
+    <Page>
+      <PageBackground />
+      <PageTitlebarRegion />
+      <PageContainer>
+        <PageHeader>
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-dls-border bg-dls-hover">
+            <BuildingOffice2Icon className="size-7 text-foreground" />
+          </div>
+          <PageTitle>{org.name}</PageTitle>
+          {error ? (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : (
+            <PageDescription>
+              Connecting your OpenWork organization. No extra organization selection is needed.
+            </PageDescription>
+          )}
+        </PageHeader>
+        <PageContent>
+          {error ? (
+            <Empty className="h-fit flex-none">
+              <EmptyHeader>
+                <EmptyTitle>We couldn't connect this organization yet.</EmptyTitle>
+                <EmptyDescription>
+                  Retry the secure OpenWork Connect handoff for {org.name}.
+                </EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button type="button" onClick={onRetry}>
+                  Retry connection
+                  <ArrowRight data-icon="inline-end" />
+                </Button>
+              </EmptyContent>
+            </Empty>
+          ) : (
+            <PageLoading>
+              <PageLoadingSpinner />
+              <PageLoadingDescription>Connecting organization...</PageLoadingDescription>
+            </PageLoading>
+          )}
+        </PageContent>
+      </PageContainer>
+    </Page>
+  );
 }
 
 export function ResourceSelectionPage() {
@@ -354,7 +617,7 @@ export function ResourceSelectionPage() {
     }
   }, [authToken, navigate, orgId]);
 
-  const { providers, marketplaces, loading, error } = useQueries({
+  const { providers, marketplaces, skills, connections, loading, error } = useQueries({
     queries: [
       {
         queryKey: ["den-org-onboarding", settings.baseUrl, orgId, "providers"],
@@ -366,16 +629,34 @@ export function ResourceSelectionPage() {
         enabled: Boolean(authToken && orgId),
         queryFn: () => denClient.listOrgMarketplaces(orgId),
       },
+      {
+        queryKey: ["den-org-onboarding", settings.baseUrl, orgId, "skills"],
+        enabled: Boolean(authToken && orgId),
+        queryFn: () => denClient.listOrgSkills(orgId),
+      },
+      {
+        queryKey: ["den-org-onboarding", settings.baseUrl, orgId, "mcp-connections", "usable"],
+        enabled: Boolean(authToken && orgId),
+        queryFn: () => denClient.listMcpConnections(orgId, "usable"),
+      },
     ],
-    combine: ([providersQuery, marketplacesQuery]) => ({
+    combine: ([providersQuery, marketplacesQuery, skillsQuery, connectionsQuery]) => ({
       providers: providersQuery.data ?? [],
       marketplaces: marketplacesQuery.data ?? [],
-      loading: providersQuery.isPending || marketplacesQuery.isPending,
-      error: providersQuery.error?.message ?? marketplacesQuery.error?.message ?? null,
+      skills: skillsQuery.data ?? [],
+      connections: connectionsQuery.data ?? [],
+      loading: providersQuery.isPending || marketplacesQuery.isPending || skillsQuery.isPending || connectionsQuery.isPending,
+      error: providersQuery.error?.message ?? marketplacesQuery.error?.message ?? skillsQuery.error?.message ?? connectionsQuery.error?.message ?? null,
     }),
   });
 
-  const handleContinue = useCallback(() => {
+  const firstWorkflow = useMemo(
+    () => resolveFirstWorkflow(skills, connections),
+    [connections, skills],
+  );
+  const firstWorkflowCtaLabel = getFirstWorkflowCtaLabel(firstWorkflow);
+
+  const handleContinue = useCallback((prompt: string | null) => {
     // If user picked a default model, write it
     if (selectedDefault) {
       writeStoredDefaultModel({
@@ -391,11 +672,14 @@ export function ResourceSelectionPage() {
         window.localStorage.setItem(RELOAD_AFTER_ONBOARDING_KEY, "1");
       } catch {}
     }
+    if (prompt) savePendingSessionPrompt(prompt);
     navigate("/session", { replace: true });
+    focusPromptSoon();
   }, [navigate, providers, selectedDefault]);
 
   const totalModels = providers.reduce((sum, provider) => sum + provider.models.length, 0);
-  const hasResources = providers.length > 0 || marketplaces.length > 0;
+  const hasResources = providers.length > 0 || marketplaces.length > 0 || skills.length > 0 || connections.length > 0;
+  const showResourceAccordion = providers.length > 0 || marketplaces.length > 0 || (!firstWorkflow && (skills.length > 0 || connections.length > 0));
 
   return (
     <Page>
@@ -437,6 +721,10 @@ export function ResourceSelectionPage() {
               <CircleAlert />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
+          ) : firstWorkflow ? (
+            <PageDescription>
+              OpenWork Connect has your administrator's first workflow ready — no local marketplace installation needed.
+            </PageDescription>
           ) : hasResources ? (
             <PageDescription>
               You have access to the following resources.
@@ -457,7 +745,7 @@ export function ResourceSelectionPage() {
               <EmptyHeader>
                 <EmptyTitle>No resources have been configured for this organization yet.</EmptyTitle>
                 <EmptyDescription>
-                  Add AI providers or marketplaces from the OpenWork Cloud dashboard.
+                  Add AI providers, skills, or OpenWork Connect resources from the Cloud dashboard.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
@@ -473,55 +761,90 @@ export function ResourceSelectionPage() {
           </PageContent>
         ) : (
           <PageContent>
-            <ScrollArea className="px-2.5">
-              <ScrollAreaViewport>
-                <Accordion
-                  multiple
-                  className="rounded-2xl border border-border bg-transparent shadow-none before:hidden"
-                >
-                  {/* AI Providers */}
-                  {providers.length > 0 ? (
-                    <Section
-                      icon={<CloudIcon className="size-5 text-foreground/60" />}
-                      title="AI Providers"
-                      description="Models you can use in your workspace."
-                      count={`${totalModels} model${totalModels === 1 ? "" : "s"}`}
-                    >
-                      {providers.map((provider) => (
-                        <ProviderCard
-                          key={provider.id}
-                          provider={provider}
-                          selectedDefault={selectedDefault}
-                          onSelectDefault={setSelectedDefault}
-                        />
-                      ))}
-                    </Section>
-                  ) : null}
+            <div className="flex w-full flex-col gap-4 px-2.5">
+              {firstWorkflow ? <FirstWorkflowCard workflow={firstWorkflow} /> : null}
 
-                  {/* Marketplaces */}
-                  {marketplaces.length > 0 ? (
-                    <Section
-                      icon={<Square3Stack3DIcon className="size-5 text-foreground/60" />}
-                      title="Marketplaces"
-                      description="App stores with extensions and plugins for your workspace."
-                      count={`${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}`}
+              {showResourceAccordion ? (
+                <ScrollArea className="-mx-2.5 px-2.5">
+                  <ScrollAreaViewport>
+                    <Accordion
+                      multiple
+                      className="rounded-2xl border border-border bg-transparent shadow-none before:hidden"
                     >
-                      {marketplaces.map((mp) => (
-                        <MarketplaceCard key={mp.id} marketplace={mp} />
-                      ))}
-                    </Section>
-                  ) : null}
+                      {/* AI Providers */}
+                      {providers.length > 0 ? (
+                        <Section
+                          icon={<CloudIcon className="size-5 text-foreground/60" />}
+                          title="AI Providers"
+                          description="Models you can use in your workspace."
+                          count={`${totalModels} model${totalModels === 1 ? "" : "s"}`}
+                        >
+                          {providers.map((provider) => (
+                            <ProviderCard
+                              key={provider.id}
+                              provider={provider}
+                              selectedDefault={selectedDefault}
+                              onSelectDefault={setSelectedDefault}
+                            />
+                          ))}
+                        </Section>
+                      ) : null}
 
-                </Accordion>
-              </ScrollAreaViewport>
-            </ScrollArea>
-            {/* Selected default indicator */}
-            {selectedDefault ? (
-              <div className="rounded-xl border border-green-6/30 bg-green-2/30 px-4 py-3 text-center text-sm text-green-11">
-                <Check size={14} className="mr-1 inline" />
-                {selectedDefault.label} will be set as your default model.
-              </div>
-            ) : null}
+                      {/* Organization skills */}
+                      {!firstWorkflow && skills.length > 0 ? (
+                        <Section
+                          icon={<Sparkles className="size-5 text-foreground/60" />}
+                          title="Organization skills"
+                          description="Admin-provided skills available through OpenWork Connect."
+                          count={`${skills.length} skill${skills.length === 1 ? "" : "s"}`}
+                        >
+                          {skills.map((skill) => (
+                            <SkillCard key={skill.id} skill={skill} />
+                          ))}
+                        </Section>
+                      ) : null}
+
+                      {/* Secure connections */}
+                      {!firstWorkflow && connections.length > 0 ? (
+                        <Section
+                          icon={<CheckCircle2 className="size-5 text-foreground/60" />}
+                          title="Secure connections"
+                          description="Usable MCP connections shared through OpenWork Connect."
+                          count={`${connections.length} connection${connections.length === 1 ? "" : "s"}`}
+                        >
+                          {connections.map((connection) => (
+                            <ConnectionCard key={connection.id} connection={connection} />
+                          ))}
+                        </Section>
+                      ) : null}
+
+                      {/* Marketplaces */}
+                      {marketplaces.length > 0 ? (
+                        <Section
+                          icon={<Square3Stack3DIcon className="size-5 text-foreground/60" />}
+                          title="Marketplaces"
+                          description="OpenWork Connect catalogs shared by your organization."
+                          count={`${marketplaces.length} marketplace${marketplaces.length === 1 ? "" : "s"}`}
+                        >
+                          {marketplaces.map((mp) => (
+                            <MarketplaceCard key={mp.id} marketplace={mp} />
+                          ))}
+                        </Section>
+                      ) : null}
+
+                    </Accordion>
+                  </ScrollAreaViewport>
+                </ScrollArea>
+              ) : null}
+
+              {/* Selected default indicator */}
+              {selectedDefault ? (
+                <div className="rounded-xl border border-green-6/30 bg-green-2/30 px-4 py-3 text-center text-sm text-green-11">
+                  <Check size={14} className="mr-1 inline" />
+                  {selectedDefault.label} will be set as your default model.
+                </div>
+              ) : null}
+            </div>
           </PageContent>
         )}
 
@@ -529,22 +852,122 @@ export function ResourceSelectionPage() {
           {/* Footer hint */}
           {!loading && hasResources ? (
             <p className="text-center text-xs text-muted-foreground text-balance leading-relaxed tracking-wide">
-              Providers are added to your workspace automatically. Marketplaces are available from Cloud settings.
+              OpenWork Connect resources are available automatically. Marketplaces do not need local installation.
             </p>
           ) : null}
           <Button
             className="w-fit"
             type="button"
             size="lg"
-            onClick={handleContinue}
+            onClick={() => handleContinue(firstWorkflow?.suggestedPrompt ?? null)}
             disabled={loading}
           >
-            {hasResources ? "Continue to workspace" : "Continue"}
+            {firstWorkflowCtaLabel ?? (hasResources ? "Continue to workspace" : "Continue")}
             <ArrowRight data-icon="inline-end" />
           </Button>
         </PageFooter>
       </PageContainer>
     </Page>
+  );
+}
+
+function FirstWorkflowCard({ workflow }: { workflow: FirstWorkflow }) {
+  const connection = workflow.connection;
+  const prompt = workflow.suggestedPrompt;
+
+  return (
+    <div
+      data-openwork-first-workflow="true"
+      data-openwork-first-workflow-skill={workflow.skill.title}
+      data-openwork-first-workflow-connection={connection?.name ?? ""}
+      className="rounded-3xl border border-green-6/30 bg-gradient-to-br from-green-2/40 via-background to-dls-hover/50 p-5 shadow-sm"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex w-fit items-center gap-2 rounded-full border border-green-6/30 bg-green-2/50 px-3 py-1 text-xs font-semibold text-green-11">
+            <CheckCircle2 className="size-3.5" />
+            Organization connected
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-foreground">
+              {workflow.skill.title}
+            </div>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              {workflow.skill.description ?? "Your administrator shared this skill and its secure connection through OpenWork Connect."}
+            </p>
+          </div>
+        </div>
+        <div className="shrink-0 rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">
+          OpenWork Connect
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <WorkflowStatus label="Organization connected" />
+        <WorkflowStatus label={`${workflow.skill.title} skill ready`} />
+        {connection ? (
+          <WorkflowStatus
+            label={getMcpConnectionReadyLabel(connection)}
+            ready={isMcpConnectionReady(connection)}
+          />
+        ) : (
+          <WorkflowStatus label="Secure connection not configured" ready={false} />
+        )}
+      </div>
+
+      {prompt ? (
+        <div className="mt-4 rounded-2xl border border-border bg-background/80 p-3">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Suggested first task
+          </div>
+          <p className="text-sm font-medium text-foreground">{prompt}</p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkflowStatus({ label, ready = true }: { label: string; ready?: boolean }) {
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-border bg-background/80 px-3 py-2 text-sm text-foreground">
+      <CheckCircle2 className={cn("size-4 shrink-0", ready ? "text-green-11" : "text-muted-foreground")} />
+      <span className="min-w-0 truncate">{label}</span>
+    </div>
+  );
+}
+
+function SkillCard({ skill }: { skill: DenOrgSkillCard }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border px-3 py-3 -mx-2">
+      <Sparkles className="size-4 shrink-0 text-foreground/60" />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-foreground">{skill.title}</div>
+        {skill.description ? (
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {skill.description}
+          </div>
+        ) : null}
+      </div>
+      <span className="shrink-0 text-xs text-green-11">Skill ready</span>
+    </div>
+  );
+}
+
+function ConnectionCard({ connection }: { connection: DenExternalMcpConnection }) {
+  const ready = isMcpConnectionReady(connection);
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border px-3 py-3 -mx-2">
+      <CheckCircle2 className={cn("size-4 shrink-0", ready ? "text-green-11" : "text-muted-foreground")} />
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium text-foreground">{connection.name}</div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+          {connection.credentialMode === "shared" ? "Shared secure MCP connection" : "Member secure MCP connection"}
+        </div>
+      </div>
+      <span className={cn("shrink-0 text-xs", ready ? "text-green-11" : "text-muted-foreground")}>
+        {ready ? "Ready" : "Needs attention"}
+      </span>
+    </div>
   );
 }
 

@@ -214,7 +214,9 @@ function renderMcpRow(mcp: PluginMcp) {
         ) : null}
       </div>
       <span className="shrink-0 rounded-full bg-gray-50 px-2 py-0.5 text-[11px] text-gray-500">
-        {mcp.transport} · {mcp.toolCount} tool{mcp.toolCount === 1 ? "" : "s"}
+        {mcp.connectionBacked
+          ? `${mcp.transport.toUpperCase()} · OpenWork Connect`
+          : `${mcp.transport} · ${mcp.toolCount} tool${mcp.toolCount === 1 ? "" : "s"}`}
       </span>
     </div>
   );

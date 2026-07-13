@@ -155,7 +155,8 @@ import {
   publishInspectorSlice,
   recordInspectorEvent,
 } from "../../app/lib/app-inspector";
-import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
+import { consumePendingSessionPrompt, peekPendingSessionPrompt } from "@/react-app/domains/session/sync/draft-store";
+import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
@@ -415,6 +416,7 @@ export function SessionRoute() {
   const pendingProviderDraftRef = useRef<{ draft: ComposerDraft; sessionId: string } | null>(null);
   const providerStepResendRef = useRef(false);
   const firstRunSessionRef = useRef(false);
+  const pendingPromptTaskRef = useRef(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
   const [createWorkspaceRemoteBusy, setCreateWorkspaceRemoteBusy] = useState(false);
@@ -1198,7 +1200,7 @@ export function SessionRoute() {
   );
 
 
-  const handleCreateTaskInWorkspace = useCallback(async (workspaceId: string): Promise<string | null> => {
+  const handleCreateTaskInWorkspace = useCallback(async (workspaceId: string, initialPrompt?: string): Promise<string | null> => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1228,6 +1230,12 @@ export function SessionRoute() {
       });
       toast.dismiss(taskCreateUnavailableToastId(workspaceId));
       toast.dismiss();
+      if (initialPrompt?.trim()) {
+        // The composer's visible text is the Zustand composer-state store
+        // keyed by session id; SyncPlugin pushes store changes into the
+        // Lexical editor even when the composer is already mounted.
+        useComposerStateStore.getState().setDraft(session.id, initialPrompt.trim());
+      }
       setLegacySelectedWorkspaceId(workspaceId);
       writeActiveWorkspaceId(workspaceId || null);
       writeLastSessionFor(workspaceId, session.id);
@@ -1337,6 +1345,27 @@ export function SessionRoute() {
       if (!createdSessionId) firstRunSessionRef.current = false;
     });
   }, [canCreateTask, selectedSessionId, selectedWorkspaceId, sessionsByWorkspaceId, handleCreateTaskInWorkspace]);
+
+  // Onboarding "start first workflow" handoff: org onboarding saved a pending
+  // prompt before navigating here, so land the user in a fresh task with that
+  // prompt pre-filled — the same session-draft path the suggestion chips use.
+  // Peek first and consume only after the task exists: right after sign-in the
+  // create call bails silently while the workspace endpoint is still
+  // resolving, and the prompt must survive those retries.
+  useEffect(() => {
+    if (!canCreateTask || !selectedWorkspaceId) return;
+    if (pendingPromptTaskRef.current) return;
+    const prompt = peekPendingSessionPrompt();
+    if (!prompt) return;
+    pendingPromptTaskRef.current = true;
+    void handleCreateTaskInWorkspace(selectedWorkspaceId, prompt).then((createdSessionId) => {
+      if (createdSessionId) {
+        consumePendingSessionPrompt();
+      } else {
+        pendingPromptTaskRef.current = false;
+      }
+    });
+  }, [canCreateTask, selectedWorkspaceId, handleCreateTaskInWorkspace]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2081,35 +2110,9 @@ export function SessionRoute() {
           void handleCreateTaskInWorkspace(workspaceId);
         },
         onCreateTaskWithPrompt: (workspaceId, prompt) => {
-          void (async () => {
-            const workspace = workspaces.find((item) => item.id === workspaceId);
-            if (!workspace) return;
-            const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
-            if (!endpoint?.token) return;
-            const workspaceClient = createClient(
-              endpoint.opencodeBaseUrl,
-              workspace.path?.trim() || undefined,
-              { token: endpoint.token, mode: "openwork" },
-            );
-            try {
-              const session = unwrap(
-                await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
-              );
-              saveSessionDraft(workspaceId, session.id, { text: prompt, mode: "prompt" });
-              writeActiveWorkspaceId(workspaceId || null);
-              writeLastSessionFor(workspaceId, session.id);
-              rememberPendingCreatedSession(workspaceId, session.id);
-              setSessionsByWorkspaceId((current) => ({
-                ...current,
-                [workspaceId]: [session, ...(current[workspaceId] ?? [])],
-              }));
-              navigateToWorkspaceSession(workspaceId, session.id);
-              focusPromptSoon();
-            } catch {
-              // Fall back to normal task creation without prompt
-              void handleCreateTaskInWorkspace(workspaceId);
-            }
-          })();
+          // Shared create-task path: it seeds the composer-state store (the
+          // store the composer actually renders) before navigating.
+          void handleCreateTaskInWorkspace(workspaceId, prompt);
         },
         onOpenRenameWorkspace: handleOpenRenameWorkspace,
         onShareWorkspace: handleShareWorkspace,

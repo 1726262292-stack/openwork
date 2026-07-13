@@ -63,6 +63,18 @@ const rateLimitedSchema = z.object({
   message: z.string(),
 }).meta({ ref: "RateLimitedError" })
 
+const installPrepareResponseSchema = z.union([
+  z.object({
+    status: z.literal("ready"),
+    stage: z.enum(["bundle", "script"]),
+  }),
+  z.object({
+    status: z.literal("fallback"),
+    stage: z.literal("standard-download"),
+    fallbackUrl: z.string().url(),
+  }),
+]).meta({ ref: "InstallPrepareResponse" })
+
 type InstallPlatform = z.infer<typeof installPlatformSchema>
 
 type InstallerDependencies = {
@@ -74,6 +86,12 @@ const defaultInstallerDependencies: InstallerDependencies = {
   resolveArtifact: resolveInstallerArtifact,
   resolveFallbackUrl: (platform) => resolveInstallerFallbackUrl(platform, OPENWORK_DOWNLOAD_URL),
 }
+
+type InstallerPreparation =
+  | { status: "ready"; stage: "script" }
+  | { status: "ready"; stage: "bundle"; desktopFileName: string; genericFileName: string; desktopArtifact: Buffer; genericInstallerArtifact: Buffer }
+  | { status: "fallback"; stage: "standard-download"; fallbackUrl: string }
+  | { status: "unsupported" }
 
 function requestAddress(headers: Headers) {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
@@ -234,6 +252,40 @@ echo "Run the AppImage, then sign in — your team's workspace is preconfigured.
 `
 }
 
+async function resolveInstallerPreparation(platform: InstallPlatform, installer: InstallerDependencies): Promise<InstallerPreparation> {
+  if (platform.startsWith("linux-")) {
+    return { status: "ready", stage: "script" }
+  }
+
+  const desktopFileName = desktopArtifactFileName(platform)
+  const genericFileName = genericInstallerAssetName(platform)
+  if (!desktopFileName || !genericFileName) {
+    return { status: "unsupported" }
+  }
+
+  const [desktopArtifact, genericInstallerArtifact] = await Promise.all([
+    installer.resolveArtifact(desktopFileName),
+    installer.resolveArtifact(genericFileName),
+  ])
+
+  if (!desktopArtifact || !genericInstallerArtifact) {
+    return {
+      status: "fallback",
+      stage: "standard-download",
+      fallbackUrl: await installer.resolveFallbackUrl(platform),
+    }
+  }
+
+  return {
+    status: "ready",
+    stage: "bundle",
+    desktopFileName,
+    genericFileName,
+    desktopArtifact,
+    genericInstallerArtifact,
+  }
+}
+
 const setActiveOrganizationFromParam: MiddlewareHandler<{ Variables: OrgRouteVariables }> = async (c, next) => {
   const parsed = denTypeIdSchema("organization").safeParse(c.req.param("organizationId"))
   if (!parsed.success) {
@@ -341,6 +393,51 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
   )
 
   app.get(
+    "/v1/install/:platform/prepare",
+    describeRoute({
+      tags: ["Organizations"],
+      summary: "Prepare stamped installer download",
+      description: "Validates an install link, resolves the platform artifacts into cache, and reports whether the existing installer attachment endpoint is ready or will fall back before the browser requests the download.",
+      responses: {
+        200: jsonResponse("Installer readiness resolved successfully.", installPrepareResponseSchema),
+        400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
+        404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
+        429: jsonResponse("Too many installer preparation attempts.", rateLimitedSchema),
+      },
+    }),
+    publicRoute,
+    queryValidator(installLinkQuerySchema),
+    async (c) => {
+      const platformResult = installPlatformParamSchema.safeParse({ platform: c.req.param("platform") })
+      if (!platformResult.success) {
+        return c.json({ error: "invalid_request", details: platformResult.error.issues }, 400)
+      }
+
+      const retryAfter = await enforceRateLimit(c.req.raw.headers, "artifact", INSTALL_ARTIFACT_RATE_LIMIT_MAX)
+      if (retryAfter !== null) {
+        c.header("Retry-After", String(retryAfter))
+        return c.json({ error: "rate_limited", message: "Too many installer download attempts. Try again later." }, 429)
+      }
+
+      const input = c.req.valid("query")
+      const resolved = await resolveInstallConfigForToken(input.token, c.req.raw)
+      if (!resolved) {
+        return c.json({ error: "install_link_not_found" }, 404)
+      }
+
+      const prepared = await resolveInstallerPreparation(platformResult.data.platform, installer)
+      if (prepared.status === "unsupported") {
+        return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
+      }
+      if (prepared.status === "fallback") {
+        return c.json({ status: "fallback", stage: "standard-download", fallbackUrl: prepared.fallbackUrl })
+      }
+
+      return c.json({ status: "ready", stage: prepared.stage })
+    },
+  )
+
+  app.get(
     "/v1/install/:platform",
     describeRoute({
       tags: ["Organizations"],
@@ -385,30 +482,27 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         })
       }
 
-      const desktopFileName = desktopArtifactFileName(platform)
-      const genericFileName = genericInstallerAssetName(platform)
-      if (!desktopFileName || !genericFileName) {
+      const prepared = await resolveInstallerPreparation(platform, installer)
+      if (prepared.status === "unsupported") {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
-
-      const [desktopArtifact, genericInstallerArtifact] = await Promise.all([
-        installer.resolveArtifact(desktopFileName),
-        installer.resolveArtifact(genericFileName),
-      ])
-      if (!desktopArtifact || !genericInstallerArtifact) {
-        return c.redirect(await installer.resolveFallbackUrl(platform), 302)
+      if (prepared.status === "fallback") {
+        return c.redirect(prepared.fallbackUrl, 302)
+      }
+      if (prepared.stage === "script") {
+        return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
       const sidecar = Buffer.from(`${JSON.stringify(resolved.config, null, 2)}\n`, "utf8")
       const bundle = platform.startsWith("mac-")
-        ? appendStoredEntriesToZipStream(genericInstallerArtifact, [
+        ? appendStoredEntriesToZipStream(prepared.genericInstallerArtifact, [
             { name: INSTALL_SIDECAR_FILENAME, content: sidecar },
-            { name: desktopFileName, content: desktopArtifact },
+            { name: prepared.desktopFileName, content: prepared.desktopArtifact },
           ])
         : createStoredZipStream([
-            { name: "OpenWork Installer.exe", content: genericInstallerArtifact },
+            { name: "OpenWork Installer.exe", content: prepared.genericInstallerArtifact },
             { name: INSTALL_SIDECAR_FILENAME, content: sidecar },
-            { name: desktopFileName, content: desktopArtifact },
+            { name: prepared.desktopFileName, content: prepared.desktopArtifact },
           ])
 
       return new Response(bundle.body, {

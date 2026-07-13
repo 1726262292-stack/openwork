@@ -15,13 +15,14 @@ import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useMarketplaces } from "./marketplace-data";
 import { pluginQueryKeys } from "./plugin-data";
 
-type ComponentKind = "skill" | "command" | "mcp";
+export type ComponentKind = "skill" | "command" | "mcp";
 
-type DraftComponent = {
+export type DraftComponent = {
   key: number;
   kind: ComponentKind;
   name: string;
   description: string;
+  suggestedPrompt: string;
   /** Markdown body for skills/commands; remote server URL for MCP. */
   content: string;
 };
@@ -67,7 +68,7 @@ const COMPONENT_META: Record<ComponentKind, { label: string; icon: typeof FileTe
   mcp: {
     label: "MCP server",
     icon: Server,
-    hint: "Connect a remote MCP server by URL. Members get its tools when they install the plugin.",
+    hint: "Connect a shared no-auth remote MCP server by public HTTPS URL. Configure OAuth or API-key MCPs in OpenWork Connect instead.",
   },
 };
 
@@ -80,13 +81,28 @@ function slugify(value: string): string {
     .slice(0, 64) || "component";
 }
 
-function buildSkillMarkdown(component: DraftComponent): string {
+export function validateManualPluginMcpUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return "Enter the server URL.";
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return "Enter a valid https:// URL.";
+  }
+  if (url.protocol !== "https:") return "Manual MCP plugins support public https:// URLs only.";
+  if (url.username || url.password) return "Do not put credentials in the MCP URL. Add authenticated servers in OpenWork Connect.";
+  return null;
+}
+
+export function buildSkillMarkdown(component: DraftComponent): string {
   const name = slugify(component.name);
   const description = component.description.trim() || component.name.trim();
   return [
     "---",
     `name: ${name}`,
     `description: ${description}`,
+    ...(component.suggestedPrompt.trim() ? [`suggested_prompt: ${component.suggestedPrompt.trim()}`] : []),
     "---",
     "",
     component.content.trim(),
@@ -94,7 +110,7 @@ function buildSkillMarkdown(component: DraftComponent): string {
   ].join("\n");
 }
 
-function buildComponentBody(component: DraftComponent): Record<string, unknown> {
+export function buildComponentBody(component: DraftComponent): Record<string, unknown> {
   if (component.kind === "mcp") {
     const serverName = slugify(component.name);
     return {
@@ -102,10 +118,12 @@ function buildComponentBody(component: DraftComponent): Record<string, unknown> 
       input: {
         normalizedPayloadJson: {
           mcpServers: {
-            [serverName]: { type: "remote", url: component.content.trim() },
+            [serverName]: { authType: "none", credentialMode: "shared", type: "remote", url: component.content.trim() },
           },
         },
         metadata: {
+          authType: "none",
+          credentialMode: "shared",
           name: component.name.trim(),
           description: component.description.trim() || undefined,
         },
@@ -121,6 +139,7 @@ function buildComponentBody(component: DraftComponent): Record<string, unknown> 
       metadata: {
         name: component.name.trim(),
         description: component.description.trim() || undefined,
+        suggestedPrompt: component.kind === "skill" ? component.suggestedPrompt.trim() || undefined : undefined,
       },
     },
   };
@@ -257,7 +276,7 @@ export function PluginEditorScreen() {
   const addComponent = (kind: ComponentKind) => {
     setComponents((current) => [
       ...current,
-      { key: nextKey, kind, name: "", description: "", content: "" },
+      { key: nextKey, kind, name: "", description: "", suggestedPrompt: "", content: "" },
     ]);
     setNextKey((value) => value + 1);
   };
@@ -293,6 +312,13 @@ export function PluginEditorScreen() {
             : `Write the instructions for "${component.name || "your component"}".`,
         );
         return;
+      }
+      if (component.kind === "mcp") {
+        const urlError = validateManualPluginMcpUrl(component.content);
+        if (urlError) {
+          setSaveError(`${component.name || "MCP server"}: ${urlError}`);
+          return;
+        }
       }
     }
 
@@ -713,13 +739,26 @@ export function PluginEditorScreen() {
                       disabled={saving}
                     />
                   ) : null}
-                  {component.kind === "mcp" ? (
+                  {component.kind === "skill" ? (
                     <DenInput
-                      value={component.content}
-                      onChange={(event) => updateComponent(component.key, { content: event.target.value })}
-                      placeholder="https://mcp.example.com/mcp"
+                      value={component.suggestedPrompt}
+                      onChange={(event) => updateComponent(component.key, { suggestedPrompt: event.target.value })}
+                      placeholder="Suggested prompt members can start with"
                       disabled={saving}
                     />
+                  ) : null}
+                  {component.kind === "mcp" ? (
+                    <div>
+                      <DenInput
+                        value={component.content}
+                        onChange={(event) => updateComponent(component.key, { content: event.target.value })}
+                        placeholder="https://mcp.example.com/mcp"
+                        disabled={saving}
+                      />
+                      <p className="mt-1.5 text-[12px] leading-5 text-gray-500">
+                        This creates a shared no-auth OpenWork Connect connection. OAuth and API-key MCP servers must be configured in Connect first.
+                      </p>
+                    </div>
                   ) : (
                     <DenTextarea
                       value={component.content}

@@ -20,6 +20,7 @@ import { JoinOrgSuccess } from "./join-org-success";
 type JoinedOrg = {
   name: string;
   slug: string;
+  installPageUrl: string | null;
 };
 
 function LoadingCard({ title, body }: { title: string; body: string }) {
@@ -73,6 +74,20 @@ function getStringProperty(value: unknown, key: string) {
 
   const property = value[key];
   return typeof property === "string" ? property : null;
+}
+
+function getUrlProperty(value: unknown, key: string) {
+  const property = getStringProperty(value, key)?.trim();
+  if (!property) {
+    return null;
+  }
+
+  try {
+    new URL(property);
+    return property;
+  } catch {
+    return null;
+  }
 }
 
 export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
@@ -191,6 +206,7 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
       setJoinedOrg({
         name: preview?.organization.name ?? "your team",
         slug: organizationSlug,
+        installPageUrl: getUrlProperty(payload, "installPageUrl"),
       });
     } catch (error) {
       setJoinError(error instanceof Error ? error.message : "Could not join the organization.");
@@ -215,6 +231,7 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
     return (
       <JoinOrgSuccess
         organizationName={joinedOrg.name}
+        installPageUrl={joinedOrg.installPageUrl}
         onContinueInBrowser={() => router.replace(joinedOrg.slug ? getOrgDashboardRoute(joinedOrg.slug) : "/dashboard")}
       />
     );

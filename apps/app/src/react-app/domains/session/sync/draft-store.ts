@@ -9,6 +9,7 @@ export type SessionDraftSnapshot = {
 };
 
 const STORAGE_KEY = "openwork.session-drafts.v1";
+const PENDING_PROMPT_STORAGE_KEY = "openwork.session.pendingPrompt.v1";
 const MAX_DRAFT_COUNT = 100;
 
 let draftCache: Map<string, SessionDraftSnapshot> | null = null;
@@ -122,6 +123,41 @@ export const clearSessionDraft = (
   if (!cache.delete(key)) return;
   persistDraftCache();
   emitDraftStoreChange();
+};
+
+export const savePendingSessionPrompt = (prompt: string) => {
+  if (typeof window === "undefined") return;
+  const text = prompt.trim();
+  try {
+    if (text) {
+      window.sessionStorage.setItem(PENDING_PROMPT_STORAGE_KEY, text);
+    } else {
+      window.sessionStorage.removeItem(PENDING_PROMPT_STORAGE_KEY);
+    }
+  } catch {
+    // Session storage can be unavailable in restricted browser contexts.
+  }
+};
+
+export const peekPendingSessionPrompt = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const prompt = window.sessionStorage.getItem(PENDING_PROMPT_STORAGE_KEY)?.trim() ?? "";
+    return prompt || null;
+  } catch {
+    return null;
+  }
+};
+
+export const consumePendingSessionPrompt = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    const prompt = window.sessionStorage.getItem(PENDING_PROMPT_STORAGE_KEY)?.trim() ?? "";
+    window.sessionStorage.removeItem(PENDING_PROMPT_STORAGE_KEY);
+    return prompt || null;
+  } catch {
+    return null;
+  }
 };
 
 export function useSessionDraftSnapshot(

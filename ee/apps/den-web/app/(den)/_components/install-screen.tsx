@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getErrorMessage, requestJson } from "../_lib/den-flow";
-import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
+import { buildInstallDownloadHref, buildInstallPreparePath, getInstallDownloadStage, parseInstallPrepareStatus, shouldAutoRequestInstaller, type InstallPlatform } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
+import { InstallDownloadSpinner } from "./install-download-spinner";
 
 type InstallConfig = {
   appName: string;
@@ -94,10 +95,16 @@ export function InstallScreen() {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [platform, setPlatform] = useState<InstallPlatform>("mac-arm64");
   const [copied, setCopied] = useState(false);
-  const [downloadState, setDownloadState] = useState<"idle" | "preparing" | "started">("idle");
-  const [downloadLabel, setDownloadLabel] = useState("");
+  const [downloadState, setDownloadState] = useState<"idle" | "preparing" | "requested" | "error">("idle");
+  const [downloadLabel, setDownloadLabel] = useState("your computer");
+  const [downloadPlatform, setDownloadPlatform] = useState<InstallPlatform | null>(null);
+  const [downloadMessage, setDownloadMessage] = useState("");
+  const [downloadDetail, setDownloadDetail] = useState("");
+  const [showPreparationRetry, setShowPreparationRetry] = useState(false);
   const [downloadHref, setDownloadHref] = useState("");
-  const downloadStartedTimer = useRef<number | null>(null);
+  const prepareAbortController = useRef<AbortController | null>(null);
+  const prepareStageInterval = useRef<number | null>(null);
+  const prepareTimeout = useRef<number | null>(null);
 
   useEffect(() => {
     setIsMobile(isMobileUserAgent());
@@ -152,8 +159,12 @@ export function InstallScreen() {
   }, [token]);
 
   useEffect(() => () => {
-    if (downloadStartedTimer.current !== null) {
-      window.clearTimeout(downloadStartedTimer.current);
+    prepareAbortController.current?.abort();
+    if (prepareStageInterval.current !== null) {
+      window.clearInterval(prepareStageInterval.current);
+    }
+    if (prepareTimeout.current !== null) {
+      window.clearTimeout(prepareTimeout.current);
     }
   }, []);
 
@@ -165,17 +176,107 @@ export function InstallScreen() {
     window.setTimeout(() => setCopied(false), 1800);
   }
 
-  function beginDownload(label: string, href: string) {
+  function clearPreparationTimers() {
+    if (prepareStageInterval.current !== null) {
+      window.clearInterval(prepareStageInterval.current);
+      prepareStageInterval.current = null;
+    }
+    if (prepareTimeout.current !== null) {
+      window.clearTimeout(prepareTimeout.current);
+      prepareTimeout.current = null;
+    }
+  }
+
+  function updatePreparationStage(startedAt: number) {
+    const stage = getInstallDownloadStage(Date.now() - startedAt);
+    setDownloadMessage(stage.label);
+    setDownloadDetail(stage.detail);
+    setShowPreparationRetry(stage.showRetry);
+  }
+
+  async function beginDownload(targetPlatform: InstallPlatform, label: string) {
+    if (!config || !token) {
+      return;
+    }
+
+    prepareAbortController.current?.abort();
+    clearPreparationTimers();
+
+    const href = installHref(config, targetPlatform, token);
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let timedOut = false;
+
     setDownloadLabel(label);
+    setDownloadPlatform(targetPlatform);
     setDownloadHref(href);
     setDownloadState("preparing");
-    if (downloadStartedTimer.current !== null) {
-      window.clearTimeout(downloadStartedTimer.current);
+    setShowPreparationRetry(false);
+    updatePreparationStage(startedAt);
+
+    prepareAbortController.current = controller;
+    prepareStageInterval.current = window.setInterval(() => updatePreparationStage(startedAt), 1000);
+    prepareTimeout.current = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 90_000);
+
+    try {
+      const { response, payload } = await requestJson(
+        buildInstallPreparePath(targetPlatform, token),
+        { method: "GET", signal: controller.signal },
+        0,
+      );
+
+      if (controller.signal.aborted || prepareAbortController.current !== controller) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(getErrorMessage(payload, response.status === 404 ? "This install link is expired or no longer available." : `Could not prepare this download (${response.status}).`));
+      }
+
+      const status = parseInstallPrepareStatus(payload);
+      if (!status) {
+        throw new Error("The server did not return a usable installer readiness status.");
+      }
+
+      clearPreparationTimers();
+      setShowPreparationRetry(false);
+      setDownloadState("requested");
+      setDownloadMessage(status.status === "fallback" ? "Standard OpenWork download requested" : "Team installer ready — download requested");
+      setDownloadDetail(status.status === "fallback"
+        ? "This server could not prepare a team ZIP, so the download request will use the verified standard installer."
+        : "Your browser is now handling the real installer request. Check your downloads if no prompt appears.");
+
+      if (shouldAutoRequestInstaller(status)) {
+        window.location.assign(href);
+      }
+    } catch (downloadError) {
+      if (controller.signal.aborted && !timedOut) {
+        return;
+      }
+      if (prepareAbortController.current !== controller) {
+        return;
+      }
+      clearPreparationTimers();
+      setDownloadState("error");
+      setDownloadMessage("Download was not requested");
+      setDownloadDetail(timedOut ? "The server did not report readiness in time. Retry the readiness check before downloading." : downloadError instanceof Error ? downloadError.message : "Could not prepare this download.");
+      setShowPreparationRetry(true);
+    } finally {
+      if (prepareAbortController.current === controller) {
+        prepareAbortController.current = null;
+        clearPreparationTimers();
+      }
     }
-    downloadStartedTimer.current = window.setTimeout(() => {
-      setDownloadState("started");
-      downloadStartedTimer.current = null;
-    }, 5000);
+  }
+
+  function retryDownload() {
+    if (!downloadPlatform) {
+      return;
+    }
+    void beginDownload(downloadPlatform, downloadLabel);
   }
 
   if (busy) {
@@ -232,31 +333,44 @@ export function InstallScreen() {
           </div>
         ) : (
           <div className="grid justify-items-center gap-4">
-            <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary" onClick={() => beginDownload(primaryLabel, primaryHref)}>
+            <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary" onClick={(event) => { event.preventDefault(); void beginDownload(platform, primaryLabel); }}>
               Download for {primaryLabel}
             </a>
             <div className="flex flex-wrap justify-center gap-2">
               {secondaryPlatforms.map((option) => (
-                <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)} onClick={() => beginDownload(option.label, installHref(config, option.value, token))}>
+                <a key={option.value} className="den-button-secondary" href={installHref(config, option.value, token)} onClick={(event) => { event.preventDefault(); void beginDownload(option.value, option.label); }}>
                   {option.label}
                 </a>
               ))}
             </div>
             {downloadState !== "idle" ? (
-              <div className="den-frame-inset grid w-full justify-items-center gap-2 rounded-[1.25rem] p-4" aria-live="polite" data-testid="install-download-status">
+              <div className="den-frame-inset grid w-full justify-items-center gap-2 rounded-[1.25rem] p-4" aria-live={downloadState === "error" ? "assertive" : "polite"} role={downloadState === "error" ? "alert" : "status"} data-testid="install-download-status">
                 {downloadState === "preparing" ? (
                   <>
-                    <span className="size-5 animate-spin rounded-full border-2 border-[var(--dls-border-strong)] border-t-[var(--dls-accent)]" aria-hidden="true" />
-                    <p className="m-0 font-medium text-[var(--dls-text-primary)]">Preparing your {downloadLabel} download...</p>
-                    <p className="den-copy">The first download may take up to a minute. Your browser will begin downloading when it is ready.</p>
+                    <InstallDownloadSpinner />
+                    <p className="m-0 font-medium text-[var(--dls-text-primary)]" data-testid="install-download-stage">{downloadMessage}</p>
+                    <p className="den-copy">Preparing {downloadLabel}. {downloadDetail}</p>
+                    {showPreparationRetry ? (
+                      <button type="button" className="den-button-secondary" onClick={retryDownload} data-testid="install-download-retry">
+                        Retry readiness check
+                      </button>
+                    ) : null}
+                  </>
+                ) : downloadState === "requested" ? (
+                  <>
+                    <p className="m-0 font-medium text-[var(--dls-text-primary)]">{downloadMessage}</p>
+                    <p className="den-copy">{downloadDetail}</p>
+                    <button type="button" className="den-button-secondary" onClick={retryDownload} data-testid="install-download-retry">
+                      Try again
+                    </button>
                   </>
                 ) : (
                   <>
-                    <p className="m-0 font-medium text-[var(--dls-text-primary)]">Download started</p>
-                    <p className="den-copy">Your browser is preparing the file. If it does not appear, try the download again.</p>
-                    <a className="den-button-secondary" href={downloadHref} onClick={() => beginDownload(downloadLabel, downloadHref)}>
-                      Try again
-                    </a>
+                    <p className="m-0 font-medium text-[var(--dls-text-primary)]">{downloadMessage}</p>
+                    <p className="den-copy">{downloadDetail}</p>
+                    <button type="button" className="den-button-secondary" onClick={retryDownload} data-testid="install-download-retry" disabled={!downloadHref}>
+                      Retry readiness check
+                    </button>
                   </>
                 )}
               </div>
