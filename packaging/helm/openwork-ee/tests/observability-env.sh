@@ -46,6 +46,9 @@ assert_file_not_contains() {
 
 default_rendered="$tmp_dir/default.yaml"
 helm template openwork-ee "$chart_dir" --set inference.enabled=true > "$default_rendered"
+assert_contains "$default_rendered" 'DEN_API_NODE_OPTIONS: ""'
+assert_count "$default_rendered" 'name: NODE_OPTIONS' 1
+assert_contains "$default_rendered" 'key: DEN_API_NODE_OPTIONS'
 assert_count "$default_rendered" 'name: DEN_OBSERVABILITY_BACKEND' 2
 assert_count "$default_rendered" 'value: "none"' 2
 assert_not_contains "$default_rendered" 'name: OTEL_EXPORTER_OTLP_HEADERS'
@@ -56,6 +59,8 @@ otel_rendered="$tmp_dir/otel.yaml"
 cat > "$otel_values" <<'YAML'
 inference:
   enabled: true
+config:
+  denApiNodeOptions: --use-openssl-ca --max-old-space-size=4096
 observability:
   backend: otel
   otel:
@@ -77,6 +82,7 @@ denWeb:
     CUSTOM_DEN_WEB_ENV: web
 YAML
 helm template openwork-ee "$chart_dir" -f "$otel_values" > "$otel_rendered"
+assert_contains "$otel_rendered" 'DEN_API_NODE_OPTIONS: "--use-openssl-ca --max-old-space-size=4096"'
 assert_count "$otel_rendered" 'name: DEN_OBSERVABILITY_BACKEND' 2
 assert_count "$otel_rendered" 'value: "otel"' 2
 assert_count "$otel_rendered" 'name: OTEL_EXPORTER_OTLP_HEADERS' 2

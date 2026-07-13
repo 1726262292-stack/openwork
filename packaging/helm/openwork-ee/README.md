@@ -512,6 +512,17 @@ By default, the chart wires internal services through Kubernetes DNS:
 
 Override `config.internal.*` only when routing through a mesh, gateway, or external service.
 
+## Den API Node Options
+
+Set `config.denApiNodeOptions` to pass Node.js runtime flags to `den-api` through
+`NODE_OPTIONS` when the container starts. The configured value is stored in the
+chart ConfigMap as `DEN_API_NODE_OPTIONS` and defaults to an empty string.
+
+```yaml
+config:
+  denApiNodeOptions: "--use-openssl-ca --max-old-space-size=4096"
+```
+
 ## Service Exposure
 
 Each service supports Kubernetes Service metadata and load balancer settings:

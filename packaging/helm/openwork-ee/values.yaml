@@ -11,6 +11,7 @@ config:
   databaseMode: mysql
   openworkDevMode: "0"
   enterpriseMcpClientEnabled: "false"
+  denApiNodeOptions: ""
   tenancy:
     mode: single_org
     singleOrgName: OpenWork
