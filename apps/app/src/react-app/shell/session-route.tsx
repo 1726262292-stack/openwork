@@ -49,7 +49,6 @@ import {
   type WorkspaceList,
 } from "@/app/lib/desktop";
 import type {
-  ComposerAttachment,
   ComposerDraft,
   ComposerPart,
   ModelOption,
@@ -103,6 +102,7 @@ import {
   applySessionRevert,
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
+import { composerAttachmentToFilePart } from "@/react-app/domains/session/sync/attachment-file-part";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
@@ -236,23 +236,6 @@ function focusPromptSoon() {
 // `resolveWorkspaceEndpoint` in apps/app/src/app/lib/workspace-endpoint.ts.
 // Don't compose `<baseUrl>/workspace/<id>` here.
 
-async function fileToDataUrl(file: File, mimeType: string) {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Failed to read attachment: ${file.name}`));
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.readAsDataURL(new Blob([file], { type: mimeType }));
-  });
-}
-
-function attachmentMime(attachment: ComposerAttachment) {
-  if (attachment.kind === "image") return attachment.mimeType;
-  if (attachment.mimeType === "application/pdf") return attachment.mimeType;
-  // Everything else is sent as text; unsupported binary mimes poison
-  // server-side session history (see sync/attachment-support.ts).
-  return "text/plain";
-}
-
 async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
   const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = [];
   const root = workspaceRoot.trim();
@@ -307,19 +290,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 
   parts.push(...firstLineLocalFileParts(draft.resolvedText ?? draft.text, root));
 
-  parts.push(
-    ...(await Promise.all(
-      draft.attachments.map(async (attachment) => {
-        const mime = attachmentMime(attachment);
-        return {
-          type: "file" as const,
-          url: await fileToDataUrl(attachment.file, mime),
-          filename: attachment.name,
-          mime,
-        };
-      }),
-    )),
-  );
+  parts.push(...(await Promise.all(draft.attachments.map(composerAttachmentToFilePart))));
 
   return parts;
 }
