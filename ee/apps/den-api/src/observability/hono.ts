@@ -1,4 +1,4 @@
-import type { Env, Hono, MiddlewareHandler } from "hono"
+import type { Context, Env, Hono, MiddlewareHandler } from "hono"
 import { HTTPException } from "hono/http-exception"
 import type { AppLogger } from "./logger.js"
 import { appLogger } from "./logger.js"
@@ -98,7 +98,9 @@ export function createTelemetryErrorSanitizerMiddleware(): MiddlewareHandler {
   }
 }
 
-export function registerAppErrorHandler<E extends Env>(app: Hono<E>) {
+type ErrorResponseFactory<E extends Env> = (error: Error, c: Context<E>, requestId: string) => Response | undefined
+
+export function registerAppErrorHandler<E extends Env>(app: Hono<E>, responseForError?: ErrorResponseFactory<E>) {
   const logger = appLogger.child({ component: "http" })
 
   app.onError((error, c) => {
@@ -117,6 +119,11 @@ export function registerAppErrorHandler<E extends Env>(app: Hono<E>) {
       logger.error("request failed", fields)
     } else {
       logger.warn("request rejected", fields)
+    }
+
+    const customResponse = responseForError?.(safeError, c, requestId)
+    if (customResponse) {
+      return customResponse
     }
 
     if (safeError instanceof HTTPException) {

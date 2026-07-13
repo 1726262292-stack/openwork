@@ -32,6 +32,7 @@ import { registerWebhookRoutes } from "./routes/webhooks/index.js"
 import { registerWorkerRoutes } from "./routes/workers/index.js"
 import type { AuthContextVariables } from "./session.js"
 import { sessionMiddleware } from "./session.js"
+import { isOperationalErrorPath, normalizeOperationalErrorResponse, operationalErrorResponse } from "./operational-errors.js"
 
 type AppVariables = RequestIdVariables & AuthContextVariables & Partial<UserOrganizationsContext> & Partial<OrganizationContextVariables> & Partial<MemberTeamsContext>
 
@@ -70,8 +71,17 @@ app.use("*", async (c, next) => {
   c.header("X-Request-Id", c.get("requestId"))
 })
 app.use("*", createTelemetryErrorSanitizerMiddleware())
+app.use("*", async (c, next) => {
+  await next()
+  c.res = await normalizeOperationalErrorResponse(c.req.path, c.res, c.get("requestId"))
+})
 app.use("*", createRequestAccessLogMiddleware())
-registerAppErrorHandler(app)
+registerAppErrorHandler(app, (error, c, requestId) => {
+  if (!isOperationalErrorPath(c.req.path)) {
+    return undefined
+  }
+  return operationalErrorResponse(error, c, requestId)
+})
 
 if (env.corsOrigins.length > 0) {
   app.use(

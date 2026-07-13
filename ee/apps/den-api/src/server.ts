@@ -6,10 +6,13 @@ import { shutdownObservability } from "./observability/runtime.js"
 import { startScimMaintenanceLoop } from "./scim-maintenance.js"
 import { startWorkerProvisioningReconcileLoop } from "./workers/reconciler.js"
 import { startTelegramUpdateDispatcher } from "./capability-sources/telegram-dispatcher.js"
+import { externalMcpClientRuntimeName } from "./capability-sources/external-mcp-client-runtime.js"
 
 const stopScimMaintenanceLoop = startScimMaintenanceLoop()
 const stopWorkerProvisioningReconcileLoop = startWorkerProvisioningReconcileLoop()
 const stopTelegramUpdateDispatcher = startTelegramUpdateDispatcher()
+
+appLogger.info("external mcp implementation selected", { component: "server", runtime: externalMcpClientRuntimeName })
 
 const server = serve({ fetch: app.fetch, port: env.port }, (info) => {
   appLogger.info("server listening", { component: "server", port: info.port })
