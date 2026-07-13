@@ -3,6 +3,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { env } from "../../env.js"
+import { appLogger } from "../../observability/logger.js"
 import {
   jsonValidator,
   orgMemberRoute,
@@ -42,6 +43,7 @@ import { ensureOrganizationAdmin, ensureOrganizationAdminRole, idParamSchema, or
 import type { OrgRouteVariables } from "./shared.js"
 
 const connectionParamsSchema = idParamSchema("connectionId", "externalMcpConnection")
+const logger = appLogger.child({ component: "mcp_connections" })
 
 const accessInputSchema = z.object({
   orgWide: z.boolean().optional().default(false),
@@ -170,13 +172,6 @@ const connectionValidationFailedSchema = z.object({
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
-}
-
-function errorForLog(error: unknown) {
-  if (error instanceof Error) {
-    return { name: error.name, message: error.message, stack: error.stack }
-  }
-  return { message: String(error) }
 }
 
 function isConnectionConnected(row: ExternalMcpConnectionRow): boolean {
@@ -405,11 +400,11 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         try {
           await connectExternalMcp(created, callbackRedirectUri(c.req.raw, created.id))
         } catch (error) {
-          console.error("external_mcp_connection_validation_failed", {
-            connectionId: created.id,
-            organizationId: payload.organization.id,
-            connectionUrl: created.url,
-            error: errorForLog(error),
+          logger.error("external mcp connection validation failed", {
+            connection_id: created.id,
+            organization_id: payload.organization.id,
+            connection_url: created.url,
+            error,
           })
           return c.json({ error: "connection_validation_failed", message: `Could not reach "${created.name}" at its MCP URL: ${errorMessage(error)}` }, 502)
         }
@@ -594,11 +589,11 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         }
         return c.json({ status: "needs_auth" as const, authorizeUrl: result.authorizeUrl })
       } catch (error) {
-        console.error("external_mcp_connect_start_oauth_handshake_failed", {
-          connectionId: connection.id,
-          organizationId: payload.organization.id,
-          connectionUrl: connection.url,
-          error: errorForLog(error),
+        logger.error("external mcp oauth handshake failed", {
+          connection_id: connection.id,
+          organization_id: payload.organization.id,
+          connection_url: connection.url,
+          error,
         })
         return c.json({ error: "oauth_handshake_failed", message: `The OAuth handshake with "${connection.name}" failed: ${errorMessage(error)}` }, 502)
       }
