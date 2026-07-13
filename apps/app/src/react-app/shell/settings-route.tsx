@@ -5,7 +5,7 @@ import { toast } from "@/components/ui/sonner";
 
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
-import { createClient } from "@/app/lib/opencode";
+import { createClient, unwrap } from "@/app/lib/opencode";
 import {
   createOpenworkServerClient,
   isLoopbackOpenworkServerUrl,
@@ -153,6 +153,9 @@ import { resolveOpenworkConnection } from "./openwork-connection";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { notifyAlert } from "./notifications";
 import { useReloadCoordinator } from "./reload-coordinator";
+import { CommandPalette } from "./command-palette";
+import { buildCommandPaletteSessions } from "./command-palette-sessions";
+import { useCommandPaletteShortcut } from "./use-shell-shortcuts";
 import { buildFeedbackUrl } from "@/app/lib/feedback";
 import { getDenInferenceUrl } from "@/app/lib/den";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
@@ -831,6 +834,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     workspaceRoot: selectedWorkspaceRoot,
     onLoadError: handleModelPickerLoadError,
   });
+  const { commandPaletteOpen, setCommandPaletteOpen } = useCommandPaletteShortcut(!props.embedded);
+  const paletteSessionOptions = useMemo(
+    () => buildCommandPaletteSessions(workspaces, sessionsByWorkspaceId, selectedWorkspaceId),
+    [sessionsByWorkspaceId, selectedWorkspaceId, workspaces],
+  );
+  const handleCreatePaletteSession = useCallback(async () => {
+    if (!opencodeClient || !selectedWorkspaceId) {
+      navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
+      return;
+    }
+    try {
+      const session = unwrap(
+        await opencodeClient.session.create({ directory: selectedWorkspaceRoot || undefined }),
+      );
+      navigate(workspaceSessionRoute(selectedWorkspaceId, session.id));
+    } catch (error) {
+      toast.error(describeRouteError(error));
+    }
+  }, [navigate, opencodeClient, selectedWorkspaceId, selectedWorkspaceRoot]);
   // Settings refreshes provider auth whenever the picker opens (the session
   // route does not need this; its provider state is kept fresh elsewhere).
   useEffect(() => {
@@ -2337,6 +2359,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       >
         {settingsView}
       </SettingsShell>
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onCreateNewSession={() => void handleCreatePaletteSession()}
+        onOpenSession={(workspaceId, sessionId) => {
+          navigate(workspaceSessionRoute(workspaceId, sessionId));
+        }}
+        onOpenSettings={(path = "/settings/general") => {
+          navigateSettingsPath(path.replace(/^\/settings\//, ""));
+        }}
+        onOpenModelPicker={() => {
+          modelPicker.setQuery("");
+          modelPicker.setRecentProviderIds(new Set());
+          window.requestAnimationFrame(() => modelPicker.setOpen(true));
+        }}
+        selectedModelLabel={defaultModelLabel}
+        sessions={paletteSessionOptions}
+      />
 
       <ProviderAuthModal
         open={providerAuthSnapshot.providerAuthModalOpen}
