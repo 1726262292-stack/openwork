@@ -134,7 +134,7 @@ import {
   testRemoteWorkspaceConnection,
 } from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { useShareWorkspaceState } from "@/react-app/domains/workspace/share-workspace-state";
-import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
+import { ModelPickerModal, MODEL_PICKER_UNAVAILABLE_SUBTITLE } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
@@ -230,6 +230,17 @@ function focusPromptSoon() {
   if (typeof window === "undefined") return;
   const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
   [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
+}
+
+const EVAL_UNAVAILABLE_PROVIDER_ID = "eval-unavailable-provider";
+
+function nextEvalUnavailableModel(current: ModelRef | null | undefined) {
+  return {
+    providerID: EVAL_UNAVAILABLE_PROVIDER_ID,
+    modelID: current?.providerID === EVAL_UNAVAILABLE_PROVIDER_ID && current.modelID === "eval-unavailable-model-a"
+      ? "eval-unavailable-model-b"
+      : "eval-unavailable-model-a",
+  } satisfies ModelRef;
 }
 
 // All workspace-scoped server URLs/clients/tokens come from
@@ -644,6 +655,25 @@ export function SessionRoute() {
         )
       ),
   );
+  const selectedModelUnavailableKey = selectedModelUnavailable && local.prefs.defaultModel
+    ? `${local.prefs.defaultModel.providerID}:${local.prefs.defaultModel.modelID}`
+    : null;
+  const autoOpenedUnavailableModelRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedModelUnavailableKey) {
+      autoOpenedUnavailableModelRef.current = null;
+      return;
+    }
+    if (autoOpenedUnavailableModelRef.current === selectedModelUnavailableKey) return;
+
+    autoOpenedUnavailableModelRef.current = selectedModelUnavailableKey;
+    modelPicker.setQuery("");
+    modelPicker.setRecentProviderIds(new Set());
+    modelPicker.setCompactOpen(false);
+    modelPicker.setOpen(true);
+  }, [modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, selectedModelUnavailableKey]);
+
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
@@ -1421,6 +1451,64 @@ export function SessionRoute() {
     openModelPicker: openModelPickerForControl,
     refreshRouteState,
   });
+
+  const seedUnavailableModelControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+    return {
+      id: "eval.model_not_available.seed",
+      label: "Seed an unavailable selected model",
+      description: "Dev-only eval hook that selects a missing model and returns an available model to recover with.",
+      sideEffect: "mutation",
+      disabled: !opencodeClient,
+      execute: async () => {
+        if (!opencodeClient) return { ok: false, error: "OpenCode client is not connected." };
+
+        const providerList = await ensureProviderListQuery(getReactQueryClient(), {
+          client: opencodeClient,
+          baseUrl: opencodeBaseUrl,
+          directory: selectedWorkspaceRoot || undefined,
+          force: true,
+        });
+        const filteredProviderList = filterProviderList(providerList, disabledProviderIds);
+        const availableProvider = getConnectedProviderItems(filteredProviderList)
+          .filter((provider) => !isDesktopProviderBlocked({
+            providerId: provider.id,
+            checkRestriction: checkDesktopRestriction,
+          }))
+          .find((provider) => Object.keys(provider.models ?? {}).length > 0);
+        const availableModelId = availableProvider ? Object.keys(availableProvider.models ?? {})[0] : undefined;
+        const availableModel = availableProvider && availableModelId
+          ? availableProvider.models[availableModelId]
+          : undefined;
+
+        if (!availableProvider || !availableModelId || !availableModel) {
+          return { ok: false, error: "No available connected model found for eval recovery." };
+        }
+
+        const unavailableModel = nextEvalUnavailableModel(local.prefs.defaultModel);
+        modelPicker.setQuery("");
+        modelPicker.setRecentProviderIds(new Set());
+        local.setPrefs((previous) => ({
+          ...previous,
+          defaultModel: unavailableModel,
+          modelVariant: null,
+        }));
+
+        return {
+          unavailableModel,
+          availableModel: {
+            providerID: availableProvider.id,
+            providerName: availableProvider.name || availableProvider.id,
+            modelID: availableModelId,
+            title: availableModel.name || availableModelId,
+          },
+          sessionId: selectedSessionId,
+          workspaceId: selectedWorkspaceId,
+        };
+      },
+    };
+  }, [checkDesktopRestriction, disabledProviderIds, local, modelPicker.setQuery, modelPicker.setRecentProviderIds, opencodeBaseUrl, opencodeClient, selectedSessionId, selectedWorkspaceId, selectedWorkspaceRoot]);
+  useControlAction(seedUnavailableModelControlAction);
 
   const commandPaletteControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "command_palette.open",
@@ -2309,6 +2397,7 @@ export function SessionRoute() {
 
       query={modelPicker.query}
       setQuery={modelPicker.setQuery}
+      subtitle={selectedModelUnavailable ? MODEL_PICKER_UNAVAILABLE_SUBTITLE : undefined}
       target="default"
       current={local.prefs.defaultModel ?? ({ providerID: "", modelID: "" } satisfies ModelRef)}
       onSelect={(next: ModelRef) => {
