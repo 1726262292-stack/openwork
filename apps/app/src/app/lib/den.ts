@@ -2233,10 +2233,16 @@ export async function fetchDenOrgSkillsCatalog(
  * current desktop Den session. Returns null when signed out or no active
  * organization is selected.
  */
-export async function mintCloudControlMcpToken(): Promise<DenMcpToken | null> {
-  const settings = readDenSettings();
+export type DenMcpTokenMintContext = {
+  baseUrl: string;
+  authToken: string | null;
+  orgId: string | null;
+};
+
+export async function mintCloudControlMcpToken(context?: DenMcpTokenMintContext): Promise<DenMcpToken | null> {
+  const settings = context ?? readDenSettings();
   const token = settings.authToken?.trim() ?? "";
-  const orgId = settings.activeOrgId?.trim() ?? "";
+  const orgId = ("orgId" in settings ? settings.orgId : settings.activeOrgId)?.trim() ?? "";
   if (!token || !orgId) {
     return null;
   }

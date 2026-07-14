@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveConnectViewState } from "../src/react-app/domains/settings/pages/connect-view";
+import type { OpenworkCloudMcpHealth } from "../src/app/lib/openwork-server";
+import { readyCloudMcpToolIds, resolveConnectViewState } from "../src/react-app/domains/settings/pages/connect-view";
 import {
   formatPluginConnectRowMeta,
   isDesktopInstallableMarketplacePlugin,
@@ -31,6 +32,44 @@ describe("resolveConnectViewState", () => {
   test("signed-in users with no flag and no connections see the pitch", () => {
     expect(resolveConnectViewState({ authStatus: "signed_in", connectEnabled: false, connectionsCount: 0 })).toBe("pitch");
     expect(resolveConnectViewState({ authStatus: "signed_in", connectionsCount: 0 })).toBe("pitch");
+  });
+
+  test("signed-in users with an active org keep the Agent access card visible without catalog rollout", () => {
+    expect(resolveConnectViewState({ authStatus: "signed_in", connectEnabled: false, connectionsCount: 0, activeOrgSelected: true })).toBe("active");
+  });
+});
+
+function cloudHealth(usable: boolean): OpenworkCloudMcpHealth {
+  return {
+    schemaVersion: 1,
+    phase: usable ? "ready" : "cloud_tools_missing",
+    usable,
+    usableByCurrentModel: usable,
+    connectCatalogEnabled: true,
+    workspace: { id: "ws_1", type: "local", directory: "/workspace", path: "/workspace" },
+    desired: { present: true, name: "openwork-cloud", revision: "rev", config: null, token: { present: true, metadata: {} } },
+    delivery: { state: usable ? "ready" : "pending", desiredRevision: "rev", appliedRevision: usable ? "rev" : null, updatedAt: 1, appliedAt: usable ? 1 : null, lastAttemptAt: 1 },
+    engine: { status: usable ? "connected" : "failed" },
+    tools: {
+      expected: ["openwork-cloud_search_capabilities", "openwork-cloud_execute_capability"],
+      present: usable ? ["openwork-cloud_search_capabilities", "openwork-cloud_execute_capability", "other_tool"] : ["openwork-cloud_search_capabilities"],
+      missing: usable ? [] : ["openwork-cloud_execute_capability"],
+      providerProjection: { checked: true, present: [], missing: [] },
+    },
+    pluginCanaries: { expected: [], present: [], missing: [] },
+    toolDenies: [],
+    firstFailure: usable ? null : { code: "cloud_tools_missing", stage: "tool_ids", retryable: true, recommendedAction: "repair", message: "missing" },
+    checkedAt: "2026-07-09T12:00:00.000Z",
+  };
+}
+
+describe("Agent access card helpers", () => {
+  test("returns exact Cloud tools only when health is ready", () => {
+    expect(readyCloudMcpToolIds(cloudHealth(false))).toEqual([]);
+    expect(readyCloudMcpToolIds(cloudHealth(true))).toEqual([
+      "openwork-cloud_search_capabilities",
+      "openwork-cloud_execute_capability",
+    ]);
   });
 });
 

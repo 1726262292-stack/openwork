@@ -2,7 +2,7 @@
 
 This demo proves the public roadmap tells one coherent product story on both the landing and docs routes.
 
-1. OpenWork starts with the desktop app as the home base. The roadmap shows the same workspace extending into the agents people already use today, then into a persistent hosted workspace, Slack, mobile, and more.
+1. The roadmap now starts with a plain-language introduction and goes directly into the dated product sections. The large system diagram is gone, so the status labels and written roadmap carry the story.
 
 2. The desktop section makes the current product clear. Files, sessions, skills, services, and organization-managed capabilities live in the main OpenWork experience, with better organization for long-running work actively being built.
 
