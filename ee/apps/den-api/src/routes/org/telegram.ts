@@ -29,7 +29,7 @@ import {
   jsonResponse,
   unauthorizedSchema,
 } from "../../openapi.js"
-import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
+import { ensureOrganizationAdmin, ensureOrganizationAdminRole, orgAccessFailureStatus } from "./shared.js"
 import type { OrgRouteVariables } from "./shared.js"
 
 const PAIRING_TTL_MS = 10 * 60 * 1_000
@@ -113,6 +113,8 @@ const telegramConnectionErrorSchema = z.object({
   message: z.string(),
 }).meta({ ref: "TelegramConnectionError" })
 
+const telegramAdminMessage = "Only workspace owners and admins can manage Telegram."
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -162,8 +164,16 @@ async function tryDeleteWebhook(botToken: string): Promise<boolean> {
   }
 }
 
+export function telegramConnectionReadAccess(c: Parameters<typeof ensureOrganizationAdminRole>[0]) {
+  return ensureOrganizationAdminRole(c, telegramAdminMessage)
+}
+
+export function telegramConnectionManagementAccess(c: Parameters<typeof ensureOrganizationAdmin>[0]) {
+  return ensureOrganizationAdmin(c, telegramAdminMessage)
+}
+
 function managementDenied(c: Parameters<typeof ensureOrganizationAdmin>[0]) {
-  return ensureOrganizationAdmin(c, "Only workspace owners and admins can manage Telegram.")
+  return telegramConnectionManagementAccess(c)
 }
 
 export function registerTelegramOrgRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
@@ -176,11 +186,12 @@ export function registerTelegramOrgRoutes<T extends { Variables: OrgRouteVariabl
       responses: {
         200: jsonResponse("Telegram connection status.", telegramConnectionResponseSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
+        403: jsonResponse(telegramAdminMessage, forbiddenSchema),
       },
     }),
     orgMemberRoute(),
     async (c) => {
-      const admin = managementDenied(c)
+      const admin = telegramConnectionReadAccess(c)
       if (!admin.ok) return c.json(admin.response, orgAccessFailureStatus(admin.response))
       const organization = c.get("organizationContext").organization
       return c.json(await connectionResponse(organization.id))

@@ -20,6 +20,14 @@ function pairingChatLabel(chat: { username: string | null; firstName: string | n
   return chat.firstName ?? "Private Telegram chat";
 }
 
+export function shouldPollTelegramConnection(input: {
+  open: boolean;
+  queryErrored: boolean;
+  connection: { pairing: { paired: boolean } } | null;
+}) {
+  return input.open && !input.queryErrored && input.connection !== null && !input.connection.pairing.paired;
+}
+
 export function TelegramDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const connectionQuery = useTelegramConnection(open);
   const saveConnection = useSaveTelegramConnection();
@@ -39,6 +47,11 @@ export function TelegramDialog({ open, onClose }: { open: boolean; onClose: () =
     [workers],
   );
   const connection = connectionQuery.data ?? null;
+  const shouldPollConnection = shouldPollTelegramConnection({
+    open,
+    queryErrored: connectionQuery.isError,
+    connection,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -52,10 +65,10 @@ export function TelegramDialog({ open, onClose }: { open: boolean; onClose: () =
   }, [open, refreshWorkers, workersLoadedOnce]);
 
   useEffect(() => {
-    if (!open || connection?.pairing.paired) return;
+    if (!shouldPollConnection) return;
     const timer = window.setInterval(() => void connectionQuery.refetch(), 2500);
     return () => window.clearInterval(timer);
-  }, [open, connection?.pairing.paired, connectionQuery.refetch]);
+  }, [shouldPollConnection, connectionQuery.refetch]);
 
   useEffect(() => {
     if (workerId || readyWorkers.length === 0) return;
