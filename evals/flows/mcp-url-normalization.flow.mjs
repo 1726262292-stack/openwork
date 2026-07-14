@@ -193,9 +193,15 @@ export default {
               return true;
             })()`);
             await ctx.waitForText(MCP_NAME, { timeoutMs: 30_000 });
-            // Expand the row so its URL is visible in the frame.
+            // Expand the row, then open its "Technical details" disclosure so
+            // the saved URL is visible in the frame.
             await ctx.clickText(MCP_NAME, { timeoutMs: 10_000 }).catch(() => {});
-            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            await ctx.waitForText("Technical details", { timeoutMs: 10_000 });
+            await ctx.clickText("Technical details", { timeoutMs: 10_000 });
+            await ctx.waitFor(
+              `document.body.innerText.includes(${JSON.stringify(NORMALIZED_URL)})`,
+              { timeoutMs: 10_000, label: "saved URL visible" },
+            );
           },
           assert: async () => {
             const mcp = await ctx.eval(serverCallExpr("/workspace/:id/mcp"), { awaitPromise: true });
