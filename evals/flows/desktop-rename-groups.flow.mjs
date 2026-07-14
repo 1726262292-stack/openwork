@@ -40,6 +40,7 @@ async function expandGroupActions(ctx, groupId) {
     `Boolean(document.querySelector(${JSON.stringify(expandedSelector)}))`,
     { label: "expanded group actions" },
   );
+  await ctx.eval("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
 }
 
 async function clickGroupAction(ctx, groupId, label) {
