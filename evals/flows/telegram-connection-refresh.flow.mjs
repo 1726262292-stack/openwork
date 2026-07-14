@@ -500,17 +500,43 @@ export default {
         await ctx.prove("A null Telegram connection stays stable with no interval refetches", {
           voiceover: vo[1],
           action: async () => {
+            await ctx.waitFor(`(() => {
+              const trigger = document.querySelector('button[aria-label="Telegram worker"]');
+              return (trigger?.textContent ?? '').trim() === ${JSON.stringify(WORKER_NAME)};
+            })()`, { timeoutMs: 30_000, label: `ready worker ${WORKER_NAME}` });
             await resetTelegramRequestRecorder(ctx);
             await sleep(6_200);
+            await ctx.eval(`(() => {
+              const dialog = document.querySelector('[data-testid="telegram-dialog"]');
+              if (!dialog) return false;
+              const boundary = [...dialog.querySelectorAll('p, div, button')]
+                .find((element) => (element.textContent ?? '').includes('private text chats only'))
+                ?? dialog.querySelector('[data-testid="save-telegram"]');
+              boundary?.scrollIntoView({ block: 'center', behavior: 'instant' });
+              const before = dialog.scrollTop;
+              dialog.scrollTop = Math.max(dialog.scrollTop, dialog.scrollHeight - dialog.clientHeight);
+              const trigger = dialog.querySelector('button[aria-label="Telegram worker"]');
+              if (dialog.scrollTop === before && trigger instanceof HTMLButtonElement) {
+                trigger.scrollIntoView({ block: 'center', behavior: 'instant' });
+                trigger.focus({ preventScroll: true });
+                if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
+              }
+              return true;
+            })()`);
+            await sleep(250);
           },
           assert: async () => {
             const requests = await telegramGetRequests(ctx);
             const body = await ctx.eval(`(() => {
               const dialog = document.querySelector('[data-testid="telegram-dialog"]');
+              const trigger = dialog?.querySelector('button[aria-label="Telegram worker"]');
               return {
                 visible: Boolean(dialog),
                 text: dialog?.textContent ?? '',
                 tokenInputVisible: Boolean(dialog?.querySelector('[data-testid="telegram-bot-token"]')),
+                scrollTop: dialog?.scrollTop ?? 0,
+                worker: trigger?.textContent?.trim() ?? '',
+                workerExpanded: trigger?.getAttribute('aria-expanded') === 'true',
               };
             })()`);
             witness(
@@ -521,15 +547,15 @@ export default {
             );
             witness(
               ctx,
-              body.visible && body.tokenInputVisible && !body.text.includes('Failed') && !body.text.includes('403'),
+              body.visible && body.tokenInputVisible && body.worker.includes(WORKER_NAME) && !body.text.includes('Failed') && !body.text.includes('403'),
               "The disconnected setup remains visually stable while idle.",
-              { visible: body.visible, tokenInputVisible: body.tokenInputVisible },
+              { visible: body.visible, tokenInputVisible: body.tokenInputVisible, scrollTop: body.scrollTop, worker: body.worker, workerExpanded: body.workerExpanded },
             );
           },
           screenshot: {
             name: "telegram-disconnected-no-refresh-loop",
-            claim: "After sitting open past two old polling intervals, the disconnected setup still shows the same calm BotFather token and worker picker with no errors.",
-            requireText: ["Connect Telegram", "Bot token", "Choose a ready worker", "Connect bot"],
+            claim: "After sitting open past two old polling intervals, the lower setup section still shows the same worker picker, private-chat boundary, and disabled Connect bot action with no errors.",
+            requireText: ["Choose a ready worker", WORKER_NAME, "stable public HTTPS", "private text chats only", "Connect bot"],
             rejectText: ["403", "Failed to load Telegram", "For security, confirm it's you", "Something went wrong"],
           },
         });
