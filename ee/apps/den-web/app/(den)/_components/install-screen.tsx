@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { getErrorMessage, requestJson } from "../_lib/den-flow";
+import { requestJson } from "../_lib/den-flow";
+import { getInstallConfigErrorMessage } from "../_lib/install-errors";
 import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
 
@@ -13,6 +14,8 @@ type InstallConfig = {
   apiUrl: string;
   requireSignin: boolean;
   logoUrl: string | null;
+  connectUrl: string | null;
+  connectExpiresAt: string | null;
 };
 
 const platformOptions: Array<{ value: InstallPlatform; label: string }> = [
@@ -47,11 +50,19 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
   const apiUrl = typeof value.apiUrl === "string" ? value.apiUrl.trim() : "";
   const requireSignin = value.requireSignin;
   const logoUrl = value.logoUrl;
+  const connectUrl = value.connectUrl ?? null;
+  const connectExpiresAt = value.connectExpiresAt ?? null;
 
   if (!clientName || !isUrl(webUrl) || !isUrl(apiUrl) || typeof requireSignin !== "boolean") {
     return null;
   }
   if (logoUrl !== null && (typeof logoUrl !== "string" || !isUrl(logoUrl))) {
+    return null;
+  }
+  if (connectUrl !== null && (typeof connectUrl !== "string" || !connectUrl.startsWith("openwork://connect?token="))) {
+    return null;
+  }
+  if (connectExpiresAt !== null && (typeof connectExpiresAt !== "string" || Number.isNaN(Date.parse(connectExpiresAt)))) {
     return null;
   }
 
@@ -62,6 +73,8 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
     apiUrl,
     requireSignin,
     logoUrl,
+    connectUrl,
+    connectExpiresAt,
   };
 }
 
@@ -97,6 +110,10 @@ export function InstallScreen() {
   const [downloadState, setDownloadState] = useState<"idle" | "preparing" | "started">("idle");
   const [downloadLabel, setDownloadLabel] = useState("");
   const [downloadHref, setDownloadHref] = useState("");
+  const [guideStep, setGuideStep] = useState<1 | 2 | 3>(() => {
+    const requestedStep = searchParams.get("step");
+    return requestedStep === "3" ? 3 : requestedStep === "2" ? 2 : 1;
+  });
   const downloadStartedTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -109,7 +126,7 @@ export function InstallScreen() {
 
     async function loadConfig() {
       if (!token) {
-        setError("This install link is missing its token. Ask your workspace admin for a fresh link.");
+        setError("This install link is missing its token. Ask your organization admin for a fresh link.");
         setBusy(false);
         return;
       }
@@ -122,7 +139,7 @@ export function InstallScreen() {
           return;
         }
         if (!response.ok) {
-          setError(getErrorMessage(payload, response.status === 404 ? "This install link is expired or no longer available." : `Could not load this install link (${response.status}).`));
+          setError(getInstallConfigErrorMessage(payload, response.status));
           setConfig(null);
           return;
         }
@@ -178,6 +195,21 @@ export function InstallScreen() {
     }, 5000);
   }
 
+  function advanceGuide(nextStep: 2 | 3) {
+    setGuideStep(nextStep);
+    const url = new URL(window.location.href);
+    url.searchParams.set("step", String(nextStep));
+    window.history.replaceState(null, "", url);
+  }
+
+  function beginGuidedDownload() {
+    advanceGuide(2);
+  }
+
+  function beginConnect() {
+    advanceGuide(3);
+  }
+
   if (busy) {
     return (
       <section className="den-page grid min-h-dvh place-items-center py-4 lg:py-6" data-testid="install-page">
@@ -219,7 +251,9 @@ export function InstallScreen() {
             <img src={config.logoUrl} alt={`${config.clientName} wordmark`} className="max-h-16 max-w-64 object-contain object-center" />
           ) : null}
           <h1 className="den-title-xl">Download {config.appName} for {config.clientName}</h1>
-          <p className="den-copy">Mac and Windows downloads include the standard OpenWork installer and your team's setup file in one ZIP. Keep them together, run the installer, then sign in.</p>
+          <p className="den-copy">
+            Den will stay on this page while you install the standard {config.appName} app, connect it to {config.clientName}, and sign in.
+          </p>
         </div>
 
         {isMobile ? (
@@ -230,8 +264,117 @@ export function InstallScreen() {
               {copied ? "Copied" : "Copy install link"}
             </button>
           </div>
+        ) : config.connectUrl ? (
+          <ol className="grid gap-3 text-left" data-testid="install-guide">
+            <li
+              className="den-frame-inset grid grid-cols-[2rem_1fr] gap-3 rounded-[1.25rem] p-4"
+              data-state={guideStep === 1 ? "active" : "complete"}
+              data-testid="install-guide-step-download"
+            >
+              <span className="grid size-8 place-items-center rounded-full bg-[var(--dls-accent)] font-semibold text-white" aria-hidden="true">
+                {guideStep > 1 ? "✓" : "1"}
+              </span>
+              <div className="grid gap-3">
+                <div>
+                  <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Download and install</p>
+                  <p className="den-copy">Run the normal signed installer. When installation finishes, return to this page.</p>
+                </div>
+                {guideStep === 1 ? (
+                  <div className="grid gap-3">
+                    <a
+                      className="den-button-primary w-full justify-center sm:w-fit"
+                      href={primaryHref}
+                      data-testid="install-download-primary"
+                      onClick={beginGuidedDownload}
+                    >
+                      Download for {primaryLabel}
+                    </a>
+                    <div className="flex flex-wrap gap-2">
+                      {secondaryPlatforms.map((option) => (
+                        <a
+                          key={option.value}
+                          className="den-button-secondary"
+                          href={installHref(config, option.value, token)}
+                          onClick={beginGuidedDownload}
+                        >
+                          {option.label}
+                        </a>
+                      ))}
+                      <button type="button" className="den-button-secondary" onClick={() => advanceGuide(2)} data-testid="install-skip-download">
+                        I already have {config.appName}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <a className="w-fit text-sm font-medium text-[var(--dls-accent)] underline-offset-4 hover:underline" href={primaryHref}>
+                    Download again
+                  </a>
+                )}
+              </div>
+            </li>
+
+            <li
+              className="den-frame-inset grid grid-cols-[2rem_1fr] gap-3 rounded-[1.25rem] p-4"
+              data-state={guideStep === 2 ? "active" : guideStep > 2 ? "complete" : "pending"}
+              data-testid="install-guide-step-open"
+            >
+              <span className="grid size-8 place-items-center rounded-full border border-[var(--dls-border-strong)] font-semibold text-[var(--dls-text-primary)]" aria-hidden="true">
+                {guideStep > 2 ? "✓" : "2"}
+              </span>
+              <div className="grid gap-3">
+                <div>
+                  <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Open {config.appName}</p>
+                  <p className="den-copy">
+                    {guideStep === 1
+                      ? "After installation, come back here to connect the app to your workspace."
+                      : `Open the app and confirm that you want to connect it to ${config.clientName}.`}
+                  </p>
+                </div>
+                {guideStep >= 2 ? (
+                  <div className="grid gap-2">
+                    <a
+                      className="den-button-primary w-full justify-center sm:w-fit"
+                      href={config.connectUrl}
+                      data-testid="install-connect-open"
+                      onClick={beginConnect}
+                    >
+                      Open {config.appName}
+                    </a>
+                    <button
+                      type="button"
+                      className="w-fit text-sm text-[var(--dls-text-secondary)] underline underline-offset-4"
+                      onClick={() => window.location.reload()}
+                      data-testid="install-connect-refresh"
+                    >
+                      Refresh an expired connection link
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </li>
+
+            <li
+              className="den-frame-inset grid grid-cols-[2rem_1fr] gap-3 rounded-[1.25rem] p-4"
+              data-state={guideStep === 3 ? "active" : "pending"}
+              data-testid="install-guide-step-signin"
+            >
+              <span className="grid size-8 place-items-center rounded-full border border-[var(--dls-border-strong)] font-semibold text-[var(--dls-text-primary)]" aria-hidden="true">3</span>
+              <div>
+                <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Sign in</p>
+                <p className="den-copy">
+                  {guideStep === 3
+                    ? `Continue in ${config.appName}, confirm ${config.clientName}, and complete the normal organization sign-in.`
+                    : `After the app connects, sign in to ${config.clientName}.`}
+                </p>
+              </div>
+            </li>
+          </ol>
         ) : (
           <div className="grid justify-items-center gap-4">
+            <div className="den-frame-inset grid gap-2 rounded-[1.25rem] p-4 text-left" role="status">
+              <p className="m-0 font-medium text-[var(--dls-text-primary)]">This deployment still uses bundled workspace setup.</p>
+              <p className="den-copy">Ask an administrator to configure signed desktop handoffs to use the guided standard-installer flow.</p>
+            </div>
             <a className="den-button-primary w-full justify-center sm:w-auto" href={primaryHref} data-testid="install-download-primary" onClick={() => beginDownload(primaryLabel, primaryHref)}>
               Download for {primaryLabel}
             </a>

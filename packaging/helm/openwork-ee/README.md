@@ -613,7 +613,53 @@ installerArtifacts:
   mountPath: /var/lib/openwork/installer-artifacts
 ```
 
-Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. The mounted directory must contain `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`.
+Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. The required filenames depend on whether guided desktop setup is enabled, as described below.
+
+### Guided desktop setup
+
+The organization download page can hand the normal OpenWork app its Den
+configuration in an explicit second step. Configure a dedicated Ed25519
+signing key whose public key is already trusted by the desktop build:
+
+```yaml
+config:
+  public:
+    connectLinkKeyId: "owc-2026-07"
+
+secret:
+  values:
+    connectLinkPrivateKey: |-
+      -----BEGIN PRIVATE KEY-----
+      ...
+      -----END PRIVATE KEY-----
+```
+
+For an existing Secret, put the private key under the key named by
+`secret.keys.connectLinkPrivateKey` (default `DEN_CONNECT_LINK_PRIVATE_KEY`).
+`scripts/generate-connect-link-keypair.mjs` can generate a pair, but a standard
+desktop build will reject it until the matching public key ships in that build.
+
+With signed handoffs enabled, Den validates the install token and then either:
+
+- returns the standard installer already mounted at
+  `installerArtifacts.mountPath`; or
+- redirects the browser directly to the exact configured GitHub release asset.
+
+Den does not download, cache, wrap, or stream GitHub artifacts on this path.
+For a semi-air-gapped deployment, mount these normal release filenames (where
+`<version>` is `installerReleaseTag` without its leading `v`):
+
+- `openwork-mac-arm64-<version>.dmg`
+- `openwork-mac-x64-<version>.dmg`
+- `openwork-win-x64-<version>.exe`
+- `openwork-linux-x86_64-<version>.AppImage`
+- `openwork-linux-arm64-<version>.AppImage`
+
+Without mounted artifacts, client networks must permit the configured GitHub
+release URL and GitHub's redirected release-asset host. With mounted artifacts,
+the browser only talks to Den. Use a shared PVC when `denApi.replicaCount` is
+greater than one. If no connect-link signing key is configured, Den retains the
+older bundled-bootstrap download as a compatibility fallback.
 
 ## Health Probes
 

@@ -1,4 +1,5 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
+import { generateConnectLinkKeyPair, verifyConnectLinkToken } from "@openwork/connect-link/node"
 import { beforeAll, beforeEach, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 import { spawnSync } from "node:child_process"
@@ -20,6 +21,8 @@ const organizationId = createDenTypeId("organization")
 const insertedRows: unknown[] = []
 const revokedRows: unknown[] = []
 const officialWindowsInstallerUrl = "https://github.com/different-ai/openwork/releases/download/v9.9.9/openwork-win-x64-9.9.9.exe"
+const connectKeyPair = generateConnectLinkKeyPair()
+const connectKeyId = "owc-route-test"
 
 let role = "member"
 let isOwner = false
@@ -130,6 +133,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   envModule.env.installLinksGatingEnabled = true
+  envModule.env.connectLink = null
+  envModule.env.devMode = true
   insertedRows.length = 0
   revokedRows.length = 0
   role = "member"
@@ -139,7 +144,12 @@ beforeEach(() => {
   sessionCreatedAt = new Date()
 })
 
-function createApp(options: { installerFallbackUrl?: string; installerArtifact?: Buffer } = {}) {
+function createApp(options: {
+  installerFallbackUrl?: string
+  installerDirectUrl?: string
+  installerArtifact?: Buffer
+  configuredArtifact?: Buffer
+} = {}) {
   const app = new Hono()
   const installerFallbackUrl = options.installerFallbackUrl
   app.use("*", async (c, next) => {
@@ -161,9 +171,11 @@ function createApp(options: { installerFallbackUrl?: string; installerArtifact?:
   })
   installLinkModule.registerOrgInstallLinkRoutes(
     app,
-    installerFallbackUrl || options.installerArtifact
+    installerFallbackUrl || options.installerDirectUrl || options.installerArtifact || options.configuredArtifact
       ? {
           resolveArtifact: () => Promise.resolve(options.installerArtifact ?? null),
+          resolveConfiguredArtifact: () => Promise.resolve(options.configuredArtifact ?? null),
+          resolveDirectUrl: () => options.installerDirectUrl ?? officialWindowsInstallerUrl,
           resolveFallbackUrl: () => Promise.resolve(installerFallbackUrl ?? officialWindowsInstallerUrl),
         }
       : undefined,
@@ -297,6 +309,58 @@ test("missing server-side artifacts redirect the browser to the official release
   expect(response.status).toBe(302)
   expect(response.headers.get("location")).toBe(officialWindowsInstallerUrl)
   expect(response.headers.get("location")).not.toContain("opaque-token")
+})
+
+test.each(["mac-arm64", "win-x64", "linux-x64", "linux-arm64"])(
+  "guided %s downloads redirect immediately to the normal installer without forwarding the token",
+  async (platform) => {
+    envModule.env.connectLink = { privateKeyPem: "unused by download route", kid: "test" }
+    const directUrl = `https://github.com/different-ai/openwork/releases/download/v9.9.9/${platform}`
+    const response = await createApp({ installerDirectUrl: directUrl }).request(
+      `http://den.local/v1/install/${platform}?token=opaque-token`,
+      { redirect: "manual" },
+    )
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe(directUrl)
+    expect(response.headers.get("location")).not.toContain("opaque-token")
+  },
+)
+
+test("guided semi-air-gapped downloads return a provisioned standard installer without ZIP wrapping", async () => {
+  envModule.env.connectLink = { privateKeyPem: "unused by download route", kid: "test" }
+  const installer = Buffer.from("signed-standard-windows-installer", "utf8")
+  const response = await createApp({ configuredArtifact: installer }).request(
+    "http://den.local/v1/install/win-x64?token=opaque-token",
+  )
+
+  expect(response.status).toBe(200)
+  expect(response.headers.get("content-type")).toBe("application/vnd.microsoft.portable-executable")
+  expect(response.headers.get("content-disposition")).toContain("openwork-win-x64-")
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(installer)
+})
+
+test("install config includes a fresh signed organization handoff while preserving normal sign-in", async () => {
+  envModule.env.connectLink = { privateKeyPem: connectKeyPair.privateKeyPem, kid: connectKeyId }
+  const response = await createApp().request("http://127.0.0.1:8790/v1/install-config?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  const body = await response.json()
+  expect(body.connectUrl).toStartWith("openwork://connect?token=")
+  expect(body.requireSignin).toBe(true)
+
+  const token = new URL(body.connectUrl).searchParams.get("token") ?? ""
+  const verified = verifyConnectLinkToken({
+    token,
+    publicKeys: { [connectKeyId]: connectKeyPair.publicKeyPem },
+    allowInsecureLoopback: true,
+  })
+  expect(verified.ok).toBe(true)
+  if (!verified.ok) throw new Error("expected install handoff token to verify")
+  expect(verified.claims.org.name).toBe("Acme Robotics")
+  expect(verified.claims.den.baseUrl).toBe(process.env.BETTER_AUTH_URL)
+  expect(verified.claims.den.apiBaseUrl).toBe("http://127.0.0.1:8790")
+  expect(verified.claims.requireSignin).toBe(true)
 })
 
 test.each([

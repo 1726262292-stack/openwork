@@ -14,6 +14,12 @@ export type DenAuthDeepLink = {
   denBaseUrl: string;
 };
 
+export type ConnectDeepLink = {
+  /** The full deep link, relayed verbatim to the main process for verification. */
+  rawUrl: string;
+  token: string;
+};
+
 function isSupportedDeepLinkProtocol(protocol: string): boolean {
   const normalized = protocol.toLowerCase();
   return normalized === "openwork:" || normalized === "openwork-dev:" || normalized === "https:" || normalized === "http:";
@@ -130,6 +136,38 @@ export function parseDenAuthDeepLink(rawUrl: string): DenAuthDeepLink | null {
   }
 
   return { grant, denBaseUrl };
+}
+
+export function parseConnectDeepLink(rawUrl: string): ConnectDeepLink | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  // Unlike the sibling parsers, connect links are only ever minted as
+  // openwork:// deep links (the signed token should not ride ordinary web
+  // URLs), so http(s) forms are deliberately not recognized here.
+  const protocol = url.protocol.toLowerCase();
+  if (protocol !== "openwork:" && protocol !== "openwork-dev:") {
+    return null;
+  }
+
+  const routeHost = url.hostname.toLowerCase();
+  const routePath = url.pathname.replace(/^\/+/, "").toLowerCase();
+  const routeSegments = routePath.split("/").filter(Boolean);
+  const routeTail = routeSegments[routeSegments.length - 1] ?? "";
+  if (routeHost !== "connect" && routePath !== "connect" && routeTail !== "connect") {
+    return null;
+  }
+
+  const token = url.searchParams.get("token")?.trim() ?? "";
+  if (!token) {
+    return null;
+  }
+
+  return { rawUrl, token };
 }
 
 function normalizeDebugDeepLinkInput(rawValue: string): string {

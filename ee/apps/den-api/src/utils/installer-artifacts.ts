@@ -57,7 +57,22 @@ export function desktopReleaseAssetName(platform: string, releaseTag: string) {
   if (platform === "win-x64") {
     return `openwork-${platform}-${version}.exe`
   }
+  if (platform === "linux-x64") {
+    return `openwork-linux-x86_64-${version}.AppImage`
+  }
+  if (platform === "linux-arm64") {
+    return `openwork-linux-arm64-${version}.AppImage`
+  }
   return null
+}
+
+/** Reads only the explicitly provisioned artifact directory; never uses the
+ * per-pod cache and never reaches GitHub. This is the fast, air-gapped path. */
+export async function resolveConfiguredInstallerArtifact(fileName: string): Promise<Buffer | null> {
+  if (!env.installerArtifactsDir) {
+    return null
+  }
+  return readFileOrNull(path.join(env.installerArtifactsDir, fileName))
 }
 
 async function verifyDesktopFallbackUrl(input: {

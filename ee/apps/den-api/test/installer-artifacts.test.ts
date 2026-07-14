@@ -45,6 +45,8 @@ describe("resolveInstallerArtifact", () => {
     ["mac-arm64", "v9.9.9", "openwork-mac-arm64-9.9.9.dmg"],
     ["mac-x64", "9.9.9", "openwork-mac-x64-9.9.9.dmg"],
     ["win-x64", "v9.9.9", "openwork-win-x64-9.9.9.exe"],
+    ["linux-x64", "v9.9.9", "openwork-linux-x86_64-9.9.9.AppImage"],
+    ["linux-arm64", "v9.9.9", "openwork-linux-arm64-9.9.9.AppImage"],
   ])("maps %s to the standard release artifact", (platform, releaseTag, expected) => {
     expect(desktopReleaseAssetName(platform, releaseTag)).toBe(expected)
   })

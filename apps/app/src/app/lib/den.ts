@@ -668,6 +668,25 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
   return desktopBootstrapConfig;
 }
 
+/**
+ * Re-reads desktop-bootstrap.json from the shell and applies it to the cached
+ * snapshot, notifying listeners. Used after the shell itself persisted a new
+ * config (e.g. an accepted connect link) so the renderer converges without a
+ * reload.
+ */
+export async function refreshDenBootstrapConfigFromShell(): Promise<DenBootstrapConfig> {
+  if (isDesktopRuntime()) {
+    try {
+      const bootstrap = await getDesktopBootstrapConfigFromShell() as ShellDesktopBootstrapConfig;
+      applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
+      dispatchDenSettingsChanged({ settings: readDenSettings() });
+    } catch {
+      // Bridge hiccup — keep the current cached snapshot.
+    }
+  }
+  return readDenBootstrapConfig();
+}
+
 export async function setDenBootstrapConfig(
   next: ShellDesktopBootstrapConfig,
 ): Promise<DenBootstrapConfig> {

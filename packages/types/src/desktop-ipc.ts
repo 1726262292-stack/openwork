@@ -12,6 +12,7 @@
  * main process resolves. Results marked `unknown` are not yet modeled —
  * tighten them instead of widening call sites.
  */
+import type { ConnectLinkVerifyFailure, ConnectLinkVerifyResult } from "./connect-link.js";
 import type { WorkspaceWire } from "./workspace.js";
 
 // ---------------------------------------------------------------------------
@@ -157,6 +158,7 @@ export type DesktopBootstrapConfig = {
   requireSignin: boolean;
   brandAppName?: string | null;
   brandLogoUrl?: string | null;
+  brandIconUrl?: string | null;
   writtenAt?: string | null;
   claimLinks?: Array<{
     id: string;
@@ -440,6 +442,17 @@ export type DesktopCommandMap = {
   setDesktopBootstrapConfig: {
     args: [config: Partial<DesktopBootstrapConfig>];
     result: DesktopBootstrapConfig;
+  };
+
+  // Connect links (openwork://connect?token=<JWT>). Verification happens in
+  // the main process against embedded vendor public keys; the renderer only
+  // relays the raw deep-link URL. `connectLinkAccept` re-verifies the URL —
+  // renderer-shaped claims are never trusted — enforces one-time use (jti),
+  // and persists the target as the new desktop bootstrap config.
+  connectLinkVerify: { args: [rawUrl: string]; result: ConnectLinkVerifyResult };
+  connectLinkAccept: {
+    args: [rawUrl: string];
+    result: { ok: true; config: DesktopBootstrapConfig } | ConnectLinkVerifyFailure;
   };
   nukeOpenworkAndOpencodeConfigAndExit: { args: []; result: unknown };
 

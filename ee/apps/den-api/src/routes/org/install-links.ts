@@ -14,13 +14,20 @@ import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
 import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
+import { mintDesktopConnectLink } from "../../desktop-connect-link.js"
 import { env } from "../../env.js"
 import { hashInstallLinkToken, mintOrganizationInstallLink } from "../../install-links.js"
 import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
-import { desktopReleaseAssetName, resolveInstallerArtifact, resolveInstallerFallbackUrl } from "../../utils/installer-artifacts.js"
+import {
+  desktopReleaseAssetName,
+  installerReleaseAssetUrl,
+  resolveConfiguredInstallerArtifact,
+  resolveInstallerArtifact,
+  resolveInstallerFallbackUrl,
+} from "../../utils/installer-artifacts.js"
 import { createStoredZipStream } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
@@ -54,6 +61,11 @@ const installLinkNotFoundSchema = z.object({
   error: z.literal("install_link_not_found"),
 }).meta({ ref: "InstallLinkNotFoundError" })
 
+const installExperienceConfigSchema = installConfigSchema.extend({
+  connectUrl: z.string().nullable(),
+  connectExpiresAt: z.string().datetime().nullable(),
+}).meta({ ref: "InstallExperienceConfig" })
+
 const capabilityDisabledSchema = z.object({
   error: z.literal("capability_disabled"),
   capability: organizationCapabilityKeySchema,
@@ -68,11 +80,18 @@ type InstallPlatform = z.infer<typeof installPlatformSchema>
 
 type InstallerDependencies = {
   resolveArtifact: typeof resolveInstallerArtifact
+  resolveConfiguredArtifact: typeof resolveConfiguredInstallerArtifact
+  resolveDirectUrl: (platform: InstallPlatform) => string
   resolveFallbackUrl: (platform: string) => Promise<string>
 }
 
 const defaultInstallerDependencies: InstallerDependencies = {
   resolveArtifact: resolveInstallerArtifact,
+  resolveConfiguredArtifact: resolveConfiguredInstallerArtifact,
+  resolveDirectUrl: (platform) => {
+    const fileName = desktopReleaseAssetName(platform, env.installerReleaseTag)
+    return fileName ? installerReleaseAssetUrl(fileName) : OPENWORK_DOWNLOAD_URL
+  },
   resolveFallbackUrl: (platform) => resolveInstallerFallbackUrl(platform, OPENWORK_DOWNLOAD_URL),
 }
 
@@ -175,6 +194,12 @@ function artifactFileName(platform: InstallPlatform) {
   return desktopReleaseAssetName(platform, env.installerReleaseTag)
 }
 
+function installerContentType(platform: InstallPlatform) {
+  if (platform.startsWith("mac-")) return "application/x-apple-diskimage"
+  if (platform === "win-x64") return "application/vnd.microsoft.portable-executable"
+  return "application/vnd.appimage"
+}
+
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
@@ -246,8 +271,9 @@ const setActiveOrganizationFromParam: MiddlewareHandler<{ Variables: OrgRouteVar
 
 export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVariables }>(
   app: Hono<T>,
-  installer: InstallerDependencies = defaultInstallerDependencies,
+  installerOverrides: Partial<InstallerDependencies> = {},
 ) {
+  const installer: InstallerDependencies = { ...defaultInstallerDependencies, ...installerOverrides }
   app.post(
     "/v1/orgs/:organizationId/install-links",
     describeRoute({
@@ -315,7 +341,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       summary: "Resolve install-link configuration",
       description: "Returns the organization-specific desktop bootstrap configuration for a valid install link token.",
       responses: {
-        200: jsonResponse("Install configuration resolved successfully.", installConfigSchema),
+        200: jsonResponse("Install configuration resolved successfully.", installExperienceConfigSchema),
         400: jsonResponse("The install-link token was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many install-link attempts.", rateLimitedSchema),
@@ -336,7 +362,20 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         return c.json({ error: "install_link_not_found" }, 404)
       }
 
-      return c.json(resolved.config)
+      const connectLink = mintDesktopConnectLink({
+        organizationName: resolved.config.clientName,
+        appName: resolved.config.appName,
+        logoUrl: resolved.config.logoUrl,
+        iconUrl: resolved.config.iconUrl,
+        webUrl: resolved.config.webUrl,
+        apiUrl: resolved.config.apiUrl,
+      })
+
+      return c.json({
+        ...resolved.config,
+        connectUrl: connectLink?.connectUrl ?? null,
+        connectExpiresAt: connectLink?.connectExpiresAt ?? null,
+      })
     },
   )
 
@@ -344,8 +383,8 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     "/v1/install/:platform",
     describeRoute({
       tags: ["Organizations"],
-      summary: "Download stamped installer",
-      description: "Packages the standard signed OpenWork desktop installer with this organization's bootstrap configuration, or redirects to the verified standard download when Den cannot prepare the bundle.",
+      summary: "Download OpenWork desktop",
+      description: "Returns an explicitly provisioned standard OpenWork installer or redirects to the configured standard release. Organization setup remains in the Den guide and signed connect link.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
         302: emptyResponse("Den redirected the browser to a verified normal desktop download."),
@@ -375,6 +414,33 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       }
 
       const platform = platformResult.data.platform
+      const fileName = artifactFileName(platform)
+      if (!fileName) {
+        return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
+      }
+
+      // Signed connect links move organization setup into an explicit second
+      // step. The installer is therefore the ordinary signed release asset:
+      // serve an operator-provisioned file for air-gapped installs, otherwise
+      // issue a constant-time redirect without downloading it through Den.
+      if (env.connectLink) {
+        const configuredArtifact = await installer.resolveConfiguredArtifact(fileName)
+        if (configuredArtifact) {
+          return new Response(new Uint8Array(configuredArtifact), {
+            headers: {
+              "content-type": installerContentType(platform),
+              "content-length": String(configuredArtifact.byteLength),
+              "content-disposition": contentDisposition(fileName),
+              "cache-control": "private, max-age=300",
+            },
+          })
+        }
+        return c.redirect(installer.resolveDirectUrl(platform), 302)
+      }
+
+      // Backwards-compatible path for deployments that have not configured a
+      // connect-link signing key yet. It retains the existing bundled setup so
+      // upgrading Den does not silently break organization onboarding.
       if (platform.startsWith("linux-")) {
         return new Response(linuxInstallScript({ token: input.token, config: resolved.config }), {
           headers: {
@@ -383,11 +449,6 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
             "cache-control": "no-store",
           },
         })
-      }
-
-      const fileName = artifactFileName(platform)
-      if (!fileName) {
-        return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
       const artifact = await installer.resolveArtifact(fileName)
