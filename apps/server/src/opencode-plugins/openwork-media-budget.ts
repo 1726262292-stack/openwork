@@ -43,7 +43,10 @@ type InlineImageInfo =
       reason: string;
     }
   | {
-      type: "external" | "not-image";
+      type: "external";
+    }
+  | {
+      type: "not-image";
     };
 
 type ImageCandidate = {
@@ -131,22 +134,26 @@ function inlineImageInfo(record: Record<string, unknown>): InlineImageInfo {
 
 function candidateFromRecord(key: string, record: Record<string, unknown>): ImageCandidate | undefined {
   const info = inlineImageInfo(record);
-  if (info.type === "not-image" || info.type === "external") return undefined;
-  if (info.type === "malformed") {
-    return {
-      key,
-      mime: info.mime,
-      filename: info.filename,
-      encodedBytes: 0,
-      malformedReason: info.reason,
-    };
+  switch (info.type) {
+    case "not-image":
+    case "external":
+      return undefined;
+    case "malformed":
+      return {
+        key,
+        mime: info.mime,
+        filename: info.filename,
+        encodedBytes: 0,
+        malformedReason: info.reason,
+      };
+    case "inline":
+      return {
+        key,
+        mime: info.mime,
+        filename: info.filename,
+        encodedBytes: info.encodedBytes,
+      };
   }
-  return {
-    key,
-    mime: info.mime,
-    filename: info.filename,
-    encodedBytes: info.encodedBytes,
-  };
 }
 
 function imageName(candidate: ImageCandidate): string {
