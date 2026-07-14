@@ -140,6 +140,11 @@ async function scrollIntoViewport(ctx, selector, block = "center") {
   await waitForViewportStable(ctx);
 }
 
+async function setPageZoom(ctx, value) {
+  await ctx.eval(`document.body.style.zoom = ${JSON.stringify(value)}`);
+  await waitForViewportStable(ctx);
+}
+
 function visibleRowCount(selector) {
   return `document.querySelectorAll(${JSON.stringify(selector)}).length`;
 }
@@ -280,7 +285,8 @@ export default {
             const metric = await ctx.eval(pageMetric("Search across all 60000 organizations"));
             ctx.assert(rowCount > 0 && rowCount <= 50, `Expected at most 50 organization rows, got ${rowCount}`);
             ctx.assert(metric?.end === 50 && metric.total === 60000 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected organization page metric: ${JSON.stringify(metric)} (runner tab diagnostic ${ctx.state.orgOpenElapsedMs} ms)`);
-            await scrollIntoViewport(ctx, FIRST_ORG_ROW_SELECTOR);
+            await setPageZoom(ctx, "0.7");
+            await scrollIntoViewport(ctx, FIRST_ORG_ROW_SELECTOR, "start");
           },
           screenshot: { name: "admin-scale-organizations", requireText: ["Organizations (60000)", "page 1-50 of 60000", "Organization 0", "browser visible"] },
         });
@@ -306,7 +312,8 @@ export default {
             const metric = await ctx.eval(pageMetric("Search across all 60000 organizations"));
             ctx.assert(rowCount === 1, `Expected one organization search row, got ${rowCount}`);
             ctx.assert(metric?.total === 1 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected organization search metric: ${JSON.stringify(metric)} (runner input diagnostic ${ctx.state.orgSearchElapsedMs} ms)`);
-            await scrollIntoViewport(ctx, TARGET_ORG_ROW_SELECTOR);
+            await setPageZoom(ctx, "0.7");
+            await scrollIntoViewport(ctx, TARGET_ORG_ROW_SELECTOR, "start");
           },
           screenshot: { name: "admin-scale-org-search", requireText: ["Scale Performance Target Organization", "Install links", "Save access", "browser visible"] },
         });
@@ -332,6 +339,7 @@ export default {
             await ctx.expectText("pnpm benchmark:admin-scale:mysql");
             await ctx.expectText("500 ms initial");
             await ctx.expectText("300 ms searches");
+            await setPageZoom(ctx, "1");
             await scrollIntoViewport(ctx, SCALE_STATUS_SELECTOR);
           },
           screenshot: { name: "admin-scale-budget-evidence", requireText: ["pnpm benchmark:admin-scale:mysql", "500 ms initial", "300 ms searches", "Latest MySQL benchmark"] },
