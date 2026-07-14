@@ -1660,6 +1660,14 @@ export function DenAdminPanel() {
     organizationRequestIdRef.current = requestId;
     setOrganizationsLoading(true);
     const controller = new AbortController();
+
+    if (trimmedQuery === "") {
+      void loadOrganizations(trimmedQuery, 0, controller.signal, requestId);
+      return () => {
+        controller.abort();
+      };
+    }
+
     const timeout = window.setTimeout(() => {
       void loadOrganizations(trimmedQuery, 0, controller.signal, requestId);
     }, ADMIN_SEARCH_DEBOUNCE_MS);
