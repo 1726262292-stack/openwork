@@ -9,7 +9,7 @@ import { getOrgAccessFlags } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { IntegrationIcon } from "./integration-icon";
 import { formatRequiredBy, sortConnectionsForFocus, trustedConnectionFocusId } from "./mcp-connection-display";
-import { safeMcpAuthorizationUrl } from "./mcp-authorization-url";
+import { openMcpAuthorizationWindow, safeMcpAuthorizationUrl } from "./mcp-authorization-url";
 import { MICROSOFT_365_DISPLAY_SCOPES } from "./microsoft-365-permissions";
 import {
   canDisconnectNativeProviderAccount,
@@ -86,16 +86,20 @@ export function YourConnectionsScreen() {
 
   async function handleConnectMyAccount(connectionId: string) {
     setRowError(null);
+    let authorizationWindow: Window | null = null;
     try {
+      authorizationWindow = openMcpAuthorizationWindow();
       const result = await startOAuth.mutateAsync(connectionId);
       if (result.status === "connected") {
+        authorizationWindow.close();
         void refetch();
         return;
       }
       if (!result.authorizeUrl) throw new Error("The MCP provider did not return an authorization URL.");
-      window.open(safeMcpAuthorizationUrl(result.authorizeUrl), "_blank", "noopener,noreferrer");
+      authorizationWindow.location.href = safeMcpAuthorizationUrl(result.authorizeUrl);
       pollUntilConnectedForMe(connectionId);
     } catch (connectError) {
+      authorizationWindow?.close();
       setRowError({
         connectionId,
         message: connectError instanceof Error ? connectError.message : "Failed to connect account.",

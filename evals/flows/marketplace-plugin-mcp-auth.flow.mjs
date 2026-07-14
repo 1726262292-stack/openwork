@@ -20,7 +20,8 @@ const PLATFORM_ADMIN_EMAIL = process.env.OPENWORK_EVAL_PLATFORM_ADMIN_EMAIL?.tri
 const PLATFORM_ADMIN_PASSWORD = process.env.OPENWORK_EVAL_PLATFORM_ADMIN_PASSWORD?.trim() || "";
 const MOCK_PORT = Number(process.env.OPENWORK_EVAL_MARKETPLACE_SLACK_MOCK_PORT ?? 4537);
 const MOCK_BASE = `http://127.0.0.1:${MOCK_PORT}`;
-const MOCK_MCP_URL = `${MOCK_BASE}/mcp`;
+const MOCK_MCP_URL = process.env.OPENWORK_EVAL_MARKETPLACE_SLACK_MCP_URL?.trim() || `${MOCK_BASE}/mcp`;
+const MOCK_ISSUER = new URL(MOCK_MCP_URL).origin;
 const MOCK_CLIENT_ID = process.env.MOCK_CLIENT_ID || "mock-preregistered-client";
 const MOCK_CLIENT_SECRET = process.env.MOCK_CLIENT_SECRET || "mock-preregistered-secret";
 const MOCK_SERVER_SCRIPT = fileURLToPath(new URL("../../scripts/mock-oauth-mcp-server.mjs", import.meta.url));
@@ -709,6 +710,7 @@ async function startMock(ctx) {
       PORT: String(MOCK_PORT),
       AUTO_APPROVE: "1",
       DISABLE_DCR: "1",
+      ISSUER: MOCK_ISSUER,
       MOCK_CLIENT_ID,
       MOCK_CLIENT_SECRET,
       MOCK_EXTRA_TOOL_NAME: EXTERNAL_TOOL_NAME,
@@ -940,11 +942,10 @@ async function assertConfiguredConnection(ctx) {
   const listed = await orgApi(ctx, "/v1/mcp-connections?scope=manageable");
   const connection = (listed.connections ?? []).find((entry) => entry.id === state.connectionId);
   ctx.assert(Boolean(connection), `Configured connection ${state.connectionId} not found.`);
-  recordAssertion(ctx, "Configured connection is per-member, Support-scoped through inherited marketplace access, and URL is the plugin payload URL", connection.credentialMode === "per_member"
+  recordAssertion(ctx, "Configured connection is per-member, bound to Support Operations, and uses the plugin payload URL", connection.credentialMode === "per_member"
     && connection.url === MOCK_MCP_URL
-    && connection.access?.orgWide === false
-    && (connection.access?.teamIds ?? []).includes(state.supportTeamId)
-    && (connection.requiredBy ?? []).some((entry) => entry.name === PLUGIN_NAME), {
+    && (connection.requiredBy ?? []).some((entry) => entry.pluginId === state.pluginId && entry.name === PLUGIN_NAME)
+    && (connection.identityManagedBy ?? []).some((entry) => entry.pluginId === state.pluginId && entry.name === PLUGIN_NAME), {
     id: connection.id,
     name: connection.name,
     url: connection.url,

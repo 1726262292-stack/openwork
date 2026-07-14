@@ -18,6 +18,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../db.js"
+import { normalizeConnectedAccountScopes, normalizeOAuthClientExtra } from "./oauth-credentials.js"
 
 /**
  * CRUD for ExternalMcpConnectionTable and its access grants — the "add any
@@ -977,7 +978,10 @@ export async function readOrgOAuthClientForExternalMcpIdentity(
         eq(OrgOAuthClientTable.providerId, connection.id),
       ))
       .limit(1)
-    return { current: true, value: rows[0] ?? null }
+    const value = rows[0]
+      ? { ...rows[0], extra: normalizeOAuthClientExtra(rows[0].extra) }
+      : null
+    return { current: true, value }
   })
 }
 
@@ -1073,7 +1077,10 @@ export async function readConnectedAccountForExternalMcpIdentity(input: {
         eq(ConnectedAccountTable.providerId, input.connection.id),
       ))
       .limit(1)
-    return { current: true, value: rows[0] ?? null }
+    const value = rows[0]
+      ? { ...rows[0], scopes: normalizeConnectedAccountScopes(rows[0].scopes) }
+      : null
+    return { current: true, value }
   })
 }
 

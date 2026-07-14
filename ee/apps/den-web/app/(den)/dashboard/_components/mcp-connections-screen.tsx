@@ -13,7 +13,7 @@ import { getPluginRoute } from "../../_lib/den-org";
 import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { IntegrationIcon } from "./integration-icon";
 import { Microsoft365Dialog } from "./microsoft-365-dialog";
-import { safeMcpAuthorizationUrl } from "./mcp-authorization-url";
+import { openMcpAuthorizationWindow, safeMcpAuthorizationUrl } from "./mcp-authorization-url";
 import {
   editableMcpIdentityChanged,
   marketplaceIdentityOwnerNames,
@@ -257,18 +257,22 @@ export function McpConnectionsScreen() {
     }, OAUTH_POLL_INTERVAL_MS);
   }
 
-  async function handleConnectOAuth(connectionId: string) {
+  async function handleConnectOAuth(connectionId: string, pendingAuthorizationWindow?: Window) {
     setConnectionActionError(null);
+    let authorizationWindow: Window | null = pendingAuthorizationWindow ?? null;
     try {
+      authorizationWindow = authorizationWindow ?? openMcpAuthorizationWindow();
       const result = await startOAuth.mutateAsync(connectionId);
       if (result.status === "connected") {
+        authorizationWindow.close();
         void refetch();
         return;
       }
       if (!result.authorizeUrl) throw new Error("The MCP provider did not return an authorization URL.");
-      window.open(safeMcpAuthorizationUrl(result.authorizeUrl), "_blank", "noopener,noreferrer");
+      authorizationWindow.location.href = safeMcpAuthorizationUrl(result.authorizeUrl);
       pollUntilConnected(connectionId);
     } catch (connectError) {
+      authorizationWindow?.close();
       setConnectionActionError({
         connectionId,
         message: connectError instanceof Error ? connectError.message : "Failed to connect the MCP server.",
@@ -277,19 +281,27 @@ export function McpConnectionsScreen() {
   }
 
   async function handleCreate(input: CreateMcpConnectionInput): Promise<CreatedMcpConnection> {
-    const created = await createConnection.mutateAsync(input);
-    if (input.oauthClient) {
+    const authorizationWindow = input.authType === "oauth" && input.credentialMode === "shared" && !input.oauthClient
+      ? openMcpAuthorizationWindow()
+      : undefined;
+    try {
+      const created = await createConnection.mutateAsync(input);
+      if (input.oauthClient) {
+        return created;
+      }
+      setFormOpen(false);
+      setFormPreset(null);
+      // Shared-credential OAuth: the admin authorizes the org's single account
+      // right now. Per-member: nothing to authorize here — each granted person
+      // connects their own account from Your Connections.
+      if (input.authType === "oauth" && input.credentialMode === "shared") {
+        await handleConnectOAuth(created.id, authorizationWindow);
+      }
       return created;
+    } catch (createError) {
+      authorizationWindow?.close();
+      throw createError;
     }
-    setFormOpen(false);
-    setFormPreset(null);
-    // Shared-credential OAuth: the admin authorizes the org's single account
-    // right now. Per-member: nothing to authorize here — each granted person
-    // connects their own account from Your Connections.
-    if (input.authType === "oauth" && input.credentialMode === "shared") {
-      await handleConnectOAuth(created.id);
-    }
-    return created;
   }
 
   async function handleUpdate(input: UpdateMcpConnectionInput): Promise<UpdatedMcpConnection> {

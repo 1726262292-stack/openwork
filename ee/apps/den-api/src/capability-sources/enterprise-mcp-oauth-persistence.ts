@@ -25,6 +25,7 @@ import {
   externalMcpIdentityBinding,
   type ExternalMcpConnectionRow,
 } from "./external-mcp-connections.js"
+import { normalizeConnectedAccountScopes, normalizeOAuthClientExtra } from "./oauth-credentials.js"
 
 const MAX_PENDING_AUTHORIZATIONS = 8
 
@@ -168,7 +169,9 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
         eq(ConnectedAccountTable.providerId, this.connection.id),
       ))
       .limit(1)
-    return rows[0] ?? null
+    return rows[0]
+      ? { ...rows[0], scopes: normalizeConnectedAccountScopes(rows[0].scopes) }
+      : null
   }
 
   readonly clientRegistrations = {
@@ -185,12 +188,13 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
         .limit(1)
       const row = rows[0]
       if (!row) return undefined
-      const clientInformation = restoredClientInformation(row)
+      const extra = normalizeOAuthClientExtra(row.extra)
+      const clientInformation = restoredClientInformation({ ...row, extra })
       return {
         clientInformation,
         revision: clientRevision(row),
         expiresAt: clientExpiration(clientInformation),
-        source: row.extra?.enterpriseMcpRegistrationSource === "dynamic" ? "dynamic" : "pre-registered",
+        source: extra?.enterpriseMcpRegistrationSource === "dynamic" ? "dynamic" : "pre-registered",
       }
     },
 
