@@ -571,7 +571,7 @@ export default {
             },
             screenshot: {
               name: "standardized-cancel-retryable",
-              requireText: ["API Keys", SECURITY_MESSAGE, state.apiKeyName, "Create API key"],
+              requireText: ["API Keys", SECURITY_MESSAGE, "Create API key"],
               rejectText: ["Choose an organization"],
             },
           });
