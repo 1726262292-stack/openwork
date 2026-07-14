@@ -9,6 +9,7 @@ import type { ServerConfig } from "../types.js";
 
 export const GOOGLE_WORKSPACE_EXTENSION_ID = "google-workspace";
 
+const GMAIL_HARD_WRAP_MIN_LINE_LENGTH = 50;
 const GOOGLE_WORKSPACE_DESKTOP_CLIENT_ID = "929071212606-pmkqimjhm2tnp68kbklnout0irllj99h.apps.googleusercontent.com";
 const GOOGLE_WORKSPACE_CLIENT_ID_ENV = "OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_ID";
 const GOOGLE_WORKSPACE_CLIENT_SECRET_ENV = "GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET";
@@ -81,7 +82,7 @@ export const GOOGLE_WORKSPACE_EXTENSION_ACTIONS = [
         cc: { type: "array", items: { type: "string" }, description: "Optional CC recipients." },
         bcc: { type: "array", items: { type: "string" }, description: "Optional BCC recipients." },
         subject: { type: "string", description: "Draft subject." },
-        body: { type: "string", description: "Plain text draft body." },
+        body: { type: "string", description: "Plain text draft body. Separate paragraphs with blank lines and do not hard-wrap prose." },
         attachments: {
           type: "array",
           description: "Optional local files to attach. Paths may be relative to the active workspace/directory or absolute under an authorized workspace root.",
@@ -771,11 +772,12 @@ function gmailRawMessage(input: { to: string[]; cc?: string[]; bcc?: string[]; s
     ...(input.headers ?? []).map((header) => `${header.name}: ${header.value}`),
   ].filter((line): line is string => typeof line === "string");
   const attachments = input.attachments ?? [];
+  const body = normalizeGmailDraftBody(input.body);
   if (!attachments.length) return [
     ...headers,
     "Content-Type: text/plain; charset=UTF-8",
     "",
-    input.body,
+    body,
   ].filter((line): line is string => typeof line === "string").join("\r\n");
 
   const boundary = `openwork-${randomBytes(16).toString("hex")}`;
@@ -788,7 +790,7 @@ function gmailRawMessage(input: { to: string[]; cc?: string[]; bcc?: string[]; s
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: 8bit",
     "",
-    input.body,
+    body,
     ...attachments.flatMap((attachment) => [
       `--${boundary}`,
       `Content-Type: ${attachment.mimeType}; name="${gmailMimeParameter(attachment.filename)}"`,
@@ -800,6 +802,20 @@ function gmailRawMessage(input: { to: string[]; cc?: string[]; bcc?: string[]; s
     `--${boundary}--`,
     "",
   ].join("\r\n");
+}
+
+// Generated prose is sometimes hard-wrapped before it reaches Gmail. Those
+// literal breaks become visible after send, especially on narrow screens.
+function normalizeGmailDraftBody(body: string): string {
+  return body.replace(/\r\n?/g, "\n").replace(/[^\n]+(?:\n[^\n]+)+/g, (block) => {
+    const lines = block.split("\n");
+    const hasStructure = lines.some((line) => {
+      const trimmed = line.trimStart();
+      return trimmed.length !== line.length || /^(?:[-*+•]\s|\d+[.)]\s|>|```|~~~)/.test(trimmed);
+    });
+    const looksHardWrapped = lines.slice(0, -1).every((line) => line.trimEnd().length >= GMAIL_HARD_WRAP_MIN_LINE_LENGTH);
+    return hasStructure || !looksHardWrapped ? block : lines.map((line) => line.trim()).join(" ");
+  });
 }
 
 function splitEmailHeader(value: string): string[] {
