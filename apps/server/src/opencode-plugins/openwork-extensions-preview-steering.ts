@@ -236,15 +236,17 @@ function degradedInstruction(health: OpenWorkCloudHealthSummary | null): string 
 }
 
 export function composeOpenWorkExtensionDiscoveryInstruction(state: OpenWorkExtensionConnectState | null): string {
-  if (!state || !state.connectCatalogEnabled || state.googleWorkspace.legacyConfigured) {
-    return OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION;
-  }
+  if (!state) return OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION;
   if (state.workspace?.resolution && state.workspace.resolution !== "resolved") return degradedInstruction(null);
   const health = state.cloudHealth;
   if (health?.usable === true && health.usableByCurrentModel !== false) return OPENWORK_CLOUD_CONNECTION_INSTRUCTION;
   if (health?.phase === "engine_disabled" || health?.firstFailure?.code === "cloud_mcp_disabled") return OPENWORK_CONNECT_DISABLED_INSTRUCTION;
-  if (!health || !health.desired.present || health.firstFailure?.code === "cloud_mcp_missing") return OPENWORK_CONNECT_SIGN_IN_INSTRUCTION;
-  return degradedInstruction(health);
+  if (health) {
+    if (!health.desired.present || health.firstFailure?.code === "cloud_mcp_missing") return OPENWORK_CONNECT_SIGN_IN_INSTRUCTION;
+    return degradedInstruction(health);
+  }
+  if (!state.connectCatalogEnabled || state.googleWorkspace.legacyConfigured) return OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION;
+  return OPENWORK_CONNECT_SIGN_IN_INSTRUCTION;
 }
 
 export function resetOpenWorkExtensionDiscoveryInstructionCacheForTests(): void {
