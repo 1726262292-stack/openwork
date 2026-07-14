@@ -35,10 +35,10 @@ describe("connectionDisplayState", () => {
   });
 
   test("maps display states to static translation keys", () => {
-    expect(connectionDisplayStateLabelKey("configured")).toBe("mcp.display_state_configured");
-    expect(connectionDisplayStateLabelKey("auth_required")).toBe("mcp.display_state_needs_signin");
-    expect(connectionDisplayStateLabelKey("protocol_ready")).toBe("mcp.display_state_ready");
-    expect(connectionDisplayStateLabelKey("error")).toBe("mcp.display_state_error");
-    expect(connectionDisplayStateLabelKey("disabled")).toBe("mcp.display_state_off");
+    expect(connectionDisplayStateLabelKey("configured")).toBe("mcp.friendly_status_offline");
+    expect(connectionDisplayStateLabelKey("auth_required")).toBe("mcp.friendly_status_needs_signin");
+    expect(connectionDisplayStateLabelKey("protocol_ready")).toBe("mcp.friendly_status_ready");
+    expect(connectionDisplayStateLabelKey("error")).toBe("mcp.friendly_status_issue");
+    expect(connectionDisplayStateLabelKey("disabled")).toBe("mcp.friendly_status_paused");
   });
 });

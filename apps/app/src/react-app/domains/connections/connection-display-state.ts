@@ -8,11 +8,11 @@ export type ConnectionDisplayState =
   | "disabled";
 
 export type ConnectionDisplayStateLabelKey =
-  | "mcp.display_state_configured"
-  | "mcp.display_state_needs_signin"
-  | "mcp.display_state_ready"
-  | "mcp.display_state_error"
-  | "mcp.display_state_off";
+  | "mcp.friendly_status_offline"
+  | "mcp.friendly_status_needs_signin"
+  | "mcp.friendly_status_ready"
+  | "mcp.friendly_status_issue"
+  | "mcp.friendly_status_paused";
 
 export type ConnectionDisplayTone = "neutral" | "warning" | "success" | "error";
 
@@ -40,15 +40,15 @@ export function connectionDisplayState(input: ConnectionDisplayStateInput): Conn
 export function connectionDisplayStateLabelKey(state: ConnectionDisplayState): ConnectionDisplayStateLabelKey {
   switch (state) {
     case "configured":
-      return "mcp.display_state_configured";
+      return "mcp.friendly_status_offline";
     case "auth_required":
-      return "mcp.display_state_needs_signin";
+      return "mcp.friendly_status_needs_signin";
     case "protocol_ready":
-      return "mcp.display_state_ready";
+      return "mcp.friendly_status_ready";
     case "error":
-      return "mcp.display_state_error";
+      return "mcp.friendly_status_issue";
     case "disabled":
-      return "mcp.display_state_off";
+      return "mcp.friendly_status_paused";
   }
 }
 
