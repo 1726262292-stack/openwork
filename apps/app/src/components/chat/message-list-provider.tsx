@@ -5,8 +5,6 @@ import * as React from "react"
 
 interface MessageListContextValue {
   workspaceId: string
-  workspaceRoot: string
-  isRemoteWorkspace: boolean
   sessionId: string
   showThinking: boolean
   highlightQuery?: string
@@ -25,8 +23,6 @@ const MessageListContext = React.createContext<MessageListContextValue | null>(n
 interface MessageListProviderProps {
   children: React.ReactNode
   workspaceId: string
-  workspaceRoot: string
-  isRemoteWorkspace: boolean
   sessionId: string
   showThinking: boolean
   highlightQuery?: string
@@ -49,8 +45,6 @@ export interface DispatchAction {
 export function MessageListProvider({
   children,
   workspaceId,
-  workspaceRoot,
-  isRemoteWorkspace,
   sessionId,
   showThinking,
   highlightQuery,
@@ -66,8 +60,6 @@ export function MessageListProvider({
   const value = React.useMemo(
     () => ({
       workspaceId,
-      workspaceRoot,
-      isRemoteWorkspace,
       sessionId,
       showThinking,
       highlightQuery,
@@ -82,8 +74,6 @@ export function MessageListProvider({
     }),
     [
       workspaceId,
-      workspaceRoot,
-      isRemoteWorkspace,
       sessionId,
       showThinking,
       highlightQuery,

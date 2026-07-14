@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { isAbsolute, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 import {
@@ -320,10 +320,10 @@ function sentAttachmentCardsExpr() {
   return `(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
     const hasSentFileCard = (filename, badge) => {
-      const button = buttons.find((item) => item.getAttribute("aria-label") === "Open " + filename);
+      const button = buttons.find((item) => item.getAttribute("aria-label") === "Download " + filename);
       const card = button ? button.closest("div") : null;
       const text = card && card.textContent ? card.textContent : "";
-      return Boolean(button && text.includes(filename) && text.includes(badge) && text.includes("Open"));
+      return Boolean(button && text.includes(filename) && text.includes(badge) && text.includes("Download"));
     };
     const docx = hasSentFileCard(${JSON.stringify(DOCX_FILENAME)}, "DOCX");
     const pptx = hasSentFileCard(${JSON.stringify(PPTX_FILENAME)}, "PPTX");
@@ -331,10 +331,6 @@ function sentAttachmentCardsExpr() {
     return {
       docx,
       pptx,
-      openButtons: buttons.filter((button) => {
-        const label = button.getAttribute("aria-label") || "";
-        return label.startsWith("Open ") && label !== "Open externally";
-      }).length,
       downloadButtons: buttons.filter((button) => {
         const label = button.getAttribute("aria-label") || "";
         return label.startsWith("Download ") && label !== "Download artifact";
@@ -389,67 +385,53 @@ function findDataUrlDetails(value) {
   return null;
 }
 
-function rawLocalFilePathname(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed.toLowerCase().startsWith("file://")) return null;
-  const pathWithSuffix = trimmed.slice("file://".length);
-  if (!pathWithSuffix.startsWith("/")) return null;
-  const suffixIndexes = [pathWithSuffix.indexOf("?"), pathWithSuffix.indexOf("#")]
-    .filter((index) => index >= 0)
-    .sort((left, right) => left - right);
-  return suffixIndexes.length ? pathWithSuffix.slice(0, suffixIndexes[0]) : pathWithSuffix;
+function collectStrings(value, out = []) {
+  if (typeof value === "string") {
+    out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStrings(item, out);
+    return out;
+  }
+  if (!isRecord(value)) return out;
+  for (const item of Object.values(value)) collectStrings(item, out);
+  return out;
 }
 
-function safeFileUrlPathname(value) {
-  const pathname = rawLocalFilePathname(value);
-  if (!pathname || !pathname.startsWith("/")) return false;
-  const segments = pathname.slice(1).split("/");
-  if (segments.some((segment) => !segment)) return false;
-
-  for (const rawSegment of segments) {
-    let segment = "";
-    try {
-      segment = decodeURIComponent(rawSegment);
-    } catch {
-      return false;
-    }
-    if (segment === "." || segment === ".." || segment.includes("/") || segment.includes("\\")) return false;
-  }
-
-  return true;
+function canonicalDataUrl(expected) {
+  return `data:${expected.mime};base64,${expected.dataBase64}`;
 }
 
 function workspaceRelativePath(root, target) {
   const relativePath = relative(resolve(root), resolve(target));
   const outside = relativePath === ".." || relativePath.startsWith("../") || relativePath.startsWith("..\\");
-  return relativePath && !outside && !isAbsolute(relativePath) ? relativePath : null;
+  return relativePath && !outside ? relativePath : "";
 }
 
-function parseWorkspaceFileUrl(ctx, value) {
-  if (typeof value !== "string" || !ctx.workspacePath || !safeFileUrlPathname(value)) return null;
-
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
-
-  if (url.protocol !== "file:" || url.host || url.search || url.hash) return null;
-
-  let filePath = "";
-  try {
-    filePath = fileURLToPath(url);
-  } catch {
-    return null;
-  }
-
-  const relativePath = workspaceRelativePath(ctx.workspacePath, filePath);
-  return relativePath ? { url: value, path: resolve(filePath), relativePath } : null;
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function hashWorkspaceFileUrl(ctx, filePath) {
+function attachmentPathNoteText(messages) {
+  return collectStrings(messages)
+    .filter((text) => text.includes(".opencode/openwork/inbox/chat-attachments/") || text.includes("Attached files were copied into this worker workspace"))
+    .join("\n");
+}
+
+function parseAttachmentPathNoteReference(text, expected) {
+  const filenamePattern = escapeRegExp(expected.filename);
+  const pathPattern = new RegExp(`\\.opencode/openwork/inbox/chat-attachments/[^\\s)]*${filenamePattern}`);
+  const lines = text.split(/\r?\n/).filter((line) => line.includes(expected.filename));
+  for (const line of lines) {
+    const path = pathPattern.exec(line)?.[0] ?? "";
+    const url = /file:\/\/[^\s)]+/i.exec(line)?.[0] ?? "";
+    if (path || url) return { line, path, url };
+  }
+  return { line: "", path: "", url: "" };
+}
+
+function hashWorkspaceFile(ctx, filePath) {
   ctx.assert(Boolean(ctx.workspacePath), "Missing workspace path");
   const raw = runInSandbox(ctx, `
 set -euo pipefail
@@ -464,12 +446,14 @@ const target = realpathSync(process.argv[3]);
 const relativePath = relative(root, target);
 const outside = relativePath === ".." || relativePath.startsWith("../") || relativePath.startsWith("..\\\\");
 if (!relativePath || outside || isAbsolute(relativePath)) {
-  throw new Error("file URL target is outside workspace: " + target);
+  throw new Error("attachment path is outside workspace: " + target);
 }
+const bytes = readFileSync(target);
 process.stdout.write(JSON.stringify({
   path: target,
   relativePath,
-  sha256: createHash("sha256").update(readFileSync(target)).digest("hex"),
+  bytes: bytes.byteLength,
+  sha256: createHash("sha256").update(bytes).digest("hex"),
 }));
 EOF
 `, 30_000).trim();
@@ -493,40 +477,46 @@ function assertPersistedOriginalOfficeParts(ctx, messages) {
   const parts = collectFileParts(messages);
   for (const [kind, expected] of Object.entries(OFFICE_FIXTURES)) {
     const candidates = parts.filter((part) => stringField(part, ["filename", "fileName", "name"]) === expected.filename);
-    let fileMatch = null;
-    for (const part of candidates) {
-      if (stringField(part, ["mediaType", "mime", "mimeType", "contentType"]).toLowerCase() !== expected.mime) continue;
-      const parsed = parseWorkspaceFileUrl(ctx, stringField(part, ["url"]));
-      if (!parsed) continue;
-      const hash = hashWorkspaceFileUrl(ctx, parsed.path);
-      if (hash.sha256 === expected.sha256) {
-        fileMatch = { part, parsed, hash };
-        break;
-      }
-    }
-    const dataMatch = candidates.find((part) => {
+    const expectedUrl = canonicalDataUrl(expected);
+    const found = candidates.find((part) => {
       const details = findDataUrlDetails(part);
+      const url = stringField(part, ["url"]);
       return stringField(part, ["mediaType", "mime", "mimeType", "contentType"]).toLowerCase() === expected.mime
+        && url === expectedUrl
         && details?.sha256 === expected.sha256
         && details.mime === expected.mime;
-    }) || null;
-    const found = fileMatch?.part || dataMatch || candidates[0];
+    }) || candidates[0];
     record(ctx, Boolean(found), `Session read API retained original ${kind.toUpperCase()} FilePart`, JSON.stringify({ candidates: candidates.length }));
     if (!found) continue;
     const filename = stringField(found, ["filename", "fileName", "name"]);
     const mime = stringField(found, ["mediaType", "mime", "mimeType", "contentType"]).toLowerCase();
+    const url = stringField(found, ["url"]);
     const dataUrl = findDataUrlDetails(found);
+    const fileUrls = candidates.map((part) => stringField(part, ["url"])).filter((value) => value.toLowerCase().startsWith("file:"));
     record(ctx, filename === expected.filename, `Persisted ${kind.toUpperCase()} filename is canonical`, filename);
     record(ctx, mime === expected.mime, `Persisted ${kind.toUpperCase()} MIME is canonical`, mime);
-    record(ctx, Boolean(fileMatch), `Persisted ${kind.toUpperCase()} URL is a workspace-local file URL`, fileMatch ? JSON.stringify(fileMatch.parsed) : stringField(found, ["url"]));
-    if (fileMatch) {
-      record(ctx, fileMatch.parsed.relativePath.length > 0, `Persisted ${kind.toUpperCase()} file URL resides under the Daytona workspace`, JSON.stringify({ workspacePath: ctx.workspacePath, relativePath: fileMatch.parsed.relativePath }));
-      record(ctx, fileMatch.hash.sha256 === expected.sha256, `Persisted ${kind.toUpperCase()} file URL bytes match original fixture sha256`, fileMatch.hash.sha256);
-    }
-    if (dataUrl) {
-      record(ctx, dataUrl.mime === expected.mime, `Optional persisted ${kind.toUpperCase()} data URL MIME is canonical`, dataUrl.mime);
-      record(ctx, dataUrl.sha256 === expected.sha256, `Optional persisted ${kind.toUpperCase()} data URL sha256 matches original bytes`, dataUrl.sha256);
-    }
+    record(ctx, url === expectedUrl, `Persisted ${kind.toUpperCase()} FilePart URL is the exact canonical data URL`, JSON.stringify({ urlPrefix: url.slice(0, 64), urlLength: url.length }));
+    record(ctx, dataUrl?.mime === expected.mime, `Persisted ${kind.toUpperCase()} data URL MIME is canonical`, dataUrl?.mime || "missing");
+    record(ctx, dataUrl?.sha256 === expected.sha256, `Persisted ${kind.toUpperCase()} data URL sha256 matches original bytes`, dataUrl?.sha256 || "missing");
+    record(ctx, fileUrls.length === 0, `Session read API exposes only data URLs for ${kind.toUpperCase()} FileParts`, JSON.stringify(fileUrls));
+  }
+}
+
+function assertWorkspaceAttachmentPathNotes(ctx, messages) {
+  const text = attachmentPathNoteText(messages);
+  record(ctx, text.includes("Attached files were copied into this worker workspace"), "Session text contains the worker attachment path note", text.slice(0, 1000));
+  for (const [kind, expected] of Object.entries(OFFICE_FIXTURES)) {
+    const reference = parseAttachmentPathNoteReference(text, expected);
+    record(ctx, Boolean(reference.path), `Submitted ${kind.toUpperCase()} path note includes a workspace-local inbox path`, reference.line || text.slice(0, 1000));
+    record(ctx, reference.path.startsWith(".opencode/openwork/inbox/chat-attachments/"), `Submitted ${kind.toUpperCase()} path note stays under chat-attachments`, reference.path);
+    record(ctx, Boolean(reference.url), `Submitted ${kind.toUpperCase()} path note includes a file: URL`, reference.line || text.slice(0, 1000));
+    const filePath = reference.url ? fileURLToPath(reference.url) : "";
+    const relativePath = filePath ? workspaceRelativePath(ctx.workspacePath, filePath) : "";
+    record(ctx, relativePath === reference.path, `Submitted ${kind.toUpperCase()} file: URL resolves to the noted workspace path`, JSON.stringify({ filePath, relativePath, notedPath: reference.path }));
+    const hash = hashWorkspaceFile(ctx, filePath);
+    record(ctx, hash.relativePath === reference.path, `Daytona ${kind.toUpperCase()} workspace copy resolves under the noted inbox path`, JSON.stringify(hash));
+    record(ctx, hash.sha256 === expected.sha256, `Daytona ${kind.toUpperCase()} workspace copy sha256 matches the fixture exactly`, hash.sha256);
+    record(ctx, hash.bytes === expected.size, `Daytona ${kind.toUpperCase()} workspace copy size matches the fixture exactly`, String(hash.bytes));
   }
 }
 
@@ -769,7 +759,7 @@ export default {
       },
     },
     {
-      name: "Send normalizes Office files for provider text, tool loop writes artifacts, and sent cards open safely",
+      name: "Send normalizes Office files for provider text, tool loop writes artifacts, and sent cards are actionable",
       run: async (ctx) => {
         await ctx.prove("Sending crosses Electron, OpenWork, OpenCode, and the provider; the mock receives normalized Office text, then writes exact materialized bytes via bash", {
           voiceover: vo[2],
@@ -811,10 +801,17 @@ export default {
             record(ctx, sessionText.includes(DOCX_SENTINEL) && sessionText.includes(PPTX_SENTINEL), "Session read API contains both extracted sentinel facts");
             record(ctx, sessionText.includes("artifacts/QuarterlyBrief.docx") && sessionText.includes("artifacts/LaunchRoadmap.pptx"), "Session read API contains both artifact paths");
             assertPersistedOriginalOfficeParts(ctx, messages);
-            const cards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 30_000, label: "sent Office cards with Open actions" });
-            record(ctx, cards.docx, "Sent DOCX card shows DOCX badge and Open action");
-            record(ctx, cards.pptx, "Sent PPTX card shows PPTX badge and Open action");
-            record(ctx, cards.downloadButtons === 0, "Sent Office cards do not expose browser Download actions for file URLs", JSON.stringify({ downloadButtons: cards.downloadButtons }));
+            assertWorkspaceAttachmentPathNotes(ctx, messages);
+            const cards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 30_000, label: "sent Office cards with Download actions" });
+            record(ctx, cards.docx, "Sent DOCX card shows DOCX badge and Download action");
+            record(ctx, cards.pptx, "Sent PPTX card shows PPTX badge and Download action");
+            record(ctx, cards.downloadButtons >= 2, "Sent Office cards expose DOCX/PPTX Download actions", JSON.stringify({ downloadButtons: cards.downloadButtons }));
+            await clickDownloadButtonAndVerifySha(ctx, {
+              buttonLabel: `Download ${DOCX_FILENAME}`,
+              filename: DOCX_FILENAME,
+              expectedSha: OFFICE_FIXTURES.docx.sha256,
+              assertion: `Sent attachment card Download for ${DOCX_FILENAME} saves the exact expected sha256`,
+            });
             await dismissOpenWorkModelsModal(ctx);
           },
           assert: async () => {
@@ -822,11 +819,11 @@ export default {
             await ctx.expectText(PPTX_SENTINEL);
             await ctx.expectText("artifacts/QuarterlyBrief.docx");
             await ctx.expectText("artifacts/LaunchRoadmap.pptx");
-            await ctx.expectText("Open");
+            await ctx.expectText("Download");
           },
           screenshot: {
             name: "provider-tool-loop-final-response",
-            requireText: [DOCX_FILENAME, PPTX_FILENAME, "DOCX", "PPTX", "Open", "artifacts/QuarterlyBrief.docx", "artifacts/LaunchRoadmap.pptx"],
+            requireText: [DOCX_FILENAME, PPTX_FILENAME, "DOCX", "PPTX", "Download", "artifacts/QuarterlyBrief.docx", "artifacts/LaunchRoadmap.pptx"],
             hashIncludes: "/session/",
           },
         });
@@ -895,8 +892,8 @@ export default {
             });
             await dismissOpenWorkModelsModal(ctx);
             const restoredCards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 45_000, label: "restored Office sent cards" });
-            record(ctx, restoredCards.docx && restoredCards.pptx, "Reload restored both sent Office cards with badges and Open actions");
-            record(ctx, restoredCards.downloadButtons === 0, "Reloaded sent Office cards still avoid browser Download actions for file URLs", JSON.stringify({ downloadButtons: restoredCards.downloadButtons }));
+            record(ctx, restoredCards.docx && restoredCards.pptx, "Reload restored both sent Office cards with badges and Download actions");
+            record(ctx, restoredCards.downloadButtons >= 2, "Reloaded Office sent cards keep DOCX/PPTX Download actions", JSON.stringify({ downloadButtons: restoredCards.downloadButtons }));
             await ctx.control("composer.set_text", { text: FOLLOW_UP });
             await ctx.control("composer.send");
             const replayProof = await pollProof(ctx, (item) => item.replayResponse && item.replayOfficeHistoryOk && item.replay?.normalizedTextOnly, 90_000, "successful replay follow-up with normalized Office history");
@@ -910,12 +907,12 @@ export default {
           assert: async () => {
             await ctx.expectText(DOCX_FILENAME);
             await ctx.expectText(PPTX_FILENAME);
-            await ctx.expectText("Open");
+            await ctx.expectText("Download");
             await ctx.expectText("Replay succeeded after reopening the session");
           },
           screenshot: {
             name: "reopened-session-office-history-safe",
-            requireText: [DOCX_FILENAME, PPTX_FILENAME, "Open", "Replay succeeded after reopening the session"],
+            requireText: [DOCX_FILENAME, PPTX_FILENAME, "Download", "Replay succeeded after reopening the session"],
             hashIncludes: "/session/",
           },
         });
