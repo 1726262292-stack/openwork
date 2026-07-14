@@ -27,7 +27,7 @@ test("mutations require approval and enforce idempotent duplicate versus conflic
     const token = await authorizeManual(server.baseUrl, scenario, oauthClientSecret)
     const session = await initializeSession(server.baseUrl, scenario, token)
     const denied = await callRpc(server.baseUrl, scenario, session, 10, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: {
         short_description: "Synthetic denied mutation",
         idempotency_key: "mutation-key-denied",
@@ -44,21 +44,21 @@ test("mutations require approval and enforce idempotent duplicate versus conflic
       approved: true,
     }
     const first = await callRpc(server.baseUrl, scenario, session, 11, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: argumentsValue,
     })
     assert.equal(toolResultSchema.parse(first.envelope.result).isError, false)
     assert.equal(server.snapshot().counts.operations, 1)
 
     const duplicate = await callRpc(server.baseUrl, scenario, session, 12, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: argumentsValue,
     })
     assert.equal(toolResultSchema.parse(duplicate.envelope.result).isError, false)
     assert.equal(server.snapshot().counts.operations, 1)
 
     const reorderedDuplicate = await callRpc(server.baseUrl, scenario, session, 14, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: {
         approved: true,
         idempotency_key: "mutation-key-approved",
@@ -69,7 +69,7 @@ test("mutations require approval and enforce idempotent duplicate versus conflic
     assert.equal(server.snapshot().counts.operations, 1)
 
     const conflict = await callRpc(server.baseUrl, scenario, session, 13, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: { ...argumentsValue, short_description: "Different mutation with reused key" },
     })
     const conflictResult = toolResultSchema.parse(conflict.envelope.result)
@@ -93,7 +93,7 @@ test("timeout after commit remains indeterminate and requires reconciliation bef
     const token = await authorizeManual(server.baseUrl, scenario, oauthClientSecret)
     const session = await initializeSession(server.baseUrl, scenario, token)
     const params = {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: {
         short_description: "Synthetic indeterminate mutation",
         idempotency_key: "mutation-key-indeterminate",
@@ -137,7 +137,7 @@ test("local mutation approval fails before a configured provider fault can be em
     const token = await authorizeManual(server.baseUrl, scenario, oauthClientSecret)
     const session = await initializeSession(server.baseUrl, scenario, token)
     const denied = await callRpc(server.baseUrl, scenario, session, 50, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: {
         short_description: "Must not reach provider",
         idempotency_key: "local-approval-first",
@@ -163,7 +163,7 @@ test("safe-read probe mode rejects an explicit mutation override before any oper
       credentials: { clientSecret: oauthClientSecret },
       mode: "safe-read",
       callTool: {
-        name: "create_incident",
+        name: "synthetic_servicenow_create_incident",
         arguments: {
           short_description: "Must remain uncommitted",
           idempotency_key: "safe-read-mutation-rejected",

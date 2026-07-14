@@ -22,6 +22,7 @@ import {
   Wrench,
 } from "lucide-react"
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
+import { toolInvocationOrigin, type ToolInvocationKnownServer } from "@/lib/tool-invocation-origin"
 
 function toolIcon(part: ToolPart) {
   const name = part.type === "dynamic-tool" ? part.toolName : part.type
@@ -56,6 +57,7 @@ export type ToolPart = ToolUIPart | DynamicToolUIPart
 export type ToolProps = {
   title?: string
   toolPart: ToolPart
+  knownServers?: readonly ToolInvocationKnownServer[]
   defaultOpen?: boolean
   className?: string
 }
@@ -116,11 +118,14 @@ function DiffLines({ diff }: { diff: string }) {
   )
 }
 
-const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) => {
+const Tool = ({ title, toolPart, knownServers, defaultOpen = false, className }: ToolProps) => {
   const { state, input } = toolPart
   const inFlight = isToolPartInFlight(toolPart)
   const isError = state === "output-error"
-  const label = title ?? getToolActivityLabel(toolPart)
+  const origin = toolPart.type === "dynamic-tool"
+    ? toolInvocationOrigin(toolPart.toolName, input, knownServers)
+    : null
+  const label = title ?? (origin?.connectionName ? origin.displayTool : getToolActivityLabel(toolPart))
   const hasInput = input !== null && input !== undefined
   const hasOutput = "output" in toolPart && toolPart.output !== undefined
   const inputDiff = getInputDiff(input)
@@ -143,6 +148,11 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
           </span>
           <ChevronDown className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-panel-open:rotate-180" />
         </span>
+        {origin?.connectionName ? (
+          <span className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {origin.connectionName}
+          </span>
+        ) : null}
         <span className="min-w-0 truncate">{label}</span>
         {isError ? (
           <span className="text-destructive shrink-0 text-xs">failed</span>

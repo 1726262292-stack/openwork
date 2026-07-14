@@ -16,6 +16,11 @@ import { t } from "@/i18n";
 import { DenSignInSurface } from "@/react-app/domains/cloud/den-signin-surface";
 import { useDenAuth, type DenAuthStatus } from "@/react-app/domains/cloud/den-auth-provider";
 import {
+  connectionDisplayState,
+  connectionDisplayStateLabelKey,
+  type ConnectionDisplayState,
+} from "@/react-app/domains/connections/connection-display-state";
+import {
   canDisconnectNativeProviderAccount,
   connectionNeedsReconnect,
 } from "@/react-app/domains/connections/native-provider-connections";
@@ -494,6 +499,46 @@ function connectGroupLabel(group: Exclude<ConnectRowGroup, "excluded">) {
   }
 }
 
+function connectionStateChipClass(state: ConnectionDisplayState) {
+  switch (state) {
+    case "protocol_ready":
+      return "bg-green-3 text-green-11";
+    case "auth_required":
+      return "bg-amber-3 text-amber-11";
+    case "error":
+      return "bg-red-3 text-red-11";
+    case "configured":
+    case "disabled":
+      return "bg-gray-3 text-gray-11";
+  }
+}
+
+function ConnectionStateChip(props: { state: ConnectionDisplayState }) {
+  return (
+    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-medium ${connectionStateChipClass(props.state)}`}>
+      {t(connectionDisplayStateLabelKey(props.state))}
+    </span>
+  );
+}
+
+function connectRowDisplayState(row: ConnectOrganizationRow): ConnectionDisplayState {
+  if (row.kind === "connection") {
+    return connectionDisplayState({
+      configured: true,
+      status: row.group === "needs_signin"
+        ? "needs_auth"
+        : row.connection.connected || row.connection.connectedForMe
+          ? "connected"
+          : undefined,
+    }) ?? "configured";
+  }
+
+  return connectionDisplayState({
+    configured: true,
+    status: row.group === "needs_signin" ? "needs_auth" : row.group === "ready" ? "connected" : undefined,
+  }) ?? "configured";
+}
+
 function ConnectRowIcon(props: { iconSlug?: string; iconSrc?: string; name: string; serviceUrl?: string }) {
   const resolved = resolveExtensionIconUrl({ iconSlug: props.iconSlug, iconSrc: props.iconSrc, serviceUrl: props.serviceUrl });
   const [failed, setFailed] = useState(false);
@@ -569,6 +614,7 @@ function ConnectOrganizationRow(props: {
   const connecting = connectableConnectionId ? props.connectingId === connectableConnectionId : false;
   const disconnectableConnectionId = row.kind === "connection" && canDisconnectNativeProviderAccount(row.connection) ? row.connection.id : null;
   const disconnecting = disconnectableConnectionId ? props.disconnectingId === disconnectableConnectionId : false;
+  const displayState = connectRowDisplayState(row);
 
   return (
     <div
@@ -588,6 +634,7 @@ function ConnectOrganizationRow(props: {
       </div>
       {row.group === "needs_signin" && connectableConnectionId ? (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <ConnectionStateChip state={displayState} />
           <Button
             size="sm"
             disabled={connecting}
@@ -603,22 +650,21 @@ function ConnectOrganizationRow(props: {
           ) : null}
         </div>
       ) : row.group === "needs_admin_setup" ? (
-        <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(denManageConnectionsUrl())} title={setupNames.join(t("connect.row_meta_list_separator"))}>
-          {t("connect.row_action_set_up_connection")}
-        </Button>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <ConnectionStateChip state={displayState} />
+          <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(denManageConnectionsUrl())} title={setupNames.join(t("connect.row_meta_list_separator"))}>
+            {t("connect.row_action_set_up_connection")}
+          </Button>
+        </div>
       ) : disconnectableConnectionId ? (
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <span className="rounded-md bg-green-3 px-2 py-1 text-xs font-medium text-green-11">
-            {t("connect.row_chip_ready")}
-          </span>
+          <ConnectionStateChip state={displayState} />
           <Button size="sm" variant="destructive" disabled={disconnecting} onClick={() => props.onDisconnect(disconnectableConnectionId)}>
             {disconnecting ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_disconnect_action")}
           </Button>
         </div>
       ) : (
-        <span className="shrink-0 rounded-md bg-green-3 px-2 py-1 text-xs font-medium text-green-11">
-          {t("connect.row_chip_ready")}
-        </span>
+        <ConnectionStateChip state={displayState} />
       )}
     </div>
   );

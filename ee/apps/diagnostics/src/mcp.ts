@@ -35,7 +35,7 @@ function negotiatedVersion(message: Record<string, unknown>): string {
 
 function toolDefinition(profile: ReturnType<typeof diagnosticsConfig>["profile"]): Record<string, unknown> {
   const name = profile === "servicenow"
-    ? "lookup_incidents"
+    ? "synthetic_servicenow_lookup"
     : profile === "microsoft"
       ? "search_microsoft_365"
       : "diagnostics_check"
