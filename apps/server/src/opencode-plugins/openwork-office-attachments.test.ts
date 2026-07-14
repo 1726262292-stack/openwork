@@ -276,15 +276,17 @@ describe("OpenWorkOfficeAttachments", () => {
     });
   });
 
-  test("uses the transform input workspace context when the plugin factory has none", async () => {
+  test("uses factory directory and ignores Daytona non-git worktree root", async () => {
     await withWorkspace(async (root) => {
       const docx = docxFixture();
-      const plugin = await OpenWorkOfficeAttachments();
+      const plugin = await OpenWorkOfficeAttachments({ directory: root, worktree: "/" });
       const output = { messages: [{ role: "user", parts: [{ type: "file", filename: "QuarterlyBrief.docx", mediaType: DOCX_MIME, url: dataUrl(DOCX_MIME, docx) }] }] };
-      await plugin["experimental.chat.messages.transform"]({ context: { directory: root } }, output);
+      await plugin["experimental.chat.messages.transform"]({}, output);
       const text = textOf(messageParts(output.messages[0])[0]);
+      const materialized = pathFromText(text);
       expect(text).toContain(DOCX_SENTINEL);
-      await expect(readFile(join(root, pathFromText(text)))).resolves.toEqual(docx);
+      expect(materialized).toContain(".opencode/openwork/inbox/chat-attachments/");
+      await expect(readFile(join(root, materialized))).resolves.toEqual(docx);
     });
   });
 

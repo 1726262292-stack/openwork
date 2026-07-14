@@ -25,7 +25,6 @@ const MATERIALIZED_DIR = join(".opencode", "openwork", "inbox", "chat-attachment
 
 type RuntimeContext = {
   directory?: string;
-  worktree?: string;
 };
 
 type OfficeKind = "docx" | "pptx";
@@ -63,19 +62,14 @@ function optionalStringProperty(value: unknown, key: string): string | undefined
 }
 
 function normalizeOpenCodeContext(value: unknown): RuntimeContext {
-  const nested = isRecord(value) && isRecord(value.context) ? value.context : value;
-  const directory = optionalStringProperty(nested, "directory");
-  const worktree = optionalStringProperty(nested, "worktree");
+  const directory = optionalStringProperty(value, "directory");
   return {
     ...(directory ? { directory } : {}),
-    ...(worktree ? { worktree } : {}),
   };
 }
 
-function workspaceRoot(factoryContext: RuntimeContext, input: unknown): string | null {
-  const inputContext = normalizeOpenCodeContext(input);
-  const candidate = inputContext.worktree || inputContext.directory || factoryContext.worktree || factoryContext.directory || process.cwd();
-  return candidate ? resolve(candidate) : null;
+function workspaceRoot(factoryContext: RuntimeContext): string | null {
+  return factoryContext.directory ? resolve(factoryContext.directory) : null;
 }
 
 function sha256(buffer: Buffer): string {
@@ -438,7 +432,8 @@ export const OpenWorkOfficeAttachments = async (factoryInput?: unknown) => {
   const factoryContext = normalizeOpenCodeContext(factoryInput);
   return {
     "experimental.chat.messages.transform": async (input: unknown, output: { messages: unknown[] }) => {
-      const root = workspaceRoot(factoryContext, input);
+      void input;
+      const root = workspaceRoot(factoryContext);
       const messages = await Promise.all(output.messages.map((message) => transformMessage(message, root)));
       output.messages.splice(0, output.messages.length, ...messages);
     },

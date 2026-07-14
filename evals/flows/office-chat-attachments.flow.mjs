@@ -184,10 +184,34 @@ async function configureMockProvider(ctx) {
   });
   await serverJson(ctx, `/workspace/${encodeURIComponent(ctx.workspaceId)}/engine/reload`, { method: "POST" });
   await ctx.eval(`(() => {
+    const prefsRaw = localStorage.getItem("openwork.preferences");
+    let prefs = {};
+    try {
+      prefs = prefsRaw ? JSON.parse(prefsRaw) : {};
+    } catch {
+      prefs = {};
+    }
+    if (!prefs || typeof prefs !== "object" || Array.isArray(prefs)) prefs = {};
+    localStorage.setItem("openwork.preferences", JSON.stringify({
+      ...prefs,
+      defaultModel: { providerID: ${JSON.stringify(PROVIDER_ID)}, modelID: ${JSON.stringify(MODEL_ID)} },
+      modelVariant: null,
+      providerStepCompleted: true,
+    }));
     localStorage.setItem("openwork.defaultModel", ${JSON.stringify(`${PROVIDER_ID}/${MODEL_ID}`)});
     localStorage.removeItem("openwork.sessionModels.${ctx.workspaceId}");
   })()`);
   ctx.output("Office mock provider", JSON.stringify({ provider: PROVIDER_ID, model: MODEL_ID, baseURL }, null, 2));
+}
+
+async function assertOfficeMockSelected(ctx) {
+  const selected = await ctx.waitFor(`(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const button = buttons.find((item) => item.getAttribute("aria-label") === "Change model");
+    const text = button && button.textContent ? button.textContent : "";
+    return text.includes("Office attachment mock") ? text : null;
+  })()`, { timeoutMs: 60_000, label: "visible Office mock selected model" });
+  record(ctx, selected.includes("Office attachment mock"), "Visible selected model is Office attachment mock", selected);
 }
 
 async function createFreshSession(ctx) {
@@ -522,15 +546,17 @@ export default {
             await ctx.eval("location.reload()");
             await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after provider reload" });
             await createFreshSession(ctx);
+            await assertOfficeMockSelected(ctx);
           },
           assert: async () => {
             await ctx.expectText("Run task");
+            await ctx.expectText("Office attachment mock");
             await ctx.expectNoText("has a format the model can't read");
             record(ctx, !PROMPT.includes(DOCX_SENTINEL) && !PROMPT.includes(PPTX_SENTINEL), "The user prompt does not contain either sentinel fact");
           },
           screenshot: {
             name: "fresh-office-mock-composer",
-            requireText: ["Run task"],
+            requireText: ["Run task", "Office attachment mock"],
             rejectText: ["has a format the model can't read"],
             hashIncludes: "/session/",
           },
