@@ -292,6 +292,22 @@ async function waitForControl(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 90_000, label: "control API" });
 }
 
+async function runSetupStage(ctx, stage, operation) {
+  ctx.log(`Cloud reliability setup stage started: ${stage}`);
+  try {
+    const result = await operation();
+    ctx.log(`Cloud reliability setup stage succeeded: ${stage}`);
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(`Cloud reliability setup failed during ${stage}: ${message}`);
+    if (error instanceof Error && error.stack) {
+      wrapped.stack = `${wrapped.message}\nOriginal stack:\n${error.stack}`;
+    }
+    throw wrapped;
+  }
+}
+
 async function configureDesktopForDen(ctx) {
   const baseUrl = denDesktopWebBase(ctx);
   const apiBaseUrl = denDesktopApiBase(ctx);
@@ -705,15 +721,15 @@ function assertNoSecretText(ctx, text, secrets) {
 }
 
 async function setupProof(ctx) {
-  await setViewport(ctx);
-  await waitForControl(ctx);
-  await configureDesktopForDen(ctx);
-  await signInWithFreshHandoff(ctx);
-  await createFreshWorkspace(ctx);
-  await ensureUsableModel(ctx);
-  await createFixtureConnection(ctx);
-  await initialStrictReconcile(ctx);
-  await deleteCloudRuntimeConfig(ctx);
+  await runSetupStage(ctx, "setViewport", () => setViewport(ctx));
+  await runSetupStage(ctx, "control wait", () => waitForControl(ctx));
+  await runSetupStage(ctx, "bootstrap", () => configureDesktopForDen(ctx));
+  await runSetupStage(ctx, "handoff", () => signInWithFreshHandoff(ctx));
+  await runSetupStage(ctx, "create workspace", () => createFreshWorkspace(ctx));
+  await runSetupStage(ctx, "model", () => ensureUsableModel(ctx));
+  await runSetupStage(ctx, "fixture", () => createFixtureConnection(ctx));
+  await runSetupStage(ctx, "reconcile", () => initialStrictReconcile(ctx));
+  await runSetupStage(ctx, "degradation", () => deleteCloudRuntimeConfig(ctx));
 }
 
 export default {
