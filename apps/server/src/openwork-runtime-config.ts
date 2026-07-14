@@ -20,6 +20,7 @@ import {
   openworkCapabilitiesKnowledgePluginPath,
   openworkAnthropicAdaptiveThinkingPluginPath,
   openworkAnthropicToolSchemaPluginPath,
+  openworkOfficeAttachmentsPluginPath,
 } from "./openwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
 import {
@@ -103,6 +104,7 @@ export async function buildOpenworkRuntimeConfigObject(
       "opencode-chrome-devtools",
       openworkExtensionsPreviewPluginPath(),
       openworkCapabilitiesKnowledgePluginPath(),
+      openworkOfficeAttachmentsPluginPath(),
       openworkAnthropicAdaptiveThinkingPluginPath(),
       openworkAnthropicToolSchemaPluginPath(),
       ...runtimePluginList(runtimeConfig),

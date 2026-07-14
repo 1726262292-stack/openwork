@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import http from "node:http";
-import zlib from "node:zlib";
 import { createHash } from "node:crypto";
-import { rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute, join, posix } from "node:path";
 
 import {
   DOCX_SENTINEL,
@@ -10,17 +10,12 @@ import {
   PPTX_SENTINEL,
 } from "../fixtures/ooxml-office-fixtures.mjs";
 
-const ZIP_LOCAL_FILE_HEADER = 0x04034b50;
-const ZIP_CENTRAL_DIRECTORY_HEADER = 0x02014b50;
-const ZIP_END_OF_CENTRAL_DIRECTORY = 0x06054b50;
-const MAX_ZIP_ENTRIES = 100;
-const MAX_ZIP_UNCOMPRESSED_BYTES = 2 * 1024 * 1024;
-const MAX_ZIP_COMPRESSION_RATIO = 100;
 const OFFICE_TOOL_CALL_ID = "call_write_office_artifacts";
 const OFFICE_TOOL_NAME = "bash";
-const RECEIVED_ATTACHMENT_PATHS = {
-  docx: "/tmp/openwork-office-attachments-received-QuarterlyBrief.docx",
-  pptx: "/tmp/openwork-office-attachments-received-LaunchRoadmap.pptx",
+const MATERIALIZED_PREFIX = ".opencode/openwork/inbox/chat-attachments/";
+const ARTIFACT_PATHS = {
+  docx: "artifacts/QuarterlyBrief.docx",
+  pptx: "artifacts/LaunchRoadmap.pptx",
 };
 
 function parseArgs(argv) {
@@ -137,143 +132,107 @@ function collectPromptText(value) {
   return Object.values(value).flatMap(collectPromptText);
 }
 
-function findEndOfCentralDirectory(buffer) {
-  const start = Math.max(0, buffer.length - 0xffff - 22);
-  for (let offset = buffer.length - 22; offset >= start; offset -= 1) {
-    if (buffer.readUInt32LE(offset) === ZIP_END_OF_CENTRAL_DIRECTORY) return offset;
-  }
-  throw new Error("ZIP end-of-central-directory not found");
+function fieldValue(text, name) {
+  const prefix = `${name}: `;
+  const line = text.split("\n").find((item) => item.startsWith(prefix));
+  return line ? line.slice(prefix.length).trim() : "";
 }
 
-function listZipEntries(buffer) {
-  const eocd = findEndOfCentralDirectory(buffer);
-  const count = buffer.readUInt16LE(eocd + 10);
-  const centralOffset = buffer.readUInt32LE(eocd + 16);
-  if (count > MAX_ZIP_ENTRIES) throw new Error(`ZIP entry count ${count} exceeds limit ${MAX_ZIP_ENTRIES}`);
-  const entries = [];
-  let totalUncompressed = 0;
-  let cursor = centralOffset;
-  for (let index = 0; index < count; index += 1) {
-    if (buffer.readUInt32LE(cursor) !== ZIP_CENTRAL_DIRECTORY_HEADER) {
-      throw new Error("Invalid ZIP central directory entry");
-    }
-    const method = buffer.readUInt16LE(cursor + 10);
-    const compressedSize = buffer.readUInt32LE(cursor + 20);
-    const uncompressedSize = buffer.readUInt32LE(cursor + 24);
-    const nameLength = buffer.readUInt16LE(cursor + 28);
-    const extraLength = buffer.readUInt16LE(cursor + 30);
-    const commentLength = buffer.readUInt16LE(cursor + 32);
-    const localOffset = buffer.readUInt32LE(cursor + 42);
-    const name = buffer.toString("utf8", cursor + 46, cursor + 46 + nameLength);
-    totalUncompressed += uncompressedSize;
-    if (totalUncompressed > MAX_ZIP_UNCOMPRESSED_BYTES) {
-      throw new Error(`ZIP uncompressed size exceeds ${MAX_ZIP_UNCOMPRESSED_BYTES}`);
-    }
-    if (compressedSize > 0 && uncompressedSize / compressedSize > MAX_ZIP_COMPRESSION_RATIO) {
-      throw new Error(`ZIP compression ratio for ${name} exceeds ${MAX_ZIP_COMPRESSION_RATIO}`);
-    }
-    entries.push({ name, method, compressedSize, uncompressedSize, localOffset });
-    cursor += 46 + nameLength + extraLength + commentLength;
-  }
-  return entries;
+function safeWorkerRelativePath(value) {
+  const clean = String(value || "").trim().replaceAll("\\", "/");
+  if (!clean || clean === "unavailable" || clean.includes("\0") || clean.startsWith("/")) return "";
+  const normalized = posix.normalize(clean);
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return "";
+  return normalized.startsWith(MATERIALIZED_PREFIX) ? normalized : "";
 }
 
-function readZipEntryData(buffer, entry) {
-  const cursor = entry.localOffset;
-  if (buffer.readUInt32LE(cursor) !== ZIP_LOCAL_FILE_HEADER) {
-    throw new Error(`Invalid local ZIP header for ${entry.name}`);
-  }
-  const nameLength = buffer.readUInt16LE(cursor + 26);
-  const extraLength = buffer.readUInt16LE(cursor + 28);
-  const dataStart = cursor + 30 + nameLength + extraLength;
-  const compressed = buffer.subarray(dataStart, dataStart + entry.compressedSize);
-  let data;
-  if (entry.method === 0) {
-    data = compressed;
-  } else if (entry.method === 8) {
-    data = zlib.inflateRawSync(compressed, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
-  } else {
-    throw new Error(`Unsupported ZIP method ${entry.method} for ${entry.name}`);
-  }
-  if (data.byteLength !== entry.uncompressedSize) throw new Error(`ZIP uncompressed size mismatch for ${entry.name}`);
-  return data;
+function readMaterializedHash(relativePath) {
+  if (!relativePath) return { exists: false, sha256: "" };
+  const absolutePath = join(workspaceRoot, relativePath);
+  if (!existsSync(absolutePath)) return { exists: false, sha256: "" };
+  const data = readFileSync(absolutePath);
+  return { exists: true, sha256: sha256(data), size: data.byteLength };
 }
 
-function decodeXmlText(value) {
-  return value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'");
+function countOfficeFileMarkers(value, context = { filename: "", mime: "" }) {
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + countOfficeFileMarkers(item, context), 0);
+  if (!isRecord(value)) return 0;
+
+  const nextContext = contextFromRecord(value, context);
+  const type = stringField(value, ["type"]).toLowerCase();
+  const officeLike = Object.values(OFFICE_FIXTURES).some((expected) => nextContext.filename === expected.filename || nextContext.mime === expected.mime);
+  const fileLike = type.includes("file") || "file_data" in value || "fileData" in value || "contentBase64" in value;
+  let count = officeLike && fileLike ? 1 : 0;
+  for (const item of Object.values(value)) count += countOfficeFileMarkers(item, nextContext);
+  return count;
 }
 
-function extractOoxmlText(buffer) {
-  const pieces = [];
-  for (const entry of listZipEntries(buffer)) {
-    if (!entry.name.endsWith(".xml")) continue;
-    const xml = readZipEntryData(buffer, entry).toString("utf8");
-    pieces.push(decodeXmlText(xml.replace(/<[^>]+>/g, " ")));
-  }
-  return pieces.join("\n").replace(/\s+/g, " ").trim();
+function parseNormalizedAttachment(texts, expected) {
+  const block = texts.find((text) => {
+    return text.includes("OpenWork normalized an Office attachment")
+      && text.includes(`filename: ${expected.filename}`)
+      && text.includes(`canonical_mime: ${expected.mime}`);
+  });
+  if (!block) return null;
+
+  const filename = fieldValue(block, "filename");
+  const mime = fieldValue(block, "canonical_mime");
+  const digest = fieldValue(block, "sha256");
+  const workerRelativePath = safeWorkerRelativePath(fieldValue(block, "worker_relative_path"));
+  const materialized = readMaterializedHash(workerRelativePath);
+  const sentinels = expected.sentinels.map((sentinel) => ({ sentinel, found: block.includes(sentinel) }));
+  return {
+    received: true,
+    filename,
+    mime,
+    sha256: digest,
+    workerRelativePath,
+    materializedSize: materialized.size ?? 0,
+    materializedSha256: materialized.sha256,
+    hashMatches: digest === expected.sha256,
+    materializedHashMatches: materialized.sha256 === expected.sha256,
+    mimeMatches: mime === expected.mime,
+    filenameMatches: filename === expected.filename,
+    pathSafe: Boolean(workerRelativePath),
+    materializedExists: materialized.exists,
+    sentinels,
+  };
 }
 
-function clearReceivedAttachments() {
-  for (const path of Object.values(RECEIVED_ATTACHMENT_PATHS)) rmSync(path, { force: true });
-}
-
-function persistReceivedAttachment(kind, data) {
-  const path = RECEIVED_ATTACHMENT_PATHS[kind];
-  if (path) writeFileSync(path, data);
-}
-
-function findExpectedAttachment(payloads, expected) {
-  return payloads.find((item) => item.filename === expected.filename && item.mime === expected.mime)
-    ?? payloads.find((item) => item.sha256 === expected.sha256);
-}
-
-function verifyOfficePayloads(body, options = {}) {
+function verifyOfficePayloads(body) {
   const payloads = extractPayloads(body);
-  const promptText = collectPromptText(body).join("\n");
-  const leak = promptText.includes(DOCX_SENTINEL) || promptText.includes(PPTX_SENTINEL);
+  const promptTexts = collectPromptText(body);
+  const rawBody = JSON.stringify(body);
+  const officeFileMarkers = countOfficeFileMarkers(body);
+  const rawOfficeBinaryLeak = Object.values(OFFICE_FIXTURES).some((expected) => {
+    return rawBody.includes(expected.dataBase64)
+      || payloads.some((item) => item.sha256 === expected.sha256 || item.filename === expected.filename || item.mime === expected.mime);
+  });
   const attachments = {};
 
   for (const [kind, expected] of Object.entries(OFFICE_FIXTURES)) {
-    const found = findExpectedAttachment(payloads, expected);
-    if (!found) {
-      attachments[kind] = { received: false, expected };
-      continue;
-    }
-    const text = extractOoxmlText(found.data);
-    const sentinels = expected.sentinels.map((sentinel) => ({ sentinel, found: text.includes(sentinel) }));
-    if (
-      options.persistReceived === true
-      && found.sha256 === expected.sha256
-      && found.mime === expected.mime
-      && found.filename === expected.filename
-      && sentinels.every((sentinel) => sentinel.found)
-    ) {
-      persistReceivedAttachment(kind, found.data);
-    }
-    attachments[kind] = {
-      received: true,
-      filename: found.filename,
-      mime: found.mime,
-      size: found.data.byteLength,
-      sha256: found.sha256,
-      hashMatches: found.sha256 === expected.sha256,
-      mimeMatches: found.mime === expected.mime,
-      filenameMatches: found.filename === expected.filename,
-      sentinels,
-    };
+    attachments[kind] = parseNormalizedAttachment(promptTexts, expected) ?? { received: false, expected };
   }
 
+  const normalizedTextOnly = payloads.length === 0 && officeFileMarkers === 0 && !rawOfficeBinaryLeak;
   const values = Object.values(attachments);
   return {
     payloadCount: payloads.length,
-    promptSentinelLeak: leak,
+    officeFileMarkers,
+    rawOfficeBinaryLeak,
+    normalizedTextOnly,
+    promptTextCount: promptTexts.length,
     attachments,
-    ok: values.every((item) => item.received && item.hashMatches && item.mimeMatches && item.filenameMatches && item.sentinels.every((sentinel) => sentinel.found)) && !leak,
+    ok: normalizedTextOnly && values.every((item) => {
+      return item.received
+        && item.hashMatches
+        && item.materializedHashMatches
+        && item.mimeMatches
+        && item.filenameMatches
+        && item.pathSafe
+        && item.materializedExists
+        && item.sentinels.every((sentinel) => sentinel.found);
+    }),
   };
 }
 
@@ -307,17 +266,24 @@ function textStream(text, id = "chatcmpl-office-text") {
   ];
 }
 
-function artifactWriteCommand() {
-  return `set -euo pipefail
-mkdir -p artifacts
-test -s ${RECEIVED_ATTACHMENT_PATHS.docx}
-test -s ${RECEIVED_ATTACHMENT_PATHS.pptx}
-cp ${RECEIVED_ATTACHMENT_PATHS.docx} artifacts/QuarterlyBrief.docx
-cp ${RECEIVED_ATTACHMENT_PATHS.pptx} artifacts/LaunchRoadmap.pptx
-(sha256sum artifacts/QuarterlyBrief.docx artifacts/LaunchRoadmap.pptx 2>/dev/null || shasum -a 256 artifacts/QuarterlyBrief.docx artifacts/LaunchRoadmap.pptx)`;
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
-function toolCallStream() {
+function artifactWriteCommand(attachments) {
+  const docx = attachments.docx?.workerRelativePath;
+  const pptx = attachments.pptx?.workerRelativePath;
+  if (!docx || !pptx) throw new Error(`Missing materialized Office paths: ${JSON.stringify(attachments)}`);
+  return `set -euo pipefail
+mkdir -p artifacts
+test -s ${shellQuote(docx)}
+test -s ${shellQuote(pptx)}
+cp ${shellQuote(docx)} ${shellQuote(ARTIFACT_PATHS.docx)}
+cp ${shellQuote(pptx)} ${shellQuote(ARTIFACT_PATHS.pptx)}
+(sha256sum ${shellQuote(ARTIFACT_PATHS.docx)} ${shellQuote(ARTIFACT_PATHS.pptx)} 2>/dev/null || shasum -a 256 ${shellQuote(ARTIFACT_PATHS.docx)} ${shellQuote(ARTIFACT_PATHS.pptx)})`;
+}
+
+function toolCallStream(attachments) {
   return [
     { id: "chatcmpl-office-tool", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] },
     {
@@ -335,8 +301,8 @@ function toolCallStream() {
                 function: {
                   name: OFFICE_TOOL_NAME,
                   arguments: JSON.stringify({
-                    description: "Write exact received Office attachments as workspace artifacts",
-                    command: artifactWriteCommand(),
+                    description: "Write exact materialized Office attachments as workspace artifacts",
+                    command: artifactWriteCommand(attachments),
                     timeout: 10000,
                   }),
                 },
@@ -355,26 +321,29 @@ function finalText() {
   return [
     `Verified ${OFFICE_FIXTURES.docx.filename}: ${DOCX_SENTINEL}`,
     `Verified ${OFFICE_FIXTURES.pptx.filename}: ${PPTX_SENTINEL}`,
-    "Created artifacts/QuarterlyBrief.docx and artifacts/LaunchRoadmap.pptx from the exact received bytes.",
+    "Created artifacts/QuarterlyBrief.docx and artifacts/LaunchRoadmap.pptx from the exact safely materialized Office bytes.",
   ].join("\n");
 }
 
 const args = parseArgs(process.argv.slice(2));
 const host = args.get("host") || "127.0.0.1";
 const port = Number(args.get("port") || 18081);
+const workspaceRoot = args.get("workspace") || process.cwd();
 const sockets = new Set();
 let server;
-
-clearReceivedAttachments();
 
 const proof = {
   ok: true,
   requests: 0,
   providerReceipt: false,
+  normalizedTextOnly: false,
   exactHashes: false,
   exactMimes: false,
+  materializedPaths: false,
   sentinelsExtracted: false,
-  promptSentinelLeak: false,
+  rawOfficeBinaryLeak: false,
+  officeFileMarkers: 0,
+  payloadCount: 0,
   toolCallIssued: false,
   toolCallCompleted: false,
   finalResponse: false,
@@ -403,10 +372,14 @@ function updateProofFromVerification(verification, replay = false) {
     return;
   }
   proof.providerReceipt = verification.ok;
-  proof.exactHashes = Object.values(verification.attachments).every((item) => item.hashMatches === true);
+  proof.normalizedTextOnly = verification.normalizedTextOnly;
+  proof.exactHashes = Object.values(verification.attachments).every((item) => item.hashMatches === true && item.materializedHashMatches === true);
   proof.exactMimes = Object.values(verification.attachments).every((item) => item.mimeMatches === true);
+  proof.materializedPaths = Object.values(verification.attachments).every((item) => item.pathSafe === true && item.materializedExists === true);
   proof.sentinelsExtracted = Object.values(verification.attachments).every((item) => item.sentinels?.every((sentinel) => sentinel.found));
-  proof.promptSentinelLeak = verification.promptSentinelLeak;
+  proof.rawOfficeBinaryLeak = verification.rawOfficeBinaryLeak;
+  proof.officeFileMarkers = verification.officeFileMarkers;
+  proof.payloadCount = verification.payloadCount;
   proof.attachments = verification.attachments;
 }
 
@@ -427,16 +400,16 @@ async function handleChatCompletion(req, res) {
 
   try {
     if (!proof.toolCallIssued) {
-      const verification = verifyOfficePayloads(body, { persistReceived: true });
+      const verification = verifyOfficePayloads(body);
       updateProofFromVerification(verification, false);
       if (!verification.ok) {
         proof.ok = false;
-        proof.errors.push(`initial Office verification failed: ${JSON.stringify(verification)}`);
-        writeSse(res, textStream("Office attachment verification failed before tool execution."));
+        proof.errors.push(`initial normalized Office verification failed: ${JSON.stringify(verification)}`);
+        writeSse(res, textStream("Office attachment normalization verification failed before tool execution."));
         return;
       }
       proof.toolCallIssued = true;
-      writeSse(res, toolCallStream());
+      writeSse(res, toolCallStream(verification.attachments));
       return;
     }
 

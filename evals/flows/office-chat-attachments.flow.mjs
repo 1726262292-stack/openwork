@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 import {
   DOCX_FILENAME,
@@ -47,7 +48,7 @@ if [ -f /tmp/openwork-office-attachments-mock.pid ]; then
   kill "$(cat /tmp/openwork-office-attachments-mock.pid)" >/dev/null 2>&1 || true
 fi
 rm -f /tmp/openwork-office-attachments-mock.log /tmp/openwork-office-attachments-mock.pid
-nohup node evals/drivers/office-attachments-mock-provider.mjs --port ${MOCK_PORT} > /tmp/openwork-office-attachments-mock.log 2>&1 < /dev/null &
+nohup node evals/drivers/office-attachments-mock-provider.mjs --port ${MOCK_PORT} --workspace ${shellQuote(ctx.workspacePath || "/workspace")} > /tmp/openwork-office-attachments-mock.log 2>&1 < /dev/null &
 echo $! > /tmp/openwork-office-attachments-mock.pid
 for _ in $(seq 1 80); do
   if curl -sf http://127.0.0.1:${MOCK_PORT}/health >/tmp/openwork-office-attachments-health.json; then
@@ -294,6 +295,82 @@ async function sessionMessages(ctx) {
   return payload.items ?? [];
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringField(record, names) {
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function dataUrlDetails(value) {
+  if (typeof value !== "string") return null;
+  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,([A-Za-z0-9+/=\s]+)$/i.exec(value);
+  if (!match) return null;
+  const bytes = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  return {
+    mime: (match[1] || "application/octet-stream").trim().toLowerCase(),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    size: bytes.byteLength,
+  };
+}
+
+function findDataUrlDetails(value) {
+  const direct = dataUrlDetails(value);
+  if (direct) return direct;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findDataUrlDetails(item);
+      if (found) return found;
+    }
+  }
+  if (!isRecord(value)) return null;
+  for (const item of Object.values(value)) {
+    const found = findDataUrlDetails(item);
+    if (found) return found;
+  }
+  return null;
+}
+
+function collectFileParts(value, out = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectFileParts(item, out);
+    return out;
+  }
+  if (!isRecord(value)) return out;
+  const type = stringField(value, ["type"]);
+  const filename = stringField(value, ["filename", "fileName", "name"]);
+  if (type === "file" || filename === DOCX_FILENAME || filename === PPTX_FILENAME) out.push(value);
+  for (const item of Object.values(value)) collectFileParts(item, out);
+  return out;
+}
+
+function assertPersistedOriginalOfficeParts(ctx, messages) {
+  const parts = collectFileParts(messages);
+  for (const [kind, expected] of Object.entries(OFFICE_FIXTURES)) {
+    const candidates = parts.filter((part) => stringField(part, ["filename", "fileName", "name"]) === expected.filename);
+    const found = candidates.find((part) => {
+      const details = findDataUrlDetails(part);
+      return stringField(part, ["mediaType", "mime", "mimeType", "contentType"]).toLowerCase() === expected.mime
+        && details?.sha256 === expected.sha256
+        && details.mime === expected.mime;
+    }) || candidates[0];
+    record(ctx, Boolean(found), `Session read API retained original ${kind.toUpperCase()} FilePart`, JSON.stringify({ candidates: candidates.length }));
+    if (!found) continue;
+    const filename = stringField(found, ["filename", "fileName", "name"]);
+    const mime = stringField(found, ["mediaType", "mime", "mimeType", "contentType"]).toLowerCase();
+    const dataUrl = findDataUrlDetails(found);
+    record(ctx, filename === expected.filename, `Persisted ${kind.toUpperCase()} filename is canonical`, filename);
+    record(ctx, mime === expected.mime, `Persisted ${kind.toUpperCase()} MIME is canonical`, mime);
+    record(ctx, dataUrl?.mime === expected.mime, `Persisted ${kind.toUpperCase()} data URL MIME is canonical`, dataUrl?.mime || "missing");
+    record(ctx, dataUrl?.sha256 === expected.sha256, `Persisted ${kind.toUpperCase()} data URL sha256 matches original bytes`, dataUrl?.sha256 || "missing");
+  }
+}
+
 function workspaceArtifactHashes(ctx) {
   ctx.assert(Boolean(ctx.workspacePath), "Missing workspace path");
   const raw = runInSandbox(ctx, `
@@ -404,7 +481,7 @@ EOF
 
 export default {
   id: FLOW_ID,
-  title: "Session composer sends valid Word and PowerPoint attachments through the real model boundary",
+  title: "Session composer safely normalizes valid Word and PowerPoint attachments through the real model boundary",
   kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_DAYTONA_SANDBOX"],
   precondition: async (ctx) => {
@@ -435,6 +512,10 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await forceEnglish(ctx);
+            const state = await appRouteState(ctx);
+            ctx.assert(Boolean(state.workspaceId), `Could not determine workspace id from ${state.hash}`);
+            ctx.workspaceId = state.workspaceId;
+            await loadWorkspacePath(ctx);
             const health = startMockProvider(ctx);
             ctx.output("Office mock health", health);
             await configureMockProvider(ctx);
@@ -490,9 +571,9 @@ export default {
       },
     },
     {
-      name: "Send reaches provider, tool loop writes artifacts, and sent cards are actionable",
+      name: "Send normalizes Office files for provider text, tool loop writes artifacts, and sent cards are actionable",
       run: async (ctx) => {
-        await ctx.prove("Sending crosses Electron, OpenWork, OpenCode, and the provider; the mock writes exact Office bytes via bash", {
+        await ctx.prove("Sending crosses Electron, OpenWork, OpenCode, and the provider; the mock receives normalized Office text, then writes exact materialized bytes via bash", {
           voiceover: vo[2],
           action: async () => {
             const beforeHashes = resetWorkspaceOfficeArtifacts(ctx);
@@ -505,11 +586,18 @@ export default {
             await ctx.control("composer.send");
             const proof = await pollProof(
               ctx,
-              (item) => item.providerReceipt && item.exactHashes && item.exactMimes && item.sentinelsExtracted && item.toolCallCompleted && item.finalResponse,
+              (item) => item.providerReceipt && item.normalizedTextOnly && item.exactHashes && item.exactMimes && item.materializedPaths && item.sentinelsExtracted && item.toolCallCompleted && item.finalResponse,
               120_000,
-              "provider receipt, sentinel extraction, completed bash tool call, and final response",
+              "normalized provider text, materialized Office hashes, completed bash tool call, and final response",
             );
             ctx.output("Office mock proof after send", JSON.stringify(proof, null, 2));
+            record(
+              ctx,
+              proof.normalizedTextOnly && proof.payloadCount === 0 && proof.officeFileMarkers === 0 && !proof.rawOfficeBinaryLeak,
+              "Provider request contains normalized Office text only, with no raw Office binary or file media",
+              JSON.stringify({ payloadCount: proof.payloadCount, officeFileMarkers: proof.officeFileMarkers, rawOfficeBinaryLeak: proof.rawOfficeBinaryLeak }),
+            );
+            record(ctx, proof.materializedPaths, "Mock verified safe materialized worker-relative Office paths", JSON.stringify(proof.attachments));
             record(ctx, proof.toolCallCompleted, "Mock observed the completed bash tool result before final response");
             const afterHashes = workspaceArtifactHashes(ctx);
             record(
@@ -523,6 +611,7 @@ export default {
             const sessionText = JSON.stringify(messages);
             record(ctx, sessionText.includes(DOCX_SENTINEL) && sessionText.includes(PPTX_SENTINEL), "Session read API contains both extracted sentinel facts");
             record(ctx, sessionText.includes("artifacts/QuarterlyBrief.docx") && sessionText.includes("artifacts/LaunchRoadmap.pptx"), "Session read API contains both artifact paths");
+            assertPersistedOriginalOfficeParts(ctx, messages);
             const cards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 30_000, label: "sent Office cards with Download actions" });
             record(ctx, cards.docx, "Sent DOCX card shows DOCX badge and Download action");
             record(ctx, cards.pptx, "Sent PPTX card shows PPTX badge and Download action");
@@ -613,7 +702,7 @@ export default {
             record(ctx, restoredCards.docx && restoredCards.pptx, "Reload restored both sent Office cards with badges and Download actions");
             await ctx.control("composer.set_text", { text: FOLLOW_UP });
             await ctx.control("composer.send");
-            const replayProof = await pollProof(ctx, (item) => item.replayResponse && item.replayOfficeHistoryOk, 90_000, "successful replay follow-up");
+            const replayProof = await pollProof(ctx, (item) => item.replayResponse && item.replayOfficeHistoryOk && item.replay?.normalizedTextOnly, 90_000, "successful replay follow-up with normalized Office history");
             ctx.output("Office mock proof after replay", JSON.stringify(replayProof, null, 2));
             await ctx.waitFor(`document.body.innerText.includes("Replay succeeded after reopening the session")`, {
               timeoutMs: 60_000,
