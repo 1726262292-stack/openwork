@@ -16,7 +16,7 @@ export const AuthUserTable = mysqlTable(
       .notNull()
       .default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`),
   },
-  (table) => [uniqueIndex("user_email").on(table.email)],
+  (table) => [uniqueIndex("user_email").on(table.email), index("user_created_at_id").on(table.createdAt, table.id)],
 )
 
 export const AuthSessionTable = mysqlTable(

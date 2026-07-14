@@ -34,7 +34,7 @@ export const OrganizationTable = mysqlTable(
       .notNull()
       .default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`),
   },
-  (table) => [uniqueIndex("organization_slug").on(table.slug)],
+  (table) => [uniqueIndex("organization_slug").on(table.slug), index("organization_created_at_id").on(table.createdAt, table.id)],
 )
 
 export const OrganizationBrandAssetTable = mysqlTable(
@@ -104,6 +104,7 @@ export const InvitationTable = mysqlTable(
     index("invitation_email").on(table.email),
     index("invitation_status").on(table.status),
     index("invitation_team_id").on(table.teamId),
+    index("invitation_inviter_id").on(table.inviterId),
     index("invitation_org_member_id").on(table.orgMemberId),
     uniqueIndex("invitation_invite_token").on(table.inviteToken),
   ],
