@@ -214,6 +214,29 @@ async function assertOfficeMockSelected(ctx) {
   record(ctx, selected.includes("Office attachment mock"), "Visible selected model is Office attachment mock", selected);
 }
 
+async function dismissOpenWorkModelsModal(ctx) {
+  const result = await ctx.eval(`(() => {
+    const roots = Array.from(document.querySelectorAll('[role="dialog"], [data-slot="dialog-content"], [data-radix-dialog-content]'));
+    const dialog = roots.find((item) => (item.textContent || "").includes("OpenWork Models"));
+    if (!dialog) return { dismissed: false };
+    const buttons = Array.from(dialog.querySelectorAll("button"));
+    const continueButton = buttons.find((button) => (button.textContent || "").trim().includes("Continue without OpenWork Models"));
+    const closeButton = buttons.find((button) => {
+      const label = button.getAttribute("aria-label") || "";
+      return label === "Close" || (button.textContent || "").trim() === "Close";
+    });
+    const button = continueButton || closeButton;
+    if (!button) return { dismissed: false, reason: "OpenWork Models modal had no dismiss button" };
+    button.click();
+    return { dismissed: true };
+  })()`);
+  if (!result || !result.dismissed) return;
+  await ctx.waitFor(`(() => {
+    const roots = Array.from(document.querySelectorAll('[role="dialog"], [data-slot="dialog-content"], [data-radix-dialog-content]'));
+    return !roots.some((item) => (item.textContent || "").includes("OpenWork Models"));
+  })()`, { timeoutMs: 10_000, label: "OpenWork Models modal dismissed" });
+}
+
 async function createFreshSession(ctx) {
   await ctx.waitFor(
     `window.__openworkControl.listActions().some((item) => item.id === "session.create_task" && !item.disabled)`,
@@ -433,14 +456,40 @@ function workspaceArtifactsHaveExpectedHashes(hashes) {
 }
 
 async function clickArtifact(ctx, filename) {
+  await dismissOpenWorkModelsModal(ctx);
   await ctx.waitFor(`(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
-    const button = buttons.find((item) => (item.textContent || "").includes(${JSON.stringify(filename)}));
-    if (!button) return false;
-    button.scrollIntoView({ block: "center", inline: "center" });
-    button.click();
+    const tabsOpen = buttons.some((item) => {
+      const label = item.getAttribute("aria-label") || "";
+      return label.startsWith("Select tab: ");
+    });
+    if (tabsOpen) return true;
+    const railButton = buttons.find((item) => {
+      const label = item.getAttribute("aria-label") || "";
+      return label.startsWith("Artifacts");
+    });
+    if (!railButton) return false;
+    railButton.scrollIntoView({ block: "center", inline: "center" });
+    railButton.click();
     return true;
-  })()`, { timeoutMs: 30_000, label: `artifact button ${filename}` });
+  })()`, { timeoutMs: 30_000, label: "artifact rail button" });
+  await ctx.waitFor(`(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    return buttons.some((item) => {
+      const label = item.getAttribute("aria-label") || "";
+      return label.startsWith("Select tab: ");
+    });
+  })()`, { timeoutMs: 30_000, label: "artifact panel tabs" });
+  await ctx.waitFor(`(() => {
+    const heading = document.querySelector("h3");
+    if (heading && (heading.textContent || "").includes(${JSON.stringify(filename)})) return true;
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const tab = buttons.find((item) => item.getAttribute("aria-label") === "Select tab: " + ${JSON.stringify(filename)});
+    if (!tab) return false;
+    tab.scrollIntoView({ block: "center", inline: "center" });
+    tab.click();
+    return true;
+  })()`, { timeoutMs: 30_000, label: `artifact tab ${filename}` });
   await ctx.waitFor(`(() => {
     const heading = document.querySelector("h3");
     return Boolean(heading && (heading.textContent || "").includes(${JSON.stringify(filename)}));
@@ -633,6 +682,7 @@ export default {
               JSON.stringify(afterHashes),
             );
             await waitForFinalResponse(ctx);
+            await dismissOpenWorkModelsModal(ctx);
             const messages = await sessionMessages(ctx);
             const sessionText = JSON.stringify(messages);
             record(ctx, sessionText.includes(DOCX_SENTINEL) && sessionText.includes(PPTX_SENTINEL), "Session read API contains both extracted sentinel facts");
@@ -647,6 +697,7 @@ export default {
               expectedSha: OFFICE_FIXTURES.docx.sha256,
               assertion: `Sent attachment card Download for ${DOCX_FILENAME} saves the exact expected sha256`,
             });
+            await dismissOpenWorkModelsModal(ctx);
           },
           assert: async () => {
             await ctx.expectText(DOCX_SENTINEL);
@@ -724,6 +775,7 @@ export default {
               timeoutMs: 30_000,
               label: "reopened Office session route",
             });
+            await dismissOpenWorkModelsModal(ctx);
             const restoredCards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 45_000, label: "restored Office sent cards" });
             record(ctx, restoredCards.docx && restoredCards.pptx, "Reload restored both sent Office cards with badges and Download actions");
             await ctx.control("composer.set_text", { text: FOLLOW_UP });
@@ -734,6 +786,7 @@ export default {
               timeoutMs: 60_000,
               label: "replay success assistant response",
             });
+            await dismissOpenWorkModelsModal(ctx);
           },
           assert: async () => {
             await ctx.expectText(DOCX_FILENAME);
