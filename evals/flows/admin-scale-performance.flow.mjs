@@ -121,6 +121,24 @@ const USER_SEARCH_INPUT = 'input[placeholder="Email, name, user id, provider, or
 const ORG_SEARCH_INPUT = 'input[placeholder="Org name, slug, or id"]';
 const USER_ROW_SELECTOR = '[data-testid^="admin-user-row-"]';
 const ORG_ROW_SELECTOR = '[data-testid^="admin-org-row-"]';
+const SCALE_STATUS_SELECTOR = '[data-testid="admin-scale-eval-status"]';
+const FIRST_ORG_ROW_SELECTOR = '[data-testid="admin-org-row-organization-0"]';
+const TARGET_ORG_ROW_SELECTOR = '[data-testid="admin-org-row-scale-performance-target"]';
+
+async function waitForViewportStable(ctx) {
+  await ctx.eval("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))", { awaitPromise: true });
+}
+
+async function scrollIntoViewport(ctx, selector, block = "center") {
+  const scrolled = await ctx.eval(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return false;
+    element.scrollIntoView({ block: ${JSON.stringify(block)}, inline: "nearest" });
+    return true;
+  })()`);
+  ctx.assert(scrolled === true, `Expected to scroll ${selector} into view`);
+  await waitForViewportStable(ctx);
+}
 
 function visibleRowCount(selector) {
   return `document.querySelectorAll(${JSON.stringify(selector)}).length`;
@@ -185,6 +203,7 @@ export default {
             const metric = await ctx.eval(pageMetric("Search across all 50000 users"));
             ctx.assert(finiteNumber(browserUsableMs) && browserUsableMs <= INITIAL_BUDGET_MS, `Browser usable took ${browserUsableMs} ms (runner navigation diagnostic ${ctx.state.initialElapsedMs} ms)`);
             ctx.assert(metric?.end === 50 && metric.total === 50000, `Unexpected initial user page metric: ${JSON.stringify(metric)}`);
+            await scrollIntoViewport(ctx, USER_SEARCH_INPUT);
           },
           screenshot: { name: "admin-scale-initial", requireText: ["Users (50000)", "Organizations (60000)", "page 1-50 of 50000", "Browser usable"] },
         });
@@ -261,6 +280,7 @@ export default {
             const metric = await ctx.eval(pageMetric("Search across all 60000 organizations"));
             ctx.assert(rowCount > 0 && rowCount <= 50, `Expected at most 50 organization rows, got ${rowCount}`);
             ctx.assert(metric?.end === 50 && metric.total === 60000 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected organization page metric: ${JSON.stringify(metric)} (runner tab diagnostic ${ctx.state.orgOpenElapsedMs} ms)`);
+            await scrollIntoViewport(ctx, FIRST_ORG_ROW_SELECTOR);
           },
           screenshot: { name: "admin-scale-organizations", requireText: ["Organizations (60000)", "page 1-50 of 60000", "Organization 0", "browser visible"] },
         });
@@ -286,6 +306,7 @@ export default {
             const metric = await ctx.eval(pageMetric("Search across all 60000 organizations"));
             ctx.assert(rowCount === 1, `Expected one organization search row, got ${rowCount}`);
             ctx.assert(metric?.total === 1 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected organization search metric: ${JSON.stringify(metric)} (runner input diagnostic ${ctx.state.orgSearchElapsedMs} ms)`);
+            await scrollIntoViewport(ctx, TARGET_ORG_ROW_SELECTOR);
           },
           screenshot: { name: "admin-scale-org-search", requireText: ["Scale Performance Target Organization", "Install links", "Save access", "browser visible"] },
         });
@@ -311,6 +332,7 @@ export default {
             await ctx.expectText("pnpm benchmark:admin-scale:mysql");
             await ctx.expectText("500 ms initial");
             await ctx.expectText("300 ms searches");
+            await scrollIntoViewport(ctx, SCALE_STATUS_SELECTOR);
           },
           screenshot: { name: "admin-scale-budget-evidence", requireText: ["pnpm benchmark:admin-scale:mysql", "500 ms initial", "300 ms searches", "Latest MySQL benchmark"] },
         });
