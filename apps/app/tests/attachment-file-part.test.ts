@@ -157,6 +157,7 @@ describe("composer attachment file parts", () => {
       filename: "image-only scan.pdf",
       bytes: Array.from(PDF_BYTES),
     }]);
+    expect(textPartText(parts).startsWith("\n\nAttached files were copied")).toBe(true);
     expect(textPartText(parts)).toContain(".opencode/openwork/inbox/chat-attachments/ses_abc/nonce-a-image-only scan.pdf");
     expect(textPartText(parts)).toContain("Read/Bash/MCP/Docling");
     expect(filePartUrl(parts, 1)).toBe("file:///workspaces/Worker%20Root/.opencode/openwork/inbox/chat-attachments/ses_abc/nonce-a-image-only%20scan.pdf");

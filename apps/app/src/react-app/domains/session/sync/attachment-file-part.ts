@@ -208,11 +208,11 @@ function uploadErrorMessage(filename: string, error: unknown) {
 }
 
 function attachmentPathNote(uploaded: UploadedChatAttachment[]) {
-  return [
+  return `\n\n${[
     "Attached files were copied into this worker workspace for tool access:",
     ...uploaded.map((item) => `- ${item.filename}: ${item.workspacePath} (${item.url})`),
     "Use these paths with Read/Bash/MCP/Docling when a tool needs the file bytes.",
-  ].join("\n");
+  ].join("\n")}`;
 }
 
 function uploadedAttachmentFilePart(item: UploadedChatAttachment): FilePartInput {
