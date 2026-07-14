@@ -31,10 +31,39 @@ function startMockOpencode() {
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "1.17.11" });
       if (url.pathname === "/mcp" && request.method === "GET") return Response.json({ "openwork-cloud": { status: "connected" } });
+      if ((url.pathname === "/cloud-mcp" || url.pathname === "/cloud-mcp/mcp/agent") && request.method === "POST") {
+        const body: unknown = await request.json();
+        const id = isRecord(body) && (typeof body.id === "string" || typeof body.id === "number" || body.id === null) ? body.id : 1;
+        if (isRecord(body) && body.method === "notifications/initialized") return new Response(null, { status: 202 });
+        if (isRecord(body) && body.method === "initialize") {
+          return Response.json({
+            id,
+            jsonrpc: "2.0",
+            result: {
+              capabilities: { tools: {} },
+              protocolVersion: "2025-06-18",
+              serverInfo: { name: "openwork-cloud-test", version: "1.0.0" },
+            },
+          });
+        }
+        if (isRecord(body) && body.method === "tools/list") {
+          return Response.json({
+            id,
+            jsonrpc: "2.0",
+            result: {
+              tools: [
+                { name: "search_capabilities", inputSchema: {} },
+                { name: "execute_capability", inputSchema: {} },
+              ],
+            },
+          });
+        }
+        return Response.json({ id, jsonrpc: "2.0", result: {} });
+      }
       if (url.pathname === "/experimental/tool/ids") return Response.json([...OPENWORK_CLOUD_EXPECTED_TOOLS, ...OPENWORK_CLOUD_PLUGIN_CANARIES]);
       return Response.json({ code: "not_found" }, { status: 404 });
     },
@@ -116,7 +145,7 @@ describe("connect state Cloud health scoping", () => {
         ...current.mcp,
         "openwork-cloud": {
           type: "remote",
-          url: "https://api.openworklabs.com/mcp/agent",
+          url: `${baseUrl}/cloud-mcp/mcp/agent`,
           enabled: true,
           headers: { Authorization: "Bearer owt_connect_state_cloud_token" },
           oauth: false,
