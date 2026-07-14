@@ -572,26 +572,33 @@ export function SessionPage(props: SessionPageProps) {
     if (!hasArtifactTargets || !props.selectedSessionId) return;
     const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
     const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
+    const currentArtifactTab = activeTab?.type === "artifact" && artifactTargetIds.has(activeTab.id) ? activeTab : null;
     const artifactTab = sessionPanelState.tabs.find((tab) => (
       tab.type === "artifact" && artifactTargetIds.has(tab.id)
     ));
     const firstArtifact = artifactFileTargets[0];
+    const tabToSelect = currentArtifactTab?.id ?? artifactTab?.id ?? firstArtifact?.id ?? null;
+
+    for (const target of artifactFileTargets) {
+      if (sessionPanelState.tabs.some((tab) => tab.id === target.id)) continue;
+      openTab(props.selectedSessionId, {
+        id: target.id,
+        type: "artifact",
+        label: target.name,
+        preview: target.preview,
+      });
+    }
+
+    if (tabToSelect) {
+      selectTab(props.selectedSessionId, tabToSelect);
+    }
+
     if (panelRailActive && activeTab?.type === "artifact") {
       toggleCurrentSidePanel("panel");
       return;
     }
     if (!panelRailActive) {
       preserveSidePanelOnPanelOpenRef.current = true;
-    }
-    if (artifactTab) {
-      selectTab(props.selectedSessionId, artifactTab.id);
-    } else if (firstArtifact) {
-      openTab(props.selectedSessionId, {
-        id: firstArtifact.id,
-        type: "artifact",
-        label: firstArtifact.name,
-        preview: firstArtifact.preview,
-      });
     }
     if (!panelRailActive) {
       toggleCurrentSidePanel("panel");
