@@ -107,24 +107,26 @@ async function forceEnglish(ctx) {
 async function appRouteState(ctx) {
   return await ctx.eval(`(() => {
     const hash = location.hash;
-    const route = window.__openworkControl?.snapshot?.().route ?? hash.replace(/^#/, "");
-    const workspaceId = (hash.match(/\/workspace\/([^/]+)/) ?? [])[1]
-      || localStorage.getItem("openwork.react.activeWorkspace")
-      || "";
-    const sessionId = (hash.match(/\/session\/(ses_[A-Za-z0-9]+)/) ?? [])[1]
-      || (route.match(/\/session\/(ses_[A-Za-z0-9]+)/) ?? [])[1]
-      || "";
+    const control = window.__openworkControl;
+    const snapshot = control && typeof control.snapshot === "function" ? control.snapshot() : null;
+    const route = (snapshot && snapshot.route) || hash.replace(/^#/, "");
+    const workspaceMatch = hash.match(/\/workspace\/([^/]+)/);
+    const sessionMatch = hash.match(/\/session\/(ses_[A-Za-z0-9]+)/);
+    const routeSessionMatch = route.match(/\/session\/(ses_[A-Za-z0-9]+)/);
+    const workspaceId = (workspaceMatch && workspaceMatch[1]) || localStorage.getItem("openwork.react.activeWorkspace") || "";
+    const sessionId = (sessionMatch && sessionMatch[1]) || (routeSessionMatch && routeSessionMatch[1]) || "";
     return { hash, route, workspaceId, sessionId };
   })()`);
 }
 
 async function serverJson(ctx, path, init = {}) {
+  const method = init.method || "GET";
   const raw = await ctx.eval(`(async () => {
     const port = localStorage.getItem("openwork.server.port");
     const token = localStorage.getItem("openwork.server.token");
     if (!port || !token) return JSON.stringify({ ok: false, status: 0, text: "missing server port/token" });
     const response = await fetch("http://127.0.0.1:" + port + ${JSON.stringify(path)}, {
-      method: ${JSON.stringify(init.method ?? "GET")},
+      method: ${JSON.stringify(method)},
       headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: ${init.body === undefined ? "undefined" : JSON.stringify(JSON.stringify(init.body))},
     });
@@ -132,7 +134,7 @@ async function serverJson(ctx, path, init = {}) {
     return JSON.stringify({ ok: response.ok, status: response.status, text });
   })()`, { awaitPromise: true });
   const result = JSON.parse(raw);
-  ctx.assert(result.ok, `${init.method ?? "GET"} ${path} failed: ${result.status} ${String(result.text).slice(0, 500)}`);
+  ctx.assert(result.ok, `${method} ${path} failed: ${result.status} ${String(result.text).slice(0, 500)}`);
   return result.text ? JSON.parse(result.text) : null;
 }
 
@@ -251,8 +253,8 @@ function sentAttachmentCardsExpr() {
     const buttons = Array.from(document.querySelectorAll("button"));
     const hasSentFileCard = (filename, badge) => {
       const button = buttons.find((item) => item.getAttribute("aria-label") === "Download " + filename);
-      const card = button?.closest("div");
-      const text = card?.textContent ?? "";
+      const card = button ? button.closest("div") : null;
+      const text = card && card.textContent ? card.textContent : "";
       return Boolean(button && text.includes(filename) && text.includes(badge) && text.includes("Download"));
     };
     const docx = hasSentFileCard(${JSON.stringify(DOCX_FILENAME)}, "DOCX");
@@ -262,7 +264,7 @@ function sentAttachmentCardsExpr() {
       docx,
       pptx,
       downloadButtons: buttons.filter((button) => {
-        const label = button.getAttribute("aria-label") ?? "";
+        const label = button.getAttribute("aria-label") || "";
         return label.startsWith("Download ") && label !== "Download artifact";
       }).length,
     };
@@ -314,13 +316,16 @@ function workspaceArtifactsHaveExpectedHashes(hashes) {
 async function clickArtifact(ctx, filename) {
   await ctx.waitFor(`(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
-    const button = buttons.find((item) => (item.textContent ?? "").includes(${JSON.stringify(filename)}));
+    const button = buttons.find((item) => (item.textContent || "").includes(${JSON.stringify(filename)}));
     if (!button) return false;
     button.scrollIntoView({ block: "center", inline: "center" });
     button.click();
     return true;
   })()`, { timeoutMs: 30_000, label: `artifact button ${filename}` });
-  await ctx.waitFor(`(document.querySelector("h3")?.textContent ?? "").includes(${JSON.stringify(filename)})`, {
+  await ctx.waitFor(`(() => {
+    const heading = document.querySelector("h3");
+    return Boolean(heading && (heading.textContent || "").includes(${JSON.stringify(filename)}));
+  })()`, {
     timeoutMs: 30_000,
     label: `artifact panel ${filename}`,
   });
@@ -329,8 +334,9 @@ async function clickArtifact(ctx, filename) {
 async function assertArtifactPanelControls(ctx, filename) {
   const controls = await ctx.eval(`(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
+    const heading = document.querySelector("h3");
     return {
-      heading: document.querySelector("h3")?.textContent ?? "",
+      heading: heading && heading.textContent ? heading.textContent : "",
       previewUnavailable: document.body.innerText.includes("Preview unavailable"),
       download: buttons.some((button) => button.getAttribute("aria-label") === "Download artifact" && !button.disabled),
       openExternal: buttons.some((button) => button.getAttribute("aria-label") === "Open externally" && !button.disabled),
