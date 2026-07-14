@@ -284,11 +284,11 @@ function fixtureUrl() {
   return state.fixturePublicUrl ?? `http://127.0.0.1:${state.fixturePort}/mcp`;
 }
 
-async function setViewport(ctx) {
+async function setViewport(ctx, height = 1000) {
   if (!ctx.client?.send) return;
   await ctx.client.send("Emulation.setDeviceMetricsOverride", {
     width: 1440,
-    height: 1000,
+    height,
     deviceScaleFactor: 1,
     mobile: false,
   });
@@ -1074,6 +1074,7 @@ export default {
         await ctx.prove("The Agent access card reports Degraded with the first failing stage and Repair and test guidance", {
           voiceover: vo[1],
           action: async () => {
+            await setViewport(ctx, 760);
             await scrollToText(ctx, "Agent access to connected services");
             await ctx.waitForText("Degraded", { timeoutMs: 60_000 });
             await ctx.waitForText("Use Repair and test to apply agent access for this workspace.", { timeoutMs: 60_000 });
