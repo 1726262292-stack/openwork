@@ -109,12 +109,18 @@ async function appRouteState(ctx) {
     const hash = location.hash;
     const control = window.__openworkControl;
     const snapshot = control && typeof control.snapshot === "function" ? control.snapshot() : null;
-    const route = (snapshot && snapshot.route) || hash.replace(/^#/, "");
-    const workspaceMatch = hash.match(/\/workspace\/([^/]+)/);
-    const sessionMatch = hash.match(/\/session\/(ses_[A-Za-z0-9]+)/);
-    const routeSessionMatch = route.match(/\/session\/(ses_[A-Za-z0-9]+)/);
-    const workspaceId = (workspaceMatch && workspaceMatch[1]) || localStorage.getItem("openwork.react.activeWorkspace") || "";
-    const sessionId = (sessionMatch && sessionMatch[1]) || (routeSessionMatch && routeSessionMatch[1]) || "";
+    const route = (snapshot && snapshot.route) || (hash.startsWith("#") ? hash.slice(1) : hash);
+    const pathSegment = (value, segment) => {
+      const marker = "/" + segment + "/";
+      const text = String(value || "");
+      const index = text.indexOf(marker);
+      if (index < 0) return "";
+      const rest = text.slice(index + marker.length);
+      const end = rest.indexOf("/");
+      return end < 0 ? rest : rest.slice(0, end);
+    };
+    const workspaceId = pathSegment(hash, "workspace") || localStorage.getItem("openwork.react.activeWorkspace") || "";
+    const sessionId = pathSegment(hash, "session") || pathSegment(route, "session") || "";
     return { hash, route, workspaceId, sessionId };
   })()`);
 }
@@ -191,8 +197,20 @@ async function createFreshSession(ctx) {
   await ctx.control("session.create_task");
   await ctx.waitFor(
     `(() => {
-      const hash = location.hash;
-      return /\/session\/ses_[A-Za-z0-9]+/.test(hash) || /ses_[A-Za-z0-9]+/.test(window.__openworkControl.snapshot().route || "");
+      const sessionIdFrom = (value) => {
+        const text = String(value || "");
+        const marker = "/session/";
+        const index = text.indexOf(marker);
+        if (index < 0) return "";
+        const rest = text.slice(index + marker.length);
+        const end = rest.indexOf("/");
+        const sessionId = end < 0 ? rest : rest.slice(0, end);
+        return sessionId.startsWith("ses_") ? sessionId : "";
+      };
+      const control = window.__openworkControl;
+      const snapshot = control && typeof control.snapshot === "function" ? control.snapshot() : null;
+      const route = snapshot && snapshot.route ? snapshot.route : "";
+      return Boolean(sessionIdFrom(location.hash) || sessionIdFrom(route));
     })()`,
     { timeoutMs: 60_000, label: "fresh session route" },
   );
