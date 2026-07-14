@@ -1,4 +1,4 @@
-export type RoadmapStatus = "live" | "building" | "next" | "exploring"
+export type RoadmapStatus = "live" | "partial" | "building" | "next" | "exploring"
 
 export type RoadmapItem = {
   title: string
@@ -15,12 +15,6 @@ export type RoadmapSection = {
   items: RoadmapItem[]
 }
 
-export type RoadmapSpec = {
-  number: string
-  title: string
-  description: string
-}
-
 type StatusDetails = {
   label: string
   description: string
@@ -34,6 +28,12 @@ const statusDetails: Record<RoadmapStatus, StatusDetails> = {
     description: "Available today",
     className: "border-emerald-200 bg-emerald-50 text-emerald-800",
     dotClassName: "bg-emerald-500",
+  },
+  partial: {
+    label: "Partial",
+    description: "Supported with limitations",
+    className: "border-violet-200 bg-violet-50 text-violet-800",
+    dotClassName: "bg-violet-500",
   },
   building: {
     label: "Building",
@@ -86,6 +86,21 @@ export const roadmapSections: RoadmapSection[] = [
         status: "live",
       },
       {
+        title: "Artifacts",
+        description: "Preview, edit, download, and reopen generated files without leaving the desktop workspace.",
+        status: "live",
+      },
+      {
+        title: "Built-in browser control",
+        description: "Let agents navigate, click, type, and capture pages in a browser that stays visible inside the app.",
+        status: "live",
+      },
+      {
+        title: "Isolated sandbox workspaces",
+        description: "Run work in a separate Docker or microsandbox environment, with some platform and setup limitations today.",
+        status: "partial",
+      },
+      {
         title: "Better organization for long-running work",
         description: "Make active, waiting, and completed work easier to understand and return to.",
         status: "building",
@@ -127,8 +142,54 @@ export const roadmapSections: RoadmapSection[] = [
     ],
   },
   {
+    id: "central-management",
+    eyebrow: "03 · central management",
+    title: "central management",
+    description:
+      "OpenWork Cloud is the control plane for distributing capabilities, applying desktop policies, managing identity and access, and understanding adoption across the organization.",
+    callout:
+      "Configure policies and access once in OpenWork Cloud. The desktop app and OpenWork Connect apply them for each member and team.",
+    items: [
+      {
+        title: "Desktop policies",
+        description: "Control custom providers, OpenCode Zen, workspaces, settings, extensions, built-in tools, and onboarding by organization, team, or member.",
+        status: "live",
+      },
+      {
+        title: "Members, teams, and roles",
+        description: "Invite people, organize teams, and decide who can manage capabilities and security settings.",
+        status: "live",
+      },
+      {
+        title: "Skills and plugin marketplaces",
+        description: "Publish skills, commands, MCP dependencies, and extensions once, then assign them to the right people and teams.",
+        status: "live",
+      },
+      {
+        title: "Anthropic-compatible plugins",
+        description: "Import Claude-compatible plugin and marketplace manifests and normalize their skills, MCPs, commands, and tools into OpenWork extensions.",
+        status: "live",
+      },
+      {
+        title: "SAML SSO",
+        description: "Connect an identity provider and provision organization members when they first sign in.",
+        status: "live",
+      },
+      {
+        title: "Usage and adoption telemetry",
+        description: "See active members, sessions, and task outcomes over time using event metadata, never prompts, code, or file contents.",
+        status: "live",
+      },
+      {
+        title: "OpenTelemetry coverage",
+        description: "Extend OTLP traces, metrics, and logs across OpenWork services and deployment paths.",
+        status: "building",
+      },
+    ],
+  },
+  {
     id: "hosted-workspaces",
-    eyebrow: "03 · work that stays on",
+    eyebrow: "04 · work that stays on",
     title: "a workspace that stays on",
     description:
       "Hosted workspaces give a person or team a persistent filesystem and a predictable environment in the cloud. Files, dependencies, repository state, and running work remain available after the laptop closes.",
@@ -169,7 +230,7 @@ export const roadmapSections: RoadmapSection[] = [
   },
   {
     id: "every-surface",
-    eyebrow: "04 · meet people where they work",
+    eyebrow: "05 · meet people where they work",
     title: "OpenWork on every surface",
     description:
       "The desktop app remains the richest OpenWork experience. Other surfaces provide focused ways to reach the same capabilities, permissions, workspaces, and history.",
@@ -208,7 +269,7 @@ export const roadmapSections: RoadmapSection[] = [
   },
   {
     id: "systems",
-    eyebrow: "05 · beyond a single conversation",
+    eyebrow: "06 · beyond a single conversation",
     title: "systems, not just conversations",
     description:
       "Persistent environments and portable authentication make it possible to turn successful agent work into reliable systems that can run again.",
@@ -239,33 +300,6 @@ export const roadmapSections: RoadmapSection[] = [
         status: "next",
       },
     ],
-  },
-]
-
-export const roadmapSpecs: RoadmapSpec[] = [
-  {
-    number: "01",
-    title: "OpenWork Capability Spec",
-    description:
-      "How skills, plugins, MCP dependencies, authentication requirements, and permissions are packaged and shared.",
-  },
-  {
-    number: "02",
-    title: "OpenWork Workspace Spec",
-    description:
-      "How a workspace describes its files, environment, dependencies, capabilities, provisioning, and persistence.",
-  },
-  {
-    number: "03",
-    title: "OpenWork Surface Spec",
-    description:
-      "How desktop, MCP clients, Slack, mobile, and custom interfaces attach to the same workspace with the right identity and permissions.",
-  },
-  {
-    number: "04",
-    title: "OpenWork Run Spec",
-    description:
-      "How multi-step workflows define execution, schedules, approvals, retries, outputs, and history.",
   },
 ]
 
@@ -324,7 +358,7 @@ export function OpenWorkRoadmap({
   feedbackHref?: string
   docsHref?: string
 }) {
-  const statuses: RoadmapStatus[] = ["live", "building", "next", "exploring"]
+  const statuses: RoadmapStatus[] = ["live", "partial", "building", "next", "exploring"]
 
   return (
     <div data-testid="openwork-roadmap" className="text-[#011627]">
@@ -370,28 +404,6 @@ export function OpenWorkRoadmap({
           <RoadmapSectionBlock key={section.id} section={section} />
         ))}
       </div>
-
-      <section id="specifications" className="scroll-mt-24 rounded-[2.5rem] bg-[#07192c] px-6 py-12 text-white sm:px-8 md:px-12 md:py-16">
-        <div className="grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
-          <div>
-            <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-300">Open for discussion</div>
-            <h2 className="text-3xl font-medium leading-[1.05] tracking-[-0.035em] sm:text-4xl md:text-5xl">upcoming specifications</h2>
-            <p className="mt-5 max-w-lg text-base leading-7 text-slate-300">
-              We plan to publish the interfaces behind the roadmap so the community can build with them, question them, and help shape them before they settle.
-            </p>
-          </div>
-
-          <div className="grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2">
-            {roadmapSpecs.map((spec) => (
-              <article key={spec.number} className="bg-[#0b2036] p-5 md:p-6">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-300">Draft {spec.number}</div>
-                <h3 className="mt-3 text-lg font-semibold tracking-tight text-white">{spec.title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-300">{spec.description}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section className="py-16 text-center md:py-24">
         <div className="mx-auto max-w-2xl">

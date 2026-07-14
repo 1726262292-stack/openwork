@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, Loader2, Pencil, Plug, Puzzle, RefreshCw, Search, Server, Trash2, Users, Wrench } from "lucide-react";
 import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
+import { DenNotice } from "../../_components/ui/notice";
 import { DenSelect } from "../../_components/ui/select";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { getPluginRoute } from "../../_lib/den-org";
@@ -1079,7 +1080,7 @@ function GoogleWorkspaceDialog({
         </div>
 
         {formError ? (
-          <p className="mt-3 text-[13px] text-red-600">{formError instanceof Error ? formError.message : "Failed to save the OAuth client."}</p>
+          <DenNotice message={formError instanceof Error ? formError.message : "Failed to save the OAuth client."} className="mt-3" />
         ) : null}
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

@@ -44,6 +44,36 @@ describe("buildGmailDraftRaw", () => {
     expect(Buffer.from(bodyPart, "base64").toString("utf8")).toBe("Grüße aus Zürich ✅")
   })
 
+  test("unwraps hard-wrapped prose without changing paragraphs, short breaks, or lists", () => {
+    const body = [
+      "Thanks again for the conversation today. As promised, I have attached",
+      "a revised indicative pricing proposal for the air-gapped on-premises",
+      "deployment, covering both the minimal self-managed path and a",
+      "full-support option.",
+      "",
+      "Options:",
+      "- Self-managed deployment",
+      "- Full-support deployment",
+      "",
+      "Thanks again!",
+      "",
+      "Ben",
+    ].join("\n")
+    const decoded = decodeRaw(gmail.buildGmailDraftRaw({ to: "sam@acme.test", subject: "Follow up", body }))
+    const bodyPart = decoded.split("\r\n\r\n")[1]
+    expect(Buffer.from(bodyPart, "base64").toString("utf8")).toBe([
+      "Thanks again for the conversation today. As promised, I have attached a revised indicative pricing proposal for the air-gapped on-premises deployment, covering both the minimal self-managed path and a full-support option.",
+      "",
+      "Options:",
+      "- Self-managed deployment",
+      "- Full-support deployment",
+      "",
+      "Thanks again!",
+      "",
+      "Ben",
+    ].join("\n"))
+  })
+
   test("keeps legacy draft output unchanged when optional fields are absent", () => {
     const raw = gmail.buildGmailDraftRaw({ to: "sam@acme.test", subject: "Follow up", body: "Hello Sam" })
     expect(decodeRaw(raw)).toBe([

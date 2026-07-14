@@ -89,6 +89,8 @@ export function OrgSettingsScreen() {
     orgBusy,
     orgError,
     mutationBusy,
+    orgSettingsCompletion,
+    clearOrgSettingsCompletion,
     updateOrganizationSettings,
   } = useOrgDashboard();
   const [orgNameDraft, setOrgNameDraft] = useState("");
@@ -108,7 +110,6 @@ export function OrgSettingsScreen() {
     string | null
   >(null);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [pageSuccess, setPageSuccess] = useState<string | null>(null);
   const [copiedOrgId, setCopiedOrgId] = useState(false);
 
   const currentAllowedDomains =
@@ -131,6 +132,7 @@ export function OrgSettingsScreen() {
     draftVersions: allowedDesktopVersionsDraft,
     publishedVersions: desktopVersionOptions,
   });
+  const pageSuccess = orgSettingsCompletion?.message ?? null;
 
   useEffect(() => {
     if (!orgContext) {
@@ -269,7 +271,7 @@ export function OrgSettingsScreen() {
     }
 
     setPageError(null);
-    setPageSuccess(null);
+    clearOrgSettingsCompletion();
     setDomainRestrictionsEnabled(nextValue);
     setDomainEditModeEnabled(nextValue && !currentAllowedDomains?.length);
   }
@@ -277,7 +279,7 @@ export function OrgSettingsScreen() {
   async function handleSaveSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPageError(null);
-    setPageSuccess(null);
+    clearOrgSettingsCompletion();
 
     try {
       await updateOrganizationSettings({
@@ -295,7 +297,6 @@ export function OrgSettingsScreen() {
         requireSso: requireSsoEnabled,
       });
       setDomainEditModeEnabled(false);
-      setPageSuccess("Workspace settings updated.");
     } catch (error) {
       setPageError(
         error instanceof Error
@@ -447,7 +448,7 @@ export function OrgSettingsScreen() {
                     icon={Pencil}
                     onClick={() => {
                       setPageError(null);
-                      setPageSuccess(null);
+                      clearOrgSettingsCompletion();
                       setDomainEditModeEnabled(true);
                     }}
                   >

@@ -46,7 +46,7 @@ const createDraftBodySchema = z.object({
   cc: z.string().trim().min(3).max(1_000).optional().describe("Optional comma-separated Cc email addresses."),
   bcc: z.string().trim().min(3).max(1_000).optional().describe("Optional comma-separated Bcc email addresses."),
   subject: z.string().trim().min(1).max(500).describe("Draft subject line."),
-  body: z.string().min(1).max(50_000).describe("Plain-text draft body."),
+  body: z.string().min(1).max(50_000).describe("Plain-text draft body. Separate paragraphs with blank lines and do not hard-wrap prose."),
   threadId: z.string().trim().min(1).max(512).optional().describe("Optional Gmail thread id to reply on. Get it from the gmail-messages capability. When set, the draft is attached to that thread as a reply — keep the thread's subject (e.g. 'Re: …')."),
   attachments: z.array(gmailDraftAttachmentSchema).min(1).max(10).optional().describe("Optional files from the active workspace to attach to this draft."),
 }).strict().superRefine((input, context) => {

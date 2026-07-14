@@ -454,21 +454,29 @@ export function useSaveNativeProviderClient() {
 }
 
 export function useNativeProviderClient(providerId: string, enabled: boolean) {
-  const { orgId } = useOrgDashboard();
+  const { orgId, runReauthableAction } = useOrgDashboard();
 
   return useQuery({
     enabled: enabled && Boolean(orgId),
     queryKey: mcpConnectionQueryKeys.nativeProviderClient(orgId, providerId),
+    retry: false,
     queryFn: async (): Promise<NativeProviderClient> => {
-      const { response, payload } = await requestJson(
-        `/v1/oauth-providers/${encodeURIComponent(providerId)}/client`,
-        { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
-        15000,
-      );
-      if (!response.ok) {
-        throw getRequestError(payload, response, `Failed to load the OAuth client (${response.status}).`);
+      let client: NativeProviderClient | null = null;
+      await runReauthableAction("load-native-oauth-client", async () => {
+        const { response, payload } = await requestJson(
+          `/v1/oauth-providers/${encodeURIComponent(providerId)}/client`,
+          { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+          15000,
+        );
+        if (!response.ok) {
+          throw getRequestError(payload, response, `Failed to load the OAuth client (${response.status}).`);
+        }
+        client = parseNativeProviderClient(payload);
+      });
+      if (!client) {
+        throw new Error("Native provider client response was incomplete.");
       }
-      return parseNativeProviderClient(payload);
+      return client;
     },
   });
 }
@@ -561,18 +569,26 @@ function parseTelegramConnectionPayload(payload: unknown): TelegramConnection | 
 }
 
 export function useTelegramConnection(enabled: boolean) {
-  const { orgId } = useOrgDashboard();
+  const { orgId, runReauthableAction } = useOrgDashboard();
   return useQuery({
     enabled: enabled && Boolean(orgId),
     queryKey: mcpConnectionQueryKeys.telegram(orgId),
+    retry: false,
     queryFn: async (): Promise<TelegramConnection | null> => {
-      const { response, payload } = await requestJson(
-        "/v1/telegram/connection",
-        { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
-        15000,
-      );
-      if (!response.ok) throw getRequestError(payload, response, `Failed to load Telegram (${response.status}).`);
-      return parseTelegramConnectionPayload(payload);
+      let connection: TelegramConnection | null = null;
+      let loaded = false;
+      await runReauthableAction("load-telegram-connection", async () => {
+        const { response, payload } = await requestJson(
+          "/v1/telegram/connection",
+          { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+          15000,
+        );
+        if (!response.ok) throw getRequestError(payload, response, `Failed to load Telegram (${response.status}).`);
+        connection = parseTelegramConnectionPayload(payload);
+        loaded = true;
+      });
+      if (!loaded) throw new Error("Telegram connection response was incomplete.");
+      return connection;
     },
   });
 }

@@ -30,9 +30,8 @@ Explicit props still work and override the seeded values, so the merge order is:
 ## Roadmap component
 
 `OpenWorkRoadmap` is the shared visual roadmap used by the landing and docs
-routes. Its typed sections and specifications are exported as
-`roadmapSections` and `roadmapSpecs` so other OpenWork surfaces can reuse the
-same source of truth.
+routes. Its typed sections are exported as `roadmapSections` so other OpenWork
+surfaces can reuse the same source of truth.
 
 ## Layout convention
 
