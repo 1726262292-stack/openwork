@@ -502,7 +502,32 @@ export default {
         await ctx.prove("The original workspace settings save is persisted on the selected org", {
           voiceover: vo[3],
           action: async () => {
-            await ctx.eval("window.scrollTo(0, 0); true");
+            const selected = await ctx.eval(`(async () => {
+              const input = document.querySelector(${JSON.stringify(ORG_NAME_INPUT_SELECTOR)});
+              if (!(input instanceof HTMLInputElement)) {
+                return { found: false, value: null, active: false, selectedText: null };
+              }
+
+              input.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              input.focus({ preventScroll: true });
+              input.select();
+
+              await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+              const selectionStart = input.selectionStart;
+              const selectionEnd = input.selectionEnd;
+              const selectedText = selectionStart === null || selectionEnd === null
+                ? null
+                : input.value.slice(selectionStart, selectionEnd);
+
+              return {
+                found: true,
+                value: input.value,
+                active: document.activeElement === input,
+                selectedText,
+              };
+            })()`, { awaitPromise: true });
+            recordAssertion(ctx, "The persisted org-name input is focused with its saved value selected", selected.found === true && selected.value === state.savedOrgName && selected.active === true && selected.selectedText === state.savedOrgName, selected);
           },
           assert: async () => {
             const organization = await readOrgFromBrowser(ctx);
@@ -512,7 +537,7 @@ export default {
           },
           screenshot: {
             name: "standardized-save-persisted",
-            requireText: ["Workspace settings updated.", state.savedOrgName],
+            requireText: ["Organization Identity", "Name", "Workspace settings updated."],
             rejectText: ["Choose an organization"],
           },
         });
