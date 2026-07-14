@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   Download,
+  ExternalLink,
   FileIcon,
   LoaderCircle,
   Pencil,
@@ -21,8 +22,9 @@ import {
   type UIMessage,
 } from "ai"
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
-import { openDesktopUrl } from "@/app/lib/desktop"
+import { openDesktopPath, openDesktopUrl } from "@/app/lib/desktop"
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
+import { isElectronRuntime } from "@/app/utils"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
 import { EditTool } from "@/components/tools/edit"
@@ -46,6 +48,7 @@ import {
   DescriptiveButtonTitle,
 } from "@/components/descriptive-button"
 import { Button } from "@/components/ui/button"
+import { toast } from "@/components/ui/sonner"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -82,7 +85,7 @@ import {
   getActiveToolLabel,
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
+import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl, getSafeFileOpenPath } from "./utils"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
 
@@ -214,10 +217,15 @@ interface FileMessageProps {
 
 // TODO: Add tone to the file message
 function FileMessage({ part }: FileMessageProps) {
+  const { workspaceRoot, isRemoteWorkspace } = useMessageList()
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
   const isImage = part.mediaType.startsWith("image/") && part.url
   const downloadUrl = getSafeFileDownloadUrl(part)
+  const openPath = React.useMemo(
+    () => isElectronRuntime() ? getSafeFileOpenPath(part, workspaceRoot, isRemoteWorkspace) : null,
+    [isRemoteWorkspace, part, workspaceRoot]
+  )
 
   const handleDownload = React.useCallback(() => {
     if (!downloadUrl) return
@@ -229,6 +237,15 @@ function FileMessage({ part }: FileMessageProps) {
     anchor.click()
     anchor.remove()
   }, [downloadUrl, title])
+
+  const handleOpen = React.useCallback(async () => {
+    if (!openPath) return
+    try {
+      await openDesktopPath(openPath)
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not open this file.")
+    }
+  }, [openPath])
 
   if (isImage) {
     return (
@@ -266,6 +283,17 @@ function FileMessage({ part }: FileMessageProps) {
         >
           <Download className="size-3" />
           Download
+        </Button>
+      ) : openPath ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          onClick={() => void handleOpen()}
+          aria-label={`Open ${title}`}
+        >
+          <ExternalLink className="size-3" />
+          Open
         </Button>
       ) : null}
     </div>

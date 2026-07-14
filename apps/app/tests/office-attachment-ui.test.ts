@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { getMediaBadge, getSafeFileDownloadUrl } from "../src/components/chat/utils";
+import { fileUrlToSafeWorkspacePath, getMediaBadge, getSafeFileDownloadUrl, getSafeFileOpenPath } from "../src/components/chat/utils";
 import { getArtifactsFromMessages } from "../src/lib/artifacts";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -19,6 +19,32 @@ describe("Office attachment UI affordances", () => {
     expect(getSafeFileDownloadUrl({ url: "file:///workspace/artifacts/QuarterlyBrief.docx" })).toBeNull();
     expect(getSafeFileDownloadUrl({ url: "https://example.com/QuarterlyBrief.docx" })).toBeNull();
     expect(getSafeFileDownloadUrl({ url: "javascript:alert(1)" })).toBeNull();
+  });
+
+  test("converts only safe workspace-local file URLs to native paths", () => {
+    const posixRoot = "/Users/openwork/project";
+
+    expect(fileUrlToSafeWorkspacePath("file:///Users/openwork/project/.opencode/openwork/outbox/QuarterlyBrief.docx", posixRoot)).toBe(
+      "/Users/openwork/project/.opencode/openwork/outbox/QuarterlyBrief.docx",
+    );
+    expect(getSafeFileOpenPath({ url: "file:///Users/openwork/project/.opencode/openwork/outbox/QuarterlyBrief.docx" }, posixRoot, false)).toBe(
+      "/Users/openwork/project/.opencode/openwork/outbox/QuarterlyBrief.docx",
+    );
+    expect(fileUrlToSafeWorkspacePath("file:///Users/openwork/project/outbox/Quarterly%20Brief.docx", posixRoot)).toBe(
+      "/Users/openwork/project/outbox/Quarterly Brief.docx",
+    );
+    expect(fileUrlToSafeWorkspacePath("file:///C:/Users/Ada/project/outbox/LaunchRoadmap.pptx", "C:\\Users\\Ada\\project")).toBe(
+      "C:\\Users\\Ada\\project\\outbox\\LaunchRoadmap.pptx",
+    );
+    expect(fileUrlToSafeWorkspacePath("file://localhost/Users/openwork/project/outbox/QuarterlyBrief.docx", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath("file://example.com/Users/openwork/project/outbox/QuarterlyBrief.docx", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath("file:///Users/openwork/other/QuarterlyBrief.docx", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath("file:///Users/openwork/project/outbox/../QuarterlyBrief.docx", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath("file:///Users/openwork/project/%E0%A4%A.docx", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath("not a URL", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath("https://example.com/QuarterlyBrief.docx", posixRoot)).toBeNull();
+    expect(fileUrlToSafeWorkspacePath(`data:${DOCX_MIME};base64,UEsDBA==`, posixRoot)).toBeNull();
+    expect(getSafeFileOpenPath({ url: "file:///Users/openwork/project/outbox/QuarterlyBrief.docx" }, posixRoot, true)).toBeNull();
   });
 
   test("collects DOCX artifacts as document previews", () => {

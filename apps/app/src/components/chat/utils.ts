@@ -4,6 +4,7 @@ import type { ThreadStatus } from "@/lib/messages"
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 const SAFE_DOWNLOAD_PROTOCOLS = new Set(["blob:", "data:"])
+const FILE_URL_PREFIX = "file://"
 
 interface MessageGroup {
   messages: UIMessageWithIndex[]
@@ -73,6 +74,114 @@ export function getSafeFileDownloadUrl(part: Pick<FileUIPart, "url">) {
   } catch {
     return null
   }
+}
+
+type FilePathStyle = "posix" | "windows"
+
+function filePathStyle(workspaceRoot: string): FilePathStyle | null {
+  const root = workspaceRoot.trim()
+  if (/^[A-Za-z]:[\\/]/.test(root)) return "windows"
+  if (root.startsWith("/")) return "posix"
+  return null
+}
+
+function rawLocalFilePathname(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed.toLowerCase().startsWith(FILE_URL_PREFIX)) return null
+
+  const pathWithSuffix = trimmed.slice(FILE_URL_PREFIX.length)
+  if (!pathWithSuffix.startsWith("/")) return null
+
+  const queryIndex = pathWithSuffix.indexOf("?")
+  const hashIndex = pathWithSuffix.indexOf("#")
+  const suffixIndex = [queryIndex, hashIndex].filter((index) => index >= 0).sort((left, right) => left - right)[0]
+  if (suffixIndex === undefined) return pathWithSuffix
+
+  return pathWithSuffix.slice(0, suffixIndex)
+}
+
+function decodeFilePathSegments(pathname: string) {
+  if (!pathname.startsWith("/")) return null
+  const rawSegments = pathname.slice(1).split("/")
+  const segments: string[] = []
+
+  for (const rawSegment of rawSegments) {
+    if (!rawSegment) return null
+
+    let segment: string
+    try {
+      segment = decodeURIComponent(rawSegment)
+    } catch {
+      return null
+    }
+
+    if (segment === "." || segment === ".." || segment.includes("/") || segment.includes("\\")) return null
+    segments.push(segment)
+  }
+
+  return segments
+}
+
+function nativePathFromFileUrl(url: URL, style: FilePathStyle) {
+  const segments = decodeFilePathSegments(url.pathname)
+  if (!segments || segments.length === 0) return null
+
+  if (style === "windows") {
+    const [drive] = segments
+    if (!drive) return null
+    if (!/^[A-Za-z]:$/.test(drive)) return null
+    return segments.join("\\")
+  }
+
+  return `/${segments.join("/")}`
+}
+
+function normalizePathForCompare(path: string, style: FilePathStyle) {
+  const separator = style === "windows" ? "\\" : "/"
+  const replaced = style === "windows" ? path.trim().replaceAll("/", "\\") : path.trim()
+  let normalized = replaced
+
+  while (normalized.endsWith(separator) && normalized.length > separator.length && !/^[A-Za-z]:\\$/.test(normalized)) {
+    normalized = normalized.slice(0, -1)
+  }
+
+  return style === "windows" ? normalized.toLowerCase() : normalized
+}
+
+function isWithinWorkspace(nativePath: string, workspaceRoot: string, style: FilePathStyle) {
+  const root = normalizePathForCompare(workspaceRoot, style)
+  const target = normalizePathForCompare(nativePath, style)
+  const separator = style === "windows" ? "\\" : "/"
+  const boundary = root.endsWith(separator) ? root : `${root}${separator}`
+
+  return target === root || target.startsWith(boundary)
+}
+
+export function fileUrlToSafeWorkspacePath(fileUrl: string, workspaceRoot: string) {
+  const style = filePathStyle(workspaceRoot)
+  if (!style) return null
+
+  const rawPathname = rawLocalFilePathname(fileUrl)
+  if (!rawPathname || !decodeFilePathSegments(rawPathname)) return null
+
+  let url: URL
+  try {
+    url = new URL(fileUrl)
+  } catch {
+    return null
+  }
+
+  if (url.protocol !== "file:" || url.host || url.search || url.hash) return null
+
+  const nativePath = nativePathFromFileUrl(url, style)
+  if (!nativePath || !isWithinWorkspace(nativePath, workspaceRoot, style)) return null
+
+  return nativePath
+}
+
+export function getSafeFileOpenPath(part: Pick<FileUIPart, "url">, workspaceRoot: string, isRemoteWorkspace: boolean) {
+  if (isRemoteWorkspace) return null
+  return fileUrlToSafeWorkspacePath(part.url, workspaceRoot)
 }
 
 export function getMessageCreated(message: UIMessage): number | null {

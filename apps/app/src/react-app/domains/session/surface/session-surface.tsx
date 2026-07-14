@@ -1391,6 +1391,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   >
                     <MessageListProvider
                       workspaceId={props.workspaceId}
+                      workspaceRoot={props.workspaceRoot}
+                      isRemoteWorkspace={props.isRemoteWorkspace}
                       sessionId={props.sessionId}
                       showThinking={showThinking}
                       highlightQuery={findHighlightQuery}

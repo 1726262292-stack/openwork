@@ -6,10 +6,10 @@ Daytona-only bug-fix proof for real Word and PowerPoint uploads in the session c
 
 2. “I attach a valid Word document and a valid PowerPoint deck. These are real OOXML packages, not fake ZIP headers, and both stay accepted in the composer without unsupported-format warnings.”
 
-3. “Now I send the prompt. The request crosses Electron, the OpenWork proxy, OpenCode, and the provider boundary; OpenWork keeps the original FileParts in history but sends the provider bounded normalized Office text with safe materialized paths. The mock verifies no raw Office binary crossed the provider boundary, copies the materialized bytes with the real bash tool, and I download the sent DOCX card to verify its hash.”
+3. “Now I send the prompt. The request crosses Electron, the OpenWork proxy, OpenCode, and the provider boundary; OpenWork keeps the original FileParts in history as workspace-local file URLs but sends the provider bounded normalized Office text with safe materialized paths. The mock verifies no raw Office binary crossed the provider boundary, copies the materialized bytes with the real bash tool, and the sent DOCX and PPTX cards expose Open without launching native Office.”
 
 4. “The generated Word artifact is collected in the side panel as a document. OpenWork intentionally shows Preview unavailable, while Download, Open externally, and Show in folder remain available; the downloaded file hash matches the original bytes.”
 
 5. “The generated PowerPoint deck remains a slides artifact. It uses the same safe external-file controls and does not try to launch a native Office app in the proof.”
 
-6. “Finally, I reload and reopen the same session, then send a follow-up. The Office history replays safely through the same normalization plugin, the sent attachment cards still show DOCX and PPTX download actions, and the mock confirms the replay did not poison the session.”
+6. “Finally, I reload and reopen the same session, then send a follow-up. The Office history replays safely through the same normalization plugin, the sent attachment cards still show DOCX and PPTX Open actions, and the mock confirms the replay did not poison the session.”
