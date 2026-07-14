@@ -9,6 +9,18 @@ const DESTINATION_LABEL = `Archive Group ${RUN_SUFFIX}`;
 let primaryGroupId = "";
 let destinationGroupId = "";
 
+async function scrollGroupIntoView(ctx, groupId) {
+  const scrolled = await ctx.eval(`(() => {
+    const row = document.querySelector('[data-session-group="${groupId}"]');
+    const sidebar = document.querySelector('[data-slot="sidebar-content"]');
+    if (!row || !sidebar) return false;
+    sidebar.scrollTop = Math.max(0, row.offsetTop - sidebar.clientHeight / 2);
+    return true;
+  })()`);
+  ctx.assert(scrolled === true, `Could not reveal group ${groupId}`);
+  await ctx.eval("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+}
+
 async function clickMatchingText(ctx, selector, text) {
   const point = await ctx.eval(`(() => {
     const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
@@ -24,6 +36,7 @@ async function clickMatchingText(ctx, selector, text) {
 }
 
 async function expandGroupActions(ctx, groupId) {
+  await scrollGroupIntoView(ctx, groupId);
   const actions = `[data-session-group-actions="${groupId}"]`;
   const expandedSelector = `${actions} button[aria-label="Rename Group"]`;
   const alreadyExpanded = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(expandedSelector)}))`);
@@ -101,6 +114,7 @@ export default {
         await ctx.prove("The session count occupies the far-right edge without reserved delete-button space", {
           voiceover: vo[0],
           assert: async () => {
+            await scrollGroupIntoView(ctx, primaryGroupId);
             const alignment = await ctx.eval(`(() => {
               const row = document.querySelector('[data-session-group="${primaryGroupId}"]');
               const count = row?.querySelector('[data-session-group-count]');
