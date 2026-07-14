@@ -5,11 +5,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
 import { useDenFlow } from "../../_providers/den-flow-provider";
-import { getErrorMessage, getOrgLimitError, getOrgPaymentRequiredError, getRequestError, isReauthRequiredError, requestJson } from "../../_lib/den-flow";
+import { getErrorMessage, getOrgLimitError, getOrgPaymentRequiredError, getRequestError, isReauthRequiredError, requestJson, WORKSPACE_REAUTH_SECURITY_MESSAGE } from "../../_lib/den-flow";
 import { ReauthDialog } from "../../_components/reauth-dialog";
 import {
   PENDING_ORG_SELECTION_STORAGE_KEY,
@@ -84,7 +85,8 @@ export function OrgDashboardProvider({
   const [orgBusy, setOrgBusy] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
   const [mutationBusy, setMutationBusy] = useState<string | null>(null);
-  const [pendingReauthMutation, setPendingReauthMutation] = useState<PendingReauthMutation | null>(null);
+  const pendingReauthMutationsRef = useRef<PendingReauthMutation[]>([]);
+  const [reauthDialogOpen, setReauthDialogOpen] = useState(false);
 
   const activeOrg = useMemo(
     () =>
@@ -149,6 +151,17 @@ export function OrgDashboardProvider({
     return parsed;
   }
 
+  async function restoreDisplayedOrganization() {
+    const displayedOrgId = orgContext?.organization.id;
+    if (!displayedOrgId) {
+      return;
+    }
+
+    setRequestOrgScope(displayedOrgId);
+    await setActiveOrganization({ organizationId: displayedOrgId });
+    setOrgDirectory((current) => current.map((entry) => ({ ...entry, isActive: entry.id === displayedOrgId })));
+  }
+
   async function refreshOrgData() {
     if (!user) {
       setRequestOrgScope(null);
@@ -165,8 +178,26 @@ export function OrgDashboardProvider({
 
     try {
       let directoryPayload = await loadOrgDirectory();
+      const displayedOrgId = orgContext?.organization.id ?? null;
+      const displayedOrg = displayedOrgId
+        ? directoryPayload.orgs.find((entry) => entry.id === displayedOrgId) ?? null
+        : null;
+
+      if (displayedOrg && !displayedOrg.isActive) {
+        setRequestOrgScope(displayedOrg.id);
+        await setActiveOrganization({ organizationId: displayedOrg.id });
+        directoryPayload = await loadOrgDirectory();
+      }
+
+      if (displayedOrgId && directoryPayload.orgs.some((entry) => entry.id === displayedOrgId)) {
+        directoryPayload = {
+          ...directoryPayload,
+          orgs: directoryPayload.orgs.map((entry) => ({ ...entry, isActive: entry.id === displayedOrgId })),
+        };
+      }
+
       const targetOrg =
-        directoryPayload.orgs.find((entry) => entry.id === orgContext?.organization.id) ??
+        (displayedOrgId ? directoryPayload.orgs.find((entry) => entry.id === displayedOrgId) : null) ??
         directoryPayload.orgs.find((entry) => entry.isActive) ??
         directoryPayload.orgs[0] ??
         null;
@@ -260,7 +291,11 @@ export function OrgDashboardProvider({
       }
 
       await new Promise<void>((resolve, reject) => {
-        setPendingReauthMutation({ label, action, resolve, reject });
+        pendingReauthMutationsRef.current = [
+          ...pendingReauthMutationsRef.current,
+          { label, action, resolve, reject },
+        ];
+        setReauthDialogOpen(true);
       });
     }
   }
@@ -273,28 +308,62 @@ export function OrgDashboardProvider({
   }
 
   function cancelReauth() {
-    const pending = pendingReauthMutation;
-    setPendingReauthMutation(null);
-    pending?.reject(new Error("Confirm it's you before continuing."));
+    const pending = pendingReauthMutationsRef.current;
+    pendingReauthMutationsRef.current = [];
+    setReauthDialogOpen(false);
+    const error = new Error(WORKSPACE_REAUTH_SECURITY_MESSAGE);
+    for (const entry of pending) {
+      entry.reject(error);
+    }
   }
 
   async function retryReauthMutation() {
-    const pending = pendingReauthMutation;
-    if (!pending) {
+    const pending = pendingReauthMutationsRef.current;
+    if (pending.length === 0) {
       return;
     }
 
-    setPendingReauthMutation(null);
+    pendingReauthMutationsRef.current = [];
+    setReauthDialogOpen(false);
     try {
-      await executeReauthableAction(pending.label, pending.action);
-      pending.resolve();
+      await restoreDisplayedOrganization();
     } catch (error) {
-      if (isReauthRequiredError(error)) {
-        setPendingReauthMutation(pending);
+      for (const entry of pending) {
+        entry.reject(error);
+      }
+      return;
+    }
+
+    let queuedActions = pending;
+    while (queuedActions.length > 0) {
+      const retryAfterReauth: PendingReauthMutation[] = [];
+      for (const entry of queuedActions) {
+        try {
+          await executeReauthableAction(entry.label, entry.action);
+          entry.resolve();
+        } catch (error) {
+          if (isReauthRequiredError(error)) {
+            retryAfterReauth.push(entry);
+          } else {
+            entry.reject(error);
+          }
+        }
+      }
+
+      const queuedDuringRetry = pendingReauthMutationsRef.current;
+      pendingReauthMutationsRef.current = [];
+      setReauthDialogOpen(false);
+
+      if (retryAfterReauth.length > 0) {
+        pendingReauthMutationsRef.current = [
+          ...retryAfterReauth,
+          ...queuedDuringRetry,
+        ];
+        setReauthDialogOpen(true);
         return;
       }
 
-      pending.reject(error);
+      queuedActions = queuedDuringRetry;
     }
   }
 
@@ -704,7 +773,7 @@ export function OrgDashboardProvider({
     <OrgDashboardContext.Provider value={value}>
       {children}
       <ReauthDialog
-        open={Boolean(pendingReauthMutation)}
+        open={reauthDialogOpen}
         user={user}
         orgContext={orgContext}
         onCancel={cancelReauth}
