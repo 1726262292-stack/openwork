@@ -1150,9 +1150,9 @@ async function setupProof(ctx) {
   await runSetupStage(ctx, "setViewport", () => setViewport(ctx));
   await runSetupStage(ctx, "control wait", () => waitForControl(ctx));
   await runSetupStage(ctx, "bootstrap", () => configureDesktopForDen(ctx));
+  await runSetupStage(ctx, "background reconcile guard", () => installDesktopFetchGuard(ctx, { resetBlocked: true }));
   await runSetupStage(ctx, "handoff", () => signInWithFreshHandoff(ctx));
   await runSetupStage(ctx, "org onboarding", () => completeVisibleOrgOnboarding(ctx, { openOnboarding: true }));
-  await runSetupStage(ctx, "background reconcile guard", () => installDesktopFetchGuard(ctx, { resetBlocked: true }));
   await runSetupStage(ctx, "create workspace", () => createFreshWorkspace(ctx));
   await runSetupStage(ctx, "model", () => ensureUsableModel(ctx));
   await runSetupStage(ctx, "fixture", () => createFixtureConnection(ctx));
