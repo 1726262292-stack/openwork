@@ -5,9 +5,11 @@ import { join } from "node:path";
 
 import {
   keepOpenworkRuntimeConfigFileFresh,
+  buildOpenworkRuntimeConfigObject,
   openworkRuntimeConfigFilePath,
   writeOpenworkRuntimeConfigFile,
 } from "./openwork-runtime-config.js";
+import { openworkMediaBudgetPluginPath } from "./openwork-extensions-plugin-path.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -89,6 +91,13 @@ describe("openwork runtime config file", () => {
     expect(prompt).not.toContain("memory_search");
     // No-secrets guidance is the only v0 plaintext-at-rest mitigation.
     expect(prompt).toMatch(/secret|credential|API key|token|PII/i);
+  });
+
+  test("registers the request media budget plugin by default", async () => {
+    const { config } = await setup();
+    const parsed = await buildOpenworkRuntimeConfigObject(config, "ws_1");
+
+    expect(parsed.plugin).toContain(openworkMediaBudgetPluginPath());
   });
 
   test("keepOpenworkRuntimeConfigFileFresh rewrites the file on runtime-DB writes", async () => {
