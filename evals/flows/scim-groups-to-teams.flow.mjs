@@ -221,6 +221,8 @@ async function setup(ctx) {
   witness(ctx, Boolean(state.orgId), "The eval organization has an id", state.orgId);
   state.browserSession = await createAdminBrowserSession(ctx);
 
+  mysqlQuery("DELETE tm FROM team_member tm INNER JOIN scim_group_member sgm ON sgm.team_member_id=tm.id; DELETE t FROM team t INNER JOIN scim_group sg ON sg.team_id=t.id; DELETE FROM scim_group_member; DELETE FROM scim_group; DELETE FROM scim_user_tombstone; DELETE FROM sso_connection; DELETE FROM account WHERE provider_id LIKE 'openwork-scim-%'; DELETE FROM scim_provider;");
+
   mysqlQuery(`INSERT INTO sso_connection (id, organization_id, provider_id, kind, issuer, domain, status, sign_in_path, created_at, updated_at)
     VALUES (${sqlString(state.ssoConnectionId)}, ${sqlString(state.orgId)}, ${sqlString(`eval-saml-${RUN_TAG}`)}, 'saml', 'https://idp.example.test', 'saml.example.test', 'enabled', ${sqlString(`/sso/${state.orgSlug}`)}, NOW(3), NOW(3))
     ON DUPLICATE KEY UPDATE domain='saml.example.test', status='enabled', updated_at=NOW(3)`);
@@ -504,6 +506,12 @@ export default {
           screenshot: { name: "final-org-user-deprovisioned", requireText: ["Members"], rejectText: [MAYA_EMAIL] },
         });
       }),
+    },
+    {
+      name: "cleanup",
+      run: async () => {
+        mysqlQuery("DELETE FROM sso_connection; DELETE FROM account WHERE provider_id LIKE 'openwork-scim-%'; DELETE FROM scim_provider;");
+      },
     },
   ],
 };
