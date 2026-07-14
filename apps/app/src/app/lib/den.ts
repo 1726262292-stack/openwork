@@ -300,6 +300,7 @@ let desktopBootstrapConfig: DenBootstrapConfig = {
 export type DenAppVersionMetadata = {
   minAppVersion: string;
   latestAppVersion: string;
+  publishedDesktopVersions: string[];
 };
 
 type RawJsonResponse<T> = {
@@ -338,11 +339,14 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
   const latestAppVersion =
     typeof payload.latestAppVersion === "string" ? payload.latestAppVersion.trim() : "";
   if (!latestAppVersion) return null;
+  const publishedDesktopVersions = readStringArray(payload.publishedDesktopVersions);
 
   return {
     minAppVersion:
       typeof payload.minAppVersion === "string" ? payload.minAppVersion.trim() : "",
     latestAppVersion,
+    publishedDesktopVersions:
+      publishedDesktopVersions.length > 0 ? publishedDesktopVersions : [latestAppVersion],
   };
 }
 

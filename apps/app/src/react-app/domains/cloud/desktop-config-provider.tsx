@@ -37,6 +37,7 @@ export type DesktopConfigStore = {
   config: DenDesktopConfig;
   loading: boolean;
   refresh: () => Promise<void>;
+  refreshFresh: () => Promise<DenDesktopConfig>;
   /**
    * Stable checker function that matches the `DesktopAppRestrictionChecker`
    * shape Solid passes to its stores. Useful when wiring restriction gates
@@ -163,6 +164,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
   // Safe in-memory copy of the last config we actually applied. State drives
   // rendering, while this ref lets the handler compare without stale closures.
   const currentDesktopConfigRef = useRef<DenDesktopConfig>(DEFAULT_DESKTOP_CONFIG);
+  const devRefreshDesktopConfigRef = useRef<DenDesktopConfig | null>(null);
   const isSignedIn = denAuth.isSignedIn;
 
   const applyDesktopConfigActions = useCallback((latestConfig: DenDesktopConfig) => {
@@ -202,7 +204,13 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     return true;
   }, []);
 
-  const desktopConfigHandler = useCallback(async () => {
+  const desktopConfigHandler = useCallback(async (requireFresh = false): Promise<DenDesktopConfig> => {
+    if (import.meta.env.DEV && requireFresh && devRefreshDesktopConfigRef.current) {
+      const nextConfig = devRefreshDesktopConfigRef.current;
+      applyDesktopConfigActions(nextConfig);
+      return nextConfig;
+    }
+
     const currentRun = ++refreshRunRef.current;
     const settings = readDenSettings();
     const token = settings.authToken?.trim() ?? "";
@@ -212,7 +220,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     if (!isSignedIn || !token || !activeOrgId) {
       applyDesktopConfigActions(DEFAULT_DESKTOP_CONFIG);
       setDesktopConfigState((current) => ({ ...current, loading: false }));
-      return;
+      return DEFAULT_DESKTOP_CONFIG;
     }
 
     const cached = readCachedDesktopConfig(cacheKey);
@@ -230,12 +238,16 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
         token,
       }).getDesktopConfig(activeOrgId);
 
-      if (currentRun !== refreshRunRef.current) return;
+      if (currentRun !== refreshRunRef.current) return nextConfig;
 
       writeCachedDesktopConfig(cacheKey, nextConfig);
       applyDesktopConfigActions(nextConfig);
+      return nextConfig;
     } catch (error) {
-      if (currentRun !== refreshRunRef.current) return;
+      if (currentRun !== refreshRunRef.current) {
+        if (requireFresh) throw error;
+        return cached ?? DEFAULT_DESKTOP_CONFIG;
+      }
 
       // If the server says the active org doesn't exist, re-sync Better Auth
       // so the next refresh hits a valid org. Same recovery path as Solid.
@@ -249,7 +261,10 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
         );
       }
 
-      applyDesktopConfigActions(cached ?? DEFAULT_DESKTOP_CONFIG);
+      const fallbackConfig = cached ?? DEFAULT_DESKTOP_CONFIG;
+      applyDesktopConfigActions(fallbackConfig);
+      if (requireFresh) throw error;
+      return fallbackConfig;
     } finally {
       if (currentRun === refreshRunRef.current) {
         setDesktopConfigState((current) => ({ ...current, loading: false }));
@@ -257,7 +272,16 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     }
   }, [applyDesktopConfigActions, isSignedIn]);
 
-  const refresh = desktopConfigHandler;
+  const refresh = useCallback(
+    async () => {
+      await desktopConfigHandler();
+    },
+    [desktopConfigHandler],
+  );
+  const refreshFresh = useCallback(
+    () => desktopConfigHandler(true),
+    [desktopConfigHandler],
+  );
 
   // Re-run whenever auth flips or Den settings change. Read the cache
   // synchronously so gated UI never flickers through "unrestricted" just
@@ -334,8 +358,16 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
       );
     };
     Object.defineProperty(window, "__openworkApplyDesktopConfig", { value: bridge, configurable: true });
+    const refreshBridge = (configPayload: unknown) => {
+      devRefreshDesktopConfigRef.current = normalizeDenDesktopConfig(configPayload);
+    };
+    Object.defineProperty(window, "__openworkSetDesktopConfigRefreshResult", {
+      value: refreshBridge,
+      configurable: true,
+    });
     return () => {
       Object.defineProperty(window, "__openworkApplyDesktopConfig", { value: undefined, configurable: true });
+      Object.defineProperty(window, "__openworkSetDesktopConfigRefreshResult", { value: undefined, configurable: true });
     };
   }, [applyDesktopConfigActions]);
 
@@ -344,8 +376,8 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     // recent org restrictions without having to recompute every render.
     const checkRestriction: DesktopAppRestrictionChecker = ({ restriction }) =>
       checkDesktopAppRestriction({ config, restriction });
-    return { config, loading, refresh, checkRestriction };
-  }, [config, loading, refresh]);
+    return { config, loading, refresh, refreshFresh, checkRestriction };
+  }, [config, loading, refresh, refreshFresh]);
 
   return (
     <DesktopConfigContext.Provider value={value}>

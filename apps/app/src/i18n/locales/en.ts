@@ -1309,6 +1309,8 @@ export default {
   "settings.update": "Update",
   "settings.update_available": "Update available: v",
   "settings.update_available_version": "Update available: v{version}",
+  "settings.update_blocked_version": "Update available: v{version}",
+  "settings.update_blocked_org": "OpenWork {version} is available, but your organization has not approved it yet. Ask an organization administrator to enable this version.",
   "settings.update_check_button": "Check now",
   "settings.update_check_failed": "Couldn't check for updates",
   "settings.update_checking": "Checking for updates…",
