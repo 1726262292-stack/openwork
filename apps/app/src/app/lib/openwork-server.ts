@@ -398,6 +398,26 @@ export type OpenworkCloudMcpCompatibility = {
     providerToolProjection: boolean;
     pluginCanaries: boolean;
   };
+  experimentalToolIds: {
+    checked: boolean;
+    expected: string[];
+    present: string[];
+    missing: string[];
+    includesMcpTools: boolean | null;
+    limitation?: string;
+    error?: unknown;
+  };
+  experimentalProviderTools: {
+    checked: boolean;
+    provider?: string;
+    model?: string;
+    expected: string[];
+    present: string[];
+    missing: string[];
+    includesMcpTools: boolean | null;
+    limitation?: string;
+    error?: unknown;
+  };
 };
 
 export type OpenworkCloudMcpHealthPhase =
@@ -464,10 +484,22 @@ export type OpenworkCloudMcpHealth = {
     expected: string[];
     present: string[];
     missing: string[];
+    direct: {
+      checked: boolean;
+      source: "mcp_tools_list" | string;
+      expected: string[];
+      present: string[];
+      missing: string[];
+      error?: unknown;
+    };
     providerProjection: {
       checked: boolean;
       provider?: string;
       model?: string;
+      source?: "experimental_tool" | "provider_capability" | string;
+      limitation?: string;
+      modelExists?: boolean;
+      toolCalling?: boolean | null;
       present: string[];
       missing: string[];
       error?: unknown;

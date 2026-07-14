@@ -268,7 +268,7 @@ function AgentAccessCard(props: {
 
       {health?.usable ? (
         <div className="space-y-2 rounded-xl border border-green-6/30 bg-green-2 p-3 text-sm text-green-11">
-          <div className="font-medium">Cloud tools registered for this workspace</div>
+          <div className="font-medium">Cloud tools verified for this workspace</div>
           <div className="flex flex-wrap gap-2 font-mono text-xs">
             {readyTools.map((tool) => <span key={tool} className="rounded-md bg-green-3 px-2 py-1">{tool}</span>)}
           </div>
