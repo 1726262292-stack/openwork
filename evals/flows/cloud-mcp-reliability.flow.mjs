@@ -1596,7 +1596,7 @@ export default {
             await ctx.navigateHash(`/workspace/${state.workspaceId}/settings/advanced`);
             await ctx.expectHashIncludes("/settings/advanced");
             await ctx.waitForText("Agent access diagnostics", { timeoutMs: 60_000 });
-            const hasHealth = await ctx.eval("document.body.innerText.includes('Active workspace')");
+            const hasHealth = await ctx.eval("document.body.innerText.includes('ACTIVE WORKSPACE')");
             if (!hasHealth) {
               await ctx.eval(`(() => {
                 const section = [...document.querySelectorAll('section, div')].find((entry) => (entry.textContent || '').includes('Agent access diagnostics'));
@@ -1605,7 +1605,7 @@ export default {
                 return Boolean(button);
               })()`);
             }
-            await ctx.waitForText("Active workspace", { timeoutMs: 60_000 });
+            await ctx.waitForText("ACTIVE WORKSPACE", { timeoutMs: 60_000 });
             await scrollToText(ctx, "Experimental provider tools");
             await ctx.clickText("Copy sanitized diagnostic", { timeoutMs: 30_000 });
             await ctx.waitForText("Copied sanitized Cloud diagnostic.", { timeoutMs: 15_000 });
@@ -1638,7 +1638,7 @@ export default {
           },
           screenshot: {
             name: "frame-6-advanced-sanitized-diagnostic",
-            requireText: ["Agent access diagnostics", "Active workspace", "Desired revision", "Applied revision", "Delivery", "Direct tools/list", "Experimental tool IDs", "Experimental provider tools", "OpenWork versions", "OpenCode compatibility", "Copied sanitized Cloud diagnostic."],
+            requireText: ["Agent access diagnostics", "ACTIVE WORKSPACE", "DESIRED REVISION", "APPLIED REVISION", "DELIVERY", "DIRECT TOOLS/LIST", "EXPERIMENTAL TOOL IDS", "EXPERIMENTAL PROVIDER TOOLS", "OPENWORK VERSIONS", "OPENCODE COMPATIBILITY", "Copied sanitized Cloud diagnostic."],
             rejectText: ["Bearer ", "ow_mcp_at_", "No Cloud MCP health"],
             hashIncludes: "/settings/advanced",
           },
