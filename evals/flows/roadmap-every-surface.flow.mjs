@@ -81,41 +81,40 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The roadmap leads with desktop as home and maps the workspace to current and future surfaces.", {
+        await ctx.prove("The roadmap goes directly from its introduction into the dated product sections without the unclear system diagram.", {
           voiceover: vo[0],
           action: async () => {
             await navigateTo(ctx, "/roadmap", "on every surface.");
-            await scrollTo(ctx, '[data-testid="openwork-roadmap"] > div', "center");
+            await ctx.eval("scrollTo(0, 0); true");
           },
           assert: async () => {
             const actual = await ctx.eval(`(() => {
               const roadmap = document.querySelector('[data-testid="openwork-roadmap"]');
               const text = roadmap?.innerText || "";
+              const firstSectionAfterHero = roadmap?.children[1]?.querySelector("#desktop-home");
               return {
                 path: location.pathname,
                 roadmapExists: Boolean(roadmap),
-                hasDesktop: text.includes("The complete workspace"),
-                hasHosted: text.includes("Persistent hosted workspace"),
-                hasCurrentAgents: ["Codex", "Claude Code", "Cursor", "OpenCode"].every((name) => text.includes(name)),
-                hasFutureSurfaces: ["Slack", "Mobile", "Email", "Custom agents"].every((name) => text.includes(name)),
+                startsWithDesktopSection: Boolean(firstSectionAfterHero),
+                hasRemovedWindowLabel: text.includes("Home base · live"),
+                hasRemovedProjectLabel: text.includes("Project workspace"),
               };
             })()`);
             recordAssertion(
               ctx,
-              "The visual map contains the desktop home base, hosted workspace, current agents, and future surfaces",
+              "The introduction is followed by the desktop roadmap section and the removed diagram labels are absent",
               actual.path === "/roadmap"
                 && actual.roadmapExists === true
-                && actual.hasDesktop === true
-                && actual.hasHosted === true
-                && actual.hasCurrentAgents === true
-                && actual.hasFutureSurfaces === true,
+                && actual.startsWithDesktopSection === true
+                && actual.hasRemovedWindowLabel === false
+                && actual.hasRemovedProjectLabel === false,
               actual,
             );
           },
           screenshot: {
-            name: "frame-1-surface-map",
-            requireText: ["The complete workspace", "Persistent hosted workspace", "Slack", "Mobile"],
-            rejectText: ["Something went wrong"],
+            name: "frame-1-roadmap-introduction",
+            requireText: ["your workspace,", "on every surface.", "the desktop app is home"],
+            rejectText: ["Home base · live", "Project workspace", "Something went wrong"],
           },
         });
       },

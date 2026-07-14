@@ -1,5 +1,3 @@
-import type { ReactNode } from "react"
-
 export type RoadmapStatus = "live" | "building" | "next" | "exploring"
 
 export type RoadmapItem = {
@@ -284,110 +282,6 @@ function StatusBadge({ status }: { status: RoadmapStatus }) {
   )
 }
 
-function WindowDots() {
-  return (
-    <div className="flex gap-1.5" aria-hidden="true">
-      <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
-      <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
-      <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-    </div>
-  )
-}
-
-function SurfaceChip({ children, status }: { children: ReactNode; status: RoadmapStatus }) {
-  return (
-    <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm">
-      <span className={`h-1.5 w-1.5 rounded-full ${statusDetails[status].dotClassName}`} />
-      {children}
-    </div>
-  )
-}
-
-function SurfaceMap() {
-  return (
-    <div className="relative overflow-hidden rounded-[2rem] border border-slate-200/80 bg-[#eef3f7] p-5 shadow-[0_30px_80px_-55px_rgba(1,22,39,0.55)] sm:p-8 lg:p-10">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-60"
-        aria-hidden="true"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(100,116,139,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(100,116,139,0.12) 1px, transparent 1px)",
-          backgroundSize: "28px 28px",
-        }}
-      />
-
-      <div className="relative mx-auto max-w-3xl">
-        <div className="mb-5 flex flex-wrap justify-center gap-2.5">
-          <SurfaceChip status="live">Codex</SurfaceChip>
-          <SurfaceChip status="live">Claude Code</SurfaceChip>
-          <SurfaceChip status="live">Cursor</SurfaceChip>
-          <SurfaceChip status="live">OpenCode</SurfaceChip>
-        </div>
-
-        <div className="mx-auto max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_-35px_rgba(1,22,39,0.5)]">
-          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/90 px-4 py-3">
-            <WindowDots />
-            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Home base · live</span>
-          </div>
-          <div className="grid gap-4 p-5 sm:grid-cols-[0.8fr_1.2fr] sm:p-6">
-            <div className="rounded-xl bg-[#f2f5f8] p-4">
-              <div className="mb-5 flex items-center gap-2 text-sm font-semibold text-[#011627]">
-                <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#011627] text-[10px] text-white">OW</span>
-                OpenWork
-              </div>
-              <div className="space-y-2 text-xs text-slate-500">
-                <div className="rounded-lg bg-white px-3 py-2 font-medium text-slate-800 shadow-sm">Workspace</div>
-                <div className="px-3 py-1.5">Sessions</div>
-                <div className="px-3 py-1.5">Skills</div>
-                <div className="px-3 py-1.5">Connections</div>
-              </div>
-            </div>
-            <div className="flex min-h-52 flex-col justify-between rounded-xl border border-slate-100 bg-white p-4">
-              <div>
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-600">Desktop app</div>
-                <div className="text-xl font-semibold tracking-tight text-[#011627]">The complete workspace</div>
-                <p className="mt-2 text-sm leading-6 text-slate-500">Files, sessions, skills, services, and the full interface for doing work.</p>
-              </div>
-              <div className="mt-5 flex items-center justify-between rounded-lg bg-[#f7f9fb] px-3 py-2 text-xs text-slate-500">
-                <span>Project workspace</span>
-                <span className="font-medium text-emerald-700">Ready</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mx-auto h-9 w-px bg-gradient-to-b from-slate-400 to-blue-400" aria-hidden="true" />
-
-        <div className="mx-auto max-w-md rounded-2xl border border-blue-200 bg-[#07192c] p-5 text-white shadow-[0_20px_55px_-32px_rgba(7,25,44,0.9)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-300">Building</div>
-              <div className="mt-1 text-base font-semibold">Persistent hosted workspace</div>
-            </div>
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/10">
-              <span className="text-lg">⌁</span>
-            </div>
-          </div>
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[10px] text-slate-300">
-            <div className="rounded-lg bg-white/5 px-2 py-2.5">Files</div>
-            <div className="rounded-lg bg-white/5 px-2 py-2.5">Runtime</div>
-            <div className="rounded-lg bg-white/5 px-2 py-2.5">History</div>
-          </div>
-        </div>
-
-        <div className="mx-auto h-9 w-px bg-gradient-to-b from-blue-400 to-slate-300" aria-hidden="true" />
-
-        <div className="flex flex-wrap justify-center gap-2.5">
-          <SurfaceChip status="next">Slack</SurfaceChip>
-          <SurfaceChip status="next">Mobile</SurfaceChip>
-          <SurfaceChip status="exploring">Email</SurfaceChip>
-          <SurfaceChip status="exploring">Custom agents</SurfaceChip>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function RoadmapSectionBlock({ section }: { section: RoadmapSection }) {
   return (
     <section id={section.id} className="scroll-mt-24 border-t border-slate-200 py-14 md:py-20">
@@ -470,8 +364,6 @@ export function OpenWorkRoadmap({
           })}
         </div>
       </section>
-
-      <SurfaceMap />
 
       <div className="mt-10 md:mt-16">
         {roadmapSections.map((section) => (
