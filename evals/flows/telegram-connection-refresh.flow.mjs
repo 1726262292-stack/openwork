@@ -723,8 +723,8 @@ export default {
             await ctx.screenshot("telegram-disconnect-visible-reauth", {
               claim: "The stale-session Telegram disconnect opens the visible security confirmation before OpenWork retries the pending action.",
               voiceover: vo[3],
-              requireText: ["Security check", "Confirm it's you to continue", "Changing workspace settings requires a recent sign-in", "OpenWork retries the pending action automatically"],
-              rejectText: ["Tap to set up", "Failed to disconnect Telegram", "Something went wrong"],
+              requireText: ["SECURITY CHECK", "Confirm it's you to continue", "Changing workspace settings requires a recent sign-in", "OpenWork retries the pending action automatically"],
+              rejectText: ["Failed to disconnect Telegram", "Something went wrong"],
             });
           },
           assert: async () => {
