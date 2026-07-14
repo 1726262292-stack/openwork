@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  Download,
   FileIcon,
   LoaderCircle,
   Pencil,
@@ -81,7 +82,7 @@ import {
   getActiveToolLabel,
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
 
@@ -216,6 +217,18 @@ function FileMessage({ part }: FileMessageProps) {
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
   const isImage = part.mediaType.startsWith("image/") && part.url
+  const downloadUrl = getSafeFileDownloadUrl(part)
+
+  const handleDownload = React.useCallback(() => {
+    if (!downloadUrl) return
+    const anchor = document.createElement("a")
+    anchor.href = downloadUrl
+    anchor.download = title
+    anchor.rel = "noopener noreferrer"
+    document.body.append(anchor)
+    anchor.click()
+    anchor.remove()
+  }, [downloadUrl, title])
 
   if (isImage) {
     return (
@@ -229,18 +242,32 @@ function FileMessage({ part }: FileMessageProps) {
   }
 
   return (
-    <div className="flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border ps-2 pe-4 py-1 text-left text-sm font-medium whitespace-normal">
-      <DescriptiveButtonIcon>
-        <FileIcon className="size-6 shrink-0" />
-      </DescriptiveButtonIcon>
-      <DescriptiveButtonContent className="gap-0">
-        <DescriptiveButtonTitle>{title}</DescriptiveButtonTitle>
-        {badge ? (
-          <DescriptiveButtonDescription className="text-xs">
-            {badge}
-          </DescriptiveButtonDescription>
-        ) : null}
-      </DescriptiveButtonContent>
+    <div className="flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border ps-2 pe-2 py-1 text-left text-sm font-medium whitespace-normal">
+      <div className="flex min-w-0 items-center gap-2 pe-2">
+        <DescriptiveButtonIcon>
+          <FileIcon className="size-6 shrink-0" />
+        </DescriptiveButtonIcon>
+        <DescriptiveButtonContent className="gap-0">
+          <DescriptiveButtonTitle>{title}</DescriptiveButtonTitle>
+          {badge ? (
+            <DescriptiveButtonDescription className="text-xs">
+              {badge}
+            </DescriptiveButtonDescription>
+          ) : null}
+        </DescriptiveButtonContent>
+      </div>
+      {downloadUrl ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          onClick={handleDownload}
+          aria-label={`Download ${title}`}
+        >
+          <Download className="size-3" />
+          Download
+        </Button>
+      ) : null}
     </div>
   )
 }

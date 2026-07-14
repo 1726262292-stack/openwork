@@ -1,11 +1,94 @@
+import { spawnSync } from "node:child_process";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import {
+  DOCX_FILENAME,
+  DOCX_SENTINEL,
+  OFFICE_FIXTURES,
+  PPTX_FILENAME,
+  PPTX_SENTINEL,
+} from "../fixtures/ooxml-office-fixtures.mjs";
 
-// Narration is loaded from the approved script (evals/voiceovers/office-chat-attachments.md).
 const FLOW_ID = "office-chat-attachments";
-const DOCX_FILENAME = "QuarterlyBrief.docx";
-const PPTX_FILENAME = "LaunchRoadmap.PPTX";
-const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PROVIDER_ID = "office-attachments-mock";
+const MODEL_ID = "office-attachment-mock";
+const MOCK_PORT = 18081;
+const DOWNLOAD_DIR = "/tmp/openwork-office-attachment-downloads";
+const PROMPT = "Please inspect the attached Word document and PowerPoint deck, save exact copies as workspace artifacts, and summarize what you found.";
+const FOLLOW_UP = "Confirm this Office attachment session still works after reopening.";
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
+}
+
+function runInSandbox(ctx, script, timeout = 120_000) {
+  const encoded = Buffer.from(script, "utf8").toString("base64");
+  const result = spawnSync(
+    "daytona",
+    ["exec", ctx.env.OPENWORK_EVAL_DAYTONA_SANDBOX.trim(), "--", "echo", encoded, "|", "base64", "-d", "|", "bash"],
+    { encoding: "utf8", timeout },
+  );
+  ctx.assert(result.status === 0, `Daytona command failed: ${result.stderr || result.stdout}`);
+  return result.stdout;
+}
+
+function record(ctx, condition, assertion, actual = "") {
+  ctx.recordEvidence({ type: "assertion", status: condition ? "passed" : "failed", assertion, actual });
+  ctx.assert(condition, `${assertion}${actual ? ` (actual: ${actual})` : ""}`);
+}
+
+function startMockProvider(ctx) {
+  const output = runInSandbox(ctx, `
+set -euo pipefail
+cd /workspace
+if [ -f /tmp/openwork-office-attachments-mock.pid ]; then
+  kill "$(cat /tmp/openwork-office-attachments-mock.pid)" >/dev/null 2>&1 || true
+fi
+rm -f /tmp/openwork-office-attachments-mock.log /tmp/openwork-office-attachments-mock.pid
+nohup node evals/drivers/office-attachments-mock-provider.mjs --port ${MOCK_PORT} > /tmp/openwork-office-attachments-mock.log 2>&1 < /dev/null &
+echo $! > /tmp/openwork-office-attachments-mock.pid
+for _ in $(seq 1 80); do
+  if curl -sf http://127.0.0.1:${MOCK_PORT}/health >/tmp/openwork-office-attachments-health.json; then
+    cat /tmp/openwork-office-attachments-health.json
+    exit 0
+  fi
+  sleep 0.25
+done
+cat /tmp/openwork-office-attachments-mock.log >&2
+exit 1
+`);
+  return output.trim();
+}
+
+function stopMockProvider(ctx) {
+  return runInSandbox(ctx, `
+set -euo pipefail
+curl -sf -X POST http://127.0.0.1:${MOCK_PORT}/shutdown >/dev/null 2>&1 || true
+if [ -f /tmp/openwork-office-attachments-mock.pid ]; then
+  kill "$(cat /tmp/openwork-office-attachments-mock.pid)" >/dev/null 2>&1 || true
+fi
+rm -f /tmp/openwork-office-attachments-mock.pid
+printf 'mock stopped\n'
+`, 30_000).trim();
+}
+
+function proofFromSandbox(ctx) {
+  const raw = runInSandbox(ctx, `curl -sf http://127.0.0.1:${MOCK_PORT}/proof`, 30_000);
+  return JSON.parse(raw);
+}
+
+async function pollProof(ctx, predicate, timeoutMs, label) {
+  const startedAt = Date.now();
+  let last = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    last = proofFromSandbox(ctx);
+    if (predicate(last)) return last;
+    await sleep(500);
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}. Last proof: ${JSON.stringify(last)}`);
+}
 
 async function forceEnglish(ctx) {
   const shouldReload = await ctx.eval(`(() => {
@@ -21,28 +104,283 @@ async function forceEnglish(ctx) {
   });
 }
 
+async function appRouteState(ctx) {
+  return await ctx.eval(`(() => {
+    const hash = location.hash;
+    const route = window.__openworkControl?.snapshot?.().route ?? hash.replace(/^#/, "");
+    const workspaceId = (hash.match(/\/workspace\/([^/]+)/) ?? [])[1]
+      || localStorage.getItem("openwork.react.activeWorkspace")
+      || "";
+    const sessionId = (hash.match(/\/session\/(ses_[A-Za-z0-9]+)/) ?? [])[1]
+      || (route.match(/\/session\/(ses_[A-Za-z0-9]+)/) ?? [])[1]
+      || "";
+    return { hash, route, workspaceId, sessionId };
+  })()`);
+}
+
+async function serverJson(ctx, path, init = {}) {
+  const raw = await ctx.eval(`(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    if (!port || !token) return JSON.stringify({ ok: false, status: 0, text: "missing server port/token" });
+    const response = await fetch("http://127.0.0.1:" + port + ${JSON.stringify(path)}, {
+      method: ${JSON.stringify(init.method ?? "GET")},
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: ${init.body === undefined ? "undefined" : JSON.stringify(JSON.stringify(init.body))},
+    });
+    const text = await response.text();
+    return JSON.stringify({ ok: response.ok, status: response.status, text });
+  })()`, { awaitPromise: true });
+  const result = JSON.parse(raw);
+  ctx.assert(result.ok, `${init.method ?? "GET"} ${path} failed: ${result.status} ${String(result.text).slice(0, 500)}`);
+  return result.text ? JSON.parse(result.text) : null;
+}
+
+async function loadWorkspacePath(ctx) {
+  const payload = await serverJson(ctx, "/workspaces");
+  const workspaces = Array.isArray(payload) ? payload : payload?.items ?? payload?.workspaces ?? [];
+  const workspace = workspaces.find((item) => item?.id === ctx.workspaceId);
+  const workspacePath = typeof workspace?.path === "string" ? workspace.path : "";
+  ctx.assert(Boolean(workspacePath), `Could not determine workspace path for ${ctx.workspaceId}`);
+  ctx.workspacePath = workspacePath;
+}
+
+async function configureMockProvider(ctx) {
+  const state = await appRouteState(ctx);
+  ctx.assert(Boolean(state.workspaceId), `Could not determine workspace id from ${state.hash}`);
+  ctx.workspaceId = state.workspaceId;
+  await loadWorkspacePath(ctx);
+
+  const baseURL = `http://127.0.0.1:${MOCK_PORT}/v1`;
+  await serverJson(ctx, `/workspace/${encodeURIComponent(ctx.workspaceId)}/config`, {
+    method: "PATCH",
+    body: {
+      opencode: {
+        provider: {
+          [PROVIDER_ID]: {
+            npm: "@ai-sdk/openai-compatible",
+            name: "Office Attachments Mock",
+            options: { baseURL, apiKey: "sk-openwork-office-attachments-eval" },
+            models: {
+              [MODEL_ID]: {
+                name: "Office attachment mock",
+                attachment: true,
+                modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  await serverJson(ctx, `/workspace/${encodeURIComponent(ctx.workspaceId)}/engine/reload`, { method: "POST" });
+  await ctx.eval(`(() => {
+    localStorage.setItem("openwork.defaultModel", ${JSON.stringify(`${PROVIDER_ID}/${MODEL_ID}`)});
+    localStorage.removeItem("openwork.sessionModels.${ctx.workspaceId}");
+  })()`);
+  ctx.output("Office mock provider", JSON.stringify({ provider: PROVIDER_ID, model: MODEL_ID, baseURL }, null, 2));
+}
+
+async function createFreshSession(ctx) {
+  await ctx.waitFor(
+    `window.__openworkControl.listActions().some((item) => item.id === "session.create_task" && !item.disabled)`,
+    { timeoutMs: 60_000, label: "session.create_task enabled" },
+  );
+  await ctx.control("session.create_task");
+  await ctx.waitFor(
+    `(() => {
+      const hash = location.hash;
+      return /\/session\/ses_[A-Za-z0-9]+/.test(hash) || /ses_[A-Za-z0-9]+/.test(window.__openworkControl.snapshot().route || "");
+    })()`,
+    { timeoutMs: 60_000, label: "fresh session route" },
+  );
+  const state = await appRouteState(ctx);
+  ctx.workspaceId = state.workspaceId;
+  ctx.sessionId = state.sessionId;
+  ctx.assert(Boolean(ctx.workspaceId && ctx.sessionId), `Missing session route info: ${JSON.stringify(state)}`);
+  await ctx.waitFor(`Boolean(document.querySelector('input[type="file"][multiple]'))`, {
+    timeoutMs: 30_000,
+    label: "composer file input",
+  });
+}
+
 async function attachOfficeFiles(ctx) {
   return ctx.eval(
     `(() => {
       const input = document.querySelector('input[type="file"][multiple]');
       if (!(input instanceof HTMLInputElement)) return { ok: false, reason: "file input not found" };
+      const toBytes = (base64) => {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return bytes;
+      };
       const transfer = new DataTransfer();
-      transfer.items.add(new File([
-        new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x77, 0x6f, 0x72, 0x64]),
-      ], ${JSON.stringify(DOCX_FILENAME)}, { type: ${JSON.stringify(DOCX_MIME)} }));
-      transfer.items.add(new File([
-        new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x70, 0x70, 0x74, 0x78]),
-      ], ${JSON.stringify(PPTX_FILENAME)}, { type: "application/octet-stream" }));
+      transfer.items.add(new File(
+        [toBytes(${JSON.stringify(OFFICE_FIXTURES.docx.dataBase64)})],
+        ${JSON.stringify(DOCX_FILENAME)},
+        { type: ${JSON.stringify(OFFICE_FIXTURES.docx.mime)}, lastModified: 1767225600000 },
+      ));
+      transfer.items.add(new File(
+        [toBytes(${JSON.stringify(OFFICE_FIXTURES.pptx.dataBase64)})],
+        ${JSON.stringify(PPTX_FILENAME)},
+        { type: ${JSON.stringify(OFFICE_FIXTURES.pptx.mime)}, lastModified: 1767225600000 },
+      ));
       input.files = transfer.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      return { ok: true, files: Array.from(transfer.files).map((file) => file.name) };
+      return { ok: true, files: Array.from(transfer.files).map((file) => ({ name: file.name, type: file.type, size: file.size })) };
     })()`,
   );
 }
 
+async function waitForFinalResponse(ctx) {
+  await ctx.waitFor(
+    `(() => {
+      const text = document.body.innerText;
+      return text.includes(${JSON.stringify(DOCX_SENTINEL)})
+        && text.includes(${JSON.stringify(PPTX_SENTINEL)})
+        && text.includes("artifacts/QuarterlyBrief.docx")
+        && text.includes("artifacts/LaunchRoadmap.pptx");
+    })()`,
+    { timeoutMs: 120_000, label: "final assistant response with Office facts and artifacts" },
+  );
+}
+
+function sentAttachmentCardsExpr() {
+  return `(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const hasSentFileCard = (filename, badge) => {
+      const button = buttons.find((item) => item.getAttribute("aria-label") === "Download " + filename);
+      const card = button?.closest("div");
+      const text = card?.textContent ?? "";
+      return Boolean(button && text.includes(filename) && text.includes(badge) && text.includes("Download"));
+    };
+    const docx = hasSentFileCard(${JSON.stringify(DOCX_FILENAME)}, "DOCX");
+    const pptx = hasSentFileCard(${JSON.stringify(PPTX_FILENAME)}, "PPTX");
+    if (!docx || !pptx) return null;
+    return {
+      docx,
+      pptx,
+      downloadButtons: buttons.filter((button) => {
+        const label = button.getAttribute("aria-label") ?? "";
+        return label.startsWith("Download ") && label !== "Download artifact";
+      }).length,
+    };
+  })()`;
+}
+
+async function sessionMessages(ctx) {
+  const payload = await serverJson(ctx, `/workspace/${encodeURIComponent(ctx.workspaceId)}/sessions/${encodeURIComponent(ctx.sessionId)}/messages?limit=80`);
+  return payload.items ?? [];
+}
+
+function workspaceArtifactHashes(ctx) {
+  ctx.assert(Boolean(ctx.workspacePath), "Missing workspace path");
+  const raw = runInSandbox(ctx, `
+set -euo pipefail
+root=${shellQuote(ctx.workspacePath)}
+node - "$root" <<'EOF'
+const { createHash } = require("node:crypto");
+const { existsSync, readFileSync } = require("node:fs");
+const { join } = require("node:path");
+const root = process.argv[2];
+const files = ["artifacts/QuarterlyBrief.docx", "artifacts/LaunchRoadmap.pptx"];
+const result = {};
+for (const file of files) {
+  const path = join(root, file);
+  result[file] = existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : null;
+}
+process.stdout.write(JSON.stringify(result));
+EOF
+`, 30_000).trim();
+  return JSON.parse(raw);
+}
+
+function resetWorkspaceOfficeArtifacts(ctx) {
+  ctx.assert(Boolean(ctx.workspacePath), "Missing workspace path");
+  runInSandbox(ctx, `
+set -euo pipefail
+root=${shellQuote(ctx.workspacePath)}
+rm -f "$root/artifacts/QuarterlyBrief.docx" "$root/artifacts/LaunchRoadmap.pptx"
+`, 30_000);
+  return workspaceArtifactHashes(ctx);
+}
+
+function workspaceArtifactsHaveExpectedHashes(hashes) {
+  return hashes["artifacts/QuarterlyBrief.docx"] === OFFICE_FIXTURES.docx.sha256
+    && hashes["artifacts/LaunchRoadmap.pptx"] === OFFICE_FIXTURES.pptx.sha256;
+}
+
+async function clickArtifact(ctx, filename) {
+  await ctx.waitFor(`(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const button = buttons.find((item) => (item.textContent ?? "").includes(${JSON.stringify(filename)}));
+    if (!button) return false;
+    button.scrollIntoView({ block: "center", inline: "center" });
+    button.click();
+    return true;
+  })()`, { timeoutMs: 30_000, label: `artifact button ${filename}` });
+  await ctx.waitFor(`(document.querySelector("h3")?.textContent ?? "").includes(${JSON.stringify(filename)})`, {
+    timeoutMs: 30_000,
+    label: `artifact panel ${filename}`,
+  });
+}
+
+async function assertArtifactPanelControls(ctx, filename) {
+  const controls = await ctx.eval(`(() => {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    return {
+      heading: document.querySelector("h3")?.textContent ?? "",
+      previewUnavailable: document.body.innerText.includes("Preview unavailable"),
+      download: buttons.some((button) => button.getAttribute("aria-label") === "Download artifact" && !button.disabled),
+      openExternal: buttons.some((button) => button.getAttribute("aria-label") === "Open externally" && !button.disabled),
+      showInFolder: buttons.some((button) => button.getAttribute("aria-label") === "Show in folder" && !button.disabled),
+    };
+  })()`);
+  record(ctx, controls.heading.includes(filename), `${filename} is the selected artifact`, controls.heading);
+  record(ctx, controls.previewUnavailable, `${filename} deliberately renders Preview unavailable`);
+  record(ctx, controls.download, `${filename} exposes an enabled Download control`);
+  record(ctx, controls.openExternal, `${filename} exposes an enabled Open externally control`);
+  record(ctx, controls.showInFolder, `${filename} exposes an enabled Show in folder control`);
+}
+
+async function clickDownloadButtonAndVerifySha(ctx, { buttonLabel, filename, expectedSha, assertion }) {
+  runInSandbox(ctx, `rm -rf ${shellQuote(DOWNLOAD_DIR)} && mkdir -p ${shellQuote(DOWNLOAD_DIR)}`, 30_000);
+  await ctx.client.send("Page.setDownloadBehavior", { behavior: "allow", downloadPath: DOWNLOAD_DIR }).catch(async () => {
+    await ctx.client.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: DOWNLOAD_DIR });
+  });
+  const clicked = await ctx.eval(`(() => {
+    const buttons = Array.from(document.querySelectorAll("button"))
+      .filter((item) => item.getAttribute("aria-label") === ${JSON.stringify(buttonLabel)} && !item.disabled);
+    if (buttons.length !== 1) return { ok: false, count: buttons.length };
+    const button = buttons[0];
+    button.scrollIntoView({ block: "center", inline: "center" });
+    button.click();
+    return { ok: true, count: 1 };
+  })()`);
+  ctx.assert(clicked?.ok, `Expected exactly one enabled ${buttonLabel} button, found ${clicked?.count ?? "unknown"}`);
+  const output = runInSandbox(ctx, `
+set -euo pipefail
+download_dir=${shellQuote(DOWNLOAD_DIR)}
+filename=${shellQuote(filename)}
+path="$download_dir/$filename"
+for _ in $(seq 1 80); do
+  if [ -f "$path" ]; then break; fi
+  sleep 0.25
+done
+test -f "$path"
+node - "$path" <<'EOF'
+const { createHash } = require("node:crypto");
+const { readFileSync } = require("node:fs");
+process.stdout.write(createHash("sha256").update(readFileSync(process.argv[2])).digest("hex"));
+EOF
+`, 45_000).trim();
+  record(ctx, output === expectedSha, assertion, output);
+}
+
 export default {
   id: FLOW_ID,
-  title: "Session composer accepts Word and PowerPoint attachments",
+  title: "Session composer sends valid Word and PowerPoint attachments through the real model boundary",
   kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_DAYTONA_SANDBOX"],
   precondition: async (ctx) => {
@@ -67,31 +405,26 @@ export default {
   },
   steps: [
     {
-      name: "Fresh task has a ready composer",
+      name: "Mock provider is selected for a fresh task",
       run: async (ctx) => {
-        await ctx.prove("A fresh task opens with the composer ready for attachments", {
+        await ctx.prove("A fresh Daytona task uses the deterministic OpenAI-compatible Office mock provider", {
           voiceover: vo[0],
           action: async () => {
             await forceEnglish(ctx);
-            await ctx.control("session.create_task");
-            await ctx.waitFor(
-              `(() => {
-                const route = window.__openworkControl.snapshot().route || "";
-                return /ses_[A-Za-z0-9]+/.test(route);
-              })()`,
-              { timeoutMs: 30_000, label: "active session route" },
-            );
-            await ctx.waitFor(`Boolean(document.querySelector('input[type="file"][multiple]'))`, {
-              timeoutMs: 30_000,
-              label: "composer file input",
-            });
+            const health = startMockProvider(ctx);
+            ctx.output("Office mock health", health);
+            await configureMockProvider(ctx);
+            await ctx.eval("location.reload()");
+            await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after provider reload" });
+            await createFreshSession(ctx);
           },
           assert: async () => {
             await ctx.expectText("Run task");
             await ctx.expectNoText("has a format the model can't read");
+            record(ctx, !PROMPT.includes(DOCX_SENTINEL) && !PROMPT.includes(PPTX_SENTINEL), "The user prompt does not contain either sentinel fact");
           },
           screenshot: {
-            name: "fresh-composer",
+            name: "fresh-office-mock-composer",
             requireText: ["Run task"],
             rejectText: ["has a format the model can't read"],
             hashIncludes: "/session/",
@@ -100,19 +433,20 @@ export default {
       },
     },
     {
-      name: "DOCX and PPTX attach without rejection",
+      name: "Valid DOCX and PPTX attach through the real composer",
       run: async (ctx) => {
-        await ctx.prove("DOCX and PPTX uploads render as accepted composer attachments", {
+        await ctx.prove("Valid deterministic Office packages attach as normal file chips with no unsupported-format warning", {
           voiceover: vo[1],
           action: async () => {
             const attached = await attachOfficeFiles(ctx);
             ctx.assert(attached?.ok, `Could not attach Office files: ${attached?.reason ?? "unknown"}`);
+            await ctx.control("composer.set_text", { text: PROMPT });
             await ctx.waitFor(
               `(() => {
                 const text = document.body.innerText;
-                return text.includes(${JSON.stringify(DOCX_FILENAME)}) && text.includes(${JSON.stringify(PPTX_FILENAME)});
+                return text.includes(${JSON.stringify(DOCX_FILENAME)}) && text.includes(${JSON.stringify(PPTX_FILENAME)}) && text.includes(${JSON.stringify(PROMPT)});
               })()`,
-              { timeoutMs: 30_000, label: "Office attachment chips" },
+              { timeoutMs: 30_000, label: "Office attachment chips and prompt" },
             );
           },
           assert: async () => {
@@ -123,12 +457,164 @@ export default {
             await ctx.expectNoText("Convert to PDF");
           },
           screenshot: {
-            name: "office-attachment-chips",
-            requireText: [DOCX_FILENAME, PPTX_FILENAME, "File"],
+            name: "valid-office-attachment-chips",
+            requireText: [DOCX_FILENAME, PPTX_FILENAME, "File", "Run task"],
             rejectText: ["has a format the model can't read", "files have formats the model can't read", "Convert to PDF"],
             hashIncludes: "/session/",
           },
         });
+      },
+    },
+    {
+      name: "Send reaches provider, tool loop writes artifacts, and sent cards are actionable",
+      run: async (ctx) => {
+        await ctx.prove("Sending crosses Electron, OpenWork, OpenCode, and the provider; the mock writes exact Office bytes via bash", {
+          voiceover: vo[2],
+          action: async () => {
+            const beforeHashes = resetWorkspaceOfficeArtifacts(ctx);
+            record(
+              ctx,
+              beforeHashes["artifacts/QuarterlyBrief.docx"] === null && beforeHashes["artifacts/LaunchRoadmap.pptx"] === null,
+              "Workspace Office artifacts are absent before send",
+              JSON.stringify(beforeHashes),
+            );
+            await ctx.control("composer.send");
+            const proof = await pollProof(
+              ctx,
+              (item) => item.providerReceipt && item.exactHashes && item.exactMimes && item.sentinelsExtracted && item.toolCallCompleted && item.finalResponse,
+              120_000,
+              "provider receipt, sentinel extraction, completed bash tool call, and final response",
+            );
+            ctx.output("Office mock proof after send", JSON.stringify(proof, null, 2));
+            record(ctx, proof.toolCallCompleted, "Mock observed the completed bash tool result before final response");
+            const afterHashes = workspaceArtifactHashes(ctx);
+            record(
+              ctx,
+              workspaceArtifactsHaveExpectedHashes(afterHashes),
+              "Workspace Office artifacts are present after the bash tool with exact hashes",
+              JSON.stringify(afterHashes),
+            );
+            await waitForFinalResponse(ctx);
+            const messages = await sessionMessages(ctx);
+            const sessionText = JSON.stringify(messages);
+            record(ctx, sessionText.includes(DOCX_SENTINEL) && sessionText.includes(PPTX_SENTINEL), "Session read API contains both extracted sentinel facts");
+            record(ctx, sessionText.includes("artifacts/QuarterlyBrief.docx") && sessionText.includes("artifacts/LaunchRoadmap.pptx"), "Session read API contains both artifact paths");
+            const cards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 30_000, label: "sent Office cards with Download actions" });
+            record(ctx, cards.docx, "Sent DOCX card shows DOCX badge and Download action");
+            record(ctx, cards.pptx, "Sent PPTX card shows PPTX badge and Download action");
+            await clickDownloadButtonAndVerifySha(ctx, {
+              buttonLabel: `Download ${DOCX_FILENAME}`,
+              filename: DOCX_FILENAME,
+              expectedSha: OFFICE_FIXTURES.docx.sha256,
+              assertion: `Sent attachment card Download for ${DOCX_FILENAME} saves the exact expected sha256`,
+            });
+          },
+          assert: async () => {
+            await ctx.expectText(DOCX_SENTINEL);
+            await ctx.expectText(PPTX_SENTINEL);
+            await ctx.expectText("artifacts/QuarterlyBrief.docx");
+            await ctx.expectText("artifacts/LaunchRoadmap.pptx");
+            await ctx.expectText("Download");
+          },
+          screenshot: {
+            name: "provider-tool-loop-final-response",
+            requireText: [DOCX_FILENAME, PPTX_FILENAME, "DOCX", "PPTX", "Download", "artifacts/QuarterlyBrief.docx", "artifacts/LaunchRoadmap.pptx"],
+            hashIncludes: "/session/",
+          },
+        });
+      },
+    },
+    {
+      name: "DOCX artifact is collectible and downloads exact bytes",
+      run: async (ctx) => {
+        await ctx.prove("The generated DOCX appears in the artifact rail, opens to Preview unavailable, and downloads exact bytes", {
+          voiceover: vo[3],
+          action: async () => {
+            await clickArtifact(ctx, DOCX_FILENAME);
+            await assertArtifactPanelControls(ctx, DOCX_FILENAME);
+            await clickDownloadButtonAndVerifySha(ctx, {
+              buttonLabel: "Download artifact",
+              filename: DOCX_FILENAME,
+              expectedSha: OFFICE_FIXTURES.docx.sha256,
+              assertion: `Artifact panel Download for ${DOCX_FILENAME} saves the exact expected sha256`,
+            });
+          },
+          assert: async () => {
+            await ctx.expectText(DOCX_FILENAME);
+            await ctx.expectText("Preview unavailable");
+          },
+          screenshot: {
+            name: "docx-preview-unavailable-controls",
+            requireText: [DOCX_FILENAME, "Preview unavailable"],
+            hashIncludes: "/session/",
+          },
+        });
+      },
+    },
+    {
+      name: "PPTX artifact keeps slides classification and external controls",
+      run: async (ctx) => {
+        await ctx.prove("The generated PPTX remains a slides artifact and deliberately uses the same external-file affordances", {
+          voiceover: vo[4],
+          action: async () => {
+            await clickArtifact(ctx, PPTX_FILENAME);
+            await assertArtifactPanelControls(ctx, PPTX_FILENAME);
+          },
+          assert: async () => {
+            await ctx.expectText(PPTX_FILENAME);
+            await ctx.expectText("Preview unavailable");
+          },
+          screenshot: {
+            name: "pptx-preview-unavailable-controls",
+            requireText: [PPTX_FILENAME, "Preview unavailable"],
+            hashIncludes: "/session/",
+          },
+        });
+      },
+    },
+    {
+      name: "Reloaded session can send a follow-up without poisoned Office history",
+      run: async (ctx) => {
+        await ctx.prove("After reloading and reopening the same session, Office history replays safely and the restored cards stay actionable", {
+          voiceover: vo[5],
+          action: async () => {
+            await ctx.eval("location.reload()");
+            await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after session reload" });
+            await ctx.navigateHash(`/workspace/${ctx.workspaceId}/session/${ctx.sessionId}`);
+            await ctx.waitFor(`location.hash.includes(${JSON.stringify(`/workspace/${ctx.workspaceId}/session/${ctx.sessionId}`)})`, {
+              timeoutMs: 30_000,
+              label: "reopened Office session route",
+            });
+            const restoredCards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 45_000, label: "restored Office sent cards" });
+            record(ctx, restoredCards.docx && restoredCards.pptx, "Reload restored both sent Office cards with badges and Download actions");
+            await ctx.control("composer.set_text", { text: FOLLOW_UP });
+            await ctx.control("composer.send");
+            const replayProof = await pollProof(ctx, (item) => item.replayResponse && item.replayOfficeHistoryOk, 90_000, "successful replay follow-up");
+            ctx.output("Office mock proof after replay", JSON.stringify(replayProof, null, 2));
+            await ctx.waitFor(`document.body.innerText.includes("Replay succeeded after reopening the session")`, {
+              timeoutMs: 60_000,
+              label: "replay success assistant response",
+            });
+          },
+          assert: async () => {
+            await ctx.expectText(DOCX_FILENAME);
+            await ctx.expectText(PPTX_FILENAME);
+            await ctx.expectText("Download");
+            await ctx.expectText("Replay succeeded after reopening the session");
+          },
+          screenshot: {
+            name: "reopened-session-office-history-safe",
+            requireText: [DOCX_FILENAME, PPTX_FILENAME, "Download", "Replay succeeded after reopening the session"],
+            hashIncludes: "/session/",
+          },
+        });
+      },
+    },
+    {
+      name: "Stop Office mock provider",
+      run: async (ctx) => {
+        const output = stopMockProvider(ctx);
+        ctx.output("Office mock shutdown", output);
       },
     },
   ],
