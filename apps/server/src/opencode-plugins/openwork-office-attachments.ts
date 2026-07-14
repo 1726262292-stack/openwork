@@ -145,10 +145,33 @@ function toWorkerRelativePath(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
 }
 
+function base64Value(code: number): number {
+  if (code >= 65 && code <= 90) return code - 65;
+  if (code >= 97 && code <= 122) return code - 71;
+  if (code >= 48 && code <= 57) return code + 4;
+  if (code === 43) return 62;
+  if (code === 47) return 63;
+  return -1;
+}
+
 function isValidBase64(value: string): boolean {
-  return value.length > 0
-    && value.length % 4 === 0
-    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)$/.test(value);
+  if (value.length === 0 || value.length % 4 !== 0) return false;
+
+  let padding = 0;
+  if (value.endsWith("==")) padding = 2;
+  else if (value.endsWith("=")) padding = 1;
+
+  const dataEnd = value.length - padding;
+  for (let index = 0; index < dataEnd; index += 1) {
+    if (base64Value(value.charCodeAt(index)) < 0) return false;
+  }
+  for (let index = dataEnd; index < value.length; index += 1) {
+    if (value[index] !== "=") return false;
+  }
+
+  if (padding === 1) return (base64Value(value.charCodeAt(value.length - 2)) & 0b11) === 0;
+  if (padding === 2) return (base64Value(value.charCodeAt(value.length - 3)) & 0b1111) === 0;
+  return true;
 }
 
 function decodeDataUrl(url: string): Buffer {
