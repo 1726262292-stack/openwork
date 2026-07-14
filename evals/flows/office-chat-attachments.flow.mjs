@@ -67,12 +67,25 @@ exit 1
 
 function stopMockProvider(ctx) {
   return runInSandbox(ctx, `
-set -euo pipefail
-curl -sf -X POST http://127.0.0.1:${MOCK_PORT}/shutdown >/dev/null 2>&1 || true
-if [ -f /tmp/openwork-office-attachments-mock.pid ]; then
-  kill "$(cat /tmp/openwork-office-attachments-mock.pid)" >/dev/null 2>&1 || true
+set -uo pipefail
+pidfile=/tmp/openwork-office-attachments-mock.pid
+curl -sf --connect-timeout 1 --max-time 2 -X POST http://127.0.0.1:${MOCK_PORT}/shutdown >/dev/null 2>&1 || true
+if [ -s "$pidfile" ]; then
+  pid="$(cat "$pidfile" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do
+      if ! kill -0 "$pid" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+  fi
 fi
-rm -f /tmp/openwork-office-attachments-mock.pid
+rm -f "$pidfile"
 printf 'mock stopped\n'
 `, 30_000).trim();
 }
