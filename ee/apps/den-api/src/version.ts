@@ -1,6 +1,6 @@
 import { BUILD_LATEST_APP_VERSION } from "./generated/app-version.js";
 
-const MIN_APP_VERSION = "0.11.207";
+const MIN_APP_VERSION = "0.17.0";
 
 function normalizeVersion(value: string | undefined | null) {
   const trimmed = value?.trim() ?? "";
