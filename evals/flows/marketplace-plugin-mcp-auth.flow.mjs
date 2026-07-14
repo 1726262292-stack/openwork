@@ -1119,14 +1119,16 @@ async function openNeedsConnectionUrl(ctx) {
 }
 
 async function clickFocusedConnect(ctx) {
-  const clicked = await ctx.eval(`(() => {
+  const selector = '[data-openwork-eval-focused-connect="true"]';
+  const marked = await ctx.eval(`(() => {
     const highlighted = [...document.querySelectorAll('div')]
       .find((node) => (node.className ?? '').toString().includes('ring-blue-200') && (node.innerText ?? '').includes('Required by Support Operations'));
     const button = highlighted ? [...highlighted.querySelectorAll('button')].find((entry) => (entry.textContent ?? '').trim() === 'Connect') : null;
-    button?.click();
+    button?.setAttribute('data-openwork-eval-focused-connect', 'true');
     return Boolean(button);
   })()`);
-  ctx.assert(clicked, "Focused Slack row did not expose a Connect button.");
+  ctx.assert(marked, "Focused Slack row did not expose a Connect button.");
+  await ctx.trustedClick(selector, { timeoutMs: 20_000 });
 }
 
 async function routeLocalSplitOriginCallback(ctx) {
