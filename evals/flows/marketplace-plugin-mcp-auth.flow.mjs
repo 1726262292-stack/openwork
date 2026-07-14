@@ -269,8 +269,11 @@ export default {
               requireText: ["Your Connections", "Connect your account", "Required by Support Operations", "Connect"],
               rejectText: ["Nothing has been shared with you yet", "Connection failed"],
             });
-            await clickFocusedConnect(ctx);
-            await ctx.switchToNewTab({ timeoutMs: 20_000, label: "Slack mock OAuth popup" });
+            await ctx.switchToNewTab({
+              timeoutMs: 20_000,
+              label: "Slack mock OAuth popup",
+              trigger: () => clickFocusedConnect(ctx),
+            });
             await routeLocalSplitOriginCallback(ctx);
             await ctx.waitForText("Connected", { timeoutMs: 30_000 });
             await ctx.switchBack();
