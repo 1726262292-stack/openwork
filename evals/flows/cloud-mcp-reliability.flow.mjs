@@ -656,8 +656,10 @@ async function initialStrictReconcile(ctx) {
 }
 
 async function deleteCloudRuntimeConfig(ctx) {
+  await pauseDesktopFetchGuardForSettingsSync(ctx);
   await ctx.navigateHash(`/workspace/${state.workspaceId}/settings/general`);
   await ctx.waitFor(`window.location.hash.includes(${quoted(`/workspace/${state.workspaceId}/settings/general`)})`, { timeoutMs: 30_000, label: "settings route before deletion" });
+  await waitForSettingsBackgroundSyncSettled(ctx);
   await installDesktopFetchGuard(ctx);
   await serverFetchJson(ctx, `/workspace/${encodeURIComponent(state.workspaceId)}/mcp/${encodeURIComponent(CLOUD_MCP_NAME)}`, { method: "DELETE" });
   await ctx.eval(`(() => {
@@ -699,6 +701,63 @@ async function waitForHealth(ctx, predicate, label, timeoutMs = 90_000) {
     await sleep(1_000);
   }
   ctx.assert(false, `Timed out waiting for ${label}: ${JSON.stringify(last)}`);
+}
+
+async function waitForScopedSyncMarker(ctx, timeoutMs = 30_000) {
+  const startedAt = Date.now();
+  let last = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    last = await ctx.eval(`(() => {
+      const raw = localStorage.getItem("openwork.den.mcp.sync");
+      if (!raw) return { found: false, rawPresent: false, markerCount: 0 };
+      try {
+        const parsed = JSON.parse(raw);
+        const candidates = Array.isArray(parsed)
+          ? parsed
+          : parsed && typeof parsed === "object" && Array.isArray(parsed.markers)
+            ? parsed.markers
+            : [parsed];
+        const markers = candidates.filter((entry) => entry && typeof entry === "object");
+        const marker = markers.find((entry) => entry.workspaceId === ${quoted(state.workspaceId)}) || null;
+        return {
+          found: Boolean(marker),
+          markerCount: markers.length,
+          rawPresent: true,
+          marker: marker ? {
+            denBaseUrl: typeof marker.denBaseUrl === "string" ? marker.denBaseUrl : null,
+            serverBaseUrl: typeof marker.serverBaseUrl === "string" ? marker.serverBaseUrl : null,
+            orgId: typeof marker.orgId === "string" ? marker.orgId : null,
+            workspaceId: typeof marker.workspaceId === "string" ? marker.workspaceId : null,
+            expiresAt: typeof marker.expiresAt === "string" ? marker.expiresAt : null,
+          } : null,
+        };
+      } catch (error) {
+        return { found: false, rawPresent: true, markerCount: 0, error: error instanceof Error ? error.message : String(error) };
+      }
+    })()`);
+    if (last?.found === true) return last;
+    await sleep(500);
+  }
+  ctx.assert(false, `Timed out waiting for Settings background Cloud MCP sync marker for workspace ${state.workspaceId}: ${JSON.stringify(last)}`);
+}
+
+async function waitForSettingsBackgroundSyncSettled(ctx) {
+  const marker = await waitForScopedSyncMarker(ctx);
+  witness(ctx, marker?.marker?.workspaceId === state.workspaceId, "Settings background reconciliation wrote a scoped Cloud MCP sync marker for the exact workspace before degradation.", marker);
+  const health = await waitForHealth(ctx, (candidate) => (
+    candidate?.workspace?.id === state.workspaceId &&
+    candidate.usable === true &&
+    candidate.firstFailure === null &&
+    candidate.engine?.status === "connected"
+  ), "usable exact-workspace Cloud health after Settings background reconciliation", 30_000);
+  witness(ctx, true, "Live Cloud MCP health is usable for the exact workspace after Settings background reconciliation settled.", {
+    workspaceId: health.workspace.id,
+    firstFailure: health.firstFailure,
+    desiredRevision: health.desired.revision,
+    appliedRevision: health.delivery.appliedRevision,
+    engine: health.engine.status,
+    marker: marker.marker,
+  });
 }
 
 async function openConnect(ctx) {
@@ -936,6 +995,25 @@ async function installDesktopFetchGuard(ctx, { resetBlocked = false } = {}) {
     };
   })()`, { awaitPromise: true });
   witness(ctx, result?.ok === true && result.desktopPatched === true && result.guard?.active === true, "Temporary renderer guard is active before Cloud background reconciles can heal the proof state.", result);
+}
+
+async function pauseDesktopFetchGuardForSettingsSync(ctx) {
+  const result = await ctx.eval(`(() => {
+    const probe = window.__cloudMcpReliabilityProbe;
+    if (!probe?.guard) return { ok: true, installed: Boolean(probe), guard: null };
+    probe.guard.active = false;
+    try {
+      localStorage.setItem(${quoted(GUARD_STORAGE_KEY)}, JSON.stringify(probe.guard));
+    } catch {}
+    return {
+      ok: probe.guard.active !== true,
+      installed: true,
+      desktopPatched: probe.desktopPatched === true,
+      guard: probe.guard,
+      blockedDesktopFetches: probe.blockedDesktopFetches?.length ?? 0,
+    };
+  })()`);
+  witness(ctx, result?.ok === true, "Temporary renderer guard is paused so Settings background reconciliation can settle before degradation.", result);
 }
 
 async function desktopFetchGuardSummary(ctx) {
