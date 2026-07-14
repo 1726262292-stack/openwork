@@ -85,7 +85,7 @@ export default {
   "composer.app_kind": "App · Computer Use",
   "composer.computer_use_permissions_missing": "Computer Use needs macOS permissions before it can control {app}.",
   "composer.computer_use_permissions_setup": "Set up",
-  "composer.any_file_type_supported": "Any file type is supported.",
+  "composer.any_file_type_supported": "Supported: PDF, images, text, Word, and PowerPoint.",
   "composer.attach_files": "Attach files",
   "composer.attachments_unavailable": "Attachments are unavailable.",
   "composer.behavior_label": "Behavior",

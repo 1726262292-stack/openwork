@@ -13,6 +13,10 @@ type AttachmentFileMetadata = {
   readable: boolean;
 };
 
+const GENERIC_BINARY_MIME = "application/octet-stream";
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
 const EXTENSION_MIME_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -20,6 +24,8 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
   gif: "image/gif",
   webp: "image/webp",
   pdf: "application/pdf",
+  docx: DOCX_MIME,
+  pptx: PPTX_MIME,
   txt: "text/plain",
   text: "text/plain",
   md: "text/markdown",
@@ -50,6 +56,8 @@ const MIME_FILENAME_EXTENSIONS: Record<string, string> = {
   "image/gif": "gif",
   "image/webp": "webp",
   "application/pdf": "pdf",
+  [DOCX_MIME]: "docx",
+  [PPTX_MIME]: "pptx",
   "application/json": "json",
   "application/javascript": "js",
   "application/xml": "xml",
@@ -67,7 +75,11 @@ function normalizedMime(mimeType: string) {
 }
 
 function isGenericMime(mime: string) {
-  return mime === "" || mime === "application/octet-stream";
+  return mime === "" || mime === GENERIC_BINARY_MIME;
+}
+
+function isOfficeMime(mime: string) {
+  return mime === DOCX_MIME || mime === PPTX_MIME;
 }
 
 function extensionFromFilename(filename: string) {
@@ -86,12 +98,13 @@ function mimeFromFilename(filename: string) {
 export function resolveAttachmentMime(file: Pick<File, "name" | "type">) {
   const mime = normalizedMime(file.type);
   if (!isGenericMime(mime)) return mime;
-  return mimeFromFilename(file.name) ?? "text/plain";
+  return mimeFromFilename(file.name) ?? GENERIC_BINARY_MIME;
 }
 
 export function isResolvedAttachmentMimeReadable(mimeType: string) {
   const mime = normalizedMime(mimeType);
   if (mime.startsWith("image/") || mime.startsWith("text/")) return true;
+  if (isOfficeMime(mime)) return true;
   if (mime === "application/pdf" || mime === "application/json") return true;
   return mime.endsWith("+json") || mime.endsWith("+xml") || mime === "application/xml" || mime === "application/javascript";
 }
@@ -105,7 +118,7 @@ function normalizeFilenameExtension(filename: string, mime: string) {
   const extensionMime = extension ? EXTENSION_MIME_TYPES[extension] : undefined;
   if (extensionMime === mime) return original;
 
-  const strictMime = mime.startsWith("image/") || mime === "application/pdf" || mime === "application/json";
+  const strictMime = mime.startsWith("image/") || mime === "application/pdf" || mime === "application/json" || isOfficeMime(mime);
   if (!strictMime && extensionMime === undefined) return original;
 
   const stem = extension ? original.slice(0, -(extension.length + 1)) : original;
