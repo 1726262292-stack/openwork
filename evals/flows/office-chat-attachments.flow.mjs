@@ -316,6 +316,38 @@ async function waitForFinalResponse(ctx) {
   );
 }
 
+async function waitForVisibleFinalResponse(ctx) {
+  await ctx.waitFor(
+    `(() => {
+      const required = [
+        ${JSON.stringify(DOCX_SENTINEL)},
+        ${JSON.stringify(PPTX_SENTINEL)},
+        "artifacts/QuarterlyBrief.docx",
+        "artifacts/LaunchRoadmap.pptx",
+      ];
+      const isVisibleRect = (rect) => rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+      const visibleTextIncludes = (root, needle) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node.nodeValue || "";
+          const index = text.indexOf(needle);
+          if (index < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, index);
+          range.setEnd(node, index + needle.length);
+          const visible = Array.from(range.getClientRects()).some(isVisibleRect);
+          range.detach();
+          if (visible) return true;
+        }
+        return false;
+      };
+      const messages = Array.from(document.querySelectorAll('[data-message-role="assistant"]'));
+      return messages.some((message) => required.every((item) => visibleTextIncludes(message, item)));
+    })()`,
+    { timeoutMs: 30_000, label: "visible final assistant response with Office facts and artifacts" },
+  );
+}
+
 function sentAttachmentCardsExpr() {
   return `(() => {
     const buttons = Array.from(document.querySelectorAll("button"));
@@ -813,6 +845,8 @@ export default {
               assertion: `Sent attachment card Download for ${DOCX_FILENAME} saves the exact expected sha256`,
             });
             await dismissOpenWorkModelsModal(ctx);
+            await ctx.control("session.scroll_bottom");
+            await waitForVisibleFinalResponse(ctx);
           },
           assert: async () => {
             await ctx.expectText(DOCX_SENTINEL);
