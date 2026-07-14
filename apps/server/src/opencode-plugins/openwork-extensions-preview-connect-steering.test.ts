@@ -54,14 +54,14 @@ function state(cloudHealth: OpenWorkExtensionConnectState["cloudHealth"]): OpenW
 }
 
 describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
-  test("keeps the fallback instruction byte-identical when state is unavailable or rollout disabled", () => {
+  test("keeps the fallback instruction byte-identical when state is unavailable or generic discovery is gated", () => {
     expect(OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION).toBe(UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION);
     expect(composeOpenWorkExtensionDiscoveryInstruction(null)).toBe(UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION);
-    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), connectCatalogEnabled: false })).toBe(UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION);
+    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(null), connectCatalogEnabled: false })).toBe(UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION);
   });
 
-  test("keeps fallback when legacy Google Workspace is configured", () => {
-    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), googleWorkspace: { legacyConfigured: true } })).toBe(UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION);
+  test("keeps fallback when only legacy Google Workspace is configured", () => {
+    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(null), googleWorkspace: { legacyConfigured: true } })).toBe(UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION);
   });
 
   test("steers ready Connect users to verified openwork-cloud capabilities first", () => {
@@ -70,6 +70,8 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("relay connectionStatus.action exactly");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("results are live, not cached");
     expect(composeOpenWorkExtensionDiscoveryInstruction(state(health()))).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
+    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), connectCatalogEnabled: false })).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
+    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), googleWorkspace: { legacyConfigured: true } })).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
   });
 
   test("does not claim Cloud readiness when provider projection is missing", () => {
@@ -90,7 +92,7 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
   });
 
   test("uses degraded, signed-out, and disabled branches", () => {
-    const degraded = composeOpenWorkExtensionDiscoveryInstruction(state(health({
+    const degraded = composeOpenWorkExtensionDiscoveryInstruction({ ...state(health({
       usable: false,
       phase: "cloud_tools_missing",
       firstFailure: {
@@ -99,12 +101,12 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
         recommendedAction: "Run reconcile",
         message: "missing",
       },
-    })));
+    })), connectCatalogEnabled: false });
     expect(degraded).toContain("Do not use OpenWork documentation tools, browser tools, or OpenWork UI tools as a substitute");
     expect(degraded).toContain("Settings → Connect → Repair and test");
     expect(degraded).toContain("cloud_tools_missing");
 
-    expect(composeOpenWorkExtensionDiscoveryInstruction(state(health({
+    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health({
       usable: false,
       phase: "missing_desired",
       desired: { present: false, revision: null },
@@ -114,9 +116,9 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
         recommendedAction: "Connect OpenWork Cloud",
         message: "missing",
       },
-    })))).toBe(OPENWORK_CONNECT_SIGN_IN_INSTRUCTION);
+    })), connectCatalogEnabled: false })).toBe(OPENWORK_CONNECT_SIGN_IN_INSTRUCTION);
 
-    expect(composeOpenWorkExtensionDiscoveryInstruction(state(health({
+    expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health({
       usable: false,
       phase: "engine_disabled",
       firstFailure: {
@@ -125,7 +127,7 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
         recommendedAction: "Enable",
         message: "disabled",
       },
-    })))).toBe(OPENWORK_CONNECT_DISABLED_INSTRUCTION);
+    })), connectCatalogEnabled: false })).toBe(OPENWORK_CONNECT_DISABLED_INSTRUCTION);
   });
 
   test("treats unknown workspace as degraded instead of borrowing another workspace", () => {
