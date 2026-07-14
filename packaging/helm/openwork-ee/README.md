@@ -517,6 +517,8 @@ Override `config.internal.*` only when routing through a mesh, gateway, or exter
 Set `config.denApiNodeOptions` to pass Node.js runtime flags to `den-api` through
 `NODE_OPTIONS` when the container starts. The configured value is stored in the
 chart ConfigMap as `DEN_API_NODE_OPTIONS` and defaults to an empty string.
+Existing values files that set `denApi.env.NODE_OPTIONS` remain supported and
+take precedence, so upgrading does not require changing that configuration.
 
 ```yaml
 config:
