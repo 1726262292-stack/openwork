@@ -16,6 +16,7 @@ const FIXTURE_TOOL_NAME = "record_reliability_check";
 const RESULT_MARKER = `cloud-reliability-result-${RUN_TAG}`;
 const WORKSPACE_PATH = join(tmpdir(), `openwork-cloud-mcp-reliability-${RUN_TAG}`);
 const CLOUD_MCP_NAME = "openwork-cloud";
+const MODEL_SEED_ACTION_ID = "eval.model_not_available.seed";
 const EXPECTED_TOOL_IDS = [
   "openwork-cloud_search_capabilities",
   "openwork-cloud_execute_capability",
@@ -292,6 +293,95 @@ async function waitForControl(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 90_000, label: "control API" });
 }
 
+async function observeSetupView(ctx) {
+  return ctx.eval(`(() => {
+    const text = document.body?.innerText || "";
+    const actions = window.__openworkControl?.listActions?.() ?? [];
+    return {
+      hash: window.location.hash,
+      hasControl: Boolean(window.__openworkControl),
+      hasModelSeedAction: actions.some((item) => item?.id === ${quoted(MODEL_SEED_ACTION_ID)} && !item.disabled),
+      chooseOrganization: text.includes("Choose your organization"),
+      continueWithOrganization: text.includes("Continue with organization"),
+      continueToWorkspace: text.includes("Continue to workspace"),
+      loadingAvailableResources: text.includes("Loading available resources"),
+      text: text.slice(0, 500),
+    };
+  })()`);
+}
+
+function isOrgOnboardingView(view) {
+  return Boolean(
+    view?.hash?.includes("/onboarding") ||
+    view?.chooseOrganization ||
+    view?.continueWithOrganization ||
+    view?.continueToWorkspace ||
+    view?.loadingAvailableResources,
+  );
+}
+
+async function completeVisibleOrgOnboarding(ctx, { openOnboarding = false, timeoutMs = 60_000 } = {}) {
+  if (openOnboarding) {
+    await ctx.navigateHash("/onboarding");
+  }
+
+  const startedAt = Date.now();
+  let lastView = null;
+  let clicked = false;
+  while (Date.now() - startedAt < timeoutMs) {
+    lastView = await observeSetupView(ctx);
+    if (!lastView.hasControl) {
+      await sleep(500);
+      continue;
+    }
+    if (!isOrgOnboardingView(lastView)) {
+      if (clicked) {
+        witness(ctx, true, "Visible organization onboarding completed with the selected organization.", { hash: lastView.hash });
+      }
+      return lastView;
+    }
+    if (lastView.continueWithOrganization) {
+      ctx.log(`Completing org onboarding from ${lastView.hash}: Continue with organization`);
+      await ctx.clickText("Continue with organization", { timeoutMs: 10_000 });
+      clicked = true;
+      await sleep(750);
+      continue;
+    }
+    if (lastView.continueToWorkspace) {
+      ctx.log(`Completing org onboarding from ${lastView.hash}: Continue to workspace`);
+      await ctx.clickText("Continue to workspace", { timeoutMs: 10_000 });
+      clicked = true;
+      await sleep(750);
+      continue;
+    }
+    await sleep(500);
+  }
+  ctx.assert(false, `Timed out completing visible org onboarding: ${JSON.stringify(lastView)}`);
+}
+
+async function waitForSessionModelSeedAction(ctx) {
+  const sessionRoute = `/workspace/${state.workspaceId}/session`;
+  await ctx.navigateHash(sessionRoute);
+  const startedAt = Date.now();
+  let lastView = null;
+  while (Date.now() - startedAt < 90_000) {
+    lastView = await observeSetupView(ctx);
+    if (lastView.hasModelSeedAction) return;
+    if (isOrgOnboardingView(lastView)) {
+      ctx.log(`Session route redirected to org onboarding while waiting for ${MODEL_SEED_ACTION_ID}: ${lastView.hash}`);
+      await completeVisibleOrgOnboarding(ctx, { timeoutMs: 60_000 });
+      await ctx.navigateHash(sessionRoute);
+      await sleep(500);
+      continue;
+    }
+    if (!lastView.hash.includes(sessionRoute)) {
+      await ctx.navigateHash(sessionRoute);
+    }
+    await sleep(500);
+  }
+  ctx.assert(false, `Timed out waiting for ${MODEL_SEED_ACTION_ID}: ${JSON.stringify(lastView)}`);
+}
+
 async function runSetupStage(ctx, stage, operation) {
   ctx.log(`Cloud reliability setup stage started: ${stage}`);
   try {
@@ -434,13 +524,8 @@ async function createFreshWorkspace(ctx) {
 }
 
 async function ensureUsableModel(ctx) {
-  await ctx.navigateHash(`/workspace/${state.workspaceId}/session`);
-  await ctx.waitFor(`window.location.hash.includes(${quoted(`/workspace/${state.workspaceId}/session`)})`, { timeoutMs: 45_000, label: "session route for model discovery" });
-  await ctx.waitFor(
-    `window.__openworkControl?.listActions?.().some((item) => item.id === "eval.model_not_available.seed" && !item.disabled)`,
-    { timeoutMs: 60_000, label: "available model eval seed action" },
-  );
-  const seeded = await ctx.control("eval.model_not_available.seed");
+  await waitForSessionModelSeedAction(ctx);
+  const seeded = await ctx.control(MODEL_SEED_ACTION_ID);
   const available = seeded?.availableModel;
   ctx.assert(available?.providerID && available?.modelID, `No available connected model found: ${JSON.stringify(seeded)}`);
   state.model = { provider: available.providerID, model: available.modelID, title: available.title ?? available.modelID };
@@ -726,6 +811,7 @@ async function setupProof(ctx) {
   await runSetupStage(ctx, "control wait", () => waitForControl(ctx));
   await runSetupStage(ctx, "bootstrap", () => configureDesktopForDen(ctx));
   await runSetupStage(ctx, "handoff", () => signInWithFreshHandoff(ctx));
+  await runSetupStage(ctx, "org onboarding", () => completeVisibleOrgOnboarding(ctx, { openOnboarding: true }));
   await runSetupStage(ctx, "create workspace", () => createFreshWorkspace(ctx));
   await runSetupStage(ctx, "model", () => ensureUsableModel(ctx));
   await runSetupStage(ctx, "fixture", () => createFixtureConnection(ctx));
