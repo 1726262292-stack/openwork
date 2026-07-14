@@ -26,6 +26,8 @@ const PLUGIN_CANARY = "openwork_docs_search";
 const state = {
   fixtureServer: null,
   fixturePort: null,
+  fixtureListenPort: null,
+  fixturePublicUrl: null,
   fixtureExecutions: [],
   connectionId: null,
   workspaceId: null,
@@ -43,6 +45,29 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function quoted(value) {
   return JSON.stringify(value);
+}
+
+function optionalEnv(ctx, name) {
+  const value = ctx.env[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeFixtureUrl(value) {
+  const url = new URL(value);
+  url.hash = "";
+  const pathname = url.pathname.replace(/\/+$/, "");
+  url.pathname = pathname.endsWith("/mcp") ? pathname : `${pathname}/mcp`;
+  return url.toString();
+}
+
+function configureFixtureFromEnv(ctx) {
+  const portText = optionalEnv(ctx, "OPENWORK_EVAL_MCP_FIXTURE_PORT");
+  const listenPort = portText ? Number(portText) : 0;
+  ctx.assert(Number.isInteger(listenPort) && listenPort >= 0 && listenPort <= 65535, `OPENWORK_EVAL_MCP_FIXTURE_PORT must be a TCP port, got ${quoted(portText)}.`);
+  state.fixtureListenPort = listenPort;
+
+  const publicUrl = optionalEnv(ctx, "OPENWORK_EVAL_MCP_FIXTURE_URL");
+  state.fixturePublicUrl = publicUrl ? normalizeFixtureUrl(publicUrl) : null;
 }
 
 function denBase(ctx) {
@@ -178,7 +203,8 @@ function mcpFixtureResult(message) {
   return {};
 }
 
-async function startFixtureServer() {
+async function startFixtureServer(ctx) {
+  configureFixtureFromEnv(ctx);
   if (state.fixtureServer) return;
   state.fixtureServer = http.createServer(async (request, response) => {
     try {
@@ -211,7 +237,8 @@ async function startFixtureServer() {
   });
   await new Promise((resolve, reject) => {
     state.fixtureServer.once("error", reject);
-    state.fixtureServer.listen(0, "127.0.0.1", resolve);
+    const listenPort = state.fixtureListenPort ?? 0;
+    state.fixtureServer.listen(listenPort, listenPort > 0 ? "0.0.0.0" : "127.0.0.1", resolve);
   });
   state.fixtureServer.unref();
   const address = state.fixtureServer.address();
@@ -221,7 +248,7 @@ async function startFixtureServer() {
 
 function fixtureUrl() {
   if (!state.fixturePort) throw new Error("Fixture server is not started.");
-  return `http://127.0.0.1:${state.fixturePort}/mcp`;
+  return state.fixturePublicUrl ?? `http://127.0.0.1:${state.fixturePort}/mcp`;
 }
 
 async function setViewport(ctx) {
@@ -408,7 +435,7 @@ async function cleanupExistingFixtureConnections(ctx) {
 }
 
 async function createFixtureConnection(ctx) {
-  await startFixtureServer();
+  await startFixtureServer(ctx);
   await cleanupExistingFixtureConnections(ctx);
   const created = await denFetch(ctx, "/v1/mcp-connections", {
     method: "POST",
