@@ -298,7 +298,7 @@ export default {
           await ctx.waitFor("Boolean(window.__keylessConnectCapture?.connectUrl)", { timeoutMs: 20_000, label: "fresh click-time connection link" });
           state.connectUrl = await ctx.eval("window.__keylessConnectCapture.connectUrl");
           const connect = new URL(state.connectUrl);
-          state.serverHost = new URL(connect.searchParams.get("apiBaseUrl") ?? "http://invalid").host;
+          state.serverHost = new URL(initialConfig.webUrl).host;
           witness(ctx, connect.protocol === "openwork:" && Boolean(connect.searchParams.get("code")) && !connect.searchParams.has("token"), "The default handoff is a keyless short-lived exchange", state.connectUrl.replace(connect.searchParams.get("code") ?? "", "<redacted>"));
           witness(ctx, initialConfig.connectUrl !== state.connectUrl, "Clicking Open mints a fresh link after the installer wait", {
             initial: "redacted",
