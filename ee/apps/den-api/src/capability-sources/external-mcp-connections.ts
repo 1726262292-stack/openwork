@@ -65,6 +65,17 @@ function parseJsonRecord(value: string | null): Record<string, unknown> | null {
   }
 }
 
+function normalizedExternalMcpOrigin(url: URL): string {
+  url.hostname = url.hostname.replace(/\.+$/, "")
+  return `${url.protocol}//${url.host}`
+}
+
+function rawUrlSuffix(value: string): string {
+  const match = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#]*/.exec(value)
+  if (!match) return ""
+  return value.slice(match[0].length)
+}
+
 function versionServerSpec(version: typeof ConfigObjectVersionTable.$inferSelect): Record<string, unknown> {
   return version.normalizedPayloadJson ?? parseJsonRecord(version.rawSourceText) ?? {}
 }
@@ -89,10 +100,16 @@ export function normalizeExternalMcpIdentityUrl(value: string): string {
     const url = new URL(value.trim())
     url.hash = ""
     const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname
-    return `${url.protocol}//${url.host}${pathname}${url.search}`
+    return `${normalizedExternalMcpOrigin(url)}${pathname}${url.search}`
   } catch {
     return value.trim().replace(/\/+$/, "")
   }
+}
+
+export function normalizeExternalMcpUrl(value: string): string {
+  const trimmed = value.trim()
+  const url = new URL(trimmed)
+  return `${normalizedExternalMcpOrigin(url)}${rawUrlSuffix(trimmed)}`
 }
 
 /** A non-secret, one-way binding for OAuth state minted for this identity. */
