@@ -236,15 +236,35 @@ function verifyOfficePayloads(body) {
   };
 }
 
-function hasToolResult(value) {
-  if (Array.isArray(value)) return value.some(hasToolResult);
+function collectStringValues(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStringValues);
+  if (!isRecord(value)) return [];
+  return Object.values(value).flatMap(collectStringValues);
+}
+
+function hasIssuedToolCallId(record) {
+  return [record.tool_call_id, record.toolCallId, record.tool_use_id, record.toolUseId, record.call_id, record.callId]
+    .some((value) => value === OFFICE_TOOL_CALL_ID);
+}
+
+function isToolResultRecord(record) {
+  const role = typeof record.role === "string" ? record.role : "";
+  const type = typeof record.type === "string" ? record.type : "";
+  return role === "tool" || type === "tool-result" || type === "tool_result" || type === "toolResult";
+}
+
+function hasExpectedToolOutput(record) {
+  const text = collectStringValues(record).join("\n");
+  return Object.values(ARTIFACT_PATHS).every((path) => text.includes(path))
+    && Object.values(OFFICE_FIXTURES).every((expected) => text.includes(expected.sha256));
+}
+
+function hasExactIssuedToolResult(value) {
+  if (Array.isArray(value)) return value.some(hasExactIssuedToolResult);
   if (!isRecord(value)) return false;
-  if (value.tool_call_id === OFFICE_TOOL_CALL_ID || value.toolCallId === OFFICE_TOOL_CALL_ID) return true;
-  if (
-    (value.role === "tool" || value.type === "tool-result" || value.type === "tool_result")
-    && (value.name === OFFICE_TOOL_NAME || value.toolName === OFFICE_TOOL_NAME || value.tool_name === OFFICE_TOOL_NAME)
-  ) return true;
-  return Object.values(value).some(hasToolResult);
+  if (isToolResultRecord(value) && hasIssuedToolCallId(value) && hasExpectedToolOutput(value)) return true;
+  return Object.values(value).some(hasExactIssuedToolResult);
 }
 
 function writeSse(res, chunks) {
@@ -349,6 +369,10 @@ const proof = {
   finalResponse: false,
   replayResponse: false,
   replayOfficeHistoryOk: false,
+  auxiliaryRequests: 0,
+  auxiliaryBeforeFinal: 0,
+  auxiliaryAfterFinal: 0,
+  lastAuxiliaryRequest: null,
   attachments: {},
   replay: null,
   errors: [],
@@ -383,6 +407,22 @@ function updateProofFromVerification(verification, replay = false) {
   proof.attachments = verification.attachments;
 }
 
+function recordAuxiliaryRequest(phase, reason) {
+  proof.auxiliaryRequests += 1;
+  if (phase === "before_final") proof.auxiliaryBeforeFinal += 1;
+  if (phase === "after_final") proof.auxiliaryAfterFinal += 1;
+  proof.lastAuxiliaryRequest = {
+    request: proof.requests,
+    phase,
+    reason,
+  };
+}
+
+function writeAuxiliaryResponse(res, phase, reason) {
+  recordAuxiliaryRequest(phase, reason);
+  writeSse(res, textStream("Office attachments", "chatcmpl-office-auxiliary"));
+}
+
 function sendJson(res, payload, status = 200) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload, null, 2));
@@ -414,17 +454,26 @@ async function handleChatCompletion(req, res) {
     }
 
     if (!proof.finalResponse) {
-      proof.toolCallCompleted = hasToolResult(body);
-      if (!proof.toolCallCompleted) {
-        proof.ok = false;
-        proof.errors.push("Expected a tool result on the second provider request.");
+      if (!hasExactIssuedToolResult(body)) {
+        writeAuxiliaryResponse(res, "before_final", "missing exact issued tool result");
+        return;
       }
+      proof.toolCallCompleted = true;
       proof.finalResponse = true;
       writeSse(res, textStream(finalText(), "chatcmpl-office-final"));
       return;
     }
 
+    if (proof.replayResponse) {
+      writeAuxiliaryResponse(res, "after_final", "replay response already completed");
+      return;
+    }
+
     const replayVerification = verifyOfficePayloads(body);
+    if (!replayVerification.ok) {
+      writeAuxiliaryResponse(res, "after_final", "missing verified normalized Office history");
+      return;
+    }
     updateProofFromVerification(replayVerification, true);
     proof.replayResponse = true;
     writeSse(res, textStream("Replay succeeded after reopening the session; Office attachment history remained readable and the follow-up was answered.", "chatcmpl-office-replay"));
