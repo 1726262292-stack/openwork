@@ -48,6 +48,10 @@ function recordAssertion(ctx, assertion, passed, actual) {
   ctx.assert(passed, `${assertion}. Actual: ${JSON.stringify(actual)}`);
 }
 
+async function removeNextDevPortal(ctx) {
+  await ctx.eval("document.querySelector('nextjs-portal')?.remove(); true");
+}
+
 async function runMysql(ctx, sql) {
   const container = mysqlContainer(ctx);
   const command = container ? "docker" : "mysql";
@@ -436,6 +440,7 @@ export default {
             await ageSessions(ctx);
             await clickExactText(ctx, "Save settings", "button");
             await waitForReauthDialog(ctx);
+            await removeNextDevPortal(ctx);
           },
           assert: async () => {
             const actual = await readBrowserState(ctx);
@@ -457,6 +462,7 @@ export default {
           voiceover: vo[1],
           action: async () => {
             await fillDialogPassword(ctx, ADMIN_PASSWORD);
+            await removeNextDevPortal(ctx);
           },
           assert: async () => {
             const actual = await readBrowserState(ctx);
@@ -482,6 +488,7 @@ export default {
               const text = document.body.innerText;
               return !document.querySelector('[role="dialog"]') && text.includes('Workspace settings updated.') && location.pathname === ${JSON.stringify(ORG_SETTINGS_PATH)};
             })()`, { timeoutMs: 45_000, label: "settings save retried after reauth" });
+            await removeNextDevPortal(ctx);
           },
           assert: async () => {
             const actual = await readBrowserState(ctx);
@@ -528,6 +535,7 @@ export default {
               };
             })()`, { awaitPromise: true });
             recordAssertion(ctx, "The persisted org-name input is focused with its saved value selected", selected.found === true && selected.value === state.savedOrgName && selected.active === true && selected.selectedText === state.savedOrgName, selected);
+            await removeNextDevPortal(ctx);
           },
           assert: async () => {
             const organization = await readOrgFromBrowser(ctx);
@@ -553,6 +561,7 @@ export default {
             await prepareApiKeyCreateForm(ctx);
             await ageSessions(ctx);
             await submitApiKeyCreate(ctx);
+            await removeNextDevPortal(ctx);
           },
           assert: async () => {
             const actual = await readBrowserState(ctx);
@@ -587,6 +596,7 @@ export default {
                 const notice = document.querySelector('[data-notice-tone="info"]');
                 return !document.querySelector('[role="dialog"]') && Boolean(notice && notice.textContent.includes(${JSON.stringify(SECURITY_MESSAGE)}));
               })()`, { timeoutMs: 20_000, label: "calm cancel notice" });
+              await removeNextDevPortal(ctx);
             },
             assert: async () => {
               const actual = await readBrowserState(ctx);
