@@ -192,6 +192,31 @@ async function setBrowserActiveOrg(ctx) {
   witness(ctx, ok, `The browser session is pinned to ${state.orgName}.`, { organizationId: state.orgId });
 }
 
+async function reloadBrowserForActiveOrg(ctx) {
+  const path = `/dashboard?telegramConnectionRefresh=${Date.now()}`;
+  await ctx.eval(`(() => { window.location.assign(${JSON.stringify(path)}); return true; })()`);
+  await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: "dashboard reload after active org switch" });
+  await ctx.waitFor(`(() => {
+    const text = document.body.innerText;
+    return text.includes(${JSON.stringify(state.orgName)}) && text.includes('Dashboard');
+  })()`, { timeoutMs: 45_000, label: `dashboard hydrated for ${state.orgName}` });
+  const actual = await ctx.eval(`(() => {
+    const text = document.body.innerText;
+    return {
+      path: location.pathname,
+      href: location.href,
+      hasSelectedOrg: text.includes(${JSON.stringify(state.orgName)}),
+      hasDashboard: text.includes('Dashboard'),
+    };
+  })()`);
+  witness(
+    ctx,
+    actual.hasSelectedOrg && actual.hasDashboard,
+    `The reloaded dashboard is visibly scoped to ${state.orgName} before opening Connections.`,
+    actual,
+  );
+}
+
 async function cleanupExistingTelegramConnection(ctx) {
   const existing = await authenticatedApi("/v1/telegram/connection");
   witness(ctx, existing.response.ok, "The owner can read Telegram state before cleanup.", {
@@ -449,6 +474,7 @@ export default {
           action: async () => {
             await signInViaBrowser(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
             await setBrowserActiveOrg(ctx);
+            await reloadBrowserForActiveOrg(ctx);
             await installTelegramRequestRecorder(ctx);
             await staleBrowserSession(ctx);
             await resetTelegramRequestRecorder(ctx);
