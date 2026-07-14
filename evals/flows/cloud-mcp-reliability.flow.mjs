@@ -701,6 +701,29 @@ async function scrollToText(ctx, text) {
   })()`);
 }
 
+function agentAccessCardHelper() {
+  return `
+    const normalizeAgentAccessText = (value) => (value || "").replace(/\\s+/g, " ").trim();
+    const findAgentAccessCard = () => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let title = null;
+      while (!title && walker.nextNode()) {
+        const node = walker.currentNode;
+        if (normalizeAgentAccessText(node.textContent) === "Agent access to connected services" && node.parentElement) {
+          title = node.parentElement;
+        }
+      }
+      let candidate = title?.parentElement ?? null;
+      while (candidate) {
+        const labels = [...candidate.querySelectorAll("button")].map((button) => normalizeAgentAccessText(button.textContent));
+        if (labels.includes("Test now") && labels.includes("Repair and test")) return candidate;
+        candidate = candidate.parentElement;
+      }
+      return null;
+    };
+  `;
+}
+
 async function installNetworkProbe(ctx, label) {
   const result = await ctx.eval(`(() => {
     const key = "__cloudMcpReliabilityProbe";
@@ -776,7 +799,8 @@ async function readMarker(ctx) {
 
 async function clickAgentAccessButton(ctx, label) {
   const clicked = await ctx.eval(`(() => {
-    const card = document.querySelector('[data-testid="agent-access-card"]');
+    ${agentAccessCardHelper()}
+    const card = findAgentAccessCard();
     const button = [...(card?.querySelectorAll('button') ?? [])].find((candidate) => (candidate.textContent || "").trim() === ${quoted(label)} && !candidate.disabled);
     button?.scrollIntoView({ block: "center", inline: "nearest" });
     button?.click();
@@ -787,7 +811,8 @@ async function clickAgentAccessButton(ctx, label) {
 
 async function waitForAgentButton(ctx, label) {
   await ctx.waitFor(`(() => {
-    const card = document.querySelector('[data-testid="agent-access-card"]');
+    ${agentAccessCardHelper()}
+    const card = findAgentAccessCard();
     return [...(card?.querySelectorAll('button') ?? [])].some((button) => (button.textContent || "").trim() === ${quoted(label)} && !button.disabled);
   })()`, { timeoutMs: 90_000, label: `Agent access ${label} button enabled` });
 }
@@ -842,7 +867,8 @@ export default {
           },
           assert: async () => {
             const separation = await ctx.eval(`(() => {
-              const card = document.querySelector('[data-testid="agent-access-card"]');
+              ${agentAccessCardHelper()}
+              const card = findAgentAccessCard();
               const rows = [...document.querySelectorAll('[data-testid="connect-organization-row"]')];
               const row = rows.find((entry) => (entry.textContent || "").includes(${quoted(CONNECTION_NAME)}));
               return {
