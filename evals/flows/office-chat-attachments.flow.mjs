@@ -485,9 +485,20 @@ async function clickArtifact(ctx, filename) {
     if (heading && (heading.textContent || "").includes(${JSON.stringify(filename)})) return true;
     const buttons = Array.from(document.querySelectorAll("button"));
     const tab = buttons.find((item) => item.getAttribute("aria-label") === "Select tab: " + ${JSON.stringify(filename)});
-    if (!tab) return false;
-    tab.scrollIntoView({ block: "center", inline: "center" });
-    tab.click();
+    if (tab) {
+      tab.scrollIntoView({ block: "center", inline: "center" });
+      tab.click();
+      return true;
+    }
+    const previewTitle = "Preview " + ${JSON.stringify(filename)};
+    const openTitle = "Open " + ${JSON.stringify(filename)};
+    const inlineArtifact = buttons.find((item) => {
+      const title = item.getAttribute("title") || "";
+      return title === previewTitle || title === openTitle;
+    });
+    if (!inlineArtifact) return false;
+    inlineArtifact.scrollIntoView({ block: "center", inline: "center" });
+    inlineArtifact.click();
     return true;
   })()`, { timeoutMs: 30_000, label: `artifact tab ${filename}` });
   await ctx.waitFor(`(() => {
