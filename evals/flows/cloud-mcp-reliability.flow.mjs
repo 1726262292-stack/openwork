@@ -21,6 +21,8 @@ const AUTOMATIC_RECONCILE_TRIGGERS = [
   "desktop-background",
   "desktop-connect-autocheck",
 ];
+const GUARD_STORAGE_KEY = "openwork.eval.cloudMcpReliability.guard";
+const GUARD_BLOCKED_STORAGE_KEY = "openwork.eval.cloudMcpReliability.blockedDesktopFetches";
 const MODEL_SEED_ACTION_ID = "eval.model_not_available.seed";
 const EXPECTED_TOOL_IDS = [
   "openwork-cloud_search_capabilities",
@@ -45,6 +47,8 @@ const state = {
   readyHealth: null,
   mcpToken: null,
   chatStartedAt: null,
+  guardPreloadInstalled: false,
+  guardPreloadScriptId: null,
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -515,6 +519,7 @@ async function createFreshWorkspace(ctx) {
   const workspaceId = created?.activeId ?? created?.selectedId ?? created?.workspaces?.find((workspace) => workspace.path === WORKSPACE_PATH)?.id;
   ctx.assert(typeof workspaceId === "string" && workspaceId.trim(), `Workspace create did not return an id: ${JSON.stringify(created)}`);
   state.workspaceId = workspaceId;
+  await installDesktopFetchGuard(ctx);
   await serverFetchJson(ctx, `/workspaces/${encodeURIComponent(workspaceId)}/activate?persist=true`, { method: "POST" });
   await ctx.eval(`(() => {
     localStorage.setItem("openwork.react.activeWorkspace", ${quoted(workspaceId)});
@@ -548,6 +553,7 @@ async function ensureUsableModel(ctx) {
   })()`);
   await ctx.eval("location.reload()");
   await waitForControl(ctx);
+  await installDesktopFetchGuard(ctx);
   await ctx.navigateHash(`/workspace/${state.workspaceId}/session`);
   await ctx.waitFor(
     `(() => {
@@ -733,8 +739,37 @@ function agentAccessCardHelper() {
 function desktopProbeHarnessSource() {
   return `
     const key = "__cloudMcpReliabilityProbe";
+    const guardStorageKey = ${quoted(GUARD_STORAGE_KEY)};
+    const blockedStorageKey = ${quoted(GUARD_BLOCKED_STORAGE_KEY)};
     const bridge = window.__OPENWORK_ELECTRON__;
     const isObject = (value) => value !== null && typeof value === "object";
+    const defaultGuard = () => ({ active: false, workspaceId: null, triggers: [] });
+    const readStoredGuard = () => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(guardStorageKey) || "null");
+        if (!isObject(parsed)) return null;
+        return {
+          active: parsed.active === true,
+          workspaceId: typeof parsed.workspaceId === "string" ? parsed.workspaceId : null,
+          triggers: Array.isArray(parsed.triggers) ? parsed.triggers.filter((item) => typeof item === "string") : [],
+        };
+      } catch {
+        return null;
+      }
+    };
+    const readStoredBlocked = () => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(blockedStorageKey) || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+    const writeStoredBlocked = () => {
+      try {
+        localStorage.setItem(blockedStorageKey, JSON.stringify(probe.blockedDesktopFetches ?? []));
+      } catch {}
+    };
     const parseBody = (body) => {
       if (typeof body !== "string" || !body.trim()) return null;
       try {
@@ -754,26 +789,28 @@ function desktopProbeHarnessSource() {
       hasAuthorization: Boolean(raw.config?.headers?.Authorization),
     } : null;
     if (!window[key]) {
+      const storedGuard = readStoredGuard();
       window[key] = {
         requests: [],
         desktopFetches: [],
-        blockedDesktopFetches: [],
+        blockedDesktopFetches: readStoredBlocked(),
         originalFetch: window.fetch.bind(window),
         originalInvoke: bridge?.invokeDesktop?.bind(bridge) ?? null,
         fetchWrapper: null,
         invokeWrapper: null,
+        retryTimer: null,
         label: "",
         installedAt: Date.now(),
         desktopPatched: false,
         fetchPatched: false,
-        guard: { active: false, workspaceId: null, triggers: [] },
+        guard: storedGuard ?? defaultGuard(),
       };
     }
     const probe = window[key];
     if (!Array.isArray(probe.requests)) probe.requests = [];
     if (!Array.isArray(probe.desktopFetches)) probe.desktopFetches = [];
-    if (!Array.isArray(probe.blockedDesktopFetches)) probe.blockedDesktopFetches = [];
-    if (!probe.guard) probe.guard = { active: false, workspaceId: null, triggers: [] };
+    if (!Array.isArray(probe.blockedDesktopFetches)) probe.blockedDesktopFetches = readStoredBlocked();
+    if (!probe.guard) probe.guard = readStoredGuard() ?? defaultGuard();
     if (!probe.originalFetch) probe.originalFetch = window.fetch.bind(window);
     if (!probe.fetchWrapper) {
       probe.fetchWrapper = async (input, init) => {
@@ -820,6 +857,7 @@ function desktopProbeHarnessSource() {
           );
           if (recentMint) recentMint.automaticBackground = true;
           probe.blockedDesktopFetches.push({ ...entry, reason: "automatic-background-reconcile" });
+          writeStoredBlocked();
           throw new Error("fraimz blocked automatic Cloud MCP reconcile (" + trigger + ")");
         }
         return probe.originalInvoke(command, ...args);
@@ -833,18 +871,56 @@ function desktopProbeHarnessSource() {
         probe.desktopPatched = false;
       }
     }
+    if (!probe.retryTimer && probe.desktopPatched !== true) {
+      probe.retryTimer = window.setInterval(() => {
+        const nextBridge = window.__OPENWORK_ELECTRON__;
+        if (!nextBridge?.invokeDesktop) return;
+        if (!probe.originalInvoke) probe.originalInvoke = nextBridge.invokeDesktop.bind(nextBridge);
+        if (probe.originalInvoke && nextBridge.invokeDesktop !== probe.invokeWrapper) {
+          try {
+            nextBridge.invokeDesktop = probe.invokeWrapper;
+            probe.desktopPatched = true;
+          } catch {
+            probe.desktopPatched = false;
+          }
+        }
+        if (probe.desktopPatched === true) {
+          window.clearInterval(probe.retryTimer);
+          probe.retryTimer = null;
+        }
+      }, 25);
+    }
   `;
 }
 
-async function installDesktopFetchGuard(ctx) {
+async function installDesktopFetchGuardPreload(ctx) {
+  if (state.guardPreloadInstalled) return true;
+  ctx.assert(Boolean(ctx.client?.send), "CDP client missing; cannot register the reload-safe Cloud MCP guard.");
+  await ctx.client.send("Page.enable").catch(() => undefined);
+  const registered = await ctx.client.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `(() => {
+      ${desktopProbeHarnessSource()}
+    })();`,
+  });
+  state.guardPreloadInstalled = true;
+  state.guardPreloadScriptId = typeof registered?.identifier === "string" ? registered.identifier : null;
+  return true;
+}
+
+async function installDesktopFetchGuard(ctx, { resetBlocked = false } = {}) {
+  await installDesktopFetchGuardPreload(ctx);
+  const guard = {
+    active: true,
+    workspaceId: state.workspaceId,
+    triggers: AUTOMATIC_RECONCILE_TRIGGERS,
+  };
   const result = await ctx.eval(`(() => {
+    const guard = ${JSON.stringify(guard)};
+    localStorage.setItem(${quoted(GUARD_STORAGE_KEY)}, JSON.stringify(guard));
+    if (${resetBlocked ? "true" : "false"}) localStorage.removeItem(${quoted(GUARD_BLOCKED_STORAGE_KEY)});
     ${desktopProbeHarnessSource()}
-    probe.guard = {
-      active: true,
-      workspaceId: ${quoted(state.workspaceId)},
-      triggers: ${JSON.stringify(AUTOMATIC_RECONCILE_TRIGGERS)},
-    };
-    probe.blockedDesktopFetches.length = 0;
+    probe.guard = guard;
+    if (${resetBlocked ? "true" : "false"}) probe.blockedDesktopFetches.length = 0;
     return {
       ok: true,
       desktopPatched: probe.desktopPatched === true,
@@ -852,7 +928,7 @@ async function installDesktopFetchGuard(ctx) {
       blockedDesktopFetches: probe.blockedDesktopFetches.length,
     };
   })()`, { awaitPromise: true });
-  witness(ctx, result?.ok === true && result.desktopPatched === true && result.guard?.active === true, "Temporary renderer guard is installed before deleting Cloud runtime config so automatic background reconciles cannot heal the proof state.", result);
+  witness(ctx, result?.ok === true && result.desktopPatched === true && result.guard?.active === true, "Temporary renderer guard is active before Cloud background reconciles can heal the proof state.", result);
 }
 
 async function desktopFetchGuardSummary(ctx) {
@@ -892,7 +968,16 @@ async function restoreDesktopFetchGuard(ctx) {
       reason: request.reason ?? null,
     });
     if (!probe) return { ok: false, restored: false, reason: "probe missing", blockedDesktopFetches: [] };
-    if (probe.guard) probe.guard.active = false;
+    if (probe.retryTimer) {
+      window.clearInterval(probe.retryTimer);
+      probe.retryTimer = null;
+    }
+    if (probe.guard) {
+      probe.guard.active = false;
+      try {
+        localStorage.setItem(${quoted(GUARD_STORAGE_KEY)}, JSON.stringify(probe.guard));
+      } catch {}
+    }
     let restored = false;
     if (bridge && probe.originalInvoke) {
       try {
@@ -1012,6 +1097,7 @@ async function setupProof(ctx) {
   await runSetupStage(ctx, "bootstrap", () => configureDesktopForDen(ctx));
   await runSetupStage(ctx, "handoff", () => signInWithFreshHandoff(ctx));
   await runSetupStage(ctx, "org onboarding", () => completeVisibleOrgOnboarding(ctx, { openOnboarding: true }));
+  await runSetupStage(ctx, "background reconcile guard", () => installDesktopFetchGuard(ctx, { resetBlocked: true }));
   await runSetupStage(ctx, "create workspace", () => createFreshWorkspace(ctx));
   await runSetupStage(ctx, "model", () => ensureUsableModel(ctx));
   await runSetupStage(ctx, "fixture", () => createFixtureConnection(ctx));
@@ -1365,10 +1451,18 @@ export default {
           state.fixtureServer.close();
           state.fixtureServer = null;
         }
+        if (state.guardPreloadScriptId && ctx.client?.send) {
+          await ctx.client.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: state.guardPreloadScriptId }).catch((error) => {
+            ctx.log(`Cloud MCP guard preload cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
         await ctx.eval(`(() => {
           const probe = window.__cloudMcpReliabilityProbe;
+          if (probe?.retryTimer) window.clearInterval(probe.retryTimer);
           if (probe?.originalFetch) window.fetch = probe.originalFetch;
           if (probe?.originalInvoke && window.__OPENWORK_ELECTRON__) window.__OPENWORK_ELECTRON__.invokeDesktop = probe.originalInvoke;
+          localStorage.removeItem(${quoted(GUARD_STORAGE_KEY)});
+          localStorage.removeItem(${quoted(GUARD_BLOCKED_STORAGE_KEY)});
           delete window.__cloudMcpReliabilityProbe;
           return true;
         })()`).catch(() => null);
