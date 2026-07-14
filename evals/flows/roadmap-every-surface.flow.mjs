@@ -90,11 +90,14 @@ export default {
           assert: async () => {
             const actual = await ctx.eval(`(() => {
               const roadmap = document.querySelector('[data-testid="openwork-roadmap"]');
+              const shell = document.querySelector('[data-testid="roadmap-page-shell"]');
               const text = roadmap?.innerText || "";
               const firstSectionAfterHero = roadmap?.children[1]?.querySelector("#desktop-home");
               return {
                 path: location.pathname,
                 roadmapExists: Boolean(roadmap),
+                shellBackground: shell ? getComputedStyle(shell).backgroundColor : null,
+                shaderCanvasCount: shell?.querySelectorAll("canvas").length ?? null,
                 startsWithDesktopSection: Boolean(firstSectionAfterHero),
                 hasRemovedWindowLabel: text.includes("Home base · live"),
                 hasRemovedProjectLabel: text.includes("Project workspace"),
@@ -102,9 +105,11 @@ export default {
             })()`);
             recordAssertion(
               ctx,
-              "The introduction is followed by the desktop roadmap section and the removed diagram labels are absent",
+              "The roadmap has a solid background with no shader canvas and the introduction is followed by the desktop section",
               actual.path === "/roadmap"
                 && actual.roadmapExists === true
+                && actual.shellBackground === "rgb(246, 249, 252)"
+                && actual.shaderCanvasCount === 0
                 && actual.startsWithDesktopSection === true
                 && actual.hasRemovedWindowLabel === false
                 && actual.hasRemovedProjectLabel === false,
