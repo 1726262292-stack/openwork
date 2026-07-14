@@ -1358,10 +1358,10 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`,
         { token, hostToken, method: "PATCH", body: { label }, timeoutMs: timeouts.config },
       ),
-    removeSessionGroup: (workspaceId: string, groupId: string) =>
+    removeSessionGroup: (workspaceId: string, groupId: string, destinationGroupId: string | null = null) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number }>(
         baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}`,
+        `/workspace/${encodeURIComponent(workspaceId)}/session-groups/${encodeURIComponent(groupId)}${destinationGroupId ? `?destinationGroupId=${encodeURIComponent(destinationGroupId)}` : ""}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
       ),
     listSessionGroupEvents: (workspaceId: string, options?: { since?: number }) => {

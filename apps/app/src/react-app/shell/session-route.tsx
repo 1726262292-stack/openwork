@@ -2117,8 +2117,12 @@ export function SessionRoute() {
           navigateToWorkspaceSession(workspaceId, sessionId);
         },
         onPrefetchSession: () => {},
-        onCreateTaskInWorkspace: (workspaceId) => {
-          void handleCreateTaskInWorkspace(workspaceId);
+        onCreateTaskInWorkspace: (workspaceId, groupId) => {
+          void handleCreateTaskInWorkspace(workspaceId).then((sessionId) => {
+            if (sessionId && groupId) {
+              sessionManagementStore.getState().assignGroup(workspaceId, sessionId, groupId);
+            }
+          });
         },
         onCreateTaskWithPrompt: (workspaceId, prompt) => {
           void (async () => {

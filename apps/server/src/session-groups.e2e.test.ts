@@ -136,6 +136,45 @@ describe("session group API", () => {
     ]);
   });
 
+  test("moves assigned sessions when deleting a group with a destination", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startOpenworkServer(root);
+
+    await json(await fetch(`${base}/workspace/ws_1/session-groups`, {
+      method: "PUT",
+      headers: auth(token),
+      body: JSON.stringify({
+        state: {
+          groups: [
+            { id: "grp_source", label: "Source" },
+            { id: "grp_destination", label: "Destination" },
+          ],
+          assignments: {
+            ses_1: "grp_source",
+            ses_2: "grp_source",
+            ses_3: "grp_destination",
+          },
+        },
+      }),
+    }));
+
+    const deleted = await json(await fetch(
+      `${base}/workspace/ws_1/session-groups/grp_source?destinationGroupId=grp_destination`,
+      { method: "DELETE", headers: auth(token) },
+    ));
+
+    expect(deleted).toMatchObject({
+      state: {
+        groups: [{ id: "grp_destination", label: "Destination" }],
+        assignments: {
+          ses_1: "grp_destination",
+          ses_2: "grp_destination",
+          ses_3: "grp_destination",
+        },
+      },
+    });
+  });
+
   test("keeps session group events buffered per workspace", () => {
     const store = new SessionGroupEventStore(2);
     const first = store.record("quiet", "created", { groupId: "grp_quiet" });

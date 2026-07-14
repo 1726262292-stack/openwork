@@ -105,11 +105,19 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
         writeMigrationComplete(endpoint);
         return response.state;
       },
-      removeGroup: async (workspaceId: string, groupId: string) => {
+      renameGroup: async (workspaceId: string, groupId: string, label: string) => {
         const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
         const endpoint = endpointForWorkspaceRef.current(workspace);
         if (!endpoint) return null;
-        const response = await endpoint.client.removeSessionGroup(endpoint.workspaceId, groupId);
+        const response = await endpoint.client.renameSessionGroup(endpoint.workspaceId, groupId, label);
+        writeMigrationComplete(endpoint);
+        return response.state;
+      },
+      removeGroup: async (workspaceId, groupId, destinationGroupId) => {
+        const workspace = workspacesRef.current.find((item) => item.id === workspaceId);
+        const endpoint = endpointForWorkspaceRef.current(workspace);
+        if (!endpoint) return null;
+        const response = await endpoint.client.removeSessionGroup(endpoint.workspaceId, groupId, destinationGroupId);
         writeMigrationComplete(endpoint);
         return response.state;
       },
