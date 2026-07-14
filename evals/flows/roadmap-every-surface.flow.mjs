@@ -63,6 +63,7 @@ async function sectionState(ctx, selector) {
       exists: Boolean(section),
       text,
       live: Array.from(section?.querySelectorAll("span") || []).filter((node) => node.textContent?.trim() === "Live").length,
+      partial: Array.from(section?.querySelectorAll("span") || []).filter((node) => node.textContent?.trim() === "Partial").length,
       building: Array.from(section?.querySelectorAll("span") || []).filter((node) => node.textContent?.trim() === "Building").length,
       next: Array.from(section?.querySelectorAll("span") || []).filter((node) => node.textContent?.trim() === "Next").length,
       exploring: Array.from(section?.querySelectorAll("span") || []).filter((node) => node.textContent?.trim() === "Exploring").length,
@@ -136,20 +137,24 @@ export default {
             const actual = await sectionState(ctx, "#desktop-home");
             recordAssertion(
               ctx,
-              "The desktop section shows all four current capabilities as Live and long-running organization as Building",
+              "The desktop section shows artifacts and browser control as Live, isolated sandboxes as Partial, and long-running organization as Building",
               actual.exists === true
                 && actual.text.includes("the desktop app is home")
                 && actual.text.includes("Local files and workspaces")
                 && actual.text.includes("Organization-managed capabilities")
+                && actual.text.includes("Artifacts")
+                && actual.text.includes("Built-in browser control")
+                && actual.text.includes("Isolated sandbox workspaces")
                 && actual.text.includes("Better organization for long-running work")
-                && actual.live === 4
+                && actual.live === 6
+                && actual.partial === 1
                 && actual.building === 1,
               actual,
             );
           },
           screenshot: {
             name: "frame-2-desktop-home",
-            requireText: ["the desktop app is home", "Local files and workspaces", "Building"],
+            requireText: ["the desktop app is home", "Artifacts", "Built-in browser control", "Partial"],
             rejectText: ["Something went wrong"],
           },
         });
@@ -191,8 +196,43 @@ export default {
     {
       name: "Frame 4",
       run: async (ctx) => {
-        await ctx.prove("The hosted-workspace section explains the persistent runtime and the sequence of upcoming work.", {
+        await ctx.prove("The central management section distinguishes controls available today from broader observability coverage being built.", {
           voiceover: vo[3],
+          action: async () => {
+            await scrollTo(ctx, "#central-management");
+          },
+          assert: async () => {
+            const actual = await sectionState(ctx, "#central-management");
+            recordAssertion(
+              ctx,
+              "Central management includes desktop policies, teams, marketplaces, Anthropic-compatible plugins, SSO, telemetry, and OpenTelemetry coverage",
+              actual.exists === true
+                && actual.text.includes("central management")
+                && actual.text.includes("Desktop policies")
+                && actual.text.includes("Members, teams, and roles")
+                && actual.text.includes("Skills and plugin marketplaces")
+                && actual.text.includes("Anthropic-compatible plugins")
+                && actual.text.includes("SAML SSO")
+                && actual.text.includes("Usage and adoption telemetry")
+                && actual.text.includes("OpenTelemetry coverage")
+                && actual.live === 6
+                && actual.building === 1,
+              actual,
+            );
+          },
+          screenshot: {
+            name: "frame-4-central-management",
+            requireText: ["central management", "Desktop policies", "Skills and plugin marketplaces"],
+            rejectText: ["Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 5",
+      run: async (ctx) => {
+        await ctx.prove("The hosted-workspace section explains the persistent runtime and the sequence of upcoming work.", {
+          voiceover: vo[4],
           action: async () => {
             await scrollTo(ctx, "#hosted-workspaces");
           },
@@ -216,7 +256,7 @@ export default {
             );
           },
           screenshot: {
-            name: "frame-4-hosted-workspaces",
+            name: "frame-5-hosted-workspaces",
             requireText: ["a workspace that stays on", "Persistent hosted workspaces", "Scheduled workflows"],
             rejectText: ["Something went wrong"],
           },
@@ -224,10 +264,10 @@ export default {
       },
     },
     {
-      name: "Frame 5",
+      name: "Frame 6",
       run: async (ctx) => {
         await ctx.prove("The surfaces section makes the sequence from desktop to Slack, mobile, and beyond explicit.", {
-          voiceover: vo[4],
+          voiceover: vo[5],
           action: async () => {
             await scrollTo(ctx, "#every-surface");
           },
@@ -251,7 +291,7 @@ export default {
             );
           },
           screenshot: {
-            name: "frame-5-every-surface",
+            name: "frame-6-every-surface",
             requireText: ["OpenWork on every surface", "Slack", "Mobile", "Exploring"],
             rejectText: ["Something went wrong"],
           },
@@ -259,49 +299,52 @@ export default {
       },
     },
     {
-      name: "Frame 6",
+      name: "Frame 7",
       run: async (ctx) => {
-        await ctx.prove("The docs route renders the same shared roadmap and closes with four upcoming specifications.", {
-          voiceover: vo[5],
+        await ctx.prove("The docs route renders the same shared roadmap with central management and no specifications section.", {
+          voiceover: vo[6],
           action: async () => {
-            await navigateTo(ctx, "/docs/roadmap", "upcoming specifications");
-            await scrollTo(ctx, "#specifications");
+            await navigateTo(ctx, "/docs/roadmap", "central management");
+            await scrollTo(ctx, "#central-management");
           },
           assert: async () => {
             const actual = await ctx.eval(`(() => {
               const roadmap = document.querySelector('[data-testid="openwork-roadmap"]');
+              const centralManagement = document.querySelector("#central-management");
               const specs = document.querySelector("#specifications");
-              const text = specs?.innerText || "";
+              const text = roadmap?.innerText || "";
               const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute("href") || "";
               return {
                 path: location.pathname,
                 sharedRoadmapExists: Boolean(roadmap),
-                specCount: specs?.querySelectorAll("article").length || 0,
-                hasCapabilitySpec: text.includes("OpenWork Capability Spec"),
-                hasWorkspaceSpec: text.includes("OpenWork Workspace Spec"),
-                hasSurfaceSpec: text.includes("OpenWork Surface Spec"),
-                hasRunSpec: text.includes("OpenWork Run Spec"),
+                centralManagementExists: Boolean(centralManagement),
+                specificationsExist: Boolean(specs),
+                hasDesktopPolicies: text.includes("Desktop policies"),
+                hasSandbox: text.includes("Isolated sandbox workspaces"),
+                hasSystemsSection: Boolean(document.querySelector("#systems")),
+                hasOldSpecificationsCopy: text.includes("upcoming specifications"),
                 canonical,
               };
             })()`);
             recordAssertion(
               ctx,
-              "The local docs route uses the shared roadmap component, renders all four specs, and canonicals to the public roadmap",
+              "The local docs route uses the shared roadmap, includes central management and desktop capabilities, omits specifications, and canonicals to the public roadmap",
               actual.path === "/docs/roadmap"
                 && actual.sharedRoadmapExists === true
-                && actual.specCount === 4
-                && actual.hasCapabilitySpec === true
-                && actual.hasWorkspaceSpec === true
-                && actual.hasSurfaceSpec === true
-                && actual.hasRunSpec === true
+                && actual.centralManagementExists === true
+                && actual.specificationsExist === false
+                && actual.hasDesktopPolicies === true
+                && actual.hasSandbox === true
+                && actual.hasSystemsSection === true
+                && actual.hasOldSpecificationsCopy === false
                 && actual.canonical.endsWith("/roadmap"),
               actual,
             );
           },
           screenshot: {
-            name: "frame-6-docs-specifications",
-            requireText: ["upcoming specifications", "OpenWork Capability Spec", "OpenWork Run Spec"],
-            rejectText: ["Something went wrong"],
+            name: "frame-7-docs-central-management",
+            requireText: ["central management", "Desktop policies", "Skills and plugin marketplaces"],
+            rejectText: ["upcoming specifications", "Something went wrong"],
           },
         });
       },
