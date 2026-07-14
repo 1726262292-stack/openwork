@@ -16,6 +16,8 @@ Current components:
 
 - `PaperMeshGradient`
 - `PaperGrainGradient`
+- `OpenWorkRoadmap`
+- `DownloadOpenWorkCard`
 
 Both accept a `seed` prop. Pass a TypeID-like string such as `om_01kmhbscaze02vp04ykqa4tcsb` and the component will deterministically derive colors and shader params from it. The same seed always produces the same result.
 
@@ -24,6 +26,13 @@ Explicit props still work and override the seeded values, so the merge order is:
 1. OpenWork defaults
 2. Seed-derived values from `seed`
 3. Explicit props passed by the caller
+
+## Roadmap component
+
+`OpenWorkRoadmap` is the shared visual roadmap used by the landing and docs
+routes. Its typed sections and specifications are exported as
+`roadmapSections` and `roadmapSpecs` so other OpenWork surfaces can reuse the
+same source of truth.
 
 ## Layout convention
 

@@ -1,26 +1,105 @@
 ---
 title: "Roadmap"
-description: "What OpenWork supports today and what is coming next."
+description: "The roadmap for the OpenWork desktop app, portable capabilities, hosted workspaces, and every surface where work happens."
 ---
 
-Sharing the upcoming items in our roadmap:
+Most people use OpenWork through the desktop app today. It is where you create a workspace, work with files, connect services, add skills, and customize how your agent works.
 
-Last updated: 04/16/2026
+What you create there should not stay trapped there. OpenWork Connect already brings the same capabilities into compatible agents. Next come persistent hosted workspaces, Slack, mobile, and more.
 
-## Live today
+Last updated: July 2026
 
-- Desktop app on Windows, Mac, and Linux.
-- Shared agents, skills, Agents, and MCPs.
-- Sign in with OpenAI Auth or other LLM providers.
-- Use any LLM, including LiteLLM and Cloudflare Gateaway.
-- Connect to a remote workspace or a cloud worker for long running tasks.
-- Cloud: Org Hub with provisioned Skills, Agents, and MCPs.
-- Cloud: RBAC, teams within an org, and the ability to deploy cloud workers.
+<Info>
+  **Live** means available today. **Building** means active work. **Next** is the next product horizon. **Exploring** is a direction, not a commitment.
+</Info>
 
-## Roadmap
+## The desktop app is home
 
-- Better support for Windows.
-- Claude-compatible plugin marketplace.
-- Git-based provisioning for plugins, skills, and MCPs.
-- Automatic push-based provisioning and sync.
-- Advanced enterprise controls: RBAC, audit trails, SSO/SAML, MDM provisioning...
+The desktop app is the main OpenWork experience. It is where people work with files, run agents, manage sessions, create skills, connect services, and customize a workspace.
+
+| Capability | Status |
+| --- | --- |
+| Desktop app for macOS, Windows, and Linux | Live |
+| Local files and workspaces | Live |
+| Skills, plugins, MCPs, and connected services | Live |
+| Organization-managed capabilities | Live |
+| Better organization for long-running work | Building |
+
+> The desktop app is where most people configure OpenWork today. Connect is how that configuration travels.
+
+## Your setup follows you
+
+What you configure in OpenWork should not stay trapped in one interface. OpenWork Connect brings the same capabilities into the agents you already use.
+
+| Capability | Status |
+| --- | --- |
+| OpenWork Connect MCP | Live |
+| Codex, Claude Code, Cursor, and OpenCode | Live |
+| Organization marketplaces and access controls | Live |
+| Shared and per-user authentication | Live |
+| Git-based publishing and automatic sync | Building |
+
+## A workspace that stays on
+
+Hosted workspaces give a person or team a persistent filesystem and a predictable environment in the cloud. Files, dependencies, repository state, and running work remain available after the laptop closes.
+
+| Capability | Status |
+| --- | --- |
+| Remote workspace connections | Live |
+| Persistent hosted workspaces | Building |
+| Reproducible environments | Building |
+| Long-running and background tasks | Building |
+| Scheduled workflows | Next |
+| Continue from another surface | Next |
+
+> Start with the desktop app. Leave work running in a hosted workspace. Return from the desktop, Slack, mobile, or another surface.
+
+## OpenWork on every surface
+
+The desktop app remains the richest OpenWork experience. Other surfaces provide focused ways to reach the same capabilities, permissions, workspaces, and history.
+
+| Surface | Status |
+| --- | --- |
+| OpenWork desktop | Live |
+| Existing AI agents through MCP | Live |
+| Slack | Next |
+| Mobile | Next |
+| Email and messaging | Exploring |
+| Custom organization agents | Exploring |
+
+## Systems, not just conversations
+
+Persistent environments and portable authentication make it possible to turn successful agent work into reliable systems that can run again.
+
+| Capability | Status |
+| --- | --- |
+| Search and execute | Live |
+| Authenticated multi-step execution | Building |
+| Schedules and event triggers | Next |
+| Human approvals and resumable runs | Next |
+| Retries, logs, and run history | Next |
+
+## Upcoming specifications
+
+We plan to publish the interfaces behind the roadmap so the community can build with them, question them, and help shape them before they settle.
+
+<CardGroup cols={2}>
+  <Card title="OpenWork Capability Spec" icon="puzzle-piece">
+    How skills, plugins, MCP dependencies, authentication requirements, and permissions are packaged and shared.
+  </Card>
+  <Card title="OpenWork Workspace Spec" icon="folder-tree">
+    How a workspace describes its files, environment, dependencies, capabilities, provisioning, and persistence.
+  </Card>
+  <Card title="OpenWork Surface Spec" icon="display">
+    How desktop, MCP clients, Slack, mobile, and custom interfaces attach to the same workspace with the right identity and permissions.
+  </Card>
+  <Card title="OpenWork Run Spec" icon="diagram-project">
+    How multi-step workflows define execution, schedules, approvals, retries, outputs, and history.
+  </Card>
+</CardGroup>
+
+## Help shape what comes next
+
+Tell us which workflow, workspace, or surface would make the biggest difference to how you work.
+
+[Share feedback](https://openworklabs.com/feedback?source=roadmap)
