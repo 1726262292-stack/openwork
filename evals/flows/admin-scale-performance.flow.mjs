@@ -119,9 +119,15 @@ const benchmarkResultText = benchmarkText(benchmarkResult);
 const ADMIN_URL = process.env.DEN_ADMIN_EVAL_URL || "http://127.0.0.1:3005/admin?adminScaleFixture=1&adminClearCache=1";
 const USER_SEARCH_INPUT = 'input[placeholder="Email, name, user id, provider, organization"]';
 const ORG_SEARCH_INPUT = 'input[placeholder="Org name, slug, or id"]';
+const USER_ROW_SELECTOR = '[data-testid^="admin-user-row-"]';
+const ORG_ROW_SELECTOR = '[data-testid^="admin-org-row-"]';
 
 function visibleRowCount(selector) {
   return `document.querySelectorAll(${JSON.stringify(selector)}).length`;
+}
+
+function visibleRowIds(selector) {
+  return `Array.from(document.querySelectorAll(${JSON.stringify(selector)}), (entry) => entry.getAttribute("data-testid") ?? "")`;
 }
 
 function browserUsableMetric() {
@@ -189,12 +195,29 @@ export default {
       run: async (ctx) => {
         await ctx.prove("The page renders only the current bounded user page", {
           voiceover: vo[1],
+          action: async () => {
+            const initialRowIds = await ctx.eval(visibleRowIds(USER_ROW_SELECTOR));
+            ctx.assert(Array.isArray(initialRowIds) && initialRowIds.length > 0, `Expected initial user rows before pagination, got ${JSON.stringify(initialRowIds)}`);
+            ctx.state.boundedUserPageInitialRowIds = initialRowIds;
+            await ctx.clickText("Next", { selector: "button", timeoutMs: 30_000 });
+            await ctx.waitForText("page 51-100 of 50000", { timeoutMs: 30_000 });
+            await ctx.waitFor(`(() => {
+              const before = new Set(${JSON.stringify(initialRowIds)});
+              const rows = Array.from(document.querySelectorAll(${JSON.stringify(USER_ROW_SELECTOR)}), (entry) => entry.getAttribute("data-testid") ?? "");
+              return rows.length > 0 && rows.length <= 50 && rows.some((id) => !before.has(id));
+            })()`, { timeoutMs: 30_000, label: "second user page rows" });
+          },
           assert: async () => {
-            const rowCount = await ctx.eval(visibleRowCount('[data-testid^="admin-user-row-"]'));
-            ctx.assert(rowCount > 0 && rowCount <= 50, `Expected at most 50 visible user rows, got ${rowCount}`);
+            const rowCount = await ctx.eval(visibleRowCount(USER_ROW_SELECTOR));
+            const rowIds = await ctx.eval(visibleRowIds(USER_ROW_SELECTOR));
+            const metric = await ctx.eval(pageMetric("Search across all 50000 users"));
+            ctx.assert(rowCount === 50, `Expected exactly 50 visible user rows (bounded <=50), got ${rowCount}`);
+            ctx.assert(metric?.start === 51 && metric.end === 100 && metric.total === 50000, `Unexpected second user page metric: ${JSON.stringify(metric)}`);
+            ctx.assert(Array.isArray(rowIds) && rowIds.some((id) => !ctx.state.boundedUserPageInitialRowIds.includes(id)), `Expected second-page user rows to differ from the first page, got ${JSON.stringify(rowIds)}`);
+            await ctx.expectText("page 51-100 of 50000");
             await ctx.expectText("first pages capped at 50");
           },
-          screenshot: { name: "admin-scale-bounded-users", requireText: ["first pages capped at 50", "Export current page CSV"] },
+          screenshot: { name: "admin-scale-bounded-users", requireText: ["page 51-100 of 50000", "User 50", "first pages capped at 50", "Export current page CSV"] },
         });
       },
     },
@@ -212,7 +235,7 @@ export default {
           assert: async () => {
             ctx.state.userSearchElapsedMs = Date.now() - ctx.state.userSearchStartedAt;
             await ctx.expectText("scale-search-target@example.com");
-            const rowCount = await ctx.eval(visibleRowCount('[data-testid^="admin-user-row-"]'));
+            const rowCount = await ctx.eval(visibleRowCount(USER_ROW_SELECTOR));
             const metric = await ctx.eval(pageMetric("Search across all 50000 users"));
             ctx.assert(rowCount === 1, `Expected one user search row, got ${rowCount}`);
             ctx.assert(metric?.total === 1 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected user search metric: ${JSON.stringify(metric)} (runner input diagnostic ${ctx.state.userSearchElapsedMs} ms)`);
@@ -234,7 +257,7 @@ export default {
           },
           assert: async () => {
             ctx.state.orgOpenElapsedMs = Date.now() - ctx.state.orgOpenStartedAt;
-            const rowCount = await ctx.eval(visibleRowCount('[data-testid^="admin-org-row-"]'));
+            const rowCount = await ctx.eval(visibleRowCount(ORG_ROW_SELECTOR));
             const metric = await ctx.eval(pageMetric("Search across all 60000 organizations"));
             ctx.assert(rowCount > 0 && rowCount <= 50, `Expected at most 50 organization rows, got ${rowCount}`);
             ctx.assert(metric?.end === 50 && metric.total === 60000 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected organization page metric: ${JSON.stringify(metric)} (runner tab diagnostic ${ctx.state.orgOpenElapsedMs} ms)`);
@@ -259,7 +282,7 @@ export default {
             await ctx.expectText("Scale Performance Target Organization");
             await ctx.expectText("Install links");
             await ctx.expectText("Save access");
-            const rowCount = await ctx.eval(visibleRowCount('[data-testid^="admin-org-row-"]'));
+            const rowCount = await ctx.eval(visibleRowCount(ORG_ROW_SELECTOR));
             const metric = await ctx.eval(pageMetric("Search across all 60000 organizations"));
             ctx.assert(rowCount === 1, `Expected one organization search row, got ${rowCount}`);
             ctx.assert(metric?.total === 1 && finiteNumber(metric.browserMs) && metric.browserMs <= SEARCH_BUDGET_MS, `Unexpected organization search metric: ${JSON.stringify(metric)} (runner input diagnostic ${ctx.state.orgSearchElapsedMs} ms)`);
