@@ -915,12 +915,12 @@ export default {
               firstFailure: state.degradedHealth.firstFailure,
             });
             await ctx.expectText("Degraded");
-            await ctx.expectText("First issue");
-            await ctx.expectText("Recommended action");
+            await ctx.expectText("FIRST ISSUE");
+            await ctx.expectText("RECOMMENDED ACTION");
           },
           screenshot: {
             name: "frame-2-degraded-first-issue",
-            requireText: ["Degraded", "First issue", "Recommended action", "Use Repair and test"],
+            requireText: ["Degraded", "FIRST ISSUE", "RECOMMENDED ACTION", "Use Repair and test"],
             rejectText: ["Something went wrong"],
             hashIncludes: "/settings/connect",
           },
