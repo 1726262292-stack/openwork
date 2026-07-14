@@ -23,6 +23,7 @@ const AUTOMATIC_RECONCILE_TRIGGERS = [
 ];
 const GUARD_STORAGE_KEY = "openwork.eval.cloudMcpReliability.guard";
 const GUARD_BLOCKED_STORAGE_KEY = "openwork.eval.cloudMcpReliability.blockedDesktopFetches";
+const TOKEN_MINT_DEDUPLICATION_WINDOW_MS = 2_000;
 const MODEL_SEED_ACTION_ID = "eval.model_not_available.seed";
 const EXPECTED_TOOL_IDS = [
   "openwork-cloud_search_capabilities",
@@ -782,6 +783,7 @@ function desktopProbeHarnessSource() {
     const sanitizeBody = (raw) => isObject(raw) ? {
       workspaceId: raw.workspaceId ?? null,
       name: raw.name ?? null,
+      scopes: Array.isArray(raw.scopes) ? raw.scopes.filter((scope) => typeof scope === "string") : null,
       trigger: raw.trigger ?? null,
       provider: raw.provider ?? null,
       model: raw.model ?? null,
@@ -1026,6 +1028,7 @@ async function networkSummary(ctx) {
           parsedBody = {
             workspaceId: raw.workspaceId ?? null,
             name: raw.name ?? null,
+            scopes: Array.isArray(raw.scopes) ? raw.scopes.filter((scope) => typeof scope === "string") : null,
             trigger: raw.trigger ?? null,
             provider: raw.provider ?? null,
             model: raw.model ?? null,
@@ -1051,6 +1054,58 @@ async function networkSummary(ctx) {
       blockedDesktopFetches: (probe.blockedDesktopFetches ?? []).map(sanitizeDesktopRequest),
     };
   })()`);
+}
+
+function isTokenMintPost(request) {
+  return request.method === "POST" && request.url.includes("/v1/mcp/token");
+}
+
+function tokenMintBodyKey(request) {
+  return JSON.stringify(request.body ?? null);
+}
+
+function sameTokenMintOperation(request, desktopFetch) {
+  return request.method === desktopFetch.method &&
+    request.url === desktopFetch.url &&
+    tokenMintBodyKey(request) === tokenMintBodyKey(desktopFetch) &&
+    Number.isFinite(request.at) &&
+    Number.isFinite(desktopFetch.at) &&
+    Math.abs(request.at - desktopFetch.at) <= TOKEN_MINT_DEDUPLICATION_WINDOW_MS;
+}
+
+function classifyTokenMintPosts(summary) {
+  const requests = summary.requests.filter(isTokenMintPost);
+  const desktopFetches = summary.desktopFetches.filter(isTokenMintPost);
+  const matchedRequestIndexes = new Set();
+  const operations = requests.map((request) => ({
+    automaticBackground: false,
+    channels: ["requests"],
+    request,
+  }));
+
+  for (const desktopFetch of desktopFetches) {
+    const matchIndex = requests.findIndex((request, index) => !matchedRequestIndexes.has(index) && sameTokenMintOperation(request, desktopFetch));
+    if (matchIndex >= 0) {
+      matchedRequestIndexes.add(matchIndex);
+      operations[matchIndex].automaticBackground = desktopFetch.automaticBackground === true;
+      operations[matchIndex].channels.push("desktopFetches");
+      operations[matchIndex].desktopFetch = desktopFetch;
+    } else {
+      operations.push({
+        automaticBackground: desktopFetch.automaticBackground === true,
+        channels: ["desktopFetches"],
+        desktopFetch,
+      });
+    }
+  }
+
+  return {
+    operations,
+    channelCounts: {
+      requests: requests.length,
+      desktopFetches: desktopFetches.length,
+    },
+  };
 }
 
 async function readMarker(ctx) {
@@ -1207,13 +1262,15 @@ export default {
             const summary = await networkSummary(ctx);
             const healthGets = summary.requests.filter((request) => request.method === "GET" && request.url.includes(`/workspace/${state.workspaceId}/mcp/openwork-cloud/health`));
             const reconcilePosts = summary.requests.filter((request) => request.method === "POST" && request.url.includes("/mcp/openwork-cloud/reconcile"));
-            const tokenMints = summary.desktopFetches.filter((request) => request.method === "POST" && request.url.includes("/v1/mcp/token") && request.automaticBackground !== true);
-            const backgroundTokenMints = summary.desktopFetches.filter((request) => request.method === "POST" && request.url.includes("/v1/mcp/token") && request.automaticBackground === true);
-            witness(ctx, healthGets.length >= 1 && reconcilePosts.length === 0 && tokenMints.length === 0, "Test now made GET health requests only: no reconcile POST and no Test-now Den MCP token mint.", {
+            const tokenMints = classifyTokenMintPosts(summary);
+            const userTokenMints = tokenMints.operations.filter((operation) => operation.automaticBackground !== true);
+            const backgroundTokenMints = tokenMints.operations.filter((operation) => operation.automaticBackground === true);
+            witness(ctx, healthGets.length >= 1 && reconcilePosts.length === 0 && userTokenMints.length === 0, "Test now made GET health requests only: no reconcile POST and no Test-now Den MCP token mint.", {
               healthGets: healthGets.length,
               reconcilePosts: reconcilePosts.length,
-              tokenMints: tokenMints.length,
+              tokenMints: userTokenMints.length,
               backgroundTokenMints: backgroundTokenMints.length,
+              tokenMintChannelCounts: tokenMints.channelCounts,
               blockedAutomaticReconciles: summary.blockedDesktopFetches.length,
             });
             const guard = await desktopFetchGuardSummary(ctx);
@@ -1250,8 +1307,12 @@ export default {
             const summary = await networkSummary(ctx);
             const posts = summary.requests.filter((request) => request.method === "POST" && request.url.includes(`/workspace/${state.workspaceId}/mcp/openwork-cloud/reconcile`));
             witness(ctx, posts.length === 1 && posts[0].body?.workspaceId === state.workspaceId && posts[0].body?.name === CLOUD_MCP_NAME && posts[0].body?.hasAuthorization === true, "Repair posted one sanitized reconcile request to the exact workspace route and body.", posts.map((post) => post.body));
-            const tokenMints = summary.desktopFetches.filter((request) => request.method === "POST" && request.url.includes("/v1/mcp/token"));
-            witness(ctx, tokenMints.length === 1, "Repair minted one Den MCP token through the desktop fetch bridge.", { tokenMints: tokenMints.length });
+            const tokenMints = classifyTokenMintPosts(summary);
+            witness(ctx, tokenMints.operations.length === 1, "Repair minted one Den MCP token through the renderer or desktop fetch channel.", {
+              tokenMints: tokenMints.operations.length,
+              tokenMintChannelCounts: tokenMints.channelCounts,
+              tokenMintChannels: tokenMints.operations.map((operation) => operation.channels.join("+")),
+            });
             state.readyHealth = await waitForHealth(ctx, (health) => health.usable === true && health.workspace.id === state.workspaceId && health.firstFailure === null, "usable health after repair");
             const markerAfter = await readMarker(ctx);
             witness(ctx, !state.markerBeforeRepair && typeof markerAfter === "string" && markerAfter.includes(state.workspaceId), "The sync marker was absent before repair and written only after usable health returned.", { before: state.markerBeforeRepair, afterPresent: Boolean(markerAfter) });
