@@ -512,6 +512,17 @@ By default, the chart wires internal services through Kubernetes DNS:
 
 Override `config.internal.*` only when routing through a mesh, gateway, or external service.
 
+## Den API Node Options
+
+Set `config.denApiNodeOptions` to pass Node.js runtime flags to `den-api` through
+`NODE_OPTIONS` when the container starts. The configured value is stored in the
+chart ConfigMap as `DEN_API_NODE_OPTIONS` and defaults to an empty string.
+
+```yaml
+config:
+  denApiNodeOptions: "--use-openssl-ca --max-old-space-size=4096"
+```
+
 ## Service Exposure
 
 Each service supports Kubernetes Service metadata and load balancer settings:
@@ -586,7 +597,7 @@ without redacting secrets.
 
 ## Install links
 
-The migration Job creates the `install_link` table automatically when `migrations.enabled=true`. Install links are active by default for normal self-hosted deployments; hosted-style per-org gating remains available through `DEN_INSTALL_LINKS_GATING_ENABLED`. See the [operator guide](../../../docs/org-install-links.md).
+The migration Job creates the `install_link` table automatically when `migrations.enabled=true`. Install links remain dark until a platform admin opens `/admin` and enables the `Install links` capability for an org. See the [operator guide](../../../docs/org-install-links.md).
 
 Optional installer artifact values:
 
@@ -602,7 +613,7 @@ installerArtifacts:
   mountPath: /var/lib/openwork/installer-artifacts
 ```
 
-Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. For zero-egress Mac/Windows downloads, the mounted directory must contain the three generic installer assets plus the three standard DMG/EXE assets matching `config.public.installerReleaseTag`. The complete filename list is in the [operator guide](../../../docs/org-install-links.md#artifact-delivery).
+Use either `installerArtifacts.existingClaim` or `installerArtifacts.hostPath`, not both. The mounted directory must contain `openwork-installer-mac-arm64.zip`, `openwork-installer-mac-x64.zip`, and `openwork-installer-win-x64.exe`.
 
 ## Health Probes
 

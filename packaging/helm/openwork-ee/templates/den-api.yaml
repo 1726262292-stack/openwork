@@ -92,6 +92,11 @@ spec:
           env:
             - name: PORT
               value: {{ .Values.denApi.containerPort | quote }}
+            - name: NODE_OPTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "openwork-ee.configName" . }}
+                  key: DEN_API_NODE_OPTIONS
             {{- if .Values.installerArtifacts.enabled }}
             - name: OPENWORK_INSTALLER_ARTIFACTS_DIR
               value: {{ .Values.installerArtifacts.mountPath | quote }}

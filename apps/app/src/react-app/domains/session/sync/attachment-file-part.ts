@@ -1,6 +1,7 @@
-import type { FilePartInput } from "@opencode-ai/sdk/v2/client";
+import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client";
 
 import type { ComposerAttachment } from "../../../../app/types";
+import { joinWorkspaceRelativePath, toFileUrl } from "./prompt-file-parts";
 
 type AttachmentKind = "image" | "file";
 
@@ -12,6 +13,31 @@ type AttachmentFileMetadata = {
   kind: AttachmentKind;
   readable: boolean;
 };
+
+type InboxUploadResult = {
+  ok: boolean;
+  path: string;
+  bytes: number;
+};
+
+type ChatAttachmentUploadClient = {
+  uploadInbox: (workspaceId: string, file: File, options?: { path?: string }) => Promise<InboxUploadResult>;
+};
+
+export type ChatAttachmentWorkspaceEndpoint = {
+  client: ChatAttachmentUploadClient;
+  workspaceId: string;
+};
+
+type UploadedChatAttachment = {
+  filename: string;
+  mime: string;
+  bytes: number;
+  workspacePath: string;
+  url: string;
+};
+
+const WORKSPACE_INBOX_ROOT = ".opencode/openwork/inbox";
 
 const EXTENSION_MIME_TYPES: Record<string, string> = {
   jpg: "image/jpeg",
@@ -112,10 +138,22 @@ function normalizeFilenameExtension(filename: string, mime: string) {
   return `${stem.trim() || "attachment"}.${preferredExtension}`;
 }
 
+export function safeAttachmentFilename(filename: string) {
+  const normalized = filename.replace(/\\/g, "/");
+  const basename = normalized.split("/").filter(Boolean).pop()?.trim() ?? "";
+  const safe = basename.replace(/[\u0000-\u001f\u007f<>:"|?*]/g, "_").trim();
+  return safe && safe !== "." && safe !== ".." ? safe : "attachment";
+}
+
+function safePathSegment(value: string, fallback: string) {
+  const safe = safeAttachmentFilename(value).replace(/\.+/g, ".");
+  return safe && safe !== "." ? safe : fallback;
+}
+
 export function resolveAttachmentFileMetadata(file: Pick<File, "name" | "type">): AttachmentFileMetadata {
   const mime = resolveAttachmentMime(file);
   return {
-    filename: normalizeFilenameExtension(file.name, mime),
+    filename: safeAttachmentFilename(normalizeFilenameExtension(file.name, mime)),
     mime,
     kind: mime.startsWith("image/") ? "image" : "file",
     readable: isResolvedAttachmentMimeReadable(mime),
@@ -138,6 +176,115 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
 
 async function fileToDataUrl(file: AttachmentFile, mime: string) {
   return `data:${mime};base64,${arrayBufferToBase64(await file.arrayBuffer())}`;
+}
+
+function randomAttachmentId() {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+
+  const bytes = new Uint8Array(16);
+  cryptoApi?.getRandomValues(bytes);
+  if (bytes.some((byte) => byte !== 0)) {
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function buildChatAttachmentInboxPath(input: { sessionId: string; filename: string; id: string }) {
+  const session = safePathSegment(input.sessionId, "session");
+  const id = safePathSegment(input.id, "attachment");
+  const filename = safeAttachmentFilename(input.filename);
+  return `chat-attachments/${session}/${id}-${filename}`;
+}
+
+export function workspaceInboxPath(inboxRelativePath: string) {
+  return joinWorkspaceRelativePath(WORKSPACE_INBOX_ROOT, inboxRelativePath);
+}
+
+function uploadErrorMessage(filename: string, error: unknown) {
+  const detail = error instanceof Error ? error.message : String(error || "Unknown upload error");
+  return `Failed to copy attachment "${filename}" into this worker workspace: ${detail}`;
+}
+
+function attachmentPathNote(uploaded: UploadedChatAttachment[]) {
+  return `\n\n${[
+    "Attached files were copied into this worker workspace for tool access:",
+    ...uploaded.map((item) => `- ${item.filename}: ${item.workspacePath} (${item.url})`),
+    "Use these paths with Read/Bash/MCP/Docling when a tool needs the file bytes.",
+  ].join("\n")}`;
+}
+
+function uploadedAttachmentFilePart(item: UploadedChatAttachment): FilePartInput {
+  return {
+    type: "file",
+    url: item.url,
+    filename: item.filename,
+    mime: item.mime,
+  };
+}
+
+export async function composerAttachmentsToWorkspaceFileParts(input: {
+  attachments: ComposerAttachment[];
+  endpoint: ChatAttachmentWorkspaceEndpoint;
+  sessionId: string;
+  workspaceRoot: string;
+  createId?: () => string;
+}): Promise<Array<TextPartInput | FilePartInput>> {
+  if (input.attachments.length === 0) return [];
+
+  const workspaceRoot = input.workspaceRoot.trim();
+  if (!workspaceRoot) {
+    throw new Error("Workspace path is unavailable; attachments could not be copied for tool access.");
+  }
+
+  const workspaceId = input.endpoint.workspaceId.trim();
+  if (!workspaceId) {
+    throw new Error("Workspace endpoint is unavailable; attachments could not be copied for tool access.");
+  }
+
+  const uploaded: UploadedChatAttachment[] = [];
+  for (const attachment of input.attachments) {
+    const metadata = resolveAttachmentFileMetadata(attachment.file);
+    const id = input.createId ? input.createId() : randomAttachmentId();
+    const inboxPath = buildChatAttachmentInboxPath({
+      sessionId: input.sessionId,
+      filename: metadata.filename,
+      id,
+    });
+
+    let result: InboxUploadResult;
+    try {
+      result = await input.endpoint.client.uploadInbox(workspaceId, attachment.file, { path: inboxPath });
+    } catch (error) {
+      throw new Error(uploadErrorMessage(metadata.filename, error));
+    }
+
+    if (result.ok === false) {
+      throw new Error(`Failed to copy attachment "${metadata.filename}" into this worker workspace: upload was rejected`);
+    }
+    if (!result.path.trim()) {
+      throw new Error(`Failed to copy attachment "${metadata.filename}" into this worker workspace: upload did not return a path`);
+    }
+    if (result.bytes !== attachment.file.size) {
+      throw new Error(`Failed to copy attachment "${metadata.filename}" into this worker workspace: expected ${attachment.file.size} bytes, wrote ${result.bytes}`);
+    }
+
+    const workspacePath = workspaceInboxPath(result.path);
+    const absolutePath = joinWorkspaceRelativePath(workspaceRoot, workspacePath);
+    uploaded.push({
+      filename: metadata.filename,
+      mime: metadata.mime,
+      bytes: result.bytes,
+      workspacePath,
+      url: toFileUrl(absolutePath),
+    });
+  }
+
+  return [
+    { type: "text", text: attachmentPathNote(uploaded) },
+    ...uploaded.map(uploadedAttachmentFilePart),
+  ];
 }
 
 export async function composerAttachmentToFilePart(attachment: ComposerAttachment): Promise<FilePartInput> {

@@ -10,8 +10,7 @@ describe("organization desktop version settings", () => {
   test("renders live versions newest-first in a bounded scrolling list", () => {
     const source = readFileSync(settingsPath, "utf8");
 
-    expect(source).toContain("metadata.availableAppVersions");
-    expect(source).toContain("compareDesktopVersions(right, left)");
+    expect(source).toContain("metadata.publishedDesktopVersions");
     expect(source).toContain('data-testid="desktop-version-list"');
     expect(source).toContain("max-h-[400px]");
     expect(source).toContain("overflow-y-auto");

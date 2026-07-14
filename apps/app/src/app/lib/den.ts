@@ -112,7 +112,6 @@ export type DenBootstrapConfig = DenBaseUrls & {
   requireSignin: boolean;
   brandAppName?: string | null;
   brandLogoUrl?: string | null;
-  brandIconUrl?: string | null;
   claimLinks?: Array<{
     id: string;
     role: string;
@@ -301,6 +300,7 @@ let desktopBootstrapConfig: DenBootstrapConfig = {
 export type DenAppVersionMetadata = {
   minAppVersion: string;
   latestAppVersion: string;
+  publishedDesktopVersions: string[];
 };
 
 type RawJsonResponse<T> = {
@@ -339,11 +339,14 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
   const latestAppVersion =
     typeof payload.latestAppVersion === "string" ? payload.latestAppVersion.trim() : "";
   if (!latestAppVersion) return null;
+  const publishedDesktopVersions = readStringArray(payload.publishedDesktopVersions);
 
   return {
     minAppVersion:
       typeof payload.minAppVersion === "string" ? payload.minAppVersion.trim() : "",
     latestAppVersion,
+    publishedDesktopVersions:
+      publishedDesktopVersions.length > 0 ? publishedDesktopVersions : [latestAppVersion],
   };
 }
 
@@ -573,7 +576,6 @@ function resolveDenBootstrapConfig(
     requireSignin?: boolean | null;
     brandAppName?: string | null;
     brandLogoUrl?: string | null;
-    brandIconUrl?: string | null;
     handoff?: DenBootstrapHandoff | null;
     prepared?: DenBootstrapPrepared | null;
   },
@@ -583,7 +585,6 @@ function resolveDenBootstrapConfig(
     requireSignin: input.requireSignin === true,
     ...(input.brandAppName?.trim() ? { brandAppName: input.brandAppName.trim().slice(0, 64) } : {}),
     ...(input.brandLogoUrl?.trim() ? { brandLogoUrl: input.brandLogoUrl.trim() } : {}),
-    ...(input.brandIconUrl?.trim() ? { brandIconUrl: input.brandIconUrl.trim() } : {}),
     ...(input.handoff ? { handoff: input.handoff } : {}),
     ...(input.prepared ? { prepared: input.prepared } : {}),
   };
@@ -600,7 +601,6 @@ function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null
     requireSignin: previous.requireSignin,
     brandAppName: previous.brandAppName,
     brandLogoUrl: previous.brandLogoUrl,
-    brandIconUrl: previous.brandIconUrl,
   });
 }
 
@@ -679,7 +679,6 @@ export async function setDenBootstrapConfig(
       requireSignin: normalized.requireSignin,
       ...(normalized.brandAppName ? { brandAppName: normalized.brandAppName } : {}),
       ...(normalized.brandLogoUrl ? { brandLogoUrl: normalized.brandLogoUrl } : {}),
-      ...(normalized.brandIconUrl ? { brandIconUrl: normalized.brandIconUrl } : {}),
       ...(normalized.handoff ? { handoff: normalized.handoff } : {}),
       ...(normalized.prepared ? { prepared: normalized.prepared } : {}),
     }) as ShellDesktopBootstrapConfig;
@@ -805,7 +804,6 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
         requireSignin: currentBootstrap.requireSignin,
         brandAppName: currentBootstrap.brandAppName,
         brandLogoUrl: currentBootstrap.brandLogoUrl,
-        brandIconUrl: currentBootstrap.brandIconUrl,
       }).catch(() => undefined);
     }
   }
@@ -2235,10 +2233,16 @@ export async function fetchDenOrgSkillsCatalog(
  * current desktop Den session. Returns null when signed out or no active
  * organization is selected.
  */
-export async function mintCloudControlMcpToken(): Promise<DenMcpToken | null> {
-  const settings = readDenSettings();
+export type DenMcpTokenMintContext = {
+  baseUrl: string;
+  authToken: string | null;
+  orgId: string | null;
+};
+
+export async function mintCloudControlMcpToken(context?: DenMcpTokenMintContext): Promise<DenMcpToken | null> {
+  const settings = context ?? readDenSettings();
   const token = settings.authToken?.trim() ?? "";
-  const orgId = settings.activeOrgId?.trim() ?? "";
+  const orgId = ("orgId" in settings ? settings.orgId : settings.activeOrgId)?.trim() ?? "";
   if (!token || !orgId) {
     return null;
   }

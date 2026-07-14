@@ -12,6 +12,13 @@ import { DenTextarea } from "../../_components/ui/textarea";
 import { DenNotice } from "../../_components/ui/notice";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
+import { EgressDiagnosticsCard } from "./egress-diagnostics-card";
+import {
+  allPublishedDesktopVersionsAllowed,
+  compareDesktopVersions,
+  getDesktopVersionMetadata,
+  initialAllowedDesktopVersions,
+} from "./desktop-version-options";
 
 function normalizeAllowedEmailDomainsInput(value: string): string[] | null {
   const domains = [
@@ -26,69 +33,6 @@ function normalizeAllowedEmailDomainsInput(value: string): string[] | null {
   return domains.length > 0 ? domains : null;
 }
 
-function normalizeDesktopVersionString(value: string): string | null {
-  const normalized = value.trim().replace(/^v/i, "");
-  return /^\d+\.\d+\.\d+$/.test(normalized) ? normalized : null;
-}
-
-function getDesktopVersionMetadata(payload: unknown): {
-  minAppVersion: string;
-  latestAppVersion: string;
-  availableAppVersions: string[];
-} | null {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const record = payload as Record<string, unknown>;
-
-  const minAppVersion =
-    typeof record.minAppVersion === "string"
-      ? normalizeDesktopVersionString(record.minAppVersion)
-      : null;
-  const latestAppVersion =
-    typeof record.latestAppVersion === "string"
-      ? normalizeDesktopVersionString(record.latestAppVersion)
-      : null;
-
-  if (!minAppVersion || !latestAppVersion) {
-    return null;
-  }
-
-  const availableAppVersions = Array.isArray(record.availableAppVersions)
-    ? record.availableAppVersions
-        .filter((entry): entry is string => typeof entry === "string")
-        .map(normalizeDesktopVersionString)
-        .filter((version): version is string => version !== null)
-    : [];
-
-  return { minAppVersion, latestAppVersion, availableAppVersions };
-}
-
-function compareDesktopVersions(left: string, right: string) {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-
-  for (let index = 0; index < 3; index += 1) {
-    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-
-  return 0;
-}
-
-function buildDesktopVersionOptions(
-  minVersion: string,
-  maxVersion: string,
-  availableVersions: string[],
-): string[] {
-  return [...new Set([...availableVersions, minVersion, maxVersion])]
-    .filter((version) => compareDesktopVersions(version, minVersion) >= 0)
-    .sort((left, right) => compareDesktopVersions(right, left));
-}
-
 function toggleAllowedDesktopVersion(
   current: string[],
   version: string,
@@ -99,18 +43,6 @@ function toggleAllowedDesktopVersion(
   }
 
   return current.filter((entry) => entry !== version);
-}
-
-function filterAllowedDesktopVersionsToVisibleOptions(
-  storedVersions: string[] | null,
-  visibleOptions: string[],
-) {
-  if (storedVersions === null) {
-    return null;
-  }
-
-  const visibleOptionSet = new Set(visibleOptions);
-  return storedVersions.filter((version) => visibleOptionSet.has(version));
 }
 
 function SettingsToggle({
@@ -158,6 +90,8 @@ export function OrgSettingsScreen() {
     orgBusy,
     orgError,
     mutationBusy,
+    orgSettingsCompletion,
+    clearOrgSettingsCompletion,
     updateOrganizationSettings,
   } = useOrgDashboard();
   const [orgNameDraft, setOrgNameDraft] = useState("");
@@ -181,12 +115,15 @@ export function OrgSettingsScreen() {
     string | null
   >(null);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [pageSuccess, setPageSuccess] = useState<string | null>(null);
   const [copiedOrgId, setCopiedOrgId] = useState(false);
 
   const currentAllowedDomains =
     orgContext?.organization.allowedEmailDomains ?? null;
   const isOwner = orgContext?.currentMember.isOwner ?? false;
+  const canRunEgressDiagnostics = isOwner || (orgContext?.currentMember.role ?? "")
+    .split(",")
+    .map((role) => role.trim())
+    .includes("admin");
   const draftAllowedDomains = useMemo(
     () => normalizeAllowedEmailDomainsInput(allowedDomainsDraft),
     [allowedDomainsDraft],
@@ -202,23 +139,15 @@ export function OrgSettingsScreen() {
         : [],
     [desktopVersionOptions, desktopVersionRange],
   );
-  const visibleAllowedDesktopVersionsDraft = useMemo(
-    () =>
-      filterAllowedDesktopVersionsToVisibleOptions(
-        allowedDesktopVersionsDraft,
-        supportedDesktopVersionOptions,
-      ) ?? [],
-    [allowedDesktopVersionsDraft, supportedDesktopVersionOptions],
-  );
   const selectedDesktopVersions = useMemo(
-    () => new Set(visibleAllowedDesktopVersionsDraft),
-    [visibleAllowedDesktopVersionsDraft],
+    () => new Set(allowedDesktopVersionsDraft),
+    [allowedDesktopVersionsDraft],
   );
-  const allDesktopVersionsAllowed =
-    supportedDesktopVersionOptions.length > 0 &&
-    supportedDesktopVersionOptions.every((version) =>
-      selectedDesktopVersions.has(version),
-    );
+  const allDesktopVersionsAllowed = allPublishedDesktopVersionsAllowed({
+    draftVersions: allowedDesktopVersionsDraft,
+    publishedVersions: supportedDesktopVersionOptions,
+  });
+  const pageSuccess = orgSettingsCompletion?.message ?? null;
 
   useEffect(() => {
     if (!orgContext) {
@@ -268,13 +197,7 @@ export function OrgSettingsScreen() {
           return;
         }
 
-        setDesktopVersionOptions(
-          buildDesktopVersionOptions(
-            metadata.minAppVersion,
-            metadata.latestAppVersion,
-            metadata.availableAppVersions,
-          ),
-        );
+        setDesktopVersionOptions(metadata.publishedDesktopVersions);
         setDesktopVersionRange({
           minVersion: metadata.minAppVersion,
           maxVersion: metadata.latestAppVersion,
@@ -308,30 +231,11 @@ export function OrgSettingsScreen() {
       return;
     }
 
-    const storedAllowedDesktopVersions =
-      filterAllowedDesktopVersionsToVisibleOptions(
-        getAllowedDesktopVersionsFromMetadata(orgContext.organization.metadata),
-        supportedDesktopVersionOptions,
-      );
-
-    if (storedAllowedDesktopVersions === null) {
-      setAllowedDesktopVersionsDraft(supportedDesktopVersionOptions);
-      return;
-    }
-
-    setAllowedDesktopVersionsDraft(storedAllowedDesktopVersions);
+    setAllowedDesktopVersionsDraft(initialAllowedDesktopVersions(
+      getAllowedDesktopVersionsFromMetadata(orgContext.organization.metadata),
+      supportedDesktopVersionOptions,
+    ).filter((version) => supportedDesktopVersionOptions.includes(version)));
   }, [orgContext, supportedDesktopVersionOptions]);
-
-  useEffect(() => {
-    if (
-      visibleAllowedDesktopVersionsDraft.length ===
-      allowedDesktopVersionsDraft.length
-    ) {
-      return;
-    }
-
-    setAllowedDesktopVersionsDraft(visibleAllowedDesktopVersionsDraft);
-  }, [allowedDesktopVersionsDraft.length, visibleAllowedDesktopVersionsDraft]);
 
   useEffect(() => {
     if (!copiedOrgId) {
@@ -387,7 +291,7 @@ export function OrgSettingsScreen() {
     }
 
     setPageError(null);
-    setPageSuccess(null);
+    clearOrgSettingsCompletion();
     setDomainRestrictionsEnabled(nextValue);
     setDomainEditModeEnabled(nextValue && !currentAllowedDomains?.length);
   }
@@ -395,7 +299,7 @@ export function OrgSettingsScreen() {
   async function handleSaveSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPageError(null);
-    setPageSuccess(null);
+    clearOrgSettingsCompletion();
 
     try {
       await updateOrganizationSettings({
@@ -415,7 +319,6 @@ export function OrgSettingsScreen() {
         requireSso: requireSsoEnabled,
       });
       setDomainEditModeEnabled(false);
-      setPageSuccess("Workspace settings updated.");
     } catch (error) {
       setPageError(
         error instanceof Error
@@ -567,7 +470,7 @@ export function OrgSettingsScreen() {
                     icon={Pencil}
                     onClick={() => {
                       setPageError(null);
-                      setPageSuccess(null);
+                      clearOrgSettingsCompletion();
                       setDomainEditModeEnabled(true);
                     }}
                   >
@@ -709,6 +612,8 @@ export function OrgSettingsScreen() {
             </div>
           ) : null}
         </DenCard>
+
+        <EgressDiagnosticsCard canRun={canRunEgressDiagnostics} />
 
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <p className="text-[13px] text-gray-500">

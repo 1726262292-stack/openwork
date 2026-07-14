@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../_components/ui/button";
 import { DenNotice } from "../../_components/ui/notice";
-import { getErrorMessage, getRequestError, requestJson } from "../../_lib/den-flow";
+import { getRequestError, isReauthRequiredError, requestJson } from "../../_lib/den-flow";
 import {
   type DenOrgScimConnection,
   type DenOrgScimHealth,
@@ -84,9 +84,7 @@ export function ScimScreen() {
       );
 
       if (!response.ok) {
-        throw new Error(
-          getErrorMessage(payload, `Failed to load SCIM settings (${response.status}).`),
-        );
+        throw getRequestError(payload, response, `Failed to load SCIM settings (${response.status}).`);
       }
 
       const parsed = parseOrgScimPayload(payload);
@@ -96,6 +94,10 @@ export function ScimScreen() {
         setHealth(parsed.health);
       }
     } catch (nextError) {
+      if (isReauthRequiredError(nextError)) {
+        throw nextError;
+      }
+
       if (isCurrent()) {
         setError(
           nextError instanceof Error ? nextError.message : "Failed to load SCIM settings.",
@@ -110,7 +112,11 @@ export function ScimScreen() {
 
   useEffect(() => {
     let active = true;
-    void loadScimConfig(() => active);
+    void runReauthableAction("load-scim-settings", () => loadScimConfig(() => active)).catch((nextError) => {
+      if (active) {
+        setError(nextError instanceof Error ? nextError.message : "Failed to load SCIM settings.");
+      }
+    });
     return () => {
       active = false;
     };

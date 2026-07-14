@@ -287,7 +287,13 @@ describe("Google Workspace extension", () => {
       to: ["accounts.payable@acme.test"],
       cc: ["purchasing.admin@acme.test", "casey.jordan@acme.test"],
       subject: "Invoice ACME-2026-001 for PO-000123",
-      body: "Please find attached invoice ACME-2026-001 for PO-000123.",
+      body: [
+        "Please find attached invoice ACME-2026-001 for PO-000123 and review",
+        "the proposed commercial terms before our next call.",
+        "",
+        "Thanks,",
+        "OpenWork",
+      ].join("\n"),
       attachments: [{ path: "invoices/acme-invoice-2026-001.pdf" }],
     }, { directory: workspaceRoot });
     expect(result?.ok).toBe(true);
@@ -299,7 +305,7 @@ describe("Google Workspace extension", () => {
     expect(decoded).toContain("Cc: purchasing.admin@acme.test, casey.jordan@acme.test");
     expect(decoded).toContain("Subject: Invoice ACME-2026-001 for PO-000123");
     expect(decoded).toContain("Content-Type: multipart/mixed;");
-    expect(decoded).toContain("Please find attached invoice ACME-2026-001 for PO-000123.");
+    expect(decoded).toContain("Please find attached invoice ACME-2026-001 for PO-000123 and review the proposed commercial terms before our next call.\n\nThanks,\nOpenWork");
     expect(decoded).toContain("Content-Type: application/pdf; name=\"acme-invoice-2026-001.pdf\"");
     expect(decoded).toContain("Content-Disposition: attachment; filename=\"acme-invoice-2026-001.pdf\"");
     expect(decoded).toContain(Buffer.from("%PDF-1.4\ninvoice bytes\n", "utf8").toString("base64"));

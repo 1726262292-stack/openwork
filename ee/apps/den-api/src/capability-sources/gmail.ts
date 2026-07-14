@@ -6,6 +6,8 @@
 
 import { randomUUID } from "node:crypto"
 
+const HARD_WRAP_MIN_LINE_LENGTH = 50
+
 function hasNonAscii(value: string): boolean {
   for (const char of value) {
     if (char.codePointAt(0)! > 0x7e || char.codePointAt(0)! < 0x20) return true
@@ -25,6 +27,20 @@ function encodeMimeParameter(value: string): string {
 
 function base64MimeContent(content: Buffer): string {
   return content.toString("base64").match(/.{1,76}/g)?.join("\r\n") ?? ""
+}
+
+// Generated prose is sometimes hard-wrapped before it reaches Gmail. Those
+// literal breaks become visible after send, especially on narrow screens.
+function normalizeDraftBody(body: string): string {
+  return body.replace(/\r\n?/g, "\n").replace(/[^\n]+(?:\n[^\n]+)+/g, (block) => {
+    const lines = block.split("\n")
+    const hasStructure = lines.some((line) => {
+      const trimmed = line.trimStart()
+      return trimmed.length !== line.length || /^(?:[-*+•]\s|\d+[.)]\s|>|```|~~~)/.test(trimmed)
+    })
+    const looksHardWrapped = lines.slice(0, -1).every((line) => line.trimEnd().length >= HARD_WRAP_MIN_LINE_LENGTH)
+    return hasStructure || !looksHardWrapped ? block : lines.map((line) => line.trim()).join(" ")
+  })
 }
 
 /** RFC 2047 B-encoding for header values that contain non-ASCII characters. */
@@ -63,13 +79,14 @@ export function buildGmailDraftRaw(input: { to: string; cc?: string; bcc?: strin
     ...(input.headers ?? []).map((header) => `${header.name}: ${header.value}`),
   ].filter((line) => typeof line === "string")
   const attachments = input.attachments ?? []
+  const body = normalizeDraftBody(input.body)
   const message = attachments.length === 0 ? [
     ...headers,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
     "",
-    Buffer.from(input.body, "utf8").toString("base64"),
+    Buffer.from(body, "utf8").toString("base64"),
   ].join("\r\n") : (() => {
     const boundary = `openwork-${randomUUID()}`
     return [
@@ -81,7 +98,7 @@ export function buildGmailDraftRaw(input: { to: string; cc?: string; bcc?: strin
       'Content-Type: text/plain; charset="UTF-8"',
       "Content-Transfer-Encoding: base64",
       "",
-      Buffer.from(input.body, "utf8").toString("base64"),
+      Buffer.from(body, "utf8").toString("base64"),
       ...attachments.flatMap((attachment) => [
         `--${boundary}`,
         `Content-Type: ${attachment.mimeType}; name="${encodeMimeParameter(attachment.filename)}"`,

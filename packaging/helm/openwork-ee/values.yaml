@@ -11,6 +11,8 @@ config:
   databaseMode: mysql
   openworkDevMode: "0"
   enterpriseMcpClientEnabled: "false"
+  # Passed to the den-api Node.js process as NODE_OPTIONS at container startup.
+  denApiNodeOptions: ""
   tenancy:
     mode: single_org
     singleOrgName: OpenWork

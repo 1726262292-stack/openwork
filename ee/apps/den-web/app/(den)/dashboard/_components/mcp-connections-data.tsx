@@ -27,6 +27,11 @@ export type ExternalMcpAccessSummary = {
   teamIds: string[];
 };
 
+export type ExternalMcpRequiredBy = {
+  pluginId: string;
+  name: string;
+};
+
 export type ExternalMcpConnection = {
   id: string;
   name: string;
@@ -35,13 +40,32 @@ export type ExternalMcpConnection = {
   credentialMode: ExternalMcpCredentialMode;
   connected: boolean;
   connectedAt: string | null;
+  updatedAt: string | null;
   connectedForMe: boolean;
   needsReconnect?: boolean;
   missingFeatures?: string[];
   externalAccountId?: string | null;
   grantedScopes?: string[];
   tenantId?: string | null;
+  requiredBy: ExternalMcpRequiredBy[];
+  identityManagedBy: ExternalMcpRequiredBy[];
   access: ExternalMcpAccessSummary | null;
+  oauthClientId?: string | null;
+};
+
+export type ExternalMcpTool = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
 };
 
 export type ExternalMcpPreset = {
@@ -73,10 +97,32 @@ export const mcpConnectionQueryKeys = {
   list: (orgId?: string | null, scope?: ExternalMcpConnectionScope) =>
     [...mcpConnectionQueryKeys.all, "list", orgId ?? "none", scope ?? "usable"] as const,
   presets: () => [...mcpConnectionQueryKeys.all, "presets"] as const,
+  tools: (orgId?: string | null, connectionId?: string | null) =>
+    [...mcpConnectionQueryKeys.all, "tools", orgId ?? "none", connectionId ?? "none"] as const,
   nativeProviderClient: (orgId?: string | null, providerId?: string | null) =>
     [...mcpConnectionQueryKeys.all, "native-provider-client", orgId ?? "none", providerId ?? "none"],
   telegram: (orgId?: string | null) => [...mcpConnectionQueryKeys.all, "telegram", orgId ?? "none"] as const,
 };
+
+export function useMcpConnectionTools(connectionId: string, enabled: boolean) {
+  const { orgId } = useOrgDashboard();
+  return useQuery({
+    enabled: enabled && Boolean(orgId),
+    queryKey: mcpConnectionQueryKeys.tools(orgId, connectionId),
+    queryFn: async (): Promise<ExternalMcpTool[]> => {
+      const { response, payload } = await requestJson(
+        `/v1/mcp-connections/${encodeURIComponent(connectionId)}/tools`,
+        { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+        30000,
+      );
+      if (!response.ok) {
+        throw getRequestError(payload, response, `Failed to inspect MCP tools (${response.status}).`);
+      }
+      const record = payload as { tools?: ExternalMcpTool[] };
+      return record.tools ?? [];
+    },
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -84,6 +130,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function parseRequiredBy(value: unknown): ExternalMcpRequiredBy[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.pluginId !== "string" || typeof entry.name !== "string") return [];
+    return [{ pluginId: entry.pluginId, name: entry.name }];
+  });
 }
 
 async function fetchConnections(scope: ExternalMcpConnectionScope, orgId: string): Promise<ExternalMcpConnection[]> {
@@ -98,6 +152,9 @@ async function fetchConnections(scope: ExternalMcpConnectionScope, orgId: string
   const record = payload as { connections?: ExternalMcpConnection[] };
   return (record.connections ?? []).map((connection) => ({
     ...connection,
+    requiredBy: parseRequiredBy(connection.requiredBy),
+    identityManagedBy: parseRequiredBy(connection.identityManagedBy),
+    updatedAt: typeof connection.updatedAt === "string" ? connection.updatedAt : null,
     ...(typeof connection.needsReconnect === "boolean" ? { needsReconnect: connection.needsReconnect } : {}),
     ...(isStringArray(connection.missingFeatures) ? { missingFeatures: connection.missingFeatures } : {}),
     ...(typeof connection.externalAccountId === "string" || connection.externalAccountId === null
@@ -150,6 +207,26 @@ export type CreateMcpConnectionInput = {
   access: McpConnectionAccessInput;
 };
 
+export type UpdateMcpConnectionInput = {
+  connectionId: string;
+  expectedUpdatedAt: string;
+  name: string;
+  url: string;
+  authType: ExternalMcpAuthType;
+  credentialMode: ExternalMcpCredentialMode;
+  apiKey?: string;
+  oauthClient?: {
+    clientId: string;
+    clientSecret?: string;
+  };
+  access: McpConnectionAccessInput;
+};
+
+export type UpdatedMcpConnection = ExternalMcpConnection & {
+  identityChanged: boolean;
+  reconnectionRequired: boolean;
+};
+
 export function useCreateMcpConnection() {
   const queryClient = useQueryClient();
   const { orgId, runReauthableAction } = useOrgDashboard();
@@ -170,6 +247,34 @@ export function useCreateMcpConnection() {
       });
       if (!created) throw new Error("Create MCP connection response was incomplete.");
       return created;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });
+    },
+  });
+}
+
+export function useUpdateMcpConnection() {
+  const queryClient = useQueryClient();
+  const { orgId, runReauthableAction } = useOrgDashboard();
+
+  return useMutation({
+    mutationFn: async (input: UpdateMcpConnectionInput): Promise<UpdatedMcpConnection> => {
+      let updated: UpdatedMcpConnection | null = null;
+      await runReauthableAction("update-mcp-connection", async () => {
+        const { connectionId, ...body } = input;
+        const { response, payload } = await requestJson(
+          `/v1/mcp-connections/${encodeURIComponent(connectionId)}`,
+          { method: "PUT", headers: getOrgScopeHeaders(requireOrgId(orgId)), body: JSON.stringify(body) },
+          30000,
+        );
+        if (!response.ok) {
+          throw getRequestError(payload, response, `Failed to update MCP connection (${response.status}).`);
+        }
+        updated = payload as UpdatedMcpConnection;
+      });
+      if (!updated) throw new Error("Update MCP connection response was incomplete.");
+      return updated;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });
@@ -349,21 +454,29 @@ export function useSaveNativeProviderClient() {
 }
 
 export function useNativeProviderClient(providerId: string, enabled: boolean) {
-  const { orgId } = useOrgDashboard();
+  const { orgId, runReauthableAction } = useOrgDashboard();
 
   return useQuery({
     enabled: enabled && Boolean(orgId),
     queryKey: mcpConnectionQueryKeys.nativeProviderClient(orgId, providerId),
+    retry: false,
     queryFn: async (): Promise<NativeProviderClient> => {
-      const { response, payload } = await requestJson(
-        `/v1/oauth-providers/${encodeURIComponent(providerId)}/client`,
-        { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
-        15000,
-      );
-      if (!response.ok) {
-        throw getRequestError(payload, response, `Failed to load the OAuth client (${response.status}).`);
+      let client: NativeProviderClient | null = null;
+      await runReauthableAction("load-native-oauth-client", async () => {
+        const { response, payload } = await requestJson(
+          `/v1/oauth-providers/${encodeURIComponent(providerId)}/client`,
+          { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+          15000,
+        );
+        if (!response.ok) {
+          throw getRequestError(payload, response, `Failed to load the OAuth client (${response.status}).`);
+        }
+        client = parseNativeProviderClient(payload);
+      });
+      if (!client) {
+        throw new Error("Native provider client response was incomplete.");
       }
-      return parseNativeProviderClient(payload);
+      return client;
     },
   });
 }
@@ -456,18 +569,26 @@ function parseTelegramConnectionPayload(payload: unknown): TelegramConnection | 
 }
 
 export function useTelegramConnection(enabled: boolean) {
-  const { orgId } = useOrgDashboard();
+  const { orgId, runReauthableAction } = useOrgDashboard();
   return useQuery({
     enabled: enabled && Boolean(orgId),
     queryKey: mcpConnectionQueryKeys.telegram(orgId),
+    retry: false,
     queryFn: async (): Promise<TelegramConnection | null> => {
-      const { response, payload } = await requestJson(
-        "/v1/telegram/connection",
-        { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
-        15000,
-      );
-      if (!response.ok) throw getRequestError(payload, response, `Failed to load Telegram (${response.status}).`);
-      return parseTelegramConnectionPayload(payload);
+      let connection: TelegramConnection | null = null;
+      let loaded = false;
+      await runReauthableAction("load-telegram-connection", async () => {
+        const { response, payload } = await requestJson(
+          "/v1/telegram/connection",
+          { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+          15000,
+        );
+        if (!response.ok) throw getRequestError(payload, response, `Failed to load Telegram (${response.status}).`);
+        connection = parseTelegramConnectionPayload(payload);
+        loaded = true;
+      });
+      if (!loaded) throw new Error("Telegram connection response was incomplete.");
+      return connection;
     },
   });
 }

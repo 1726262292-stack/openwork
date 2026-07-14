@@ -37,6 +37,29 @@ describe("Den desktop config client", () => {
     expect(headers[0]?.get("x-openwork-legacy-org-id")).toBe("org_test");
   });
 
+  test("falls back to latestAppVersion for older Den version metadata", async () => {
+    const fetchMock: typeof fetch = async () => new Response(JSON.stringify({
+      minAppVersion: "0.11.207",
+      latestAppVersion: "0.17.24",
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: fetchMock,
+    });
+
+    await expect(
+      createDenClient({ baseUrl: "https://den.test" }).getAppVersionMetadata(),
+    ).resolves.toEqual({
+      minAppVersion: "0.11.207",
+      latestAppVersion: "0.17.24",
+      publishedDesktopVersions: ["0.17.24"],
+    });
+  });
+
   test("normalizes organization onboarding prompts from desktop config", () => {
     expect(normalizeDenDesktopConfig({
       onboardingPrompts: [" First task ", "Second task", "Third task"],

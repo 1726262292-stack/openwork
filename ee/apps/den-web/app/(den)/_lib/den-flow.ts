@@ -181,6 +181,7 @@ export const PENDING_AUTH_INTENT_STORAGE_KEY = "openwork:web:pending-auth-intent
 export const WORKER_STATUS_POLL_MS = DEN_WORKER_POLL_INTERVAL_MS;
 export const DEFAULT_AUTH_NAME = "OpenWork User";
 export const DEFAULT_WORKER_NAME = "My Worker";
+export const WORKSPACE_REAUTH_SECURITY_MESSAGE = "For security, confirm it's you before changing workspace settings.";
 
 export type AuthIntent = "models";
 
@@ -462,7 +463,7 @@ export function getReauthRequiredError(payload: unknown, response: Response): Re
   }
 
   return new ReauthRequiredError(
-    getErrorMessage(payload, "Sign in again before continuing."),
+    getErrorMessage(payload, WORKSPACE_REAUTH_SECURITY_MESSAGE),
     typeof payload.reason === "string" ? payload.reason : null,
   );
 }
