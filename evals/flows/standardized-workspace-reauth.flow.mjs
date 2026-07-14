@@ -249,26 +249,43 @@ async function openOrgSettingsAsSeededAdmin(ctx) {
   }
   await navigateTo(ctx, "/");
   await ctx.waitFor("Boolean(document.querySelector('input[type=\"email\"]'))", { timeoutMs: 30_000, label: "email input" });
-  const switchedToSignIn = await ctx.eval(`(() => {
-    const button = [...document.querySelectorAll('button[type="button"]')]
-      .find((entry) => (entry.textContent ?? '').trim() === 'Sign in');
-    button?.click();
-    return Boolean(button);
-  })()`);
-  if (switchedToSignIn) {
+  const passwordAlreadyVisible = await ctx.eval("Boolean(document.querySelector('input[type=\"password\"]'))");
+  if (!passwordAlreadyVisible) {
+    await ctx.fill('input[type="email"]', ADMIN_EMAIL);
+    const advanced = await ctx.eval(`(() => {
+      const form = document.querySelector('input[type="email"]')?.closest('form');
+      const button = form?.querySelector('button[type="submit"]');
+      button?.click();
+      return Boolean(button);
+    })()`);
+    ctx.assert(advanced, "No Next button found on the email-first sign-in card.");
+    await ctx.waitFor("Boolean(document.querySelector('input[type=\"password\"]'))", { timeoutMs: 20_000, label: "password step" });
+  } else {
+    const switchedToSignIn = await ctx.eval(`(() => {
+      const button = [...document.querySelectorAll('button[type="button"]')]
+        .find((entry) => (entry.textContent ?? '').trim() === 'Sign in');
+      button?.click();
+      return Boolean(button);
+    })()`);
+    if (switchedToSignIn) {
+      await ctx.waitFor(
+        `(() => (document.querySelector('button[type="submit"]')?.textContent ?? '').includes('Sign in'))()`,
+        { timeoutMs: 10_000, label: "sign-in mode selected" },
+      );
+    }
     await ctx.waitFor(
-      `(() => (document.querySelector('button[type="submit"]')?.textContent ?? '').includes('Sign in'))()`,
-      { timeoutMs: 10_000, label: "sign-in mode selected" },
+      "Boolean(document.querySelector('input[type=\"password\"]'))",
+      { timeoutMs: 30_000, label: "password input" },
     );
+    await ctx.fill('input[type="email"]', ADMIN_EMAIL);
   }
-  await ctx.waitFor("Boolean(document.querySelector('input[type=\"password\"]'))", { timeoutMs: 30_000, label: "password input" });
-  await ctx.fill('input[type="email"]', ADMIN_EMAIL);
   await ctx.fill('input[type="password"]', ADMIN_PASSWORD);
-  await ctx.eval(`(() => {
+  const submitted = await ctx.eval(`(() => {
     const button = document.querySelector('button[type="submit"]');
     button?.click();
     return Boolean(button);
   })()`);
+  ctx.assert(submitted, "No submit button found on the sign-in card.");
   await ctx.waitFor(
     `(() => {
       const text = document.body?.innerText ?? '';
