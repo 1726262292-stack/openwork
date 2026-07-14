@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
 import type { McpDirectoryInfo } from "@/app/constants";
+import { normalizeMcpRemoteUrl } from "@/app/utils/mcp-url";
 import { t } from "@/i18n";
 
 export type AddMcpModalProps = {
@@ -81,7 +82,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
     dispatch({ submitting: true });
 
     if (state.serverType === "remote") {
-      const trimmedUrl = state.url.trim();
+      const trimmedUrl = normalizeMcpRemoteUrl(state.url);
       const oauthClientId = state.oauthClientId.trim();
       const oauthClientSecret = state.oauthClientSecret.trim();
       const oauthScope = state.oauthScope.trim();

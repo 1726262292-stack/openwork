@@ -46,6 +46,7 @@ import {
   markExternalMcpConnectionConnected,
   memberCanUseExternalMcpConnection,
   normalizeExternalMcpIdentityUrl,
+  normalizeExternalMcpUrl,
   replaceExternalMcpConnectionAccess,
   updateExternalMcpConnection,
   type ExternalMcpConnectionRow,
@@ -113,7 +114,7 @@ const externalMcpUrlSchema = z.string().trim().url().max(2048).superRefine((valu
       context.addIssue({ code: "custom", message: `MCP URL query parameter "${parameter}" must not contain credentials.` })
     }
   }
-})
+}).transform(normalizeExternalMcpUrl)
 
 const createConnectionBodySchema = z.object({
   name: z.string().trim().min(1).max(255),
