@@ -370,7 +370,8 @@ async function signInWithFreshHandoff(ctx) {
 async function getServerAuth(ctx, requireWorkspace = false) {
   const auth = await ctx.eval(`(() => {
     const hash = window.location.hash;
-    const workspaceFromHash = (hash.match(/\/workspace\/([^/]+)/) ?? [])[1] ?? "";
+    // Keep this template-safe: regex literals lose backslashes inside the outer eval string.
+    const workspaceFromHash = (hash.match(new RegExp("/workspace/([^/]+)")) ?? [])[1] ?? "";
     return {
       port: (localStorage.getItem("openwork.server.port") ?? "").trim(),
       token: (localStorage.getItem("openwork.server.token") ?? "").trim(),
