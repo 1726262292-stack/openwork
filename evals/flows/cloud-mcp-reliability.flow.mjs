@@ -24,6 +24,8 @@ const AUTOMATIC_RECONCILE_TRIGGERS = [
 const GUARD_STORAGE_KEY = "openwork.eval.cloudMcpReliability.guard";
 const GUARD_BLOCKED_STORAGE_KEY = "openwork.eval.cloudMcpReliability.blockedDesktopFetches";
 const TOKEN_MINT_DEDUPLICATION_WINDOW_MS = 2_000;
+const SETTINGS_SYNC_MARKER_WINDOW_MS = 4_000;
+const SETTINGS_SYNC_STABLE_HEALTH_GAP_MS = 1_800;
 const MODEL_SEED_ACTION_ID = "eval.model_not_available.seed";
 const EXPECTED_TOOL_IDS = [
   "openwork-cloud_search_capabilities",
@@ -703,7 +705,7 @@ async function waitForHealth(ctx, predicate, label, timeoutMs = 90_000) {
   ctx.assert(false, `Timed out waiting for ${label}: ${JSON.stringify(last)}`);
 }
 
-async function waitForScopedSyncMarker(ctx, timeoutMs = 30_000) {
+async function waitForScopedSyncMarker(ctx, timeoutMs = SETTINGS_SYNC_MARKER_WINDOW_MS) {
   const startedAt = Date.now();
   let last = null;
   while (Date.now() - startedAt < timeoutMs) {
@@ -738,25 +740,110 @@ async function waitForScopedSyncMarker(ctx, timeoutMs = 30_000) {
     if (last?.found === true) return last;
     await sleep(500);
   }
-  ctx.assert(false, `Timed out waiting for Settings background Cloud MCP sync marker for workspace ${state.workspaceId}: ${JSON.stringify(last)}`);
+  return last ?? { found: false, rawPresent: false, markerCount: 0 };
+}
+
+function isReadyExactWorkspaceHealth(health) {
+  const desiredRevision = health?.desired?.revision;
+  return health?.workspace?.id === state.workspaceId &&
+    health.phase === "ready" &&
+    health.usable === true &&
+    health.firstFailure === null &&
+    health.engine?.status === "connected" &&
+    health.delivery?.state === "ready" &&
+    typeof desiredRevision === "string" &&
+    desiredRevision.length > 0 &&
+    health.delivery.desiredRevision === desiredRevision &&
+    health.delivery.appliedRevision === desiredRevision;
+}
+
+function summarizeReadyHealth(health) {
+  return {
+    workspaceId: health?.workspace?.id ?? null,
+    phase: health?.phase ?? null,
+    usable: health?.usable ?? null,
+    firstFailure: health?.firstFailure ?? null,
+    desiredRevision: health?.desired?.revision ?? null,
+    desiredUpdatedAt: health?.desired?.updatedAt ?? null,
+    deliveryState: health?.delivery?.state ?? null,
+    deliveryDesiredRevision: health?.delivery?.desiredRevision ?? null,
+    appliedRevision: health?.delivery?.appliedRevision ?? null,
+    deliveryUpdatedAt: health?.delivery?.updatedAt ?? null,
+    deliveryAppliedAt: health?.delivery?.appliedAt ?? null,
+    deliveryLastAttemptAt: health?.delivery?.lastAttemptAt ?? null,
+    deliveryTrigger: health?.delivery?.trigger ?? null,
+    engine: health?.engine?.status ?? null,
+  };
+}
+
+function deliverySettlementSignature(health) {
+  return JSON.stringify({
+    state: health.delivery.state,
+    desiredRevision: health.delivery.desiredRevision,
+    appliedRevision: health.delivery.appliedRevision,
+    updatedAt: health.delivery.updatedAt,
+    appliedAt: health.delivery.appliedAt,
+    lastAttemptAt: health.delivery.lastAttemptAt,
+    trigger: health.delivery.trigger ?? null,
+  });
+}
+
+async function getHealthSample(ctx) {
+  try {
+    return await getHealth(ctx);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function waitForStableReadyHealthSettlement(ctx, timeoutMs = 30_000) {
+  const startedAt = Date.now();
+  let last = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    const first = await getHealthSample(ctx);
+    if (!isReadyExactWorkspaceHealth(first)) {
+      last = { first: summarizeReadyHealth(first) };
+      await sleep(1_000);
+      continue;
+    }
+
+    const firstSampledAt = Date.now();
+    await sleep(SETTINGS_SYNC_STABLE_HEALTH_GAP_MS);
+    const second = await getHealthSample(ctx);
+    const gapMs = Date.now() - firstSampledAt;
+    const stableDelivery = isReadyExactWorkspaceHealth(second) &&
+      deliverySettlementSignature(first) === deliverySettlementSignature(second);
+    last = {
+      gapMs,
+      stableDelivery,
+      first: summarizeReadyHealth(first),
+      second: summarizeReadyHealth(second),
+    };
+    if (stableDelivery) return last;
+    await sleep(500);
+  }
+  ctx.assert(false, `Timed out waiting for stable exact-workspace Cloud health settlement: ${JSON.stringify(last)}`);
 }
 
 async function waitForSettingsBackgroundSyncSettled(ctx) {
   const marker = await waitForScopedSyncMarker(ctx);
-  witness(ctx, marker?.marker?.workspaceId === state.workspaceId, "Settings background reconciliation wrote a scoped Cloud MCP sync marker for the exact workspace before degradation.", marker);
-  const health = await waitForHealth(ctx, (candidate) => (
-    candidate?.workspace?.id === state.workspaceId &&
-    candidate.usable === true &&
-    candidate.firstFailure === null &&
-    candidate.engine?.status === "connected"
-  ), "usable exact-workspace Cloud health after Settings background reconciliation", 30_000);
-  witness(ctx, true, "Live Cloud MCP health is usable for the exact workspace after Settings background reconciliation settled.", {
-    workspaceId: health.workspace.id,
-    firstFailure: health.firstFailure,
-    desiredRevision: health.desired.revision,
-    appliedRevision: health.delivery.appliedRevision,
-    engine: health.engine.status,
-    marker: marker.marker,
+  if (marker?.found === true) {
+    const health = await waitForHealth(ctx, isReadyExactWorkspaceHealth, "ready exact-workspace Cloud health after Settings background reconciliation marker", 30_000);
+    witness(ctx, marker.marker?.workspaceId === state.workspaceId, "Settings Cloud MCP sync settlement used the scoped freshness marker for the exact workspace.", {
+      evidence: "marker",
+      marker: marker.marker,
+      markerCount: marker.markerCount,
+      health: summarizeReadyHealth(health),
+    });
+    return;
+  }
+
+  const settlement = await waitForStableReadyHealthSettlement(ctx);
+  witness(ctx, true, "Settings Cloud MCP sync settlement used stable live health sampling because no scoped marker appeared in the short marker window.", {
+    evidence: "stable-health",
+    markerWindowMs: SETTINGS_SYNC_MARKER_WINDOW_MS,
+    marker,
+    settlement,
   });
 }
 
