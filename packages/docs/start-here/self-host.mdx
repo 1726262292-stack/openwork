@@ -42,6 +42,8 @@ The chart stores this value in its ConfigMap as `DEN_API_NODE_OPTIONS` and
 passes it to the `den-api` container as `NODE_OPTIONS` before Node starts. It
 does not change the Node.js options for Den web or the optional inference
 service. Leaving the value empty preserves the default Node.js behavior.
+Existing deployments using `denApi.env.NODE_OPTIONS` can keep that setting when
+upgrading; it takes precedence over `config.denApiNodeOptions`.
 
 If you want self-hosted repository imports and sync from GitHub, configure the [GitHub connector for Helm](/start-here/github-connector-helm) after the core Den web and Den controller hosts are reachable.
 

@@ -92,11 +92,14 @@ spec:
           env:
             - name: PORT
               value: {{ .Values.denApi.containerPort | quote }}
+            {{- if not (hasKey .Values.denApi.env "NODE_OPTIONS") }}
+            # Keep this as a direct value so upgrades from legacy denApi.env.NODE_OPTIONS
+            # do not leave both value and valueFrom in Kubernetes' strategic merge patch.
             - name: NODE_OPTIONS
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "openwork-ee.configName" . }}
-                  key: DEN_API_NODE_OPTIONS
+              value: {{ .Values.config.denApiNodeOptions | quote }}
+              # Explicitly clear the valueFrom emitted by chart 0.17.24 during upgrades.
+              valueFrom: null
+            {{- end }}
             {{- if .Values.installerArtifacts.enabled }}
             - name: OPENWORK_INSTALLER_ARTIFACTS_DIR
               value: {{ .Values.installerArtifacts.mountPath | quote }}
