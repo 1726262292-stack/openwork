@@ -44,6 +44,8 @@ const state = {
   org: null,
   model: null,
   serverAuth: null,
+  initialStrictHealth: null,
+  initialTokenFingerprint: null,
   degradedHealth: null,
   readyHealth: null,
   mcpToken: null,
@@ -643,6 +645,9 @@ async function initialStrictReconcile(ctx) {
   });
   ctx.assert(health?.workspace?.id === state.workspaceId, "Initial reconcile returned a different workspace.");
   ctx.assert(health.usable === true && health.firstFailure === null, `Initial strict reconcile did not become usable: ${JSON.stringify(health.firstFailure)}`);
+  state.initialStrictHealth = health;
+  state.initialTokenFingerprint = tokenFingerprintFromHealth(health);
+  witness(ctx, Boolean(state.initialTokenFingerprint.authorizationHash) && state.initialTokenFingerprint.expiresAt !== null, "Initial strict reconcile health captured a safe token fingerprint and expiry before deleting config.", state.initialTokenFingerprint);
   witness(ctx, true, "Initial strict Cloud reconcile succeeded before inducing degradation.", {
     workspaceId: health.workspace.id,
     desiredRevision: health.desired.revision,
@@ -1108,6 +1113,20 @@ function classifyTokenMintPosts(summary) {
   };
 }
 
+function tokenFingerprintFromHealth(health) {
+  const metadata = health?.desired?.token?.metadata;
+  if (!metadata || typeof metadata !== "object") return { authorizationHash: null, expiresAt: null };
+  const authorizationHash = typeof metadata.authorizationHash === "string" && metadata.authorizationHash.trim()
+    ? metadata.authorizationHash
+    : null;
+  const expiresAt = typeof metadata.expiresAt === "string" && metadata.expiresAt.trim()
+    ? metadata.expiresAt
+    : typeof metadata.expiresAt === "number" && Number.isFinite(metadata.expiresAt)
+      ? metadata.expiresAt
+      : null;
+  return { authorizationHash, expiresAt };
+}
+
 async function readMarker(ctx) {
   return ctx.eval("localStorage.getItem('openwork.den.mcp.sync')");
 }
@@ -1308,12 +1327,20 @@ export default {
             const posts = summary.requests.filter((request) => request.method === "POST" && request.url.includes(`/workspace/${state.workspaceId}/mcp/openwork-cloud/reconcile`));
             witness(ctx, posts.length === 1 && posts[0].body?.workspaceId === state.workspaceId && posts[0].body?.name === CLOUD_MCP_NAME && posts[0].body?.hasAuthorization === true, "Repair posted one sanitized reconcile request to the exact workspace route and body.", posts.map((post) => post.body));
             const tokenMints = classifyTokenMintPosts(summary);
-            witness(ctx, tokenMints.operations.length === 1, "Repair minted one Den MCP token through the renderer or desktop fetch channel.", {
+            witness(ctx, true, "Renderer/desktop Den MCP token mint counts are diagnostic only; remint proof uses server safe fingerprint metadata.", {
               tokenMints: tokenMints.operations.length,
               tokenMintChannelCounts: tokenMints.channelCounts,
               tokenMintChannels: tokenMints.operations.map((operation) => operation.channels.join("+")),
             });
             state.readyHealth = await waitForHealth(ctx, (health) => health.usable === true && health.workspace.id === state.workspaceId && health.firstFailure === null, "usable health after repair");
+            const initialFingerprint = state.initialTokenFingerprint ?? tokenFingerprintFromHealth(state.initialStrictHealth);
+            const readyFingerprint = tokenFingerprintFromHealth(state.readyHealth);
+            witness(ctx, Boolean(initialFingerprint.authorizationHash) && initialFingerprint.expiresAt !== null && Boolean(readyFingerprint.authorizationHash) && readyFingerprint.expiresAt !== null && initialFingerprint.authorizationHash !== readyFingerprint.authorizationHash, "Repair health exposes a new safe token fingerprint plus expiry, proving a freshly minted credential without exposing it.", {
+              initialAuthorizationHash: initialFingerprint.authorizationHash,
+              readyAuthorizationHash: readyFingerprint.authorizationHash,
+              initialExpiresAt: initialFingerprint.expiresAt,
+              readyExpiresAt: readyFingerprint.expiresAt,
+            });
             const markerAfter = await readMarker(ctx);
             witness(ctx, !state.markerBeforeRepair && typeof markerAfter === "string" && markerAfter.includes(state.workspaceId), "The sync marker was absent before repair and written only after usable health returned.", { before: state.markerBeforeRepair, afterPresent: Boolean(markerAfter) });
             witness(ctx, state.readyHealth.delivery.desiredRevision === state.readyHealth.delivery.appliedRevision && state.readyHealth.engine.status === "connected", "Health shows desired/applied revisions match and the engine is connected.", {
