@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer"
+import { createHash } from "node:crypto"
 import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -146,10 +148,24 @@ export function selectExternalMcpSearchConnections<T extends { name: string }>(
 export type ExternalCapabilityMatch = CapabilityMatch & {
   /** Distinguishes a connection-health result from a callable capability. */
   kind?: "connection_status"
+  inputSummary?: ExternalCapabilityInputSummary
+  schemaHash?: string
   /** Set for connection-level status rows: the tool exists but needs a human/admin fix before real tools can be listed. */
   status?: "needs_connection" | "error"
   hint?: string
   connectionStatus?: ExternalConnectionStatus
+}
+
+export type ExternalCapabilityInputPropertySummary = {
+  type?: string
+  description?: string
+  enum?: unknown[]
+}
+
+export type ExternalCapabilityInputSummary = {
+  required: string[]
+  properties: Record<string, ExternalCapabilityInputPropertySummary>
+  truncated?: true
 }
 
 export type ExternalConnectionStatus = {
@@ -181,6 +197,129 @@ const PROVIDER_ADMIN_ACTION_PATTERN = /\b(?:app (?:is )?not installed|admin(?:is
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+const INPUT_SUMMARY_MAX_PROPERTIES = 24
+const INPUT_SUMMARY_DESCRIPTION_LIMIT = 120
+const INPUT_SUMMARY_ENUM_LIMIT = 8
+const INPUT_SUMMARY_SERIALIZED_LIMIT = 1_536
+const PRIMITIVE_SCHEMA_TYPES = new Set(["string", "number", "integer", "boolean", "null"])
+
+function schemaRequiredNames(schema: unknown): string[] {
+  if (!isRecord(schema) || !Array.isArray(schema.required)) return []
+  return schema.required.filter((value) => typeof value === "string")
+}
+
+function schemaProperties(schema: unknown): Record<string, unknown> | null {
+  if (!isRecord(schema) || !isRecord(schema.properties)) return null
+  return schema.properties
+}
+
+function firstSchemaType(value: unknown): string | undefined {
+  if (typeof value === "string") return value
+  if (!Array.isArray(value)) return undefined
+  return value.find((candidate) => typeof candidate === "string" && candidate !== "null")
+    ?? value.find((candidate) => typeof candidate === "string")
+}
+
+function primitiveSchemaType(schema: unknown): string | undefined {
+  if (!isRecord(schema)) return undefined
+  const schemaType = firstSchemaType(schema.type)
+  return schemaType && PRIMITIVE_SCHEMA_TYPES.has(schemaType) ? schemaType : undefined
+}
+
+function inputPropertyType(schema: unknown): string | undefined {
+  if (!isRecord(schema)) return undefined
+  const schemaType = firstSchemaType(schema.type)
+  if (schemaType === "array" || "items" in schema) {
+    const itemType = primitiveSchemaType(schema.items)
+    return itemType ? `array<${itemType}>` : "array"
+  }
+  if (schemaType === "object" || isRecord(schema.properties)) return "object"
+  return schemaType
+}
+
+function summarizeInputProperty(schema: unknown): { summary: ExternalCapabilityInputPropertySummary; truncated: boolean } {
+  if (!isRecord(schema)) return { summary: {}, truncated: false }
+  let truncated = false
+  const summary: ExternalCapabilityInputPropertySummary = {}
+  const type = inputPropertyType(schema)
+  if (type) summary.type = type
+  if (typeof schema.description === "string") {
+    truncated = schema.description.length > INPUT_SUMMARY_DESCRIPTION_LIMIT
+    summary.description = schema.description.slice(0, INPUT_SUMMARY_DESCRIPTION_LIMIT)
+  }
+  if (Array.isArray(schema.enum)) {
+    if (schema.enum.length > INPUT_SUMMARY_ENUM_LIMIT) truncated = true
+    summary.enum = schema.enum.slice(0, INPUT_SUMMARY_ENUM_LIMIT)
+  }
+  return { summary, truncated }
+}
+
+function orderedSchemaPropertyNames(properties: Record<string, unknown>, required: string[]): string[] {
+  const requiredSet = new Set(required)
+  return [
+    ...required.filter((name) => Object.hasOwn(properties, name)),
+    ...Object.keys(properties).filter((name) => !requiredSet.has(name)).sort(),
+  ]
+}
+
+function buildInputSummary(input: {
+  required: string[]
+  rawProperties: Record<string, unknown> | null
+  propertyNames: string[]
+  truncated: boolean
+}): ExternalCapabilityInputSummary {
+  let truncated = input.truncated
+  const properties: Record<string, ExternalCapabilityInputPropertySummary> = {}
+  if (input.rawProperties) {
+    for (const name of input.propertyNames) {
+      const property = summarizeInputProperty(input.rawProperties[name])
+      properties[name] = property.summary
+      if (property.truncated) truncated = true
+    }
+  }
+  return truncated
+    ? { required: input.required, properties, truncated: true }
+    : { required: input.required, properties }
+}
+
+function serializedInputSummaryLength(summary: ExternalCapabilityInputSummary): number {
+  return Buffer.byteLength(JSON.stringify(summary), "utf8")
+}
+
+export function summarizeExternalMcpInputSchema(inputSchema: unknown): ExternalCapabilityInputSummary {
+  const required = schemaRequiredNames(inputSchema)
+  const rawProperties = schemaProperties(inputSchema)
+  if (!rawProperties) return { required, properties: {} }
+
+  const orderedNames = orderedSchemaPropertyNames(rawProperties, required)
+  const propertyNames = orderedNames.slice(0, INPUT_SUMMARY_MAX_PROPERTIES)
+  let truncated = orderedNames.length > propertyNames.length
+  let summary = buildInputSummary({ required, rawProperties, propertyNames, truncated })
+  while (serializedInputSummaryLength(summary) > INPUT_SUMMARY_SERIALIZED_LIMIT && propertyNames.length > 0) {
+    propertyNames.pop()
+    truncated = true
+    summary = buildInputSummary({ required, rawProperties, propertyNames, truncated })
+  }
+  return summary
+}
+
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => canonicalizeJson(item))
+  if (!isRecord(value)) return value
+  const canonical: Record<string, unknown> = {}
+  for (const key of Object.keys(value).sort()) {
+    canonical[key] = canonicalizeJson(value[key])
+  }
+  return canonical
+}
+
+export function externalMcpInputSchemaHash(inputSchema: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalizeJson(inputSchema)) ?? "undefined")
+    .digest("hex")
+    .slice(0, 12)
 }
 
 function cappedErrorMessage(message: string): string {
@@ -639,6 +778,8 @@ async function probeExternalMcpConnection(input: {
       pathParams: [],
       queryParams: [],
       hasBody: true,
+      inputSummary: summarizeExternalMcpInputSchema(tool.inputSchema),
+      schemaHash: externalMcpInputSchemaHash(tool.inputSchema),
     })
   }
   return matches
@@ -695,12 +836,14 @@ export type ExternalCapabilityExecuteResult =
   | { ok: true; result: Awaited<ReturnType<typeof callExternalMcpTool>> }
   | {
       ok: false
-      error: "unknown_capability" | "forbidden" | "connection_not_connected" | "needs_connection" | "connection_failed" | "provider_error"
+      error: "unknown_capability" | "forbidden" | "connection_not_connected" | "needs_connection" | "connection_failed" | "provider_error" | "missing_required_arguments"
       message: string
       diagnostic?: ExternalMcpDiagnostic
       actionOwner?: ExternalMcpDiagnostic["actionOwner"]
       operatorAction?: string
       connectionStatus?: ExternalConnectionStatus
+      inputSummary?: ExternalCapabilityInputSummary
+      schemaHash?: string
     }
 
 /**
@@ -787,6 +930,29 @@ export async function executeExternalCapability(input: {
       error: "connection_not_connected",
       message,
       connectionStatus: buildExternalConnectionStatus({ connection, state: "needs_connection", errorCode: "not_connected", message }),
+    }
+  }
+
+  if (Object.keys(input.args).length === 0) {
+    try {
+      const tools = await listExternalMcpTools(
+        connection,
+        redirectUriFor(input.redirectUriBase, connection.id),
+        member,
+      )
+      const tool = tools.find((candidate) => candidate.name === input.toolName)
+      const required = tool ? schemaRequiredNames(tool.inputSchema) : []
+      if (tool && required.length > 0) {
+        return {
+          ok: false,
+          error: "missing_required_arguments",
+          message: `Missing required arguments for "${input.toolName}": ${required.join(", ")}. Retry with these fields in the execute_capability body.`,
+          inputSummary: summarizeExternalMcpInputSchema(tool.inputSchema),
+          schemaHash: externalMcpInputSchemaHash(tool.inputSchema),
+        }
+      }
+    } catch {
+      // Best-effort guard: if discovery fails here, fall through to the normal execute path.
     }
   }
 

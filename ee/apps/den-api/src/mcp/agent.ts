@@ -131,6 +131,8 @@ export function externalCapabilityErrorToolResult(
       ...(result.actionOwner ? { actionOwner: result.actionOwner } : {}),
       ...(result.operatorAction ? { operatorAction: result.operatorAction } : {}),
       ...(result.connectionStatus ? { connectionStatus: result.connectionStatus } : {}),
+      ...(result.inputSummary ? { inputSummary: result.inputSummary } : {}),
+      ...(result.schemaHash ? { schemaHash: result.schemaHash } : {}),
     })),
   }
 }
@@ -309,6 +311,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
           "Each match includes pathParams/queryParams/hasBody describing exactly what execute_capability needs.",
+          "External MCP tool matches also include inputSummary describing body arguments.",
           "Skill matches use method SKILL and return stored SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
