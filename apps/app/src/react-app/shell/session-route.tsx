@@ -101,8 +101,8 @@ import { buildOpenworkEnvSystemContext } from "@/react-app/domains/session/sync/
 import {
   applySessionRevert,
 } from "@/react-app/domains/session/sync/session-sync";
-import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
-import { composerAttachmentToFilePart } from "@/react-app/domains/session/sync/attachment-file-part";
+import { firstLineLocalFileParts, joinWorkspaceRelativePath, toFileUrl } from "@/react-app/domains/session/sync/prompt-file-parts";
+import { composerAttachmentsToWorkspaceFileParts } from "@/react-app/domains/session/sync/attachment-file-part";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
@@ -247,7 +247,12 @@ function nextEvalUnavailableModel(current: ModelRef | null | undefined) {
 // `resolveWorkspaceEndpoint` in apps/app/src/app/lib/workspace-endpoint.ts.
 // Don't compose `<baseUrl>/workspace/<id>` here.
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
+async function draftToParts(
+  draft: ComposerDraft,
+  workspaceRoot: string,
+  sessionId: string,
+  endpoint: ResolvedWorkspaceEndpoint | null,
+) {
   const parts: Array<TextPartInput | FilePartInput | AgentPartInput> = [];
   const root = workspaceRoot.trim();
 
@@ -255,9 +260,9 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
     const trimmed = path.trim();
     if (!trimmed) return "";
     if (trimmed.startsWith("/")) return trimmed;
-    if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
+    if (/^[a-zA-Z]:[\\/]/.test(trimmed)) return trimmed;
     if (!root) return "";
-    return `${root}/${trimmed}`.replace(/\/\/+/g, "/");
+    return joinWorkspaceRelativePath(root, trimmed);
   };
 
   const filenameFromPath = (path: string) => {
@@ -293,7 +298,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
       parts.push({
         type: "file",
         mime: "text/plain",
-        url: `file://${absolute}`,
+        url: toFileUrl(absolute),
         filename: filenameFromPath(part.path),
       });
     }
@@ -301,7 +306,17 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 
   parts.push(...firstLineLocalFileParts(draft.resolvedText ?? draft.text, root));
 
-  parts.push(...(await Promise.all(draft.attachments.map(composerAttachmentToFilePart))));
+  if (draft.attachments.length > 0) {
+    if (!endpoint) {
+      throw new Error("Workspace endpoint is unavailable; attachments could not be copied for tool access.");
+    }
+    parts.push(...(await composerAttachmentsToWorkspaceFileParts({
+      attachments: draft.attachments,
+      endpoint,
+      sessionId,
+      workspaceRoot: root,
+    })));
+  }
 
   return parts;
 }
@@ -914,7 +929,7 @@ export function SessionRoute() {
           return;
         }
 
-        const parts = await draftToParts(draft, selectedWorkspaceRoot);
+        const parts = await draftToParts(draft, selectedWorkspaceRoot, targetSessionId, selectedWorkspaceEndpoint);
         const envSystemContext = await buildOpenworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,

@@ -782,7 +782,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       captureAnalyticsEvent("task_send_failed", {});
       setError(parsed);
       useSessionActivityStore.getState().setError(props.workspaceId, props.sessionId, parsed.message);
-      setComposerDraft(props.sessionId, "");
       setAwaitingAssistantBaseline(null);
       setSending(false);
       throw nextError;
@@ -805,9 +804,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
       await sendDraft(nextDraft, sentAttachments);
       clearComposer();
     } catch {
-      setComposerDraft(props.sessionId, "");
     }
-  }, [attachments, buildDraft, clearComposer, draft, props.sessionId, sendDraft, setComposerDraft]);
+  }, [attachments, buildDraft, clearComposer, draft, props.sessionId, sendDraft]);
 
   const handleSteer = handleSend;
 
