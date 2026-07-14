@@ -2,7 +2,6 @@
 import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
 import {
   BookOpen,
-  CheckCircle2,
   ChevronDown,
   CircleAlert,
   Cloud,
@@ -52,6 +51,11 @@ import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import { canDisconnectNativeProviderAccount } from "../../connections/native-provider-connections";
+import {
+  connectionDisplayState,
+  connectionDisplayStateLabelKey,
+  type ConnectionDisplayState,
+} from "../../connections/connection-display-state";
 import type { OpenworkClaudePluginPreview } from "../../../../app/lib/openwork-server";
 import {
   isOpenWorkExtensionEnabled,
@@ -66,14 +70,6 @@ import {
   type ConfigScope,
   type McpViewLocalState,
 } from "./mcp-view-state";
-
-export type ReactMcpStatus =
-  | "connected"
-  | "needs_auth"
-  | "needs_client_registration"
-  | "failed"
-  | "disabled"
-  | "disconnected";
 
 export type SkillItem = {
   name: string;
@@ -133,49 +129,32 @@ export type McpViewProps = {
 
 const builtInExtensionDisabledReason = "Disabled by organization";
 
-const statusDot = (status: ReactMcpStatus) => {
-  switch (status) {
-    case "connected":
+const statusDot = (state: ConnectionDisplayState) => {
+  switch (state) {
+    case "protocol_ready":
       return "bg-green-9";
-    case "needs_auth":
-    case "needs_client_registration":
+    case "auth_required":
       return "bg-amber-9";
+    case "configured":
     case "disabled":
       return "bg-gray-8";
-    case "disconnected":
-      return "bg-gray-7";
-    default:
+    case "error":
       return "bg-red-9";
   }
 };
 
-const friendlyStatus = (status: ReactMcpStatus) => {
-  switch (status) {
-    case "connected":
-      return t("mcp.friendly_status_ready");
-    case "needs_auth":
-    case "needs_client_registration":
-      return t("mcp.friendly_status_needs_signin");
-    case "disabled":
-      return t("mcp.friendly_status_paused");
-    case "disconnected":
-      return t("mcp.friendly_status_offline");
-    default:
-      return t("mcp.friendly_status_issue");
-  }
-};
+const friendlyStatus = (state: ConnectionDisplayState) => t(connectionDisplayStateLabelKey(state));
 
-const statusBadgeStyle = (status: ReactMcpStatus) => {
-  switch (status) {
-    case "connected":
+const statusChipStyle = (state: ConnectionDisplayState) => {
+  switch (state) {
+    case "protocol_ready":
       return "bg-green-3 text-green-11";
-    case "needs_auth":
-    case "needs_client_registration":
+    case "auth_required":
       return "bg-amber-3 text-amber-11";
+    case "configured":
     case "disabled":
-    case "disconnected":
       return "bg-gray-3 text-gray-11";
-    default:
+    case "error":
       return "bg-red-3 text-red-11";
   }
 };
@@ -437,14 +416,15 @@ export function McpView(props: McpViewProps) {
   const supportsOauth = (entry: McpServerEntry) =>
     entry.config.type === "remote" && entry.config.oauth !== false;
 
-  const resolveStatus = (entry: McpServerEntry): ReactMcpStatus => {
-    if (entry.config.enabled === false) return "disabled";
-    const resolved = props.mcpStatuses[entry.name];
-    return resolved?.status ?? "disconnected";
-  };
+  const resolveDisplayState = (entry: McpServerEntry): ConnectionDisplayState =>
+    connectionDisplayState({
+      configured: true,
+      enabled: entry.config.enabled !== false,
+      status: props.mcpStatuses[entry.name]?.status,
+    }) ?? "configured";
 
   const connectedCount = props.mcpServers.filter(
-    (entry) => resolveStatus(entry) === "connected",
+    (entry) => resolveDisplayState(entry) === "protocol_ready",
   ).length;
   const hiddenCount = quickConnectList.filter((entry) => isOpenWorkExtensionHidden(entry)).length +
     (props.installedSkills ?? []).filter((skill) => isOpenWorkExtensionHidden(getSkillHiddenId(skill))).length +
@@ -658,7 +638,7 @@ export function McpView(props: McpViewProps) {
         logoutTarget={logoutTarget}
         togglingMcp={togglingMcp}
         displayName={displayName}
-        resolveStatus={resolveStatus}
+        resolveDisplayState={resolveDisplayState}
         supportsOauth={supportsOauth}
         onSelect={props.setSelectedMcp}
         onAuthorize={props.authorizeMcp}
@@ -928,7 +908,7 @@ function McpQuickConnectSection(props: {
   disabledReasonForEntry: (entry: McpDirectoryInfo) => string | null;
   isConfigured: (entry: McpDirectoryInfo) => boolean;
   enablementForEntry?: (entry: McpDirectoryInfo) => { active: boolean; results: EnablementResult[] } | null;
-  statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
+  statusForEntry: (entry: McpDirectoryInfo) => McpStatusMap[string] | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
   onDetail: (entry: McpDirectoryInfo) => void;
   onSkillDetail?: (skill: SkillItem) => void;
@@ -1066,7 +1046,7 @@ function McpConfiguredServersSection(props: {
   logoutTarget: string | null;
   togglingMcp: string | null;
   displayName: (name: string) => string;
-  resolveStatus: (entry: McpServerEntry) => ReactMcpStatus;
+  resolveDisplayState: (entry: McpServerEntry) => ConnectionDisplayState;
   supportsOauth: (entry: McpServerEntry) => boolean;
   onSelect: (name: string | null) => void;
   onAuthorize: (entry: McpServerEntry) => void;
@@ -1094,7 +1074,7 @@ function McpConfiguredServersSection(props: {
             <McpConfiguredServerRow
               key={entry.name}
               entry={entry}
-              status={props.resolveStatus(entry)}
+              displayState={props.resolveDisplayState(entry)}
               errorInfo={readMcpErrorInfo(props.statuses[entry.name])}
               selected={props.selectedMcp === entry.name}
               busy={props.busy}
@@ -1130,7 +1110,7 @@ function readMcpErrorInfo(status: McpStatusMap[string] | undefined) {
 
 function McpConfiguredServerRow(props: {
   entry: McpServerEntry;
-  status: ReactMcpStatus;
+  displayState: ConnectionDisplayState;
   errorInfo: string | null;
   selected: boolean;
   busy: boolean;
@@ -1151,15 +1131,17 @@ function McpConfiguredServerRow(props: {
     <div className={`rounded-xl border transition-all ${props.selected ? "border-blue-7 bg-blue-2 shadow-sm" : "border-dls-border bg-dls-surface hover:bg-dls-hover"}`}>
       <button type="button" className="w-full px-4 py-3.5 text-left" onClick={() => props.onSelect(props.selected ? null : props.entry.name)}>
         <div className="flex items-center gap-3">
-          <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg border ${props.status === "connected" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>
-            <Icon size={15} className={props.status === "connected" ? "text-green-11" : serviceColor(props.entry.name)} />
+          <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg border ${props.displayState === "protocol_ready" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>
+            <Icon size={15} className={props.displayState === "protocol_ready" ? "text-green-11" : serviceColor(props.entry.name)} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium text-dls-text">{props.displayName(props.entry.name)}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className={`size-2 rounded-full ${statusDot(props.status)}`} />
-            <span className="text-[11px] text-dls-secondary">{friendlyStatus(props.status)}</span>
+            <div className={`size-2 rounded-full ${statusDot(props.displayState)}`} />
+            <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${statusChipStyle(props.displayState)}`}>
+              {friendlyStatus(props.displayState)}
+            </span>
           </div>
           <div className={`transition-transform ${props.selected ? "rotate-180" : ""}`}>
             <ChevronDown size={14} className="text-dls-secondary/40" />
@@ -1236,7 +1218,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
 
 function McpConfiguredServerAuthActions(props: Parameters<typeof McpConfiguredServerRow>[0]) {
   if (!props.supportsOauth(props.entry)) return null;
-  if (props.status !== "connected") {
+  if (props.displayState !== "protocol_ready") {
     return (
       <>
         <div className="flex items-center justify-between gap-3 pt-1">

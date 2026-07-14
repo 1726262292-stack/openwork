@@ -82,6 +82,7 @@ import {
   getActiveToolLabel,
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
+import type { ToolInvocationKnownServer } from "@/lib/tool-invocation-origin"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
@@ -105,6 +106,7 @@ function MessageTimestamp({ message, className }: { message: UIMessage; classNam
 
 interface ToolMessageProps {
   part: ToolUIPart | DynamicToolUIPart
+  knownServers?: readonly ToolInvocationKnownServer[]
 }
 
 /**
@@ -131,11 +133,11 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
         <div className="text-xs text-muted-foreground">Tool step unavailable</div>
       )
     }
-    return <ToolMessageInner part={this.props.part} />
+    return <ToolMessageInner part={this.props.part} knownServers={this.props.knownServers} />
   }
 }
 
-const ToolMessageInner = ({ part }: ToolMessageProps) => {
+const ToolMessageInner = ({ part, knownServers }: ToolMessageProps) => {
   if (isBashToolPart(part)) {
     return <BashTool part={part} />
   }
@@ -192,7 +194,7 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
     return <EnvVarRequestTool part={part} />
   }
 
-  return <Tool toolPart={part} />
+  return <Tool toolPart={part} knownServers={knownServers} />
 }
 
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
@@ -334,10 +336,11 @@ type AssistantMessageProps = {
   isLastMessage: boolean
   isStreaming: boolean
   isLastStep: boolean
+  knownServers?: readonly ToolInvocationKnownServer[]
 }
 
 const AssistantMessage = React.memo(
-  ({ message }: AssistantMessageProps) => {
+  ({ message, knownServers }: AssistantMessageProps) => {
     const { showThinking, highlightQuery } = useMessageList()
     const assistantRenderGroups = React.useMemo(
       () => getAssistantRenderGroups(message.parts, showThinking),
@@ -387,7 +390,7 @@ const AssistantMessage = React.memo(
 
             return (
               <div key={`tool-${index}`} className="w-full">
-                <ToolMessage part={group.part} />
+                <ToolMessage part={group.part} knownServers={knownServers} />
               </div>
             )
           })}
@@ -567,10 +570,11 @@ type MessageComponentProps = {
   isLastMessage: boolean
   isStreaming: boolean
   isLastStep: boolean
+  knownServers?: readonly ToolInvocationKnownServer[]
 }
 
 const MessageComponent = React.memo(
-  ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
+  ({ message, isLastMessage, isStreaming, isLastStep, knownServers }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
       return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
     }
@@ -591,6 +595,7 @@ const MessageComponent = React.memo(
           isLastMessage={isLastMessage}
           isStreaming={isStreaming}
           isLastStep={isLastStep}
+          knownServers={knownServers}
         />
       )
     }
@@ -731,12 +736,14 @@ interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
   isStreaming: boolean
+  knownServers?: readonly ToolInvocationKnownServer[]
 }
 
 function MessageGroup({
   items,
   messages,
   isStreaming,
+  knownServers,
 }: AssistantMessageGroupProps) {
   const { onRevertToUserMessage, onForkAtMessage } = useMessageList()
   const lastItem = items[items.length - 1]
@@ -786,6 +793,7 @@ function MessageGroup({
           isLastMessage={isLastMessage}
           isStreaming={isLastMessage && isStreaming}
           isLastStep={groupIndex === items.length - 1}
+          knownServers={knownServers}
         />
         <MessageArtifacts message={item.message} />
       </div>
@@ -842,9 +850,10 @@ interface MessageListProps {
   messages: UIMessage[]
   status: ThreadStatus
   retryStatus?: RetryStatus | null
+  knownMcpServers?: readonly ToolInvocationKnownServer[]
 }
 
-export function MessageList({ messages, status, retryStatus }: MessageListProps) {
+export function MessageList({ messages, status, retryStatus, knownMcpServers }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
@@ -865,6 +874,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
               items={item.messages}
               messages={messages}
               isStreaming={isStreaming}
+              knownServers={knownMcpServers}
             />
           )
         }
@@ -880,6 +890,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
               isLastMessage={isLastMessage}
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
+              knownServers={knownMcpServers}
             />
             <MessageArtifacts message={item.message} />
           </div>

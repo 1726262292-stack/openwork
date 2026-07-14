@@ -143,7 +143,7 @@ const profiles = deepFreeze(providerProfileSchema.array().parse([
     },
     tools: [
       {
-        name: "lookup_incidents",
+        name: "synthetic_servicenow_lookup",
         title: "Look up incidents",
         description: "Returns deterministic synthetic incidents visible to the mock runtime user.",
         kind: "read",
@@ -158,7 +158,7 @@ const profiles = deepFreeze(providerProfileSchema.array().parse([
         },
       },
       {
-        name: "get_incident",
+        name: "synthetic_servicenow_get_incident",
         title: "Get incident",
         description: "Returns one synthetic incident by incident number.",
         kind: "read",
@@ -170,7 +170,7 @@ const profiles = deepFreeze(providerProfileSchema.array().parse([
         },
       },
       {
-        name: "summarize_incident",
+        name: "synthetic_servicenow_summarize_incident",
         title: "Summarize incident",
         description: "Builds a deterministic summary of a synthetic incident.",
         kind: "read",
@@ -182,7 +182,7 @@ const profiles = deepFreeze(providerProfileSchema.array().parse([
         },
       },
       {
-        name: "create_incident",
+        name: "synthetic_servicenow_create_incident",
         title: "Create incident",
         description: "Creates a synthetic incident in the in-memory mutation ledger.",
         kind: "mutation",

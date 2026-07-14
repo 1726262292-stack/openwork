@@ -209,7 +209,7 @@ test("transport, JSON-RPC, protocol, and session validation stay precisely shape
     const unknown = await callRpc(server.baseUrl, scenario, session, 4, "unknown/method", {})
     assert.equal(unknown.envelope.error?.code, -32601)
     const invalidArguments = await callRpc(server.baseUrl, scenario, session, 5, "tools/call", {
-      name: "get_incident",
+      name: "synthetic_servicenow_get_incident",
       arguments: { number: 42, extra: true },
     })
     assert.equal(invalidArguments.envelope.error?.code, -32602)
@@ -308,7 +308,7 @@ test("provider tool faults expose top-level Den-compatible evidence and a detail
     const token = await authorizeManual(server.baseUrl, scenario, oauthClientSecret)
     const session = await initializeSession(server.baseUrl, scenario, token)
     const call = await callRpc(server.baseUrl, scenario, session, 31, "tools/call", {
-      name: "get_incident",
+      name: "synthetic_servicenow_get_incident",
       arguments: { number: "INC0000001" },
     })
     const result = z.object({

@@ -97,7 +97,7 @@ test("event and state buffers are capped, expire, and redact known secrets", () 
   assert.equal(state.refreshTokens.size, 100)
   assert.equal(state.sessions.size, 100)
   for (let index = 0; index < 1_020; index += 1) {
-    const prepared = state.prepareOperation("test-family", "create_incident", `idempotency-${index}`, { value: index })
+    const prepared = state.prepareOperation("test-family", "synthetic_servicenow_create_incident", `idempotency-${index}`, { value: index })
     if (prepared.kind === "prepared") state.transitionOperation(prepared.operation.operationId, "responded", `result-${index}`)
   }
   assert.equal(state.operations.size, 1000)
@@ -171,15 +171,15 @@ test("only a responded mutation can be reported as an idempotent duplicate", () 
     [oauthClientSecret],
     { now: Date.now, randomId: () => `id-${++counter}`, opaqueValue: (prefix) => `${prefix}-${++counter}` },
   )
-  const prepared = state.prepareOperation("family-a", "create_incident", "stable-idempotency-key", { value: 1 })
+  const prepared = state.prepareOperation("family-a", "synthetic_servicenow_create_incident", "stable-idempotency-key", { value: 1 })
   assert.equal(prepared.kind, "prepared")
-  assert.equal(state.prepareOperation("family-a", "create_incident", "stable-idempotency-key", { value: 1 }).kind, "reconcile")
+  assert.equal(state.prepareOperation("family-a", "synthetic_servicenow_create_incident", "stable-idempotency-key", { value: 1 }).kind, "reconcile")
   if (prepared.kind !== "prepared") throw new Error("Expected prepared operation")
   state.transitionOperation(prepared.operation.operationId, "committed", "synthetic:result")
-  assert.equal(state.prepareOperation("family-a", "create_incident", "stable-idempotency-key", { value: 1 }).kind, "reconcile")
+  assert.equal(state.prepareOperation("family-a", "synthetic_servicenow_create_incident", "stable-idempotency-key", { value: 1 }).kind, "reconcile")
   state.transitionOperation(prepared.operation.operationId, "responded", "synthetic:result")
-  assert.equal(state.prepareOperation("family-a", "create_incident", "stable-idempotency-key", { value: 1 }).kind, "duplicate")
-  assert.equal(state.prepareOperation("family-b", "create_incident", "stable-idempotency-key", { value: 1 }).kind, "prepared")
+  assert.equal(state.prepareOperation("family-a", "synthetic_servicenow_create_incident", "stable-idempotency-key", { value: 1 }).kind, "duplicate")
+  assert.equal(state.prepareOperation("family-b", "synthetic_servicenow_create_incident", "stable-idempotency-key", { value: 1 }).kind, "prepared")
 })
 
 test("bounded eviction never forgets an unresolved mutation outcome", () => {
@@ -191,15 +191,15 @@ test("bounded eviction never forgets an unresolved mutation outcome", () => {
     [oauthClientSecret],
     { now: Date.now, randomId: () => `id-${++counter}`, opaqueValue: (prefix) => `${prefix}-${++counter}` },
   )
-  const critical = state.prepareOperation("critical-client", "create_incident", "critical-key", { value: "critical" })
+  const critical = state.prepareOperation("critical-client", "synthetic_servicenow_create_incident", "critical-key", { value: "critical" })
   if (critical.kind !== "prepared") throw new Error("Expected critical operation to prepare")
   state.transitionOperation(critical.operation.operationId, "indeterminate", "critical-result")
   for (let index = 0; index < 1_100; index += 1) {
-    const filler = state.prepareOperation("filler-client", "create_incident", `filler-${index}`, { value: index })
+    const filler = state.prepareOperation("filler-client", "synthetic_servicenow_create_incident", `filler-${index}`, { value: index })
     if (filler.kind === "prepared") state.transitionOperation(filler.operation.operationId, "responded", `result-${index}`)
   }
   assert.equal(state.operations.has(critical.operation.operationId), true)
-  assert.equal(state.prepareOperation("critical-client", "create_incident", "critical-key", { value: "critical" }).kind, "reconcile")
+  assert.equal(state.prepareOperation("critical-client", "synthetic_servicenow_create_incident", "critical-key", { value: "critical" }).kind, "reconcile")
   assert.equal(state.operations.size, 1000)
 })
 
@@ -213,8 +213,8 @@ test("a ledger full of unresolved outcomes rejects new mutations instead of evic
     { now: Date.now, randomId: () => `id-${++counter}`, opaqueValue: (prefix) => `${prefix}-${++counter}` },
   )
   for (let index = 0; index < 1_000; index += 1) {
-    assert.equal(state.prepareOperation("capacity-client", "create_incident", `unresolved-${index}`, { value: index }).kind, "prepared")
+    assert.equal(state.prepareOperation("capacity-client", "synthetic_servicenow_create_incident", `unresolved-${index}`, { value: index }).kind, "prepared")
   }
-  assert.equal(state.prepareOperation("capacity-client", "create_incident", "one-too-many", { value: 1_001 }).kind, "capacity")
+  assert.equal(state.prepareOperation("capacity-client", "synthetic_servicenow_create_incident", "one-too-many", { value: 1_001 }).kind, "capacity")
   assert.equal(state.operations.size, 1_000)
 })

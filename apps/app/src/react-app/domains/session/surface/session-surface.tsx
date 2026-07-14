@@ -477,6 +477,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => createClient(props.opencodeBaseUrl, undefined, { token: props.openworkToken, mode: "openwork" }),
     [props.opencodeBaseUrl, props.openworkToken],
   );
+  const toolInvocationKnownServers = useMemo(
+    () => toolMcpServers.map((server) => ({ name: server.name })),
+    [toolMcpServers],
+  );
 
   const snapshotQueryKey = useMemo(
     () => reactSnapshotKey(props.workspaceId, props.sessionId),
@@ -1407,6 +1411,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         messages={renderedMessages}
                         status={status}
                         retryStatus={liveStatus.type === "retry" ? liveStatus : null}
+                        knownMcpServers={toolInvocationKnownServers}
                       />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>

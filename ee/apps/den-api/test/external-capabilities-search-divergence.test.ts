@@ -430,7 +430,7 @@ test("dead-url execution returns a structured connection diagnostic instead of t
     organizationId: seed.organizationId,
     member: { orgMembershipId: seed.memberId, teamIds: [] },
     connectionId: connection.id,
-    toolName: "lookup_incidents",
+    toolName: "synthetic_servicenow_lookup",
     args: {},
     redirectUriBase,
   })

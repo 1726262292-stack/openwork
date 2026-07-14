@@ -103,7 +103,7 @@ test("compatible scenario activation preserves established OAuth authority but c
     const token = await authorizeManual(server.baseUrl, scenario, oauthClientSecret)
     const oldSession = await initializeSession(server.baseUrl, scenario, token)
     const mutation = await callRpc(server.baseUrl, scenario, oldSession, 30, "tools/call", {
-      name: "create_incident",
+      name: "synthetic_servicenow_create_incident",
       arguments: {
         approved: true,
         idempotency_key: "continuity-operation-must-not-cross",
