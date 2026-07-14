@@ -84,7 +84,8 @@
             "group": "Run in the cloud",
             "pages": [
               "cloud/run-in-the-cloud/shared-workspace",
-              "cloud/run-in-the-cloud/cloud-mcp"
+              "cloud/run-in-the-cloud/cloud-mcp",
+              "cloud/run-in-the-cloud/connect-openwork-mcp-remote-machine"
             ]
           },
           "cloud/members-and-rbac",

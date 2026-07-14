@@ -13,6 +13,11 @@ import { DenNotice } from "../../_components/ui/notice";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
 import { EgressDiagnosticsCard } from "./egress-diagnostics-card";
+import {
+  allPublishedDesktopVersionsAllowed,
+  getDesktopVersionMetadata,
+  initialAllowedDesktopVersions,
+} from "./desktop-version-options";
 
 function normalizeAllowedEmailDomainsInput(value: string): string[] | null {
   const domains = [
@@ -27,64 +32,6 @@ function normalizeAllowedEmailDomainsInput(value: string): string[] | null {
   return domains.length > 0 ? domains : null;
 }
 
-function normalizeDesktopVersionString(value: string): string | null {
-  const normalized = value.trim().replace(/^v/i, "");
-  return /^\d+\.\d+\.\d+$/.test(normalized) ? normalized : null;
-}
-
-function getDesktopVersionMetadata(payload: unknown): {
-  minAppVersion: string;
-  latestAppVersion: string;
-} | null {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-
-  const record = payload as Record<string, unknown>;
-
-  const minAppVersion =
-    typeof record.minAppVersion === "string"
-      ? normalizeDesktopVersionString(record.minAppVersion)
-      : null;
-  const latestAppVersion =
-    typeof record.latestAppVersion === "string"
-      ? normalizeDesktopVersionString(record.latestAppVersion)
-      : null;
-
-  if (!minAppVersion || !latestAppVersion) {
-    return null;
-  }
-
-  return { minAppVersion, latestAppVersion };
-}
-
-function buildDesktopVersionOptions(
-  minVersion: string,
-  maxVersion: string,
-): string[] {
-  const minMatch = minVersion.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  const maxMatch = maxVersion.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (!minMatch || !maxMatch) {
-    return [...new Set([minVersion, maxVersion])];
-  }
-
-  const minMajor = Number(minMatch[1]);
-  const minMinor = Number(minMatch[2]);
-  const minPatch = Number(minMatch[3]);
-  const maxMajor = Number(maxMatch[1]);
-  const maxMinor = Number(maxMatch[2]);
-  const maxPatch = Number(maxMatch[3]);
-
-  if (minMajor !== maxMajor || minMinor !== maxMinor || minPatch > maxPatch) {
-    return [...new Set([minVersion, maxVersion])];
-  }
-
-  return Array.from(
-    { length: maxPatch - minPatch + 1 },
-    (_, index) => `${minMajor}.${minMinor}.${minPatch + index}`,
-  );
-}
-
 function toggleAllowedDesktopVersion(
   current: string[],
   version: string,
@@ -95,18 +42,6 @@ function toggleAllowedDesktopVersion(
   }
 
   return current.filter((entry) => entry !== version);
-}
-
-function filterAllowedDesktopVersionsToVisibleOptions(
-  storedVersions: string[] | null,
-  visibleOptions: string[],
-) {
-  if (storedVersions === null) {
-    return null;
-  }
-
-  const visibleOptionSet = new Set(visibleOptions);
-  return storedVersions.filter((version) => visibleOptionSet.has(version));
 }
 
 function SettingsToggle({
@@ -188,23 +123,14 @@ export function OrgSettingsScreen() {
     [allowedDomainsDraft],
   );
   const hasDraftDomains = (draftAllowedDomains?.length ?? 0) > 0;
-  const visibleAllowedDesktopVersionsDraft = useMemo(
-    () =>
-      filterAllowedDesktopVersionsToVisibleOptions(
-        allowedDesktopVersionsDraft,
-        desktopVersionOptions,
-      ) ?? [],
-    [allowedDesktopVersionsDraft, desktopVersionOptions],
-  );
   const selectedDesktopVersions = useMemo(
-    () => new Set(visibleAllowedDesktopVersionsDraft),
-    [visibleAllowedDesktopVersionsDraft],
+    () => new Set(allowedDesktopVersionsDraft),
+    [allowedDesktopVersionsDraft],
   );
-  const allDesktopVersionsAllowed =
-    desktopVersionOptions.length > 0 &&
-    desktopVersionOptions.every((version) =>
-      selectedDesktopVersions.has(version),
-    );
+  const allDesktopVersionsAllowed = allPublishedDesktopVersionsAllowed({
+    draftVersions: allowedDesktopVersionsDraft,
+    publishedVersions: desktopVersionOptions,
+  });
 
   useEffect(() => {
     if (!orgContext) {
@@ -254,12 +180,7 @@ export function OrgSettingsScreen() {
           return;
         }
 
-        setDesktopVersionOptions(
-          buildDesktopVersionOptions(
-            metadata.minAppVersion,
-            metadata.latestAppVersion,
-          ),
-        );
+        setDesktopVersionOptions(metadata.publishedDesktopVersions);
       } catch (error) {
         if (!cancelled) {
           setDesktopVersionOptions([]);
@@ -288,30 +209,11 @@ export function OrgSettingsScreen() {
       return;
     }
 
-    const storedAllowedDesktopVersions =
-      filterAllowedDesktopVersionsToVisibleOptions(
-        getAllowedDesktopVersionsFromMetadata(orgContext.organization.metadata),
-        desktopVersionOptions,
-      );
-
-    if (storedAllowedDesktopVersions === null) {
-      setAllowedDesktopVersionsDraft(desktopVersionOptions);
-      return;
-    }
-
-    setAllowedDesktopVersionsDraft(storedAllowedDesktopVersions);
+    setAllowedDesktopVersionsDraft(initialAllowedDesktopVersions(
+      getAllowedDesktopVersionsFromMetadata(orgContext.organization.metadata),
+      desktopVersionOptions,
+    ));
   }, [desktopVersionOptions, orgContext]);
-
-  useEffect(() => {
-    if (
-      visibleAllowedDesktopVersionsDraft.length ===
-      allowedDesktopVersionsDraft.length
-    ) {
-      return;
-    }
-
-    setAllowedDesktopVersionsDraft(visibleAllowedDesktopVersionsDraft);
-  }, [allowedDesktopVersionsDraft.length, visibleAllowedDesktopVersionsDraft]);
 
   useEffect(() => {
     if (!copiedOrgId) {
@@ -387,9 +289,7 @@ export function OrgSettingsScreen() {
           ? {
               allowedDesktopVersions: allDesktopVersionsAllowed
                 ? null
-                : desktopVersionOptions.filter((version) =>
-                    selectedDesktopVersions.has(version),
-                  ),
+                : allowedDesktopVersionsDraft,
             }
           : {}),
         requireSso: requireSsoEnabled,

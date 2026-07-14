@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 
 import { OpenWorkExtensionsPreview } from "./openwork-extensions-preview.js";
+import * as OpenWorkExtensionsPreviewEntry from "./openwork-extensions-preview.js";
 
 const originalServerUrl = process.env.OPENWORK_SERVER_URL;
 const originalServerToken = process.env.OPENWORK_SERVER_TOKEN;
@@ -71,6 +72,26 @@ function startFakeOpenWorkServer() {
         return Response.json({ message: "Unauthorized" }, { status: 401 });
       }
 
+      if (url.pathname === "/experimental/connect/state") {
+        return Response.json({
+          ok: true,
+          schemaVersion: 1,
+          connectEnabled: true,
+          connectCatalogEnabled: true,
+          cloudMcpPresent: true,
+          cloudHealth: {
+            usable: true,
+            usableByCurrentModel: true,
+            phase: "ready",
+            workspace: { id: "ws_2", directory: "/tmp/archive" },
+            desired: { present: true, revision: "rev_ready" },
+            firstFailure: null,
+          },
+          workspace: { resolution: "resolved", id: "ws_2", directory: "/tmp/archive" },
+          googleWorkspace: { legacyConfigured: false },
+        });
+      }
+
       if (url.pathname === "/workspaces") {
         return Response.json({ items: [workspaceOne, workspaceTwo], workspaces: [workspaceOne, workspaceTwo] });
       }
@@ -128,6 +149,10 @@ function startFakeOpenWorkServer() {
 }
 
 describe("OpenWorkExtensionsPreview session tools", () => {
+  test("plugin entry exposes only the factory export for the OpenCode loader", () => {
+    expect(Object.keys(OpenWorkExtensionsPreviewEntry)).toEqual(["OpenWorkExtensionsPreview"]);
+  });
+
   test("searches past chat transcript text and prefers the user's matching message", async () => {
     const fake = startFakeOpenWorkServer();
     const plugin = await OpenWorkExtensionsPreview();
@@ -148,6 +173,21 @@ describe("OpenWorkExtensionsPreview session tools", () => {
     });
     expect(parsed.results[0]?.snippet.match.toLowerCase()).toBe("raven launch");
     expect(fake.requests.some((request) => request.pathname === "/workspace/ws_1/sessions/ses_alpha/messages" && request.search === "?limit=400")).toBe(true);
+  });
+
+  test("merges factory directory into transform steering when hook input omits it", async () => {
+    const fake = startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
+    const output: { system: string[] } = { system: [] };
+
+    await plugin["experimental.chat.system.transform"]({
+      context: { sessionID: "ses_factory" },
+      model: { providerID: "anthropic", modelID: "claude-sonnet-4" },
+    }, output);
+
+    const connectStateRequest = fake.requests.find((request) => request.pathname === "/experimental/connect/state");
+    expect(connectStateRequest?.search).toBe("?directory=%2Ftmp%2Farchive&provider=anthropic&model=claude-sonnet-4");
+    expect(output.system.join("\n")).toContain("verified ready for this exact workspace/model");
   });
 
   test("reads a transcript by session id without opening the UI", async () => {
