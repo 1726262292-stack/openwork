@@ -54,6 +54,9 @@ const externalMcpDiagnosticOutputSchema = z.object({
   operationPhase: z.enum(EXTERNAL_MCP_DIAGNOSTIC_PHASES).optional(),
   outbound: z.object({ origin: z.string(), pathHash: z.string() }).optional(),
   providerRequestId: z.string().optional(),
+  providerStatus: z.number().int().optional(),
+  providerCode: z.string().optional(),
+  payloadBytes: z.number().int().optional(),
   jsonRpcCode: z.number().int().optional(),
 })
 

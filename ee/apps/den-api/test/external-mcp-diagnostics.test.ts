@@ -30,6 +30,29 @@ function networkError(code: string, secret = "Bearer super-secret-token") {
   return new Error("fetch failed", { cause })
 }
 
+function captureConsoleError<T>(run: () => T): { result: T; errors: unknown[][] } {
+  const errors: unknown[][] = []
+  const originalError = console.error
+  console.error = (...args: unknown[]) => {
+    errors.push(args)
+  }
+  try {
+    return { result: run(), errors }
+  } finally {
+    console.error = originalError
+  }
+}
+
+function serializedConsoleErrors(errors: unknown[][]): string {
+  return errors
+    .flat()
+    .map((entry) => {
+      const serialized = typeof entry === "string" ? entry : JSON.stringify(entry)
+      return serialized ?? ""
+    })
+    .join(" ")
+}
+
 class RecordingOAuthProvider implements OAuthClientProvider {
   client: OAuthClientInformationMixed | undefined
   tokensValue: OAuthTokens | undefined
@@ -352,12 +375,27 @@ describe("external MCP diagnostics", () => {
       })
     }
 
-    const denied = makeToolError("req_provider_denied", {
-      category: "provider_policy",
-      providerStatus: 403,
-      providerCode: "sensitive-provider-code",
-      requestId: "provider-request-403",
-    })
+    const { result: toolErrors } = captureConsoleError(() => ({
+      denied: makeToolError("req_provider_denied", {
+        category: "provider_policy",
+        providerStatus: 403,
+        providerCode: "sensitive-provider-code",
+        requestId: "provider-request-403",
+      }),
+      throttled: makeToolError("req_provider_throttled", {
+        category: "provider_api",
+        providerStatus: 429,
+        requestId: "provider-request-429",
+        retryAfterSeconds: "provider-secret-retry-value",
+      }),
+      unknown: makeToolError("req_provider_unknown", {
+        category: "provider_api",
+        providerStatus: 403,
+        providerCode: "sensitive-unknown-code",
+        requestId: "invalid request id with spaces",
+      }),
+    }))
+    const { denied, throttled, unknown } = toolErrors
     expect(denied.diagnostic).toMatchObject({
       phase: "PROVIDER_AUTHORIZATION",
       category: "provider_policy_denied",
@@ -368,12 +406,6 @@ describe("external MCP diagnostics", () => {
       providerRequestId: "provider-request-403",
     })
 
-    const throttled = makeToolError("req_provider_throttled", {
-      category: "provider_api",
-      providerStatus: 429,
-      requestId: "provider-request-429",
-      retryAfterSeconds: "provider-secret-retry-value",
-    })
     expect(throttled.diagnostic).toMatchObject({
       phase: "PROVIDER_EXECUTION",
       category: "provider_throttled",
@@ -384,12 +416,6 @@ describe("external MCP diagnostics", () => {
       providerRequestId: "provider-request-429",
     })
 
-    const unknown = makeToolError("req_provider_unknown", {
-      category: "provider_api",
-      providerStatus: 403,
-      providerCode: "sensitive-unknown-code",
-      requestId: "invalid request id with spaces",
-    })
     expect(unknown.diagnostic).toMatchObject({
       phase: "PROVIDER_EXECUTION",
       category: "provider_tool_error",
@@ -406,6 +432,93 @@ describe("external MCP diagnostics", () => {
     expect(serialized).not.toContain("provider-secret-retry-value")
     expect(serialized).not.toContain("sensitive-unknown-code")
     expect(serialized).not.toContain("invalid request id with spaces")
+  })
+
+  test("derives allowlisted provider evidence from ServiceNow-style text JSON", () => {
+    const providerText = '{"status":403,"error":"insufficient_acl","requestId":"TXN-abc-123"}'
+    const { result: error } = captureConsoleError(() => {
+      const tracker = new ExternalMcpDiagnosticTracker("req_servicenow_text")
+      tracker.passed("MCP_INITIALIZED", "protocol_ready")
+      return tracker.providerToolError({
+        isError: true,
+        content: [{ type: "text", text: providerText }],
+      })
+    })
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "PROVIDER_AUTHORIZATION",
+      category: "provider_policy_denied",
+      code: "MCP_PROVIDER_HTTP_403",
+      providerStatus: 403,
+      providerCode: "insufficient_acl",
+      providerRequestId: "TXN-abc-123",
+      highestPassed: "protocol_ready",
+    })
+    expect(error.diagnostic.payloadBytes ?? 0).toBeGreaterThan(0)
+    expect(error.diagnostic.message).toContain("provider status 403")
+    expect(error.diagnostic.message).toContain("code insufficient_acl")
+    expect(error.diagnostic.message).not.toContain(providerText)
+  })
+
+  test("logs Redis-style provider text evidence without surfacing it in the diagnostic", () => {
+    const providerText = "All slots are not covered by nodes. 0 of 16384 covered."
+    const { result: error, errors } = captureConsoleError(() => {
+      const tracker = new ExternalMcpDiagnosticTracker("req_redis_text")
+      tracker.passed("MCP_INITIALIZED", "protocol_ready")
+      return tracker.providerToolError({
+        isError: true,
+        content: [{ type: "text", text: providerText }],
+      })
+    })
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "PROVIDER_EXECUTION",
+      category: "provider_tool_error",
+      code: "MCP_PROVIDER_TOOL_ERROR",
+    })
+    expect(error.diagnostic.payloadBytes ?? 0).toBeGreaterThan(0)
+    expect(error.diagnostic.message).not.toContain(providerText)
+
+    const loggedText = serializedConsoleErrors(errors)
+    expect(loggedText).toContain("external_mcp_provider_tool_evidence")
+    expect(loggedText).toContain("req_redis_text")
+    expect(loggedText).toContain(providerText)
+  })
+
+  test("does not classify mid-sentence provider status-like numbers", () => {
+    const { result: error } = captureConsoleError(() => {
+      const tracker = new ExternalMcpDiagnosticTracker("req_mid_sentence_status")
+      tracker.passed("MCP_INITIALIZED", "protocol_ready")
+      return tracker.providerToolError({
+        isError: true,
+        content: [{ type: "text", text: "we found 403 records" }],
+      })
+    })
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "PROVIDER_EXECUTION",
+      category: "provider_tool_error",
+      code: "MCP_PROVIDER_TOOL_ERROR",
+    })
+    expect(error.diagnostic.providerStatus).toBeUndefined()
+  })
+
+  test("keeps empty provider tool content generic with zero payload bytes", () => {
+    const { result: error } = captureConsoleError(() => {
+      const tracker = new ExternalMcpDiagnosticTracker("req_empty_tool_content")
+      tracker.passed("MCP_INITIALIZED", "protocol_ready")
+      return tracker.providerToolError({
+        isError: true,
+        content: [],
+      })
+    })
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "PROVIDER_EXECUTION",
+      category: "provider_tool_error",
+      code: "MCP_PROVIDER_TOOL_ERROR",
+      payloadBytes: 0,
+    })
   })
 
   test("typed OAuth token errors override generic HTTP 400 classification", async () => {

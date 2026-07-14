@@ -315,6 +315,9 @@ const externalMcpDiagnosticSchema = z.object({
     pathHash: z.string(),
   }).optional(),
   providerRequestId: z.string().optional(),
+  providerStatus: z.number().int().optional(),
+  providerCode: z.string().optional(),
+  payloadBytes: z.number().int().optional(),
   jsonRpcCode: z.number().int().optional(),
 }).meta({ ref: "ExternalMcpDiagnostic" })
 
