@@ -15,6 +15,10 @@ export const OPENWORK_CLOUD_EXPECTED_TOOLS = [
   "openwork-cloud_search_capabilities",
   "openwork-cloud_execute_capability",
 ] satisfies string[];
+const OPENWORK_CLOUD_DIRECT_TOOL_NAMES = [
+  "search_capabilities",
+  "execute_capability",
+] satisfies string[];
 export const OPENWORK_CLOUD_PLUGIN_CANARIES = [
   "openwork_docs_search",
   "openwork_extension_list_actions",
@@ -160,6 +164,30 @@ export type CloudMcpCompatibilitySnapshot = {
     providerToolProjection: boolean;
     pluginCanaries: boolean;
   };
+  experimentalToolIds: CloudMcpExperimentalToolIdsSnapshot;
+  experimentalProviderTools: CloudMcpExperimentalProviderToolsSnapshot;
+};
+
+export type CloudMcpExperimentalToolIdsSnapshot = {
+  checked: boolean;
+  expected: string[];
+  present: string[];
+  missing: string[];
+  includesMcpTools: boolean | null;
+  limitation?: string;
+  error?: unknown;
+};
+
+export type CloudMcpExperimentalProviderToolsSnapshot = {
+  checked: boolean;
+  provider?: string;
+  model?: string;
+  expected: string[];
+  present: string[];
+  missing: string[];
+  includesMcpTools: boolean | null;
+  limitation?: string;
+  error?: unknown;
 };
 
 export type CloudMcpHealth = {
@@ -193,10 +221,22 @@ export type CloudMcpHealth = {
     expected: string[];
     present: string[];
     missing: string[];
+    direct: {
+      checked: boolean;
+      source: "mcp_tools_list";
+      expected: string[];
+      present: string[];
+      missing: string[];
+      error?: unknown;
+    };
     providerProjection: {
       checked: boolean;
       provider?: string;
       model?: string;
+      source?: "experimental_tool" | "provider_capability";
+      limitation?: string;
+      modelExists?: boolean;
+      toolCalling?: boolean | null;
       present: string[];
       missing: string[];
       error?: unknown;
@@ -291,10 +331,24 @@ type ToolSnapshot = {
   missing: string[];
 };
 
+type DirectCloudToolsSnapshot = {
+  checked: boolean;
+  source: "mcp_tools_list";
+  expected: string[];
+  present: string[];
+  missing: string[];
+  error?: unknown;
+  failure?: CloudMcpFailure;
+};
+
 type ProviderProjectionSnapshot = {
   checked: boolean;
   provider?: string;
   model?: string;
+  source?: "experimental_tool" | "provider_capability";
+  limitation?: string;
+  modelExists?: boolean;
+  toolCalling?: boolean | null;
   present: string[];
   missing: string[];
   error?: unknown;
@@ -304,8 +358,11 @@ type ProviderProjectionSnapshot = {
 type Inspection = {
   engine: CloudMcpHealth["engine"];
   tools: ToolSnapshot;
+  directTools: DirectCloudToolsSnapshot;
   providerProjection: ProviderProjectionSnapshot;
   pluginCanaries: ToolSnapshot;
+  experimentalToolIds: CloudMcpExperimentalToolIdsSnapshot;
+  experimentalProviderTools: CloudMcpExperimentalProviderToolsSnapshot;
   opencodeVersion: CloudMcpCompatibilitySnapshot["opencode"];
   failures: CloudMcpFailure[];
 };
@@ -762,6 +819,14 @@ function expectedTools(): string[] {
   return [...OPENWORK_CLOUD_EXPECTED_TOOLS];
 }
 
+function expectedDirectToolNames(): string[] {
+  return [...OPENWORK_CLOUD_DIRECT_TOOL_NAMES];
+}
+
+function prefixedCloudToolId(name: string): string {
+  return `${OPENWORK_CLOUD_MCP_NAME}_${name}`;
+}
+
 function expectedCanaries(): string[] {
   return [...OPENWORK_CLOUD_PLUGIN_CANARIES];
 }
@@ -888,6 +953,256 @@ async function withEngineProbeTimeout<T>(task: () => Promise<T>): Promise<T> {
   });
 }
 
+async function withCloudEndpointProbeTimeout(task: (signal: AbortSignal) => Promise<Response>): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutMs = engineProbeTimeoutMs();
+  const handle = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await task(controller.signal);
+  } finally {
+    clearTimeout(handle);
+  }
+}
+
+function parseJsonOrText(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return sanitizeDiagnosticString(raw);
+  }
+}
+
+function parseSsePayload(raw: string): unknown {
+  const frames: string[] = [];
+  let dataLines: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.trim() === "") {
+      if (dataLines.length) frames.push(dataLines.join("\n"));
+      dataLines = [];
+      continue;
+    }
+    if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  if (dataLines.length) frames.push(dataLines.join("\n"));
+  for (const frame of frames) {
+    const parsed = parseJsonOrText(frame);
+    if (isRecord(parsed) && (parsed.result !== undefined || parsed.error !== undefined || parsed.id !== undefined)) return parsed;
+  }
+  return frames[0] ? parseJsonOrText(frames[0]) : null;
+}
+
+async function readMcpJsonRpcPayload(response: Response): Promise<unknown> {
+  const raw = await response.text();
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (contentType.includes("text/event-stream") || raw.split(/\r?\n/).some((line) => line.startsWith("data:"))) {
+    return parseSsePayload(raw);
+  }
+  return raw.trim() ? parseJsonOrText(raw) : null;
+}
+
+function jsonRpcRecord(payload: unknown): Record<string, unknown> | null {
+  if (isRecord(payload)) return payload;
+  if (!Array.isArray(payload)) return null;
+  for (const item of payload) {
+    if (isRecord(item) && (item.result !== undefined || item.error !== undefined)) return item;
+  }
+  return null;
+}
+
+function toolNamesFromMcpPayload(payload: unknown): { names?: string[]; error?: unknown } {
+  const record = jsonRpcRecord(payload);
+  if (!record) return { error: { message: "MCP tools/list response was not a JSON-RPC object", payload } };
+  if (record.error !== undefined) return { error: record.error };
+  const result = isRecord(record.result) ? record.result : null;
+  if (!result || !Array.isArray(result.tools)) return { error: { message: "MCP tools/list result did not include a tools array", payload: record } };
+  const names: string[] = [];
+  for (const tool of result.tools) {
+    if (isRecord(tool) && typeof tool.name === "string") names.push(tool.name);
+  }
+  return { names };
+}
+
+function directCloudToolsFailure(input: {
+  message: string;
+  retryable: boolean;
+  details?: unknown;
+}): CloudMcpFailure {
+  return failure({
+    code: "cloud_tools_missing",
+    stage: "tool_registration",
+    retryable: input.retryable,
+    recommendedAction: "Reconnect OpenWork Cloud or contact OpenWork support",
+    message: input.message,
+    details: input.details,
+  });
+}
+
+function directCloudAuthFailure(response: Response, payload: unknown, endpoint: string): CloudMcpFailure | null {
+  if (response.status === 401) {
+    return failure({
+      code: "invalid_mcp_token",
+      stage: "transport_auth",
+      retryable: false,
+      recommendedAction: "Reconnect OpenWork Cloud",
+      message: "The OpenWork Cloud MCP endpoint rejected the persisted Authorization header.",
+      aliases: ["openwork_cloud_auth_invalid"],
+      details: { endpoint, status: response.status, response: payload },
+    });
+  }
+  if (response.status === 403) {
+    return failure({
+      code: "wrong_mcp_resource",
+      stage: "transport_auth",
+      retryable: false,
+      recommendedAction: "Check organization policy and resource access",
+      message: "The OpenWork Cloud MCP endpoint denied access to this resource.",
+      aliases: ["openwork_cloud_resource_forbidden"],
+      details: { endpoint, status: response.status, response: payload },
+    });
+  }
+  return null;
+}
+
+async function mcpJsonRpcPost(input: {
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+}): Promise<{ response: Response; payload: unknown }> {
+  const response = await withCloudEndpointProbeTimeout((signal) => fetch(input.url, {
+    method: "POST",
+    headers: input.headers,
+    body: JSON.stringify(input.body),
+    signal,
+  }));
+  return { response, payload: await readMcpJsonRpcPayload(response) };
+}
+
+function directToolsFromNames(names: string[]): DirectCloudToolsSnapshot {
+  const split = splitPresentMissing(names, expectedDirectToolNames());
+  const failureResult = split.missing.length
+    ? directCloudToolsFailure({
+        retryable: false,
+        message: "The OpenWork Cloud MCP endpoint tools/list is missing required unprefixed tools.",
+        details: { expected: split.expected, present: split.present, missing: split.missing },
+      })
+    : undefined;
+  return {
+    checked: true,
+    source: "mcp_tools_list",
+    expected: split.expected,
+    present: split.present,
+    missing: split.missing,
+    ...(failureResult ? { failure: failureResult } : {}),
+  };
+}
+
+function directToolsNotChecked(): DirectCloudToolsSnapshot {
+  return {
+    checked: false,
+    source: "mcp_tools_list",
+    expected: expectedDirectToolNames(),
+    present: [],
+    missing: [],
+  };
+}
+
+function toolsFromDirectCloudTools(directTools: DirectCloudToolsSnapshot): ToolSnapshot {
+  if (directTools.checked && directTools.missing.length === 0) {
+    return splitPresentMissing(directTools.present.map(prefixedCloudToolId), expectedTools());
+  }
+  return splitPresentMissing([], expectedTools());
+}
+
+async function readDirectCloudTools(config: Record<string, unknown>): Promise<DirectCloudToolsSnapshot> {
+  const url = readString(config.url);
+  const authorization = authorizationHeader(config);
+  const endpoint = url ? sanitizeDiagnosticString(url) : null;
+  if (!url || !authorization) {
+    const failureResult = directCloudToolsFailure({
+      retryable: false,
+      message: "The persisted OpenWork Cloud MCP config cannot be used for direct tools/list verification.",
+      details: { endpoint, authorizationPresent: Boolean(authorization) },
+    });
+    return { ...directToolsNotChecked(), checked: true, missing: expectedDirectToolNames(), error: failureResult.details, failure: failureResult };
+  }
+
+  const baseHeaders: Record<string, string> = {
+    accept: "application/json, text/event-stream",
+    authorization,
+    "content-type": "application/json",
+  };
+  try {
+    const initialized = await mcpJsonRpcPost({
+      url,
+      headers: baseHeaders,
+      body: {
+        id: 1,
+        jsonrpc: "2.0",
+        method: "initialize",
+        params: {
+          capabilities: {},
+          clientInfo: { name: "openwork-server-cloud-mcp-health", version: "1.0.0" },
+          protocolVersion: "2025-06-18",
+        },
+      },
+    });
+    if (!initialized.response.ok) {
+      const authFailure = directCloudAuthFailure(initialized.response, initialized.payload, endpoint ?? "unknown");
+      const failureResult = authFailure ?? directCloudToolsFailure({
+        retryable: initialized.response.status >= 500,
+        message: "The OpenWork Cloud MCP endpoint initialize request failed during direct verification.",
+        details: { endpoint, status: initialized.response.status, response: initialized.payload },
+      });
+      return { ...directToolsNotChecked(), checked: true, missing: expectedDirectToolNames(), error: failureResult.details, failure: failureResult };
+    }
+
+    const sessionId = initialized.response.headers.get("mcp-session-id");
+    const protocolVersion = initialized.response.headers.get("mcp-protocol-version");
+    const sessionHeaders: Record<string, string> = {
+      ...baseHeaders,
+      ...(sessionId ? { "mcp-session-id": sessionId } : {}),
+      ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
+    };
+    await withCloudEndpointProbeTimeout((signal) => fetch(url, {
+      method: "POST",
+      headers: sessionHeaders,
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
+      signal,
+    }));
+    const listed = await mcpJsonRpcPost({
+      url,
+      headers: sessionHeaders,
+      body: { id: 2, jsonrpc: "2.0", method: "tools/list", params: {} },
+    });
+    if (!listed.response.ok) {
+      const authFailure = directCloudAuthFailure(listed.response, listed.payload, endpoint ?? "unknown");
+      const failureResult = authFailure ?? directCloudToolsFailure({
+        retryable: listed.response.status >= 500,
+        message: "The OpenWork Cloud MCP endpoint tools/list request failed during direct verification.",
+        details: { endpoint, status: listed.response.status, response: listed.payload },
+      });
+      return { ...directToolsNotChecked(), checked: true, missing: expectedDirectToolNames(), error: failureResult.details, failure: failureResult };
+    }
+    const toolNames = toolNamesFromMcpPayload(listed.payload);
+    if (!toolNames.names) {
+      const failureResult = directCloudToolsFailure({
+        retryable: false,
+        message: "The OpenWork Cloud MCP endpoint tools/list response could not be parsed.",
+        details: { endpoint, error: toolNames.error },
+      });
+      return { ...directToolsNotChecked(), checked: true, missing: expectedDirectToolNames(), error: failureResult.details, failure: failureResult };
+    }
+    return directToolsFromNames(toolNames.names);
+  } catch (error) {
+    const failureResult = directCloudToolsFailure({
+      retryable: true,
+      message: "The OpenWork Cloud MCP endpoint direct tools/list probe did not complete.",
+      details: { endpoint, error: error instanceof Error ? error.message : String(error) },
+    });
+    return { ...directToolsNotChecked(), checked: true, missing: expectedDirectToolNames(), error: failureResult.details, failure: failureResult };
+  }
+}
+
 async function readMcpStatus(
   opencode: WorkspaceOpencodeClient,
   directory: string | null,
@@ -918,7 +1233,10 @@ async function readProviderProjection(input: {
   opencode: WorkspaceOpencodeClient;
   directory: string | null;
   providerModel: CloudMcpProviderModelContext;
+  experimentalToolIdsIncludeMcpTools: boolean | null;
 }): Promise<ProviderProjectionSnapshot> {
+  let experimentalSplit: ToolSnapshot | null = null;
+  let experimentalError: unknown;
   try {
     const result = await withEngineProbeTimeout(() => input.opencode.tool.list({
       ...locationParams(input.directory),
@@ -926,46 +1244,125 @@ async function readProviderProjection(input: {
       model: input.providerModel.model,
     }));
     if (!result.data) {
-      const projectionFailure = opencodeRequestFailure("provider_projection", "/experimental/tool", result.response, result.error);
+      experimentalError = opencodeRequestFailure("provider_projection", "/experimental/tool", result.response, result.error).details;
+    } else {
+      experimentalSplit = splitPresentMissing(toolListIds(result.data), expectedTools());
+      if (experimentalSplit.missing.length === 0) {
+        return {
+          checked: true,
+          provider: input.providerModel.provider,
+          model: input.providerModel.model,
+          source: "experimental_tool",
+          present: experimentalSplit.present,
+          missing: experimentalSplit.missing,
+        };
+      }
+    }
+  } catch (error) {
+    experimentalError = thrownOpencodeFailure("provider_projection", "/experimental/tool", error).details;
+  }
+
+  if (input.experimentalToolIdsIncludeMcpTools === true) {
+    const split = experimentalSplit ?? splitPresentMissing([], expectedTools());
+    const projectionFailure = failure({
+      code: "provider_tool_projection_missing",
+      stage: "provider_projection",
+      retryable: false,
+      recommendedAction: "Choose a model that can use OpenWork Cloud tools",
+      message: "The current provider/model projection is missing openwork-cloud tools.",
+      aliases: ["provider_projection_missing"],
+      details: { provider: input.providerModel.provider, model: input.providerModel.model, missing: split.missing, source: "experimental_tool" },
+    });
+    return {
+      checked: true,
+      provider: input.providerModel.provider,
+      model: input.providerModel.model,
+      source: "experimental_tool",
+      present: split.present,
+      missing: split.missing,
+      ...(experimentalError ? { error: experimentalError } : {}),
+      failure: projectionFailure,
+    };
+  }
+
+  return readProviderCapability({
+    opencode: input.opencode,
+    directory: input.directory,
+    providerModel: input.providerModel,
+    experimentalSplit,
+    experimentalError,
+  });
+}
+
+async function readProviderCapability(input: {
+  opencode: WorkspaceOpencodeClient;
+  directory: string | null;
+  providerModel: CloudMcpProviderModelContext;
+  experimentalSplit: ToolSnapshot | null;
+  experimentalError: unknown;
+}): Promise<ProviderProjectionSnapshot> {
+  try {
+    const result = await withEngineProbeTimeout(() => input.opencode.provider.list(locationParams(input.directory)));
+    if (!result.data) {
+      const projectionFailure = opencodeRequestFailure("provider_projection", "/provider", result.response, result.error);
       return {
         checked: true,
         provider: input.providerModel.provider,
         model: input.providerModel.model,
-        present: [],
-        missing: expectedTools(),
+        source: "provider_capability",
+        limitation: "Experimental OpenCode tool projection did not enumerate MCP tools; provider catalog capability could not be read.",
+        present: input.experimentalSplit?.present ?? [],
+        missing: input.experimentalSplit?.missing ?? expectedTools(),
         error: projectionFailure.details,
         failure: projectionFailure,
       };
     }
-    const ids = toolListIds(result.data);
-    const split = splitPresentMissing(ids, expectedTools());
-    const projectionFailure = split.missing.length
-      ? failure({
+
+    const provider = result.data.all.find((item) => item.id === input.providerModel.provider);
+    const model = provider?.models[input.providerModel.model];
+    const modelExists = Boolean(model);
+    const toolCalling = model ? model.capabilities.toolcall === true : null;
+    const limitation = "OpenCode experimental tool APIs do not enumerate MCP tools on this engine; using provider/model tool-call capability from /provider.";
+    const projectionFailure = toolCalling
+      ? undefined
+      : failure({
           code: "provider_tool_projection_missing",
           stage: "provider_projection",
           retryable: false,
-          recommendedAction: "Update OpenWork",
-          message: "The current provider/model projection is missing openwork-cloud tools.",
+          recommendedAction: "Choose a model that can use OpenWork Cloud tools",
+          message: modelExists ? "The selected provider/model does not support tool calling." : "The selected provider/model was not found in OpenCode provider catalog.",
           aliases: ["provider_projection_missing"],
-          details: { provider: input.providerModel.provider, model: input.providerModel.model, missing: split.missing },
-        })
-      : undefined;
+          details: {
+            provider: input.providerModel.provider,
+            model: input.providerModel.model,
+            source: "provider_capability",
+            modelExists,
+            toolCalling,
+          },
+        });
     return {
       checked: true,
       provider: input.providerModel.provider,
       model: input.providerModel.model,
-      present: split.present,
-      missing: split.missing,
+      source: "provider_capability",
+      limitation,
+      modelExists,
+      toolCalling,
+      present: input.experimentalSplit?.present ?? [],
+      missing: input.experimentalSplit?.missing ?? expectedTools(),
+      ...(input.experimentalError ? { error: input.experimentalError } : {}),
       ...(projectionFailure ? { failure: projectionFailure } : {}),
     };
   } catch (error) {
-    const projectionFailure = thrownOpencodeFailure("provider_projection", "/experimental/tool", error);
+    const projectionFailure = thrownOpencodeFailure("provider_projection", "/provider", error);
     return {
       checked: true,
       provider: input.providerModel.provider,
       model: input.providerModel.model,
-      present: [],
-      missing: expectedTools(),
+      source: "provider_capability",
+      limitation: "Experimental OpenCode tool projection did not enumerate MCP tools; provider catalog capability could not be read.",
+      present: input.experimentalSplit?.present ?? [],
+      missing: input.experimentalSplit?.missing ?? expectedTools(),
       error: projectionFailure.details,
       failure: projectionFailure,
     };
@@ -1106,11 +1503,15 @@ async function readOpencodeVersion(opencode: WorkspaceOpencodeClient): Promise<C
 async function inspectOpenworkCloud(input: {
   opencode: WorkspaceOpencodeClient;
   directory: string | null;
+  desiredConfig: Record<string, unknown>;
   providerModel?: CloudMcpProviderModelContext;
 }): Promise<Inspection> {
   const failures: CloudMcpFailure[] = [];
   const emptyTools = splitPresentMissing([], expectedTools());
+  const emptyDirectTools = directToolsNotChecked();
   const emptyCanaries = splitPresentMissing([], expectedCanaries());
+  const uncheckedExperimentalToolIds = experimentalToolIdsNotChecked();
+  const uncheckedExperimentalProviderTools = experimentalProviderToolsFromProjection(providerProjectionNotChecked(input.providerModel));
   const opencodeVersion = await readOpencodeVersion(input.opencode);
   const statusResult = await readMcpStatus(input.opencode, input.directory);
   if (statusResult.failure) {
@@ -1118,8 +1519,11 @@ async function inspectOpenworkCloud(input: {
     return {
       engine: { status: statusResult.failure.code === "opencode_engine_unreachable" ? "unreachable" : "unknown", error: statusResult.failure.details },
       tools: emptyTools,
+      directTools: emptyDirectTools,
       providerProjection: providerProjectionNotChecked(input.providerModel),
       pluginCanaries: emptyCanaries,
+      experimentalToolIds: uncheckedExperimentalToolIds,
+      experimentalProviderTools: uncheckedExperimentalProviderTools,
       opencodeVersion,
       failures,
     };
@@ -1132,8 +1536,11 @@ async function inspectOpenworkCloud(input: {
     return {
       engine,
       tools: emptyTools,
+      directTools: emptyDirectTools,
       providerProjection: providerProjectionNotChecked(input.providerModel),
       pluginCanaries: emptyCanaries,
+      experimentalToolIds: uncheckedExperimentalToolIds,
+      experimentalProviderTools: uncheckedExperimentalProviderTools,
       opencodeVersion,
       failures,
     };
@@ -1145,29 +1552,31 @@ async function inspectOpenworkCloud(input: {
     return {
       engine,
       tools: emptyTools,
+      directTools: emptyDirectTools,
       providerProjection: providerProjectionNotChecked(input.providerModel),
       pluginCanaries: emptyCanaries,
+      experimentalToolIds: experimentalToolIdsFromFailure(idsResult.failure),
+      experimentalProviderTools: uncheckedExperimentalProviderTools,
       opencodeVersion,
       failures,
     };
   }
   const ids = idsResult.data ?? [];
-  const tools = splitPresentMissing(ids, expectedTools());
+  const experimentalToolIds = experimentalToolIdsFromSplit(splitPresentMissing(ids, expectedTools()));
   const pluginCanaries = splitPresentMissing(ids, expectedCanaries());
-  if (tools.missing.length) {
-    failures.push(failure({
-      code: "cloud_tools_missing",
-      stage: "tool_registration",
-      retryable: true,
-      recommendedAction: "Run reconcile to re-register openwork-cloud with OpenCode",
-      message: "OpenCode is connected to openwork-cloud but required Cloud tools are missing.",
-      details: { missing: tools.missing },
-    }));
-  }
+  const directTools = await readDirectCloudTools(input.desiredConfig);
+  if (directTools.failure) failures.push(directTools.failure);
+  const tools = toolsFromDirectCloudTools(directTools);
 
   const providerProjection = input.providerModel
-    ? await readProviderProjection({ opencode: input.opencode, directory: input.directory, providerModel: input.providerModel })
+    ? await readProviderProjection({
+        opencode: input.opencode,
+        directory: input.directory,
+        providerModel: input.providerModel,
+        experimentalToolIdsIncludeMcpTools: experimentalToolIds.includesMcpTools,
+      })
     : providerProjectionNotChecked(input.providerModel);
+  const experimentalProviderTools = experimentalProviderToolsFromProjection(providerProjection);
   if (providerProjection.failure) failures.push(providerProjection.failure);
 
   if (pluginCanaries.missing.length) {
@@ -1181,7 +1590,7 @@ async function inspectOpenworkCloud(input: {
     }));
   }
 
-  return { engine, tools, providerProjection, pluginCanaries, opencodeVersion, failures };
+  return { engine, tools, directTools, providerProjection, pluginCanaries, experimentalToolIds, experimentalProviderTools, opencodeVersion, failures };
 }
 
 function providerProjectionNotChecked(providerModel?: CloudMcpProviderModelContext): ProviderProjectionSnapshot {
@@ -1190,6 +1599,65 @@ function providerProjectionNotChecked(providerModel?: CloudMcpProviderModelConte
     ...(providerModel ? { provider: providerModel.provider, model: providerModel.model } : {}),
     present: [],
     missing: [],
+  };
+}
+
+function experimentalToolIdsNotChecked(): CloudMcpExperimentalToolIdsSnapshot {
+  return {
+    checked: false,
+    expected: expectedTools(),
+    present: [],
+    missing: [],
+    includesMcpTools: null,
+  };
+}
+
+function experimentalToolIdsFromSplit(split: ToolSnapshot): CloudMcpExperimentalToolIdsSnapshot {
+  const includesMcpTools = split.missing.length === 0;
+  return {
+    checked: true,
+    expected: split.expected,
+    present: split.present,
+    missing: split.missing,
+    includesMcpTools,
+    ...(includesMcpTools ? {} : { limitation: "This OpenCode engine's /experimental/tool/ids endpoint does not enumerate MCP tools; direct MCP tools/list is authoritative for Cloud readiness." }),
+  };
+}
+
+function experimentalToolIdsFromFailure(failureResult: CloudMcpFailure): CloudMcpExperimentalToolIdsSnapshot {
+  return {
+    checked: true,
+    expected: expectedTools(),
+    present: [],
+    missing: expectedTools(),
+    includesMcpTools: null,
+    error: failureResult.details,
+  };
+}
+
+function experimentalProviderToolsFromProjection(projection: ProviderProjectionSnapshot): CloudMcpExperimentalProviderToolsSnapshot {
+  if (!projection.checked) {
+    return {
+      checked: false,
+      ...(projection.provider ? { provider: projection.provider } : {}),
+      ...(projection.model ? { model: projection.model } : {}),
+      expected: expectedTools(),
+      present: [],
+      missing: [],
+      includesMcpTools: null,
+    };
+  }
+  const includesMcpTools = projection.source === "experimental_tool" && projection.missing.length === 0;
+  return {
+    checked: true,
+    ...(projection.provider ? { provider: projection.provider } : {}),
+    ...(projection.model ? { model: projection.model } : {}),
+    expected: expectedTools(),
+    present: projection.present,
+    missing: projection.missing,
+    includesMcpTools,
+    ...(includesMcpTools ? {} : { limitation: projection.limitation ?? "This OpenCode engine's /experimental/tool endpoint does not enumerate MCP tools for the selected provider/model." }),
+    ...(projection.error ? { error: projection.error } : {}),
   };
 }
 
@@ -1243,6 +1711,7 @@ function chooseFirstFailure(failures: CloudMcpFailure[]): CloudMcpFailure | null
 function usableByModel(providerProjection: ProviderProjectionSnapshot, firstFailure: CloudMcpFailure | null): boolean | null {
   if (!providerProjection.checked) return null;
   if (firstFailure?.stage === "provider_projection") return false;
+  if (providerProjection.source === "provider_capability") return providerProjection.modelExists === true && providerProjection.toolCalling === true;
   return providerProjection.missing.length === 0;
 }
 
@@ -1290,6 +1759,8 @@ async function compatibilitySnapshot(input: {
       providerToolProjection: input.inspection.providerProjection.checked && !input.inspection.failures.some((item) => item.stage === "provider_projection" && item.code !== "provider_tool_projection_missing"),
       pluginCanaries: input.inspection.pluginCanaries.expected.length > 0,
     },
+    experimentalToolIds: input.inspection.experimentalToolIds,
+    experimentalProviderTools: input.inspection.experimentalProviderTools,
   };
 }
 
@@ -1346,15 +1817,19 @@ export async function readOpenworkCloudMcpHealth(input: {
   let inspection: Inspection = {
     engine: { status: "not_checked" },
     tools: splitPresentMissing([], expectedTools()),
+    directTools: directToolsNotChecked(),
     providerProjection: providerProjectionNotChecked(input.providerModel),
     pluginCanaries: splitPresentMissing([], expectedCanaries()),
+    experimentalToolIds: experimentalToolIdsNotChecked(),
+    experimentalProviderTools: experimentalProviderToolsFromProjection(providerProjectionNotChecked(input.providerModel)),
     opencodeVersion: { expectedVersion: input.serverMetadata?.expectedOpencodeVersion ?? null, actualVersion: null, probe: "not_checked" },
     failures: [],
   };
-  if (desired.present && input.directory && baseUrlConfigured(input.config, input.workspace)) {
+  if (desired.present && desired.config && !desired.validationProblem && input.directory && baseUrlConfigured(input.config, input.workspace)) {
     inspection = await inspectOpenworkCloud({
       opencode: input.createWorkspaceOpencodeClient(input.config, input.workspace),
       directory: input.directory,
+      desiredConfig: desired.config,
       providerModel: input.providerModel,
     });
     failures.push(...inspection.failures);
@@ -1401,10 +1876,22 @@ export async function readOpenworkCloudMcpHealth(input: {
       expected: inspection.tools.expected,
       present: inspection.tools.present,
       missing: inspection.tools.missing,
+      direct: {
+        checked: inspection.directTools.checked,
+        source: inspection.directTools.source,
+        expected: inspection.directTools.expected,
+        present: inspection.directTools.present,
+        missing: inspection.directTools.missing,
+        ...(inspection.directTools.error ? { error: inspection.directTools.error } : {}),
+      },
       providerProjection: {
         checked: inspection.providerProjection.checked,
         ...(inspection.providerProjection.provider ? { provider: inspection.providerProjection.provider } : {}),
         ...(inspection.providerProjection.model ? { model: inspection.providerProjection.model } : {}),
+        ...(inspection.providerProjection.source ? { source: inspection.providerProjection.source } : {}),
+        ...(inspection.providerProjection.limitation ? { limitation: inspection.providerProjection.limitation } : {}),
+        ...(inspection.providerProjection.modelExists !== undefined ? { modelExists: inspection.providerProjection.modelExists } : {}),
+        ...(inspection.providerProjection.toolCalling !== undefined ? { toolCalling: inspection.providerProjection.toolCalling } : {}),
         present: inspection.providerProjection.present,
         missing: inspection.providerProjection.missing,
         ...(inspection.providerProjection.error ? { error: inspection.providerProjection.error } : {}),
@@ -1538,21 +2025,7 @@ export async function reconcileOpenworkCloudMcp(input: {
     return healthWithFailure(await readOpenworkCloudMcpHealth(input), connectedFailure);
   }
 
-  let health = await readOpenworkCloudMcpHealth(input);
-  if (health.firstFailure?.code === "cloud_tools_missing") {
-    const secondRegistration = await input.registerRuntimeMcp(input.config, input.workspace, [OPENWORK_CLOUD_MCP_NAME], { throwOnFailure: false });
-    if (secondRegistration.failures.length > 0) {
-      const secondRegistrationError = registrationFailure(secondRegistration.failures);
-      cloudMcpDeliveryState.markFailed(input.workspace, input.directory, desiredRevision, secondRegistrationError);
-      return healthWithFailure(await readOpenworkCloudMcpHealth(input), secondRegistrationError);
-    }
-    const secondConnectedFailure = await pollConnected({ opencode, directory: input.directory });
-    if (secondConnectedFailure) {
-      cloudMcpDeliveryState.markFailed(input.workspace, input.directory, desiredRevision, secondConnectedFailure);
-      return healthWithFailure(await readOpenworkCloudMcpHealth(input), secondConnectedFailure);
-    }
-    health = await readOpenworkCloudMcpHealth(input);
-  }
+  const health = await readOpenworkCloudMcpHealth(input);
 
   if (health.firstFailure) {
     cloudMcpDeliveryState.markFailed(input.workspace, input.directory, desiredRevision, health.firstFailure);

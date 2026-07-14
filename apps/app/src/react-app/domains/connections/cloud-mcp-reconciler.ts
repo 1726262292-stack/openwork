@@ -325,7 +325,8 @@ export function cloudMcpFailureStageLabel(input: {
   if (code === "cloud_mcp_disabled" || code === "cloud_disabled") return "Agent access disabled";
   if (code === "cloud_desired_missing" || code === "cloud_mcp_missing") return "Couldn’t apply Cloud access to this workspace";
   if (code.includes("auth") || code.includes("token") || code.includes("unauthorized")) return "Cloud authentication expired";
-  if (code === "cloud_status_missing" || code === "cloud_registration_failed" || code === "cloud_tools_missing") return "Cloud tools weren’t registered";
+  if (code === "cloud_tools_missing") return "Cloud endpoint tools are missing";
+  if (code === "cloud_status_missing" || code === "cloud_registration_failed") return "Cloud tools weren’t registered";
   if (code.includes("provider_projection")) return "Current model can’t use Cloud tools";
   if (code.includes("tool_ids") || code.includes("client_registration")) return "OpenWork components need updating";
   if (code === "extensions_plugin_missing") return "Agent instructions are out of date";
@@ -356,7 +357,8 @@ export function cloudMcpRecommendedAction(input: {
   if (code.includes("provider_projection")) return "Choose a model that can use OpenWork Cloud tools.";
   if (code.includes("tool_ids") || code.includes("client_registration")) return "Update OpenWork, then retry.";
   if (code === "extensions_plugin_missing") return "Reload the agent so OpenWork instructions are current.";
-  if (code === "cloud_status_missing" || code === "cloud_registration_failed" || code === "cloud_tools_missing") return "Use Repair and test to register the Cloud tools.";
+  if (code === "cloud_tools_missing") return "Reconnect OpenWork Cloud so the endpoint exposes search_capabilities and execute_capability.";
+  if (code === "cloud_status_missing" || code === "cloud_registration_failed") return "Use Repair and test to register the Cloud tools.";
   return input.health?.firstFailure?.recommendedAction || "Use Repair and test, then check Advanced Settings if it still fails.";
 }
 

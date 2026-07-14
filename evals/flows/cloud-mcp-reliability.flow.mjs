@@ -891,7 +891,7 @@ export default {
     {
       name: "Frame 5",
       run: async (ctx) => {
-        await ctx.prove("Ready health exposes both OpenWork Cloud tools to the selected model and Den /mcp/agent exposes exactly two unprefixed tools", {
+        await ctx.prove("Ready health uses live mcp.status plus direct Cloud tools/list, and reports OpenCode tool API limitations honestly", {
           voiceover: vo[4],
           action: async () => {
             await scrollToText(ctx, EXPECTED_TOOL_IDS[0]);
@@ -902,13 +902,30 @@ export default {
               workspaceId: health.workspace.id,
               firstFailure: health.firstFailure,
             });
+            witness(ctx, health.engine.status === "connected", "OpenCode mcp.status reports openwork-cloud connected for the workspace.", { engine: health.engine });
+            const directNames = [...(health.tools.direct?.present ?? [])].sort();
+            witness(ctx, directNames.length === 2 && directNames.join(",") === EXPECTED_AGENT_TOOLS.join(","), "Direct Cloud endpoint tools/list exposes exactly the two unprefixed agent tools.", {
+              direct: health.tools.direct,
+            });
             assertExpectedTools(ctx, health.tools.present, "health.tools.present");
             witness(ctx, health.tools.missing.length === 0, "No expected OpenWork Cloud tools are missing.", { missing: health.tools.missing });
             if (state.model) {
-              witness(ctx, health.tools.providerProjection.checked === true && health.tools.providerProjection.provider === state.model.provider && health.tools.providerProjection.model === state.model.model, "Provider projection was checked for the selected provider/model.", health.tools.providerProjection);
-              assertExpectedTools(ctx, health.tools.providerProjection.present, "providerProjection.present");
-              witness(ctx, health.tools.providerProjection.missing.length === 0, "Provider projection has no missing Cloud tools.", { missing: health.tools.providerProjection.missing });
+              const projection = health.tools.providerProjection;
+              witness(ctx, projection.checked === true && projection.provider === state.model.provider && projection.model === state.model.model, "Provider/model compatibility was checked for the selected provider/model.", projection);
+              if (projection.source === "experimental_tool") {
+                assertExpectedTools(ctx, projection.present, "providerProjection.present");
+                witness(ctx, projection.missing.length === 0, "Experimental provider projection includes both Cloud tool IDs.", { missing: projection.missing });
+              } else {
+                witness(ctx, projection.source === "provider_capability" && projection.modelExists === true && projection.toolCalling === true && typeof projection.limitation === "string", "When experimental projection omits MCP tools, provider capability proves the model supports tool calling and records the limitation.", projection);
+              }
             }
+            const experimentalIds = health.compatibility?.experimentalToolIds;
+            witness(ctx, experimentalIds?.checked === true && typeof experimentalIds.includesMcpTools === "boolean", "Compatibility records whether /experimental/tool/ids includes MCP tools.", experimentalIds);
+            if (experimentalIds?.includesMcpTools === false) {
+              witness(ctx, typeof experimentalIds.limitation === "string" && experimentalIds.missing.length === EXPECTED_TOOL_IDS.length, "Compatibility does not claim /experimental/tool/ids contained MCP tools when this engine excludes them.", experimentalIds);
+            }
+            const experimentalProvider = health.compatibility?.experimentalProviderTools;
+            witness(ctx, experimentalProvider?.checked === true && typeof experimentalProvider.includesMcpTools === "boolean", "Compatibility records whether /experimental/tool projected tools include MCP tools.", experimentalProvider);
             witness(ctx, health.pluginCanaries.present.includes(PLUGIN_CANARY) && health.pluginCanaries.missing.length === 0, "Plugin canary tools are present and not missing.", health.pluginCanaries);
             const listed = await serverFetchJson(ctx, `/workspace/${encodeURIComponent(state.workspaceId)}/mcp`);
             const cloud = listed.items.find((item) => item.name === CLOUD_MCP_NAME);
@@ -927,7 +944,7 @@ export default {
             state.readyHealth = health;
           },
           screenshot: {
-            name: "frame-5-tool-ids-ready",
+            name: "frame-5-direct-tools-ready",
             requireText: [EXPECTED_TOOL_IDS[0], EXPECTED_TOOL_IDS[1], "Current model can use these Cloud tools."],
             rejectText: ["Something went wrong", "Current model cannot use"],
             hashIncludes: "/settings/connect",
@@ -954,7 +971,7 @@ export default {
               })()`);
             }
             await ctx.waitForText("Active workspace", { timeoutMs: 60_000 });
-            await scrollToText(ctx, "Plugin hashes");
+            await scrollToText(ctx, "Experimental provider tools");
             await ctx.clickText("Copy sanitized diagnostic", { timeoutMs: 30_000 });
             await ctx.waitForText("Copied sanitized Cloud diagnostic.", { timeoutMs: 15_000 });
           },
@@ -967,6 +984,9 @@ export default {
             ctx.assert(health.desired?.revision === state.readyHealth.desired.revision, "Diagnostic desired revision was not preserved.");
             ctx.assert(health.delivery?.appliedRevision === state.readyHealth.delivery.appliedRevision, "Diagnostic applied revision was not preserved.");
             assertExpectedTools(ctx, health.tools?.present ?? [], "diagnostic tools.present");
+            const directNames = [...(health.tools?.direct?.present ?? [])].sort();
+            witness(ctx, directNames.join(",") === EXPECTED_AGENT_TOOLS.join(","), "Copied diagnostic preserves exact direct unprefixed Cloud tools/list names.", health.tools?.direct);
+            witness(ctx, typeof health.compatibility?.experimentalToolIds?.includesMcpTools === "boolean", "Copied diagnostic preserves experimental tool ID MCP exposure compatibility.", health.compatibility?.experimentalToolIds);
             const secrets = [
               state.serverAuth?.token,
               state.serverAuth?.hostToken,
@@ -983,7 +1003,7 @@ export default {
           },
           screenshot: {
             name: "frame-6-advanced-sanitized-diagnostic",
-            requireText: ["Agent access diagnostics", "Active workspace", "Desired revision", "Applied revision", "Delivery", "OpenWork versions", "OpenCode compatibility", "Plugin hashes", "Copied sanitized Cloud diagnostic."],
+            requireText: ["Agent access diagnostics", "Active workspace", "Desired revision", "Applied revision", "Delivery", "Direct tools/list", "Experimental tool IDs", "Experimental provider tools", "OpenWork versions", "OpenCode compatibility", "Copied sanitized Cloud diagnostic."],
             rejectText: ["Bearer ", "ow_mcp_at_", "No Cloud MCP health"],
             hashIncludes: "/settings/advanced",
           },

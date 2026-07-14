@@ -18,6 +18,10 @@ type EngineRequest = {
 type MockOpencodeOptions = {
   toolIds?: string[];
   providerToolIds?: string[];
+  cloudToolNames?: string[];
+  cloudToolsAsSse?: boolean;
+  providerToolCalling?: boolean;
+  providerModelExists?: boolean;
   unsupportedToolIds?: boolean;
   initialConnected?: boolean;
   hangHealth?: boolean;
@@ -25,16 +29,26 @@ type MockOpencodeOptions = {
   postFailure?: { status: number; body: unknown };
 };
 
+type CloudConfig = {
+  type: "remote";
+  url: string;
+  enabled: true;
+  headers: { Authorization: string };
+  oauth: false;
+};
+
 const CLIENT_TOKEN = "owt_cloud_mcp_client";
 const HOST_TOKEN = "owt_cloud_mcp_host";
 const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
 const stops: Array<() => void | Promise<void>> = [];
 const roots: string[] = [];
+const cloudConfigsByOpenworkBase = new Map<string, CloudConfig>();
 
 afterEach(async () => {
   cloudMcpDeliveryState.clear();
   while (stops.length) await stops.pop()?.();
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  cloudConfigsByOpenworkBase.clear();
   if (previousRuntimeDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
   else process.env.OPENWORK_RUNTIME_DB = previousRuntimeDb;
 });
@@ -82,6 +96,48 @@ function startMockOpencode(options: MockOpencodeOptions = {}) {
         const ids = options.providerToolIds ?? options.toolIds ?? allReadyToolIds();
         return Response.json(ids.map((id) => ({ id, description: id, parameters: {} })));
       }
+      if (url.pathname === "/provider") {
+        const toolcall = options.providerToolCalling ?? true;
+        const models = options.providerModelExists === false
+          ? {}
+          : {
+              "claude-sonnet-4": { id: "claude-sonnet-4", providerID: "anthropic", name: "Claude Sonnet", capabilities: { toolcall } },
+              claude: { id: "claude", providerID: "anthropic", name: "Claude", capabilities: { toolcall } },
+              "gpt-5": { id: "gpt-5", providerID: "openwork", name: "GPT-5", capabilities: { toolcall } },
+            };
+        return Response.json({
+          all: [
+            { id: "anthropic", name: "Anthropic", source: "config", env: [], options: {}, models },
+            { id: "openwork", name: "OpenWork", source: "config", env: [], options: {}, models },
+          ],
+          default: {},
+          connected: ["anthropic", "openwork"],
+        });
+      }
+      if (url.pathname.endsWith("/mcp/agent") && request.method === "POST") {
+        if (request.headers.get("authorization") !== "Bearer owt_secret_cloud_token") {
+          return Response.json({ error: "unauthorized" }, { status: 401 });
+        }
+        const rpc = isRecord(body) ? body : {};
+        if (rpc.method === "notifications/initialized") return new Response(null, { status: 202 });
+        const id = rpc.id ?? 1;
+        const result = rpc.method === "initialize"
+          ? { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "openwork-cloud-test", version: "1.0.0" } }
+          : rpc.method === "tools/list"
+            ? { tools: (options.cloudToolNames ?? ["search_capabilities", "execute_capability"]).map((name) => ({ name, description: name, inputSchema: {} })) }
+            : {};
+        const payload = { jsonrpc: "2.0", id, result };
+        if (options.cloudToolsAsSse && rpc.method === "tools/list") {
+          return new Response(`event: message\ndata: ${JSON.stringify(payload)}\n\n`, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return Response.json(payload, {
+          headers: rpc.method === "initialize"
+            ? { "mcp-session-id": "session_12345678901234567890", "mcp-protocol-version": "2025-06-18" }
+            : {},
+        });
+      }
       return Response.json({ code: "not_found" }, { status: 404 });
     },
   });
@@ -122,7 +178,9 @@ async function startOpenwork(workspaces: WorkspaceInfo[], runtimeRoot: string): 
   };
   const server = await startServer(config);
   stops.push(() => server.stop());
-  return { base: `http://127.0.0.1:${server.port}`, config };
+  const base = `http://127.0.0.1:${server.port}`;
+  cloudConfigsByOpenworkBase.set(base, cloudConfig(cloudUrlFromBase(workspaces[0]?.baseUrl)));
+  return { base, config };
 }
 
 function headers(): Record<string, string> {
@@ -155,7 +213,7 @@ function delivery(body: Record<string, unknown>): Record<string, unknown> {
   return requireRecord(body.delivery, "delivery");
 }
 
-const CLOUD_CONFIG = {
+const CLOUD_CONFIG: CloudConfig = {
   type: "remote",
   url: "https://api.openworklabs.com/mcp/agent",
   enabled: true,
@@ -163,11 +221,25 @@ const CLOUD_CONFIG = {
   oauth: false,
 };
 
+function cloudConfig(url: string): CloudConfig {
+  return { ...CLOUD_CONFIG, url };
+}
+
+function cloudUrlFromBase(baseUrl: string | undefined): string {
+  if (!baseUrl) return CLOUD_CONFIG.url;
+  return new URL("/mcp/agent", baseUrl).toString();
+}
+
+function cloudConfigForOpenwork(base: string): CloudConfig {
+  return cloudConfigsByOpenworkBase.get(base) ?? CLOUD_CONFIG;
+}
+
 async function reconcile(base: string, workspaceId = "ws_1", body: Record<string, unknown> = {}): Promise<Response> {
+  const config = body.config ?? cloudConfigsByOpenworkBase.get(base) ?? CLOUD_CONFIG;
   return fetch(`${base}/workspace/${workspaceId}/mcp/openwork-cloud/reconcile`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ config: CLOUD_CONFIG, ...body }),
+    body: JSON.stringify({ config, ...body }),
   });
 }
 
@@ -197,11 +269,24 @@ describe("openwork-cloud MCP strict reconcile", () => {
     expect(body.phase).toBe("ready");
     expect(body.usable).toBe(true);
     expect(body.usableByCurrentModel).toBe(true);
+    const tools = requireRecord(body.tools, "tools");
+    expect(requireArray(tools.present, "tools.present").sort()).toEqual([...OPENWORK_CLOUD_EXPECTED_TOOLS].sort());
+    expect(requireRecord(tools.direct, "tools.direct")).toMatchObject({
+      checked: true,
+      present: ["search_capabilities", "execute_capability"],
+      missing: [],
+    });
+    expect(requireRecord(tools.providerProjection, "providerProjection")).toMatchObject({
+      source: "experimental_tool",
+      missing: [],
+    });
     expect(delivery(body).appliedRevision).toBe(delivery(body).desiredRevision);
     expect(requireRecord(body.workspace, "workspace").directory).toBe(root);
     expect(requireRecord(requireRecord(body.compatibility, "compatibility").opencode, "opencode").actualVersion).toBe("1.17.11");
     expect(requireRecord(requireRecord(body.compatibility, "compatibility").opencode, "opencode").expectedVersion).toBeTruthy();
-    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]?.url).toBe(CLOUD_CONFIG.url);
+    expect(requireRecord(requireRecord(body.compatibility, "compatibility").experimentalToolIds, "experimentalToolIds")).toMatchObject({ includesMcpTools: true });
+    expect(requireRecord(requireRecord(body.compatibility, "compatibility").experimentalProviderTools, "experimentalProviderTools")).toMatchObject({ includesMcpTools: true });
+    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]?.url).toBe(cloudConfigForOpenwork(openwork.base).url);
 
     const mcpPosts = mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp");
     expect(mcpPosts.length).toBe(1);
@@ -241,12 +326,13 @@ describe("openwork-cloud MCP strict reconcile", () => {
     const root = await createRoot();
     const mock = startMockOpencode();
     const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)], root);
+    const url = `http://127.0.0.1:${mock.server.port}/api/den/mcp/agent/`;
 
     const body = await responseRecord(await reconcile(openwork.base, "ws_1", {
-      config: { ...CLOUD_CONFIG, url: "https://api.openworklabs.com/api/den/mcp/agent/" },
+      config: { ...CLOUD_CONFIG, url },
     }));
     expect(body.phase).toBe("ready");
-    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]?.url).toBe("https://api.openworklabs.com/api/den/mcp/agent");
+    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]?.url).toBe(url.slice(0, -1));
   });
 
   test("GET health reports persisted malformed desired config even when the engine looks live", async () => {
@@ -270,7 +356,7 @@ describe("openwork-cloud MCP strict reconcile", () => {
     const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)], root);
     await writeRuntimeOpencodeConfig(openwork.config, "ws_1", (current) => ({
       ...current,
-      mcp: { "openwork-cloud": CLOUD_CONFIG },
+      mcp: { "openwork-cloud": cloudConfigForOpenwork(openwork.base) },
     }));
 
     const body = await responseRecord(await getHealth(openwork.base));
@@ -288,7 +374,7 @@ describe("openwork-cloud MCP strict reconcile", () => {
       const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)], root);
       await writeRuntimeOpencodeConfig(openwork.config, "ws_1", (current) => ({
         ...current,
-        mcp: { "openwork-cloud": CLOUD_CONFIG },
+        mcp: { "openwork-cloud": cloudConfigForOpenwork(openwork.base) },
       }));
 
       const body = await responseRecord(await getHealth(openwork.base));
@@ -309,7 +395,7 @@ describe("openwork-cloud MCP strict reconcile", () => {
     expect(response.status).toBe(200);
     expect(firstFailure(body).code).toBe("opencode_mcp_sync_failed");
     expect(delivery(body).appliedRevision).toBeNull();
-    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]?.url).toBe(CLOUD_CONFIG.url);
+    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]?.url).toBe(cloudConfigForOpenwork(openwork.base).url);
   });
 
   test("uses the exact secondary workspace directory", async () => {
@@ -350,25 +436,60 @@ describe("openwork-cloud MCP strict reconcile", () => {
     expect(delivery(body).appliedRevision).toBeNull();
   });
 
-  test("connected engine with missing Cloud tools re-registers once then reports cloud_tools_missing", async () => {
+  test("connected engine with direct Cloud endpoint missing a tool reports cloud_tools_missing without re-registering", async () => {
     const root = await createRoot();
-    const mock = startMockOpencode({ toolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES] });
+    const mock = startMockOpencode({ cloudToolNames: ["search_capabilities"] });
     const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)], root);
 
     const body = await responseRecord(await reconcile(openwork.base));
     expect(firstFailure(body).code).toBe("cloud_tools_missing");
-    expect(mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp").length).toBe(2);
+    expect(requireRecord(requireRecord(body.tools, "tools").direct, "direct").missing).toEqual(["execute_capability"]);
+    expect(requireArray(requireRecord(body.tools, "tools").present, "tools.present")).toEqual([]);
+    expect(mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp").length).toBe(1);
   });
 
-  test("reports provider projection missing when model tool list omits Cloud tools", async () => {
+  test("current OpenCode engines that exclude MCP tool IDs use direct tools/list plus provider capability", async () => {
     const root = await createRoot();
-    const mock = startMockOpencode({ providerToolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES] });
+    const mock = startMockOpencode({
+      toolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES],
+      providerToolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES],
+      cloudToolsAsSse: true,
+    });
+    const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)], root);
+
+    const body = await responseRecord(await reconcile(openwork.base, "ws_1", { provider: "anthropic", model: "claude" }));
+    expect(body.phase).toBe("ready");
+    expect(body.usable).toBe(true);
+    expect(body.usableByCurrentModel).toBe(true);
+    expect(requireRecord(requireRecord(body.compatibility, "compatibility").experimentalToolIds, "experimentalToolIds")).toMatchObject({ includesMcpTools: false });
+    expect(requireRecord(requireRecord(body.compatibility, "compatibility").experimentalProviderTools, "experimentalProviderTools")).toMatchObject({ includesMcpTools: false });
+    expect(requireRecord(requireRecord(body.tools, "tools").providerProjection, "projection")).toMatchObject({
+      source: "provider_capability",
+      modelExists: true,
+      toolCalling: true,
+      missing: [...OPENWORK_CLOUD_EXPECTED_TOOLS],
+    });
+    expect(requireArray(requireRecord(body.tools, "tools").present, "tools.present").sort()).toEqual([...OPENWORK_CLOUD_EXPECTED_TOOLS].sort());
+  });
+
+  test("reports provider projection missing when fallback provider model lacks tool calling", async () => {
+    const root = await createRoot();
+    const mock = startMockOpencode({
+      toolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES],
+      providerToolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES],
+      providerToolCalling: false,
+    });
     const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)], root);
 
     const body = await responseRecord(await reconcile(openwork.base, "ws_1", { provider: "anthropic", model: "claude" }));
     expect(firstFailure(body).code).toBe("provider_tool_projection_missing");
-    expect(firstFailure(body).recommendedAction).toBe("Update OpenWork");
-    expect(requireRecord(requireRecord(body.tools, "tools").providerProjection, "projection").missing).toEqual([...OPENWORK_CLOUD_EXPECTED_TOOLS]);
+    expect(firstFailure(body).recommendedAction).toBe("Choose a model that can use OpenWork Cloud tools");
+    expect(requireRecord(requireRecord(body.tools, "tools").providerProjection, "projection")).toMatchObject({
+      source: "provider_capability",
+      modelExists: true,
+      toolCalling: false,
+      missing: [...OPENWORK_CLOUD_EXPECTED_TOOLS],
+    });
   });
 
   test("reports extension canary missing when docs canary is present but extension canary is absent", async () => {
