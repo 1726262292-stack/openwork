@@ -34,7 +34,8 @@ const state = {
 };
 
 function mysqlContainer(ctx) {
-  return ctx.env.OPENWORK_EVAL_DEN_MYSQL_CONTAINER || "openwork-web-local-mysql";
+  const container = ctx.env.OPENWORK_EVAL_DEN_MYSQL_CONTAINER?.trim();
+  return container ? container : null;
 }
 
 function recordAssertion(ctx, assertion, passed, actual) {
@@ -48,16 +49,12 @@ function recordAssertion(ctx, assertion, passed, actual) {
 }
 
 async function runMysql(ctx, sql) {
-  const { stdout, stderr } = await execFileAsync("docker", [
-    "exec",
-    mysqlContainer(ctx),
-    "mysql",
-    "-uroot",
-    "-ppassword",
-    "openwork_den",
-    "-e",
-    sql,
-  ]);
+  const container = mysqlContainer(ctx);
+  const command = container ? "docker" : "mysql";
+  const args = container
+    ? ["exec", container, "mysql", "-uroot", "-ppassword", "openwork_den", "-e", sql]
+    : ["-h127.0.0.1", "-uroot", "-ppassword", "openwork_den", "-e", sql];
+  const { stdout, stderr } = await execFileAsync(command, args);
 
   if (stderr.trim()) {
     ctx.log(`mysql stderr: ${stderr.trim()}`);
@@ -407,7 +404,7 @@ export default {
   title: "Workspace re-authentication keeps multi-org settings actions on the same route and org",
   kind: "user-facing",
   preserveTheme: true,
-  requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_MYSQL_CONTAINER", "OPENWORK_EVAL_DEN_MULTI_ORG"],
+  requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_MULTI_ORG"],
   steps: [
     {
       name: "Org settings save opens the standardized security dialog",
