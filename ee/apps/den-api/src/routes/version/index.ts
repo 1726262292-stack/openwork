@@ -3,8 +3,8 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { publicRoute } from "../../middleware/index.js"
 import { jsonResponse } from "../../openapi.js"
+import { PUBLISHED_DESKTOP_VERSIONS } from "../../generated/desktop-versions.js"
 import { denApiAppVersion } from "../../version.js"
-import { getPublishedDesktopVersions } from "../../desktop-release-inventory.js"
 
 const appVersionResponseSchema = z.object({
   minAppVersion: z.string(),
@@ -24,10 +24,12 @@ export function registerVersionRoutes<T extends Env>(app: Hono<T>) {
       },
     }),
     publicRoute,
-    async (c) => {
-      const publishedDesktopVersions = await getPublishedDesktopVersions(denApiAppVersion)
+    (c) => {
       c.header("Cache-Control", "public, max-age=300, stale-if-error=86400")
-      return c.json({ ...denApiAppVersion, publishedDesktopVersions })
+      return c.json({
+        ...denApiAppVersion,
+        publishedDesktopVersions: [...PUBLISHED_DESKTOP_VERSIONS],
+      })
     },
   )
 }

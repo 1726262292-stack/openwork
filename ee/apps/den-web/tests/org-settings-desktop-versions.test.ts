@@ -7,7 +7,7 @@ const settingsPath = fileURLToPath(
 );
 
 describe("organization desktop version settings", () => {
-  test("renders live versions newest-first in a bounded scrolling list", () => {
+  test("renders generated versions newest-first in a bounded scrolling list", () => {
     const source = readFileSync(settingsPath, "utf8");
 
     expect(source).toContain("metadata.publishedDesktopVersions");
