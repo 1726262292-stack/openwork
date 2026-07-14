@@ -60,6 +60,20 @@ function normalizeFixtureUrl(value) {
   return url.toString();
 }
 
+function cleanBaseUrl(value) {
+  const url = new URL(value.trim());
+  url.hash = "";
+  url.search = "";
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  return url.toString().replace(/\/+$/, "");
+}
+
+function desktopReachableBaseUrl(value) {
+  const url = new URL(cleanBaseUrl(value));
+  if (url.hostname === "127.0.0.1") url.hostname = "localhost";
+  return cleanBaseUrl(url.toString());
+}
+
 function configureFixtureFromEnv(ctx) {
   const portText = optionalEnv(ctx, "OPENWORK_EVAL_MCP_FIXTURE_PORT");
   const listenPort = portText ? Number(portText) : 0;
@@ -70,8 +84,21 @@ function configureFixtureFromEnv(ctx) {
   state.fixturePublicUrl = publicUrl ? normalizeFixtureUrl(publicUrl) : null;
 }
 
-function denBase(ctx) {
-  return ctx.env.OPENWORK_EVAL_DEN_API_URL.trim().replace(/\/+$/, "");
+function denApiBase(ctx) {
+  return cleanBaseUrl(ctx.env.OPENWORK_EVAL_DEN_API_URL);
+}
+
+function denWebBase(ctx) {
+  const webBase = optionalEnv(ctx, "OPENWORK_EVAL_DEN_WEB_URL");
+  return cleanBaseUrl(webBase || ctx.env.OPENWORK_EVAL_DEN_API_URL);
+}
+
+function denDesktopWebBase(ctx) {
+  return desktopReachableBaseUrl(denWebBase(ctx));
+}
+
+function denDesktopApiBase(ctx) {
+  return desktopReachableBaseUrl(denApiBase(ctx));
 }
 
 function witness(ctx, condition, assertion, actual) {
@@ -85,7 +112,7 @@ function witness(ctx, condition, assertion, actual) {
 }
 
 async function denFetch(ctx, path, options = {}) {
-  const response = await fetch(`${denBase(ctx)}${path}`, {
+  const response = await fetch(`${denApiBase(ctx)}${path}`, {
     ...options,
     headers: {
       "content-type": "application/json",
@@ -108,7 +135,7 @@ async function denFetch(ctx, path, options = {}) {
 }
 
 async function mcpAgentCall(ctx, mcpToken, method, params) {
-  const response = await fetch(`${denBase(ctx)}/mcp/agent`, {
+  const response = await fetch(`${denApiBase(ctx)}/mcp/agent`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -266,13 +293,14 @@ async function waitForControl(ctx) {
 }
 
 async function configureDesktopForDen(ctx) {
-  const baseUrl = denBase(ctx).replace("127.0.0.1", "localhost");
+  const baseUrl = denDesktopWebBase(ctx);
+  const apiBaseUrl = denDesktopApiBase(ctx);
   const written = await ctx.eval(`(async () => {
     const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
     if (!bridge) return { ok: false, reason: "desktop bridge missing" };
-    await bridge("setDesktopBootstrapConfig", { baseUrl: ${quoted(baseUrl)}, apiBaseUrl: ${quoted(baseUrl)}, requireSignin: false, handoff: null });
+    await bridge("setDesktopBootstrapConfig", { baseUrl: ${quoted(baseUrl)}, apiBaseUrl: ${quoted(apiBaseUrl)}, requireSignin: false, handoff: null });
     localStorage.setItem("openwork.den.baseUrl", ${quoted(baseUrl)});
-    localStorage.setItem("openwork.den.apiBaseUrl", ${quoted(baseUrl)});
+    localStorage.setItem("openwork.den.apiBaseUrl", ${quoted(apiBaseUrl)});
     return { ok: true };
   })()`, { awaitPromise: true });
   witness(ctx, written?.ok === true, "The desktop bootstrap points at the local Den stack.", written);
@@ -307,7 +335,7 @@ async function signInWithFreshHandoff(ctx) {
     body: JSON.stringify({ desktopScheme: "openwork" }),
   });
   ctx.assert(typeof handoff?.grant === "string" && handoff.grant.trim(), "Desktop handoff did not return a grant.");
-  await ctx.control("auth.exchange-grant", { grant: handoff.grant, baseUrl: denBase(ctx).replace("127.0.0.1", "localhost") });
+  await ctx.control("auth.exchange-grant", { grant: handoff.grant, baseUrl: denDesktopWebBase(ctx) });
   await ctx.eval(`(() => {
     localStorage.setItem("openwork.den.activeOrgId", ${quoted(state.org.id)});
     ${state.org.slug ? `localStorage.setItem("openwork.den.activeOrgSlug", ${quoted(state.org.slug)});` : "localStorage.removeItem(\"openwork.den.activeOrgSlug\");"}
@@ -465,10 +493,11 @@ async function mintDenMcpToken(ctx) {
   return minted;
 }
 
-function mcpAgentUrlFromResource(resource) {
-  const trimmed = typeof resource === "string" ? resource.trim().replace(/\/+$/, "") : "";
-  if (!trimmed) return `${denBase({ env: { OPENWORK_EVAL_DEN_API_URL: "" } })}/mcp/agent`;
-  return trimmed.endsWith("/agent") ? trimmed : `${trimmed}/agent`;
+function mcpAgentUrlFromResource(ctx, resource) {
+  const trimmed = typeof resource === "string" ? resource.trim() : "";
+  if (!trimmed) return `${denApiBase(ctx)}/mcp/agent`;
+  const baseUrl = cleanBaseUrl(trimmed);
+  return baseUrl.endsWith("/agent") ? baseUrl : `${baseUrl}/agent`;
 }
 
 async function initialStrictReconcile(ctx) {
@@ -479,7 +508,7 @@ async function initialStrictReconcile(ctx) {
     config: {
       type: "remote",
       enabled: true,
-      url: mcpAgentUrlFromResource(minted.resource),
+      url: mcpAgentUrlFromResource(ctx, minted.resource),
       headers: { Authorization: `Bearer ${minted.token}` },
       oauth: false,
     },
