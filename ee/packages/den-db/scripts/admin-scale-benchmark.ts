@@ -29,11 +29,11 @@ type BenchmarkResult = {
 async function currentCleanGitCommitSha() {
   const [{ stdout: commitStdout }, { stdout: statusStdout }] = await Promise.all([
     execFileAsync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }),
-    execFileAsync("git", ["status", "--porcelain"], { encoding: "utf8" }),
+    execFileAsync("git", ["status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }),
   ])
   const status = String(statusStdout).trim()
   if (status) {
-    throw new Error(`Refusing to write admin scale benchmark artifact from a dirty git tree. Commit or stash changes and rerun. Dirty paths:\n${status}`)
+    throw new Error(`Refusing to write admin scale benchmark artifact from a dirty tracked git tree. Commit or stash changes and rerun. Dirty paths:\n${status}`)
   }
 
   return String(commitStdout).trim()
