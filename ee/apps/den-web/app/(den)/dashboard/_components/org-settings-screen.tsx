@@ -448,7 +448,7 @@ export function OrgSettingsScreen() {
                     icon={Pencil}
                     onClick={() => {
                       setPageError(null);
-                      setPageSuccess(null);
+                      clearOrgSettingsCompletion();
                       setDomainEditModeEnabled(true);
                     }}
                   >
