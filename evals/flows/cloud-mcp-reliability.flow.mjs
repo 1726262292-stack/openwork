@@ -16,6 +16,11 @@ const FIXTURE_TOOL_NAME = "record_reliability_check";
 const RESULT_MARKER = `cloud-reliability-result-${RUN_TAG}`;
 const WORKSPACE_PATH = join(tmpdir(), `openwork-cloud-mcp-reliability-${RUN_TAG}`);
 const CLOUD_MCP_NAME = "openwork-cloud";
+const AUTOMATIC_RECONCILE_TRIGGERS = [
+  "desktop-settings-background",
+  "desktop-background",
+  "desktop-connect-autocheck",
+];
 const MODEL_SEED_ACTION_ID = "eval.model_not_available.seed";
 const EXPECTED_TOOL_IDS = [
   "openwork-cloud_search_capabilities",
@@ -641,6 +646,7 @@ async function initialStrictReconcile(ctx) {
 async function deleteCloudRuntimeConfig(ctx) {
   await ctx.navigateHash(`/workspace/${state.workspaceId}/settings/general`);
   await ctx.waitFor(`window.location.hash.includes(${quoted(`/workspace/${state.workspaceId}/settings/general`)})`, { timeoutMs: 30_000, label: "settings route before deletion" });
+  await installDesktopFetchGuard(ctx);
   await serverFetchJson(ctx, `/workspace/${encodeURIComponent(state.workspaceId)}/mcp/${encodeURIComponent(CLOUD_MCP_NAME)}`, { method: "DELETE" });
   await ctx.eval(`(() => {
     localStorage.removeItem("openwork.den.mcp.sync");
@@ -724,41 +730,201 @@ function agentAccessCardHelper() {
   `;
 }
 
-async function installNetworkProbe(ctx, label) {
-  const result = await ctx.eval(`(() => {
+function desktopProbeHarnessSource() {
+  return `
     const key = "__cloudMcpReliabilityProbe";
+    const bridge = window.__OPENWORK_ELECTRON__;
+    const isObject = (value) => value !== null && typeof value === "object";
+    const parseBody = (body) => {
+      if (typeof body !== "string" || !body.trim()) return null;
+      try {
+        const parsed = JSON.parse(body);
+        return isObject(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    };
+    const sanitizeBody = (raw) => isObject(raw) ? {
+      workspaceId: raw.workspaceId ?? null,
+      name: raw.name ?? null,
+      trigger: raw.trigger ?? null,
+      provider: raw.provider ?? null,
+      model: raw.model ?? null,
+      configUrl: raw.config?.url ?? null,
+      hasAuthorization: Boolean(raw.config?.headers?.Authorization),
+    } : null;
     if (!window[key]) {
-      const originalFetch = window.fetch.bind(window);
-      const bridge = window.__OPENWORK_ELECTRON__;
-      const originalInvoke = bridge?.invokeDesktop?.bind(bridge) ?? null;
-      const probe = { requests: [], desktopFetches: [], originalFetch, originalInvoke, label: ${quoted(label)}, installedAt: Date.now(), desktopPatched: false };
-      window.fetch = async (input, init) => {
+      window[key] = {
+        requests: [],
+        desktopFetches: [],
+        blockedDesktopFetches: [],
+        originalFetch: window.fetch.bind(window),
+        originalInvoke: bridge?.invokeDesktop?.bind(bridge) ?? null,
+        fetchWrapper: null,
+        invokeWrapper: null,
+        label: "",
+        installedAt: Date.now(),
+        desktopPatched: false,
+        fetchPatched: false,
+        guard: { active: false, workspaceId: null, triggers: [] },
+      };
+    }
+    const probe = window[key];
+    if (!Array.isArray(probe.requests)) probe.requests = [];
+    if (!Array.isArray(probe.desktopFetches)) probe.desktopFetches = [];
+    if (!Array.isArray(probe.blockedDesktopFetches)) probe.blockedDesktopFetches = [];
+    if (!probe.guard) probe.guard = { active: false, workspaceId: null, triggers: [] };
+    if (!probe.originalFetch) probe.originalFetch = window.fetch.bind(window);
+    if (!probe.fetchWrapper) {
+      probe.fetchWrapper = async (input, init) => {
         const url = typeof input === "string" ? input : input?.url || String(input);
         const method = (init?.method || input?.method || "GET").toUpperCase();
         const body = typeof init?.body === "string" ? init.body : null;
         probe.requests.push({ at: Date.now(), url, method, body });
-        return originalFetch(input, init);
+        return probe.originalFetch(input, init);
       };
-      if (bridge && originalInvoke) {
-        try {
-          bridge.invokeDesktop = async (command, ...args) => {
-            if (command === "__fetch") {
-              const init = args[1] && typeof args[1] === "object" ? args[1] : {};
-              probe.desktopFetches.push({ at: Date.now(), url: String(args[0] || ""), method: String(init.method || "GET").toUpperCase() });
-            }
-            return originalInvoke(command, ...args);
-          };
-          probe.desktopPatched = true;
-        } catch {
-          probe.desktopPatched = false;
-        }
-      }
-      window[key] = probe;
     }
-    window[key].requests.length = 0;
-    window[key].desktopFetches.length = 0;
-    window[key].label = ${quoted(label)};
-    return { ok: true, desktopPatched: window[key].desktopPatched };
+    if (window.fetch !== probe.fetchWrapper) {
+      window.fetch = probe.fetchWrapper;
+      probe.fetchPatched = true;
+    }
+    if (!probe.originalInvoke && bridge?.invokeDesktop) probe.originalInvoke = bridge.invokeDesktop.bind(bridge);
+    if (!probe.invokeWrapper) {
+      probe.invokeWrapper = async (command, ...args) => {
+        if (command !== "__fetch") return probe.originalInvoke(command, ...args);
+        const init = isObject(args[1]) ? args[1] : {};
+        const url = String(args[0] || "");
+        const method = String(init.method || "GET").toUpperCase();
+        const raw = parseBody(init.body);
+        const body = sanitizeBody(raw);
+        const entry = { at: Date.now(), url, method, body, blocked: false, automaticBackground: false };
+        probe.desktopFetches.push(entry);
+        const guard = probe.guard ?? {};
+        const workspaceId = typeof guard.workspaceId === "string" ? guard.workspaceId : "";
+        const workspaceMatches = !workspaceId || url.includes("/workspace/" + encodeURIComponent(workspaceId) + "/") || body?.workspaceId === workspaceId;
+        const triggers = Array.isArray(guard.triggers) ? guard.triggers : [];
+        const trigger = typeof body?.trigger === "string" ? body.trigger : "";
+        const shouldBlock = guard.active === true &&
+          method === "POST" &&
+          url.includes("/mcp/openwork-cloud/reconcile") &&
+          workspaceMatches &&
+          triggers.includes(trigger);
+        if (shouldBlock) {
+          entry.blocked = true;
+          entry.automaticBackground = true;
+          const recentMint = [...probe.desktopFetches].reverse().find((request) =>
+            request !== entry &&
+            request.method === "POST" &&
+            request.url.includes("/v1/mcp/token") &&
+            entry.at - request.at < 30000
+          );
+          if (recentMint) recentMint.automaticBackground = true;
+          probe.blockedDesktopFetches.push({ ...entry, reason: "automatic-background-reconcile" });
+          throw new Error("fraimz blocked automatic Cloud MCP reconcile (" + trigger + ")");
+        }
+        return probe.originalInvoke(command, ...args);
+      };
+    }
+    if (bridge && probe.originalInvoke && bridge.invokeDesktop !== probe.invokeWrapper) {
+      try {
+        bridge.invokeDesktop = probe.invokeWrapper;
+        probe.desktopPatched = true;
+      } catch {
+        probe.desktopPatched = false;
+      }
+    }
+  `;
+}
+
+async function installDesktopFetchGuard(ctx) {
+  const result = await ctx.eval(`(() => {
+    ${desktopProbeHarnessSource()}
+    probe.guard = {
+      active: true,
+      workspaceId: ${quoted(state.workspaceId)},
+      triggers: ${JSON.stringify(AUTOMATIC_RECONCILE_TRIGGERS)},
+    };
+    probe.blockedDesktopFetches.length = 0;
+    return {
+      ok: true,
+      desktopPatched: probe.desktopPatched === true,
+      guard: probe.guard,
+      blockedDesktopFetches: probe.blockedDesktopFetches.length,
+    };
+  })()`, { awaitPromise: true });
+  witness(ctx, result?.ok === true && result.desktopPatched === true && result.guard?.active === true, "Temporary renderer guard is installed before deleting Cloud runtime config so automatic background reconciles cannot heal the proof state.", result);
+}
+
+async function desktopFetchGuardSummary(ctx) {
+  return ctx.eval(`(() => {
+    const probe = window.__cloudMcpReliabilityProbe;
+    const sanitize = (request) => ({
+      at: request.at,
+      method: request.method,
+      url: request.url,
+      body: request.body ?? null,
+      blocked: request.blocked === true,
+      automaticBackground: request.automaticBackground === true,
+      reason: request.reason ?? null,
+    });
+    if (!probe) return { installed: false, active: false, desktopPatched: false, blockedDesktopFetches: [] };
+    return {
+      installed: true,
+      active: probe.guard?.active === true,
+      desktopPatched: probe.desktopPatched === true,
+      guard: probe.guard ?? null,
+      blockedDesktopFetches: (probe.blockedDesktopFetches ?? []).map(sanitize),
+    };
+  })()`);
+}
+
+async function restoreDesktopFetchGuard(ctx) {
+  const result = await ctx.eval(`(() => {
+    const probe = window.__cloudMcpReliabilityProbe;
+    const bridge = window.__OPENWORK_ELECTRON__;
+    const sanitize = (request) => ({
+      at: request.at,
+      method: request.method,
+      url: request.url,
+      body: request.body ?? null,
+      blocked: request.blocked === true,
+      automaticBackground: request.automaticBackground === true,
+      reason: request.reason ?? null,
+    });
+    if (!probe) return { ok: false, restored: false, reason: "probe missing", blockedDesktopFetches: [] };
+    if (probe.guard) probe.guard.active = false;
+    let restored = false;
+    if (bridge && probe.originalInvoke) {
+      try {
+        bridge.invokeDesktop = probe.originalInvoke;
+        restored = bridge.invokeDesktop === probe.originalInvoke;
+        probe.desktopPatched = false;
+      } catch {
+        restored = false;
+      }
+    }
+    return {
+      ok: restored,
+      restored,
+      guardActive: probe.guard?.active === true,
+      blockedDesktopFetches: (probe.blockedDesktopFetches ?? []).map(sanitize),
+    };
+  })()`, { awaitPromise: true });
+  witness(ctx, result?.ok === true && result.restored === true && result.guardActive === false, "Temporary renderer guard is removed and the original desktop bridge is restored before Repair and test.", result);
+}
+
+async function installNetworkProbe(ctx, label) {
+  const result = await ctx.eval(`(() => {
+    ${desktopProbeHarnessSource()}
+    probe.requests.length = 0;
+    probe.desktopFetches.length = 0;
+    probe.label = ${quoted(label)};
+    return {
+      ok: true,
+      desktopPatched: probe.desktopPatched === true,
+      guardActive: probe.guard?.active === true,
+      blockedDesktopFetches: probe.blockedDesktopFetches.length,
+    };
   })()`);
   witness(ctx, result?.ok === true && result.desktopPatched === true, "Renderer network probe is installed for fetch and desktop __fetch calls.", result);
 }
@@ -785,10 +951,19 @@ async function networkSummary(ctx) {
       } catch {}
       return { at: request.at, method: request.method, url: request.url, body: parsedBody };
     };
+    const sanitizeDesktopRequest = (request) => ({
+      at: request.at,
+      method: request.method,
+      url: request.url,
+      body: request.body ?? null,
+      blocked: request.blocked === true,
+      automaticBackground: request.automaticBackground === true,
+    });
     return {
       label: probe.label,
       requests: probe.requests.map(sanitizeRequest),
-      desktopFetches: probe.desktopFetches.map((request) => ({ at: request.at, method: request.method, url: request.url })),
+      desktopFetches: probe.desktopFetches.map(sanitizeDesktopRequest),
+      blockedDesktopFetches: (probe.blockedDesktopFetches ?? []).map(sanitizeDesktopRequest),
     };
   })()`);
 }
@@ -904,13 +1079,15 @@ export default {
             await ctx.waitForText("Use Repair and test to apply agent access for this workspace.", { timeoutMs: 60_000 });
           },
           assert: async () => {
-            state.degradedHealth = await waitForHealth(ctx, (health) => (
-              health.usable === false &&
-              health.workspace.id === state.workspaceId &&
-              health.firstFailure?.stage === "desired_config" &&
-              health.firstFailure?.code === "cloud_mcp_missing"
-            ), "visible degraded desired_config health");
-            witness(ctx, true, "Live health firstFailure is desired_config/cloud_mcp_missing for the exact workspace.", {
+            const setupHealth = state.degradedHealth;
+            witness(ctx, setupHealth?.workspace?.id === state.workspaceId && setupHealth.usable === false && setupHealth.firstFailure?.code === "cloud_mcp_missing", "Setup captured desired_config/cloud_mcp_missing immediately after deleting this workspace's Cloud runtime config.", {
+              workspaceId: setupHealth?.workspace?.id,
+              firstFailure: setupHealth?.firstFailure,
+            });
+            const guard = await desktopFetchGuardSummary(ctx);
+            witness(ctx, guard.active === true && guard.guard?.workspaceId === state.workspaceId, "Temporary renderer guard remains active while the degraded card is proven; any automatic reconcile attempts are recorded.", guard);
+            state.degradedHealth = await getHealth(ctx);
+            witness(ctx, state.degradedHealth.usable === false && state.degradedHealth.workspace.id === state.workspaceId && state.degradedHealth.firstFailure?.stage === "desired_config" && state.degradedHealth.firstFailure?.code === "cloud_mcp_missing", "A current read-only health GET still reports desired_config/cloud_mcp_missing for the exact workspace while the guard is active.", {
               workspaceId: state.degradedHealth.workspace.id,
               firstFailure: state.degradedHealth.firstFailure,
             });
@@ -943,16 +1120,21 @@ export default {
             const summary = await networkSummary(ctx);
             const healthGets = summary.requests.filter((request) => request.method === "GET" && request.url.includes(`/workspace/${state.workspaceId}/mcp/openwork-cloud/health`));
             const reconcilePosts = summary.requests.filter((request) => request.method === "POST" && request.url.includes("/mcp/openwork-cloud/reconcile"));
-            const tokenMints = summary.desktopFetches.filter((request) => request.method === "POST" && request.url.includes("/v1/mcp/token"));
-            witness(ctx, healthGets.length >= 1 && reconcilePosts.length === 0 && tokenMints.length === 0, "Test now made GET health requests only: no reconcile POST and no Den MCP token mint.", {
+            const tokenMints = summary.desktopFetches.filter((request) => request.method === "POST" && request.url.includes("/v1/mcp/token") && request.automaticBackground !== true);
+            const backgroundTokenMints = summary.desktopFetches.filter((request) => request.method === "POST" && request.url.includes("/v1/mcp/token") && request.automaticBackground === true);
+            witness(ctx, healthGets.length >= 1 && reconcilePosts.length === 0 && tokenMints.length === 0, "Test now made GET health requests only: no reconcile POST and no Test-now Den MCP token mint.", {
               healthGets: healthGets.length,
               reconcilePosts: reconcilePosts.length,
               tokenMints: tokenMints.length,
+              backgroundTokenMints: backgroundTokenMints.length,
+              blockedAutomaticReconciles: summary.blockedDesktopFetches.length,
             });
+            const guard = await desktopFetchGuardSummary(ctx);
+            witness(ctx, guard.active === true, "Automatic reconcile guard remains active through Test now, with blocked attempts retained as evidence.", guard);
             const markerAfter = await readMarker(ctx);
             witness(ctx, markerAfter === state.markerBeforeTest, "Test now did not write or change the Cloud MCP sync marker.", { before: state.markerBeforeTest, after: markerAfter });
             const health = await getHealth(ctx);
-            witness(ctx, health.usable === false && health.firstFailure?.code === "cloud_mcp_missing", "The exact workspace remains degraded after the read-only test.", { firstFailure: health.firstFailure });
+            witness(ctx, health.usable === false && health.workspace.id === state.workspaceId && health.firstFailure?.stage === "desired_config" && health.firstFailure?.code === "cloud_mcp_missing", "The exact workspace remains degraded after the read-only test.", { firstFailure: health.firstFailure });
           },
           screenshot: {
             name: "frame-3-test-now-read-only",
@@ -969,6 +1151,7 @@ export default {
         await ctx.prove("Repair and test reconciles exactly this workspace, writes the marker only after usable health, and connects the engine", {
           voiceover: vo[3],
           action: async () => {
+            await restoreDesktopFetchGuard(ctx);
             await installNetworkProbe(ctx, "repair-and-test");
             state.markerBeforeRepair = await readMarker(ctx);
             await clickAgentAccessButton(ctx, "Repair and test");
