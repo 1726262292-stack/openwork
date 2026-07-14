@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 
 import type { DenExternalMcpConnection, DenOrgPlugin } from "@/app/lib/den";
-import { readDenSettings } from "@/app/lib/den";
+import { mintCloudControlMcpToken, readDenSettings } from "@/app/lib/den";
 import { openDesktopUrl } from "@/app/lib/desktop";
+import type { OpenworkCloudMcpHealth, OpenworkCloudMcpProviderModelContext, OpenworkServerClient } from "@/app/lib/openwork-server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -36,7 +37,16 @@ import {
   SettingsSectionHeaderDescription,
   SettingsSectionHeaderTitle,
   SettingsStack,
+  SettingsStatusBadge,
 } from "../settings-section";
+import {
+  OPENWORK_CLOUD_EXPECTED_TOOLS,
+  clearCloudMcpDisabledIntent,
+  cloudMcpDisplaySummary,
+  runOpenworkCloudMcpReconciler,
+  type CloudMcpOperationContext,
+} from "../../connections/cloud-mcp-reconciler";
+import { readCloudMcpUserState } from "../../connections/cloud-mcp-user-state";
 
 export type ConnectViewState = "loading" | "signin" | "active" | "pitch";
 
@@ -44,10 +54,11 @@ export function resolveConnectViewState(input: {
   authStatus: DenAuthStatus;
   connectEnabled?: boolean;
   connectionsCount: number;
+  activeOrgSelected?: boolean;
 }): ConnectViewState {
   if (input.authStatus === "checking") return "loading";
   if (input.authStatus === "signed_out") return "signin";
-  if (input.connectEnabled === true || input.connectionsCount > 0) return "active";
+  if (input.connectEnabled === true || input.connectionsCount > 0 || (input.authStatus === "signed_in" && input.activeOrgSelected === true)) return "active";
   return "pitch";
 }
 
@@ -73,9 +84,15 @@ export type ConnectViewProps = {
   session: ConnectSession;
   marketplaceItems?: ExtensionItem[];
   refreshMarketplaceItems?: () => Promise<unknown> | void;
+  openworkClient: OpenworkServerClient | null;
+  workspaceId: string | null;
+  currentModel: OpenworkCloudMcpProviderModelContext | null;
+  onCloudMcpHealthChange?: (health: OpenworkCloudMcpHealth | null) => void;
 };
 
 type CloudMarketplaceItem = ExtensionItem & { plugin: DenOrgPlugin };
+
+const CLOUD_MCP_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
 
 function denManageConnectionsUrl() {
   return new URL("/dashboard/mcp-connections", readDenSettings().baseUrl).toString();
@@ -92,6 +109,190 @@ function ManageInDenButton() {
       {t("connect.manage_in_den_web")}
       <ArrowUpRight size={13} />
     </Button>
+  );
+}
+
+function buildCloudMcpContext(input: {
+  client: OpenworkServerClient | null;
+  workspaceId: string | null;
+  currentModel: OpenworkCloudMcpProviderModelContext | null;
+}): CloudMcpOperationContext | null {
+  const workspaceId = input.workspaceId?.trim() ?? "";
+  const serverBaseUrl = input.client?.baseUrl.trim() ?? "";
+  const settings = readDenSettings();
+  const orgId = settings.activeOrgId?.trim() ?? "";
+  if (!workspaceId || !serverBaseUrl || !orgId) return null;
+  return {
+    denBaseUrl: settings.baseUrl,
+    serverBaseUrl,
+    orgId,
+    workspaceId,
+    denAuthToken: settings.authToken ?? null,
+    orgSlug: settings.activeOrgSlug,
+    orgName: settings.activeOrgName,
+    providerModel: input.currentModel ?? undefined,
+  };
+}
+
+export function readyCloudMcpToolIds(health: OpenworkCloudMcpHealth | null): string[] {
+  if (!health?.usable) return [];
+  return health.tools.present.filter((tool) => OPENWORK_CLOUD_EXPECTED_TOOLS.some((expected) => expected === tool));
+}
+
+function AgentAccessCard(props: {
+  client: OpenworkServerClient | null;
+  workspaceId: string | null;
+  currentModel: OpenworkCloudMcpProviderModelContext | null;
+  onHealthChange?: (health: OpenworkCloudMcpHealth | null) => void;
+}) {
+  const cloudSession = useCloudSession();
+  const [health, setHealth] = useState<OpenworkCloudMcpHealth | null>(null);
+  const [busy, setBusy] = useState<"test" | "repair" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const context = buildCloudMcpContext(props);
+  const userState = context ? readCloudMcpUserState(context) : null;
+  const signedIn = cloudSession.isSignedIn && Boolean(cloudSession.authToken.trim());
+  const orgSelected = Boolean(context?.orgId.trim());
+  const summary = cloudMcpDisplaySummary({
+    signedIn,
+    orgSelected,
+    connecting: busy !== null,
+    userState,
+    health,
+  });
+
+  const updateHealth = (next: OpenworkCloudMcpHealth | null) => {
+    setHealth(next);
+    props.onHealthChange?.(next);
+  };
+
+  const testNow = async () => {
+    if (!props.client || !context) return;
+    setBusy("test");
+    setError(null);
+    try {
+      const result = await runOpenworkCloudMcpReconciler({
+        mode: "health",
+        client: props.client,
+        context: { ...context, trigger: "desktop-connect-test" },
+        mintToken: mintCloudControlMcpToken,
+        refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
+      });
+      updateHealth(result.health);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Could not test agent access.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const repairAndTest = async () => {
+    if (!props.client || !context) return;
+    setBusy("repair");
+    setError(null);
+    try {
+      clearCloudMcpDisabledIntent(context);
+      const result = await runOpenworkCloudMcpReconciler({
+        mode: "repair",
+        client: props.client,
+        context: { ...context, trigger: "desktop-connect-repair" },
+        mintToken: mintCloudControlMcpToken,
+        force: true,
+        refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
+      });
+      updateHealth(result.health);
+      if (!result.health && result.skippedReason === "mint_failed") {
+        setError("Could not refresh Cloud authentication. Sign in again, then retry.");
+      }
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Could not repair agent access.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!props.client || !context || !signedIn) {
+      updateHealth(null);
+      return;
+    }
+    let cancelled = false;
+    setBusy("test");
+    setError(null);
+    void runOpenworkCloudMcpReconciler({
+      mode: "health",
+      client: props.client,
+      context: { ...context, trigger: "desktop-connect-autocheck" },
+      mintToken: mintCloudControlMcpToken,
+      refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
+    })
+      .then((result) => {
+        if (!cancelled) updateHealth(result.health);
+      })
+      .catch((nextError) => {
+        if (!cancelled) setError(nextError instanceof Error ? nextError.message : "Could not test agent access.");
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.client, props.currentModel, props.workspaceId, signedIn]);
+
+  const canRun = Boolean(props.client && context && signedIn);
+  const readyTools = readyCloudMcpToolIds(health);
+
+  return (
+    <SettingsInset className="space-y-4 bg-dls-surface" data-testid="agent-access-card">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <div className="text-base font-semibold text-dls-text">Agent access to connected services</div>
+          <div className="max-w-[62ch] text-sm text-dls-secondary">
+            Lets agents use the exact OpenWork Cloud tools for this active workspace and organization.
+          </div>
+        </div>
+        <SettingsStatusBadge label={summary.statusLabel} tone={summary.tone} />
+      </div>
+
+      <div className="grid gap-2 text-sm text-dls-secondary sm:grid-cols-2">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-dls-secondary">First issue</div>
+          <div className="mt-1 text-dls-text">{summary.stageLabel}</div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-dls-secondary">Recommended action</div>
+          <div className="mt-1 text-dls-text">{summary.recommendedAction}</div>
+        </div>
+      </div>
+
+      {health?.usable ? (
+        <div className="space-y-2 rounded-xl border border-green-6/30 bg-green-2 p-3 text-sm text-green-11">
+          <div className="font-medium">Cloud tools registered for this workspace</div>
+          <div className="flex flex-wrap gap-2 font-mono text-xs">
+            {readyTools.map((tool) => <span key={tool} className="rounded-md bg-green-3 px-2 py-1">{tool}</span>)}
+          </div>
+          <div className="text-xs">
+            {health.usableByCurrentModel === null
+              ? "Current model access was not checked."
+              : health.usableByCurrentModel
+                ? "Current model can use these Cloud tools."
+                : "Current model cannot use these Cloud tools."}
+          </div>
+        </div>
+      ) : null}
+
+      {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" disabled={!canRun || busy !== null} onClick={() => void testNow()}>
+          {busy === "test" ? "Testing…" : "Test now"}
+        </Button>
+        <Button size="sm" disabled={!canRun || busy !== null} onClick={() => void repairAndTest()}>
+          {busy === "repair" ? "Repairing…" : "Repair and test"}
+        </Button>
+      </div>
+    </SettingsInset>
   );
 }
 
@@ -408,6 +609,10 @@ function ConnectOrganizationList(props: {
 function ConnectActivePanel(props: {
   connections: DenExternalMcpConnection[];
   marketplaceItems: ExtensionItem[];
+  openworkClient: OpenworkServerClient | null;
+  workspaceId: string | null;
+  currentModel: OpenworkCloudMcpProviderModelContext | null;
+  onCloudMcpHealthChange?: (health: OpenworkCloudMcpHealth | null) => void;
   loading: boolean;
   error: string | null;
   connectingId: string | null;
@@ -420,6 +625,13 @@ function ConnectActivePanel(props: {
 
   return (
     <SettingsSection>
+      <AgentAccessCard
+        client={props.openworkClient}
+        workspaceId={props.workspaceId}
+        currentModel={props.currentModel}
+        onHealthChange={props.onCloudMcpHealthChange}
+      />
+
       <div
         data-testid="connect-org-status-row"
         className="flex items-center gap-2 rounded-2xl border border-green-6/30 bg-green-2 px-4 py-3 text-sm font-medium text-green-11"
@@ -468,10 +680,12 @@ export function ConnectView(props: ConnectViewProps) {
   const denAuth = useDenAuth();
   const desktopConfig = useDesktopConfig();
   const connectEnabled = useConnectEnabled();
+  const cloudSession = useCloudSession();
   const orgMcpConnections = useOrgMcpConnections();
   const marketplaceItems = props.marketplaceItems ?? [];
   const refreshMarketplaceItems = props.refreshMarketplaceItems;
   const connectionsCount = orgMcpConnections.connections.length;
+  const activeOrgSelected = Boolean(cloudSession.activeOrganization?.id.trim() || readDenSettings().activeOrgId?.trim());
   const signedInLoading = denAuth.status === "signed_in"
     && connectionsCount === 0
     && connectEnabled !== true
@@ -482,6 +696,7 @@ export function ConnectView(props: ConnectViewProps) {
         authStatus: denAuth.status,
         connectEnabled,
         connectionsCount,
+        activeOrgSelected,
       });
 
   useEffect(() => {
@@ -499,6 +714,10 @@ export function ConnectView(props: ConnectViewProps) {
         <ConnectActivePanel
           connections={orgMcpConnections.connections}
           marketplaceItems={marketplaceItems}
+          openworkClient={props.openworkClient}
+          workspaceId={props.workspaceId}
+          currentModel={props.currentModel}
+          onCloudMcpHealthChange={props.onCloudMcpHealthChange}
           loading={orgMcpConnections.loading}
           error={orgMcpConnections.error}
           connectingId={orgMcpConnections.connectingId}

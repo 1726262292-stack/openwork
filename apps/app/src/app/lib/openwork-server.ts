@@ -303,6 +303,202 @@ export type OpenworkMcpEngineSync = {
   failures: Array<{ name: string; status?: number; message?: string }>;
 };
 
+export type OpenworkCloudMcpProviderModelContext = {
+  provider: string;
+  model: string;
+};
+
+export type OpenworkCloudMcpFailureStage =
+  | "prerequisites"
+  | "token_mint"
+  | "desired_config"
+  | "engine_delivery"
+  | "transport_auth"
+  | "tool_registration"
+  | "provider_projection"
+  | "plugin_load"
+  | "steering"
+  | "desired"
+  | "workspace"
+  | "configuration"
+  | "registration"
+  | "engine_status"
+  | "tool_ids"
+  | "plugin_canary";
+
+export type OpenworkCloudMcpFailureCode =
+  | "cloud_desired_missing"
+  | "cloud_mcp_missing"
+  | "cloud_mcp_disabled"
+  | "cloud_endpoint_invalid"
+  | "cloud_token_org_mismatch"
+  | "cloud_mcp_needs_auth"
+  | "invalid_mcp_token"
+  | "mcp_session_revoked"
+  | "mcp_membership_revoked"
+  | "insufficient_mcp_scope"
+  | "wrong_mcp_resource"
+  | "workspace_directory_ambiguous"
+  | "opencode_unconfigured"
+  | "opencode_engine_unreachable"
+  | "opencode_unreachable"
+  | "cloud_status_missing"
+  | "cloud_disabled"
+  | "openwork_cloud_auth_required"
+  | "openwork_cloud_auth_invalid"
+  | "openwork_cloud_token_expired"
+  | "openwork_cloud_membership_required"
+  | "openwork_cloud_scope_missing"
+  | "openwork_cloud_resource_forbidden"
+  | "openwork_cloud_resource_not_found"
+  | "openwork_cloud_client_registration_required"
+  | "cloud_connection_failed"
+  | "cloud_registration_failed"
+  | "cloud_tools_denied"
+  | "opencode_tool_ids_unsupported"
+  | "opencode_tool_ids_unavailable"
+  | "cloud_tools_missing"
+  | "provider_projection_unavailable"
+  | "provider_projection_missing"
+  | "extensions_plugin_missing"
+  | string;
+
+export type OpenworkCloudMcpFailure = {
+  code: OpenworkCloudMcpFailureCode;
+  stage: OpenworkCloudMcpFailureStage | string;
+  retryable: boolean;
+  recommendedAction: string;
+  message: string;
+  aliases?: string[];
+  requestId?: string;
+  referenceId?: string;
+  details?: unknown;
+};
+
+export type OpenworkCloudMcpCompatibility = {
+  openwork: {
+    serverVersion: string | null;
+    app: Record<string, string | number | boolean | null> | null;
+  };
+  opencode: {
+    expectedVersion: string | null;
+    actualVersion: string | null;
+    probe: "ok" | "unavailable" | "not_checked" | string;
+    error?: unknown;
+  };
+  pluginFileHashes: Array<{
+    name: string;
+    sha256: string | null;
+    error?: string;
+  }>;
+  supportedFeatures: {
+    dynamicMcp: boolean;
+    directoryScoping: boolean;
+    toolIds: boolean;
+    providerToolProjection: boolean;
+    pluginCanaries: boolean;
+  };
+};
+
+export type OpenworkCloudMcpHealthPhase =
+  | "missing_desired"
+  | "workspace_ambiguous"
+  | "engine_unconfigured"
+  | "engine_unreachable"
+  | "engine_missing"
+  | "engine_disabled"
+  | "engine_needs_auth"
+  | "engine_needs_client_registration"
+  | "engine_failed"
+  | "registration_failed"
+  | "denied_by_tools"
+  | "tool_ids_unsupported"
+  | "cloud_tools_missing"
+  | "provider_projection_missing"
+  | "extensions_plugin_missing"
+  | "ready"
+  | string;
+
+export type OpenworkCloudMcpDeliverySnapshot = {
+  state: "not_desired" | "pending" | "registering" | "ready" | "failed" | "stale" | string;
+  desiredRevision: string | null;
+  appliedRevision: string | null;
+  updatedAt: number | null;
+  appliedAt: number | null;
+  lastAttemptAt: number | null;
+  trigger?: string;
+  failure?: OpenworkCloudMcpFailure;
+};
+
+export type OpenworkCloudMcpHealth = {
+  schemaVersion: 1;
+  phase: OpenworkCloudMcpHealthPhase;
+  usable: boolean;
+  usableByCurrentModel: boolean | null;
+  connectCatalogEnabled: boolean;
+  workspace: {
+    id: string;
+    type: string;
+    directory: string | null;
+    path: string;
+  };
+  desired: {
+    present: boolean;
+    name: "openwork-cloud";
+    revision: string | null;
+    config: Record<string, unknown> | null;
+    token: {
+      present: boolean;
+      metadata: Record<string, string | number | boolean | null>;
+    };
+    org?: Record<string, string | number | boolean | null>;
+    app?: Record<string, string | number | boolean | null>;
+    updatedAt?: number;
+  };
+  delivery: OpenworkCloudMcpDeliverySnapshot;
+  engine: {
+    status: "not_checked" | "missing" | "connected" | "disabled" | "failed" | "needs_auth" | "needs_client_registration" | "unreachable" | "unknown" | string;
+    error?: unknown;
+  };
+  tools: {
+    expected: string[];
+    present: string[];
+    missing: string[];
+    providerProjection: {
+      checked: boolean;
+      provider?: string;
+      model?: string;
+      present: string[];
+      missing: string[];
+      error?: unknown;
+    };
+  };
+  pluginCanaries: {
+    expected: string[];
+    present: string[];
+    missing: string[];
+  };
+  compatibility: OpenworkCloudMcpCompatibility;
+  toolDenies: unknown[];
+  firstFailure: OpenworkCloudMcpFailure | null;
+  checkedAt: string;
+};
+
+export type OpenworkCloudMcpReconcilePayload = {
+  workspaceId: string;
+  name: "openwork-cloud";
+  config: Record<string, unknown>;
+  tokenMetadata?: Record<string, string | number | boolean | null>;
+  org?: Record<string, string | number | boolean | null>;
+  app?: Record<string, string | number | boolean | null>;
+  appVersion?: string;
+  buildSha?: string;
+  connectCatalogEnabled?: boolean;
+  trigger?: string;
+  provider?: string;
+  model?: string;
+};
+
 export type OpenworkWorkspaceExport = {
   workspaceId: string;
   exportedAt: number;
@@ -1021,6 +1217,8 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     sessionRead: 12_000,
     status: 6_000,
     config: 10_000,
+    cloudMcpHealth: 12_000,
+    cloudMcpReconcile: 60_000,
     workspaceExport: 30_000,
     workspaceImport: 30_000,
     binary: 60_000,
@@ -1464,6 +1662,31 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${workspaceId}/mcp`,
         { token, hostToken },
+      ),
+    getOpenworkCloudMcpHealth: (workspaceId: string, providerModel?: OpenworkCloudMcpProviderModelContext) => {
+      const query = new URLSearchParams();
+      if (providerModel?.provider.trim() && providerModel.model.trim()) {
+        query.set("provider", providerModel.provider.trim());
+        query.set("model", providerModel.model.trim());
+      }
+      const suffix = query.size ? `?${query.toString()}` : "";
+      return requestJson<OpenworkCloudMcpHealth>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/health${suffix}`,
+        { token, hostToken, timeoutMs: timeouts.cloudMcpHealth },
+      );
+    },
+    reconcileOpenworkCloudMcp: (workspaceId: string, payload: OpenworkCloudMcpReconcilePayload) =>
+      requestJson<OpenworkCloudMcpHealth>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/reconcile`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: payload,
+          timeoutMs: timeouts.cloudMcpReconcile,
+        },
       ),
     addMcp: (workspaceId: string, payload: { name: string; config: Record<string, unknown> }) =>
       requestJson<{ items: OpenworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
