@@ -47,6 +47,8 @@ export default {
   id: "ui-control-tools-opt-in",
   title: "Built-in OpenWork UI-control preview tools are opt-in",
   kind: "internal",
+  suite: "nightly-extensions-local",
+  suiteOrder: 9,
   requiresApp: false,
   steps: [
     {

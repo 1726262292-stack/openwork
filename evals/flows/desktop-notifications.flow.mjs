@@ -21,6 +21,8 @@ export default {
   id: "desktop-notifications",
   title: "Preferences control native desktop notifications",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 22,
   steps: [
     {
       name: "Preferences shows desktop notification modes",

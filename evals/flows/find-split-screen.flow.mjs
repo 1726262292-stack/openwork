@@ -105,6 +105,8 @@ export default {
   id: "find-split-screen",
   title: "Find in conversation stays scoped to one split-screen pane",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 13,
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", {
       timeoutMs: 60_000,

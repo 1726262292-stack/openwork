@@ -12,6 +12,8 @@
 export default {
   id: "analytics-task-events",
   title: "Analytics events fire for app open and task creation",
+  suite: "nightly-desktop-core",
+  suiteOrder: 26,
   spec: "evals/react-session-flows.md",
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", {

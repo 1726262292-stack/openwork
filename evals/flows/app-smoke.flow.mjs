@@ -5,6 +5,8 @@
 export default {
   id: "app-smoke",
   title: "App boots and renders a known route",
+  suite: "nightly-desktop-core",
+  suiteOrder: 1,
   spec: "evals/react-session-flows.md",
   steps: [
     {

@@ -21,6 +21,8 @@ const seededMessages = [
 export default {
   id: "voice-session-context",
   title: "Voice Mode request includes recent session context",
+  suite: "nightly-desktop-core",
+  suiteOrder: 27,
   spec: "evals/react-session-flows.md",
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", {

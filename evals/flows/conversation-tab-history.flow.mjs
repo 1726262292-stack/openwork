@@ -13,6 +13,8 @@ export default {
   id: FLOW_ID,
   title: "Conversation tabs have browser-style Back and Forward history controls",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 7,
   spec: "evals/voiceovers/conversation-tab-history.md",
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", {

@@ -52,6 +52,8 @@ function routeSessionId(route) {
 export default {
   id: "session-tab-navigation",
   title: "Cmd/Ctrl+T and Cmd/Ctrl+Shift+T switch session tabs",
+  suite: "nightly-desktop-core",
+  suiteOrder: 6,
   spec: "Keyboard shortcuts and command palette items navigate between sessions in the current workspace",
   steps: [
     {

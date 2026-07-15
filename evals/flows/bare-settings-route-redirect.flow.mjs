@@ -6,6 +6,8 @@ export default {
   id: "bare-settings-route-redirect",
   title: "Bare settings route redirects without crashing",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 24,
   steps: [
     {
       name: "App booted",

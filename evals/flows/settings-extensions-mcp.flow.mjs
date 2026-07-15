@@ -14,6 +14,8 @@ const revealHidden = async (ctx) => {
 export default {
   id: "settings-extensions-mcp",
   title: "MCP settings view renders apps and entry points",
+  suite: "nightly-extensions-local",
+  suiteOrder: 1,
   spec: "evals/browser-extension-flows.md",
   steps: [
     {

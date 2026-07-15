@@ -121,6 +121,8 @@ export default {
   id: "in-chat-find",
   title: "Find in conversation: ⌘F highlights, navigates, and receives cross-session handoff",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 12,
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", {
       timeoutMs: 60_000,

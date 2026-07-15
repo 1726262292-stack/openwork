@@ -14,6 +14,8 @@
 export default {
   id: "desktop-policy-white-label",
   title: "White-label branding via desktop policies flows downstream in real-time",
+  suite: "nightly-extensions-local",
+  suiteOrder: 8,
   spec: "evals/desktop-policy-white-label.md",
   steps: [
     {

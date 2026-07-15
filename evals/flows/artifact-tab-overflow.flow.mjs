@@ -5,6 +5,8 @@
 export default {
   id: "artifact-tab-overflow",
   title: "Artifact pane tabs overflow horizontally and selected tabs remain visible",
+  suite: "nightly-desktop-core",
+  suiteOrder: 16,
   spec: "evals/react-session-flows.md",
   steps: [
     {

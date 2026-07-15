@@ -27,6 +27,8 @@ const BOOTSTRAP = {
 export default {
   id: "agent-bootstrap-workspace",
   title: "Agent-prepared workspace opens to setup-complete onboarding",
+  suite: "nightly-desktop-core",
+  suiteOrder: 3,
   spec: "packages/openwork-bootstrap/start.md",
   steps: [
     {

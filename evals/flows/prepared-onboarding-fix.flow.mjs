@@ -10,6 +10,8 @@ export default {
   id: "prepared-onboarding-fix",
   title: "Prepared onboarding has one stable next step",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 4,
   steps: [
     {
       name: "Prepared workspace is concise",

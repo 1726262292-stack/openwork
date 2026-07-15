@@ -94,6 +94,8 @@ async function pasteComposer(ctx, text) {
 export default {
   id: "extensions-export-portable",
   title: "Skill + runtime MCP export as a portable, secret-redacted bundle",
+  suite: "nightly-extensions-local",
+  suiteOrder: 5,
   spec: "apps/server/src/extensions-export.ts",
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API" });

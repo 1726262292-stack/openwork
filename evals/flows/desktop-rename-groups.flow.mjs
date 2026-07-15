@@ -71,6 +71,8 @@ export default {
   id: "desktop-rename-groups",
   title: "Session groups can be created, renamed, and deleted from one compact sidebar control",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 9,
   steps: [
     {
       name: "Prepare grouped sessions",

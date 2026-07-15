@@ -6,6 +6,8 @@
 export default {
   id: "artifact-markdown-render",
   title: "Markdown artifacts render inline in an editable merged view",
+  suite: "nightly-desktop-core",
+  suiteOrder: 14,
   spec: "evals/react-session-flows.md",
   steps: [
     {
