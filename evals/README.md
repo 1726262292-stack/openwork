@@ -112,16 +112,21 @@ A non-zero exit code means at least one flow failed.
 
 ```bash
 pnpm evals --all --stack den     # MySQL + schema + den-api + demo seed +
-                                 # desktop bootstrap + dev app, then runs flows
+                                 # den-web + desktop bootstrap + dev app,
+                                 # then runs flows
 pnpm evals --stack-down          # stop what --stack den started
 ```
 
-`--stack den` is idempotent: each layer (MySQL, schema, den-api, seed, app)
-is skipped when already up. It signs in as the seeded demo owner
-(`alex@acme.test`) and exports `OPENWORK_EVAL_DEN_API_URL` /
-`OPENWORK_EVAL_DEN_TOKEN`, so the env-gated cloud flows run with zero manual
-setup. Requires Docker. The MySQL volume survives `--stack-down`, so
-subsequent runs skip schema push and seeding.
+`--stack den` is idempotent: each layer (MySQL, schema, den-api, seed,
+den-web, app) is skipped when already up. It signs in as the seeded demo
+owner (`alex@acme.test`) and exports `OPENWORK_EVAL_DEN_API_URL` /
+`OPENWORK_EVAL_DEN_TOKEN` / `OPENWORK_EVAL_DEN_WEB_URL` /
+`OPENWORK_EVAL_DEN_MYSQL_CONTAINER` / `OPENWORK_EVAL_DEN_MYSQL_DATABASE`,
+so the env-gated cloud and den-web flows run with zero manual setup.
+Requires Docker. The MySQL volume survives `--stack-down`, so subsequent
+runs skip schema push and seeding. Override ports with
+`OPENWORK_EVAL_DEN_PORT` (den-api) and `OPENWORK_EVAL_DEN_WEB_URL`
+(den-web origin, default `http://localhost:3005`).
 
 The markdown specs below remain the source narrative; when codifying a flow,
 link the spec via the flow's `spec` field.
