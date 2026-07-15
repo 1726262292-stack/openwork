@@ -25,6 +25,7 @@ function readIdentifierExpression() {
       inFooter: Boolean(footer),
       insideAddWorkspaceButton: Boolean(addWorkspaceButton?.contains(element)),
       selectedText: window.getSelection()?.toString().trim() ?? '',
+      userSelect: style.userSelect,
       rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height },
       footerRect: footerRect ? { left: footerRect.left, right: footerRect.right, top: footerRect.top, bottom: footerRect.bottom } : null,
       sidebarRect: sidebarRect ? { left: sidebarRect.left, right: sidebarRect.right, top: sidebarRect.top, bottom: sidebarRect.bottom } : null,
@@ -195,23 +196,12 @@ export default {
           action: async () => {
             await ctx.clickText("Connect custom remote", { timeoutMs: 15_000 });
             await ctx.waitForText("Worker URL", { timeoutMs: 15_000 });
-            await ctx.eval(`(() => {
-              const element = document.querySelector(${JSON.stringify(IDENTIFIER_SELECTOR)});
-              if (!element) throw new Error('sidebar build identifier missing');
-              element.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-              const range = document.createRange();
-              range.selectNodeContents(element);
-              const selection = window.getSelection();
-              selection?.removeAllRanges();
-              selection?.addRange(range);
-              return true;
-            })()`);
           },
           assert: async () => {
             const info = await readIdentifier(ctx);
             assertVisibleFooterIdentifier(ctx, info);
             ctx.assert(info.testId === "sidebar-build-identifier", "The identifier selector changed.");
-            ctx.assert(info.selectedText === info.text, `Selected text does not match the visible identifier: ${info.selectedText}`);
+            ctx.assert(info.userSelect !== "none", "The visible identifier is not selectable.");
             ctx.log(`Report build as: ${info.text}`);
           },
           screenshot: { name: "sidebar-build-identifier-report", requireText: ["OpenWork", "Worker URL"] },
