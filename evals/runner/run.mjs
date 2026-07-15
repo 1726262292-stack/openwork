@@ -184,7 +184,42 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
   }
   const ctx = new EvalContext({ client, outDir, flowId: flow.id, env, cdpBaseUrl });
 
-  try {
+  // Watchdog: a single hung flow (an unbounded wait, a dead engine) must not
+  // stall a scheduled run for the rest of the night. When it fires, the flow
+  // is marked failed and the CDP client is closed so in-flight waits die
+  // quickly; the runner moves on. Override per flow with `watchdogMs`.
+  const watchdogMs = typeof flow.watchdogMs === "number" ? flow.watchdogMs : 15 * 60_000;
+  let watchdogTimer = null;
+  let watchdogFired = false;
+  const watchdog = new Promise((resolveWatchdog) => {
+    watchdogTimer = setTimeout(() => {
+      watchdogFired = true;
+      resolveWatchdog("watchdog");
+    }, watchdogMs);
+    watchdogTimer.unref?.();
+  });
+
+  const runBody = async () => {
+    // Previous flows may have disposed/reloaded the engine (config writes,
+    // policy syncs, app relaunches). Give the app a moment to become usable
+    // again before this flow's own preconditions start the clock. Soft wait:
+    // never fails the flow, only absorbs the reload window.
+    if (requiresApp) {
+      await ctx.waitFor(
+        `(() => {
+          const control = window.__openworkControl;
+          if (!control) return false;
+          const route = control.snapshot().route ?? "";
+          if (route.startsWith("/welcome") || route.startsWith("/signin") || route.startsWith("/onboarding")) return true;
+          const action = control.listActions().find((entry) => entry.id === "session.create_task");
+          return Boolean(action && !action.disabled);
+        })()`,
+        { timeoutMs: 120_000, label: "app settled (usable route or task creation enabled)" },
+      ).catch((error) => {
+        ctx.log(`App did not settle before the flow (continuing anyway): ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+
     // Force light mode by default so screenshot evidence is readable. Flows
     // that are themselves testing theme/dark-mode behavior can opt out with
     // `preserveTheme: true` in the flow definition.
@@ -203,7 +238,7 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
         if (skipReason) {
           result.status = "skipped";
           result.skipReason = String(skipReason);
-          return result;
+          return;
         }
       } catch (error) {
         result.status = "failed";
@@ -214,10 +249,11 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
           error: error instanceof Error ? error.message : String(error),
         });
         if (client) await ctx.screenshot("failure").catch(() => undefined);
-        return result;
+        return;
       }
     }
     for (const step of flow.steps) {
+      if (watchdogFired) return;
       const stepResult = { name: step.name, status: "passed", durationMs: 0, error: null, evidence: [] };
       const startedAt = Date.now();
       ctx.beginStep(step.name);
@@ -236,6 +272,21 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
         if (client) await ctx.screenshot("failure").catch(() => undefined);
         break;
       }
+    }
+  };
+
+  try {
+    const outcome = await Promise.race([runBody().then(() => "done"), watchdog]);
+    if (outcome === "watchdog") {
+      result.status = "failed";
+      result.steps.push({
+        name: "Flow watchdog",
+        status: "failed",
+        durationMs: watchdogMs,
+        error: `Flow exceeded its ${Math.round(watchdogMs / 60_000)}m watchdog and was abandoned so the run can continue.`,
+        evidence: [],
+      });
+      if (client) await ctx.screenshot("watchdog-timeout").catch(() => undefined);
     }
 
     // Voice-over drift check: when an approved script exists for this flow
@@ -270,6 +321,7 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
       }
     }
   } finally {
+    if (watchdogTimer) clearTimeout(watchdogTimer);
     result.screenshots = ctx.screenshots;
     result.evidenceFrames = ctx.evidenceFrames;
     result.logs = ctx.logs;
