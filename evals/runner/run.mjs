@@ -155,8 +155,32 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
   const requiresApp = flow.requiresApp !== false;
   let client = null;
   if (requiresApp) {
-    const target = await pickAppTarget(cdpBaseUrl);
-    client = await connect(debuggerUrlFor(cdpBaseUrl, target));
+    // A transient CDP hiccup between flows (the app restarting after the
+    // previous flow, a proxy blip) must fail THIS flow, not kill the whole
+    // run — scheduled runs continue with the next flow. Retry briefly first.
+    try {
+      let lastError = null;
+      for (let attempt = 0; attempt < 3 && !client; attempt += 1) {
+        try {
+          const target = await pickAppTarget(cdpBaseUrl);
+          client = await connect(debuggerUrlFor(cdpBaseUrl, target));
+        } catch (error) {
+          lastError = error;
+          await new Promise((resolveSleep) => setTimeout(resolveSleep, 5_000));
+        }
+      }
+      if (!client) throw lastError ?? new Error("CDP connection failed");
+    } catch (error) {
+      result.status = "failed";
+      result.steps.push({
+        name: "Connect to app over CDP",
+        status: "failed",
+        durationMs: 0,
+        error: error instanceof Error ? error.message : String(error),
+        evidence: [],
+      });
+      return result;
+    }
   }
   const ctx = new EvalContext({ client, outDir, flowId: flow.id, env, cdpBaseUrl });
 
