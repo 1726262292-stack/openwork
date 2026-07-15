@@ -14,7 +14,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 1", {
           voiceover: vo[0],
-          // "I open the OpenCode config in my home folder and find leftovers an old versi"
+          // "When something looks wrong with my agent's config today, I have to guess — c"
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -31,7 +31,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 2", {
           voiceover: vo[1],
-          // "I update OpenWork and launch it once: it backs up the file, sweeps out the O"
+          // "After the update, managed state flows one way only: OpenWork writes a single"
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -48,7 +48,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 3", {
           voiceover: vo[2],
-          // "When I change a setting now — like disabling a provider — my personal config"
+          // "I flip a provider off, restart the app, and check again: my personal config "
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -65,7 +65,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 4", {
           voiceover: vo[3],
-          // "My agent keeps working exactly as before: everything OpenWork manages lives "
+          // "Debug settings now shows the whole story on one card: the managed file's exa"
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },

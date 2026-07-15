@@ -1,18 +1,19 @@
-# runtime-config-ownership — OpenWork never writes into your personal OpenCode config again, and cleans up what old versions left behind
+# runtime-config-ownership — one managed file, one direction, the same result every time
 
-Older OpenWork versions wrote MCP entries and provider state directly into
-the user's own OpenCode config files (`~/.config/opencode/*`). Those
-leftovers survive every upgrade, deep-merge underneath the injected runtime
-config, and manufacture ghost entries nobody can trace (field incident: a
-stale Cloud MCP URL "from an old version" that no screen in the product
-could explain). The app also still writes through the engine's
-`config.update` into the user's global file today. After this change, the
-managed runtime config file is the only thing OpenWork ever writes.
+Today OpenWork's engine config is two-way and guessy: some settings changes
+write into the managed runtime file, others write through the engine into
+the user's personal OpenCode files, and old versions left untraceable
+leftovers behind (field incident: a stale Cloud MCP URL "from an old
+version" no screen could explain). After this change there is exactly one
+writer and one direction: runtime DB → managed runtime config file → engine.
+OpenWork treats the user's personal config as read-only, and a one-time
+migration moves OpenWork-written leftovers out of personal files into the
+managed file, with a backup.
 
-1. I open the OpenCode config in my home folder and find leftovers an old version of OpenWork wrote there — including a stale connection URL that no settings screen can explain.
+1. When something looks wrong with my agent's config today, I have to guess — changes land partly in OpenWork's managed file and partly in my personal OpenCode files, and old versions left ghosts in both.
 
-2. I update OpenWork and launch it once: it backs up the file, sweeps out the OpenWork-written keys, and shows me exactly what it removed and where the backup lives.
+2. After the update, managed state flows one way only: OpenWork writes a single runtime file it owns, my personal config becomes read-only to the app, and a one-time migration moves the old leftovers over — with a backup and a notice showing exactly what moved.
 
-3. When I change a setting now — like disabling a provider — my personal config stays untouched; the change lands in OpenWork's own managed file instead.
+3. I flip a provider off, restart the app, and check again: my personal config is byte-for-byte untouched, and the managed file rebuilds to exactly the same state every time.
 
-4. My agent keeps working exactly as before: everything OpenWork manages lives in the one file it owns, and everything I own stays mine.
+4. Debug settings now shows the whole story on one card: the managed file's exact contents, when it was last rebuilt, and the one rule that makes it predictable — one writer, one direction.
