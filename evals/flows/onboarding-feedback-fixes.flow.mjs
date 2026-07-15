@@ -211,7 +211,11 @@ export default {
             if (onChooser) {
               await ctx.clickText("Continue with organization", { timeoutMs: 5_000 });
             }
-            await ctx.waitForText(PROVIDER_NAME, { timeoutMs: 15_000 });
+            await ctx.waitForText("AI Providers", { timeoutMs: 15_000 });
+            // Expand the providers accordion so the org's provider card
+            // (with its "Use as default" affordance) is visible.
+            await ctx.clickText("AI Providers", { timeoutMs: 5_000 });
+            await ctx.waitForText(PROVIDER_NAME, { timeoutMs: 10_000 });
           },
           assert: async () => {
             await ctx.expectHashIncludes("/onboarding");
