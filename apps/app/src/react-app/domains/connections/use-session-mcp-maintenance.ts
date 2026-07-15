@@ -16,6 +16,7 @@ import type {
 import { unwrap } from "../../../app/lib/opencode";
 import type { Client, McpServerEntry, McpStatusMap } from "../../../app/types";
 import { attemptSilentMcpReauth } from "./mcp-silent-reauth";
+import { recordCloudMcpMaintenanceOutcome } from "./cloud-mcp-maintenance-outcome";
 import {
   CLOUD_MCP_SERVER_NAME,
   readCloudMcpUserState,
@@ -26,12 +27,13 @@ import {
 } from "./cloud-mcp-reconciler";
 
 export const SESSION_MCP_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
+export const SESSION_MCP_MAINTENANCE_TIMEOUT_MS = 2 * 60 * 1000;
 export const CLOUD_MCP_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
 export const CLOUD_MCP_MAINTENANCE_RETRY_DELAYS_MS = [1_000, 3_000];
 
 type CloudMcpMaintenanceClient = CloudMcpClient & Pick<OpenworkServerClient, "listMcp">;
 
-const maintenanceInFlight = new Set<string>();
+const maintenanceInFlight = new Map<string, symbol>();
 
 export type CloudMcpMaintenanceIssue = Pick<
   OpenworkCloudMcpFailure,
@@ -117,17 +119,55 @@ export function getSessionMcpMaintenanceTargetKey(input: {
   ]);
 }
 
+type MaintenanceTaskSettled =
+  | { kind: "ok" }
+  | { kind: "error"; detail: string }
+  | { kind: "timed_out" };
+
+function maintenanceErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function runSessionMcpMaintenanceTask(input: {
   targetKey: string;
   task: () => Promise<void>;
+  timeoutMs?: number;
 }): Promise<boolean> {
   if (maintenanceInFlight.has(input.targetKey)) return false;
-  maintenanceInFlight.add(input.targetKey);
+  const runToken = Symbol("session-mcp-maintenance-run");
+  maintenanceInFlight.set(input.targetKey, runToken);
+  // A hung await inside one tick must not wedge every future tick for this
+  // target (field incident: maintenance stayed blocked until app restart).
+  // The run token keeps a late-settling task from releasing a newer run's
+  // lock after we timed out and moved on.
+  const releaseOwnLock = () => {
+    if (maintenanceInFlight.get(input.targetKey) === runToken) {
+      maintenanceInFlight.delete(input.targetKey);
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<MaintenanceTaskSettled>((resolve) => {
+    timer = setTimeout(() => resolve({ kind: "timed_out" }), input.timeoutMs ?? SESSION_MCP_MAINTENANCE_TIMEOUT_MS);
+  });
   try {
-    await input.task();
+    const settled = await Promise.race([
+      input.task().then(
+        (): MaintenanceTaskSettled => ({ kind: "ok" }),
+        (error: unknown): MaintenanceTaskSettled => ({ kind: "error", detail: maintenanceErrorDetail(error) }),
+      ),
+      timedOut,
+    ]);
+    if (settled.kind === "timed_out") {
+      recordCloudMcpMaintenanceOutcome(input.targetKey, { status: "timed_out" });
+    } else if (settled.kind === "error") {
+      recordCloudMcpMaintenanceOutcome(input.targetKey, { status: "error", detail: settled.detail });
+    } else {
+      recordCloudMcpMaintenanceOutcome(input.targetKey, { status: "ok" });
+    }
     return true;
   } finally {
-    maintenanceInFlight.delete(input.targetKey);
+    if (timer !== undefined) clearTimeout(timer);
+    releaseOwnLock();
   }
 }
 
