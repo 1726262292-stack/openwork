@@ -7,10 +7,15 @@
  *   3. den-api behind a local proxy on :8790: bare /* plus den-web
  *      /api/den/* topology (only when not already healthy)
  *   4. Demo-org seed (only when the demo owner cannot sign in)
- *   5. Desktop bootstrap pointed at the local Den + dev Electron with CDP
+ *   5. den-web (Next dev) on the eval web port, pointed at the local den-api
+ *      (only when not already serving)
+ *   6. Desktop bootstrap pointed at the local Den + dev Electron with CDP
  *      (only when no CDP endpoint is reachable)
- *   6. A demo-owner session token, exported as OPENWORK_EVAL_DEN_API_URL /
- *      OPENWORK_EVAL_DEN_TOKEN so env-gated flows run without manual setup.
+ *   7. A demo-owner session token, exported with the rest of the eval env
+ *      (OPENWORK_EVAL_DEN_API_URL / OPENWORK_EVAL_DEN_TOKEN /
+ *      OPENWORK_EVAL_DEN_WEB_URL / OPENWORK_EVAL_DEN_MYSQL_CONTAINER /
+ *      OPENWORK_EVAL_DEN_MYSQL_DATABASE) so env-gated flows run without
+ *      manual setup.
  *
  * `pnpm evals --stack-down` stops what the harness started.
  */
@@ -38,7 +43,9 @@ const DEMO_PASSWORD = process.env.DEN_DEMO_OWNER_PASSWORD ?? "OpenWorkDemo123!";
 const MYSQL_CONTAINER = "openwork-web-local-mysql";
 const COMPOSE_ARGS = ["compose", "-p", "openwork-den-local", "-f", "packaging/docker/docker-compose.web-local.yml"];
 const DEN_WEB_ORIGIN = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? "http://localhost:3005").replace(/\/+$/, "");
-const DEN_TRUSTED_ORIGINS = `${DEN_BASE_URL},${DEN_WEB_ORIGIN},http://localhost:5173,http://127.0.0.1:5173`;
+const DEN_WEB_PORT = Number(new URL(DEN_WEB_ORIGIN).port || 3005);
+const MYSQL_DATABASE = "openwork_den";
+const DEN_TRUSTED_ORIGINS = `${DEN_BASE_URL},${DEN_WEB_ORIGIN},http://127.0.0.1:${DEN_WEB_PORT},http://localhost:5173,http://127.0.0.1:5173`;
 
 const DEN_ENV = {
   OPENWORK_DEV_MODE: "1",
@@ -191,6 +198,12 @@ async function ensureDenApi(log) {
     );
   }
 
+  // den-api imports its workspace dependencies from their dist output; a
+  // fresh checkout has none built yet, so build them (not den-api itself —
+  // it runs from source via tsx) before booting the server.
+  log("Building den-api workspace dependencies...");
+  await run("pnpm", ["--filter", "@openwork-ee/den-api^...", "build"]);
+
   log(`Starting den-api on internal :${DEN_API_INTERNAL_PORT} (proxied on :${DEN_API_PORT})...`);
   const pid = spawnDetached("npx", ["tsx", "src/main.ts"], {
     logName: "den-api",
@@ -243,6 +256,37 @@ async function ensureSeed(log) {
     throw new Error("Seed completed but the demo owner still cannot sign in.");
   }
   log("Demo org seeded");
+}
+
+async function ensureDenWeb(log) {
+  if (await httpOk(`${DEN_WEB_ORIGIN}/`, 5_000)) {
+    log(`den-web already serving at ${DEN_WEB_ORIGIN} — make sure it targets the local den-api on :${DEN_API_PORT}.`);
+    return;
+  }
+
+  log(`Starting den-web (Next dev) on :${DEN_WEB_PORT} -> den-api :${DEN_API_PORT}...`);
+  const pid = spawnDetached("pnpm", ["--filter", "@openwork-ee/den-web", "dev:local"], {
+    logName: "den-web",
+    env: {
+      OPENWORK_DEV_MODE: "1",
+      NEXT_PUBLIC_POSTHOG_KEY: "",
+      NEXT_PUBLIC_POSTHOG_API_KEY: "",
+      DEN_WEB_PORT: String(DEN_WEB_PORT),
+      DEN_API_BASE: DEN_API_URL,
+      DEN_AUTH_ORIGIN: DEN_WEB_ORIGIN,
+      DEN_AUTH_FALLBACK_BASE: DEN_API_URL,
+    },
+  });
+  await writePidState("den-web.pid", pid);
+  // Next dev compiles on first request; give the cold start a generous window.
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (await httpOk(`${DEN_WEB_ORIGIN}/`, 5_000)) {
+      log(`den-web serving at ${DEN_WEB_ORIGIN}`);
+      return;
+    }
+    await sleep(2_000);
+  }
+  throw new Error(`den-web did not start serving ${DEN_WEB_ORIGIN} within 2 minutes (see evals/results/.den-stack/den-web.log).`);
 }
 
 async function freeStaleAppPorts(log) {
@@ -310,6 +354,7 @@ export async function ensureDenStack({ log, cdpCandidates, skipApp = false }) {
   await ensureSchema(log);
   await ensureDenApi(log);
   await ensureSeed(log);
+  await ensureDenWeb(log);
   if (skipApp) {
     log("Skipping dev Electron startup — selected eval flow is app-less");
   } else {
@@ -321,7 +366,10 @@ export async function ensureDenStack({ log, cdpCandidates, skipApp = false }) {
 
   process.env.OPENWORK_EVAL_DEN_API_URL = DEN_API_URL;
   process.env.OPENWORK_EVAL_DEN_TOKEN = token;
-  log(`Den stack ready — flows get OPENWORK_EVAL_DEN_API_URL=${DEN_API_URL} and a fresh ${DEMO_EMAIL} token.`);
+  process.env.OPENWORK_EVAL_DEN_WEB_URL = DEN_WEB_ORIGIN;
+  process.env.OPENWORK_EVAL_DEN_MYSQL_CONTAINER = MYSQL_CONTAINER;
+  process.env.OPENWORK_EVAL_DEN_MYSQL_DATABASE = MYSQL_DATABASE;
+  log(`Den stack ready — flows get OPENWORK_EVAL_DEN_API_URL=${DEN_API_URL}, OPENWORK_EVAL_DEN_WEB_URL=${DEN_WEB_ORIGIN}, MySQL ${MYSQL_CONTAINER}/${MYSQL_DATABASE}, and a fresh ${DEMO_EMAIL} token.`);
 }
 
 export async function denStackDown({ log }) {
@@ -332,6 +380,11 @@ export async function denStackDown({ log }) {
   const apiPid = await readPidState("den-api.pid");
   if (apiPid) {
     try { process.kill(Number(apiPid)); log(`Stopped den-api (pid ${apiPid})`); } catch { /* already gone */ }
+  }
+  const webPid = await readPidState("den-web.pid");
+  if (webPid) {
+    try { process.kill(-Number(webPid)); } catch { /* group gone */ }
+    try { process.kill(Number(webPid)); log(`Stopped den-web (pid ${webPid})`); } catch { /* already gone */ }
   }
   const appPid = await readPidState("app.pid");
   if (appPid) {
