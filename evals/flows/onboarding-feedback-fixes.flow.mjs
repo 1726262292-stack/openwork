@@ -198,6 +198,19 @@ export default {
               timeoutMs: 15_000,
               label: "route to /onboarding after sign-in",
             });
+            // The page opens with an organization chooser before the
+            // resource list; confirm the (only) org.
+            const hasOrgChooser = await ctx.waitFor(
+              "document.body.innerText.includes('Continue with organization') || document.body.innerText.includes('Acme AI Gateway')",
+              { timeoutMs: 15_000, label: "org chooser or resource list" },
+            );
+            void hasOrgChooser;
+            const onChooser = await ctx.eval(
+              "document.body.innerText.includes('Continue with organization')",
+            );
+            if (onChooser) {
+              await ctx.clickText("Continue with organization", { timeoutMs: 5_000 });
+            }
             await ctx.waitForText(PROVIDER_NAME, { timeoutMs: 15_000 });
           },
           assert: async () => {

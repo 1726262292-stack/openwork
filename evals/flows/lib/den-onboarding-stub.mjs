@@ -67,6 +67,10 @@ export function startDenStub(port = DEN_STUB_PORT) {
       respond(200, { llmProviders: [PROVIDER] });
       return;
     }
+    if (req.method === "POST" && pathname === "/v1/me/active-organization") {
+      respond(200, { ok: true, activeOrgId: "org_eval", activeOrgSlug: "eval-org" });
+      return;
+    }
     if (req.method === "GET" && pathname === "/v1/marketplaces") {
       respond(200, { items: [] });
       return;
