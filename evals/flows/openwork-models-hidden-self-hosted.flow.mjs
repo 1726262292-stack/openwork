@@ -109,6 +109,13 @@ async function ensureWorkspaceSession(ctx) {
     timeoutMs: 120_000,
     label: "workspace session route",
   });
+  if (await ctx.eval('location.hash.includes("/settings")')) {
+    await ctx.navigateHash("/");
+    await ctx.waitFor('location.hash.includes("/session") || location.hash.includes("/workspace/")', {
+      timeoutMs: 60_000,
+      label: "session route after leaving settings",
+    });
+  }
   if (!(await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(EDITOR_SELECTOR)}))`))) {
     if (await ctx.hasText("New session")) {
       await ctx.clickText("New session", { timeoutMs: 10_000 });
@@ -365,7 +372,7 @@ export default {
           },
           screenshot: {
             name: "self-hosted-model-picker-clean",
-            requireText: ["Search models..."],
+            requireText: ["All models"],
             rejectText: ["OpenWork Models", "OpenWork hosted"],
           },
         });
