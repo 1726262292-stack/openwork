@@ -76,6 +76,7 @@ async function configureDesktopEval(ctx, input) {
       latestAppVersion: '0.17.24',
       publishedDesktopVersions: ['0.17.22', '0.17.23', '0.17.24'],
     };
+    const latestVersion = ${JSON.stringify(input.latestVersion ?? null)} ?? metadata.latestAppVersion;
     window.__approvedUpdateEval ??= { currentVersion: '0.17.22', checks: [], metadataReads: 0 };
     if (${input.reset === true}) {
       window.__approvedUpdateEval.checks = [];
@@ -97,10 +98,11 @@ async function configureDesktopEval(ctx, input) {
       check: async (channel, targetVersion) => {
         window.__approvedUpdateEval.checks.push({ channel, targetVersion, currentVersion: window.__approvedUpdateEval.currentVersion });
         if (window.__approvedUpdateEval.delayMs) await new Promise((resolve) => setTimeout(resolve, window.__approvedUpdateEval.delayMs));
+        const resolvedVersion = targetVersion ?? latestVersion;
         return {
-          available: Boolean(targetVersion),
+          available: Boolean(resolvedVersion && resolvedVersion !== window.__approvedUpdateEval.currentVersion),
           currentVersion: window.__approvedUpdateEval.currentVersion,
-          latestVersion: targetVersion ?? null,
+          latestVersion: resolvedVersion ?? null,
           channel: 'stable',
           feedUrl: targetVersion ? 'https://github.com/different-ai/openwork/releases/download/v' + targetVersion : 'eval://stable',
           releaseDate: '2026-07-13T18:43:13.427Z',
@@ -150,22 +152,33 @@ async function openDesktopUpdates(ctx) {
     label: "desktop eval bridges",
   });
   await ensureDesktopSession(ctx);
+  await ctx.eval("localStorage.setItem('openwork.react.settings.update-auto-check', '0')");
   await ctx.navigateHash("/settings/updates");
   await ctx.waitForText("Check now", { timeoutMs: 30_000 });
+  await setAutomaticChecks(ctx, false);
+}
+
+async function setAutomaticChecks(ctx, checked) {
+  const desired = String(checked);
+  await ctx.waitFor("Boolean(document.querySelector('[aria-label=\"Check automatically\"]'))", {
+    timeoutMs: 5_000,
+    label: "automatic checks toggle",
+  });
   await ctx.eval(`(() => {
     const toggle = document.querySelector('[aria-label="Check automatically"]');
-    if (toggle?.getAttribute('aria-checked') === 'true') toggle.click();
-    return true;
+    if (!toggle) return;
+    toggle.scrollIntoView({ block: 'center' });
+    if (toggle.getAttribute('aria-checked') !== ${JSON.stringify(desired)}) toggle.click();
   })()`);
-  await ctx.waitFor("document.querySelector('[aria-label=\"Check automatically\"]')?.getAttribute('aria-checked') === 'false'", {
+  await ctx.waitFor(`document.querySelector('[aria-label="Check automatically"]')?.getAttribute('aria-checked') === ${JSON.stringify(desired)}`, {
     timeoutMs: 5_000,
-    label: "automatic checks disabled for deterministic manual-check proof",
+    label: `automatic checks ${checked ? "enabled" : "disabled"}`,
   });
 }
 
 export default {
   id: FLOW_ID,
-  title: "Manual desktop checks refresh Den policy and install the highest approved published release",
+  title: "Automatic stable desktop checks install the highest approved published release",
   kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_WEB_CDP_ADMIN"],
   steps: [
@@ -195,20 +208,20 @@ export default {
       }),
     },
     {
-      name: "Frame 2 — Manual check refreshes stale policy",
+      name: "Frame 2 — Automatic check probes the blocked latest release",
       run: async (ctx) => {
-        await ctx.prove("Check now refreshes the cached organization policy and Den release inventory", {
+        await ctx.prove("Check automatically starts from the normal stable latest check and reads Den release inventory only after org policy blocks it", {
           voiceover: vo[1],
           action: async () => {
             await openDesktopUpdates(ctx);
             await configureDesktopEval(ctx, {
               currentVersion: "0.17.22",
-              staleConfig: { allowedDesktopVersions: ["0.17.22"] },
+              staleConfig: { allowedDesktopVersions: ["0.17.23"] },
               freshConfig: { allowedDesktopVersions: ["0.17.23"] },
               delayMs: 1_500,
               reset: true,
             });
-            await ctx.clickText("Check now");
+            await setAutomaticChecks(ctx, true);
           },
           assert: async () => {
             await ctx.waitFor("window.__approvedUpdateEval.metadataReads > 0", {
@@ -218,8 +231,10 @@ export default {
             await ctx.expectText("Checking for updates…");
             const reads = await ctx.eval("window.__approvedUpdateEval.metadataReads");
             ctx.assert(reads > 0, `expected a fresh metadata request, got ${reads}`);
+            const checks = await ctx.eval("window.__approvedUpdateEval.checks.map((entry) => ({ channel: entry.channel, targetVersion: entry.targetVersion ?? null }))");
+            ctx.assert(checks.some((entry) => entry.targetVersion === null), JSON.stringify(checks));
           },
-          screenshot: { name: "desktop-checking-fresh-policy", requireText: ["Updates", "Checking for updates…"] },
+          screenshot: { name: "desktop-automatic-checking-latest", requireText: ["Updates", "Checking for updates…", "Check automatically"] },
         });
       },
     },
@@ -232,7 +247,9 @@ export default {
             await ctx.waitForText("Update available: v0.17.23", { timeoutMs: 10_000 });
           },
           assert: async () => {
-            const lastCheck = await ctx.eval("window.__approvedUpdateEval.checks.at(-1)");
+            const checks = await ctx.eval("window.__approvedUpdateEval.checks.map((entry) => ({ channel: entry.channel, targetVersion: entry.targetVersion ?? null }))");
+            const lastCheck = checks.at(-1);
+            ctx.assert(checks.some((entry) => entry.targetVersion === null), JSON.stringify(checks));
             ctx.assert(lastCheck?.targetVersion === "0.17.23", JSON.stringify(lastCheck));
             await ctx.expectText("Download");
           },

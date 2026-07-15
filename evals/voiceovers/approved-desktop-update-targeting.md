@@ -1,12 +1,12 @@
-# approved-desktop-update-targeting — Manual update checks select the highest organization-approved published release
+# approved-desktop-update-targeting — Automatic update checks select the highest organization-approved published release
 
 Rashmi uses an organization-managed Windows desktop where administrators approve which OpenWork releases members can install.
 
 1. Rashmi is running OpenWork 0.17.22. Den shows the actual published versions 0.17.22, 0.17.23, and 0.17.24; her administrator approves 0.17.23, but not 0.17.24.
 
-2. Although Rashmi's desktop still has an older cached policy, manually clicking Check for updates refreshes the organization policy and published release inventory from Den.
+2. Rashmi enables automatic checks. OpenWork first sees the normal stable latest release, then reads Den's published release inventory after her organization's policy blocks that latest version.
 
-3. OpenWork selects the highest approved version newer than Rashmi's installation. It offers 0.17.23—not the unapproved latest release, 0.17.24.
+3. OpenWork performs an exact-target check for the highest approved published version newer than Rashmi's installation. It offers 0.17.23—not the unapproved latest release, 0.17.24.
 
 4. After Rashmi reaches 0.17.23, another check explains: “OpenWork 0.17.24 is available, but your organization has not approved it yet. Ask an organization administrator to enable this version.”
 
