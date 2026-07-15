@@ -35,6 +35,8 @@ export default {
   id: FLOW_ID,
   title: "Connect partitions cloud-runnable organization capabilities from desktop marketplace installs",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 2,
   spec: "evals/voiceovers/connect-cloud-partition.md",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",

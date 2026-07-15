@@ -73,6 +73,8 @@ export default {
   id: FLOW_ID,
   title: "Connect flag gates dead legacy Google Workspace actions and redirects the agent to OpenWork Cloud",
   kind: "internal",
+  suite: "nightly-connect",
+  suiteOrder: 4,
   spec: "evals/voiceovers/connect-aware-extension-gating.md",
   steps: [
     {

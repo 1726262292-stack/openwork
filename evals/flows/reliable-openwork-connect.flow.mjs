@@ -1860,6 +1860,8 @@ export default {
   id: FLOW_ID,
   title: "Reliable OpenWork Connect is proven from landing page to OAuth, MCP tools, errors, and docs",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 9,
   preserveTheme: true,
   requiredEnv: [
     "OPENWORK_EVAL_LANDING_URL",

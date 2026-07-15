@@ -27,6 +27,8 @@ export default {
   id: FLOW_ID,
   title: "Desktop Connect tab alpha shell shows pitch, active org MCP cards, and leaves Extensions local-only",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 1,
   spec: "evals/voiceovers/connect-tab-beta.md",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",

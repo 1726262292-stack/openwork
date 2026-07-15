@@ -195,6 +195,8 @@ export default {
   id: FLOW_ID,
   title: "A Den user installs and connects the standard app without deployment keys",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 8,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_TOKEN",
