@@ -86,7 +86,10 @@ async function signDesktopIntoCloud(ctx) {
   })()`, { awaitPromise: true });
   ctx.assert(written === true, "Failed to write Daytona Den bootstrap.");
   await ctx.eval("location.reload()");
-  await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after Den bootstrap" });
+  await ctx.waitFor(
+    "window.__openworkControl?.listActions().some((action) => action.id === 'auth.exchange-grant')",
+    { timeoutMs: 60_000, label: "desktop handoff control after Den bootstrap" },
+  );
 
   const handoff = await denApiFetch("/v1/auth/desktop-handoff", {
     method: "POST",
