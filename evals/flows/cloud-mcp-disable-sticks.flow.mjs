@@ -87,6 +87,8 @@ const scrollCloudRowExpr = `(() => {
 export default {
   id: "cloud-mcp-disable-sticks",
   title: "Disabling the OpenWork Cloud Control MCP sticks across sync",
+  suite: "nightly-cloud-member",
+  suiteOrder: 10,
   spec: "evals/cloud-mcp-agent-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [

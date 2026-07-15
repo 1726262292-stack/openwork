@@ -80,6 +80,8 @@ export default {
   id: "your-connections-admin-shared-connect",
   title: "Shared MCP connection: an admin connects the org account right on Your Connections",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 17,
   spec: "evals/org-mcp-connections-ux.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

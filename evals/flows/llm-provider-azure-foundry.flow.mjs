@@ -53,6 +53,8 @@ async function denApiDelete(ctx, name) {
 export default {
   id: "llm-provider-azure-foundry",
   title: "Azure Foundry sets up gpt-5-mini with only name + URL + key",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 14,
   spec: "evals/cloud-provider-sync-flows.md",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_WEB_URL",

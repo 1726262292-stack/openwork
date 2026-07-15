@@ -165,6 +165,8 @@ export default {
   id: "on-sign-in-verify-name",
   title: "Default-name users are prompted to update their profile from the dashboard",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 5,
   spec: "evals/voiceovers/on-sign-in-verify-name.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

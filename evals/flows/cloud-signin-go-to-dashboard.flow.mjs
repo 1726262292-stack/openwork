@@ -88,6 +88,8 @@ export default {
   id: "cloud-signin-go-to-dashboard",
   title: "Cloud sign-in: \"Go to dashboard\" navigates while a desktop handoff is pending",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 2,
   spec: "evals/voiceovers/cloud-signin-go-to-dashboard.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

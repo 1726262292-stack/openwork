@@ -82,6 +82,8 @@ export default {
   id: "policy-onboarding-prompts",
   title: "Desktop policies replace OpenWork starter suggestions for assigned teams",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 16,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [
     {

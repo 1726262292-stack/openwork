@@ -297,6 +297,8 @@ export default {
   id: "org-google-workspace-scopes",
   title: "Org Google Workspace asks for desktop-parity scopes and admin-selected extras",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 10,
   spec: "evals/voiceovers/org-google-workspace-scopes.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

@@ -180,6 +180,8 @@ export default {
   id: FLOW_ID,
   title: "Automatic stable desktop checks install the highest approved published release",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 11,
   requiredEnv: ["OPENWORK_EVAL_WEB_CDP_ADMIN"],
   steps: [
     {

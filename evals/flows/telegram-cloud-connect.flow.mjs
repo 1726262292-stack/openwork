@@ -201,6 +201,8 @@ export default {
   id: "telegram-cloud-connect",
   title: "An admin securely pairs one private Telegram chat to one healthy OpenWork Cloud worker and can disconnect it fail-closed",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 8,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

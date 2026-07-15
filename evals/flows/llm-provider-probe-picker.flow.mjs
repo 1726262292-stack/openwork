@@ -73,6 +73,8 @@ async function denApiDelete(ctx, name) {
 export default {
   id: "llm-provider-probe-picker",
   title: "Editor probes the endpoint, heals the URL, and offers real models to pick",
+  suite: "nightly-den-web",
+  suiteOrder: 14,
   spec: "evals/cloud-provider-sync-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_EMAIL", "OPENWORK_EVAL_DEN_PASSWORD"],
   steps: [

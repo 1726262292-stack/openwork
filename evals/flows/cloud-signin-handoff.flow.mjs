@@ -10,6 +10,8 @@
 export default {
   id: "cloud-signin-handoff",
   title: "Cloud sign-in via desktop handoff paste code",
+  suite: "nightly-cloud-member",
+  suiteOrder: 1,
   spec: "evals/cloud-auth-flows.md#flow-1-cloud-sign-in-happy-path",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [

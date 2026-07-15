@@ -186,6 +186,8 @@ export default {
   id: "organization-display-branding",
   title: "Organization display branding reaches download, setup, and desktop while OpenWork's signed identity stays stable",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 19,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_TOKEN",

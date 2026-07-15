@@ -85,6 +85,8 @@ export default {
   id: "slack-org-connection",
   title: "Slack-style Cloud Connection uses a pre-registered OAuth client instead of DCR",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 5,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   spec: "evals/org-mcp-connections-ux.md",

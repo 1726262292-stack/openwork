@@ -2,6 +2,8 @@ export default {
   id: "signin-browser-open-fallback",
   title: "Cloud sign-in surfaces browser open failure with copy-link fallback",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 3,
   requiredEnv: ["OPENWORK_SIMULATE_OPEN_EXTERNAL_FAILURE"],
   steps: [
     {

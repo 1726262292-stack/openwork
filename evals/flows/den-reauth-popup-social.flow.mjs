@@ -46,6 +46,8 @@ export default {
   id: FLOW_ID,
   title: "Den social reauth completes in a popup and retries the queued action",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 13,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MYSQL_CONTAINER"],
   steps: [

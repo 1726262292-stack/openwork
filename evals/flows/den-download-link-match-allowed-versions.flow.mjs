@@ -140,6 +140,8 @@ export default {
   id: FLOW_ID,
   title: "Organization install links download the highest allowed desktop version",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 7,
   requiresApp: false,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [

@@ -98,6 +98,8 @@ export default {
   id: "org-scope-dashboard-pinning",
   title: "Dashboard settings writes stay pinned to the org on screen when the session's active org drifts",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 8,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MULTI_ORG"],
   steps: [

@@ -34,6 +34,8 @@ export default {
   id: FLOW_ID,
   title: "Cloud MCP tokens follow the desktop base URL",
   kind: "internal",
+  suite: "nightly-cloud-member",
+  suiteOrder: 8,
   requiresApp: false,
   steps: [
     {

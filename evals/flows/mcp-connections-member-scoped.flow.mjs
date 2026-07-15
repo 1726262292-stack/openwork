@@ -60,6 +60,8 @@ const state = {
 export default {
   id: "mcp-connections-member-scoped",
   title: "Per-member MCP connections: admin publishes, employee connects their own account, agent acts as them, grants enforced",
+  suite: "nightly-cloud-member",
+  suiteOrder: 14,
   spec: "evals/cloud-mcp-agent-flows.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

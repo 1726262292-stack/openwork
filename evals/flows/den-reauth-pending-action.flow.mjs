@@ -254,6 +254,8 @@ export default {
   id: FLOW_ID,
   title: "Den reauth keeps the pending install-link action alive",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 12,
   spec: "evals/README.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MYSQL_CONTAINER"],

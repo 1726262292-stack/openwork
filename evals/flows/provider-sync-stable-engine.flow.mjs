@@ -150,6 +150,8 @@ export default {
   id: "provider-sync-stable-engine",
   title: "Org cloud providers import once and the engine connection stays stable",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 12,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [
     {

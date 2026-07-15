@@ -277,6 +277,8 @@ export default {
   id: FLOW_ID,
   title: "Den stays responsive and coherent across catalogs, member access, settings, security, and Stripe",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 5,
   preserveTheme: true,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",

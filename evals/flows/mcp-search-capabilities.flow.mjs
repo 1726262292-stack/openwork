@@ -81,6 +81,8 @@ async function mcpAgentCall(ctx, mcpToken, method, params) {
 export default {
   id: "mcp-search-capabilities",
   title: "search_capabilities ranks the real Den MCP catalog and the matched tool executes for real",
+  suite: "nightly-cloud-member",
+  suiteOrder: 23,
   spec: "evals/cloud-mcp-agent-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_WORKSPACE_PATH"],
   steps: [

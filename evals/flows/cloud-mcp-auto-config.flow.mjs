@@ -21,6 +21,8 @@ const revealHidden = async (ctx) => {
 export default {
   id: "cloud-mcp-auto-config",
   title: "Cloud MCP auto-configures with first-party token on sign-in",
+  suite: "nightly-cloud-member",
+  suiteOrder: 7,
   spec: "evals/cloud-auth-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [

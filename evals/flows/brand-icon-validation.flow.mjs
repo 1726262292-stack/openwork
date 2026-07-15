@@ -92,6 +92,8 @@ export default {
   id: "brand-icon-validation",
   title: "Brand Icon URL rejects web pages loudly and accepts real logo image links",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 18,
   spec: "evals/voiceovers/brand-icon-validation.md",
   // OPENWORK_EVAL_DAYTONA_SANDBOX is required (not optional, unlike
   // desktop-brand-icon): the admin panel's Icon URL field lives in an

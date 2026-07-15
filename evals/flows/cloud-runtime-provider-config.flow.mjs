@@ -164,6 +164,8 @@ async function clickProviderRowButton(ctx, label) {
 export default {
   id: "cloud-runtime-provider-config",
   title: "Cloud provider import/sync lives in runtime config, not opencode.jsonc",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 11,
   spec: "evals/cloud-provider-sync-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [

@@ -200,6 +200,8 @@ export default {
   id: FLOW_ID,
   title: "Org admins can publish an MCP connection through the agent surface, hand members the existing connect path, and members cannot exceed their role",
   kind: "internal",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 26,
   requiresApp: false,
   spec: "evals/voiceovers/org-mcp-agent-config-demo.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],

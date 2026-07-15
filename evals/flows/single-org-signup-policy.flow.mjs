@@ -48,6 +48,8 @@ export default {
   id: FLOW_ID,
   title: "Single-org deployments block private email signup and enforce singleton email domains before account creation",
   kind: "internal",
+  suite: "nightly-den-web",
+  suiteOrder: 11,
   requiresApp: false,
   steps: [
     {

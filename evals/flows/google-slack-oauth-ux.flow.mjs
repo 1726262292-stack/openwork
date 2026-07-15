@@ -489,6 +489,8 @@ export default {
   id: FLOW_ID,
   title: "Google and Slack OAuth setup tells admins exactly what to do next",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 4,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MYSQL_CONTAINER"],
   spec: "evals/voiceovers/google-slack-oauth-ux.md",
   steps: [

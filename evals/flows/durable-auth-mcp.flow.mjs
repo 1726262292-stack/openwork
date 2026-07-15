@@ -653,6 +653,8 @@ export default {
   id: FLOW_ID,
   title: "Active OpenWork and MCP sessions renew silently while real security boundaries still hold",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 18,
   spec: "evals/voiceovers/durable-auth-mcp.md",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",

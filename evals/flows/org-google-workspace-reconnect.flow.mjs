@@ -268,6 +268,8 @@ export default {
   id: "org-google-workspace-reconnect",
   title: "Org Google Workspace prompts members to reconnect after selected scopes drift",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 27,
   spec: "evals/voiceovers/org-google-workspace-reconnect.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

@@ -185,6 +185,8 @@ export default {
   id: "connections-beta",
   title: "Connections alpha treatment: visible, black, and last",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 6,
   spec: "evals/voiceovers/connections-beta.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

@@ -1348,6 +1348,8 @@ export default {
   id: FLOW_ID,
   title: "Users can verify, repair, diagnose, and use Cloud agent access per workspace",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 9,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [
     {

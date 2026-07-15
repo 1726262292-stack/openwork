@@ -532,6 +532,8 @@ export default {
   id: FLOW_ID,
   title: "Pending invitations are adopted without duplicate organization members",
   kind: "internal",
+  suite: "nightly-membership",
+  suiteOrder: 2,
   requiresApp: false,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_WEB_CDP_ADMIN"],
   steps: [

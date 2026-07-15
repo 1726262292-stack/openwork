@@ -308,6 +308,8 @@ export default {
   id: "desktop-org-mcp-demo",
   title: "Desktop app: org MCP connections appear in Marketplace, connect through browser OAuth, and work in chat",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 12,
   spec: "evals/desktop-org-mcp-demo.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [

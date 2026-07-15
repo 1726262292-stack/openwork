@@ -248,6 +248,8 @@ export default {
   id: FLOW_ID,
   title: "Admins can inspect a connected MCP's live tools, inputs, and schemas without executing anything",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 24,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

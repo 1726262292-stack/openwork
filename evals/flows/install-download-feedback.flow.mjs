@@ -30,6 +30,8 @@ export default {
   id: "install-download-feedback",
   title: "Installer downloads stay clear while the bundle is prepared",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 8,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [
     {

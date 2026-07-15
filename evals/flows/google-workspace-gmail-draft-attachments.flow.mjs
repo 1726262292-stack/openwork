@@ -60,6 +60,8 @@ export default {
   id: FLOW_ID,
   title: "Google Workspace Gmail drafts accept bounded workspace-file attachments for new messages and threaded replies",
   kind: "internal",
+  suite: "nightly-cloud-member",
+  suiteOrder: 28,
   requiresApp: false,
   steps: [
     {

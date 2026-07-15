@@ -60,6 +60,8 @@ export default {
   id: "exa-connection",
   title: "Exa is a quick-add Cloud Connection with org API-key setup",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 6,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   spec: "evals/org-mcp-connections-ux.md",

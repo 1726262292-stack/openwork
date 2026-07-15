@@ -247,6 +247,8 @@ export default {
   id: FLOW_ID,
   title: "Windows upgrades preserve organization bootstrap URLs across canonical, legacy, restart, and air-gapped paths",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 10,
   preserveTheme: true,
   requiredEnv: [
     "DAYTONA_API_KEY",

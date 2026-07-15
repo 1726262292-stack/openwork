@@ -54,6 +54,8 @@ async function syncConfigToApp(ctx) {
 export default {
   id: "desktop-policies-demo",
   title: "Admin configures desktop policies → member app reacts in real-time",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 15,
   spec: "evals/desktop-policy-white-label.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [

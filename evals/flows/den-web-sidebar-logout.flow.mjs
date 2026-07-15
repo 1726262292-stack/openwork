@@ -87,6 +87,8 @@ export default {
   id: "den-web-sidebar-logout",
   title: "Den Web organization controls stay at the viewport bottom on long dashboard pages",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 4,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MULTI_ORG"],
   steps: [
     {
