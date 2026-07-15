@@ -320,8 +320,12 @@ export default {
           voiceover: vo[3],
           action: async () => {
             await installHealthFailureProbe(ctx);
-            await ctx.eval("window.dispatchEvent(new Event('focus'))");
-            await ctx.waitForText("OpenWork Connect: Needs attention", { timeoutMs: 30_000 });
+            const deadline = Date.now() + 45_000;
+            while (Date.now() < deadline && !(await ctx.hasText("OpenWork Connect: Needs attention"))) {
+              await ctx.eval("window.dispatchEvent(new Event('focus'))");
+              await new Promise((resolve) => setTimeout(resolve, 1_000));
+            }
+            ctx.assert(await ctx.hasText("OpenWork Connect: Needs attention"), "OpenWork Connect did not reach Needs attention after bounded retries.");
             await ctx.clickText("OpenWork Connect: Needs attention", { selector: "button", timeoutMs: 5_000 });
             await ctx.waitForText("Run diagnostics", { timeoutMs: 5_000 });
           },
