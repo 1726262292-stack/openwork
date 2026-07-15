@@ -8,6 +8,8 @@ export default {
   id: FLOW_ID,
   title: "Den Web resolves sign-in from email first",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 1,
   preserveTheme: true,
   steps: [
     {

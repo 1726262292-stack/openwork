@@ -145,6 +145,8 @@ export default {
   id: "organization-branding-upload-layout",
   title: "Branding uploads stay contained and desktop wordmarks align without adjacent text",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 20,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [
     {

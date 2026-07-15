@@ -222,6 +222,8 @@ export default {
   id: "microsoft-365-cloud-connect",
   title: "Admins choose delegated Microsoft 365 capabilities; members connect, use them, reconnect for changes, and disconnect safely",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 7,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

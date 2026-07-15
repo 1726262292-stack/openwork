@@ -263,6 +263,8 @@ export default {
   id: FLOW_ID,
   title: "Admins safely edit existing MCP connections",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 2,
   preserveTheme: true,
   spec: "evals/voiceovers/mcp-connection-editing.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

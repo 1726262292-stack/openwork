@@ -217,6 +217,8 @@ export default {
   id: "managed-brand-asset-uploads",
   title: "Owners upload durable, versioned brand assets that member desktops load from their Den",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 21,
   spec: "evals/voiceovers/managed-brand-asset-uploads.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

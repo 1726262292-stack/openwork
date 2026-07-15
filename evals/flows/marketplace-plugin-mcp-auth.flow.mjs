@@ -73,6 +73,8 @@ export default {
   id: FLOW_ID,
   title: "Assigned marketplace plugin skills guide each member through their required MCP connection",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 19,
   preserveTheme: true,
   spec: "evals/voiceovers/marketplace-plugin-mcp-auth.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

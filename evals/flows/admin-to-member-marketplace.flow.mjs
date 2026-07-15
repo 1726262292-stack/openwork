@@ -13,6 +13,8 @@
 export default {
   id: "admin-to-member-marketplace",
   title: "Owner creates skill, shares via MCP, member discovers and installs from marketplace",
+  suite: "nightly-cloud-member",
+  suiteOrder: 21,
   spec: "evals/react-session-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_WORKSPACE_PATH"],
   steps: [

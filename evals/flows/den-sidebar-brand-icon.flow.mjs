@@ -120,6 +120,8 @@ export default {
   id: "den-sidebar-brand-icon",
   title: "Den uses the managed organization square icon in its sidebar without flashes or broken images",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 3,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [
     {

@@ -173,6 +173,8 @@ export default {
   id: FLOW_ID,
   title: "URL discovery, shared callback OAuth, and MCP tool use succeed end to end",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 16,
   spec: "docs/external-mcp-oauth.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

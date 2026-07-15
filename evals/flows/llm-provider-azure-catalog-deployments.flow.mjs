@@ -50,6 +50,8 @@ async function denApiDelete(ctx, name) {
 export default {
   id: "llm-provider-azure-catalog-deployments",
   title: "Catalog Azure provider offers only the resource's real deployments",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 13,
   spec: "evals/cloud-provider-sync-flows.md",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_WEB_URL",

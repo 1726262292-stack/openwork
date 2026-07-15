@@ -32,6 +32,8 @@ export default {
   id: "org-capability-flags",
   title: "Platform admins flip per-org capability flags from /admin; every org starts dark and reports its own state through /v1/org",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 22,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_TOKEN",

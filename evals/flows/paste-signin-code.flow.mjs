@@ -8,6 +8,8 @@ export default {
   id: "paste-signin-code",
   title: "A prepared development build can sign in with a copied one-time code",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 4,
   requiredEnv: ["OPENWORK_EVAL_HANDOFF_GRANT"],
   steps: [
     {

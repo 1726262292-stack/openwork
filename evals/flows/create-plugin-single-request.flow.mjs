@@ -208,6 +208,8 @@ export default {
   id: "create-plugin-single-request",
   title: "Create plugin: one save request preserves sharing and publish side effects",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 25,
   spec: "evals/voiceovers/create-plugin-single-request.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

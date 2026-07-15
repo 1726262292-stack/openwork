@@ -1,6 +1,8 @@
 export default {
   id: "den-single-org-sso-mode",
   title: "Den web renders SSO-only auth when singleton SSO is configured",
+  suite: "nightly-den-web",
+  suiteOrder: 10,
   spec: "docs/single-org-mode-plan.md",
   preserveTheme: true,
   steps: [

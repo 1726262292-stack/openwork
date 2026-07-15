@@ -425,6 +425,8 @@ export default {
   id: FLOW_ID,
   title: "Cloud marketplace plugins warn on malformed MCP payloads and hot-sync valid MCPs",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 22,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_WORKSPACE_PATH"],
   steps: [
     {

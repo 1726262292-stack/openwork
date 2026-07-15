@@ -55,6 +55,8 @@ export default {
   id: "windows-organization-install-branding",
   title: "Organization installs converge Windows Search, Start Menu, and shortcuts without losing server configuration",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 12,
   requiresApp: false,
   requiredEnv: ["DAYTONA_API_KEY", "OPENWORK_EVAL_DAYTONA_SANDBOX"],
   steps: [

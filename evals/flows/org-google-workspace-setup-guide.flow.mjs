@@ -189,6 +189,8 @@ export default {
   id: "org-google-workspace-setup-guide",
   title: "Google Workspace setup guides admins through OAuth client registration",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 9,
   spec: "evals/voiceovers/org-google-workspace-setup-guide.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

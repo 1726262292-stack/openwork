@@ -474,6 +474,8 @@ export default {
   id: FLOW_ID,
   title: "A URL-only MCP client connects to the API origin end to end",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 29,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

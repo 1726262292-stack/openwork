@@ -424,6 +424,8 @@ export default {
   id: FLOW_ID,
   title: "Workspace re-authentication keeps multi-org settings actions on the same route and org",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 30,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_MULTI_ORG"],
   steps: [

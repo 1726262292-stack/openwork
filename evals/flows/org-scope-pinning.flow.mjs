@@ -91,6 +91,8 @@ export default {
   id: "org-scope-pinning",
   title: "Connections requests stay pinned to the org on screen when the session's active org drifts",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 7,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MULTI_ORG"],
   spec: "evals/org-mcp-connections-ux.md",

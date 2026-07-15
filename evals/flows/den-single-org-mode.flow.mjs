@@ -1,6 +1,8 @@
 export default {
   id: "den-single-org-mode",
   title: "Den web renders single-org auth mode",
+  suite: "nightly-den-web",
+  suiteOrder: 9,
   spec: "docs/single-org-mode-plan.md",
   preserveTheme: true,
   steps: [

@@ -13,6 +13,8 @@ export default {
   id: "cloud-workers-removed",
   title: "Cloud Workers tab removed: sidebar, Account copy, legacy redirect",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 11,
   steps: [
     {
       name: "App booted",

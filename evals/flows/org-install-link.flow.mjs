@@ -58,6 +58,8 @@ export default {
   id: "org-install-link",
   title: "Organization install links stamp Acme into the download, installer, and first desktop sign-in",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 5,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_TOKEN",

@@ -86,6 +86,8 @@ async function signIn(email, password) {
 export default {
   id: "mcp-connections-desktop-e2e",
   title: "Desktop app: the member's agent finds and executes an org MCP connection as them, in real chat",
+  suite: "nightly-cloud-member",
+  suiteOrder: 13,
   spec: "evals/cloud-mcp-agent-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [

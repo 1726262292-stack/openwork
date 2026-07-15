@@ -61,6 +61,8 @@ const probeExpr = (body) => `(async () => {
 export default {
   id: "llm-provider-test-connection-api",
   title: "Provider test-connection probe returns real models and heals URLs",
+  suite: "nightly-den-web",
+  suiteOrder: 15,
   spec: "evals/cloud-provider-sync-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_EMAIL", "OPENWORK_EVAL_DEN_PASSWORD"],
   steps: [

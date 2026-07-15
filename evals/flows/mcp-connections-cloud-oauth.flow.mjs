@@ -51,6 +51,8 @@ const ECHO_TEXT = "search and execute in the cloud proof";
 export default {
   id: "mcp-connections-cloud-oauth",
   title: "Admin adds an MCP connection in Den; search_capabilities/execute_capability use it for real",
+  suite: "nightly-cloud-member",
+  suiteOrder: 15,
   spec: "evals/cloud-mcp-agent-flows.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

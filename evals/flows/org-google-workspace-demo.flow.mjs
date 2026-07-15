@@ -265,6 +265,8 @@ export default {
   id: "org-google-workspace-demo",
   title: "Org Google Workspace: admin sets it up once, members connect their own account, the agent drafts Gmail as them",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 26,
   spec: "evals/voiceovers/org-google-workspace-demo.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [

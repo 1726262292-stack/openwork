@@ -226,6 +226,8 @@ export default {
   id: "connections-beta-desktop",
   title: "Desktop Marketplace: alpha org connections are labeled and last",
   kind: "user-facing",
+  suite: "nightly-cloud-member",
+  suiteOrder: 31,
   spec: "evals/voiceovers/connections-beta-desktop.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [

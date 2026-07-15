@@ -259,6 +259,8 @@ export default {
   id: FLOW_ID,
   title: "Every Acme member gets the configured desktop installer without invalidating earlier links",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 6,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_WEB_URL",

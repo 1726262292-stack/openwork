@@ -44,6 +44,8 @@ export default {
   id: "invite-to-desktop",
   title: "Invited teammates join Acme, get a desktop handoff, and receive mobile-safe download guidance",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 1,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_WEB_URL",

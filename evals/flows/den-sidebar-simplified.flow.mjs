@@ -176,6 +176,8 @@ export default {
   id: "den-sidebar-simplified",
   title: "Den sidebar: sixteen rows become seven — tools, models, people, settings",
   kind: "user-facing",
+  suite: "nightly-den-web",
+  suiteOrder: 2,
   spec: "evals/voiceovers/den-sidebar-simplified.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

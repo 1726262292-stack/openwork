@@ -359,6 +359,8 @@ export default {
   id: FLOW_ID,
   title: "Single-org self-hosted deployments can invite members past the hosted free seat count",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 3,
   requiresApp: false,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_WEB_CDP_ADMIN"],
   steps: [

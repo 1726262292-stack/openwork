@@ -73,6 +73,8 @@ const MEMORY_CONTENT = `User's Acme account renews in Q3 at 5000 per month — m
 export default {
   id: "memory-save-recall",
   title: "Agent discovers the memory capability, saves a memory, and recalls it in a fresh session via natural language",
+  suite: "nightly-cloud-member",
+  suiteOrder: 25,
   spec: "docs/memory-bank-architecture.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_WORKSPACE_PATH"],
   steps: [

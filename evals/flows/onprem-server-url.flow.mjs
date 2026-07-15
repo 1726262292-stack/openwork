@@ -147,6 +147,8 @@ export default {
   id: "onprem-server-url",
   title: "Self-hosted users can set their organization server URL from welcome and Advanced settings",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 9,
   steps: [
     {
       name: "Frame 1",

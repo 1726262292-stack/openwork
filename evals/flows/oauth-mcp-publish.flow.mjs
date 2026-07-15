@@ -147,6 +147,8 @@ let exportedBundle = null;
 export default {
   id: "oauth-mcp-publish",
   title: "Owner exports skill + OAuth MCP (secret redacted) and publishes to a marketplace",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 24,
   spec: "apps/server/src/extensions-export.ts",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [

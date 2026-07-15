@@ -467,6 +467,8 @@ export default {
   id: "desktop-brand-icon",
   title: "Org Icon URL updates the desktop OS icon live, persists through relaunch, and can be cleared",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 17,
   spec: "evals/voiceovers/desktop-brand-icon.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [

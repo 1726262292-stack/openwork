@@ -31,6 +31,8 @@ export default {
   id: "org-connections-capability",
   title: "Platform admins flip the mcpConnections org capability from /admin; den-web nav and the desktop react uniformly",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 23,
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
     "OPENWORK_EVAL_DEN_TOKEN",

@@ -108,6 +108,8 @@ async function handleOnboarding(ctx) {
 export default {
   id: "oauth-mcp-install",
   title: "Member installs the plugin; OAuth MCP arrives sign-in-required, secret never travels",
+  suite: "nightly-cloud-member",
+  suiteOrder: 20,
   spec: "apps/server/src/extensions-export.ts",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [

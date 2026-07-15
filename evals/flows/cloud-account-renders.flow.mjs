@@ -6,6 +6,8 @@
 export default {
   id: "cloud-account-renders",
   title: "Cloud Account settings renders signed-in or signed-out state",
+  suite: "nightly-cloud-member",
+  suiteOrder: 6,
   spec: "evals/cloud-auth-flows.md",
   steps: [
     {

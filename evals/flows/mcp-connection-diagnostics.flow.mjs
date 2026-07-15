@@ -37,6 +37,8 @@ export default {
   id: "mcp-connection-diagnostics",
   title: "A failed MCP connection identifies its exact layer",
   kind: "user-facing",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 3,
   spec: "evals/voiceovers/mcp-connection-diagnostics.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],

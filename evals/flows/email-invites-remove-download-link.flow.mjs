@@ -357,6 +357,8 @@ export default {
   id: FLOW_ID,
   title: "Invitation emails stay focused on joining the workspace",
   kind: "user-facing",
+  suite: "nightly-membership",
+  suiteOrder: 4,
   requiresApp: false,
   preserveTheme: true,
   requiredEnv: [

@@ -44,6 +44,8 @@ const ADMIN_CONNECTED_EXPR = `(() => {
 export default {
   id: "admin-mcp-connect",
   title: "Admin MCP connects end-to-end after OAuth discovery fix",
+  suite: "nightly-cloud-admin",
+  suiteOrder: 1,
   spec: "evals/cloud-mcp-agent-flows.md",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_TOKEN"],
   steps: [
