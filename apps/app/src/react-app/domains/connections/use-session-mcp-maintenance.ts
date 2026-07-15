@@ -158,13 +158,18 @@ export async function syncCloudControlMcpInBackground(input: {
     orgId,
     workspaceId,
   };
-  if (readCloudMcpUserState(scope) !== null) {
-    return { outcome: "skipped", status: "skipped", reason: "disabled", health: null };
-  }
-
   const listed = await input.client.listMcp(workspaceId);
   const configured = listed.items.find((entry) => entry.name === CLOUD_MCP_SERVER_NAME);
   if (configured?.config.enabled === false) {
+    return { outcome: "skipped", status: "skipped", reason: "disabled", health: null };
+  }
+  // Recorded user intent (disabled/removed) gates provisioning only: when no
+  // enabled entry exists we honor it, but an existing enabled entry must keep
+  // its token fresh regardless. A stale "removed" intent once silently
+  // disabled all maintenance until the 7-day token expired and the engine
+  // dropped the MCP.
+  const configuredEnabled = configured !== undefined && configured.config.enabled !== false;
+  if (!configuredEnabled && readCloudMcpUserState(scope) !== null) {
     return { outcome: "skipped", status: "skipped", reason: "disabled", health: null };
   }
   const configuredUrl = typeof configured?.config.url === "string" ? configured.config.url : null;
@@ -187,7 +192,7 @@ export async function syncCloudControlMcpInBackground(input: {
     force: input.force,
     refreshMarginMs: CLOUD_MCP_REFRESH_MARGIN_MS,
     now: input.now,
-    configuredEnabled: typeof configured?.config.enabled === "boolean" ? configured.config.enabled : null,
+    configuredEnabled: configured === undefined ? null : configured.config.enabled !== false,
   });
   if (result.health?.usable) {
     return {

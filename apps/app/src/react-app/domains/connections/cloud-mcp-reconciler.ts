@@ -220,7 +220,13 @@ function shouldSkipForPrerequisite(input: CloudMcpReconcilerInput, scope: CloudM
   if (input.mode === "health") return null;
   if (!input.context.denAuthToken?.trim()) return { status: "skipped", health: null, skippedReason: "signed_out", attempts: 0, markerWritten: false, reminted: false };
   if (!scope.orgId) return { status: "skipped", health: null, skippedReason: "missing_org", attempts: 0, markerWritten: false, reminted: false };
-  if (input.configuredEnabled === false || readCloudMcpUserState(scope) !== null) {
+  if (input.configuredEnabled === false) {
+    return { status: "skipped", health: null, skippedReason: "disabled", attempts: 0, markerWritten: false, reminted: false };
+  }
+  // Recorded user intent only blocks provisioning (entry absent/unknown). A
+  // known-enabled entry must keep its token fresh even when a stale
+  // disabled/removed intent is still recorded.
+  if (input.configuredEnabled !== true && readCloudMcpUserState(scope) !== null) {
     return { status: "skipped", health: null, skippedReason: "disabled", attempts: 0, markerWritten: false, reminted: false };
   }
   return null;
