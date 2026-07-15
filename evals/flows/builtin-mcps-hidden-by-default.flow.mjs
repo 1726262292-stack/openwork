@@ -13,6 +13,8 @@ export default {
   title: "Built-in OpenWork MCPs are hidden by default and revealed by Show hidden",
   spec: "evals/browser-extension-flows.md",
   kind: "user-facing",
+  suite: "nightly-extensions-local",
+  suiteOrder: 3,
   steps: [
     {
       name: "App booted",

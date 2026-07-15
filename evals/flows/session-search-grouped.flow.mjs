@@ -12,6 +12,8 @@ export default {
   id: "session-search-grouped",
   title: "Cross-session search: sidebar entry, grouped results, jump to match",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 10,
   steps: [
     {
       name: "App boots with at least one session in the sidebar",

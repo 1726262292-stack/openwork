@@ -108,6 +108,8 @@ export default {
   id: "undo-default-workspace",
   title: "Users control desktop workspace creation",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 5,
   steps: [
     {
       name: "No workspaces opens welcome",

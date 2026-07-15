@@ -462,6 +462,8 @@ export default {
   id: FLOW_ID,
   title: "Session composer safely normalizes valid Excel XLSX attachments through the real model boundary",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 20,
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API" });
     const serverExited = await ctx.eval(`document.body.innerText.includes("OpenCode server exited")`);

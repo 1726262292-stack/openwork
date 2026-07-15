@@ -49,6 +49,8 @@ async function clickCommandItem(ctx, text) {
 export default {
   id: "session-command-palette-move-to-group",
   title: "Command palette moves the current session to a group",
+  suite: "nightly-desktop-core",
+  suiteOrder: 8,
   spec: "Command-K shows Move to Group, lists groups, and assigns the current session",
   steps: [
     {

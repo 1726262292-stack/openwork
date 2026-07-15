@@ -140,6 +140,8 @@ export default {
   id: "share-diagnostics",
   title: "Users can share sanitized diagnostics from the command palette",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 25,
   steps: [
     {
       name: "Frame 1",

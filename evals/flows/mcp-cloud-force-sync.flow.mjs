@@ -21,6 +21,8 @@ const revealHidden = async (ctx) => {
 export default {
   id: "mcp-cloud-force-sync",
   title: "Refresh force-syncs the cloud MCP (marker bypassed, token re-minted)",
+  suite: "nightly-extensions-local",
+  suiteOrder: 7,
   spec: "evals/cloud-mcp-agent-flows.md",
   steps: [
     {

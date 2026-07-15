@@ -125,6 +125,8 @@ export default {
   id: FLOW_ID,
   title: "Landing hero prompt analytics fire end-to-end",
   kind: "user-facing",
+  suite: "nightly-landing",
+  suiteOrder: 4,
   spec: "evals/README.md",
   // The landing website has no theme system or __openworkControl API; skip the
   // desktop-app light-mode bootstrap instead of waiting for it to time out.

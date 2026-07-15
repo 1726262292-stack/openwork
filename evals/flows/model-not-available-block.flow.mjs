@@ -93,6 +93,8 @@ export default {
   id: "model-not-available-block",
   title: "Prompt for a replacement when a selected model disappears",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 21,
   precondition: async (ctx) => {
     await waitForControl(ctx);
     const route = await ctx.eval(`window.__openworkControl.snapshot().route || ""`);

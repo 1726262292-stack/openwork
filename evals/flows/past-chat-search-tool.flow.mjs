@@ -172,6 +172,8 @@ async function showProofPanel(ctx, title, rows) {
 export default {
   id: "past-chat-search-tool",
   title: "Injected tools can search and read past OpenWork chats",
+  suite: "nightly-desktop-core",
+  suiteOrder: 11,
   spec: "OpenWork injected tool surface for cross-session memory",
   steps: [
     {

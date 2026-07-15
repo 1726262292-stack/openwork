@@ -38,6 +38,8 @@ async function pasteComposer(ctx, text) {
 export default {
   id: "core-flow",
   title: "Open app, send a message, get a response, reopen with session intact",
+  suite: "nightly-desktop-core",
+  suiteOrder: 2,
   spec: "evals/react-session-flows.md",
   precondition: async (ctx) => {
     await ctx.waitFor("Boolean(window.__openworkControl)", {

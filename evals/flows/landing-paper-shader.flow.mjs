@@ -40,6 +40,8 @@ function recordShaderAssertion(ctx, assertion, passed, actual) {
 export default {
   id: "landing-paper-shader",
   title: "Landing Paper shader is scoped to the root page",
+  suite: "nightly-landing",
+  suiteOrder: 2,
   spec: "evals/README.md",
   requiredEnv: ["OPENWORK_EVAL_LANDING_URL"],
   steps: [

@@ -10,6 +10,8 @@
 export default {
   id: "artifact-pdf-render-reveal",
   title: "PDF artifacts render inline and Show in folder works",
+  suite: "nightly-desktop-core",
+  suiteOrder: 15,
   spec: "evals/react-session-flows.md",
   steps: [
     {

@@ -13,6 +13,8 @@
 export default {
   id: "extensions-marketplace-updates",
   title: "Marketplace renders with update filters and signed-out notice",
+  suite: "nightly-extensions-local",
+  suiteOrder: 2,
   spec: "evals/cloud-marketplace-sync-flows.md",
   steps: [
     {

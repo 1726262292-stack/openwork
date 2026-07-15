@@ -57,6 +57,8 @@ export default {
   id: "command-k-settings",
   title: "Command K opens the command palette from Settings",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 23,
   steps: [
     {
       name: "Open Settings",

@@ -167,6 +167,8 @@ async function waitForCardStatus(ctx, accepted, { timeoutMs, refreshEveryMs = 10
 export default {
   id: "mcp-oauth-silent-reauth",
   title: "Remote OAuth MCP silently re-authenticates after token expiry / app reopen",
+  suite: "nightly-extensions-local",
+  suiteOrder: 6,
   spec: "evals/browser-extension-flows.md",
   steps: [
     {

@@ -39,6 +39,8 @@ const MEASURE_HEADER = `(() => {
 export default {
   id: "artifact-header-narrow-overlap",
   title: "Artifact header truncates a long filename and does not overlap action buttons at narrow width",
+  suite: "nightly-desktop-core",
+  suiteOrder: 17,
   spec: "evals/react-session-flows.md",
   steps: [
     {

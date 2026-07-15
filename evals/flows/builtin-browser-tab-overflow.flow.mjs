@@ -149,6 +149,8 @@ const tabMetricsExpression = `(async () => {
 export default {
   id: "builtin-browser-tab-overflow",
   title: "Built-in browser tab strip overflows and keeps active tab visible",
+  suite: "nightly-desktop-core",
+  suiteOrder: 18,
   spec: "evals/react-session-flows.md",
   steps: [
     {

@@ -13,6 +13,8 @@ export default {
   id: "control-pane-extensions-action-removed",
   title: "Control pane: redundant extensions action removed, generic panel open still works",
   kind: "internal",
+  suite: "nightly-extensions-local",
+  suiteOrder: 4,
   steps: [
     {
       name: "App booted with the control surface ready",

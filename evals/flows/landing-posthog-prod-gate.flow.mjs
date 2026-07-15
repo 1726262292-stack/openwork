@@ -131,6 +131,8 @@ export default {
   id: FLOW_ID,
   title: "Landing PostHog loads in production only",
   kind: "user-facing",
+  suite: "nightly-landing",
+  suiteOrder: 5,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_LANDING_URL", "OPENWORK_EVAL_LANDING_PROD_URL"],
   steps: [

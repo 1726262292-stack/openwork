@@ -181,6 +181,8 @@ export default {
   id: FLOW_ID,
   title: "Add existing agent work to OpenWork and share it with your team",
   kind: "user-facing",
+  suite: "nightly-landing",
+  suiteOrder: 3,
   spec: "evals/README.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_LANDING_URL"],

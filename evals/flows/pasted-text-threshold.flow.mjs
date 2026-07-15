@@ -109,6 +109,8 @@ export default {
   id: "pasted-text-threshold",
   title: "Pasted text collapses only above 50 characters and expanded pastes stay visibly distinct",
   kind: "user-facing",
+  suite: "nightly-desktop-core",
+  suiteOrder: 19,
   precondition: async (ctx) => {
     const state = await waitForReadySession(ctx);
     return state === "blocked"

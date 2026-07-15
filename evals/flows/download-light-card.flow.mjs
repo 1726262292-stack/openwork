@@ -43,6 +43,8 @@ export default {
   id: FLOW_ID,
   title: "Landing /download serves the light Download OpenWork card",
   kind: "user-facing",
+  suite: "nightly-landing",
+  suiteOrder: 1,
   spec: "evals/README.md",
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_LANDING_URL"],
