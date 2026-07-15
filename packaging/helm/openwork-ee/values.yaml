@@ -125,6 +125,12 @@ observability:
     release: ""
     dist: ""
 
+customCa:
+  enabled: false
+  existingSecret: ""
+  existingConfigMap: ""
+  key: ca.crt
+
 secret:
   create: true
   existingSecret: ""

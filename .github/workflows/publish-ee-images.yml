@@ -93,6 +93,12 @@ jobs:
       - name: Render chart
         run: helm template openwork-ee packaging/helm/openwork-ee --set ingress.enabled=true --set inference.enabled=true
 
+      - name: Run chart tests
+        run: |
+          for test in packaging/helm/openwork-ee/tests/*.sh; do
+            bash "$test"
+          done
+
       - name: Package chart
         if: ${{ needs.artifact-version.outputs.chart_version != '' }}
         run: |
