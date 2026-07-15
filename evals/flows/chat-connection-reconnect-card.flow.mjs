@@ -242,23 +242,23 @@ export default {
     {
       name: "Frame 4",
       run: async (ctx) => {
-        await ctx.prove("A provider-owned failure names who must act and exposes a support reference", {
+        await ctx.prove("A provider-owned auth failure keeps caveats visible and offers a reconnect attempt", {
           voiceover: vo[3],
           action: async () => {
             await returnToChat(ctx);
             await ctx.control("eval.connection_status.seed", { fixture: "provider_admin" });
-            await ctx.waitForText("Granola isn't working right now");
+            await ctx.waitForText("Granola rejected sign-in");
           },
           assert: async () => {
-            await ctx.expectText("This needs a fix on the Granola provider side.");
-            await ctx.expectText("a0b58150-7bad-4a37-ba36-c4260f444a8d");
-            await ctx.expectText("Copy reference");
-            await ctx.expectNoText("Reconnect Granola");
+            await ctx.expectText("The provider rejected sign-in or token refresh.");
+            await ctx.expectText("Granola or your organization admin may need to fix provider configuration");
+            await ctx.expectText("Try reconnecting to Granola");
+            await ctx.expectNoText("Copy reference");
           },
           screenshot: {
             name: "provider-admin-card",
-            requireText: ["Granola isn't working right now", "provider side", "Copy reference"],
-            rejectText: ["Reconnect Granola", "Something went wrong"],
+            requireText: ["Granola rejected sign-in", "Provider may need a fix", "Try reconnecting to Granola", "provider configuration"],
+            rejectText: ["Copy reference", "MCP_HTTP_400", "Something went wrong"],
           },
         });
       },
@@ -276,10 +276,11 @@ export default {
             await ctx.expectText("MCP_HTTP_400");
             await ctx.expectText("provider_admin");
             await ctx.expectText("a0b58150-7bad-4a37-ba36-c4260f444a8d");
+            await ctx.expectText("Copy reference");
           },
           screenshot: {
             name: "technical-details-disclosed",
-            requireText: ["Technical details", "MCP_HTTP_400", "provider_admin"],
+            requireText: ["Technical details", "MCP_HTTP_400", "provider_admin", "Diagnostic reference", "Copy reference"],
             rejectText: ["Something went wrong"],
           },
         });

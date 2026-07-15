@@ -22,8 +22,8 @@ export type ConnectionStatusPayload = {
   actor: string | null;
   actionLabel: string | null;
   diagnosticReferenceId: string | null;
-  /** The member can fix this themselves by re-running OAuth for their own account. */
-  canReconnect: boolean;
+  /** The member can attempt reconnect by re-running OAuth for their own account. */
+  canAttemptReconnect: boolean;
 };
 
 const CLOUD_TOOL_SUFFIXES = ["_search_capabilities", "_execute_capability"];
@@ -60,13 +60,7 @@ function parseCandidate(value: unknown): ConnectionStatusPayload | null {
     actor,
     actionLabel: action ? asString(action.label) : null,
     diagnosticReferenceId: diagnostic ? asString(diagnostic.referenceId) : null,
-    // Only offer a self-serve Reconnect when the payload does not assign the
-    // fix to someone else (e.g. provider_admin): a button that cannot succeed
-    // is worse than an honest explanation.
-    canReconnect:
-      credentialMode === "per_member" &&
-      state === "reauth_required" &&
-      (actor === null || actor === "member"),
+    canAttemptReconnect: credentialMode === "per_member" && state === "reauth_required",
   };
 }
 

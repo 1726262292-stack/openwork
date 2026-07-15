@@ -69,7 +69,7 @@ const healthySearchResult = {
 };
 
 describe("parseConnectionStatusPayload", () => {
-  test("extracts a provider_admin failure from a search result and disables self-serve reconnect", () => {
+  test("extracts a provider_admin failure from a search result and offers a reconnect attempt", () => {
     const payload = parseConnectionStatusPayload(providerAdminSearchResult);
     expect(payload).not.toBeNull();
     expect(payload?.connectionName).toBe("Granola");
@@ -78,13 +78,50 @@ describe("parseConnectionStatusPayload", () => {
     expect(payload?.actor).toBe("provider_admin");
     expect(payload?.actionLabel).toBe("Inspect provider and proxy logs for the failing HTTP request.");
     expect(payload?.diagnosticReferenceId).toBe("a0b58150-7bad-4a37-ba36-c4260f444a8d");
-    expect(payload?.canReconnect).toBe(false);
+    expect(payload?.canAttemptReconnect).toBe(true);
   });
 
   test("offers reconnect for member-actionable per-member reauth", () => {
     const payload = parseConnectionStatusPayload(memberReconnectResult);
     expect(payload?.connectionName).toBe("Slack");
-    expect(payload?.canReconnect).toBe(true);
+    expect(payload?.canAttemptReconnect).toBe(true);
+  });
+
+  test("offers reconnect attempts for admin-owned per-member reauth", () => {
+    for (const actor of ["org_admin", "organization_admin", "platform_admin"]) {
+      const payload = parseConnectionStatusPayload({
+        connectionStatus: {
+          connectionName: "Granola",
+          credentialMode: "per_member",
+          state: "reauth_required",
+          actor,
+        },
+      });
+      expect(payload?.canAttemptReconnect).toBe(true);
+    }
+  });
+
+  test("does not offer reconnect attempts for non-per-member or non-reauth failures", () => {
+    expect(
+      parseConnectionStatusPayload({
+        connectionStatus: {
+          connectionName: "Granola",
+          credentialMode: "shared",
+          state: "reauth_required",
+          actor: "provider_admin",
+        },
+      })?.canAttemptReconnect,
+    ).toBe(false);
+    expect(
+      parseConnectionStatusPayload({
+        connectionStatus: {
+          connectionName: "Granola",
+          credentialMode: "per_member",
+          state: "provider_error",
+          actor: "organization_admin",
+        },
+      })?.canAttemptReconnect,
+    ).toBe(false);
   });
 
   test("parses string tool output (MCP text content)", () => {
@@ -102,7 +139,7 @@ describe("parseConnectionStatusPayload", () => {
       },
     });
     expect(payload?.connectionName).toBe("Notion");
-    expect(payload?.canReconnect).toBe(true);
+    expect(payload?.canAttemptReconnect).toBe(true);
   });
 
   test("returns null for healthy results, healthy states, and non-JSON text", () => {

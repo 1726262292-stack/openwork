@@ -23,6 +23,7 @@ import {
   Wrench,
 } from "lucide-react"
 import type { DynamicToolUIPart, ToolUIPart } from "ai"
+import type { ReactNode } from "react"
 
 function toolIcon(part: ToolPart) {
   const name = part.type === "dynamic-tool" ? part.toolName : part.type
@@ -59,6 +60,7 @@ export type ToolProps = {
   toolPart: ToolPart
   defaultOpen?: boolean
   className?: string
+  children?: ReactNode
 }
 
 const formatValue = (value: unknown): string => {
@@ -117,7 +119,7 @@ function DiffLines({ diff }: { diff: string }) {
   )
 }
 
-const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) => {
+const Tool = ({ title, toolPart, defaultOpen = false, className, children }: ToolProps) => {
   const { state, input } = toolPart
   const inFlight = isToolPartInFlight(toolPart)
   const isError = state === "output-error"
@@ -189,6 +191,7 @@ const Tool = ({ title, toolPart, defaultOpen = false, className }: ToolProps) =>
           {inFlight && !hasInput ? (
             <span className="text-muted-foreground">Waiting for input…</span>
           ) : null}
+          {children}
         </div>
       </CollapsibleContent>
     </Collapsible>

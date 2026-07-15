@@ -16,25 +16,48 @@ interface ConnectionStatusToolProps {
 function actorDescription(payload: ConnectionStatusPayload): string {
   switch (payload.actor) {
     case "provider_admin":
-      return `This needs a fix on the ${payload.connectionName} provider side.`
+      return `${payload.connectionName} or your organization admin needs to fix provider configuration.`
     case "org_admin":
+    case "organization_admin":
     case "platform_admin":
-      return "This needs a fix from your organization admin."
+      return "Your organization admin needs to fix this connection."
     default:
       return "This can't be fixed from this app right now."
   }
 }
 
+function isMemberReconnect(payload: ConnectionStatusPayload): boolean {
+  return payload.actor === null || payload.actor === "member"
+}
+
 /**
  * Inline chat card for a broken Cloud connection surfaced by a capability
- * tool result. Reconnectable (per-member OAuth) failures get a Reconnect
- * button that lands on Settings → Connect with the connector highlighted;
- * failures owned by someone else degrade honestly to who must act plus the
- * diagnostic reference. The raw payload stays available under a disclosure.
+ * tool result. Reconnect attempts land on Settings → Connect with the
+ * connector highlighted; admin/provider-owned failures keep honest caveats.
+ * The diagnostic reference and raw payload stay available under a disclosure.
  */
 export function ConnectionStatusTool({ part, payload }: ConnectionStatusToolProps) {
   const navigate = useNavigate()
   const [copied, setCopied] = React.useState(false)
+  const memberReconnect = isMemberReconnect(payload)
+  const title = payload.canAttemptReconnect
+    ? memberReconnect
+      ? `${payload.connectionName} needs you to sign in again`
+      : `${payload.connectionName} rejected sign-in`
+    : `${payload.connectionName} isn't working right now`
+  const description = payload.canAttemptReconnect
+    ? memberReconnect
+      ? "Its sign-in expired or was revoked. Reconnect your account, then ask the agent to try again."
+      : `The provider rejected sign-in or token refresh. You can try reconnecting; if it fails again, ${payload.connectionName} or your organization admin may need to fix provider configuration.`
+    : (payload.message ?? "The connection returned an error.")
+  const statusLabel = payload.canAttemptReconnect
+    ? memberReconnect
+      ? "Needs sign-in"
+      : "Provider may need a fix"
+    : "Needs attention"
+  const reconnectLabel = memberReconnect
+    ? `Reconnect ${payload.connectionName}`
+    : `Try reconnecting to ${payload.connectionName}`
 
   const copyDiagnostic = React.useCallback(async () => {
     if (!payload.diagnosticReferenceId) return
@@ -51,27 +74,37 @@ export function ConnectionStatusTool({ part, payload }: ConnectionStatusToolProp
     <div
       data-testid="connection-status-card"
       data-connection-name={payload.connectionName}
-      className="not-prose w-full max-w-xl rounded-2xl border border-amber-6/50 bg-dls-surface/95 p-4 shadow-sm"
+      className="not-prose w-full max-w-lg rounded-2xl border border-dls-border bg-dls-surface/95 p-3.5 shadow-sm"
     >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-amber-6/40 bg-amber-3/30 text-amber-11">
-          <Unplug className="size-4" />
+      <div className="flex items-start gap-3.5">
+        <div className="relative flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dls-border bg-dls-sidebar/70 text-base font-semibold text-dls-primary shadow-sm">
+          {payload.connectionName.slice(0, 1).toUpperCase()}
+          <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full border border-dls-surface bg-amber-3 text-amber-11">
+            <Unplug className="size-2.5" />
+          </span>
         </div>
         <div className="min-w-0 flex-1 space-y-3">
-          <div className="space-y-1">
-            <h3 className="text-sm font-semibold text-dls-primary">
-              {payload.canReconnect
-                ? `${payload.connectionName} needs you to sign in again`
-                : `${payload.connectionName} isn't working right now`}
-            </h3>
-            <p className="text-xs leading-5 text-dls-secondary">
-              {payload.canReconnect
-                ? "Its sign-in expired or was revoked. Reconnect your account, then ask the agent to try again."
-                : (payload.message ?? "The connection returned an error.")}
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-[11px] font-medium tracking-[0.16em] text-dls-tertiary uppercase">
+                Cloud connection
+              </p>
+              <h3 className="truncate text-base leading-5 font-semibold text-dls-primary">
+                {payload.connectionName}
+              </h3>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-6/35 bg-amber-3/20 px-2 py-0.5 text-[11px] font-medium text-amber-11">
+              <span className="size-1.5 rounded-full bg-amber-9" />
+              {statusLabel}
+            </span>
           </div>
 
-          {payload.canReconnect ? (
+          <div className="space-y-1">
+            <p className="text-sm leading-5 font-medium text-dls-primary">{title}</p>
+            <p className="text-xs leading-5 text-dls-secondary">{description}</p>
+          </div>
+
+          {payload.canAttemptReconnect ? (
             <Button
               size="sm"
               onClick={() =>
@@ -80,29 +113,37 @@ export function ConnectionStatusTool({ part, payload }: ConnectionStatusToolProp
                 })
               }
             >
-              Reconnect {payload.connectionName}
+              {reconnectLabel}
             </Button>
           ) : (
-            <div className="space-y-2">
-              <p className="rounded-lg border border-amber-6/40 bg-amber-3/20 px-3 py-2 text-xs text-amber-11">
+            <div className="rounded-xl border border-dls-border/70 bg-dls-sidebar/40 px-3 py-2 text-xs leading-5 text-dls-secondary">
+              <p>
                 {actorDescription(payload)}
-                {payload.actionLabel ? ` ${payload.actionLabel}` : ""}
               </p>
-              {payload.diagnosticReferenceId ? (
-                <div className="flex min-w-0 items-center gap-2">
-                  <code className="min-w-0 truncate rounded-md bg-dls-sidebar/60 px-2 py-1 font-mono text-[11px] text-dls-secondary">
-                    {payload.diagnosticReferenceId}
-                  </code>
-                  <Button size="sm" variant="ghost" onClick={() => void copyDiagnostic()}>
-                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                    {copied ? "Copied" : "Copy reference"}
-                  </Button>
-                </div>
+              {payload.actionLabel ? (
+                <p className="mt-1 text-[11px] text-dls-tertiary">{payload.actionLabel}</p>
               ) : null}
             </div>
           )}
 
-          <Tool toolPart={part} title="Technical details" />
+          <Tool toolPart={part} title="Technical details" className="pt-0.5">
+            {payload.diagnosticReferenceId ? (
+              <div className="border-border/70 border-t pt-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-medium text-dls-secondary">
+                    Diagnostic reference
+                  </span>
+                  <code className="min-w-0 truncate rounded-md bg-dls-surface/80 px-2 py-1 font-mono text-[11px] text-dls-secondary">
+                    {payload.diagnosticReferenceId}
+                  </code>
+                  <Button size="xs" variant="ghost" onClick={() => void copyDiagnostic()}>
+                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                    {copied ? "Copied" : "Copy reference"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </Tool>
         </div>
       </div>
     </div>

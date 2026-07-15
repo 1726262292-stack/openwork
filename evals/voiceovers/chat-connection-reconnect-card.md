@@ -8,12 +8,12 @@ into an actionable card in the conversation, reusing the existing Connect
 machinery (`needsReconnect`, member-scoped non-destructive disconnect, the
 amber Reconnect row) — no new stores, no new API surface.
 
-1. I ask my agent to pull my latest meeting notes, not knowing the connector's login quietly expired behind the scenes.
+1. I ask the agent for my latest Granola notes.
 
-2. Instead of a wall of JSON, the chat shows me a card that says it plainly: Granola needs me to sign in again — with a Reconnect button right there in the conversation.
+2. A polished, compact connection card appears with a clear Granola identity, a calm status treatment, a concise explanation, and one obvious action: Reconnect.
 
-3. I click Reconnect and land on the Connections page with the broken connector highlighted, one click away from signing back in.
+3. Reconnect takes me directly to the highlighted Granola connection.
 
-4. When the problem isn't mine to fix, the card says so honestly — it names who has to act and hands me the diagnostic reference to copy for support.
+4. If Granola rejects authentication and the provider may be responsible, the card still lets me try reconnecting. It explains that if reconnecting fails again, Granola or my admin may need to fix the provider configuration.
 
-5. And for anyone who wants the raw details, the full technical payload is still one click away under a disclosure — nothing is hidden, it's just no longer the default.
+5. Technical details and the diagnostic reference remain available under a secondary disclosure without dominating the card.
