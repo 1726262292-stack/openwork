@@ -81,6 +81,7 @@ export type CloudMcpFailureCode =
   | "cloud_tools_denied"
   | "opencode_tool_ids_unsupported"
   | "opencode_tool_ids_unavailable"
+  | "probe_unreachable"
   | "cloud_tools_missing"
   | "provider_projection_unavailable"
   | "provider_projection_missing"
@@ -228,6 +229,7 @@ export type CloudMcpHealth = {
       present: string[];
       missing: string[];
       error?: unknown;
+      failure?: CloudMcpFailure;
     };
     providerProjection: {
       checked: boolean;
@@ -516,6 +518,38 @@ export const cloudMcpDeliveryState = new CloudMcpDeliveryStateStore();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type CloudProbeFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+let cloudProbeFetchPromise: Promise<CloudProbeFetch> | undefined;
+
+function globalCloudProbeFetch(input: string, init?: RequestInit): Promise<Response> {
+  return globalThis.fetch(input, init);
+}
+
+function hasElectronNetFetch(value: unknown): value is { net: { fetch: CloudProbeFetch } } {
+  return isRecord(value) && isRecord(value.net) && typeof value.net.fetch === "function";
+}
+
+async function resolveCloudProbeFetch(): Promise<CloudProbeFetch> {
+  if (!process.versions.electron) return globalCloudProbeFetch;
+  try {
+    const moduleName = "electron";
+    const mod: unknown = await import(moduleName);
+    if (hasElectronNetFetch(mod)) {
+      const { net } = mod;
+      return (input, init) => net.fetch(input, init);
+    }
+  } catch {
+    // Fall through to Node/Bun fetch when Electron is unavailable in tests or bundlers.
+  }
+  return globalCloudProbeFetch;
+}
+
+function cloudProbeFetch(input: string, init?: RequestInit): Promise<Response> {
+  cloudProbeFetchPromise ??= resolveCloudProbeFetch();
+  return cloudProbeFetchPromise.then((resolvedFetch) => resolvedFetch(input, init));
 }
 
 function hashString(value: string): string {
@@ -1068,7 +1102,7 @@ async function mcpJsonRpcPost(input: {
   headers: Record<string, string>;
   body: unknown;
 }): Promise<{ response: Response; payload: unknown }> {
-  const response = await withCloudEndpointProbeTimeout((signal) => fetch(input.url, {
+  const response = await withCloudEndpointProbeTimeout((signal) => cloudProbeFetch(input.url, {
     method: "POST",
     headers: input.headers,
     body: JSON.stringify(input.body),
@@ -1107,7 +1141,8 @@ function directToolsNotChecked(): DirectCloudToolsSnapshot {
 }
 
 function toolsFromDirectCloudTools(directTools: DirectCloudToolsSnapshot): ToolSnapshot {
-  if (directTools.checked && directTools.missing.length === 0) {
+  if (!directTools.checked) return { expected: expectedTools(), present: [], missing: [] };
+  if (directTools.missing.length === 0) {
     return splitPresentMissing(directTools.present.map(prefixedCloudToolId), expectedTools());
   }
   return splitPresentMissing([], expectedTools());
@@ -1163,7 +1198,7 @@ async function readDirectCloudTools(config: Record<string, unknown>): Promise<Di
       ...(sessionId ? { "mcp-session-id": sessionId } : {}),
       ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
     };
-    await withCloudEndpointProbeTimeout((signal) => fetch(url, {
+    await withCloudEndpointProbeTimeout((signal) => cloudProbeFetch(url, {
       method: "POST",
       headers: sessionHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
@@ -1194,12 +1229,18 @@ async function readDirectCloudTools(config: Record<string, unknown>): Promise<Di
     }
     return directToolsFromNames(toolNames.names);
   } catch (error) {
-    const failureResult = directCloudToolsFailure({
+    // Field incident (corporate Windows, TLS interception): a probe transport
+    // failure must never be reported as missing tools — the engine's own MCP
+    // connection uses a different network stack and is authoritative.
+    const failureResult = failure({
+      code: "probe_unreachable",
+      stage: "tool_registration",
       retryable: true,
-      message: "The OpenWork Cloud MCP endpoint direct tools/list probe did not complete.",
+      recommendedAction: "Check this machine's network path (proxy/TLS trust) to the Cloud MCP endpoint. The engine's own MCP connection is authoritative.",
+      message: "The OpenWork server could not reach the Cloud MCP endpoint for direct verification (transport error before any HTTP response). This does not indicate missing tools.",
       details: { endpoint, error: error instanceof Error ? error.message : String(error) },
     });
-    return { ...directToolsNotChecked(), checked: true, missing: expectedDirectToolNames(), error: failureResult.details, failure: failureResult };
+    return { ...directToolsNotChecked(), checked: false, missing: [], error: failureResult.details, failure: failureResult };
   }
 }
 
@@ -1565,7 +1606,10 @@ async function inspectOpenworkCloud(input: {
   const experimentalToolIds = experimentalToolIdsFromSplit(splitPresentMissing(ids, expectedTools()));
   const pluginCanaries = splitPresentMissing(ids, expectedCanaries());
   const directTools = await readDirectCloudTools(input.desiredConfig);
-  if (directTools.failure) failures.push(directTools.failure);
+  // The engine is authoritative; a probe-only transport failure must stay diagnostic and not veto steering/delivery.
+  if (directTools.failure && directTools.failure.code !== "probe_unreachable") {
+    failures.push(directTools.failure);
+  }
   const tools = toolsFromDirectCloudTools(directTools);
 
   const providerProjection = input.providerModel
@@ -1883,6 +1927,7 @@ export async function readOpenworkCloudMcpHealth(input: {
         present: inspection.directTools.present,
         missing: inspection.directTools.missing,
         ...(inspection.directTools.error ? { error: inspection.directTools.error } : {}),
+        ...(inspection.directTools.failure ? { failure: inspection.directTools.failure } : {}),
       },
       providerProjection: {
         checked: inspection.providerProjection.checked,

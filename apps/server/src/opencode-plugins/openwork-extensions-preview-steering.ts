@@ -42,6 +42,9 @@ export type OpenWorkCloudHealthSummary = {
   delivery?: {
     appliedRevision?: string | null;
   };
+  engine?: {
+    status?: string;
+  };
   firstFailure: {
     code: string;
     stage: string;
@@ -79,6 +82,9 @@ const cloudHealthSchema = z.object({
   }).passthrough(),
   delivery: z.object({
     appliedRevision: z.string().nullable().optional(),
+  }).passthrough().optional(),
+  engine: z.object({
+    status: z.string().optional(),
   }).passthrough().optional(),
   firstFailure: cloudFailureSchema.nullable(),
 }).passthrough();
@@ -243,6 +249,10 @@ export function composeOpenWorkExtensionDiscoveryInstruction(state: OpenWorkExte
   if (health?.phase === "engine_disabled" || health?.firstFailure?.code === "cloud_mcp_disabled") return OPENWORK_CONNECT_DISABLED_INSTRUCTION;
   if (health) {
     if (!health.desired.present || health.firstFailure?.code === "cloud_mcp_missing") return OPENWORK_CONNECT_SIGN_IN_INSTRUCTION;
+    if (health.engine?.status === "connected" && (health.firstFailure?.code === "probe_unreachable" || health.firstFailure?.code === "cloud_tools_missing")) {
+      // Field incident: the server probe may lack corporate CA trust, so fail open when the engine says MCP is connected.
+      return OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION;
+    }
     return degradedInstruction(health);
   }
   if (!state.connectCatalogEnabled || state.googleWorkspace.legacyConfigured) return OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION;

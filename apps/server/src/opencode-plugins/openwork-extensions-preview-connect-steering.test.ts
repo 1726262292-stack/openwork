@@ -130,6 +130,61 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
     })), connectCatalogEnabled: false })).toBe(OPENWORK_CONNECT_DISABLED_INSTRUCTION);
   });
 
+  test("fails open for probe-side failures when the engine is connected", () => {
+    expect(composeOpenWorkExtensionDiscoveryInstruction(state(health({
+      usable: false,
+      phase: "ready",
+      engine: { status: "connected" },
+      firstFailure: {
+        code: "probe_unreachable",
+        stage: "tool_registration",
+        recommendedAction: "Check network",
+        message: "probe failed",
+      },
+    })))).toBe(OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION);
+
+    expect(composeOpenWorkExtensionDiscoveryInstruction(state(health({
+      usable: false,
+      phase: "cloud_tools_missing",
+      engine: { status: "connected" },
+      firstFailure: {
+        code: "cloud_tools_missing",
+        stage: "tool_registration",
+        recommendedAction: "Run reconcile",
+        message: "missing",
+      },
+    })))).toBe(OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION);
+  });
+
+  test("keeps degraded steering for cloud_tools_missing unless the engine is connected", () => {
+    const withoutEngine = composeOpenWorkExtensionDiscoveryInstruction(state(health({
+      usable: false,
+      phase: "cloud_tools_missing",
+      firstFailure: {
+        code: "cloud_tools_missing",
+        stage: "tool_registration",
+        recommendedAction: "Run reconcile",
+        message: "missing",
+      },
+    })));
+    const failedEngine = composeOpenWorkExtensionDiscoveryInstruction(state(health({
+      usable: false,
+      phase: "cloud_tools_missing",
+      engine: { status: "failed" },
+      firstFailure: {
+        code: "cloud_tools_missing",
+        stage: "tool_registration",
+        recommendedAction: "Run reconcile",
+        message: "missing",
+      },
+    })));
+
+    expect(withoutEngine).toContain("Settings → Connect → Repair and test");
+    expect(withoutEngine).toContain("cloud_tools_missing");
+    expect(failedEngine).toContain("Settings → Connect → Repair and test");
+    expect(failedEngine).toContain("cloud_tools_missing");
+  });
+
   test("treats unknown workspace as degraded instead of borrowing another workspace", () => {
     const instruction = composeOpenWorkExtensionDiscoveryInstruction({
       ...state(null),
