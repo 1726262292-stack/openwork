@@ -6,20 +6,17 @@ import {
   $isRangeSelection,
   type LexicalNode,
 } from "lexical";
-
-export const PASTED_TEXT_INLINE_STYLE = "background-color: rgba(229, 231, 235, 0.6); border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; padding: 1px 2px;";
+import { PASTED_TEXT_INLINE_STYLE, splitPastedText } from "./pasted-text";
 
 function createStyledPastedTextNodes(text: string) {
   const nodes: LexicalNode[] = [];
-  const parts = text.split(/(\r?\n|\t)/);
-
-  for (const part of parts) {
-    if (part === "\n" || part === "\r\n") {
+  for (const segment of splitPastedText(text)) {
+    if (segment.kind === "line-break") {
       nodes.push($createLineBreakNode());
-    } else if (part === "\t") {
+    } else if (segment.kind === "tab") {
       nodes.push($createTabNode());
     } else {
-      const textNode = $createTextNode(part);
+      const textNode = $createTextNode(segment.text);
       textNode.setStyle(PASTED_TEXT_INLINE_STYLE);
       nodes.push(textNode);
     }
