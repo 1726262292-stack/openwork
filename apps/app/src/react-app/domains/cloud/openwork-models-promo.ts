@@ -3,6 +3,7 @@ import { INFERENCE_MODEL_ALIASES } from "@openwork/types/den/inference";
 import {
   buildDenAuthUrl,
   getDenInferenceUrl,
+  isSelfHostedControlPlane,
   readDenBootstrapConfig,
   readDenSettings,
 } from "../../../app/lib/den";
@@ -18,7 +19,12 @@ export const OPENWORK_MODELS_PROMO_VISIBLE_MS = 14_000;
 export const OPENWORK_MODELS_PROMO_REPEAT_MS = 6 * 60 * 60 * 1000;
 
 export function areOpenWorkModelsPromosDisabled() {
-  return /^(1|true|yes|on)$/i.test(String(import.meta.env.VITE_DISABLE_OPENWORK_MODELS ?? "").trim());
+  if (/^(1|true|yes|on)$/i.test(String(import.meta.env.VITE_DISABLE_OPENWORK_MODELS ?? "").trim())) {
+    return true;
+  }
+  // OpenWork Models are a hosted OpenWork Cloud offering; self-hosted
+  // deployments should never see the upsell surfaces.
+  return isSelfHostedControlPlane();
 }
 
 export type OpenWorkModelPreview = {

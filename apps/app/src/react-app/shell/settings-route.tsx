@@ -130,6 +130,7 @@ import { useCheckDesktopRestriction, useDesktopConfig } from "@/react-app/domain
 import { useRestrictionNotice } from "@/react-app/domains/cloud/restriction-notice-provider";
 import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
 import {
+  areOpenWorkModelsPromosDisabled,
   hasOpenWorkModelsProvider,
   hideOpenWorkModelsPromo,
   isOpenWorkModelsPromoHidden,
@@ -734,7 +735,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     (cloudSession.isSignedIn && hasOpenWorkCloudProvider) ||
     hasOpenWorkModelsProvider(providerConnectedIds);
   const showOpenWorkModelsSubscribe = !openWorkModelsConnected && !openWorkModelsPromoHidden;
-  const showOpenWorkModelsConnect = !openWorkModelsConnected && openWorkModelsPromoHidden;
+  const showOpenWorkModelsConnect =
+    !openWorkModelsConnected && openWorkModelsPromoHidden && !areOpenWorkModelsPromosDisabled();
 
   useEffect(() => {
     const handlePromoChanged = () => setOpenWorkModelsPromoHidden(isOpenWorkModelsPromoHidden());

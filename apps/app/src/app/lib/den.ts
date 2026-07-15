@@ -466,6 +466,19 @@ export function denOriginComparisonKey(input: string | null | undefined): string
   }
 }
 
+/**
+ * True when the effective Den control plane is not the hosted OpenWork Cloud
+ * (app.openworklabs.com). Self-hosted deployments point the app at their own
+ * control plane via VITE_DEN_BASE_URL or the desktop bootstrap config, so
+ * hosted-only surfaces (e.g. OpenWork Models upsells) should stay hidden.
+ */
+export function isSelfHostedControlPlane(): boolean {
+  return (
+    denOriginComparisonKey(readDenSettings().baseUrl) !==
+    denOriginComparisonKey(HOSTED_DEFAULT_DEN_BASE_URL)
+  );
+}
+
 export function getDenInferenceUrl(baseUrl?: string | null): string {
   const normalized = normalizeDenBaseUrl(baseUrl ?? readDenSettings().baseUrl) ?? DEFAULT_DEN_BASE_URL;
   return `${normalized}${DEN_INFERENCE_PATH}`;
