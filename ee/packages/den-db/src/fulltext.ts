@@ -23,9 +23,10 @@ async function memoryFulltextIndexExists(executor: FulltextIndexExecutor): Promi
  * Idempotently create the FULLTEXT index on `memory.content`.
  *
  * This MUST run on a path both the fresh-install bootstrap and the incremental migrate
- * paths hit: `drizzle-kit push` cannot emit a raw FULLTEXT index and the baseline step
- * marks migrations applied-without-executing, so a migration-only index is silently
- * absent on freshly bootstrapped databases (memory-bank-architecture.md §3, B2).
+ * paths hit: Drizzle's schema snapshot/push cannot emit a raw FULLTEXT index and
+ * the baseline step marks migrations applied-without-executing, so a
+ * migration-only index is silently absent on freshly bootstrapped databases
+ * (memory-bank-architecture.md §3, B2).
  */
 export async function ensureMemoryFulltextIndex(
   executor: FulltextIndexExecutor,
