@@ -50,8 +50,17 @@ export function startDenStub(port = DEN_STUB_PORT) {
     // The den client requests API routes under the `/api/den` proxy prefix.
     const rawPathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     const pathname = rawPathname.replace(/^\/api\/den(?=\/)/, "");
+    console.log(`${new Date().toISOString()} ${req.method} ${rawPathname}`);
     if (req.method === "GET" && pathname === "/v1/me") {
       respond(200, { user: { id: "usr_eval", email: "jonas@example.com", name: "Jonas Nielsen" } });
+      return;
+    }
+    if (req.method === "GET" && pathname === "/v1/me/orgs") {
+      respond(200, {
+        orgs: [{ id: "org_eval", name: DEN_STUB_ORG_NAME, slug: "eval-org", role: "member" }],
+        activeOrgId: "org_eval",
+        activeOrgSlug: "eval-org",
+      });
       return;
     }
     if (req.method === "GET" && pathname === "/v1/llm-providers") {
