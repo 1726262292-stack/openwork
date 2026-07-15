@@ -22,6 +22,7 @@ export type ConnectionStatusPayload = {
   actor: string | null;
   actionLabel: string | null;
   diagnosticReferenceId: string | null;
+  serviceUrl: string | null;
   /** The member can attempt reconnect by re-running OAuth for their own account. */
   canAttemptReconnect: boolean;
 };
@@ -37,7 +38,7 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function parseCandidate(value: unknown): ConnectionStatusPayload | null {
+function parseCandidate(value: unknown, serviceUrl: string | null): ConnectionStatusPayload | null {
   if (!isRecord(value)) return null;
   const connectionName = asString(value.connectionName);
   const state = asString(value.state);
@@ -60,19 +61,20 @@ function parseCandidate(value: unknown): ConnectionStatusPayload | null {
     actor,
     actionLabel: action ? asString(action.label) : null,
     diagnosticReferenceId: diagnostic ? asString(diagnostic.referenceId) : null,
+    serviceUrl,
     canAttemptReconnect: credentialMode === "per_member" && state === "reauth_required",
   };
 }
 
 function findConnectionStatus(root: unknown): ConnectionStatusPayload | null {
   if (!isRecord(root)) return null;
-  const direct = parseCandidate(root.connectionStatus);
+  const direct = parseCandidate(root.connectionStatus, null);
   if (direct) return direct;
   const matches = Array.isArray(root.matches) ? root.matches : [];
   for (const match of matches) {
     if (!isRecord(match)) continue;
     if (match.kind !== "connection_status") continue;
-    const parsed = parseCandidate(match.connectionStatus);
+    const parsed = parseCandidate(match.connectionStatus, asString(match.path));
     if (parsed) return parsed;
   }
   return null;

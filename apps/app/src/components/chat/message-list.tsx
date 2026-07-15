@@ -906,6 +906,7 @@ function connectionStatusEvalToolPart(fixture: Exclude<ConnectionStatusEvalFixtu
       matches: [{
         kind: "connection_status",
         status: "error",
+        path: "https://mcp.granola.ai/mcp",
         connectionStatus,
       }],
     }),

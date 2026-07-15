@@ -17,6 +17,7 @@ const providerAdminSearchResult = {
       summary: "[Granola] This connection is set up but returned an error.",
       kind: "connection_status",
       status: "error",
+      path: "https://mcp.granola.ai/mcp",
       connectionStatus: {
         layer: "mcp_connection",
         connectionId: "emc_01xxxxxxxxxxxxxxxxxxxxxxxx",
@@ -78,12 +79,14 @@ describe("parseConnectionStatusPayload", () => {
     expect(payload?.actor).toBe("provider_admin");
     expect(payload?.actionLabel).toBe("Inspect provider and proxy logs for the failing HTTP request.");
     expect(payload?.diagnosticReferenceId).toBe("a0b58150-7bad-4a37-ba36-c4260f444a8d");
+    expect(payload?.serviceUrl).toBe("https://mcp.granola.ai/mcp");
     expect(payload?.canAttemptReconnect).toBe(true);
   });
 
   test("offers reconnect for member-actionable per-member reauth", () => {
     const payload = parseConnectionStatusPayload(memberReconnectResult);
     expect(payload?.connectionName).toBe("Slack");
+    expect(payload?.serviceUrl).toBeNull();
     expect(payload?.canAttemptReconnect).toBe(true);
   });
 
@@ -139,6 +142,7 @@ describe("parseConnectionStatusPayload", () => {
       },
     });
     expect(payload?.connectionName).toBe("Notion");
+    expect(payload?.serviceUrl).toBeNull();
     expect(payload?.canAttemptReconnect).toBe(true);
   });
 

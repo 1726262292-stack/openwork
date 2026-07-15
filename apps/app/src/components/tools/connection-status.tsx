@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { Check, Copy, Unplug } from "lucide-react"
+import { Check, Copy } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
 import { Tool, type ToolPart } from "@/components/ui/tool"
+import { resolveExtensionIconUrl } from "@/react-app/design-system/extension-icon-src"
 import type { ConnectionStatusPayload } from "@/react-app/domains/connections/connection-status-payload"
 
 interface ConnectionStatusToolProps {
@@ -39,7 +40,10 @@ function isMemberReconnect(payload: ConnectionStatusPayload): boolean {
 export function ConnectionStatusTool({ part, payload }: ConnectionStatusToolProps) {
   const navigate = useNavigate()
   const [copied, setCopied] = React.useState(false)
+  const [failedIconUrl, setFailedIconUrl] = React.useState<string | null>(null)
   const memberReconnect = isMemberReconnect(payload)
+  const iconUrl = resolveExtensionIconUrl({ serviceUrl: payload.serviceUrl ?? undefined })
+  const showLogo = iconUrl ? failedIconUrl !== iconUrl : false
   const title = payload.canAttemptReconnect
     ? memberReconnect
       ? `${payload.connectionName} needs you to sign in again`
@@ -74,70 +78,73 @@ export function ConnectionStatusTool({ part, payload }: ConnectionStatusToolProp
     <div
       data-testid="connection-status-card"
       data-connection-name={payload.connectionName}
-      className="not-prose w-full max-w-lg rounded-2xl border border-dls-border bg-dls-surface/95 p-3.5 shadow-sm"
+      className="not-prose w-full max-w-lg py-1"
     >
       <div className="flex items-start gap-3.5">
-        <div className="relative flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dls-border bg-dls-sidebar/70 text-base font-semibold text-dls-primary shadow-sm">
-          {payload.connectionName.slice(0, 1).toUpperCase()}
-          <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full border border-dls-surface bg-amber-3 text-amber-11">
-            <Unplug className="size-2.5" />
-          </span>
+        <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-dls-sidebar/70 text-base font-semibold text-dls-primary">
+          {showLogo && iconUrl ? (
+            <img
+              alt=""
+              aria-hidden="true"
+              className="size-full object-cover"
+              src={iconUrl}
+              onError={() => setFailedIconUrl(iconUrl)}
+            />
+          ) : (
+            payload.connectionName.slice(0, 1).toUpperCase()
+          )}
         </div>
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-0.5">
-              <p className="text-[11px] font-medium tracking-[0.16em] text-dls-tertiary uppercase">
-                Cloud connection
-              </p>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2">
               <h3 className="truncate text-base leading-5 font-semibold text-dls-primary">
                 {payload.connectionName}
               </h3>
+              <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-dls-secondary">
+                <span className="size-1.5 rounded-full bg-amber-9" />
+                {statusLabel}
+              </span>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-6/35 bg-amber-3/20 px-2 py-0.5 text-[11px] font-medium text-amber-11">
-              <span className="size-1.5 rounded-full bg-amber-9" />
-              {statusLabel}
-            </span>
-          </div>
-
-          <div className="space-y-1">
             <p className="text-sm leading-5 font-medium text-dls-primary">{title}</p>
             <p className="text-xs leading-5 text-dls-secondary">{description}</p>
           </div>
 
           {payload.canAttemptReconnect ? (
-            <Button
-              size="sm"
-              onClick={() =>
-                navigate("/settings/connect", {
-                  state: { focusConnection: payload.connectionName },
-                })
-              }
-            >
-              {reconnectLabel}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() =>
+                  navigate("/settings/connect", {
+                    state: { focusConnection: payload.connectionName },
+                  })
+                }
+              >
+                {reconnectLabel}
+              </Button>
+            </div>
           ) : (
-            <div className="rounded-xl border border-dls-border/70 bg-dls-sidebar/40 px-3 py-2 text-xs leading-5 text-dls-secondary">
+            <div className="flex flex-col gap-1 text-xs leading-5 text-dls-secondary">
               <p>
                 {actorDescription(payload)}
               </p>
               {payload.actionLabel ? (
-                <p className="mt-1 text-[11px] text-dls-tertiary">{payload.actionLabel}</p>
+                <p className="text-[11px] text-dls-tertiary">{payload.actionLabel}</p>
               ) : null}
             </div>
           )}
 
           <Tool toolPart={part} title="Technical details" className="pt-0.5">
             {payload.diagnosticReferenceId ? (
-              <div className="border-border/70 border-t pt-2">
+              <div className="flex flex-col gap-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="text-[11px] font-medium text-dls-secondary">
                     Diagnostic reference
                   </span>
-                  <code className="min-w-0 truncate rounded-md bg-dls-surface/80 px-2 py-1 font-mono text-[11px] text-dls-secondary">
+                  <code className="min-w-0 truncate font-mono text-[11px] text-dls-secondary">
                     {payload.diagnosticReferenceId}
                   </code>
                   <Button size="xs" variant="ghost" onClick={() => void copyDiagnostic()}>
-                    {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                    {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
                     {copied ? "Copied" : "Copy reference"}
                   </Button>
                 </div>
