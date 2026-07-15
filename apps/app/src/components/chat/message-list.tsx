@@ -25,6 +25,7 @@ import { openDesktopUrl } from "@/app/lib/desktop"
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
+import { ConnectionStatusTool } from "@/components/tools/connection-status"
 import { EditTool } from "@/components/tools/edit"
 import { EnvVarRequestTool } from "@/components/tools/env-var-request"
 import { ReadFileTool, WriteFileTool } from "@/components/tools/file"
@@ -77,6 +78,7 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
+import { getConnectionStatusFromToolPart } from "@/react-app/domains/connections/connection-status-payload"
 import {
   collectToolParts,
   getActiveToolLabel,
@@ -190,6 +192,13 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (isEnvVarRequestToolPart(part)) {
     return <EnvVarRequestTool part={part} />
+  }
+
+  // Cloud capability results carrying a broken connection status render as
+  // an actionable reconnect card instead of raw JSON.
+  const connectionStatus = getConnectionStatusFromToolPart(part)
+  if (connectionStatus) {
+    return <ConnectionStatusTool part={part} payload={connectionStatus} />
   }
 
   return <Tool toolPart={part} />

@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Activity, ArrowUpRight } from "lucide-react";
 import type { AgentContextDiagnosticsReport } from "@openwork/types/agent-context-diagnostics";
 
@@ -599,6 +600,7 @@ function ConnectOrganizationRow(props: {
     <div
       data-testid="connect-organization-row"
       data-connect-row-kind={row.kind}
+      data-connection-name={row.name}
       className="flex items-center gap-3 rounded-xl border border-dls-border bg-dls-surface px-3 py-3"
     >
       <ConnectRowIcon
@@ -795,7 +797,54 @@ function ConnectPitchPanel() {
   );
 }
 
+/**
+ * When the chat's connection-status card deep-links here it passes the
+ * connector name via location state. Scroll that row into view and flash a
+ * highlight ring so the user lands directly on the thing to fix. Rows render
+ * after connections load, so retry briefly instead of assuming presence.
+ */
+function useFocusConnectionFromLocation() {
+  const location = useLocation();
+  const rawState: unknown = location.state;
+  const focusConnection =
+    typeof rawState === "object"
+    && rawState !== null
+    && "focusConnection" in rawState
+    && typeof rawState.focusConnection === "string"
+    && rawState.focusConnection.trim()
+      ? rawState.focusConnection
+      : null;
+
+  useEffect(() => {
+    if (!focusConnection) return;
+    let cancelled = false;
+    let attempts = 0;
+    let timer: number | null = null;
+    const highlightClasses = ["ring-2", "ring-amber-8", "ring-offset-2"];
+    const tryHighlight = () => {
+      if (cancelled) return;
+      const row = document.querySelector(
+        `[data-testid="connect-organization-row"][data-connection-name="${CSS.escape(focusConnection)}"]`,
+      );
+      if (row instanceof HTMLElement) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        row.classList.add(...highlightClasses);
+        timer = window.setTimeout(() => row.classList.remove(...highlightClasses), 2600);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 20) timer = window.setTimeout(tryHighlight, 250);
+    };
+    tryHighlight();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [focusConnection]);
+}
+
 export function ConnectView(props: ConnectViewProps) {
+  useFocusConnectionFromLocation();
   const denAuth = useDenAuth();
   const desktopConfig = useDesktopConfig();
   const connectEnabled = useConnectEnabled();
