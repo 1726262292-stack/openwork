@@ -192,10 +192,27 @@ export function isCloudMcpAuthTokenFailureCode(code: string | null | undefined):
   return normalized === "openwork_cloud_auth_required" ||
     normalized === "openwork_cloud_auth_invalid" ||
     normalized === "openwork_cloud_token_expired" ||
+    // The Den rejects an expired/missing first-party bearer with exactly these
+    // codes; the `_mcp_` infix means the `invalid_token` substring below never
+    // matches them (field incident: token sat expired for 7 days because the
+    // remint retry never fired).
+    normalized === "invalid_mcp_token" ||
+    normalized === "missing_mcp_token" ||
     normalized.includes("invalid_token") ||
     normalized.includes("unauthorized") ||
     normalized.includes("expired") ||
     normalized.includes("auth");
+}
+
+/**
+ * Health failures carry the primary `code` plus optional `aliases` (e.g. the
+ * direct-probe 401 reports code `invalid_mcp_token` with alias
+ * `openwork_cloud_token_expired`). Remint decisions must consider both.
+ */
+export function isCloudMcpAuthTokenFailure(failure: Pick<OpenworkCloudMcpFailure, "code" | "aliases"> | null | undefined): boolean {
+  if (!failure) return false;
+  if (isCloudMcpAuthTokenFailureCode(failure.code)) return true;
+  return (failure.aliases ?? []).some((alias) => isCloudMcpAuthTokenFailureCode(alias));
 }
 
 function shouldSkipForPrerequisite(input: CloudMcpReconcilerInput, scope: CloudMcpScope): CloudMcpOperationResult | null {
@@ -274,7 +291,7 @@ async function repairCloudMcp(input: CloudMcpReconcilerInput, scope: CloudMcpSco
   let health = first.health;
   let token = first.token;
   let reminted = false;
-  if (isCloudMcpAuthTokenFailureCode(health?.firstFailure?.code)) {
+  if (isCloudMcpAuthTokenFailure(health?.firstFailure)) {
     const second = await mintAndPost(input, scope);
     attempts += 1;
     reminted = true;
