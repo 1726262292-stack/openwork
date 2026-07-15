@@ -47,7 +47,9 @@ export function startDenStub(port = DEN_STUB_PORT) {
       res.end();
       return;
     }
-    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    // The den client requests API routes under the `/api/den` proxy prefix.
+    const rawPathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    const pathname = rawPathname.replace(/^\/api\/den(?=\/)/, "");
     if (req.method === "GET" && pathname === "/v1/me") {
       respond(200, { user: { id: "usr_eval", email: "jonas@example.com", name: "Jonas Nielsen" } });
       return;
