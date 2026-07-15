@@ -32,6 +32,8 @@ export default {
   id: FLOW_ID,
   title: "Connect-mode delivery switch moves marketplace plugins from desktop import to the cloud rail",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 3,
   spec: "evals/voiceovers/connect-delivery-switch.md",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",

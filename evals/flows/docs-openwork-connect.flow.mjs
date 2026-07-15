@@ -69,6 +69,8 @@ export default {
   id: "docs-openwork-connect",
   title: "Use the OpenWork Connect installer from the docs or landing page",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 7,
   preserveTheme: true,
   requiredEnv: ["OPENWORK_EVAL_DOCS_URL", "OPENWORK_EVAL_LANDING_URL"],
   steps: [

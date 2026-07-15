@@ -8,6 +8,7 @@
  * Usage:
  *   node evals/runner/run.mjs --list
  *   node evals/runner/run.mjs --flow app-smoke [--flow another]
+ *   node evals/runner/run.mjs --suite nightly-connect [--suite another]
  *   node evals/runner/run.mjs --all
  *   node evals/runner/run.mjs --all --cdp-url http://127.0.0.1:9825
  *   node evals/runner/run.mjs --all --stack den   # bring up MySQL + den-api +
@@ -18,7 +19,7 @@
  * http://127.0.0.1:9823 (local pnpm dev). Override with --cdp-url or
  * OPENWORK_EVAL_CDP_URL.
  */
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { connect, debuggerUrlFor, pickAppTarget, resolveCdpBaseUrl } from "./cdp.mjs";
@@ -33,10 +34,16 @@ const DEFAULT_RESULTS_DIR = join(RUNNER_DIR, "..", "results");
 const DEFAULT_CDP_CANDIDATES = ["http://127.0.0.1:9825", "http://127.0.0.1:9823"];
 
 function parseArgs(argv) {
-  const args = { flows: [], all: false, list: false, cdpUrl: null, out: null, stack: null, stackDown: false, scaffold: null, force: false, pr: null };
+  const args = { flows: [], suites: [], all: false, list: false, cdpUrl: null, out: null, stack: null, stackDown: false, scaffold: null, force: false, pr: null, maxSkips: null };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--flow") args.flows.push(argv[++index]);
+    else if (value === "--suite") args.suites.push(argv[++index]);
+    else if (value === "--max-skips") {
+      const next = argv[++index];
+      if (!/^\d+$/.test(next ?? "")) throw new Error("--max-skips expects a number");
+      args.maxSkips = Number(next);
+    }
     else if (value === "--all") args.all = true;
     else if (value === "--list") args.list = true;
     else if (value === "--cdp-url") args.cdpUrl = argv[++index];
@@ -72,23 +79,51 @@ async function loadFlows() {
     if (flow.kind !== undefined && flow.kind !== "user-facing" && flow.kind !== "internal") {
       throw new Error(`Flow file ${entry} has invalid kind ${JSON.stringify(flow.kind)}. Use "user-facing" (flow demo) or "internal" (internal demo, e.g. perf).`);
     }
+    if (flow.suite != null && (typeof flow.suite !== "string" || !flow.suite.trim())) {
+      throw new Error(`Flow file ${entry} has invalid suite ${JSON.stringify(flow.suite)}. Use a non-empty string (e.g. "nightly-connect").`);
+    }
+    if (flow.suiteOrder !== undefined && typeof flow.suiteOrder !== "number") {
+      throw new Error(`Flow file ${entry} has invalid suiteOrder ${JSON.stringify(flow.suiteOrder)}. Use a number.`);
+    }
     flows.push({ ...flow, file: entry });
   }
   return flows;
 }
 
-async function selectedStackNeedsApp(args) {
-  if (args.list) return false;
-  if (args.all || args.flows.length === 0) return true;
-  for (const flowId of args.flows) {
-    try {
-      const source = await readFile(join(FLOWS_DIR, `${flowId}.flow.mjs`), "utf8");
-      if (!/requiresApp\s*:\s*false/.test(source)) return true;
-    } catch {
-      return true;
+function suiteFlows(flows, suite) {
+  // Journey order within a suite: explicit suiteOrder first, then id.
+  return flows
+    .filter((flow) => flow.suite === suite)
+    .sort((a, b) =>
+      (a.suiteOrder ?? Number.MAX_SAFE_INTEGER) - (b.suiteOrder ?? Number.MAX_SAFE_INTEGER)
+      || a.id.localeCompare(b.id));
+}
+
+function selectFlows(flows, args) {
+  if (args.all) return flows;
+  const known = new Set(flows.map((flow) => flow.suite).filter(Boolean));
+  for (const suite of args.suites) {
+    if (!known.has(suite)) {
+      throw new Error(`Unknown suite: ${suite}. Available suites: ${[...known].sort().join(", ") || "(none tagged yet)"}`);
     }
   }
-  return false;
+  const selected = [];
+  const seen = new Set();
+  for (const suite of args.suites) {
+    for (const flow of suiteFlows(flows, suite)) {
+      if (!seen.has(flow.id)) {
+        seen.add(flow.id);
+        selected.push(flow);
+      }
+    }
+  }
+  for (const flow of flows) {
+    if (args.flows.includes(flow.id) && !seen.has(flow.id)) {
+      seen.add(flow.id);
+      selected.push(flow);
+    }
+  }
+  return selected;
 }
 
 function missingEnv(flow, env) {
@@ -101,6 +136,7 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
     title: flow.title,
     spec: flow.spec ?? null,
     kind: flow.kind ?? null,
+    suite: flow.suite ?? null,
     status: "passed",
     skipReason: null,
     steps: [],
@@ -233,6 +269,7 @@ function renderMarkdown(report) {
     const icon = flow.status === "passed" ? "✅" : flow.status === "skipped" ? "⏭️" : "❌";
     lines.push(`## ${icon} ${flow.id} — ${flow.title}`);
     if (flow.kind) lines.push(`Kind: ${flow.kind === "user-facing" ? "user-facing flow demo" : "internal demo"}`);
+    if (flow.suite) lines.push(`Suite: ${flow.suite}`);
     if (flow.spec) lines.push(`Spec: ${flow.spec}`);
     if (flow.skipReason) lines.push(`Skipped: ${flow.skipReason}`);
     lines.push("");
@@ -284,6 +321,7 @@ function renderFrameIndex(report) {
       <section data-flow="${escapeHtml(flow.id)}">
         <h2>${escapeHtml(flow.id)} - ${escapeHtml(flow.title)}</h2>
         <p>${flowKindBadge(flow.kind)} <button type="button" class="speak-all" data-flow-id="${escapeHtml(flow.id)}">▶ Play full voiceover</button></p>
+        ${flow.suite ? `<p class="muted">Suite: ${escapeHtml(flow.suite)}</p>` : ""}
         ${flow.spec ? `<p class="muted">Spec: ${escapeHtml(flow.spec)}</p>` : ""}
         ${flow.skipReason ? `<p class="skipped">Skipped: ${escapeHtml(flow.skipReason)}</p>` : ""}
         <div class="steps">${steps}</div>
@@ -425,7 +463,7 @@ function renderEvidence(evidence) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log("Usage: node evals/runner/run.mjs [--list | --all | --flow <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--out <dir>] [--pr [number]] [--stack den | --stack-down]");
+    console.log("Usage: node evals/runner/run.mjs [--list | --all | --flow <id> ... | --suite <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--out <dir>] [--pr [number]] [--max-skips <n>] [--stack den | --stack-down]");
     return;
   }
 
@@ -441,35 +479,42 @@ async function main() {
     return;
   }
 
-  if (args.stack === "den") {
-    await ensureDenStack({
-      log: (msg) => console.log(`▸ ${msg}`),
-      cdpCandidates: args.cdpUrl ? [args.cdpUrl] : DEFAULT_CDP_CANDIDATES,
-      skipApp: !(await selectedStackNeedsApp(args)),
-    });
-  } else if (args.stack) {
-    throw new Error(`Unknown stack: ${args.stack}. Supported: den`);
-  }
-
   const flows = await loadFlows();
 
   if (args.list) {
-    for (const flow of flows) {
+    const listed = args.suites.length > 0
+      ? [...new Set(args.suites.flatMap((suite) => suiteFlows(flows, suite)))]
+      : flows;
+    for (const flow of listed) {
+      const suite = flow.suite ? ` [suite: ${flow.suite}]` : "";
       const gates = flow.requiredEnv?.length ? ` (requires env: ${flow.requiredEnv.join(", ")})` : "";
-      console.log(`${flow.id} — ${flow.title}${gates}`);
+      console.log(`${flow.id} — ${flow.title}${suite}${gates}`);
+    }
+    const suites = [...new Set(flows.map((flow) => flow.suite).filter(Boolean))].sort();
+    if (args.suites.length === 0 && suites.length > 0) {
+      console.log("");
+      console.log(`Suites: ${suites.join(", ")}`);
     }
     return;
   }
 
-  const selected = args.all
-    ? flows
-    : flows.filter((flow) => args.flows.includes(flow.id));
+  const selected = selectFlows(flows, args);
   if (selected.length === 0) {
     throw new Error(
-      args.flows.length > 0
-        ? `No flows matched: ${args.flows.join(", ")}. Use --list to see available flows.`
-        : "Nothing to run. Pass --all, or --flow <id>. Use --list to see available flows.",
+      args.flows.length > 0 || args.suites.length > 0
+        ? `No flows matched: ${[...args.flows, ...args.suites].join(", ")}. Use --list to see available flows and suites.`
+        : "Nothing to run. Pass --all, --suite <id>, or --flow <id>. Use --list to see available flows.",
     );
+  }
+
+  if (args.stack === "den") {
+    await ensureDenStack({
+      log: (msg) => console.log(`▸ ${msg}`),
+      cdpCandidates: args.cdpUrl ? [args.cdpUrl] : DEFAULT_CDP_CANDIDATES,
+      skipApp: !selected.some((flow) => flow.requiresApp !== false),
+    });
+  } else if (args.stack) {
+    throw new Error(`Unknown stack: ${args.stack}. Supported: den`);
   }
 
   // App-less flows (requiresApp: false) don't need a CDP endpoint; only probe
@@ -528,6 +573,14 @@ async function main() {
       prNumber: args.pr === true ? null : args.pr,
     });
     console.log(posted ? `PR comment posted: ${detail}` : `PR comment NOT posted (${detail}). Body written to ${bodyPath}`);
+  }
+
+  // Scheduled runs treat excessive skips as a failure: a nightly that
+  // silently skips half its coverage (missing env, misconfigured stack)
+  // should page someone, not report green.
+  if (args.maxSkips !== null && report.summary.skipped > args.maxSkips) {
+    console.error(`Skip budget exceeded: ${report.summary.skipped} flows skipped (budget ${args.maxSkips}). Check the stack env (see report.md for each skip reason).`);
+    process.exit(1);
   }
 
   if (report.summary.failed > 0) process.exit(1);

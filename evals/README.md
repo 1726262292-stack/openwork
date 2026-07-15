@@ -22,10 +22,29 @@ reports with screenshots. The runner also writes a browseable frame-by-frame
 `index.html` in each result directory.
 
 ```bash
-pnpm evals --list                 # show available coded flows
+pnpm evals --list                 # show available coded flows and suites
 pnpm evals --all                  # run everything runnable
 pnpm evals --flow app-smoke       # run one flow
+pnpm evals --suite nightly-connect  # run a named suite in journey order
 pnpm evals --all --cdp-url http://127.0.0.1:9825   # explicit CDP endpoint
+```
+
+### Suites — unified journeys for scheduled runs
+
+Related flows are grouped into named **suites** so scheduled (e.g. nightly)
+runs exercise a whole product journey in one command instead of cherry-picking
+flow ids. A flow opts in with `suite: "<suite-id>"` and an optional
+`suiteOrder: <number>` that fixes its position in the journey (untagged order
+falls back to flow id). `--suite` can be passed multiple times; suites run in
+the order given and `--list --suite <id>` shows a suite's journey order.
+
+The suite catalog, journey order, environments, and overnight scheduling
+live in [`nightly-suites.md`](./nightly-suites.md). The whole nightly set
+runs with one command:
+
+```bash
+pnpm evals:nightly                  # den stack + all eight suites
+pnpm evals:nightly --max-skips 40   # fail loudly when skips exceed budget
 ```
 
 ### fraimz — the deliverable

@@ -220,6 +220,8 @@ export default {
   id: FLOW_ID,
   title: "Settings Connect audits effective agent and MCP injection with a reality-backed bounded diagnostics report",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 5,
   spec: "evals/voiceovers/connect-agent-diagnostics.md",
   steps: [
     {

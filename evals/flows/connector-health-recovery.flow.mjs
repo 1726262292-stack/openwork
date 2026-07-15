@@ -53,6 +53,8 @@ export default {
   id: FLOW_ID,
   title: "OpenWork Cloud identifies and recovers any unhealthy downstream connector",
   kind: "internal",
+  suite: "nightly-connect",
+  suiteOrder: 10,
   requiresApp: false,
   steps: [
     {

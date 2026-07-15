@@ -226,6 +226,8 @@ export default {
   id: FLOW_ID,
   title: "Signed-in users see non-blocking OpenWork Connect lifecycle health",
   kind: "user-facing",
+  suite: "nightly-connect",
+  suiteOrder: 6,
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL"],
   steps: [
     { name: "Setup signed-in Connect status", run: setup },
