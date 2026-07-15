@@ -108,8 +108,8 @@ async function ensureWorkspace(ctx) {
   await ctx.clickText("Continue with organization", { timeoutMs: 8_000 }).catch(() => {});
   await ctx.clickText("Continue to workspace", { timeoutMs: 10_000 }).catch(() => {});
   await ctx.waitFor(
-    "window.location.hash.includes('/workspace/') || Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]'))",
-    { timeoutMs: 30_000, label: "workspace route or folder form" },
+    "window.location.hash.includes('/workspace/') || Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]')) || document.body.innerText.includes('Skip and use the free model')",
+    { timeoutMs: 30_000, label: "workspace, folder form, or model onboarding" },
   );
   const needsFolder = await ctx.eval("Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]'))").catch(() => false);
   if (needsFolder) {
