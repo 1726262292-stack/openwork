@@ -38,15 +38,14 @@ flow ids. A flow opts in with `suite: "<suite-id>"` and an optional
 falls back to flow id). `--suite` can be passed multiple times; suites run in
 the order given and `--list --suite <id>` shows a suite's journey order.
 
-Current suites:
+The suite catalog, journey order, environments, and overnight scheduling
+live in [`nightly-suites.md`](./nightly-suites.md). The whole nightly set
+runs with one command:
 
-- `nightly-connect` — OpenWork Connect end to end: the desktop Connect tab
-  pitch and org MCP cards, cloud/desktop capability partition, delivery
-  switch, legacy extension gating, agent diagnostics, lifecycle status,
-  docs/landing installer, keyless Den connect, the full
-  landing-to-OAuth-to-MCP reliability journey, and connector health recovery.
-  Env-gated members (Den API/web, docs/landing URLs) skip cleanly when the
-  environment is not provided.
+```bash
+pnpm evals:nightly                  # den stack + all eight suites
+pnpm evals:nightly --max-skips 40   # fail loudly when skips exceed budget
+```
 
 ### fraimz — the deliverable
 

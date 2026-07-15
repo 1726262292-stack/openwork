@@ -34,11 +34,16 @@ const DEFAULT_RESULTS_DIR = join(RUNNER_DIR, "..", "results");
 const DEFAULT_CDP_CANDIDATES = ["http://127.0.0.1:9825", "http://127.0.0.1:9823"];
 
 function parseArgs(argv) {
-  const args = { flows: [], suites: [], all: false, list: false, cdpUrl: null, out: null, stack: null, stackDown: false, scaffold: null, force: false, pr: null };
+  const args = { flows: [], suites: [], all: false, list: false, cdpUrl: null, out: null, stack: null, stackDown: false, scaffold: null, force: false, pr: null, maxSkips: null };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--flow") args.flows.push(argv[++index]);
     else if (value === "--suite") args.suites.push(argv[++index]);
+    else if (value === "--max-skips") {
+      const next = argv[++index];
+      if (!/^\d+$/.test(next ?? "")) throw new Error("--max-skips expects a number");
+      args.maxSkips = Number(next);
+    }
     else if (value === "--all") args.all = true;
     else if (value === "--list") args.list = true;
     else if (value === "--cdp-url") args.cdpUrl = argv[++index];
@@ -458,7 +463,7 @@ function renderEvidence(evidence) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log("Usage: node evals/runner/run.mjs [--list | --all | --flow <id> ... | --suite <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--out <dir>] [--pr [number]] [--stack den | --stack-down]");
+    console.log("Usage: node evals/runner/run.mjs [--list | --all | --flow <id> ... | --suite <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--out <dir>] [--pr [number]] [--max-skips <n>] [--stack den | --stack-down]");
     return;
   }
 
@@ -568,6 +573,14 @@ async function main() {
       prNumber: args.pr === true ? null : args.pr,
     });
     console.log(posted ? `PR comment posted: ${detail}` : `PR comment NOT posted (${detail}). Body written to ${bodyPath}`);
+  }
+
+  // Scheduled runs treat excessive skips as a failure: a nightly that
+  // silently skips half its coverage (missing env, misconfigured stack)
+  // should page someone, not report green.
+  if (args.maxSkips !== null && report.summary.skipped > args.maxSkips) {
+    console.error(`Skip budget exceeded: ${report.summary.skipped} flows skipped (budget ${args.maxSkips}). Check the stack env (see report.md for each skip reason).`);
+    process.exit(1);
   }
 
   if (report.summary.failed > 0) process.exit(1);
