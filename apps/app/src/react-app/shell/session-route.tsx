@@ -942,7 +942,9 @@ export function SessionRoute() {
         if (selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
         return submitWithCloudMcpReadiness({
-          skipGate: draft.mode === "shell",
+          // Temporarily bypass the pre-send Cloud MCP gate: it blocks every
+          // message, including tasks that do not use connected services.
+          skipGate: true,
           send: async () => {
             captureAnalyticsEvent("task_message_sent", {
               mode: draft.mode ?? "prompt",
