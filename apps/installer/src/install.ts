@@ -247,11 +247,24 @@ export async function runInstall(config: InstallerConfig, opts: InstallOptions =
   return installStatus()
 }
 
-export function launchInstalledApp(installedPath: string): void {
-  if (!installedPath || !existsSync(installedPath)) return
+export function launchInstalledApp(installedPath: string): boolean {
+  if (!installedPath || !existsSync(installedPath)) {
+    console.error(`launch: installed app not found at ${installedPath}`)
+    return false
+  }
   if (process.platform === "darwin") {
     Bun.spawn(["open", installedPath], { stdio: ["ignore", "ignore", "ignore"] })
+  } else if (process.platform === "win32") {
+    // Detach via `cmd /c start` so the app survives the installer exiting:
+    // the launch request is handled by the --server-worker child, which the
+    // main process kills right after the window closes. A plain Bun.spawn
+    // child would be torn down with it. spawnSync guarantees `start` has
+    // handed the app off to a new process group before we respond.
+    Bun.spawnSync(["cmd", "/c", "start", "", installedPath], {
+      stdio: ["ignore", "ignore", "ignore"],
+    })
   } else {
     Bun.spawn([installedPath], { stdio: ["ignore", "ignore", "ignore"] })
   }
+  return true
 }

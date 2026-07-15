@@ -175,7 +175,15 @@ ${configuredContent}
 
   if (actionBtn) actionBtn.addEventListener("click", async () => {
     if (installed) {
-      try { await api("/api/launch"); } catch {}
+      // Only close once the launch actually succeeded — otherwise show the
+      // failure instead of silently exiting with nothing started.
+      try {
+        await api("/api/launch");
+      } catch (error) {
+        statusEl.textContent = "Could not launch OpenWork: " + (error.message || "unknown error");
+        statusEl.classList.add("error");
+        return;
+      }
       closeWindow();
       return;
     }

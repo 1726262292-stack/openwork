@@ -52,10 +52,18 @@ export type NotificationInput = {
   dedupeKey?: string;
   action?: NotificationAction;
   actionLabel?: string;
+  /**
+   * Only ever notify once per dedupeKey — across restarts, reads, and
+   * "Clear all". Use for standing-state notices (e.g. "Organization
+   * policies active") that producers re-emit on every launch.
+   */
+  once?: boolean;
 };
 
 type NotificationStore = {
   notifications: AppNotification[];
+  /** dedupeKeys of `once` notifications that were already delivered. */
+  onceKeys: string[];
   add: (input: NotificationInput) => void;
   markAllRead: () => void;
   clearAll: () => void;
@@ -135,13 +143,30 @@ function sanitizeNotifications(value: unknown): AppNotification[] {
   return notifications;
 }
 
+const MAX_ONCE_KEYS = 100;
+
+function sanitizeOnceKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .slice(-MAX_ONCE_KEYS);
+}
+
 export const useNotificationStore = create<NotificationStore>()(
   persist(
     (set) => ({
       notifications: [],
+      onceKeys: [],
       add: (input) =>
         set((state) => {
           const now = Date.now();
+          if (input.once && input.dedupeKey && state.onceKeys.includes(input.dedupeKey)) {
+            return state;
+          }
+          const onceKeys =
+            input.once && input.dedupeKey
+              ? [...state.onceKeys, input.dedupeKey].slice(-MAX_ONCE_KEYS)
+              : state.onceKeys;
           if (input.dedupeKey) {
             const existing = state.notifications.find(
               (notification) =>
@@ -159,6 +184,7 @@ export const useNotificationStore = create<NotificationStore>()(
                 updatedAt: now,
               };
               return {
+                onceKeys,
                 notifications: prune([
                   merged,
                   ...state.notifications.filter((notification) => notification.id !== existing.id),
@@ -180,7 +206,7 @@ export const useNotificationStore = create<NotificationStore>()(
             action: input.action,
             actionLabel: input.actionLabel,
           };
-          return { notifications: prune([notification, ...state.notifications]) };
+          return { onceKeys, notifications: prune([notification, ...state.notifications]) };
         }),
       markAllRead: () =>
         set((state) => {
@@ -199,17 +225,21 @@ export const useNotificationStore = create<NotificationStore>()(
     {
       name: PERSISTED_NOTIFICATION_STORE_KEY,
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ notifications: state.notifications }),
-      merge: (persistedState, currentState) => ({
-        ...currentState,
-        notifications: prune(
-          sanitizeNotifications(
-            typeof persistedState === "object" && persistedState !== null
-              ? Reflect.get(persistedState, "notifications")
-              : null,
-          ),
-        ),
+      partialize: (state) => ({
+        notifications: state.notifications,
+        onceKeys: state.onceKeys,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted =
+          typeof persistedState === "object" && persistedState !== null ? persistedState : null;
+        return {
+          ...currentState,
+          notifications: prune(
+            sanitizeNotifications(persisted ? Reflect.get(persisted, "notifications") : null),
+          ),
+          onceKeys: sanitizeOnceKeys(persisted ? Reflect.get(persisted, "onceKeys") : null),
+        };
+      },
     },
   ),
 );

@@ -24,7 +24,7 @@ Object.defineProperty(globalThis, "localStorage", {
 const { useNotificationStore } = await import("../src/react-app/kernel/notification-store");
 
 function reset() {
-  useNotificationStore.setState({ notifications: [] });
+  useNotificationStore.setState({ notifications: [], onceKeys: [] });
   storage.clear();
 }
 
@@ -105,6 +105,37 @@ describe("notification store", () => {
     add({ kind: "system", title: "One" });
     add({ kind: "system", title: "Two" });
     clearAll();
+    expect(useNotificationStore.getState().notifications).toHaveLength(0);
+  });
+
+  test("once notifications are delivered a single time ever", () => {
+    const { add } = useNotificationStore.getState();
+    add({ kind: "cloud", title: "Organization policies active", dedupeKey: "desktop-policy-active", once: true });
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+
+    // Re-emitted on a later launch: no new entry, no unread resurrection.
+    add({ kind: "cloud", title: "Organization policies active", dedupeKey: "desktop-policy-active", once: true });
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+    expect(useNotificationStore.getState().notifications[0].count).toBe(1);
+  });
+
+  test("once notifications stay dismissed after markAllRead", () => {
+    const { add, markAllRead } = useNotificationStore.getState();
+    add({ kind: "cloud", title: "Organization policies active", dedupeKey: "desktop-policy-active", once: true });
+    markAllRead();
+    add({ kind: "cloud", title: "Organization policies active", dedupeKey: "desktop-policy-active", once: true });
+
+    const notifications = useNotificationStore.getState().notifications;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].readAt).not.toBeNull();
+  });
+
+  test("once notifications stay dismissed after clearAll", () => {
+    const { add, clearAll } = useNotificationStore.getState();
+    add({ kind: "cloud", title: "Organization policies active", dedupeKey: "desktop-policy-active", once: true });
+    clearAll();
+    add({ kind: "cloud", title: "Organization policies active", dedupeKey: "desktop-policy-active", once: true });
+
     expect(useNotificationStore.getState().notifications).toHaveLength(0);
   });
 

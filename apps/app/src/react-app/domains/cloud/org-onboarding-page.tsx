@@ -30,7 +30,9 @@ import { usePlatform } from "../../kernel/platform";
 import { useBootState } from "../../shell/boot-state";
 import { resolveModelDisplayName, resolveProviderDisplayName } from "@/app/utils";
 import { ProviderIcon } from "../../design-system/provider-icon";
+import { useLocal } from "../../kernel/local-provider";
 import { writeStoredDefaultModel } from "../../kernel/model-config";
+import { markOrgOnboardingSeen } from "./org-onboarding-seen";
 import { orgOnboardingVisibilityEvent } from "../../shell/reload-coordinator";
 import {
   Page,
@@ -333,6 +335,7 @@ export function ResourceSelectionPage() {
   const navigate = useNavigate();
   const platform = usePlatform();
   const { markRouteReady } = useBootState();
+  const { setPrefs } = useLocal();
   const { authToken, denClient, orgId, orgName, settings } = useDenClient();
 
   const prepared = usePreparedBootstrap();
@@ -376,13 +379,20 @@ export function ResourceSelectionPage() {
   });
 
   const handleContinue = useCallback(() => {
-    // If user picked a default model, write it
+    // If user picked a default model, write it to BOTH stores: the legacy
+    // explicit-default key and the live preferences the session actually
+    // reads — otherwise the choice is ignored until the next full reload
+    // and the app keeps using the previous (possibly unavailable) default.
     if (selectedDefault) {
-      writeStoredDefaultModel({
+      const model = {
         providerID: selectedDefault.providerId,
         modelID: selectedDefault.modelId,
-      });
+      };
+      writeStoredDefaultModel(model);
+      setPrefs((previous) => ({ ...previous, defaultModel: model }));
     }
+    // Don't route back to this page on future launches.
+    markOrgOnboardingSeen();
     // Mark all providers shown on this page as "seen" so the global
     // toast doesn't re-fire for them on the next sync interval.
     markProvidersSeen(providers);
@@ -392,7 +402,7 @@ export function ResourceSelectionPage() {
       } catch {}
     }
     navigate("/session", { replace: true });
-  }, [navigate, providers, selectedDefault]);
+  }, [navigate, providers, selectedDefault, setPrefs]);
 
   const totalModels = providers.reduce((sum, provider) => sum + provider.models.length, 0);
   const hasResources = providers.length > 0 || marketplaces.length > 0;

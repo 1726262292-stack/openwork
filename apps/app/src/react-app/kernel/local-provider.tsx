@@ -10,10 +10,14 @@ import {
   type ReactNode,
 } from "react";
 
-import { THINKING_PREF_KEY } from "../../app/constants";
+import { DEFAULT_MODEL, THINKING_PREF_KEY } from "../../app/constants";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
-import { readStoredDefaultModel } from "./model-config";
+import {
+  readExplicitStoredDefaultModel,
+  readStoredDefaultModel,
+  writeStoredDefaultModel,
+} from "./model-config";
 
 export type LocalUIState = {
   view: View;
@@ -135,7 +139,23 @@ export function LocalProvider({ children }: LocalProviderProps) {
     } catch {
       // ignore parse failures; defaults apply
     }
-    if (persisted.defaultModel) {
+    // Default-model reconciliation across the two stores. The legacy key
+    // (`openwork.defaultModel`) holds the user's explicit choice — the org
+    // onboarding "use as default" flow writes it — while the preferences
+    // blob may still hold the hardcoded fallback that was baked in on first
+    // boot before any choice existed. Prefer the explicit choice whenever
+    // the preferences value is missing or still that fallback, so an org
+    // default picked during onboarding survives relaunches (#2624).
+    const explicit = readExplicitStoredDefaultModel();
+    const persistedDefault = persisted.defaultModel;
+    const persistedIsFallback =
+      persistedDefault !== null &&
+      persistedDefault.providerID === DEFAULT_MODEL.providerID &&
+      persistedDefault.modelID === DEFAULT_MODEL.modelID;
+    if (explicit && (!persistedDefault || persistedIsFallback)) {
+      return { ...persisted, defaultModel: explicit };
+    }
+    if (persistedDefault) {
       return persisted;
     }
     return {
@@ -152,6 +172,11 @@ export function LocalProvider({ children }: LocalProviderProps) {
 
   useEffect(() => {
     writePersisted(PREFS_STORAGE_KEY, prefs);
+    // Keep the legacy explicit-default key in sync so the two stores can
+    // never disagree again after this point.
+    if (prefs.defaultModel) {
+      writeStoredDefaultModel(prefs.defaultModel);
+    }
   }, [prefs]);
 
   useEffect(() => {

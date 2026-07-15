@@ -18,6 +18,7 @@ import { evalRelaunchDesktopApp } from "../../app/lib/desktop";
 import { useDenAuth } from "../domains/cloud/den-auth-provider";
 import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
 import { OrgOnboardingPage } from "../domains/cloud/org-onboarding-page";
+import { hasSeenOrgOnboarding } from "../domains/cloud/org-onboarding-seen";
 import { NewProvidersListener } from "./new-providers-listener";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
@@ -87,12 +88,19 @@ function DenSigninGate({ children }: DenSigninGateProps) {
       if (!denAuth.isSignedIn && !onSignin) {
         navigate("/signin", { replace: true });
       } else if (denAuth.isSignedIn && onSignin) {
-        // Signed in — route to onboarding so the user sees their org resources.
-        navigate("/onboarding", { replace: true });
+        // Signed in — route to onboarding so the user sees their org
+        // resources, but only the first time. Once they've continued past
+        // it, relaunches go straight to the session (#2624).
+        navigate(hasSeenOrgOnboarding() ? "/session" : "/onboarding", { replace: true });
       }
     } else if (onSignin) {
       navigate("/session", { replace: true });
-    } else if (!denAuth.isSignedIn && hasPreparedBootstrap && !onOnboarding) {
+    } else if (
+      !denAuth.isSignedIn &&
+      hasPreparedBootstrap &&
+      !onOnboarding &&
+      !hasSeenOrgOnboarding()
+    ) {
       navigate("/onboarding", { replace: true });
     }
 
@@ -109,18 +117,21 @@ function DenSigninGate({ children }: DenSigninGateProps) {
   ]);
 
   // After a fresh sign-in, navigate to the onboarding page so the
-  // user sees what their org provides.
+  // user sees what their org provides. Skipped once the user has already
+  // continued past onboarding — token refreshes and re-exchanged handoff
+  // grants on relaunch must not drag them back there (#2624).
   // Poll for activeOrgId (set asynchronously by refreshOrgs) rather
   // than using a fixed delay — handles both fast and slow org lookups.
   useEffect(() => {
     const handler = (event: WindowEventMap[typeof denSessionUpdatedEvent]) => {
       if (event.detail?.status !== "success") return;
+      if (hasSeenOrgOnboarding()) return;
       let attempts = 0;
       const check = () => {
         attempts++;
         const settings = readDenSettings();
         if (settings.authToken?.trim() && settings.activeOrgId?.trim()) {
-          navigate("/onboarding", { replace: true });
+          if (!hasSeenOrgOnboarding()) navigate("/onboarding", { replace: true });
         } else if (attempts < 10) {
           // Org not selected yet — retry (max ~5 seconds)
           setTimeout(check, 500);

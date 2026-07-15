@@ -111,6 +111,9 @@ function DesktopPolicyNotificationEffect() {
       title: "Organization policies active",
       body: "Some features and appearance settings are managed by your administrator.",
       dedupeKey: POLICY_NOTIFICATION_DEDUPE,
+      // Standing state, re-emitted on every launch: deliver a single time
+      // ever, so clearing it doesn't resurrect it on the next reopen.
+      once: true,
     });
   }, [config, addNotification]);
 

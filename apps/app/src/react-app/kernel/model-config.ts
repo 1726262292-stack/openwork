@@ -146,12 +146,21 @@ export function parseWorkspaceModelVariants(
 }
 
 export function readStoredDefaultModel(): ModelRef {
-  if (typeof window === "undefined") return DEFAULT_MODEL;
+  return readExplicitStoredDefaultModel() ?? DEFAULT_MODEL;
+}
+
+/**
+ * The default model the user explicitly chose (org onboarding "use as
+ * default", legacy settings), or null when none was ever picked. Unlike
+ * `readStoredDefaultModel` this never substitutes the hardcoded fallback,
+ * so callers can tell a real choice apart from the built-in default.
+ */
+export function readExplicitStoredDefaultModel(): ModelRef | null {
+  if (typeof window === "undefined") return null;
   try {
-    const stored = window.localStorage.getItem(MODEL_PREF_KEY);
-    return parseModelRef(stored) ?? DEFAULT_MODEL;
+    return parseModelRef(window.localStorage.getItem(MODEL_PREF_KEY));
   } catch {
-    return DEFAULT_MODEL;
+    return null;
   }
 }
 

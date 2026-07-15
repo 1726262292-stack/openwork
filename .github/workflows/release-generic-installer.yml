@@ -189,7 +189,13 @@ jobs:
         shell: bash
         run: |
           cd apps/installer
+          # Windows exes ship Bun's default icon unless one is embedded here.
+          icon_flag=""
+          if [ "${{ matrix.os_type }}" = "windows" ]; then
+            icon_flag="--windows-icon=../desktop/resources/icons/icon.ico"
+          fi
           bun build --compile --minify --target=${{ matrix.bun_target }} \
+            $icon_flag \
             src/index.ts src/server-worker.ts \
             --outfile "dist/openwork-installer"
 

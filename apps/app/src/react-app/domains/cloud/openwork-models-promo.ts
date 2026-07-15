@@ -37,8 +37,17 @@ export const OPENWORK_MODEL_PREVIEWS: OpenWorkModelPreview[] = Object.entries(
     subtitle: "OpenWork hosted",
   }));
 
+/**
+ * True when the user already has hosted models available: the OpenWork
+ * Models provider itself, or an org-managed cloud provider (`lpr_*`).
+ * Org members whose administrators provision models must never be pitched
+ * a subscription to a provider their org doesn't control.
+ */
 export function hasOpenWorkModelsProvider(providerIds: readonly string[]) {
-  return providerIds.some((id) => id.trim().toLowerCase() === OPENWORK_MODELS_PROVIDER_ID);
+  return providerIds.some((id) => {
+    const normalized = id.trim().toLowerCase();
+    return normalized === OPENWORK_MODELS_PROVIDER_ID || normalized.startsWith("lpr_");
+  });
 }
 
 export function getOpenWorkModelsActionUrl(

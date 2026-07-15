@@ -71,7 +71,12 @@ export function startInstallerServer(initialResolution: InstallerConfigResolutio
         if (request.method === "POST" && url.pathname === "/api/launch") {
           const installedPath = installStatus().installedPath
           if (!installedPath) return Response.json({ error: "not_installed" }, { status: 409 })
-          launchInstalledApp(installedPath)
+          if (!launchInstalledApp(installedPath)) {
+            return Response.json(
+              { error: "launch_failed", message: `Installed app not found at ${installedPath}.` },
+              { status: 500 },
+            )
+          }
           return Response.json({ ok: true })
         }
         if (request.method === "POST" && url.pathname === "/api/exit") {
