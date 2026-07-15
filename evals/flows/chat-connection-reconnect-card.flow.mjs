@@ -70,12 +70,12 @@ async function signDesktopIntoCloud(ctx) {
     timeoutMs: 90_000,
     label: "Electron control and desktop bridge",
   });
-  const bootstrap = { baseUrl: DEN_API_URL, apiBaseUrl: DEN_API_URL, requireSignin: false, handoff: null };
+  const bootstrap = { baseUrl: DEN_WEB_URL, apiBaseUrl: DEN_API_URL, requireSignin: false, handoff: null };
   const written = await ctx.eval(`(async () => {
     const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
     if (!bridge) return false;
     await bridge("setDesktopBootstrapConfig", ${JSON.stringify(bootstrap)});
-    localStorage.setItem("openwork.den.baseUrl", ${JSON.stringify(DEN_API_URL)});
+    localStorage.setItem("openwork.den.baseUrl", ${JSON.stringify(DEN_WEB_URL)});
     localStorage.setItem("openwork.den.apiBaseUrl", ${JSON.stringify(DEN_API_URL)});
     localStorage.removeItem("openwork.den.authToken");
     localStorage.removeItem("openwork.den.activeOrgId");
@@ -97,7 +97,7 @@ async function signDesktopIntoCloud(ctx) {
     body: JSON.stringify({ desktopScheme: "openwork" }),
   });
   ctx.assert(handoff.response.ok, `Desktop handoff failed: ${handoff.response.status}`);
-  await ctx.control("auth.exchange-grant", { grant: handoff.body.grant, baseUrl: DEN_API_URL });
+  await ctx.control("auth.exchange-grant", { grant: handoff.body.grant, baseUrl: DEN_WEB_URL });
   await ctx.waitFor("Boolean((localStorage.getItem('openwork.den.activeOrgId') ?? '').trim())", {
     timeoutMs: 60_000,
     label: "active cloud organization",
