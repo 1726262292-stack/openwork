@@ -107,6 +107,10 @@ async function signDesktopIntoCloud(ctx) {
 async function ensureWorkspace(ctx) {
   await ctx.clickText("Continue with organization", { timeoutMs: 8_000 }).catch(() => {});
   await ctx.clickText("Continue to workspace", { timeoutMs: 10_000 }).catch(() => {});
+  await ctx.waitFor(
+    "window.location.hash.includes('/workspace/') || Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]'))",
+    { timeoutMs: 30_000, label: "workspace route or folder form" },
+  );
   const needsFolder = await ctx.eval("Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]'))").catch(() => false);
   if (needsFolder) {
     await ctx.fill('input[placeholder="/workspace/my-project"]', WORKSPACE_PATH);
