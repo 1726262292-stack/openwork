@@ -158,7 +158,7 @@ import { useControlAction, type OpenworkControlAction } from "./control/control-
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
 import { readDenSettings } from "@/app/lib/den";
-import { denSessionUpdatedEvent } from "@/app/lib/den-session-events";
+import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
 import { filterProviderList } from "@/app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -438,7 +438,11 @@ export function SessionRoute() {
   useEffect(() => {
     const handler = () => setDenSessionVersion((v) => v + 1);
     window.addEventListener(denSessionUpdatedEvent, handler);
-    return () => window.removeEventListener(denSessionUpdatedEvent, handler);
+    window.addEventListener(denSettingsChangedEvent, handler);
+    return () => {
+      window.removeEventListener(denSessionUpdatedEvent, handler);
+      window.removeEventListener(denSettingsChangedEvent, handler);
+    };
   }, []);
 
   // Provider IDs that were just added — used to highlight them as

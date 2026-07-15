@@ -12,12 +12,14 @@ import { KeyRoundIcon, SkipForwardIcon, SparklesIcon } from "lucide-react";
 import { areOpenWorkModelsPromosDisabled } from "@/react-app/domains/cloud/openwork-models-promo";
 
 type ProviderSelectionStepProps = {
+  showOpenWorkModels?: boolean;
   onOpenWorkModels: () => void;
   onBringYourOwn: () => void;
   onSkip: () => void;
 };
 
 export function ProviderSelectionStep({
+  showOpenWorkModels = true,
   onOpenWorkModels,
   onBringYourOwn,
   onSkip,
