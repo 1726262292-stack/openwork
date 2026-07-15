@@ -49,6 +49,9 @@ const DEN_TRUSTED_ORIGINS = `${DEN_BASE_URL},${DEN_WEB_ORIGIN},http://127.0.0.1:
 
 const DEN_ENV = {
   OPENWORK_DEV_MODE: "1",
+  // den-api now defaults to single_org, which blocks the email signups the
+  // Acme demo seed performs. The eval stack is the multi-org demo.
+  DEN_ORG_MODE: "multi_org",
   PORT: String(DEN_API_INTERNAL_PORT),
   DATABASE_URL: "mysql://root:password@127.0.0.1:3306/openwork_den",
   DEN_DB_ENCRYPTION_KEY: "local-dev-db-encryption-key-please-change-1234567890",
