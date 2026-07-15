@@ -401,6 +401,7 @@ export function SessionRoute() {
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
     opencodeClient,
     directory: selectedWorkspaceRoot,
+    engineReloadBusy: reloadCoordinator.reloadBusy,
     providerModel: cloudMcpProviderModel,
   });
   const {
@@ -412,38 +413,6 @@ export function SessionRoute() {
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
     providerModel: cloudMcpProviderModel,
   });
-  useEffect(() => {
-    const toastId = `cloud-mcp-session-maintenance:${selectedWorkspaceEndpoint?.workspaceId ?? "none"}`;
-    if (sessionMcpMaintenance.status === "retrying") {
-      toast.warning("Restoring connected service tools", {
-        id: toastId,
-        description: `${sessionMcpMaintenance.issue?.message ?? "OpenWork could not verify the tools yet."} Retrying automatically (${sessionMcpMaintenance.attempt}/${sessionMcpMaintenance.maxAttempts}).`,
-        action: {
-          label: "Open Connect",
-          onClick: () => navigate("/settings/connect"),
-        },
-        duration: Infinity,
-      });
-    } else if (sessionMcpMaintenance.status === "failed") {
-      toast.error("Connected service tools are unavailable", {
-        id: toastId,
-        description: [
-          sessionMcpMaintenance.issue?.message,
-          sessionMcpMaintenance.issue?.recommendedAction,
-        ].filter(Boolean).join(" "),
-        action: {
-          label: "Open Connect",
-          onClick: () => navigate("/settings/connect"),
-        },
-        duration: Infinity,
-      });
-    } else {
-      toast.dismiss(toastId);
-    }
-    return () => {
-      toast.dismiss(toastId);
-    };
-  }, [navigate, selectedWorkspaceEndpoint?.workspaceId, sessionMcpMaintenance]);
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -2305,7 +2274,12 @@ export function SessionRoute() {
           : undefined
       }
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
-      statusBar={{ loading: showPreparingStatus, reloadBusy: reloadCoordinator.reloadBusy, reloadError: reloadCoordinator.reloadError }}
+      statusBar={{
+        loading: showPreparingStatus,
+        reloadBusy: reloadCoordinator.reloadBusy,
+        reloadError: reloadCoordinator.reloadError,
+        openWorkConnectState: sessionMcpMaintenance,
+      }}
       notFoundMessage={routeNotFoundMessage}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
