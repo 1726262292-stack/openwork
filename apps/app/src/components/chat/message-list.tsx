@@ -79,6 +79,7 @@ import {
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
 import { getConnectionStatusFromToolPart } from "@/react-app/domains/connections/connection-status-payload"
+import { useControlAction, type OpenworkControlAction } from "@/react-app/shell/control/control-provider"
 import {
   collectToolParts,
   getActiveToolLabel,
@@ -853,7 +854,104 @@ interface MessageListProps {
   retryStatus?: RetryStatus | null
 }
 
+type ConnectionStatusEvalFixture = "prompt" | "member" | "provider_admin"
+
+function readConnectionStatusEvalFixture(args: unknown): ConnectionStatusEvalFixture | null {
+  if (typeof args !== "object" || args === null || !("fixture" in args)) return null
+  const fixture = args.fixture
+  return fixture === "prompt" || fixture === "member" || fixture === "provider_admin" ? fixture : null
+}
+
+function connectionStatusEvalToolPart(fixture: Exclude<ConnectionStatusEvalFixture, "prompt">): DynamicToolUIPart {
+  const connectionStatus = fixture === "member"
+    ? {
+        connectionId: "eval-granola",
+        connectionName: "Granola",
+        authType: "oauth",
+        credentialMode: "per_member",
+        state: "reauth_required",
+        errorCode: "unauthorized",
+        message: "Your Granola sign-in expired.",
+        actor: "member",
+      }
+    : {
+        connectionId: "eval-granola",
+        connectionName: "Granola",
+        authType: "oauth",
+        credentialMode: "per_member",
+        state: "reauth_required",
+        errorCode: "unauthorized",
+        message: "The authorization server rejected the code or token refresh exchange.",
+        actor: "provider_admin",
+        action: {
+          type: "fix_provider",
+          surface: "provider_admin_console",
+          label: "Inspect provider and proxy logs for the failing HTTP request.",
+          retry: "search_capabilities",
+        },
+        diagnostic: {
+          referenceId: "a0b58150-7bad-4a37-ba36-c4260f444a8d",
+          category: "http_failure",
+          code: "MCP_HTTP_400",
+        },
+      }
+
+  return {
+    type: "dynamic-tool",
+    toolName: "openwork-cloud_search_capabilities",
+    toolCallId: `eval-connection-status-${fixture}`,
+    state: "output-available",
+    input: { query: "latest meeting notes" },
+    output: JSON.stringify({
+      matches: [{
+        kind: "connection_status",
+        status: "error",
+        connectionStatus,
+      }],
+    }),
+  }
+}
+
+function ConnectionStatusEvalMessages({ fixture }: { fixture: ConnectionStatusEvalFixture }) {
+  return (
+    <>
+      <Message
+        className="mx-auto flex w-full max-w-3xl flex-col items-end gap-2 px-2 md:px-10"
+        data-message-role="user"
+      >
+        <MessageContent className="bg-muted text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 sm:max-w-[75%]">
+          Pull my latest meeting notes from Granola.
+        </MessageContent>
+      </Message>
+      {fixture !== "prompt" ? (
+        <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
+          <ToolMessage part={connectionStatusEvalToolPart(fixture)} />
+        </Message>
+      ) : null}
+    </>
+  )
+}
+
 export function MessageList({ messages, status, retryStatus }: MessageListProps) {
+  const [connectionStatusEvalFixture, setConnectionStatusEvalFixture] = React.useState<ConnectionStatusEvalFixture | null>(null)
+  const connectionStatusEvalAction = React.useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null
+    return {
+      id: "eval.connection_status.seed",
+      label: "Seed a Cloud connection status tool result",
+      description: "Dev-only eval hook for reconnectable and provider-admin Cloud connection failures.",
+      sideEffect: "mutation",
+      requiresArgs: true,
+      args: [{ name: "fixture", type: "string", required: true }],
+      execute: (args) => {
+        const fixture = readConnectionStatusEvalFixture(args)
+        if (!fixture) return { ok: false, error: "fixture must be prompt, member, or provider_admin" }
+        setConnectionStatusEvalFixture(fixture)
+        return { fixture }
+      },
+    }
+  }, [])
+  useControlAction(connectionStatusEvalAction)
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
@@ -864,7 +962,9 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
 
   return (
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
+      {messages.length === 0 && !connectionStatusEvalFixture && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
+
+      {connectionStatusEvalFixture ? <ConnectionStatusEvalMessages fixture={connectionStatusEvalFixture} /> : null}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {
