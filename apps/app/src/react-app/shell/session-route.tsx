@@ -339,6 +339,10 @@ export function SessionRoute() {
   const restrictionNotice = useRestrictionNotice();
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
+  const [developerMode, setDeveloperMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("openwork.developerMode") === "1";
+  });
   const {
     navigateToWorkspaceSession,
     routeWorkspaceId,
@@ -386,6 +390,7 @@ export function SessionRoute() {
     handleRemoteWorkspaceConnectionSaved,
     runRemoteWorkspaceConnectionCheck,
   } = useWorkspaceRouteState({
+    developerMode,
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -438,10 +443,6 @@ export function SessionRoute() {
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
-  const [developerMode, setDeveloperMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("openwork.developerMode") === "1";
-  });
   const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
