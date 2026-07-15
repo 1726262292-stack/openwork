@@ -14,7 +14,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 1", {
           voiceover: vo[0],
-          // "I open the OpenCode config file in my home folder and find leftovers an old "
+          // "I open the OpenCode config in my home folder and find leftovers an old versi"
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -31,7 +31,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 2", {
           voiceover: vo[1],
-          // "I update OpenWork and launch it once; it spots the legacy leftovers, backs t"
+          // "I update OpenWork and launch it once: it backs up the file, sweeps out the O"
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -48,7 +48,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 3", {
           voiceover: vo[2],
-          // "In Settings, a cleanup notice tells me exactly which keys were removed and w"
+          // "When I change a setting now — like disabling a provider — my personal config"
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -65,7 +65,7 @@ export default {
       run: async (ctx) => {
         await ctx.prove("TODO: claim for frame 4", {
           voiceover: vo[3],
-          // "Now I disable a provider in Settings — and my personal config file does not "
+          // "My agent keeps working exactly as before: everything OpenWork manages lives "
           action: async () => {
             // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
           },
@@ -74,23 +74,6 @@ export default {
             ctx.assert(false, "frame 4 not implemented yet");
           },
           screenshot: { name: "frame-4", requireText: [] },
-        });
-      },
-    },
-    {
-      name: "Frame 5",
-      run: async (ctx) => {
-        await ctx.prove("TODO: claim for frame 5", {
-          voiceover: vo[4],
-          // "My agent keeps working exactly as before — same tools, same connections — be"
-          action: async () => {
-            // TODO: drive the app as the end user (ctx.clickText, ctx.fill, ...)
-          },
-          assert: async () => {
-            // TODO: witness the side effect (ctx.expectText, ctx.eval, ...)
-            ctx.assert(false, "frame 5 not implemented yet");
-          },
-          screenshot: { name: "frame-5", requireText: [] },
         });
       },
     },
