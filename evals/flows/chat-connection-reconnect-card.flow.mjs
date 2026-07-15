@@ -116,6 +116,11 @@ async function ensureWorkspace(ctx) {
     await ctx.fill('input[placeholder="/workspace/my-project"]', WORKSPACE_PATH);
     await ctx.clickText("Use this folder", { timeoutMs: 15_000 });
   }
+  await ctx.waitFor(
+    "window.location.hash.includes('/workspace/') || document.body.innerText.includes('Skip and use the free model')",
+    { timeoutMs: 60_000, label: "workspace route or model onboarding" },
+  );
+  await ctx.clickText("Skip and use the free model", { timeoutMs: 10_000 }).catch(() => {});
   await ctx.waitFor("window.location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "workspace route" });
   await ctx.eval(`(() => {
     const button = [...document.querySelectorAll("button")].find((candidate) => candidate.textContent.trim() === "Continue without OpenWork Models");
