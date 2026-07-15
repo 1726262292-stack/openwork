@@ -281,6 +281,13 @@
       "when": 1784076493575,
       "tag": "0040_rapid_lady_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1784115526946,
+      "tag": "0041_spicy_silk_fever",
+      "breakpoints": true
     }
   ]
 }
