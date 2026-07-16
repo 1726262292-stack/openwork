@@ -1091,6 +1091,26 @@ export default {
               switches,
               fetchProbe,
               jsHeapUsedMiB,
+              sidebarResizeGutter: await ctx.eval(`(() => {
+                const rail = document.querySelector('[data-slot="sidebar-rail"]');
+                const inset = document.querySelector('[data-slot="sidebar-inset"]');
+                if (!(rail instanceof HTMLElement) || !(inset instanceof HTMLElement)) return null;
+                const railRect = rail.getBoundingClientRect();
+                const insetRect = inset.getBoundingClientRect();
+                const mask = getComputedStyle(rail, '::before');
+                const maskLeft = Number.parseFloat(mask.left);
+                const maskRight = Number.parseFloat(mask.right);
+                const overlapPx = Math.max(0, railRect.right - insetRect.left);
+                return {
+                  overlapPx,
+                  maskBackground: mask.backgroundColor,
+                  maskPointerEvents: mask.pointerEvents,
+                  railPointerEvents: getComputedStyle(rail).pointerEvents,
+                  maskCoversOverlap: Number.isFinite(maskLeft) && Number.isFinite(maskRight) &&
+                    railRect.left + maskLeft <= insetRect.left + 0.5 &&
+                    railRect.right - maskRight >= railRect.right - 0.5,
+                };
+              })()`),
               budgets: {
                 maxRouteReadyMs: params.maxRouteReadyMs,
                 maxSwitchP95Ms: params.maxSwitchP95Ms,
@@ -1120,6 +1140,7 @@ export default {
             recordAssertion(ctx, state.ui.switches.latencyMs.p95 !== null && state.ui.switches.latencyMs.p95 <= params.maxSwitchP95Ms, "Visible session switch p95 stayed within OPENWORK_PERF_MAX_SWITCH_P95_MS.", { actualMs: state.ui.switches.latencyMs.p95, budgetMs: params.maxSwitchP95Ms, latencyMs: state.ui.switches.latencyMs });
             recordAssertion(ctx, state.ui.eventLoopLag.p95 !== null && state.ui.eventLoopLag.p95 <= params.maxEventLoopP95Ms, "Renderer event-loop lag p95 stayed within OPENWORK_PERF_MAX_EVENT_LOOP_P95_MS.", { actualMs: state.ui.eventLoopLag.p95, budgetMs: params.maxEventLoopP95Ms, eventLoopLag: state.ui.eventLoopLag });
             recordAssertion(ctx, Number.isFinite(state.ui.jsHeapUsedMiB) && state.ui.jsHeapUsedMiB <= params.maxJsHeapMb, "After-setup renderer JS heap stayed within OPENWORK_PERF_MAX_JS_HEAP_MB.", { actualMiB: state.ui.jsHeapUsedMiB, budgetMiB: params.maxJsHeapMb, metric: "JSHeapUsedSize" });
+            recordAssertion(ctx, state.ui.sidebarResizeGutter?.overlapPx > 0 && state.ui.sidebarResizeGutter.maskCoversOverlap === true && state.ui.sidebarResizeGutter.maskBackground !== "rgba(0, 0, 0, 0)" && state.ui.sidebarResizeGutter.maskPointerEvents === "none" && state.ui.sidebarResizeGutter.railPointerEvents !== "none", "The sidebar resize gutter paints over its main-pane overlap without blocking resize input.", state.ui.sidebarResizeGutter);
             await ctx.expectHashIncludes(`/workspace/${state.setup.firstWorkspaceId}/session`);
           },
           screenshot: {
