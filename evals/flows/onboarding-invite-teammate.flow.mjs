@@ -61,6 +61,20 @@ async function signInWithDesktopHandoff(ctx) {
   );
 }
 
+async function completeLocalFirstRun(ctx) {
+  // welcome-route marks local first-run complete when a real user signs in from
+  // /welcome; this flow signs in through settings, so it records the same
+  // preference before driving /onboarding (fixture, not product behavior).
+  const completed = await ctx.eval(`(() => {
+    const raw = localStorage.getItem("openwork.preferences");
+    const prefs = raw ? JSON.parse(raw) : {};
+    prefs.hasCompletedOnboarding = true;
+    localStorage.setItem("openwork.preferences", JSON.stringify(prefs));
+    return prefs.hasCompletedOnboarding;
+  })()`);
+  ctx.assert(completed === true, "Local first-run preference was not recorded.");
+}
+
 async function clickAcmeOrganization(ctx) {
   await ctx.clickText("Acme Robotics", {
     selector: "label, button, [role=button], [role=radio]",
@@ -77,6 +91,13 @@ async function chooseAcmeIfPickerVisible(ctx) {
 
 async function ensureAcmeResources(ctx) {
   await ctx.navigateHash("/onboarding");
+  const landedOnWelcome = await ctx.eval(`new Promise((resolve) => {
+    setTimeout(() => resolve(location.hash.includes("/welcome")), 500);
+  })`, { awaitPromise: true });
+  if (landedOnWelcome) {
+    await completeLocalFirstRun(ctx);
+    await ctx.navigateHash("/onboarding");
+  }
   await ctx.waitFor(
     `(() => {
       const text = document.body.innerText;
@@ -160,6 +181,7 @@ export default {
               label: "control API",
             });
             await signInWithDesktopHandoff(ctx);
+            await completeLocalFirstRun(ctx);
             await ensureAcmeResources(ctx);
           },
           assert: async () => {
