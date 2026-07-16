@@ -19,6 +19,7 @@
  * http://127.0.0.1:9823 (local pnpm dev). Override with --cdp-url or
  * OPENWORK_EVAL_CDP_URL.
  */
+import { spawn } from "node:child_process";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -158,7 +159,7 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
     // A transient CDP hiccup between flows (the app restarting after the
     // previous flow, a proxy blip) must fail THIS flow, not kill the whole
     // run — scheduled runs continue with the next flow. Retry briefly first.
-    try {
+    const tryConnect = async () => {
       let lastError = null;
       for (let attempt = 0; attempt < 3 && !client; attempt += 1) {
         try {
@@ -168,6 +169,33 @@ async function runFlow(flow, { cdpBaseUrl, outDir, env }) {
           lastError = error;
           await new Promise((resolveSleep) => setTimeout(resolveSleep, 5_000));
         }
+      }
+      return lastError;
+    };
+    try {
+      let lastError = await tryConnect();
+      // Unattended runs can self-heal a crashed app: when the CDP endpoint is
+      // gone and OPENWORK_EVAL_APP_RESTART_CMD is set, run it once, wait for
+      // CDP to come back, and retry before failing the flow.
+      const restartCmd = env.OPENWORK_EVAL_APP_RESTART_CMD?.trim();
+      if (!client && restartCmd) {
+        console.log(`  ⟳ CDP unreachable — running app restart hook`);
+        await new Promise((resolveExit) => {
+          const child = spawn("bash", ["-lc", restartCmd], { stdio: "ignore" });
+          child.on("exit", resolveExit);
+          child.on("error", resolveExit);
+        });
+        const deadline = Date.now() + 150_000;
+        while (Date.now() < deadline) {
+          try {
+            const response = await fetch(`${cdpBaseUrl}/json/version`);
+            if (response.ok) break;
+          } catch {
+            // Still down — keep polling.
+          }
+          await new Promise((resolveSleep) => setTimeout(resolveSleep, 5_000));
+        }
+        lastError = await tryConnect();
       }
       if (!client) throw lastError ?? new Error("CDP connection failed");
     } catch (error) {
