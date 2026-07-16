@@ -50,6 +50,10 @@ type GmailBodyState = {
   attachments: GoogleWorkspaceAttachment[]
 }
 
+const GMAIL_QUOTE_BODY_LIMIT = 10_000
+const UTC_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const UTC_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -159,6 +163,45 @@ export function extractGmailThreadReplyContext(json: unknown): { lastMessageId: 
 
   const references = `${headers.get("references")?.trim() ?? ""} ${lastMessageId}`.trim()
   return { lastMessageId, references }
+}
+
+function formatGmailQuoteDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${UTC_WEEKDAYS[date.getUTCDay()]}, ${String(date.getUTCDate()).padStart(2, "0")} ${UTC_MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()} at ${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")} UTC`
+}
+
+export function gmailBodyHasQuotedHistory(body: string): boolean {
+  return /^>\s?/m.test(body) && /^.*wrote:\s*$/m.test(body)
+}
+
+export function buildGmailQuoteBlock(input: { from: string; date: string; body: string }): string {
+  const header = input.date ? `On ${formatGmailQuoteDate(input.date)}, ${input.from} wrote:` : `${input.from} wrote:`
+  const truncated = input.body.length > GMAIL_QUOTE_BODY_LIMIT
+  const quotedLines = input.body.slice(0, GMAIL_QUOTE_BODY_LIMIT).replace(/\r\n?/g, "\n").split("\n").map((line) => `> ${line}`)
+  if (truncated) quotedLines.push("> [message trimmed]")
+  return [header, ...quotedLines].join("\n")
+}
+
+export function extractGmailThreadQuoteInput(json: unknown): { from: string; date: string; body: string } | null {
+  const root = isRecord(json) ? json : {}
+  const messages = readArray(root, "messages")
+  const lastMessage = messages.at(-1)
+  if (!isRecord(lastMessage)) return null
+
+  const payload = readRecord(lastMessage, "payload")
+  if (!payload) return null
+
+  const headers = readGmailHeaders(payload)
+  const state: GmailBodyState = { plain: null, html: null, attachments: [] }
+  collectGmailPart(payload, state)
+  if (!state.plain) return null
+
+  return {
+    from: headers.get("from") ?? "",
+    date: headers.get("date") ?? "",
+    body: state.plain,
+  }
 }
 
 export function truncateText(text: string, maxCharacters: number): { text: string; truncated: boolean } {

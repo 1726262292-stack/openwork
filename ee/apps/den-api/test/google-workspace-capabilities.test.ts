@@ -66,6 +66,11 @@ function decodeDraftRaw(): string {
   return Buffer.from(raw, "base64url").toString("utf8")
 }
 
+function decodeDraftTextBody(): string {
+  const encoded = decodeDraftRaw().match(/Content-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+)/)?.[1] ?? ""
+  return Buffer.from(encoded.replace(/\r\n/g, ""), "base64").toString("utf8")
+}
+
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
@@ -174,7 +179,10 @@ const fakeGoogleServer = Bun.serve({
                 { name: "Message-ID", value: "<orig-2@mail.gmail.com>" },
                 { name: "References", value: "<orig-1@mail.gmail.com>" },
                 { name: "Subject", value: "Quarterly plan" },
+                { name: "From", value: "Ada <ada@example.com>" },
+                { name: "Date", value: "Thu, 16 Jul 2026 15:21:00 +0000" },
               ],
+              parts: [{ mimeType: "text/plain", body: { data: base64Url("Original line\n> previous quote") } }],
             },
           },
         ],
@@ -583,7 +591,17 @@ test("gmail plain draft supports cc without requiring a thread", async () => {
   expect(decoded).toContain("Cc: ada@acme.test, grace@acme.test\r\n")
   expect(decoded).toContain("Subject: Quarterly plan\r\n")
   const body: unknown = await response.json()
-  expect(body).toEqual({ ok: true, draftId: "draft_1", messageId: "draft_msg_1", to, subject, threadId: null })
+  expect(body).toEqual({
+    ok: true,
+    draftId: "draft_1",
+    messageId: "draft_msg_1",
+    draftUrl: "https://mail.google.com/mail/u/0/#drafts?compose=draft_msg_1",
+    threadUrl: null,
+    to,
+    subject,
+    threadId: null,
+    quotedHistoryIncluded: false,
+  })
 })
 
 test("gmail plain draft attaches active workspace file bytes with filename and MIME type", async () => {
@@ -636,8 +654,8 @@ test("gmail threaded reply draft reads thread metadata and sends reply headers",
   expect(googleCallCount).toBe(2)
   const firstUrl = new URL(expectString(googleCallUrls[0], "first Google URL"))
   expect(firstUrl.pathname).toBe("/gmail/v1/users/me/threads/thread_1")
-  expect(firstUrl.searchParams.get("format")).toBe("metadata")
-  expect(firstUrl.searchParams.getAll("metadataHeaders")).toEqual(["Message-ID", "References", "Subject"])
+  expect(firstUrl.searchParams.get("format")).toBe("full")
+  expect(firstUrl.searchParams.getAll("metadataHeaders")).toEqual([])
   const secondUrl = new URL(expectString(googleCallUrls[1], "second Google URL"))
   expect(secondUrl.pathname).toBe("/gmail/v1/users/me/drafts")
   expect(lastGmailThreadUrl).toBe(expectString(googleCallUrls[0], "first Google URL"))
@@ -646,11 +664,39 @@ test("gmail threaded reply draft reads thread metadata and sends reply headers",
   const decoded = decodeDraftRaw()
   expect(decoded).toContain("In-Reply-To: <orig-2@mail.gmail.com>\r\n")
   expect(decoded).toContain("References: <orig-1@mail.gmail.com> <orig-2@mail.gmail.com>\r\n")
+  expect(decodeDraftTextBody()).toBe([
+    "Reply body",
+    "",
+    "On Thu, 16 Jul 2026 at 15:21 UTC, Ada <ada@example.com> wrote:",
+    "> Original line",
+    "> > previous quote",
+  ].join("\n"))
   expect(decoded).toContain('Content-Disposition: attachment; filename="notes.txt"')
   expect(decoded).toContain(Buffer.from("workspace notes", "utf8").toString("base64"))
   const body: unknown = await response.json()
   const responseBody = expectRecord(body, "threaded draft response")
   expect(responseBody.threadId).toBe("thread_1")
+  expect(responseBody.draftUrl).toBe("https://mail.google.com/mail/u/0/#drafts?compose=draft_msg_1")
+  expect(responseBody.threadUrl).toBe("https://mail.google.com/mail/u/0/#all/thread_1")
+  expect(responseBody.quotedHistoryIncluded).toBe(true)
+})
+
+test("gmail reply-looking draft requires threadId before calling Google", async () => {
+  const response = await request("/v1/capabilities/google-workspace/gmail-drafts", {
+    method: "POST",
+    body: {
+      to: "sam@acme.test",
+      subject: "Re: Quarterly plan",
+      body: "Reply body",
+    },
+  })
+  expect(response.status).toBe(400)
+  expect(googleCallCount).toBe(0)
+  const body: unknown = await response.json()
+  expect(body).toEqual({
+    error: "missing_thread_id",
+    message: "Subject looks like a reply but threadId is missing. Fetch the thread with the gmail-messages capability and pass threadId so the draft stays on the conversation. Only omit threadId for brand-new emails.",
+  })
 })
 
 test("gmail draft rejects invalid attachment encoding and MIME type without calling Google", async () => {
