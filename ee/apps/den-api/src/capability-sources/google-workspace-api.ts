@@ -44,6 +44,17 @@ export type GoogleWorkspaceDriveFile = {
   size: string | null
 }
 
+export type GoogleWorkspaceDriveUploadMetadata = {
+  name: string
+  parents?: string[]
+}
+
+export type GoogleWorkspaceDrivePermission = {
+  id: string
+  type: string
+  role: string
+}
+
 type GmailBodyState = {
   plain: string | null
   html: string | null
@@ -216,6 +227,24 @@ export function buildDriveSearchQuery(text: string): string {
   return `trashed = false and (name contains '${escaped}' or fullText contains '${escaped}')`
 }
 
+export function buildDriveMultipartUpload(input: { metadata: GoogleWorkspaceDriveUploadMetadata; content: Buffer; mimeType: string; boundary: string }): Buffer {
+  const metadataPart = Buffer.from(`--${input.boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(input.metadata)}\r\n`, "utf8")
+  const contentHeader = Buffer.from(`--${input.boundary}\r\nContent-Type: ${input.mimeType}\r\n\r\n`, "utf8")
+  const footer = Buffer.from(`\r\n--${input.boundary}--\r\n`, "utf8")
+  const body = Buffer.alloc(metadataPart.byteLength + contentHeader.byteLength + input.content.byteLength + footer.byteLength)
+  let offset = 0
+  for (const chunk of [metadataPart, contentHeader, input.content, footer]) {
+    for (let index = 0; index < chunk.byteLength; index += 1) {
+      const byte = chunk[index]
+      if (byte !== undefined) {
+        body[offset + index] = byte
+      }
+    }
+    offset += chunk.byteLength
+  }
+  return body
+}
+
 export function extractGmailMessage(payloadJson: unknown): GoogleWorkspaceGmailMessage {
   const message = isRecord(payloadJson) ? payloadJson : {}
   const payload = readRecord(message, "payload") ?? {}
@@ -333,4 +362,13 @@ export function extractDriveFiles(json: unknown): GoogleWorkspaceDriveFile[] {
     })
   }
   return files
+}
+
+export function extractDrivePermission(json: unknown): GoogleWorkspaceDrivePermission {
+  const root = isRecord(json) ? json : {}
+  return {
+    id: readString(root, "id"),
+    type: readString(root, "type"),
+    role: readString(root, "role"),
+  }
 }

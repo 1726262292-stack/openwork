@@ -55,6 +55,11 @@ function expectString(value: unknown, label: string): string {
   return value
 }
 
+function readString(record: Record<string, unknown>, key: string): string {
+  const value = record[key]
+  return typeof value === "string" ? value : ""
+}
+
 function expectDraftMessage(): Record<string, unknown> {
   const payload = expectRecord(lastDraftPayload, "Gmail draft payload")
   return expectRecord(payload.message, "Gmail draft message")
@@ -74,8 +79,10 @@ function decodeDraftTextBody(): string {
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
-const FULL_SCOPES = [GMAIL_READ_SCOPE, CALENDAR_READ_SCOPE, CALENDAR_EVENTS_SCOPE, DRIVE_READ_SCOPE]
+const DRIVE_FULL_SCOPE = "https://www.googleapis.com/auth/drive"
+const FULL_SCOPES = [GMAIL_READ_SCOPE, CALENDAR_READ_SCOPE, CALENDAR_EVENTS_SCOPE, DRIVE_READ_SCOPE, DRIVE_FILE_SCOPE]
 
 let lastAuthorization: string | null = null
 let googleCallCount = 0
@@ -83,12 +90,17 @@ let googleCallUrls: string[] = []
 let forceGoogleError = false
 let forceGmailThreadError = false
 let lastDriveQuery: string | null = null
+let lastDriveUploadContentType: string | null = null
+let lastDriveUploadBody: Buffer | null = null
+let lastDriveSharePayload: unknown = null
+let lastDriveShareUrl: string | null = null
 let lastCalendarEventPayload: unknown = null
 let lastCalendarUrl: string | null = null
 let lastCalendarMethod: string | null = null
 let calendarCreateCount = 0
 let lastDraftPayload: unknown = null
 let lastGmailThreadUrl: string | null = null
+let forceDriveUploadError = false
 
 function resetFakeGoogle() {
   lastAuthorization = null
@@ -97,12 +109,17 @@ function resetFakeGoogle() {
   forceGoogleError = false
   forceGmailThreadError = false
   lastDriveQuery = null
+  lastDriveUploadContentType = null
+  lastDriveUploadBody = null
+  lastDriveSharePayload = null
+  lastDriveShareUrl = null
   lastCalendarEventPayload = null
   lastCalendarUrl = null
   lastCalendarMethod = null
   calendarCreateCount = 0
   lastDraftPayload = null
   lastGmailThreadUrl = null
+  forceDriveUploadError = false
 }
 
 // Trailing high bytes force base64url output ("-"/"_") to differ from standard base64 ("+"/"/").
@@ -259,6 +276,32 @@ const fakeGoogleServer = Bun.serve({
             size: "42",
           },
         ],
+      })
+    }
+    if (url.pathname === "/upload/drive/v3/files" && request.method === "POST") {
+      lastDriveUploadContentType = request.headers.get("content-type")
+      lastDriveUploadBody = Buffer.from(await request.arrayBuffer())
+      if (forceDriveUploadError) {
+        return new Response("upload exploded", { status: 500 })
+      }
+      return json({
+        id: "uploaded_file_1",
+        name: "plan.pdf",
+        mimeType: "application/pdf",
+        modifiedTime: "2026-07-08T12:00:00Z",
+        webViewLink: "https://drive.google.com/file/d/uploaded_file_1/view",
+        size: "28",
+      })
+    }
+    if (url.pathname === "/drive/v3/files/file_1/permissions" && request.method === "POST") {
+      const body: unknown = await request.json()
+      lastDriveSharePayload = body
+      lastDriveShareUrl = request.url
+      const payload = isRecord(body) ? body : {}
+      return json({
+        id: readString(payload, "type") === "domain" ? "perm_domain_1" : "perm_user_1",
+        type: readString(payload, "type"),
+        role: readString(payload, "role"),
       })
     }
     if (url.pathname === "/drive/v3/files/file_1" && url.searchParams.get("alt") === "media") {
@@ -848,6 +891,128 @@ test("drive search returns mapped files", async () => {
   })
 })
 
+test("drive upload stores decoded bytes as multipart and returns the user-facing Drive link", async () => {
+  await seedConnectedAccount([DRIVE_FILE_SCOPE])
+  resetFakeGoogle()
+  const uploadBytes = Buffer.from("%PDF-1.4\nDrive upload bytes\n", "utf8")
+  const response = await request("/v1/capabilities/google-workspace/drive-files", {
+    method: "POST",
+    body: {
+      filename: "plan.pdf",
+      mimeType: "application/pdf",
+      dataBase64: uploadBytes.toString("base64"),
+      folderId: "folder_1",
+    },
+  })
+  expect(response.status).toBe(200)
+  expect(lastAuthorization).toBe("Bearer gws-token")
+  const contentType = expectString(lastDriveUploadContentType, "drive upload content type")
+  const boundary = contentType.match(/boundary=(.+)$/)?.[1]
+  if (!boundary) {
+    throw new Error("Expected multipart boundary")
+  }
+  expect(contentType).toBe(`multipart/related; boundary=${boundary}`)
+  if (!lastDriveUploadBody) {
+    throw new Error("Expected drive upload body")
+  }
+  expect(lastDriveUploadBody.includes(Buffer.from(`--${boundary}\r\n`, "utf8"))).toBe(true)
+  expect(lastDriveUploadBody.includes(Buffer.from('{"name":"plan.pdf","parents":["folder_1"]}', "utf8"))).toBe(true)
+  expect(lastDriveUploadBody.includes(uploadBytes)).toBe(true)
+  const body: unknown = await response.json()
+  expect(body).toEqual({
+    ok: true,
+    file: {
+      id: "uploaded_file_1",
+      name: "plan.pdf",
+      mimeType: "application/pdf",
+      modifiedTime: "2026-07-08T12:00:00Z",
+      webViewLink: "https://drive.google.com/file/d/uploaded_file_1/view",
+      size: "28",
+    },
+  })
+})
+
+test("drive upload requires Drive write scope before calling Google", async () => {
+  await seedConnectedAccount([DRIVE_READ_SCOPE])
+  resetFakeGoogle()
+  const response = await request("/v1/capabilities/google-workspace/drive-files", {
+    method: "POST",
+    body: {
+      filename: "plan.pdf",
+      mimeType: "application/pdf",
+      dataBase64: Buffer.from("drive bytes", "utf8").toString("base64"),
+    },
+  })
+  expect(response.status).toBe(409)
+  expect(googleCallCount).toBe(0)
+  const body: unknown = await response.json()
+  expect(expectMessage(body)).toContain("missing the Google Drive write permission")
+})
+
+test("drive share grants user access and sends notification by default", async () => {
+  await seedConnectedAccount([DRIVE_FILE_SCOPE])
+  resetFakeGoogle()
+  const response = await request("/v1/capabilities/google-workspace/drive-file-share/file_1", {
+    method: "POST",
+    body: { type: "user", emailAddress: "raghav@openworklabs.com" },
+  })
+  expect(response.status).toBe(200)
+  expect(lastDriveSharePayload).toEqual({ type: "user", role: "reader", emailAddress: "raghav@openworklabs.com" })
+  const url = new URL(expectString(lastDriveShareUrl, "drive share URL"))
+  expect(url.pathname).toBe("/drive/v3/files/file_1/permissions")
+  expect(url.searchParams.get("sendNotificationEmail")).toBe("true")
+  expect(url.searchParams.get("fields")).toBe("id,type,role")
+  const body: unknown = await response.json()
+  expect(body).toEqual({ ok: true, fileId: "file_1", permissionId: "perm_user_1", type: "user", role: "reader" })
+})
+
+test("drive share grants domain access", async () => {
+  await seedConnectedAccount([DRIVE_FULL_SCOPE])
+  resetFakeGoogle()
+  const response = await request("/v1/capabilities/google-workspace/drive-file-share/file_1", {
+    method: "POST",
+    body: { type: "domain", domain: "openworklabs.com", sendNotificationEmail: false },
+  })
+  expect(response.status).toBe(200)
+  expect(lastDriveSharePayload).toEqual({ type: "domain", role: "reader", domain: "openworklabs.com" })
+  const url = new URL(expectString(lastDriveShareUrl, "drive share URL"))
+  expect(url.searchParams.get("sendNotificationEmail")).toBe("false")
+  const body: unknown = await response.json()
+  expect(body).toEqual({ ok: true, fileId: "file_1", permissionId: "perm_domain_1", type: "domain", role: "reader" })
+})
+
+test("drive share validates user email before calling Google", async () => {
+  const response = await request("/v1/capabilities/google-workspace/drive-file-share/file_1", {
+    method: "POST",
+    body: { type: "user" },
+  })
+  expect(response.status).toBe(400)
+  expect(googleCallCount).toBe(0)
+  const body: unknown = await response.json()
+  expect(expectRecord(body, "invalid share response").error).toBe("invalid_request")
+})
+
+test("drive upload returns google_api_error when Google rejects the upload", async () => {
+  await seedConnectedAccount([DRIVE_FILE_SCOPE])
+  resetFakeGoogle()
+  forceDriveUploadError = true
+  const response = await request("/v1/capabilities/google-workspace/drive-files", {
+    method: "POST",
+    body: {
+      filename: "plan.pdf",
+      mimeType: "application/pdf",
+      dataBase64: Buffer.from("drive bytes", "utf8").toString("base64"),
+    },
+  })
+  expect(response.status).toBe(502)
+  expect(googleCallCount).toBe(1)
+  const body: unknown = await response.json()
+  expect(body).toEqual({
+    error: "google_api_error",
+    message: "Google Drive file upload failed: 500 upload exploded",
+  })
+})
+
 test("no connected account returns needs_connection", async () => {
   await db.delete(schema.ConnectedAccountTable).where(drizzle.eq(schema.ConnectedAccountTable.organizationId, organizationId))
   const response = await request("/v1/capabilities/google-workspace/calendar-events?timeMin=2026-07-08T00%3A00%3A00Z&timeMax=2026-07-11T00%3A00%3A00Z")
@@ -893,6 +1058,8 @@ test("Google Workspace capability tools are discoverable and keep readable names
   expect(searchCapabilities(catalog, "calendar events list", 10)[0]?.name).toBe("getCapabilitiesGoogleWorkspaceCalendarEvents")
   expect(searchCapabilities(catalog, "add meet link existing event", 10)[0]?.name).toBe("patchCapabilitiesGoogleWorkspaceCalendarEvent")
   expect(searchCapabilities(catalog, "drive files", 10)[0]?.name).toBe("getCapabilitiesGoogleWorkspaceDriveFiles")
+  expect(searchCapabilities(catalog, "drive upload", 10)[0]?.name).toBe("postCapabilitiesGoogleWorkspaceDriveFiles")
+  expect(searchCapabilities(catalog, "share drive file", 10)[0]?.name).toBe("postCapabilitiesGoogleWorkspaceDriveFileShare")
   expect(searchCapabilities(catalog, "gmail search read messages", 10)[0]?.name).toBe("getCapabilitiesGoogleWorkspaceGmailMessages")
   const draftMatch = searchCapabilities(catalog, "gmail draft workspace attachment", 10)[0]
   expect(draftMatch?.name).toBe("postCapabilitiesGoogleWorkspaceGmailDrafts")
@@ -908,7 +1075,9 @@ test("Google Workspace capability tools are discoverable and keep readable names
     "postCapabilitiesGoogleWorkspaceCalendarEvents",
     "patchCapabilitiesGoogleWorkspaceCalendarEvent",
     "getCapabilitiesGoogleWorkspaceDriveFiles",
+    "postCapabilitiesGoogleWorkspaceDriveFiles",
     "getCapabilitiesGoogleWorkspaceDriveFile",
+    "postCapabilitiesGoogleWorkspaceDriveFileShare",
     "postCapabilitiesGoogleWorkspaceGmailDrafts",
   ]
   const catalogNames = new Set(catalog.map((tool) => tool.name))
