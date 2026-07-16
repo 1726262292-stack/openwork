@@ -221,7 +221,7 @@ export function AuthPanel({
   const emailFirstContent: PanelContent =
     emailFirstStep === "email"
       ? {
-          title: "Continue to OpenWork.",
+          title: "Start using OpenWork",
           copy: "Enter your email and we'll send you to the right sign-in step.",
           submitLabel: "Next",
         }
