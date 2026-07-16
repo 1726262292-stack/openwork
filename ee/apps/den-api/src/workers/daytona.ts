@@ -5,6 +5,13 @@ import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../db.js"
 import { env } from "../env.js"
 import { appLogger } from "../observability/logger.js"
+import {
+  buildDaytonaWorkerRuntimeEnv,
+  daytonaWorkerAutostartMarkerPath,
+  daytonaWorkerStartupLogPath,
+  daytonaWorkerStartupScriptPath,
+  type DaytonaWorkerRuntimeEnv,
+} from "./daytona-runtime-env.js"
 
 type WorkerId = typeof DaytonaSandboxTable.$inferSelect.worker_id
 
@@ -194,58 +201,68 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
   ]
 }
 
-function buildOpenWorkStartCommand(input: ProvisionInput) {
+function buildOpenWorkStartCommand() {
   const verifyRuntimeStep = [
     "if ! command -v openwork >/dev/null 2>&1; then echo 'openwork binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
     "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
   ].join("; ")
+  const requiredRuntimeEnvStep = `
+require_env() {
+  name="$1"
+  if value="$(printenv "$name")"; then
+    :
+  else
+    value=""
+  fi
+  if [ -z "$value" ]; then
+    echo "$name is required when DEN_WORKER_ID is set" >&2
+    exit 1
+  fi
+}
+require_number_env() {
+  require_env "$1"
+  case "$value" in
+    *[!0-9]*) echo "$name must be numeric" >&2; exit 1 ;;
+  esac
+}
+for name in DEN_RUNTIME_PROVIDER DEN_WORKER_ID DEN_ACTIVITY_HEARTBEAT_ENABLED DEN_ACTIVITY_HEARTBEAT_URL DEN_ACTIVITY_HEARTBEAT_TOKEN OPENWORK_TOKEN OPENWORK_HOST_TOKEN OPENWORK_DATA_DIR OPENWORK_SIDECAR_DIR OPENWORK_WORKSPACE OPENWORK_OPENCODE_HOST OPENWORK_CONNECT_HOST OPENWORK_CORS OPENWORK_APPROVAL OPENWORK_OPENCODE_SOURCE DAYTONA_WORKSPACE_MOUNT_PATH DAYTONA_DATA_MOUNT_PATH; do
+  require_env "$name"
+done
+require_number_env OPENWORK_PORT
+require_number_env OPENWORK_OPENCODE_PORT
+`.trim()
   const openworkServe = [
-    "OPENWORK_DATA_DIR=",
-    shellQuote(env.daytona.runtimeDataPath),
-    " OPENWORK_SIDECAR_DIR=",
-    shellQuote(env.daytona.sidecarDir),
-    " OPENWORK_TOKEN=",
-    shellQuote(input.clientToken),
-    " OPENWORK_HOST_TOKEN=",
-    shellQuote(input.hostToken),
-    " DEN_RUNTIME_PROVIDER=",
-    shellQuote("daytona"),
-    " DEN_WORKER_ID=",
-    shellQuote(input.workerId),
-    " DEN_ACTIVITY_HEARTBEAT_ENABLED=",
-    shellQuote("1"),
-    " DEN_ACTIVITY_HEARTBEAT_URL=",
-    shellQuote(workerActivityHeartbeatUrl(input.workerId)),
-    " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
-    shellQuote(input.activityToken),
-    " openwork serve",
-    ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
+    "openwork serve",
+    ` --workspace "$OPENWORK_WORKSPACE"`,
     ` --remote-access`,
-    ` --openwork-port ${env.daytona.openworkPort}`,
-    ` --opencode-host 127.0.0.1`,
-    ` --opencode-port ${env.daytona.opencodePort}`,
-    ` --connect-host 127.0.0.1`,
-    ` --cors '*'`,
-    ` --approval manual`,
+    ` --openwork-port "$OPENWORK_PORT"`,
+    ` --opencode-host "$OPENWORK_OPENCODE_HOST"`,
+    ` --opencode-port "$OPENWORK_OPENCODE_PORT"`,
+    ` --connect-host "$OPENWORK_CONNECT_HOST"`,
+    ` --cors "$OPENWORK_CORS"`,
+    ` --approval "$OPENWORK_APPROVAL"`,
     ` --allow-external`,
-    ` --opencode-source external`,
-    ` --opencode-bin $(command -v opencode)`,
+    ` --opencode-source "$OPENWORK_OPENCODE_SOURCE"`,
+    ` --opencode-bin "$opencode_bin"`,
     ` --verbose`,
   ].join("")
 
   const script = `
 set -u
-mkdir -p ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)} ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.sidecarDir)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
-ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
-ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
+${requiredRuntimeEnvStep}
+mkdir -p "$DAYTONA_WORKSPACE_MOUNT_PATH" "$DAYTONA_DATA_MOUNT_PATH" "$OPENWORK_WORKSPACE" "$OPENWORK_DATA_DIR" "$OPENWORK_SIDECAR_DIR" "$OPENWORK_WORKSPACE/volumes"
+ln -sfn "$DAYTONA_WORKSPACE_MOUNT_PATH" "$OPENWORK_WORKSPACE/volumes/workspace"
+ln -sfn "$DAYTONA_DATA_MOUNT_PATH" "$OPENWORK_WORKSPACE/volumes/data"
 ${verifyRuntimeStep}
+opencode_bin="$(command -v opencode)"
 attempt=0
 while [ "$attempt" -lt 3 ]; do
   attempt=$((attempt + 1))
   if ${openworkServe}; then
     exit 0
+  else
+    status=$?
   fi
-  status=$?
   echo "openwork serve failed (attempt $attempt, exit $status); retrying in 3s"
   sleep 3
 done
@@ -350,54 +367,144 @@ async function cleanupWorkerDataOnDaytona(daytona: Daytona, workerId: WorkerId) 
   }
 }
 
-async function waitForHealth(url: string, timeoutMs: number, sandbox: Sandbox, sessionId: string, commandId: string) {
+type HealthWaitMode =
+  | { kind: "container-startup" }
+  | { kind: "legacy-session"; sessionId: string; commandId: string }
+
+const maxHealthProbeRequestMs = 10_000
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function fetchHealthWithTimeout(url: string, timeoutMs: number) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { method: "GET", signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function throwIfLegacySessionExited(sandbox: Sandbox, mode: HealthWaitMode) {
+  if (mode.kind !== "legacy-session") {
+    return
+  }
+
+  try {
+    const command = await sandbox.process.getSessionCommand(mode.sessionId, mode.commandId)
+    if (typeof command.exitCode === "number" && command.exitCode !== 0) {
+      const logs = await sandbox.process.getSessionCommandLogs(mode.sessionId, mode.commandId)
+      throw new Error(
+        [
+          `openwork session exited with ${command.exitCode}`,
+          logs.stdout?.trim() ? `stdout:\n${logs.stdout.trim().slice(-4000)}` : "",
+          logs.stderr?.trim() ? `stderr:\n${logs.stderr.trim().slice(-4000)}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      )
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("openwork session exited")) {
+      throw error
+    }
+  }
+}
+
+async function legacySessionLogs(sandbox: Sandbox, mode: HealthWaitMode) {
+  if (mode.kind !== "legacy-session") {
+    return null
+  }
+
+  return await sandbox.process.getSessionCommandLogs(mode.sessionId, mode.commandId).catch(
+    () => null,
+  )
+}
+
+async function containerStartupDiagnostics(sandbox: Sandbox) {
+  const scriptCheck = await sandbox.process.executeCommand(
+    `test -x ${shellQuote(daytonaWorkerStartupScriptPath)} && echo 'startup script present' || echo 'startup script missing'`,
+    undefined,
+    undefined,
+    10,
+  ).catch(() => null)
+  const startupLogTail = await sandbox.process.executeCommand(
+    [
+      "node -e",
+      shellQuote(
+        [
+          'const fs = require("node:fs")',
+          'const path = process.argv[1]',
+          'if (!fs.existsSync(path)) { console.log(`startup log missing: ${path}`); process.exit(0) }',
+          'const text = fs.readFileSync(path, "utf8")',
+          'process.stdout.write(text.slice(-4000))',
+        ].join("; "),
+      ),
+      shellQuote(daytonaWorkerStartupLogPath),
+    ].join(" "),
+    undefined,
+    undefined,
+    10,
+  ).catch(() => null)
+
+  return [
+    scriptCheck?.result?.trim() ? `startup script check:\n${scriptCheck.result.trim().slice(-4000)}` : "",
+    startupLogTail?.result?.trim() ? `startup log tail (${daytonaWorkerStartupLogPath}):\n${startupLogTail.result.trim().slice(-4000)}` : "",
+  ].filter(Boolean)
+}
+
+async function waitForHealth(url: string, timeoutMs: number, sandbox: Sandbox, mode: HealthWaitMode) {
   const startedAt = Date.now()
+  const healthUrl = `${url.replace(/\/$/, "")}/health`
+  let lastProbe = "no health probe completed"
 
   while (Date.now() - startedAt < timeoutMs) {
+    const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt))
+    const requestTimeoutMs = Math.min(maxHealthProbeRequestMs, remainingMs)
     try {
-      const response = await fetch(`${url.replace(/\/$/, "")}/health`, { method: "GET" })
+      const response = await fetchHealthWithTimeout(healthUrl, requestTimeoutMs)
       if (response.ok) {
         return
       }
-    } catch {
-      // ignore transient startup failures
-    }
-
-    try {
-      const command = await sandbox.process.getSessionCommand(sessionId, commandId)
-      if (typeof command.exitCode === "number" && command.exitCode !== 0) {
-        const logs = await sandbox.process.getSessionCommandLogs(sessionId, commandId)
-        throw new Error(
-          [
-            `openwork session exited with ${command.exitCode}`,
-            logs.stdout?.trim() ? `stdout:\n${logs.stdout.trim().slice(-4000)}` : "",
-            logs.stderr?.trim() ? `stderr:\n${logs.stderr.trim().slice(-4000)}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-        )
-      }
+      lastProbe = `health returned HTTP ${response.status}`
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("openwork session exited")) {
-        throw error
-      }
+      lastProbe = `health probe failed or timed out after ${requestTimeoutMs}ms: ${errorMessage(error)}`
     }
 
-    await sleep(env.daytona.pollIntervalMs)
+    await throwIfLegacySessionExited(sandbox, mode)
+
+    await sleep(Math.min(env.daytona.pollIntervalMs, Math.max(0, timeoutMs - (Date.now() - startedAt))))
   }
 
-  const logs = await sandbox.process.getSessionCommandLogs(sessionId, commandId).catch(
-    () => null,
-  )
+  const logs = await legacySessionLogs(sandbox, mode)
+  const diagnostics = mode.kind === "container-startup"
+    ? await containerStartupDiagnostics(sandbox)
+    : []
   throw new Error(
     [
-      `Timed out waiting for Daytona worker health at ${url.replace(/\/$/, "")}/health`,
+      `Timed out waiting for Daytona worker health at ${healthUrl}`,
+      `startup mode: ${mode.kind}`,
+      `last probe: ${lastProbe}`,
       logs?.stdout?.trim() ? `stdout:\n${logs.stdout.trim().slice(-4000)}` : "",
       logs?.stderr?.trim() ? `stderr:\n${logs.stderr.trim().slice(-4000)}` : "",
+      ...diagnostics,
     ]
       .filter(Boolean)
       .join("\n\n"),
   )
+}
+
+async function hasDaytonaWorkerStartupScript(sandbox: Sandbox) {
+  const result = await sandbox.process.executeCommand(
+    `test -x ${shellQuote(daytonaWorkerStartupScriptPath)} && test -f ${shellQuote(daytonaWorkerAutostartMarkerPath)}`,
+    undefined,
+    undefined,
+    10,
+  )
+
+  return result.exitCode === 0
 }
 
 async function upsertDaytonaSandbox(input: {
@@ -513,6 +620,20 @@ export async function provisionWorkerOnDaytona(
     sharedVolumeNameValue,
     env.daytona.createTimeoutSeconds * 1000,
   )
+  const runtimeEnv: DaytonaWorkerRuntimeEnv = buildDaytonaWorkerRuntimeEnv({
+    workerId: input.workerId,
+    hostToken: input.hostToken,
+    clientToken: input.clientToken,
+    activityToken: input.activityToken,
+    activityHeartbeatUrl: workerActivityHeartbeatUrl(input.workerId),
+    workspaceMountPath: env.daytona.workspaceMountPath,
+    dataMountPath: env.daytona.dataMountPath,
+    runtimeWorkspacePath: env.daytona.runtimeWorkspacePath,
+    runtimeDataPath: env.daytona.runtimeDataPath,
+    sidecarDir: env.daytona.sidecarDir,
+    openworkPort: env.daytona.openworkPort,
+    opencodePort: env.daytona.opencodePort,
+  })
   let sandbox: Awaited<ReturnType<typeof daytona.create>> | null = null
 
   try {
@@ -526,10 +647,7 @@ export async function provisionWorkerOnDaytona(
             autoDeleteInterval: env.daytona.autoDeleteInterval,
             public: env.daytona.public,
             labels,
-            envVars: {
-              DEN_WORKER_ID: input.workerId,
-              DEN_RUNTIME_PROVIDER: "daytona",
-            },
+            envVars: runtimeEnv,
             volumes: sharedVolumeMounts(input.workerId, sharedVolume.id),
           },
           { timeout: env.daytona.createTimeoutSeconds },
@@ -543,10 +661,7 @@ export async function provisionWorkerOnDaytona(
             autoDeleteInterval: env.daytona.autoDeleteInterval,
             public: env.daytona.public,
             labels,
-            envVars: {
-              DEN_WORKER_ID: input.workerId,
-              DEN_RUNTIME_PROVIDER: "daytona",
-            },
+            envVars: runtimeEnv,
             resources: {
               cpu: env.daytona.resources.cpu,
               memory: env.daytona.resources.memory,
@@ -557,20 +672,30 @@ export async function provisionWorkerOnDaytona(
           { timeout: env.daytona.createTimeoutSeconds },
         )
 
-    const sessionId = `openwork-${workerHint(input.workerId)}`
-    await sandbox.process.createSession(sessionId)
-    const command = await sandbox.process.executeSessionCommand(
-      sessionId,
-      {
-        command: buildOpenWorkStartCommand(input),
-        runAsync: true,
-      },
-      0,
-    )
+    let healthMode: HealthWaitMode
+    if (await hasDaytonaWorkerStartupScript(sandbox)) {
+      healthMode = { kind: "container-startup" }
+    } else {
+      logger.info("Daytona image lacks entrypoint autostart marker; using legacy session fallback", {
+        worker_id: input.workerId,
+        sandbox_id: sandbox.id,
+      })
+      const sessionId = `openwork-${workerHint(input.workerId)}`
+      await sandbox.process.createSession(sessionId)
+      const command = await sandbox.process.executeSessionCommand(
+        sessionId,
+        {
+          command: buildOpenWorkStartCommand(),
+          runAsync: true,
+        },
+        0,
+      )
+      healthMode = { kind: "legacy-session", sessionId, commandId: command.cmdId }
+    }
 
     const expiresInSeconds = normalizedSignedPreviewExpirySeconds()
     const preview = await sandbox.getSignedPreviewUrl(env.daytona.openworkPort, expiresInSeconds)
-    await waitForHealth(preview.url, env.daytona.healthcheckTimeoutMs, sandbox, sessionId, command.cmdId)
+    await waitForHealth(preview.url, env.daytona.healthcheckTimeoutMs, sandbox, healthMode)
     await upsertDaytonaSandbox({
       workerId: input.workerId,
       sandboxId: sandbox.id,

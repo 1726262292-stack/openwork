@@ -25,6 +25,11 @@ RUN apt-get update \
 
 COPY --from=openwork-builder /src/apps/orchestrator/dist/bin/openwork /usr/local/bin/openwork
 COPY --from=openwork-builder /src/constants.json /usr/local/constants.json
+COPY ee/apps/den-worker-runtime/openwork-daytona-worker-start /usr/local/bin/openwork-daytona-worker-start
+
+RUN chmod 0755 /usr/local/bin/openwork-daytona-worker-start \
+  && mkdir -p /usr/local/share/openwork \
+  && touch /usr/local/share/openwork/daytona-worker-entrypoint
 
 RUN set -eux; \
   test -n "$OPENCODE_VERSION"; \
@@ -49,4 +54,5 @@ RUN set -eux; \
 RUN test "$(openwork --version)" = "$OPENWORK_ORCHESTRATOR_VERSION" \
   && opencode --version
 
-CMD ["sleep", "infinity"]
+# Daytona runs the image ENTRYPOINT on sandbox start; startup is env-driven.
+ENTRYPOINT ["/usr/local/bin/openwork-daytona-worker-start"]

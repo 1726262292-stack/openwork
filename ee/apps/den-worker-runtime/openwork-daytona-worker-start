@@ -1,0 +1,117 @@
+#!/usr/bin/env sh
+set -eu
+
+# Daytona runs this image ENTRYPOINT on sandbox start; startup is env-driven and
+# intentionally ignores positional args.
+
+log() {
+  printf '%s\n' "openwork-daytona-worker-start: $*" >&2
+}
+
+fail() {
+  log "ERROR: $*"
+  exit 1
+}
+
+require_env() {
+  name="$1"
+  if value="$(printenv "$name")"; then
+    :
+  else
+    value=""
+  fi
+  if [ -z "$value" ]; then
+    fail "$name is required when DEN_WORKER_ID is set"
+  fi
+}
+
+require_number_env() {
+  require_env "$1"
+  case "$value" in
+    *[!0-9]*) fail "$name must be numeric" ;;
+  esac
+}
+
+if [ -z "${DEN_WORKER_ID:-}" ]; then
+  log "DEN_WORKER_ID not set; keeping snapshot container alive"
+  exec sleep infinity
+fi
+
+for name in \
+  DEN_RUNTIME_PROVIDER \
+  DEN_ACTIVITY_HEARTBEAT_ENABLED \
+  DEN_ACTIVITY_HEARTBEAT_URL \
+  DEN_ACTIVITY_HEARTBEAT_TOKEN \
+  OPENWORK_TOKEN \
+  OPENWORK_HOST_TOKEN \
+  OPENWORK_DATA_DIR \
+  OPENWORK_SIDECAR_DIR \
+  OPENWORK_WORKSPACE \
+  OPENWORK_OPENCODE_HOST \
+  OPENWORK_CONNECT_HOST \
+  OPENWORK_CORS \
+  OPENWORK_APPROVAL \
+  OPENWORK_OPENCODE_SOURCE \
+  DAYTONA_WORKSPACE_MOUNT_PATH \
+  DAYTONA_DATA_MOUNT_PATH
+do
+  require_env "$name"
+done
+
+require_number_env OPENWORK_PORT
+require_number_env OPENWORK_OPENCODE_PORT
+
+if ! command -v openwork >/dev/null 2>&1; then
+  fail "openwork binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot"
+fi
+
+if ! command -v opencode >/dev/null 2>&1; then
+  fail "opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot"
+fi
+
+mkdir -p \
+  "$DAYTONA_WORKSPACE_MOUNT_PATH" \
+  "$DAYTONA_DATA_MOUNT_PATH" \
+  "$OPENWORK_WORKSPACE" \
+  "$OPENWORK_DATA_DIR" \
+  "$OPENWORK_SIDECAR_DIR" \
+  "$OPENWORK_WORKSPACE/volumes"
+ln -sfn "$DAYTONA_WORKSPACE_MOUNT_PATH" "$OPENWORK_WORKSPACE/volumes/workspace"
+ln -sfn "$DAYTONA_DATA_MOUNT_PATH" "$OPENWORK_WORKSPACE/volumes/data"
+
+opencode_bin="$(command -v opencode)"
+startup_log="${OPENWORK_STARTUP_LOG:-/tmp/openwork-daytona-worker-start.log}"
+: >> "$startup_log"
+start_attempts="${OPENWORK_START_ATTEMPTS:-3}"
+case "$start_attempts" in
+  *[!0-9]*) fail "OPENWORK_START_ATTEMPTS must be numeric" ;;
+esac
+
+log "starting OpenWork Daytona worker $DEN_WORKER_ID on port $OPENWORK_PORT"
+log "OpenWork output will append to $startup_log"
+attempt=0
+while [ "$attempt" -lt "$start_attempts" ]; do
+  attempt=$((attempt + 1))
+  if openwork serve \
+    --workspace "$OPENWORK_WORKSPACE" \
+    --remote-access \
+    --openwork-port "$OPENWORK_PORT" \
+    --opencode-host "$OPENWORK_OPENCODE_HOST" \
+    --opencode-port "$OPENWORK_OPENCODE_PORT" \
+    --connect-host "$OPENWORK_CONNECT_HOST" \
+    --cors "$OPENWORK_CORS" \
+    --approval "$OPENWORK_APPROVAL" \
+    --allow-external \
+    --opencode-source "$OPENWORK_OPENCODE_SOURCE" \
+    --opencode-bin "$opencode_bin" \
+    --verbose >> "$startup_log" 2>&1; then
+    exit 0
+  else
+    status="$?"
+  fi
+
+  log "openwork serve failed (attempt $attempt, exit $status); retrying in 3s"
+  sleep 3
+done
+
+exit 1
