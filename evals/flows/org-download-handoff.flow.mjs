@@ -143,15 +143,20 @@ export default {
           action: async () => {
             await navigateToAbsolute(ctx, requireStateValue(state.installPageUrl, "install page URL"));
             await ctx.waitFor("Boolean(document.querySelector('[data-testid=install-guide]'))", { timeoutMs: 30_000, label: "guided installer" });
-          },
-          assert: async () => {
+            // Both narrated beats: the wait-gate copy, then the one-click
+            // "I already have it" affirmation that advances the guide.
             await ctx.expectText("Only continue once OpenWork is installed and running on this computer.");
             await ctx.expectText("I already have OpenWork");
-            witness(ctx, await ctx.eval("Boolean(document.querySelector('[data-testid=install-skip-download]'))"), "The guide exposes the already-installed button", "install-skip-download");
+            await clickSelector(ctx, "[data-testid=install-skip-download]", "already have app button");
+          },
+          assert: async () => {
+            await ctx.waitFor("document.querySelector('[data-testid=install-guide-step-open]')?.dataset.state === 'active'", { timeoutMs: 20_000, label: "open step active" });
+            await ctx.expectText("Open the app and confirm that you want to connect it to Acme Robotics.");
+            witness(ctx, await ctx.eval("Boolean(document.querySelector('[data-testid=install-connect-open]'))"), "The guide exposes the Open OpenWork action after the affirmation", "install-connect-open");
           },
           screenshot: {
             name: "install-wait-gate-copy",
-            requireText: ["Only continue once OpenWork is installed and running on this computer.", "I already have OpenWork"],
+            requireText: ["Open OpenWork", "Open the app and confirm that you want to connect it to Acme Robotics."],
           },
         }));
       },
@@ -163,9 +168,8 @@ export default {
           voiceover: vo[3],
           action: async () => {
             await withWeb(ctx, async () => {
-              await navigateToAbsolute(ctx, requireStateValue(state.installPageUrl, "install page URL"));
-              await ctx.waitFor("Boolean(document.querySelector('[data-testid=install-skip-download]'))", { timeoutMs: 30_000, label: "already have app button" });
-              await clickSelector(ctx, "[data-testid=install-skip-download]", "already have app button");
+              // Frame 3 left the guide on the active open step; continue on
+              // the same page so the affirmation is not reset by a reload.
               await ctx.waitFor("Boolean(document.querySelector('[data-testid=install-connect-open]'))", { timeoutMs: 30_000, label: "open app action" });
               const initialConfig = await fetchInstallConfig(ctx);
               state.serverHost = new URL(initialConfig.webUrl || DEN_WEB_URL).host;
