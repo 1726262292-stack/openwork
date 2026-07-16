@@ -10,7 +10,6 @@ const SELF_HOSTED_BASE_URL = "https://den.internal.acme.test";
 const STARTUP_DIALOG_TITLE = "Use OpenWork Models without API keys";
 const DEFAULT_ORG_SERVER_TEXT = "Using standard OpenWork Cloud.";
 const EDITOR_SELECTOR = '[contenteditable="true"][data-lexical-editor="true"]';
-const MSG = "Summarize the quarterly report";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,6 +24,46 @@ async function reloadApp(ctx) {
 }
 
 /**
+ * Click a button by exact trimmed text through its React onClick prop.
+ * Base UI buttons do not always react to bare DOM .click() under CDP.
+ */
+async function clickReact(ctx, text) {
+  const result = await ctx.eval(`(() => {
+    const button = [...document.querySelectorAll("button")].find((el) => (el.textContent ?? "").trim() === ${JSON.stringify(text)} && !el.disabled);
+    if (!button) return "not found";
+    const propsKey = Object.keys(button).find((k) => k.startsWith("__reactProps$"));
+    if (propsKey && button[propsKey]?.onClick) {
+      button[propsKey].onClick({ preventDefault: () => {}, stopPropagation: () => {}, currentTarget: button, target: button });
+      return "react";
+    }
+    button.click();
+    return "dom";
+  })()`);
+  ctx.assert(result !== "not found", `Button not found: ${text}`);
+}
+
+/** Skip through first-run onboarding overlays (provider step + attribution). */
+async function dismissOnboardingOverlays(ctx) {
+  const ATTRIBUTION_TITLE = "How did you hear about OpenWork?";
+  if (await ctx.hasText("Skip and use the free model")) {
+    await clickReact(ctx, "Skip and use the free model");
+    // The attribution step follows the provider choice; wait for it (or for
+    // onboarding to finish straight into a session route).
+    await ctx.waitFor(
+      `document.body.innerText.includes(${JSON.stringify(ATTRIBUTION_TITLE)}) || location.hash.includes("/session") || location.hash.includes("/workspace/")`,
+      { timeoutMs: 20_000, label: "attribution step or session after provider skip" },
+    ).catch(() => {});
+  }
+  if (await ctx.hasText(ATTRIBUTION_TITLE)) {
+    await clickReact(ctx, "Skip");
+    await ctx.waitFor(`!document.body.innerText.includes(${JSON.stringify(ATTRIBUTION_TITLE)})`, {
+      timeoutMs: 15_000,
+      label: "attribution step dismissed",
+    }).catch(() => {});
+  }
+}
+
+/**
  * Idempotent workspace/session bootstrap. Fresh sandboxes land on the welcome
  * route; reruns land straight in a session. Creating through the real modal
  * uses the documented React-fiber folder injection (native pickers cannot run
@@ -34,75 +73,35 @@ async function ensureWorkspaceSession(ctx) {
   await waitForControl(ctx);
   const workspaceDir = ctx.env.OPENWORK_EVAL_WORKSPACE_DIR?.trim() || "/workspace/hello";
 
+  // A previous (failed) run can leave the first-run overlays open; clear them
+  // before deciding which route we are on.
+  await dismissOnboardingOverlays(ctx);
+
   const onWelcome = await ctx.eval(`(() => {
     const text = document.body.innerText;
     return location.hash.includes("/welcome") || text.includes("Pick a folder to get started");
   })()`);
 
   if (onWelcome) {
-    await ctx.clickText("Pick a folder to get started", { timeoutMs: 15_000 });
-    if (await ctx.hasText("Local workspace")) {
-      await ctx.clickText("Local workspace", { timeoutMs: 10_000 });
-    }
-    await sleep(500);
-    const injected = await ctx.eval(`(() => {
-      function fiberOf(el) {
-        const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
-        return key ? el[key] : null;
-      }
-      const scope = document.querySelector('[role="dialog"], [class*="modal" i], [class*="dialog" i]') ?? document.body;
-      let fiber = fiberOf(scope);
-      while (fiber) {
-        const name = (fiber.elementType && fiber.elementType.name) || (fiber.type && fiber.type.name) || "";
-        if (name === "CreateWorkspaceModal") break;
-        fiber = fiber.return;
-      }
-      if (!fiber) {
-        const all = document.querySelectorAll("span,div,p");
-        for (const el of all) {
-          if ((el.textContent || "").includes("No folder")) { fiber = fiberOf(el); break; }
-        }
-        while (fiber) {
-          const name = (fiber.elementType && fiber.elementType.name) || (fiber.type && fiber.type.name) || "";
-          if (name === "CreateWorkspaceModal") break;
-          fiber = fiber.return;
-        }
-      }
-      if (!fiber) return "no CreateWorkspaceModal fiber";
-      let hook = fiber.memoizedState;
-      while (hook) {
-        if (hook.queue && hook.queue.dispatch) {
-          hook.queue.dispatch({ key: "selectedFolder", value: ${JSON.stringify(workspaceDir)} });
-          hook.queue.dispatch({ key: "pickingFolder", value: false });
-          return "injected";
-        }
-        hook = hook.next;
-      }
-      return "no dispatch hook";
-    })()`);
-    ctx.assert(injected === "injected", `Folder injection failed: ${injected}`);
+    // Dev builds expose a manual folder input on the welcome page exactly for
+    // headless/sandbox runs where the native folder picker cannot open.
+    await ctx.waitFor(`Boolean(document.querySelector('input[placeholder="/workspace/my-project"]'))`, {
+      timeoutMs: 15_000,
+      label: "manual folder input on welcome page",
+    });
+    await ctx.fill('input[placeholder="/workspace/my-project"]', workspaceDir);
     await ctx.waitFor(`(() => {
-      const button = [...document.querySelectorAll("button")].find((el) => (el.textContent ?? "").trim().startsWith("Create"));
+      const button = [...document.querySelectorAll("button")].find((el) => (el.textContent ?? "").trim() === "Use this folder");
       return Boolean(button && !button.disabled);
-    })()`, { timeoutMs: 10_000, label: "enabled Create button" });
-    await ctx.eval(`(() => {
-      const button = [...document.querySelectorAll("button")].find((el) => (el.textContent ?? "").trim().startsWith("Create") && !el.disabled);
-      button.click();
-      return true;
-    })()`);
+    })()`, { timeoutMs: 10_000, label: "enabled Use this folder button" });
+    await clickReact(ctx, "Use this folder");
 
     // First-run onboarding after creation: provider step, then attribution.
     await ctx.waitFor(`(() => {
       const text = document.body.innerText;
-      return text.includes("Power your first task") || text.includes("How did you hear") || location.hash.includes("/session");
+      return text.includes("Power your first task") || text.includes("Skip this part") || location.hash.includes("/session");
     })()`, { timeoutMs: 120_000, label: "post-create onboarding surface" });
-    if (await ctx.hasText("Skip and use the free model")) {
-      await ctx.clickText("Skip and use the free model", { selector: "button", timeoutMs: 10_000 });
-    }
-    await sleep(1_000);
-    if (await ctx.hasText("Skip this part")) {
-      await ctx.clickText("Skip", { selector: "button", timeoutMs: 10_000 });
-    }
+    await dismissOnboardingOverlays(ctx);
   }
 
   await ctx.waitFor('location.hash.includes("/session") || location.hash.includes("/workspace/")', {
@@ -166,26 +165,48 @@ async function closeModelPicker(ctx) {
   await sleep(500);
 }
 
-async function openProviderStepViaFirstSend(ctx) {
+/**
+ * Open the provider choice step through the real user journey: reset the
+ * one-shot onboarding latch (labeled setup shortcut), then create a workspace
+ * from the welcome page. The step renders right after creation.
+ */
+async function openProviderStepViaWorkspaceSetup(ctx, workspaceDir) {
+  // Reset the one-shot onboarding latch, then reload so the in-memory
+  // preferences store re-reads it — otherwise the welcome route immediately
+  // redirects back to the session. Navigate to the welcome page only after
+  // boot settles (the boot sequence restores the last session route and would
+  // otherwise race the hash we set).
   await ctx.eval(`(() => {
-    const editor = document.querySelector(${JSON.stringify(EDITOR_SELECTOR)});
-    if (!editor) throw new Error("composer editor missing");
-    editor.focus();
-    const data = new DataTransfer();
-    data.setData("text/plain", ${JSON.stringify(MSG)});
-    editor.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    const raw = localStorage.getItem("openwork.preferences");
+    const prefs = raw ? JSON.parse(raw) : {};
+    prefs.hasCompletedOnboarding = false;
+    localStorage.setItem("openwork.preferences", JSON.stringify(prefs));
     return true;
   })()`);
+  await reloadApp(ctx);
+  await ctx.waitFor('location.hash.includes("/session") || location.hash.includes("/workspace/") || location.hash.includes("/welcome")', {
+    timeoutMs: 60_000,
+    label: "app settled after onboarding-latch reload",
+  });
+  await sleep(2_000);
+  await ctx.navigateHash("/welcome");
+  await ctx.waitFor(`Boolean(document.querySelector('input[placeholder="/workspace/my-project"]'))`, {
+    timeoutMs: 30_000,
+    label: "manual folder input on welcome page",
+  });
+  await sleep(1_000);
+  try {
+    await ctx.fill('input[placeholder="/workspace/my-project"]', workspaceDir);
+  } catch {
+    await sleep(1_500);
+    await ctx.fill('input[placeholder="/workspace/my-project"]', workspaceDir);
+  }
   await ctx.waitFor(`(() => {
-    const editor = document.querySelector(${JSON.stringify(EDITOR_SELECTOR)});
-    return Boolean(editor && editor.innerText.includes(${JSON.stringify(MSG)}));
-  })()`, { timeoutMs: 30_000, label: "pasted draft in composer" });
-  await ctx.waitFor(`(() => {
-    const buttons = Array.from(document.querySelectorAll("button"));
-    return buttons.some((button) => (button.textContent ?? "").includes("Run task") && !button.disabled);
-  })()`, { timeoutMs: 30_000, label: "enabled Run task button" });
-  await ctx.clickText("Run task", { selector: "button", timeoutMs: 30_000 });
-  await ctx.waitForText("Power your first task", { timeoutMs: 30_000 });
+    const button = [...document.querySelectorAll("button")].find((el) => (el.textContent ?? "").trim() === "Use this folder");
+    return Boolean(button && !button.disabled);
+  })()`, { timeoutMs: 10_000, label: "enabled Use this folder button" });
+  await clickReact(ctx, "Use this folder");
+  await ctx.waitForText("Power your first task", { timeoutMs: 120_000 });
 }
 
 /** Setup shortcut (labeled): reset the one-shot latches this flow proves. */
@@ -274,14 +295,12 @@ export default {
       },
     },
     {
-      name: "Frame 3 — hosted first send offers Use OpenWork Models",
+      name: "Frame 3 — hosted workspace setup offers Use OpenWork Models",
       run: async (ctx) => {
-        await ctx.prove("On the hosted control plane the first-send provider step includes the Use OpenWork Models option", {
+        await ctx.prove("On the hosted control plane the workspace-setup provider step includes the Use OpenWork Models option", {
           voiceover: vo[2],
           action: async () => {
-            await ctx.navigateHash("/");
-            await ensureWorkspaceSession(ctx);
-            await openProviderStepViaFirstSend(ctx);
+            await openProviderStepViaWorkspaceSetup(ctx, "/workspace/hello-hosted");
           },
           assert: async () => {
             await ctx.expectText("Power your first task");
@@ -294,9 +313,7 @@ export default {
             requireText: ["Power your first task", "Use OpenWork Models", "Skip and use the free model"],
           },
         });
-        // Dismiss the step without completing it (keeps providerStepCompleted
-        // unset for the self-hosted phase) by reloading the app.
-        await reloadApp(ctx);
+        await dismissOnboardingOverlays(ctx);
         await ensureWorkspaceSession(ctx);
       },
     },
@@ -382,10 +399,10 @@ export default {
     {
       name: "Frame 7 — self-hosted provider step has no OpenWork Models option",
       run: async (ctx) => {
-        await ctx.prove("Self-hosted: the first-send provider step only offers BYO key and the free model", {
+        await ctx.prove("Self-hosted: the workspace-setup provider step only offers BYO key and the free model", {
           voiceover: vo[6],
           action: async () => {
-            await openProviderStepViaFirstSend(ctx);
+            await openProviderStepViaWorkspaceSetup(ctx, "/workspace/hello-selfhosted");
           },
           assert: async () => {
             await ctx.expectText("Power your first task");
@@ -399,7 +416,7 @@ export default {
             rejectText: ["Use OpenWork Models"],
           },
         });
-        await reloadApp(ctx);
+        await dismissOnboardingOverlays(ctx);
         await ensureWorkspaceSession(ctx);
       },
     },
