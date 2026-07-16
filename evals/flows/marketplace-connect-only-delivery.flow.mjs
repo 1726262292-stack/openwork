@@ -37,6 +37,7 @@ export default {
   kind: "user-facing",
   requiredEnv: [
     "OPENWORK_EVAL_DEN_API_URL",
+    "OPENWORK_EVAL_DEN_WEB_URL",
     "OPENWORK_EVAL_PLATFORM_ADMIN_EMAIL",
     "OPENWORK_EVAL_PLATFORM_ADMIN_PASSWORD",
     "OPENWORK_EVAL_MARK_VERIFIED_CMD",
@@ -441,12 +442,12 @@ async function prepareSignedInDesktop(ctx) {
 async function signDesktopIntoCloud(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API" });
   await ctx.waitFor("Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", { timeoutMs: 30_000, label: "desktop bridge" });
-  const bootstrap = { baseUrl: DEN_API_URL, apiBaseUrl: DEN_API_URL, requireSignin: false, handoff: null };
+  const bootstrap = { baseUrl: DEN_WEB_URL, apiBaseUrl: DEN_API_URL, requireSignin: false, handoff: null };
   const written = await ctx.eval(`(async () => {
     const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
     if (!bridge) return { ok: false };
     await bridge("setDesktopBootstrapConfig", ${JSON.stringify(bootstrap)});
-    localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(DEN_API_URL)});
+    localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(DEN_WEB_URL)});
     localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(DEN_API_URL)});
     localStorage.removeItem('openwork.den.authToken');
     localStorage.removeItem('openwork.den.activeOrgId');
@@ -467,7 +468,11 @@ async function signDesktopIntoCloud(ctx) {
     body: JSON.stringify({ desktopScheme: "openwork" }),
   });
   ctx.assert(handoff.response.ok, `Handoff create failed: ${handoff.response.status} ${handoff.text.slice(0, 300)}`);
-  await ctx.control("auth.exchange-grant", { grant: handoff.body.grant, baseUrl: DEN_API_URL });
+  await ctx.waitFor(
+    "Boolean(window.__openworkControl?.listActions().some((action) => action.id === 'auth.exchange-grant'))",
+    { timeoutMs: 30_000, label: "auth.exchange-grant control action" },
+  );
+  await ctx.control("auth.exchange-grant", { grant: handoff.body.grant, baseUrl: DEN_WEB_URL });
   await ctx.waitFor("Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
     timeoutMs: 45_000,
     label: "persisted den auth token",
@@ -495,13 +500,23 @@ async function completeDesktopCloudOnboardingIfNeeded(ctx) {
   if (needsFolder) {
     await ctx.fill('input[placeholder="/workspace/my-project"]', WORKSPACE_PATH);
     await ctx.clickText("Use this folder", { timeoutMs: 10_000 });
-    await ctx.waitFor("window.location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "workspace open after folder selection" });
   }
-  await ctx.eval(`(() => {
-    const button = [...document.querySelectorAll('button')].find((candidate) => (candidate.textContent ?? '').trim() === 'Continue without OpenWork Models');
-    button?.click();
-    return true;
-  })()`);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const routeReady = await ctx.eval("window.location.hash.includes('/workspace/')");
+    if (routeReady) return;
+    await ctx.eval(`(() => {
+      const buttons = [...document.querySelectorAll('button')];
+      const modelSkip = buttons.find((candidate) => ['Skip and use the free model', 'Continue without OpenWork Models'].includes((candidate.textContent ?? '').trim()));
+      if (modelSkip instanceof HTMLElement && !modelSkip.hasAttribute('disabled')) modelSkip.click();
+      const surveySkip = buttons.find((candidate) => (candidate.textContent ?? '').trim() === 'Skip');
+      if (surveySkip instanceof HTMLElement && !surveySkip.hasAttribute('disabled')) surveySkip.click();
+      return true;
+    })()`);
+    await sleep(1_000);
+  }
+  if (needsFolder) {
+    await ctx.waitFor("window.location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "workspace open after onboarding" });
+  }
 }
 
 async function remountDesktop(ctx) {
@@ -522,8 +537,8 @@ async function remountDesktop(ctx) {
 
 async function waitForCloudMcpSync(ctx) {
   await ctx.waitFor(
-    "Boolean(localStorage.getItem('openwork.den.mcp.sync'))",
-    { timeoutMs: 180_000, label: "openwork.den.mcp.sync marker" },
+    "Boolean(localStorage.getItem('openwork.den.mcp.lastMaintenanceOutcome')) || (document.body?.innerText ?? '').includes('OpenWork Connect: Ready')",
+    { timeoutMs: 180_000, label: "OpenWork Connect maintenance ready" },
   );
 }
 
