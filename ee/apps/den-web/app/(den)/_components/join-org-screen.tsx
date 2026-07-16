@@ -18,6 +18,7 @@ import { AuthPanel } from "./auth-panel";
 import { JoinOrgSuccess } from "./join-org-success";
 
 type JoinedOrg = {
+  id: string;
   name: string;
   slug: string;
 };
@@ -164,6 +165,10 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
       setJoinError("Missing invitation link.");
       return;
     }
+    if (!preview) {
+      setJoinError("The invitation details are still loading.");
+      return;
+    }
 
     setJoinBusy(true);
     setJoinError(null);
@@ -187,9 +192,11 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
         window.sessionStorage.removeItem(PENDING_ORG_INVITATION_STORAGE_KEY);
       }
 
-      const organizationSlug = getStringProperty(payload, "organizationSlug")?.trim() || preview?.organization.slug || "";
+      const organizationSlug = getStringProperty(payload, "organizationSlug")?.trim() || preview.organization.slug;
+      const organizationId = getStringProperty(payload, "organizationId")?.trim() || preview.organization.id;
       setJoinedOrg({
-        name: preview?.organization.name ?? "your team",
+        id: organizationId,
+        name: preview.organization.name,
         slug: organizationSlug,
       });
     } catch (error) {
@@ -214,6 +221,7 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
   if (joinedOrg) {
     return (
       <JoinOrgSuccess
+        organizationId={joinedOrg.id}
         organizationName={joinedOrg.name}
         onContinueInBrowser={() => router.replace(joinedOrg.slug ? getOrgDashboardRoute(joinedOrg.slug) : "/dashboard")}
       />
