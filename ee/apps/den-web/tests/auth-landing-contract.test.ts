@@ -14,7 +14,8 @@ describe("Den auth landing contract", () => {
     const source = readFileSync(authScreenPath, "utf8");
 
     expect(source).toContain("max-w-[600px]");
-    expect(source).toContain("lg:grid-cols-[2fr_1fr]");
+    expect(source).toContain("lg:grid-cols-[1fr_5fr]");
+    expect(source).not.toContain("lg:grid-cols-[2fr_1fr]");
     expect(source).toContain('data-testid="auth-landing-visual"');
     expect(source).toContain('data-testid="auth-landing-form"');
     expect(source).toContain('data-testid="auth-landing-mobile-brand"');
@@ -32,6 +33,15 @@ describe("Den auth landing contract", () => {
     expect(source).not.toContain("Shared config");
     expect(source).not.toContain("Cloud agents");
     expect(source).not.toContain("Your models");
+  });
+
+  test("keeps the visual panel as Dithering only", () => {
+    const source = readFileSync(authScreenPath, "utf8");
+
+    expect(source).toContain('import { Dithering } from "@paper-design/shaders-react"');
+    expect(source).not.toContain("PaperMeshGradient");
+    expect(source).toContain('style={{ backgroundColor: "#142033", width: "100%", height: "100%" }}');
+    expect(source).toContain('data-testid="auth-landing-visual"');
   });
 
   test("starts the email-first panel with the approved heading", () => {

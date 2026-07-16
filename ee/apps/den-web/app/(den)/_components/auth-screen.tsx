@@ -1,6 +1,5 @@
 "use client";
 
-import { PaperMeshGradient } from "@openwork/ui/react";
 import { Dithering } from "@paper-design/shaders-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -77,7 +76,7 @@ export function AuthScreen() {
   return (
     <section className="den-page flex min-h-[calc(100vh-2.5rem)] w-full items-center justify-center py-3 sm:py-4">
       <div className="den-frame relative mx-auto w-full max-w-[600px] overflow-hidden" data-testid="auth-landing-frame">
-        <div className="grid lg:grid-cols-[2fr_1fr]">
+        <div className="grid lg:grid-cols-[1fr_5fr]">
           <div className="relative hidden min-h-[520px] overflow-hidden lg:block" data-testid="auth-landing-visual">
             <div className="absolute inset-0 z-0">
               <Dithering
@@ -90,18 +89,7 @@ export function AuthScreen() {
                 colorBack="#00000000"
                 colorFront="#FEFEFE"
                 style={{ backgroundColor: "#142033", width: "100%", height: "100%" }}
-              >
-                <PaperMeshGradient
-                  speed={0.1}
-                  distortion={0.8}
-                  swirl={0.1}
-                  grainMixer={0}
-                  grainOverlay={0}
-                  frame={176868.9}
-                  colors={["#0F172A", "#1E40AF", "#4C1D95", "#0F766E"]}
-                  style={{ width: "100%", height: "100%" }}
-                />
-              </Dithering>
+              />
             </div>
           </div>
 

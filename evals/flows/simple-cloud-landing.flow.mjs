@@ -165,8 +165,8 @@ export default {
           assert: async () => {
             const state = await readLandingState(ctx);
             recordAssertion(ctx, "The frame is centered and bounded to 600px", Boolean(state.frame) && state.frame.width <= 604 && Math.abs((state.frame.left + state.frame.right) / 2 - state.viewport.width / 2) <= 4, state);
-            recordAssertion(ctx, "Desktop shows the visual panel and form side by side, with the visual panel larger", Boolean(state.visual?.visible && state.form?.visible) && state.visual.width > state.form.width && state.visual.left < state.form.left, state);
-            recordAssertion(ctx, "The left panel is shader-only and the old marketing content is absent", state.visualCanvasCount > 0 && !state.text.includes("OpenWork Cloud") && !state.text.includes("One setup, every seat.") && !state.text.includes("Shared config"), state);
+            recordAssertion(ctx, "Desktop shows the visual panel and form side by side, with the form wider", Boolean(state.visual?.visible && state.form?.visible) && state.form.width > state.visual.width && state.visual.left < state.form.left, state);
+            recordAssertion(ctx, "The left panel has exactly one shader canvas and the old marketing content is absent", state.visualCanvasCount === 1 && !state.text.includes("OpenWork Cloud") && !state.text.includes("One setup, every seat.") && !state.text.includes("Shared config"), state);
             recordAssertion(ctx, "The initial form is email-first with one Next button", state.emailInputs === 1 && state.passwordInputs === 0 && state.visibleButtons.length === 1 && state.visibleButtons[0] === "Next", state);
           },
           screenshot: {
