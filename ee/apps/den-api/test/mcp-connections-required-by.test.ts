@@ -65,7 +65,7 @@ beforeAll(async () => {
     id: organizationId,
     name: "Required By Org",
     slug: `required-by-${organizationId}`,
-    metadata: { capabilities: { mcpConnections: true } },
+    metadata: null,
   })
   await db.insert(schema.MemberTable).values([
     { id: adminMemberId, organizationId, userId: adminUserId, role: "admin" },

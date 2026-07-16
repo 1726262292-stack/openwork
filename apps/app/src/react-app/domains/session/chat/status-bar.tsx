@@ -31,6 +31,7 @@ import {
   getOpenWorkModelsActionUrl,
   hasOpenWorkModelsProvider,
   hideOpenWorkModelsPromo,
+  useOpenWorkModelsPromoEligibility,
   isOpenWorkModelsPromoHidden,
   markOpenWorkModelsPromoShown,
   OPENWORK_MODELS_PROMO_SHOW_DELAY_MS,
@@ -248,6 +249,7 @@ export function StatusBar(props: StatusBarProps) {
   const feedbackButtonRef = useRef<HTMLButtonElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const [openWorkModelsHintVisible, setOpenWorkModelsHintVisible] = useState(false);
+  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
   const hasOpenWorkModels = useMemo(
     () => hasOpenWorkModelsProvider(props.providerConnectedIds),
     [props.providerConnectedIds],
@@ -282,7 +284,7 @@ export function StatusBar(props: StatusBarProps) {
   }, []);
 
   useEffect(() => {
-    if (!shellConfig.cloudSignin || hasOpenWorkModels) {
+    if (!openWorkModelsPromoEligible || !shellConfig.cloudSignin || hasOpenWorkModels) {
       setOpenWorkModelsHintVisible(false);
       return;
     }
@@ -307,7 +309,7 @@ export function StatusBar(props: StatusBarProps) {
       }
       window.clearInterval(interval);
     };
-  }, [denAuth.status, hasOpenWorkModels, shellConfig.cloudSignin]);
+  }, [denAuth.status, hasOpenWorkModels, openWorkModelsPromoEligible, shellConfig.cloudSignin]);
 
   useEffect(() => {
     if (!openWorkModelsHintVisible) return;

@@ -58,6 +58,7 @@ const EnvSchema = z.object({
   PORT: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
   DEN_API_PUBLIC_URL: z.string().optional(),
+  DEN_API_VERSION: z.string().optional(),
   OPENWORK_INSTALLER_ARTIFACTS_DIR: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_TAG: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_REPO: z.string().optional(),
@@ -325,11 +326,10 @@ const connectLink = connectLinkMode === "signed" && connectLinkPrivateKeyPem && 
   ? { privateKeyPem: connectLinkPrivateKeyPem, kid: connectLinkKid }
   : null
 
-// Staged rollout for member-facing org MCP connections: when gating is
-// enabled (hosted deployments), GET /v1/mcp-connections?scope=usable returns
-// an empty list unless the organization opted in via the mcpConnections
-// organization capability. Off by default so local dev, evals, and self-hosted
-// deployments keep the feature working out of the box.
+// Deprecated compatibility knob for member-facing org MCP connections. The
+// environment variable is still parsed so existing deployment configs keep
+// starting, but memberFacingMcpConnectionsEnabled ignores this value: Connect is
+// default-on unless org metadata explicitly disables it.
 const mcpConnectionsGatingEnabled =
   (parsed.DEN_MCP_CONNECTIONS_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
@@ -449,6 +449,7 @@ export const env = {
   workerProxyPort: Number(parsed.WORKER_PROXY_PORT ?? "8789"),
   corsOrigins,
   apiPublicUrl,
+  serviceVersion: parsed.DEN_API_VERSION?.trim() || "dev",
   publicUrlTrustedOrigins,
   installerArtifactsDir: optionalString(parsed.OPENWORK_INSTALLER_ARTIFACTS_DIR),
   // Standard desktop release assets: the release tag to download from,

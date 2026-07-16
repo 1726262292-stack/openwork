@@ -4,9 +4,9 @@ import { z } from "zod"
  * Per-organization capability flags ("org capabilities").
  *
  * Capabilities let platform admins enable shipped-but-dark features
- * org-by-org from the /admin backoffice. Every capability defaults to OFF
- * for every organization; only an explicit `true` in the organization's
- * metadata JSON (`metadata.capabilities.<key>`) turns one on.
+ * org-by-org from the /admin backoffice. Legacy callers treat capabilities as
+ * opt-in/default-off; member-facing Connect additionally treats an explicit
+ * `metadata.capabilities.mcpConnections: false` as its default-on kill switch.
  *
  * Storage rides the existing organization metadata JSON column — the same
  * home as `limits`, `plan`, and `requireSso` — so no schema change is needed.
@@ -51,6 +51,22 @@ export function normalizeOrganizationCapabilities(metadata: MetadataInput): Orga
     installLinks: raw.installLinks === true,
     mcpConnections: raw.mcpConnections === true,
   }
+}
+
+/** Only raw, literal org capability overrides that are explicitly stored. */
+export function readOrganizationCapabilityOverrides(metadata: MetadataInput): Partial<OrganizationCapabilities> {
+  const parsed = parseMetadata(metadata)
+  const raw = isRecord(parsed.capabilities) ? parsed.capabilities : {}
+  const capabilities: Partial<OrganizationCapabilities> = {}
+
+  if (typeof raw.installLinks === "boolean") {
+    capabilities.installLinks = raw.installLinks
+  }
+  if (typeof raw.mcpConnections === "boolean") {
+    capabilities.mcpConnections = raw.mcpConnections
+  }
+
+  return capabilities
 }
 
 /** Whether the organization has an explicit opt-in for the capability. */

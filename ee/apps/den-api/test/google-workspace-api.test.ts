@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  buildGmailQuoteBlock,
   buildDriveSearchQuery,
   extractCalendarEvents,
   extractDriveFiles,
@@ -11,6 +12,37 @@ import {
 function base64Url(text: string): string {
   return Buffer.from(text, "utf8").toString("base64url")
 }
+
+describe("buildGmailQuoteBlock", () => {
+  test("formats parsed dates in UTC and prefixes every line", () => {
+    expect(buildGmailQuoteBlock({
+      from: "Ada <ada@example.com>",
+      date: "Thu, 16 Jul 2026 15:21:00 +0000",
+      body: "First line\n> nested quote",
+    })).toBe([
+      "On Thu, 16 Jul 2026 at 15:21 UTC, Ada <ada@example.com> wrote:",
+      "> First line",
+      "> > nested quote",
+    ].join("\n"))
+  })
+
+  test("uses raw invalid dates and omits the date header when absent", () => {
+    expect(buildGmailQuoteBlock({ from: "Ada", date: "not a date", body: "Hi" })).toBe([
+      "On not a date, Ada wrote:",
+      "> Hi",
+    ].join("\n"))
+    expect(buildGmailQuoteBlock({ from: "Ada", date: "", body: "Hi" })).toBe([
+      "Ada wrote:",
+      "> Hi",
+    ].join("\n"))
+  })
+
+  test("truncates quoted bodies and appends a trim marker", () => {
+    const quote = buildGmailQuoteBlock({ from: "Ada", date: "", body: "x".repeat(10_001) })
+    expect(quote).toContain(`> ${"x".repeat(10_000)}`)
+    expect(quote.endsWith("\n> [message trimmed]")).toBe(true)
+  })
+})
 
 describe("extractGmailMessage", () => {
   test("reads headers, nested plain-text body, and attachment metadata", () => {

@@ -90,7 +90,7 @@ beforeAll(async () => {
       betterAuthUrl: "http://127.0.0.1:3005",
       betterAuthSecret: "test-secret",
       githubConnectorApp: {},
-      mcpConnectionsGatingEnabled: true,
+      mcpConnectionsGatingEnabled: true, // Deprecated gate remains inert.
     },
   }))
   mock.module("../src/capability-sources/external-mcp-client-runtime.js", () => ({
@@ -144,7 +144,7 @@ afterEach(async () => {
 })
 
 function orgMetadata(enabled = true) {
-  return enabled ? { capabilities: { mcpConnections: true } } : null
+  return enabled ? null : { capabilities: { mcpConnections: false } }
 }
 
 function contextFor(input: {
@@ -583,7 +583,7 @@ describe("marketplace cloud readiness payload", () => {
     expect(resolved.cloudReadiness).toMatchObject({ state: "not_synced", hasInstructional: true })
   })
 
-  test("gated-off organizations omit cloudReadiness for old-client compatibility", async () => {
+  test("kill-switched organizations omit cloudReadiness for old-client compatibility", async () => {
     const org = await seedOrg({ enabled: false })
     const plugin = await seedPlugin({
       org,

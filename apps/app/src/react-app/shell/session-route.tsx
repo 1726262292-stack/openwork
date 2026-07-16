@@ -111,6 +111,7 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
+import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import {
   disabledProvidersFromConfig,
@@ -158,7 +159,7 @@ import { useControlAction, type OpenworkControlAction } from "./control/control-
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
 import { readDenSettings } from "@/app/lib/den";
-import { denSessionUpdatedEvent } from "@/app/lib/den-session-events";
+import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
 import { filterProviderList } from "@/app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
@@ -438,7 +439,11 @@ export function SessionRoute() {
   useEffect(() => {
     const handler = () => setDenSessionVersion((v) => v + 1);
     window.addEventListener(denSessionUpdatedEvent, handler);
-    return () => window.removeEventListener(denSessionUpdatedEvent, handler);
+    window.addEventListener(denSettingsChangedEvent, handler);
+    return () => {
+      window.removeEventListener(denSessionUpdatedEvent, handler);
+      window.removeEventListener(denSettingsChangedEvent, handler);
+    };
   }, []);
 
   // Provider IDs that were just added — used to highlight them as
@@ -621,22 +626,50 @@ export function SessionRoute() {
     baseUrl: opencodeBaseUrl,
     workspaceRoot: selectedWorkspaceRoot,
   });
+  const {
+    store: sessionProviderAuthStore,
+    snapshot: sessionProviderAuthSnapshot,
+    cloudProviderSyncReady,
+    cloudProviderList,
+  } = useSessionProviderAuth({
+    opencodeClient,
+    providers,
+    providerDefaults,
+    providerConnectedIds,
+    disabledProviderIds,
+    selectedWorkspace,
+    selectedWorkspaceEndpoint,
+    selectedWorkspaceRoot,
+    selectedWorkspaceId,
+    setProviders,
+    setProviderDefaults,
+    setProviderConnectedIds,
+    setDisabledProviderIds,
+  });
+  const selectedModelUsesCloudProvider = Boolean(
+    local.prefs.defaultModel && isCloudManagedProviderKey(local.prefs.defaultModel.providerID),
+  );
+  const selectedModelProviderList = selectedModelUsesCloudProvider
+    ? cloudProviderList
+    : providerListQuery.data;
   const selectedModelUnavailable = Boolean(
     local.prefs.defaultModel &&
+      (!selectedModelUsesCloudProvider || cloudProviderSyncReady) &&
       (
         isDesktopProviderBlocked({
           providerId: local.prefs.defaultModel.providerID,
           checkRestriction: checkDesktopRestriction,
         }) ||
         (
+          selectedModelProviderList &&
           checkDesktopRestriction({ restriction: "allowCustomProviders" }) &&
-          !providerConnectedIds.some(
+          !selectedModelProviderList.connected.some(
             (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
           )
         ) ||
         (
-          providerListQuery.data &&
-          !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel)
+          selectedModelProviderList &&
+          !isModelAvailableInConnectedProviders(selectedModelProviderList, local.prefs.defaultModel)
         )
       ),
   );
@@ -670,22 +703,6 @@ export function SessionRoute() {
     providerConnectedIds,
   });
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
-    useSessionProviderAuth({
-      opencodeClient,
-      providers,
-      providerDefaults,
-      providerConnectedIds,
-      disabledProviderIds,
-      selectedWorkspace,
-      selectedWorkspaceEndpoint,
-      selectedWorkspaceRoot,
-      selectedWorkspaceId,
-      setProviders,
-      setProviderDefaults,
-      setProviderConnectedIds,
-      setDisabledProviderIds,
-    });
   const {
     activePermission,
     permissionReplyBusy,

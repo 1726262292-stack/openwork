@@ -1175,9 +1175,9 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         return c.json({ connections })
       }
 
-      // Staged rollout: gated deployments return an empty list for
-      // non-opted-in orgs — indistinguishable from "nothing published", on
-      // every desktop version in the field (see external-mcp-rollout.ts).
+      // Org-level kill switch: explicitly opted-out orgs return an empty list —
+      // indistinguishable from "nothing published", on every desktop version in
+      // the field (see external-mcp-rollout.ts).
       if (!memberFacingMcpConnectionsEnabled(payload.organization.metadata, { gatingEnabled: env.mcpConnectionsGatingEnabled })) {
         return c.json({ connections: [] })
       }
@@ -1198,7 +1198,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         })))
       // Native providers (e.g. google-workspace) join the same list once the
       // org saved an OAuth client for them — same card, same connect flow,
-      // same rollout gate (this sits after the gate check on purpose).
+      // same org kill switch (this sits after the check on purpose).
       const nativeEntries = await listNativeProviderUsableEntries({
         organizationId: payload.organization.id,
         orgMembershipId: payload.currentMember.id,

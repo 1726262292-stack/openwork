@@ -57,6 +57,7 @@ import {
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
+import { externalFetch, loopbackFetch } from "./server-fetch.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
@@ -537,7 +538,7 @@ async function createOpenAiRealtimeVoiceSession(env: EnvService, input: unknown)
 }
 
 async function createManagedVoiceSession(config: { baseUrl: string; apiKey: string }, input: unknown) {
-  const response = await fetch(`${config.baseUrl}/voice/realtime/session`, {
+  const response = await externalFetch(`${config.baseUrl}/voice/realtime/session`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -581,7 +582,7 @@ async function createManagedVoiceSession(config: { baseUrl: string; apiKey: stri
 async function createDirectOpenAiVoiceSession(apiKey: string, input: unknown) {
   const model = readStringField(input, "model") || OPENWORK_VOICE_REALTIME_MODEL;
   const sessionContext = readStringField(input, "sessionContext").slice(0, 6_000);
-  const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+  const response = await externalFetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -1098,8 +1099,9 @@ async function proxyOpencodeRequest(input: {
   const body = method === "GET" || method === "HEAD"
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
+  // Managed OpenCode proxy traffic is loopback/engine I/O; keep streaming on Node fetch.
   if (isSessionCommandProxyRequest(method, proxyPath)) {
-    void fetch(targetUrl, {
+    void loopbackFetch(targetUrl, {
       method,
       headers,
       body,
@@ -1108,7 +1110,7 @@ async function proxyOpencodeRequest(input: {
     });
     return jsonResponse({ ok: true, accepted: true });
   }
-  const response = await fetch(targetUrl, {
+  const response = await loopbackFetch(targetUrl, {
     method,
     headers,
     body,
@@ -3127,7 +3129,7 @@ async function fetchRuntimeControl(path: string, init?: { method?: string; body?
   if (!control) {
     throw new ApiError(501, "runtime_upgrade_unavailable", "Worker runtime control is not configured on this host");
   }
-  const response = await fetch(`${control.baseUrl}${path}`, {
+  const response = await externalFetch(`${control.baseUrl}${path}`, {
     method: init?.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
@@ -3284,7 +3286,8 @@ async function reloadOpencodeEngine(
 
   let response: Response;
   try {
-    response = await fetch(targetUrl, { method: "POST", headers });
+    // OpenCode reload targets the managed loopback engine; CA trust is irrelevant.
+    response = await loopbackFetch(targetUrl, { method: "POST", headers });
   } catch (error) {
     throw new ApiError(
       503,
@@ -3452,7 +3455,8 @@ async function postMcpEntryWithRetry(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, engineMcpSyncRetryDelayMs()));
     try {
-      const response = await fetch(url, {
+      // Runtime MCP registration targets the managed loopback engine.
+      const response = await loopbackFetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify({ name, config: mcpConfig }),
@@ -4124,7 +4128,8 @@ async function disconnectMcpFromOpencodeEngine(
   const headers: Record<string, string> = {};
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
-  const response = await fetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
+  // MCP disconnect targets the managed loopback engine.
+  const response = await loopbackFetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) {
     const body = parseOpencodeErrorBody(await response.text());
     throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {

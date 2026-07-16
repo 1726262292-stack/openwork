@@ -68,7 +68,6 @@ import {
   isCloudProviderOutOfSync,
   resolveCloudProviderCredentials,
 } from "./cloud-provider-config";
-import { refreshDesktopCloudSync } from "../../../../app/cloud/desktop-cloud-sync";
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import { updateManagedDisabledProviders } from "../managed-engine-config";
 import {
@@ -432,11 +431,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       );
     }
     setStateField("importedCloudProviders", nextProviders);
-    const target = await resolveOpenworkConfigTarget("write");
-    void refreshDesktopCloudSync({
-      openworkClient: target.openworkClient,
-      workspaceId: target.openworkWorkspaceId,
-    }).catch(() => null);
   };
 
   const readProjectConfigFile = async () => {
@@ -1152,7 +1146,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
-  async function refreshProviders(optionsArg?: { dispose?: boolean }) {
+  async function refreshProviders(optionsArg?: { dispose?: boolean; force?: boolean }) {
     const c = options.client();
     if (!c) return null;
 
@@ -1222,7 +1216,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         await ensureProviderListQuery(getReactQueryClient(), {
           client: activeClient,
           directory: options.selectedWorkspaceRoot(),
-          force: Boolean(optionsArg?.dispose),
+          force: Boolean(optionsArg?.dispose || optionsArg?.force),
         }),
         disabledProviders,
       );

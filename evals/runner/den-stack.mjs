@@ -3,7 +3,7 @@
  *
  * Brings up everything the cloud eval flows need, idempotently:
  *   1. MySQL (docker compose, reuses the dev:den compose project + volume)
- *   2. Schema push (only when the database is empty)
+ *   2. Schema push when the persistent database is behind the current checkout
  *   3. den-api behind a local proxy on :8790: bare /* plus den-web
  *      /api/den/* topology (only when not already healthy)
  *   4. Demo-org seed (only when the demo owner cannot sign in)
@@ -163,16 +163,20 @@ async function mysqlQuery(sql) {
 
 async function ensureSchema(log) {
   try {
-    const organizationTable = await mysqlQuery("SHOW TABLES LIKE 'organization';");
-    const connectGrantTable = await mysqlQuery("SHOW TABLES LIKE 'desktop_connect_grant';");
-    if (organizationTable.includes("organization") && connectGrantTable.includes("desktop_connect_grant")) {
+    const schema = await mysqlQuery("SHOW TABLES LIKE 'organization'; SHOW TABLES LIKE 'desktop_connect_grant'; SHOW TABLES LIKE 'scim_group'; SHOW COLUMNS FROM scim_provider LIKE 'group_mapping_mode';");
+    if (
+      schema.includes("organization")
+      && schema.includes("desktop_connect_grant")
+      && schema.includes("scim_group")
+      && schema.includes("group_mapping_mode")
+    ) {
       log("Schema present");
       return;
     }
   } catch {
     // Database may not exist yet — push will create what it needs.
   }
-  log("Pushing schema (first run takes a minute)...");
+  log("Synchronizing schema with the current checkout...");
   const denDbDir = join(REPO_ROOT, "ee", "packages", "den-db");
   await run("pnpm", ["--filter", "@openwork-ee/den-db", "build"]);
   await run("node", ["--import", "tsx", "./node_modules/drizzle-kit/bin.cjs", "push", "--config", "drizzle.config.ts"], {
