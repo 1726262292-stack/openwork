@@ -849,9 +849,9 @@ function MarketplacePackageDetailModal(props: {
       connectingLabel="Working..."
       uninstallLabel="Remove"
       showEnablementCard={false}
-      setupInstructions={manifest?.setup?.instructions}
+      setupInstructions={cloudBuiltIn ? manifest?.setup?.instructions : undefined}
       resourceLabels={manifest?.resources.map((resource) => resource.label ?? resource.id) ?? []}
-      contributionLabels={manifest?.contributions?.map((contribution) => contribution.label ?? contribution.ref ?? contribution.type) ?? []}
+      contributionLabels={cloudBuiltIn ? manifest?.contributions?.map((contribution) => contribution.label ?? contribution.ref ?? contribution.type) ?? [] : []}
       onUninstall={!cloudBuiltIn && row.imported ? () => void onRemovePlugin(row.plugin.id, row.plugin.name) : undefined}
       configSlot={(
         <div className="space-y-4">

@@ -115,6 +115,10 @@ export default {
             ctx.assert(!marketplaceText.includes(PLUGIN_NAME), "Seeded Den marketplace plugin leaked into Extensions Marketplace.");
             await ctx.clickText("My Extensions", { selector: "button", timeoutMs: 30_000 });
             await ctx.waitForText("Add Custom App", { timeoutMs: 30_000 });
+            await ctx.waitFor(`[...document.querySelectorAll('button')].some((button) => (button.textContent ?? '').includes('Add Custom App') && !button.disabled)`, {
+              timeoutMs: 30_000,
+              label: "local extension actions ready",
+            });
           },
           screenshot: { name: "frame-3-extensions-local", requireText: ["My Extensions", "Add Custom App", "From GitHub"], rejectText: [PLUGIN_NAME] },
         });
@@ -132,7 +136,13 @@ export default {
           assert: async () => {
             await ctx.waitForText("search capabilities", { timeoutMs: 90_000 });
             await ctx.waitForText("execute capability", { timeoutMs: 90_000 });
-            await ctx.waitForText(PROOF_PHRASE, { timeoutMs: 90_000 });
+            await ctx.waitFor(`(() => {
+              const pageText = document.body.innerText;
+              const proofCount = pageText.split(${JSON.stringify(PROOF_PHRASE)}).length - 1;
+              const running = [...document.querySelectorAll('button')]
+                .some((button) => (button.textContent ?? '').trim() === 'Stop' && !button.disabled);
+              return proofCount >= 2 && !running && !pageText.includes('Thinking...');
+            })()`, { timeoutMs: 90_000, label: "cloud capability execution completed" });
           },
           screenshot: { name: "frame-4-agent-cloud-capability", requireText: ["search capabilities", "execute capability", PROOF_PHRASE] },
         });
