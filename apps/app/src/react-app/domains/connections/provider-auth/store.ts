@@ -1152,7 +1152,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
-  async function refreshProviders(optionsArg?: { dispose?: boolean }) {
+  async function refreshProviders(optionsArg?: { dispose?: boolean; force?: boolean }) {
     const c = options.client();
     if (!c) return null;
 
@@ -1222,7 +1222,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         await ensureProviderListQuery(getReactQueryClient(), {
           client: activeClient,
           directory: options.selectedWorkspaceRoot(),
-          force: Boolean(optionsArg?.dispose),
+          force: Boolean(optionsArg?.dispose || optionsArg?.force),
         }),
         disabledProviders,
       );
