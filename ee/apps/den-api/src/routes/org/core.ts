@@ -522,8 +522,8 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         capabilities: {
           ...capabilities,
           // Expose the effective value, not the raw stored flag: org context
-          // answers whether the feature exists for this org on this deployment;
-          // /admin reads the raw capability from its own endpoint.
+          // answers whether the feature exists for this org; /admin reads the
+          // raw capability from its own endpoint.
           mcpConnections: memberFacingMcpConnectionsEnabled(payload.organization.metadata, {
             gatingEnabled: env.mcpConnectionsGatingEnabled,
           }),

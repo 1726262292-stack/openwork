@@ -325,11 +325,10 @@ const connectLink = connectLinkMode === "signed" && connectLinkPrivateKeyPem && 
   ? { privateKeyPem: connectLinkPrivateKeyPem, kid: connectLinkKid }
   : null
 
-// Staged rollout for member-facing org MCP connections: when gating is
-// enabled (hosted deployments), GET /v1/mcp-connections?scope=usable returns
-// an empty list unless the organization opted in via the mcpConnections
-// organization capability. Off by default so local dev, evals, and self-hosted
-// deployments keep the feature working out of the box.
+// Deprecated compatibility knob for member-facing org MCP connections. The
+// environment variable is still parsed so existing deployment configs keep
+// starting, but memberFacingMcpConnectionsEnabled ignores this value: Connect is
+// default-on unless org metadata explicitly disables it.
 const mcpConnectionsGatingEnabled =
   (parsed.DEN_MCP_CONNECTIONS_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
