@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -17,6 +17,7 @@ import {
 
 import {
   createDenClient,
+  DenApiError,
   readDenBootstrapConfig,
   readDenSettings,
   resolveDenBaseUrls,
@@ -320,6 +321,28 @@ function markProvidersSeen(providers: DenOrgLlmProvider[]) {
   } catch {}
 }
 
+type InviteStep = "hidden" | "form" | "sent";
+
+function inviteErrorMessage(error: unknown) {
+  if (error instanceof DenApiError) {
+    if (error.status === 402) {
+      return "Your plan is out of seats — you can add more from the web dashboard.";
+    }
+    if (error.status === 409 && error.code === "member_exists") {
+      return "That person is already a member.";
+    }
+    if (error.status === 409 && error.code === "invite_email_domain_not_allowed") {
+      return "That email domain isn't allowed for this organization.";
+    }
+    if (error.status === 502 && error.code === "invitation_email_failed") {
+      return "The invitation was created but the email could not be sent. You can manage invitations from the web dashboard.";
+    }
+    return error.message;
+  }
+
+  return error instanceof Error ? error.message : "Unable to send the invitation.";
+}
+
 /**
  * Full-screen onboarding page shown after sign-in + org selection.
  * Fetches all org resources (providers, marketplaces, skills)
@@ -452,6 +475,10 @@ export function ResourceSelectionPage() {
   } | null>(null);
   const [preparingBranding, setPreparingBranding] = useState(false);
   const [brandingRestart, setBrandingRestart] = useState<BrandingRestartState | null>(null);
+  const [inviteStep, setInviteStep] = useState<InviteStep>("hidden");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [sentInviteEmail, setSentInviteEmail] = useState("");
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   // Redirect if no auth or no org — can't show onboarding without them
   useEffect(() => {
@@ -483,6 +510,30 @@ export function ResourceSelectionPage() {
       loading: providersQuery.isPending || marketplacesQuery.isPending,
       error: providersQuery.error?.message ?? marketplacesQuery.error?.message ?? null,
     }),
+  });
+
+  const { data: orgsData } = useQuery({
+    queryKey: ["den-org-onboarding", settings.baseUrl, "orgs"],
+    enabled: Boolean(authToken),
+    queryFn: () => denClient.listOrgs(),
+  });
+  const role = orgsData?.orgs.find((org) => org.id === orgId)?.role ?? null;
+  const canInvite = role === "owner" || role === "admin";
+
+  const { isPending: inviteBusy, mutate: sendInvite } = useMutation({
+    mutationFn: (email: string) => denClient.inviteOrgMember({
+      organizationId: orgId,
+      email,
+      role: "member",
+    }),
+    onSuccess: (invitation) => {
+      setInviteError(null);
+      setSentInviteEmail(invitation.email);
+      setInviteStep("sent");
+    },
+    onError: (nextError) => {
+      setInviteError(inviteErrorMessage(nextError));
+    },
   });
 
   const finishOnboarding = useCallback(() => {
@@ -557,6 +608,23 @@ export function ResourceSelectionPage() {
     }
   }, [finishOnboarding, orgId, refreshFresh]);
 
+  const handleFooterContinue = useCallback(() => {
+    if (canInvite && inviteStep === "hidden") {
+      setInviteError(null);
+      setInviteStep("form");
+      return;
+    }
+    void handleContinue();
+  }, [canInvite, handleContinue, inviteStep]);
+
+  const submitInvite = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const email = inviteEmail.trim();
+    if (!email || inviteBusy) return;
+    setInviteError(null);
+    sendInvite(email);
+  }, [inviteBusy, inviteEmail, sendInvite]);
+
   const restartWithBranding = useCallback(async () => {
     if (!brandingRestart) return;
     window.localStorage.setItem(APPLIED_BRANDING_FINGERPRINT_KEY, brandingRestart.fingerprint);
@@ -577,6 +645,7 @@ export function ResourceSelectionPage() {
 
   const totalModels = providers.reduce((sum, provider) => sum + provider.models.length, 0);
   const hasResources = providers.length > 0 || marketplaces.length > 0;
+  const inviteOrgName = orgName || "your organization";
 
   if (preparingBranding) {
     return (
@@ -650,6 +719,99 @@ export function ResourceSelectionPage() {
               <ArrowRight data-icon="inline-end" />
             </Button>
           </PageFooter>
+        </PageContainer>
+      </Page>
+    );
+  }
+
+  if (inviteStep !== "hidden") {
+    return (
+      <Page>
+        <PageBackground />
+        <PageTitlebarRegion />
+        <PageContainer>
+          <PageHeader>
+            <div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-dls-border bg-dls-hover">
+              <BuildingOffice2Icon className="size-7 text-foreground" />
+            </div>
+            <PageTitle>Invite a teammate</PageTitle>
+            <PageDescription>
+              OpenWork is better together. Send an invitation to join {inviteOrgName}.
+            </PageDescription>
+          </PageHeader>
+
+          {inviteStep === "sent" ? (
+            <>
+              <PageContent>
+                <div
+                  data-testid="invite-teammate-success"
+                  className="mx-auto flex w-full max-w-md flex-col items-center gap-3 rounded-2xl border border-green-6/30 bg-green-2/30 px-5 py-6 text-center"
+                >
+                  <CheckCircle2 className="size-8 text-green-11" />
+                  <div className="text-base font-semibold text-green-11">
+                    Invitation sent to {sentInviteEmail}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    They&apos;ll get an email with everything they need to join.
+                  </p>
+                </div>
+              </PageContent>
+              <PageFooter>
+                <Button type="button" size="lg" onClick={() => void handleContinue()}>
+                  Continue to workspace
+                  <ArrowRight data-icon="inline-end" />
+                </Button>
+              </PageFooter>
+            </>
+          ) : (
+            <form className="contents" onSubmit={submitInvite}>
+              <PageContent>
+                <div className="mx-auto grid w-full max-w-md gap-4">
+                  <Field>
+                    <FieldLabel htmlFor="invite-teammate-email">Email address</FieldLabel>
+                    <Input
+                      id="invite-teammate-email"
+                      data-testid="invite-teammate-email"
+                      type="email"
+                      placeholder="teammate@company.com"
+                      value={inviteEmail}
+                      onChange={(event) => {
+                        setInviteEmail(event.target.value);
+                        if (inviteError) setInviteError(null);
+                      }}
+                      disabled={inviteBusy}
+                      aria-invalid={Boolean(inviteError)}
+                    />
+                  </Field>
+                  {inviteError ? (
+                    <Alert variant="destructive">
+                      <CircleAlert />
+                      <AlertDescription>{inviteError}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                </div>
+              </PageContent>
+              <PageFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  data-testid="invite-teammate-skip"
+                  onClick={() => void handleContinue()}
+                >
+                  Skip for now
+                </Button>
+                <Button
+                  type="submit"
+                  size="lg"
+                  data-testid="invite-teammate-send"
+                  disabled={!inviteEmail.trim() || inviteBusy}
+                >
+                  {inviteBusy ? "Sending..." : "Send invitation"}
+                  <ArrowRight data-icon="inline-end" />
+                </Button>
+              </PageFooter>
+            </form>
+          )}
         </PageContainer>
       </Page>
     );
@@ -784,7 +946,7 @@ export function ResourceSelectionPage() {
             className="w-fit"
             type="button"
             size="lg"
-            onClick={() => void handleContinue()}
+            onClick={handleFooterContinue}
             disabled={loading || preparingBranding}
           >
             {preparingBranding

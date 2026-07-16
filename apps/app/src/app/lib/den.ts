@@ -178,6 +178,13 @@ export type DenMcpToken = {
   resource: string;
 };
 
+export type DenOrgInvitation = {
+  invitationId: string;
+  email: string;
+  role: string;
+  expiresAt: string | null;
+};
+
 export type DenOrgLlmProviderModel = {
   id: string;
   name: string;
@@ -996,6 +1003,24 @@ function getOrgList(payload: unknown): DenOrgSummary[] {
       } satisfies DenOrgSummary,
     ];
   });
+}
+
+function getDenOrgInvitation(payload: unknown): DenOrgInvitation | null {
+  if (
+    !isRecord(payload) ||
+    typeof payload.invitationId !== "string" ||
+    typeof payload.email !== "string" ||
+    typeof payload.role !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    invitationId: payload.invitationId,
+    email: payload.email,
+    role: payload.role,
+    expiresAt: typeof payload.expiresAt === "string" ? payload.expiresAt : null,
+  };
 }
 
 function getWorkers(payload: unknown): DenWorkerSummary[] {
@@ -2128,6 +2153,20 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         throw new DenApiError(500, "invalid_skill_payload", "Skill response was missing id.");
       }
       return { id };
+    },
+
+    async inviteOrgMember(input: { organizationId: string; email: string; role: string }): Promise<DenOrgInvitation> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/invitations", {
+        method: "POST",
+        token,
+        organizationId: input.organizationId,
+        body: { email: input.email, role: input.role },
+      });
+      const invitation = getDenOrgInvitation(payload);
+      if (!invitation) {
+        throw new DenApiError(500, "invalid_invitation_payload", "Invitation response was missing required values.");
+      }
+      return invitation;
     },
 
     async listOrgLlmProviders(orgId: string): Promise<DenOrgLlmProvider[]> {
