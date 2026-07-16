@@ -1,5 +1,7 @@
 import { execSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { dirname, join } from "node:path";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
@@ -175,22 +177,37 @@ function requireStateValue(value, label) {
 }
 
 async function denApiFetch(pathname, options = {}) {
-  const response = await fetch(`${DEN_API_URL}${pathname}`, {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      origin: DEN_WEB_URL,
-      ...(options.headers ?? {}),
-    },
+  const url = new URL(`${DEN_API_URL}${pathname}`);
+  const bodyText = typeof options.body === "string" ? options.body : null;
+  const headers = {
+    "content-type": "application/json",
+    origin: DEN_WEB_URL,
+    ...(options.headers ?? {}),
+    ...(bodyText ? { "content-length": Buffer.byteLength(bodyText) } : {}),
+  };
+  const { status, text } = await new Promise((resolve, reject) => {
+    const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, {
+      method: options.method ?? "GET",
+      headers,
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({
+        status: response.statusCode ?? 0,
+        text: Buffer.concat(chunks).toString("utf8"),
+      }));
+    });
+    request.on("error", reject);
+    if (bodyText) request.write(bodyText);
+    request.end();
   });
-  const text = await response.text();
   let body = text;
   try {
     body = text ? JSON.parse(text) : null;
   } catch {
     body = text;
   }
-  return { response, body, text };
+  return { response: { ok: status >= 200 && status < 300, status }, body, text };
 }
 
 async function signIn(email, password) {
