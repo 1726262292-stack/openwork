@@ -39,6 +39,11 @@ import { createRequire } from "node:module";
 import { once } from "node:events";
 
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import {
+  waitForHealthy,
+  waitForHealthyViaProxy,
+  waitForOpencodeHealthy,
+} from "./startup-health.js";
 import type { TuiHandle } from "./tui/app.js";
 
 type ApprovalMode = "manual" | "auto";
@@ -2847,108 +2852,6 @@ function resolveSelfCommand(): { command: string; prefixArgs: string[] } {
     return { command: process.argv[0], prefixArgs: [arg1] };
   }
   return { command: process.argv[0], prefixArgs: [] };
-}
-
-async function waitForHealthy(
-  url: string,
-  timeoutMs = 10_000,
-  pollMs = 250,
-): Promise<void> {
-  const start = Date.now();
-  let lastError: string | null = null;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(`${url.replace(/\/$/, "")}/health`);
-      if (response.ok) return;
-      lastError = `HTTP ${response.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(lastError ?? "Timed out waiting for health check");
-}
-
-async function waitForOpencodeHealthy(
-  client: ReturnType<typeof createOpencodeClient>,
-  timeoutMs = 10_000,
-  pollMs = 250,
-) {
-  const start = Date.now();
-  let lastError: string | null = null;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const health = unwrap(await client.global.health());
-      if (health?.healthy) return health;
-      lastError = "Server reported unhealthy";
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-
-    try {
-      // Some environments have a broken OpenCode /health probe even while the
-      // core API surface is already usable. Accept a successful path lookup as
-      // readiness so session APIs can come up in those runtimes.
-      unwrap(await client.path.get());
-      return { healthy: true, degraded: true, reason: lastError ?? undefined };
-    } catch (error) {
-      if (!lastError) {
-        lastError = error instanceof Error ? error.message : String(error);
-      }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(lastError ?? "Timed out waiting for OpenCode health");
-}
-
-/**
- * In sandbox mode the released openwork-server binary may not have our latest
- * token/proxy changes.  Instead of relying on the OpenCode SDK client (which
- * sends Bearer auth that the proxy may not understand yet), we do a simple
- * HTTP fetch through the proxy path.  The server's /opencode/* proxy already
- * forwards to the internal opencode port; we just need to check that it
- * returns a 2xx from /opencode/health (or falls through to opencode's own
- * /health endpoint).
- *
- * We try multiple path patterns because:
- * - `/opencode/health` — most common OpenCode health endpoint proxied by the
- *   server's catch-all /opencode/* route.
- * - `/health` on the openwork-server itself — already verified by the caller,
- *   but serves as a fallback signal.
- */
-async function waitForHealthyViaProxy(
-  proxyBaseUrl: string,
-  token: string,
-  timeoutMs = 10_000,
-  pollMs = 250,
-): Promise<void> {
-  const start = Date.now();
-  let lastError: string | null = null;
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      // Try the proxied opencode health endpoint.
-      const res = await fetch(`${proxyBaseUrl}/health`, {
-        headers,
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) return;
-      // Some older server versions may return 401/403 on the proxy but that
-      // still proves the server is up and proxying.  Accept any non-5xx as
-      // "alive" — the real auth validation happens in verifyOpenworkServer.
-      if (res.status < 500) return;
-      lastError = `Proxy returned ${res.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(
-    lastError ?? "Timed out waiting for OpenCode health via proxy",
-  );
 }
 
 function printHelp(): void {
