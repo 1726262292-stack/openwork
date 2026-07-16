@@ -14,7 +14,7 @@ const INVITEE_CDP_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_WEB_CDP_INVITEE);
 const DEN_TOKEN = process.env.OPENWORK_EVAL_DEN_TOKEN?.trim() || "";
 const MARK_VERIFIED_CMD = process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() || "";
 const RUN_TAG = Date.now().toString(36);
-const MEMBER_EMAIL = `maya.download+${RUN_TAG}@acme.test`;
+const MEMBER_EMAIL = `maya-download-${RUN_TAG}@acme.test`;
 const MEMBER_PASSWORD = "OpenWorkDemo123!";
 const ORG_NAME = "Acme Robotics";
 
@@ -54,10 +54,14 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await createInvitation(ctx);
-            const { html } = await getLatestInviteEmail(ctx);
-            const invite = extractInviteFromHtml(html, ctx);
-            state.inviteToken = invite.token;
-            state.inviteLink = rewriteInviteLink(invite.link);
+            if (state.inviteToken) {
+              state.inviteLink = new URL(`/join-org?invite=${encodeURIComponent(state.inviteToken)}`, DEN_WEB_URL).toString();
+            } else {
+              const { html } = await getLatestInviteEmail(ctx);
+              const invite = extractInviteFromHtml(html, ctx);
+              state.inviteToken = invite.token;
+              state.inviteLink = rewriteInviteLink(invite.link);
+            }
             await clearDenWebSession(ctx);
             await navigateToAbsolute(ctx, requireStateValue(state.inviteLink, "invite link"));
             await completeInviteSignup(ctx);
