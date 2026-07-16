@@ -700,6 +700,10 @@ async function runSeededCapabilityAgentTurn(ctx) {
     })()`,
     { timeoutMs: 30_000, label: "new session active" },
   );
+  await ctx.waitFor(
+    `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]') || document.querySelector('[contenteditable="true"]'))`,
+    { timeoutMs: 30_000, label: "new session composer" },
+  );
 
   const prompt = `Use the OpenWork Cloud Control capability named ${SKILL_NAME}. Search for it first, execute the matched capability, and tell me the exact proof phrase.`;
   const pasted = await ctx.eval(`(() => {
