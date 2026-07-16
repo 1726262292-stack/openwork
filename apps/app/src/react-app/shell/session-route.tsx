@@ -112,6 +112,10 @@ import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
+import {
+  disabledProvidersFromConfig,
+  updateManagedDisabledProviders,
+} from "@/react-app/domains/connections/managed-engine-config";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { useSessionMcpMaintenance } from "@/react-app/domains/connections/use-session-mcp-maintenance";
 import { useCloudMcpSubmitReadiness } from "@/react-app/domains/connections/use-cloud-mcp-submit-readiness";
@@ -737,10 +741,8 @@ export function SessionRoute() {
           await opencodeClient.config.get({
             directory: selectedWorkspaceRoot || undefined,
           }),
-        ) as { disabled_providers?: string[] };
-        disabledProviders = Array.isArray(config.disabled_providers)
-          ? config.disabled_providers
-          : [];
+        );
+        disabledProviders = disabledProvidersFromConfig(config);
         if (!cancelled) setDisabledProviderIds(disabledProviders);
       } catch {
         // ignore config read failures and continue with provider discovery
@@ -2251,13 +2253,27 @@ export function SessionRoute() {
       onToggleProvider={async (providerId, enable) => {
         if (!opencodeClient) return;
         try {
-          const config = unwrap(await opencodeClient.config.get()) as { disabled_providers?: string[] };
-          const current = Array.isArray(config.disabled_providers) ? config.disabled_providers : [];
+          const config = unwrap(await opencodeClient.config.get());
+          const current = disabledProvidersFromConfig(config);
           const next = enable
             ? current.filter((id: string) => id !== providerId)
             : [...current, providerId];
-          await opencodeClient.config.update({ config: { ...config, disabled_providers: next } });
-          setDisabledProviderIds(next);
+          const result = await updateManagedDisabledProviders({
+            opencodeClient,
+            openworkClient: selectedWorkspaceEndpoint?.client ?? null,
+            workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
+            workspaceType: selectedWorkspace?.workspaceType ?? "local",
+            disabledProviders: next,
+            currentConfig: config,
+            markReloadRequired: () => {
+              reloadCoordinator.markReloadRequired("config", {
+                type: "config",
+                name: "runtime-opencode-config.json",
+                action: "updated",
+              });
+            },
+          });
+          setDisabledProviderIds(result.disabledProviders);
         } catch {}
       }}
       onOpenSettings={() => {

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile, rm } from "node:fs/promises";
+import { readFile, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
@@ -75,6 +75,7 @@ import {
   mergeOpencodeConfigs,
   mergeRuntimeProviderUpdate,
   readRuntimeOpencodeConfig,
+  runtimeDisabledProviderList,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
@@ -86,7 +87,8 @@ import {
   seedOpenworkWorkspaceConfigIfEmpty,
   writeOpenworkWorkspaceConfig,
 } from "./openwork-workspace-config-store.js";
-import { buildOpenworkRuntimeConfigObject } from "./openwork-runtime-config.js";
+import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath } from "./openwork-runtime-config.js";
+import { readLegacyConfigSweepState } from "./legacy-config-sweep.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -304,6 +306,70 @@ function runtimeConfigKeys(config: RuntimeOpencodeConfig): string[] {
   }
   if (isRecord(config.provider) && Object.keys(config.provider).length) keys.push("provider");
   return keys;
+}
+
+function parseDisabledProvidersPayload(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, "invalid_payload", "providers must be an array of non-empty strings");
+  }
+  const providers: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !entry.trim()) {
+      throw new ApiError(400, "invalid_payload", "providers must be an array of non-empty strings");
+    }
+    const provider = entry.trim();
+    if (!providers.includes(provider)) providers.push(provider);
+  }
+  return providers;
+}
+
+function redactBearerTokens(value: string): string {
+  return value.replace(/Bearer\s+\S+/g, "Bearer [redacted]");
+}
+
+function redactManagedRuntimeValue(value: unknown, path: string[], insideMcpHeaders: boolean): unknown {
+  if (typeof value === "string") return insideMcpHeaders ? "[redacted]" : redactBearerTokens(value);
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => redactManagedRuntimeValue(entry, [...path, String(index)], insideMcpHeaders));
+  }
+  if (!isRecord(value)) return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => {
+      const childInsideMcpHeaders = insideMcpHeaders || (path.length === 2 && path[0] === "mcp" && key === "headers");
+      return [key, redactManagedRuntimeValue(child, [...path, key], childInsideMcpHeaders)];
+    }),
+  );
+}
+
+function redactManagedRuntimeConfigContent(content: string): string {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return JSON.stringify(redactManagedRuntimeValue(parsed, [], false), null, 2);
+  } catch {
+    return redactBearerTokens(content);
+  }
+}
+
+async function readManagedRuntimeConfigDebug(config: ServerConfig): Promise<{
+  managedFilePath: string;
+  managedFileRebuiltAt: number | null;
+  managedFileContentRedacted: string | null;
+}> {
+  const managedFilePath = openworkRuntimeConfigFilePath(config);
+  try {
+    const [metadata, content] = await Promise.all([
+      stat(managedFilePath),
+      readFile(managedFilePath, "utf8"),
+    ]);
+    return {
+      managedFilePath,
+      managedFileRebuiltAt: metadata.mtimeMs,
+      managedFileContentRedacted: redactManagedRuntimeConfigContent(content),
+    };
+  } catch {
+    return { managedFilePath, managedFileRebuiltAt: null, managedFileContentRedacted: null };
+  }
 }
 
 function userOpencodeConfigKeys(config: Record<string, unknown>): string[] {
@@ -1901,6 +1967,27 @@ function createRoutes(
     return jsonResponse({ migrated: true, keys, legacyKeys: legacy.keys, userOpencodeKeys: user.keys, updatedAt, legacyError: openworkError });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/runtime-config/disabled-providers", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const providers = parseDisabledProvidersPayload(body.providers);
+    const result = await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
+      ...current,
+      disabled_providers: providers,
+    }));
+
+    if (result.changed) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(openworkRuntimeConfigFilePath(config)));
+    }
+
+    return jsonResponse({
+      ok: true,
+      disabledProviders: runtimeDisabledProviderList(result.config),
+    });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
@@ -1914,14 +2001,19 @@ function createRoutes(
     const persistedOpencode = await readOpencodeConfig(workspace.path);
     const globalOpencodePath = resolveOpencodeConfigFilePath("global", workspace.path);
     const rawGlobalOpencode = await readRawOpencodeConfig(globalOpencodePath);
-    const globalOpencode = (await readJsoncFile(globalOpencodePath, {} as Record<string, unknown>, { allowInvalid: true })).data;
+    const emptyGlobalOpencode: Record<string, unknown> = {};
+    const globalOpencode = (await readJsoncFile(globalOpencodePath, emptyGlobalOpencode, { allowInvalid: true })).data;
     const effectiveRuntime = await buildOpenworkRuntimeConfigObject(config, workspace.id);
     const user = userRuntimeConfigFromOpencodeConfig(persistedOpencode);
+    const managedFile = await readManagedRuntimeConfigDebug(config);
+    const sweep = await readLegacyConfigSweepState(config);
 
     return jsonResponse({
       runtime,
       runtimeKeys: runtimeConfigKeys(runtime),
       effectiveRuntime,
+      ...managedFile,
+      sweep,
       sources: {
         projectOpencode: {
           path: opencodeConfigPath(workspace.path),
