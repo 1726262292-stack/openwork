@@ -26,7 +26,7 @@ import { executeAvailableAdminCapability, parseAdminCapabilityName, searchAvaila
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 const skillMarketplaceObjectTypes: MarketplaceCapabilityObjectType[] = ["skill"]
-export const EXECUTE_CAPABILITY_TIMEOUT_MS = 45_000
+export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
 export const SEARCH_CAPABILITIES_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -54,6 +54,9 @@ const externalMcpDiagnosticOutputSchema = z.object({
   operationPhase: z.enum(EXTERNAL_MCP_DIAGNOSTIC_PHASES).optional(),
   outbound: z.object({ origin: z.string(), pathHash: z.string() }).optional(),
   providerRequestId: z.string().optional(),
+  providerStatus: z.number().int().optional(),
+  providerCode: z.string().optional(),
+  payloadBytes: z.number().int().optional(),
   jsonRpcCode: z.number().int().optional(),
 })
 
@@ -86,6 +89,7 @@ const capabilityMatchOutputSchema = z.object({
   pathParams: z.array(z.string()),
   queryParams: z.array(z.string()),
   hasBody: z.boolean(),
+  bodySchema: z.unknown().optional(),
   kind: z.string().optional(),
   status: z.string().optional(),
   hint: z.string().optional(),
@@ -108,7 +112,7 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
 
-const EXECUTE_CAPABILITY_TIMEOUT_MESSAGE = "The capability call exceeded 45s. Retry once; if it times out again, narrow the request (fewer results, tighter query) and tell the user the service is slow — do NOT tell them to reconfigure or reconnect."
+const EXECUTE_CAPABILITY_TIMEOUT_MESSAGE = `The capability call exceeded ${EXECUTE_CAPABILITY_TIMEOUT_MS / 1_000}s. Retry once; if it times out again, narrow the request (fewer results, tighter query) and tell the user the service is slow — do NOT tell them to reconfigure or reconnect.`
 
 export type ExecuteCapabilityToolResult = {
   isError?: boolean
@@ -308,7 +312,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
-          "Each match includes pathParams/queryParams/hasBody describing exactly what execute_capability needs.",
+          "Each match includes pathParams, queryParams, hasBody, and the exact bodySchema for JSON mutations, describing what execute_capability needs.",
           "Skill matches use method SKILL and return stored SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,

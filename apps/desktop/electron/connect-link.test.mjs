@@ -7,10 +7,17 @@ import path from "node:path";
 import test from "node:test";
 import {
   createConnectLinkReplayGuard,
+  desktopBootstrapFromConnectClaims,
+  extractConnectExchange,
   extractConnectLinkToken,
+  resolveConnectExchangeUrl,
   verifyConnectLinkToken,
   verifyConnectLinkUrl,
 } from "./connect-link.mjs";
+import {
+  applyDesktopBootstrapBrandIcon,
+  persistConnectLinkBranding,
+} from "./connect-link-branding.mjs";
 
 const NOW = 1_783_000_000;
 const KID = "owc-test";
@@ -20,6 +27,10 @@ const { publicKey: publicKeyPem, privateKey: privateKeyPem } = generateKeyPairSy
 });
 const publicKeys = { [KID]: publicKeyPem };
 
+/**
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {import("@openwork/types/connect-link").ConnectLinkClaims}
+ */
 function claims(overrides = {}) {
   return {
     iss: "https://api.openwork.acme.example.com",
@@ -79,6 +90,140 @@ test("verifies an exact signed organization target end to end", () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.claims, expected);
   assert.equal(result.kid, KID);
+  assert.equal(result.transport, "signed");
+});
+
+test("resolves a keyless exchange through the exact HTTPS Den endpoint", async () => {
+  const code = "abcdefghijklmnopqrstuvwxyz123456";
+  const apiBaseUrl = "https://api.openwork.acme.example.com/api/den";
+  const expected = claims({
+    iss: apiBaseUrl,
+    brand: {
+      appName: "Acme Work",
+      logoUrl: "https://assets.acme.example.com/wordmark.svg",
+      iconUrl: "https://assets.acme.example.com/icon.png",
+    },
+    den: {
+      baseUrl: "https://openwork.acme.example.com",
+      apiBaseUrl,
+    },
+  });
+  const rawUrl = `openwork://connect?code=${code}&apiBaseUrl=${encodeURIComponent(apiBaseUrl)}`;
+  assert.deepEqual(extractConnectExchange(rawUrl), { code, apiBaseUrl });
+
+  const calls = [];
+  const result = await resolveConnectExchangeUrl(rawUrl, {
+    mode: "preview",
+    nowEpochSeconds: NOW,
+    fetcher: (url, init) => {
+      calls.push({ url, init });
+      return Promise.resolve(Response.json({ claims: expected }));
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected exchange success");
+  assert.equal(result.transport, "exchange");
+  assert.equal(result.kid, null);
+  assert.deepEqual(result.claims, expected);
+  assert.equal(calls[0].url, `${apiBaseUrl}/v1/install-connect/preview`);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { code });
+  assert.equal(calls[0].init.redirect, "error");
+  assert.deepEqual(desktopBootstrapFromConnectClaims(result.claims), {
+    baseUrl: "https://openwork.acme.example.com",
+    apiBaseUrl,
+    requireSignin: true,
+    brandAppName: "Acme Work",
+    brandLogoUrl: "https://assets.acme.example.com/wordmark.svg",
+    brandIconUrl: "https://assets.acme.example.com/icon.png",
+  });
+});
+
+test("persists accepted connect branding before applying its icon", async () => {
+  const expectedClaims = claims({
+    brand: {
+      appName: "Acme Work",
+      logoUrl: null,
+      iconUrl: "https://assets.acme.example.com/icon.png",
+    },
+  });
+  const calls = [];
+  const config = await persistConnectLinkBranding(expectedClaims, {
+    persistBootstrap: async (nextConfig) => {
+      calls.push({ type: "persist", config: nextConfig });
+      return {
+        ...nextConfig,
+        baseUrl: expectedClaims.den.baseUrl,
+        requireSignin: expectedClaims.requireSignin,
+        writtenAt: "2026-07-15T12:00:00.000Z",
+      };
+    },
+    applyBrandIconUrl: async (iconUrl) => {
+      calls.push({ type: "apply", iconUrl });
+      return { ok: true };
+    },
+  });
+
+  assert.deepEqual(calls.map((call) => call.type), ["persist", "apply"]);
+  assert.equal(calls[1].iconUrl, expectedClaims.brand.iconUrl);
+  assert.equal(config.writtenAt, "2026-07-15T12:00:00.000Z");
+});
+
+test("startup branding applies a saved icon and skips an absent one", async () => {
+  const applied = [];
+  const applyBrandIconUrl = async (iconUrl) => {
+    applied.push(iconUrl);
+    return { ok: true };
+  };
+
+  await applyDesktopBootstrapBrandIcon({ brandIconUrl: "https://assets.acme.example.com/icon.png" }, applyBrandIconUrl);
+  await applyDesktopBootstrapBrandIcon({}, applyBrandIconUrl);
+
+  assert.deepEqual(applied, ["https://assets.acme.example.com/icon.png"]);
+});
+
+test("fails closed for ambiguous, insecure, mismatched, expired, and replayed exchanges", async () => {
+  const code = "abcdefghijklmnopqrstuvwxyz123456";
+  const apiBaseUrl = "https://api.openwork.acme.example.com";
+  const rawUrl = `openwork://connect?code=${code}&apiBaseUrl=${encodeURIComponent(apiBaseUrl)}`;
+  assert.equal(extractConnectExchange(`${rawUrl}&token=a.b.c`), null);
+
+  const insecure = `openwork://connect?code=${code}&apiBaseUrl=${encodeURIComponent("http://den.example.com")}`;
+  assert.equal(failureOf(await resolveConnectExchangeUrl(insecure, {
+    mode: "preview",
+    fetcher: () => Promise.reject(new Error("must not fetch")),
+  })).code, "insecure_url");
+
+  const mismatched = await resolveConnectExchangeUrl(rawUrl, {
+    mode: "preview",
+    nowEpochSeconds: NOW,
+    fetcher: () => Promise.resolve(Response.json({ claims: claims({
+      iss: "https://other.example.com",
+      den: {
+        baseUrl: "https://openwork.acme.example.com",
+        apiBaseUrl: "https://other.example.com",
+      },
+    }) })),
+  });
+  assert.equal(failureOf(mismatched).code, "malformed_claims");
+
+  for (const failureCase of [
+    { status: 409, expectedCode: "replayed" },
+    { status: 410, expectedCode: "expired" },
+    { status: 404, expectedCode: "invalid_token" },
+  ]) {
+    const result = await resolveConnectExchangeUrl(rawUrl, {
+      mode: "exchange",
+      fetcher: () => Promise.resolve(Response.json({}, { status: failureCase.status })),
+    });
+    assert.equal(failureOf(result).code, failureCase.expectedCode);
+  }
+
+  const unavailable = await resolveConnectExchangeUrl(rawUrl, {
+    mode: "preview",
+    fetcher: () => Promise.reject(new Error("offline")),
+  });
+  assert.equal(failureOf(unavailable).code, "unavailable");
 });
 
 test("rejects tampering, algorithm confusion, and unknown keys", () => {

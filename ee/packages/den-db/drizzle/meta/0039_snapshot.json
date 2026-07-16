@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "4846e029-b458-460a-834b-aba5bcb0d04e",
+  "id": "6b8ed0ba-ab84-488b-b472-0d52734cbb1a",
   "prevId": "7e440024-281d-444d-bc0b-520abd3493d1",
   "tables": {
     "account": {
@@ -1468,14 +1468,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "group_mapping_mode": {
-          "name": "group_mapping_mode",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'metadata_only'"
         },
         "created_at": {
           "name": "created_at",
@@ -3004,6 +2996,88 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "desktop_connect_grant": {
+      "name": "desktop_connect_grant",
+      "columns": {
+        "code_hash": {
+          "name": "code_hash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "install_link_id": {
+          "name": "install_link_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "claims": {
+          "name": "claims",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "consumed_at": {
+          "name": "consumed_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "consumed_nonce": {
+          "name": "consumed_nonce",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "desktop_connect_grant_install_link_id": {
+          "name": "desktop_connect_grant_install_link_id",
+          "columns": [
+            "install_link_id"
+          ],
+          "isUnique": false
+        },
+        "desktop_connect_grant_expires_at": {
+          "name": "desktop_connect_grant_expires_at",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "desktop_connect_grant_code_hash": {
+          "name": "desktop_connect_grant_code_hash",
+          "columns": [
+            "code_hash"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "desktop_handoff_grant": {
       "name": "desktop_handoff_grant",
       "columns": {
@@ -3951,308 +4025,6 @@
       "compositePrimaryKeys": {
         "workspace_claim_id": {
           "name": "workspace_claim_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scim_group_member": {
-      "name": "scim_group_member",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "group_id": {
-          "name": "group_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "remote_user_id": {
-          "name": "remote_user_id",
-          "type": "varchar(191)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "org_membership_id": {
-          "name": "org_membership_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "team_member_id": {
-          "name": "team_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scim_group_member_group_remote_user": {
-          "name": "scim_group_member_group_remote_user",
-          "columns": [
-            "group_id",
-            "remote_user_id"
-          ],
-          "isUnique": true
-        },
-        "scim_group_member_user_id": {
-          "name": "scim_group_member_user_id",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": false
-        },
-        "scim_group_member_org_membership_id": {
-          "name": "scim_group_member_org_membership_id",
-          "columns": [
-            "org_membership_id"
-          ],
-          "isUnique": false
-        },
-        "scim_group_member_team_member_id": {
-          "name": "scim_group_member_team_member_id",
-          "columns": [
-            "team_member_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scim_group_member_id": {
-          "name": "scim_group_member_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scim_group": {
-      "name": "scim_group",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider_id": {
-          "name": "provider_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "varchar(191)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "display_name": {
-          "name": "display_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "team_id": {
-          "name": "team_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scim_group_provider_external_id": {
-          "name": "scim_group_provider_external_id",
-          "columns": [
-            "provider_id",
-            "external_id"
-          ],
-          "isUnique": true
-        },
-        "scim_group_team_id": {
-          "name": "scim_group_team_id",
-          "columns": [
-            "team_id"
-          ],
-          "isUnique": true
-        },
-        "scim_group_organization_id": {
-          "name": "scim_group_organization_id",
-          "columns": [
-            "organization_id"
-          ],
-          "isUnique": false
-        },
-        "scim_group_provider_id": {
-          "name": "scim_group_provider_id",
-          "columns": [
-            "provider_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scim_group_id": {
-          "name": "scim_group_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scim_user_tombstone": {
-      "name": "scim_user_tombstone",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "provider_id": {
-          "name": "provider_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "deprovisioned_user_id": {
-          "name": "deprovisioned_user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "external_id": {
-          "name": "external_id",
-          "type": "varchar(191)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "email": {
-          "name": "email",
-          "type": "varchar(191)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "deprovisioned_at": {
-          "name": "deprovisioned_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scim_user_tombstone_org_user": {
-          "name": "scim_user_tombstone_org_user",
-          "columns": [
-            "organization_id",
-            "deprovisioned_user_id"
-          ],
-          "isUnique": true
-        },
-        "scim_user_tombstone_org_external_id": {
-          "name": "scim_user_tombstone_org_external_id",
-          "columns": [
-            "organization_id",
-            "external_id"
-          ],
-          "isUnique": false
-        },
-        "scim_user_tombstone_org_email": {
-          "name": "scim_user_tombstone_org_email",
-          "columns": [
-            "organization_id",
-            "email"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scim_user_tombstone_id": {
-          "name": "scim_user_tombstone_id",
           "columns": [
             "id"
           ]

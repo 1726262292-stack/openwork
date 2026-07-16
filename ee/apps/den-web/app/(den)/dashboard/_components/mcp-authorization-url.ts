@@ -21,3 +21,12 @@ export function safeMcpAuthorizationUrl(rawUrl: string): string {
   }
   return url.toString()
 }
+
+export function openMcpAuthorizationWindow(): Window {
+  const popup = window.open("", "openwork-mcp-authorization", "popup,width=600,height=760")
+  if (!popup) {
+    throw new Error("OpenWork could not open the sign-in window. Allow popups for OpenWork, then try again.")
+  }
+  popup.opener = null
+  return popup
+}

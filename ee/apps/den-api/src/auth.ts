@@ -56,6 +56,7 @@ import {
   findEnterpriseAuthRequirementForEmail,
   findEnterpriseAuthRequirementForUserId,
 } from "./enterprise-auth-requirement.js";
+import { getAuthBodyEmail, getSingleOrgEmailSignupPolicyViolation } from "./single-org-signup-policy.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
 import * as schema from "@openwork-ee/den-db/schema";
 import { apiKey } from "@better-auth/api-key";
@@ -259,15 +260,6 @@ function throwMemberLifecycleError(message: string): never {
   throw new APIError("BAD_REQUEST", { message });
 }
 
-function getBodyEmail(body: unknown) {
-  if (!body || typeof body !== "object") {
-    return null;
-  }
-
-  const value = Object.getOwnPropertyDescriptor(body, "email")?.value;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function removedMemberIdentity(value: unknown): { id: string; organizationId: string } | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -393,7 +385,14 @@ export const auth = betterAuth({
         return;
       }
 
-      const email = getBodyEmail(ctx.body);
+      const email = getAuthBodyEmail(ctx.body);
+      if (ctx.path === "/sign-up/email") {
+        const violation = await getSingleOrgEmailSignupPolicyViolation(email);
+        if (violation) {
+          throw new APIError("FORBIDDEN", { message: violation.message });
+        }
+      }
+
       if (!email) {
         return;
       }

@@ -73,6 +73,16 @@ describe("agent-configurable org connections policy", () => {
     expect(allowed("getV1McpConnectionsByConnectionIdTools")).toBe(true)
   })
 
+  test("manual MCP tool execution stays outside the agent API catalog", () => {
+    const operation = document.paths["/v1/mcp-connections/{connectionId}/tools/call"]?.post
+    expect(operation).toBeDefined()
+    expect(operation ? isMcpOperationAllowed({
+      method: "post",
+      path: "/v1/mcp-connections/{connectionId}/tools/call",
+      operation,
+    }) : true).toBe(false)
+  })
+
   test("agent catalog search discovers member list and admin create mcp-connection operations", () => {
     const catalog = buildMcpCatalog(document)
     const memberMatches = searchCapabilities(catalog, "list external mcp connections", 10)
@@ -89,6 +99,14 @@ describe("agent-configurable org connections policy", () => {
       method: "POST",
       path: "/v1/mcp-connections",
       hasBody: true,
+      bodySchema: expect.objectContaining({
+        type: "object",
+        properties: expect.objectContaining({
+          name: expect.objectContaining({ type: "string" }),
+          url: expect.objectContaining({ type: "string" }),
+        }),
+        required: expect.arrayContaining(["name", "url"]),
+      }),
     }))
     expect(toolCatalogMatches).toContainEqual(expect.objectContaining({
       method: "GET",
@@ -96,12 +114,15 @@ describe("agent-configurable org connections policy", () => {
     }))
   })
 
-  test("plugin MCP setup that can carry secrets is excluded from the agent catalog", () => {
-    expect(allowed("postV1PluginsByPluginIdMcpConnections")).toBe(false)
+  test("plugin MCP requirements are agent-configurable without exposing secret setup", () => {
+    expect(allowed("postV1PluginsByPluginIdMcpConnections")).toBe(true)
     expect(document.paths["/v1/plugins/{pluginId}/mcp-requirements/configure"]).toBeUndefined()
     const catalog = buildMcpCatalog(document)
-    expect(catalog.some((operation) => operation.path === "/v1/plugins/{pluginId}/mcp-connections")).toBe(false)
-    expect(searchCapabilities(catalog, "configure plugin mcp connection oauth client", 20).some((match) => match.path.includes("/plugins/") && match.path.includes("/mcp-connections"))).toBe(false)
+    expect(catalog.some((operation) => operation.path === "/v1/plugins/{pluginId}/mcp-connections")).toBe(true)
+    expect(searchCapabilities(catalog, "configure plugin mcp requirement per member oauth", 20)).toContainEqual(expect.objectContaining({
+      method: "POST",
+      path: "/v1/plugins/{pluginId}/mcp-connections",
+    }))
   })
 
   test("agent capability search source filter can restrict searches to skills", () => {

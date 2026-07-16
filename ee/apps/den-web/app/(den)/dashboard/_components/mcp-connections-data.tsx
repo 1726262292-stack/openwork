@@ -3,6 +3,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
+import {
+  type ExternalMcpDiagnostic,
+  parseExternalMcpDiagnostic,
+} from "./mcp-tool-error-attribution";
 
 const ORG_SCOPE_HEADER = "x-openwork-org-id";
 
@@ -40,6 +44,7 @@ export type ExternalMcpConnection = {
   credentialMode: ExternalMcpCredentialMode;
   connected: boolean;
   connectedAt: string | null;
+  createdByName?: string | null;
   updatedAt: string | null;
   connectedForMe: boolean;
   needsReconnect?: boolean;
@@ -51,6 +56,55 @@ export type ExternalMcpConnection = {
   identityManagedBy: ExternalMcpRequiredBy[];
   access: ExternalMcpAccessSummary | null;
   oauthClientId?: string | null;
+  oauthCallbackUrl?: string | null;
+  oauthSharedCallbackUrl?: string | null;
+  oauthClientMetadataUrl?: string | null;
+  oauthCallbackMode?: "shared-v1" | "legacy-v1" | null;
+  oauthRegistrationSource?: "pre-registered" | "client-metadata" | "dynamic" | null;
+  authorizationServerIssuer?: string | null;
+  requestedScopes?: string[];
+};
+
+export type McpRequirementsDiscovery = {
+  status: "ready" | "manual_action_required" | "unsupported" | "unreachable";
+  server: {
+    url: string;
+    protocolVersion?: string;
+    initialize: "succeeded" | "authentication_required" | "failed";
+  };
+  authentication: {
+    kind: "none" | "oauth" | "manual_bearer" | "unknown";
+    resource?: string;
+    protectedResourceMetadataUrl?: string;
+    authorizationServers: Array<{
+      issuer: string;
+      authorizationEndpoint?: string;
+      tokenEndpoint?: string;
+      registrationEndpoint?: string;
+      clientIdMetadataDocumentSupported: boolean;
+      scopesSupported?: string[];
+      grantTypesSupported?: string[];
+      codeChallengeMethodsSupported?: string[];
+      tokenEndpointAuthMethodsSupported?: string[];
+    }>;
+    requiredScopes: string[];
+    recommendedScopes: string[];
+    refreshSupport: "supported" | "not_advertised" | "unknown";
+    availableRegistrationMethods: Array<"pre_registered" | "client_metadata" | "dynamic">;
+    recommendedRegistrationMethod: "client_metadata" | "dynamic" | "pre_registered";
+  };
+  tools: {
+    visibility: "available_without_auth" | "requires_auth" | "unavailable";
+    count?: number;
+    items?: Array<{
+      name: string;
+      readOnlyHint?: boolean;
+      destructiveHint?: boolean;
+      openWorldHint?: boolean;
+    }>;
+  };
+  manualRequirements: Array<{ code: string; label: string; reason: string; required: boolean }>;
+  warnings: Array<{ code: string; message: string }>;
 };
 
 export type ExternalMcpTool = {
@@ -67,6 +121,64 @@ export type ExternalMcpTool = {
     openWorldHint?: boolean;
   };
 };
+
+export type ExternalMcpToolRun = {
+  referenceId: string;
+  durationMs: number;
+  result: unknown;
+  inspection: ExternalMcpToolCallInspection | null;
+};
+
+export type ExternalMcpInspectionHeader = {
+  name: string;
+  value: string;
+  redacted: boolean;
+};
+
+export type ExternalMcpInspectionBody = {
+  text: string;
+  bytes: number;
+  truncated: boolean;
+  unavailable?: boolean;
+};
+
+export type ExternalMcpToolCallInspection = {
+  request?: {
+    method: string;
+    url: string;
+    startedAt: string;
+    headers: ExternalMcpInspectionHeader[];
+    body: ExternalMcpInspectionBody;
+  };
+  response?: {
+    status: number;
+    statusText: string;
+    durationMs: number;
+    headers: ExternalMcpInspectionHeader[];
+    body: ExternalMcpInspectionBody;
+  };
+  diagnosis: {
+    status: "succeeded" | "failed";
+    layer: "openwork" | "network" | "mcp_connection" | "remote_http" | "mcp_tool";
+    summary: string;
+  };
+};
+
+export class ExternalMcpToolRunError extends Error {
+  readonly inspection: ExternalMcpToolCallInspection | null;
+  readonly diagnostic: ExternalMcpDiagnostic | null;
+
+  constructor(
+    message: string,
+    inspection: ExternalMcpToolCallInspection | null,
+    diagnostic: ExternalMcpDiagnostic | null,
+  ) {
+    super(message);
+    this.name = "ExternalMcpToolRunError";
+    this.inspection = inspection;
+    this.diagnostic = diagnostic;
+  }
+}
 
 export type ExternalMcpPreset = {
   presetId: string;
@@ -88,8 +200,8 @@ export function isNativeProviderConnectionId(id: string): boolean {
   return id === "google-workspace" || id === "microsoft-365";
 }
 
-export function canDisconnectNativeProviderAccount(connection: Pick<ExternalMcpConnection, "id" | "connectedForMe">): boolean {
-  return connection.connectedForMe && isNativeProviderConnectionId(connection.id);
+export function canDisconnectMyConnectionAccount(connection: Pick<ExternalMcpConnection, "id" | "credentialMode" | "connectedForMe">): boolean {
+  return connection.connectedForMe && (isNativeProviderConnectionId(connection.id) || connection.credentialMode === "per_member");
 }
 
 export const mcpConnectionQueryKeys = {
@@ -124,8 +236,131 @@ export function useMcpConnectionTools(connectionId: string, enabled: boolean) {
   });
 }
 
+// The den-api tool run is bounded by its 150s MCP tool lifecycle deadline;
+// give the request a little headroom so the server's structured failure
+// arrives instead of a client-side timeout.
+const RUN_TOOL_REQUEST_TIMEOUT_MS = 160000;
+
+export function useRunMcpConnectionTool(connectionId: string) {
+  const { orgId } = useOrgDashboard();
+  return useMutation({
+    mutationFn: async (input: { toolName: string; arguments: Record<string, unknown> }): Promise<ExternalMcpToolRun> => {
+      const { response, payload } = await requestJson(
+        `/v1/mcp-connections/${encodeURIComponent(connectionId)}/tools/call`,
+        {
+          method: "POST",
+          headers: getOrgScopeHeaders(requireOrgId(orgId)),
+          body: JSON.stringify(input),
+        },
+        RUN_TOOL_REQUEST_TIMEOUT_MS,
+      );
+      if (!response.ok) {
+        const requestError = getRequestError(payload, response, `Failed to run MCP tool (${response.status}).`);
+        throw new ExternalMcpToolRunError(
+          requestError.message,
+          isRecord(payload) ? parseToolCallInspection(payload.inspection) : null,
+          isRecord(payload) ? parseExternalMcpDiagnostic(payload.diagnostic) : null,
+        );
+      }
+      if (
+        !isRecord(payload)
+        || typeof payload.referenceId !== "string"
+        || typeof payload.durationMs !== "number"
+        || !("result" in payload)
+      ) {
+        throw new Error("MCP tool result was incomplete.");
+      }
+      return {
+        referenceId: payload.referenceId,
+        durationMs: payload.durationMs,
+        result: payload.result,
+        // A missing or unparseable inspection must not fail a tool run that
+        // succeeded (for example across a den-api/den-web deploy skew); the
+        // runner simply renders without the inspector panel.
+        inspection: parseToolCallInspection(payload.inspection),
+      };
+    },
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseInspectionHeaders(value: unknown): ExternalMcpInspectionHeader[] | null {
+  if (!Array.isArray(value)) return null;
+  const headers: ExternalMcpInspectionHeader[] = [];
+  for (const header of value) {
+    if (
+      !isRecord(header)
+      || typeof header.name !== "string"
+      || typeof header.value !== "string"
+      || typeof header.redacted !== "boolean"
+    ) return null;
+    headers.push({ name: header.name, value: header.value, redacted: header.redacted });
+  }
+  return headers;
+}
+
+function parseInspectionBody(value: unknown): ExternalMcpInspectionBody | null {
+  if (
+    !isRecord(value)
+    || typeof value.text !== "string"
+    || typeof value.bytes !== "number"
+    || typeof value.truncated !== "boolean"
+    || (value.unavailable !== undefined && typeof value.unavailable !== "boolean")
+  ) return null;
+  return {
+    text: value.text,
+    bytes: value.bytes,
+    truncated: value.truncated,
+    ...(value.unavailable === true ? { unavailable: true } : {}),
+  };
+}
+
+function parseInspectionRequest(value: unknown): ExternalMcpToolCallInspection["request"] | null {
+  if (
+    !isRecord(value)
+    || typeof value.method !== "string"
+    || typeof value.url !== "string"
+    || typeof value.startedAt !== "string"
+  ) return null;
+  const headers = parseInspectionHeaders(value.headers);
+  const body = parseInspectionBody(value.body);
+  if (!headers || !body) return null;
+  return { method: value.method, url: value.url, startedAt: value.startedAt, headers, body };
+}
+
+function parseInspectionResponse(value: unknown): ExternalMcpToolCallInspection["response"] | null {
+  if (
+    !isRecord(value)
+    || typeof value.status !== "number"
+    || typeof value.statusText !== "string"
+    || typeof value.durationMs !== "number"
+  ) return null;
+  const headers = parseInspectionHeaders(value.headers);
+  const body = parseInspectionBody(value.body);
+  if (!headers || !body) return null;
+  return { status: value.status, statusText: value.statusText, durationMs: value.durationMs, headers, body };
+}
+
+function parseToolCallInspection(value: unknown): ExternalMcpToolCallInspection | null {
+  if (!isRecord(value) || !isRecord(value.diagnosis)) return null;
+  const status = value.diagnosis.status;
+  const layer = value.diagnosis.layer;
+  if (
+    (status !== "succeeded" && status !== "failed")
+    || (layer !== "openwork" && layer !== "network" && layer !== "mcp_connection" && layer !== "remote_http" && layer !== "mcp_tool")
+    || typeof value.diagnosis.summary !== "string"
+  ) return null;
+  const request = value.request === undefined ? undefined : parseInspectionRequest(value.request);
+  const response = value.response === undefined ? undefined : parseInspectionResponse(value.response);
+  if (request === null || response === null) return null;
+  return {
+    ...(request ? { request } : {}),
+    ...(response ? { response } : {}),
+    diagnosis: { status, layer, summary: value.diagnosis.summary },
+  };
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -155,6 +390,7 @@ async function fetchConnections(scope: ExternalMcpConnectionScope, orgId: string
     requiredBy: parseRequiredBy(connection.requiredBy),
     identityManagedBy: parseRequiredBy(connection.identityManagedBy),
     updatedAt: typeof connection.updatedAt === "string" ? connection.updatedAt : null,
+    ...(typeof connection.createdByName === "string" || connection.createdByName === null ? { createdByName: connection.createdByName } : {}),
     ...(typeof connection.needsReconnect === "boolean" ? { needsReconnect: connection.needsReconnect } : {}),
     ...(isStringArray(connection.missingFeatures) ? { missingFeatures: connection.missingFeatures } : {}),
     ...(typeof connection.externalAccountId === "string" || connection.externalAccountId === null
@@ -204,6 +440,8 @@ export type CreateMcpConnectionInput = {
     clientId: string;
     clientSecret?: string;
   };
+  authorizationServerIssuer?: string | null;
+  requestedScopes?: string[];
   access: McpConnectionAccessInput;
 };
 
@@ -219,8 +457,31 @@ export type UpdateMcpConnectionInput = {
     clientId: string;
     clientSecret?: string;
   };
+  authorizationServerIssuer?: string | null;
+  requestedScopes?: string[];
   access: McpConnectionAccessInput;
 };
+
+export function useDiscoverMcpConnectionRequirements() {
+  const { orgId } = useOrgDashboard();
+  return useMutation({
+    mutationFn: async (url: string): Promise<McpRequirementsDiscovery> => {
+      const { response, payload } = await requestJson(
+        "/v1/mcp-connections/discover",
+        {
+          method: "POST",
+          headers: getOrgScopeHeaders(requireOrgId(orgId)),
+          body: JSON.stringify({ url }),
+        },
+        20000,
+      );
+      if (!response.ok) {
+        throw getRequestError(payload, response, `Failed to discover MCP requirements (${response.status}).`);
+      }
+      return payload as McpRequirementsDiscovery;
+    },
+  });
+}
 
 export type UpdatedMcpConnection = ExternalMcpConnection & {
   identityChanged: boolean;
@@ -333,8 +594,11 @@ export function useDisconnectMyProviderAccount() {
 
   return useMutation({
     mutationFn: async (providerId: string): Promise<string> => {
+      const path = isNativeProviderConnectionId(providerId)
+        ? `/v1/oauth-providers/${encodeURIComponent(providerId)}/disconnect`
+        : `/v1/mcp-connections/${encodeURIComponent(providerId)}/disconnect-my-account`;
       const { response, payload } = await requestJson(
-        `/v1/oauth-providers/${encodeURIComponent(providerId)}/disconnect`,
+        path,
         { method: "POST", headers: getOrgScopeHeaders(requireOrgId(orgId)) },
         15000,
       );
@@ -342,6 +606,33 @@ export function useDisconnectMyProviderAccount() {
         throw getRequestError(payload, response, `Failed to disconnect account (${response.status}).`);
       }
       return providerId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });
+    },
+  });
+}
+
+export function useDisconnectMcpConnection() {
+  const queryClient = useQueryClient();
+  const { orgId, runReauthableAction } = useOrgDashboard();
+
+  return useMutation({
+    mutationFn: async (connectionId: string): Promise<string> => {
+      let result: string | null = null;
+      await runReauthableAction("disconnect-mcp-connection", async () => {
+        const { response, payload } = await requestJson(
+          `/v1/mcp-connections/${encodeURIComponent(connectionId)}/disconnect`,
+          { method: "POST", headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+          15000,
+        );
+        if (!response.ok) {
+          throw getRequestError(payload, response, `Failed to disconnect MCP connection (${response.status}).`);
+        }
+        result = connectionId;
+      });
+      if (!result) throw new Error("Disconnect MCP connection response was incomplete.");
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.all });

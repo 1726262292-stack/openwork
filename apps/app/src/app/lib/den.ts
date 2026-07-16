@@ -55,7 +55,7 @@ const BUILD_DEN_REQUIRE_SIGNIN =
     ? /^(1|true|yes|on)$/i.test(import.meta.env.VITE_DEN_REQUIRE_SIGNIN.trim())
     : false);
 
-const HOSTED_DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
+export const HOSTED_DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
 export const DEFAULT_DEN_BASE_URL = BUILD_DEN_BASE_URL;
 export const DEN_INFERENCE_PATH = "/dashboard/inference";
 
@@ -466,6 +466,19 @@ export function denOriginComparisonKey(input: string | null | undefined): string
   }
 }
 
+/**
+ * True when the effective Den control plane is not the hosted OpenWork Cloud
+ * (app.openworklabs.com). Self-hosted deployments point the app at their own
+ * control plane via VITE_DEN_BASE_URL or the desktop bootstrap config, so
+ * hosted-only surfaces (e.g. OpenWork Models upsells) should stay hidden.
+ */
+export function isSelfHostedControlPlane(): boolean {
+  return (
+    denOriginComparisonKey(readDenSettings().baseUrl) !==
+    denOriginComparisonKey(HOSTED_DEFAULT_DEN_BASE_URL)
+  );
+}
+
 export function getDenInferenceUrl(baseUrl?: string | null): string {
   const normalized = normalizeDenBaseUrl(baseUrl ?? readDenSettings().baseUrl) ?? DEFAULT_DEN_BASE_URL;
   return `${normalized}${DEN_INFERENCE_PATH}`;
@@ -576,6 +589,7 @@ function resolveDenBootstrapConfig(
     requireSignin?: boolean | null;
     brandAppName?: string | null;
     brandLogoUrl?: string | null;
+    claimLinks?: DenBootstrapConfig["claimLinks"];
     handoff?: DenBootstrapHandoff | null;
     prepared?: DenBootstrapPrepared | null;
   },
@@ -585,6 +599,7 @@ function resolveDenBootstrapConfig(
     requireSignin: input.requireSignin === true,
     ...(input.brandAppName?.trim() ? { brandAppName: input.brandAppName.trim().slice(0, 64) } : {}),
     ...(input.brandLogoUrl?.trim() ? { brandLogoUrl: input.brandLogoUrl.trim() } : {}),
+    ...(input.claimLinks ? { claimLinks: input.claimLinks } : {}),
     ...(input.handoff ? { handoff: input.handoff } : {}),
     ...(input.prepared ? { prepared: input.prepared } : {}),
   };
@@ -601,6 +616,9 @@ function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null
     requireSignin: previous.requireSignin,
     brandAppName: previous.brandAppName,
     brandLogoUrl: previous.brandLogoUrl,
+    claimLinks: previous.claimLinks,
+    handoff: previous.handoff,
+    prepared: previous.prepared,
   });
 }
 

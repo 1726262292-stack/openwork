@@ -6,6 +6,7 @@ function seedRequiredEnv() {
   process.env.DEN_DB_ENCRYPTION_KEY = process.env.DEN_DB_ENCRYPTION_KEY ?? "local-dev-db-encryption-key-please-change-1234567890"
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "local-dev-secret-not-for-production-use!!"
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
+  process.env.DEN_API_PUBLIC_URL = process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790"
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
   process.env.DEN_ALLOW_PRIVATE_MCP_URLS = "1"
 }
@@ -22,10 +23,14 @@ let session: typeof import("../src/session.js")
 let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
 let externalMcpIdentityBinding: typeof import("../src/capability-sources/external-mcp-connections.js").externalMcpIdentityBinding
 let createOAuthStateToken: typeof import("../src/capability-sources/generic-oauth.js").createOAuthStateToken
+let upsertOrgOAuthClient: typeof import("../src/capability-sources/oauth-credentials.js").upsertOrgOAuthClient
+let getOrgOAuthClient: typeof import("../src/capability-sources/oauth-credentials.js").getOrgOAuthClient
 
 const userId = createDenTypeId("user")
+const regularUserId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
 const memberId = createDenTypeId("member")
+const regularMemberId = createDenTypeId("member")
 const staleSessionId = createDenTypeId("session")
 const staleSessionToken = `stale-mcp-session-${staleSessionId}`
 const connectionName = "Broken OAuth MCP"
@@ -40,7 +45,7 @@ beforeAll(async () => {
   }).db
   mock.module("../src/db.js", () => ({ db: realDb }))
 
-  const [appMod, dbMod, schemaMod, drizzleMod, sessionMod, connectionsMod, genericOAuthMod] = await Promise.all([
+  const [appMod, dbMod, schemaMod, drizzleMod, sessionMod, connectionsMod, genericOAuthMod, oauthCredentialsMod] = await Promise.all([
     import("../src/app.js"),
     import("../src/db.js"),
     import("@openwork-ee/den-db/schema"),
@@ -48,6 +53,7 @@ beforeAll(async () => {
     import("../src/session.js"),
     import("../src/capability-sources/external-mcp-connections.js"),
     import("../src/capability-sources/generic-oauth.js"),
+    import("../src/capability-sources/oauth-credentials.js"),
   ])
   app = appMod.default
   db = dbMod.db
@@ -57,11 +63,18 @@ beforeAll(async () => {
   createExternalMcpConnection = connectionsMod.createExternalMcpConnection
   externalMcpIdentityBinding = connectionsMod.externalMcpIdentityBinding
   createOAuthStateToken = genericOAuthMod.createOAuthStateToken
+  upsertOrgOAuthClient = oauthCredentialsMod.upsertOrgOAuthClient
+  getOrgOAuthClient = oauthCredentialsMod.getOrgOAuthClient
 
   await db.insert(schema.AuthUserTable).values({
     id: userId,
     name: "MCP Connect Start User",
     email: `mcp-connect-start+${userId}@test.local`,
+  })
+  await db.insert(schema.AuthUserTable).values({
+    id: regularUserId,
+    name: "MCP Connect Start Regular User",
+    email: `mcp-connect-start+${regularUserId}@test.local`,
   })
   await db.insert(schema.OrganizationTable).values({
     id: organizationId,
@@ -74,6 +87,12 @@ beforeAll(async () => {
     userId,
     role: "admin",
   })
+  await db.insert(schema.MemberTable).values({
+    id: regularMemberId,
+    organizationId,
+    userId: regularUserId,
+    role: "member",
+  })
   await db.insert(schema.AuthSessionTable).values({
     id: staleSessionId,
     userId,
@@ -82,7 +101,6 @@ beforeAll(async () => {
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     createdAt: new Date(Date.now() - 60 * 60 * 1000),
   })
-
   const connection = await createExternalMcpConnection({
     organizationId,
     name: connectionName,
@@ -104,7 +122,7 @@ afterAll(async () => {
   await db.delete(schema.MemberTable).where(drizzle.eq(schema.MemberTable.organizationId, organizationId))
   await db.delete(schema.OrganizationRoleTable).where(drizzle.eq(schema.OrganizationRoleTable.organizationId, organizationId))
   await db.delete(schema.OrganizationTable).where(drizzle.eq(schema.OrganizationTable.id, organizationId))
-  await db.delete(schema.AuthUserTable).where(drizzle.eq(schema.AuthUserTable.id, userId))
+  await db.delete(schema.AuthUserTable).where(drizzle.inArray(schema.AuthUserTable.id, [userId, regularUserId]))
   mock.restore()
 })
 
@@ -116,9 +134,14 @@ function seededConnectionId() {
 }
 
 function request(path: string) {
+  return principalRequest(userId, path)
+}
+
+function principalRequest(principalUserId: string, path: string, method = "GET") {
   return app.fetch(new Request(`http://den-api.local${path}`, {
+    method,
     headers: {
-      "x-den-internal-mcp-principal": session.createInternalMcpPrincipalHeader({ userId, organizationId }),
+      "x-den-internal-mcp-principal": session.createInternalMcpPrincipalHeader({ userId: principalUserId, organizationId }),
     },
   }))
 }
@@ -176,6 +199,96 @@ test("GET /v1/mcp-connections/:connectionId/connect/start still returns connecti
   expect(body.error).toBe("connection_not_found")
 })
 
+test("an existing legacy callback reconnects without migration or credential rewrites", async () => {
+  const connection = await createExternalMcpConnection({
+    organizationId,
+    name: "Existing legacy OAuth MCP",
+    url: "http://127.0.0.1:9/legacy-mcp",
+    authType: "oauth",
+    credentialMode: "per_member",
+    createdByOrgMembershipId: memberId,
+    access: { orgWide: true, memberIds: [], teamIds: [] },
+  })
+  await db
+    .update(schema.ExternalMcpConnectionTable)
+    .set({
+      oauthConfiguration: {
+        version: 1,
+        authorizationServerIssuer: null,
+        requestedScopes: [],
+        callbackMode: "legacy-v1",
+      },
+    })
+    .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, connection.id))
+  await upsertOrgOAuthClient({
+    organizationId,
+    providerId: connection.id,
+    clientId: "existing-client",
+    clientSecret: "existing-secret",
+    createdByOrgMembershipId: memberId,
+  })
+
+  const listResponse = await request("/v1/mcp-connections?scope=manageable")
+  expect(listResponse.status).toBe(200)
+  const listBody: unknown = await listResponse.json()
+  if (!isRecord(listBody) || !Array.isArray(listBody.connections)) {
+    throw new Error("manageable connection response was not a list")
+  }
+  const listed = listBody.connections.find((entry) => isRecord(entry) && entry.id === connection.id)
+  expect(listed).toMatchObject({
+    oauthCallbackMode: "legacy-v1",
+    oauthCallbackUrl: new URL(
+      `/v1/mcp-connections/${connection.id}/connect/callback`,
+      process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790",
+    ).toString(),
+  })
+
+  const response = await request(`/v1/mcp-connections/${connection.id}/connect/start`)
+  expect(response.status).toBe(502)
+  expect(await response.json()).toMatchObject({ error: "oauth_handshake_failed" })
+  expect(await getOrgOAuthClient(organizationId, connection.id)).toMatchObject({
+    clientId: "existing-client",
+  })
+})
+
+test("requirements discovery is side-effect free", async () => {
+  const before = await db.select({ id: schema.ExternalMcpConnectionTable.id }).from(schema.ExternalMcpConnectionTable)
+  const response = await staleSessionRequest("/v1/mcp-connections/discover", "POST", {
+    url: "http://127.0.0.1:9/mcp",
+  })
+  expect(response.status).toBe(200)
+  const body: unknown = await response.json()
+  expect(body).toMatchObject({ status: "unreachable" })
+  const after = await db.select({ id: schema.ExternalMcpConnectionTable.id }).from(schema.ExternalMcpConnectionTable)
+  expect(after).toEqual(before)
+})
+
+test("public client metadata exposes only the deployment-wide web callback", async () => {
+  const response = await app.fetch(new Request("http://den-api.local/oauth/client-metadata.json"))
+  expect(response.status).toBe(200)
+  expect(response.headers.get("cache-control")).toBe("public, max-age=300")
+  const publicOrigin = process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790"
+  expect(await response.json()).toEqual({
+    client_id: new URL("/oauth/client-metadata.json", publicOrigin).toString(),
+    client_name: "OpenWork",
+    application_type: "web",
+    redirect_uris: [new URL("/v1/mcp-connections/oauth/callback", publicOrigin).toString()],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  })
+})
+
+test("shared callback rejects missing or tampered state before routing", async () => {
+  const missing = await app.fetch(new Request("http://den-api.local/v1/mcp-connections/oauth/callback?code=unused"))
+  expect(missing.status).toBe(400)
+  expect(await missing.json()).toEqual({ error: "invalid_request", message: "Missing state." })
+
+  const tampered = await app.fetch(new Request("http://den-api.local/v1/mcp-connections/oauth/callback?code=unused&state=tampered"))
+  expect(tampered.status).toBe(400)
+  expect(await tampered.json()).toEqual({ error: "invalid_request", message: "Invalid or expired state." })
+})
+
 test("public OAuth callback scopes the signed connection lookup to its organization", async () => {
   const state = createOAuthStateToken({
     organizationId: createDenTypeId("organization"),
@@ -195,10 +308,30 @@ test("public OAuth callback scopes the signed connection lookup to its organizat
   const response = await app.fetch(new Request(callbackUrl))
   expect(response.status).toBe(400)
   const body: unknown = await response.json()
-  expect(body).toEqual({ error: "invalid_request", message: "Unknown connection." })
+  expect(body).toEqual({ error: "invalid_request", message: "Unknown authorization transaction." })
 })
 
 test("public OAuth callback validates state and renders a safe provider-denial diagnostic", async () => {
+  const issuer = "https://identity.example.test/tenant"
+  await db
+    .update(schema.ExternalMcpConnectionTable)
+    .set({
+      oauthConfiguration: {
+        version: 1,
+        authorizationServerIssuer: issuer,
+        requestedScopes: [],
+        callbackMode: "shared-v1",
+        discovery: {
+          authorizationServerUrl: issuer,
+          authorizationServerMetadata: {
+            issuer,
+            authorization_response_iss_parameter_supported: true,
+          },
+          resourceMetadata: { authorization_servers: [issuer] },
+        },
+      },
+    })
+    .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, seededConnectionId()))
   const state = createOAuthStateToken({
     organizationId,
     orgMembershipId: memberId,
@@ -208,12 +341,16 @@ test("public OAuth callback validates state and renders a safe provider-denial d
       authType: "oauth",
       credentialMode: "per_member",
     }),
+    version: 2,
+    callbackMode: "shared-v1",
+    authorizationServerIssuer: issuer,
     secret: process.env.BETTER_AUTH_SECRET ?? "",
   })
-  const callbackUrl = new URL(`http://den-api.local/v1/mcp-connections/${seededConnectionId()}/connect/callback`)
+  const callbackUrl = new URL("http://den-api.local/v1/mcp-connections/oauth/callback")
   callbackUrl.searchParams.set("error", "access_denied")
   callbackUrl.searchParams.set("error_description", "tenant=user@example.invalid secret-detail")
   callbackUrl.searchParams.set("session_state", "opaque-provider-session")
+  callbackUrl.searchParams.set("iss", issuer)
   callbackUrl.searchParams.set("state", state)
 
   const response = await app.fetch(new Request(callbackUrl))
@@ -225,6 +362,160 @@ test("public OAuth callback validates state and renders a safe provider-denial d
   expect(html).not.toContain("user@example.invalid")
   expect(html).not.toContain("secret-detail")
   expect(html).not.toContain("opaque-provider-session")
+})
+
+test("shared callback validates a required response issuer before acting on provider errors", async () => {
+  const issuer = "https://identity.example.test/tenant"
+  const state = createOAuthStateToken({
+    organizationId,
+    orgMembershipId: memberId,
+    providerId: seededConnectionId(),
+    binding: externalMcpIdentityBinding({
+      url: "http://127.0.0.1:9/mcp",
+      authType: "oauth",
+      credentialMode: "per_member",
+    }),
+    version: 2,
+    callbackMode: "shared-v1",
+    authorizationServerIssuer: issuer,
+    secret: process.env.BETTER_AUTH_SECRET ?? "",
+  })
+  const callbackUrl = new URL("http://den-api.local/v1/mcp-connections/oauth/callback")
+  callbackUrl.searchParams.set("error", "access_denied")
+  callbackUrl.searchParams.set("error_description", "must-not-be-rendered")
+  callbackUrl.searchParams.set("state", state)
+
+  const response = await app.fetch(new Request(callbackUrl))
+  expect(response.status).toBe(400)
+  const html = await response.text()
+  expect(html).toContain("authorization server")
+  expect(html).not.toContain("must-not-be-rendered")
+  expect(html).not.toContain("did not grant authorization")
+})
+
+test("version-one state remains temporarily valid only through the legacy callback route", async () => {
+  const legacyConnection = await createExternalMcpConnection({
+    organizationId,
+    name: "In-flight legacy OAuth MCP",
+    url: "http://127.0.0.1:9/legacy-mcp",
+    authType: "oauth",
+    credentialMode: "shared",
+    createdByOrgMembershipId: memberId,
+    access: { orgWide: true, memberIds: [], teamIds: [] },
+  })
+  await db
+    .update(schema.ExternalMcpConnectionTable)
+    .set({
+      oauthConfiguration: {
+        version: 1,
+        authorizationServerIssuer: null,
+        requestedScopes: [],
+        callbackMode: "legacy-v1",
+      },
+      pendingCodeVerifier: "version-one-pkce-verifier",
+    })
+    .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, legacyConnection.id))
+
+  const versionOneState = createOAuthStateToken({
+    organizationId,
+    orgMembershipId: memberId,
+    providerId: legacyConnection.id,
+    binding: externalMcpIdentityBinding(legacyConnection),
+    secret: process.env.BETTER_AUTH_SECRET ?? "",
+  })
+  const legacyUrl = new URL(`http://den-api.local/v1/mcp-connections/${legacyConnection.id}/connect/callback`)
+  legacyUrl.searchParams.set("error", "access_denied")
+  legacyUrl.searchParams.set("state", versionOneState)
+
+  const accepted = await app.fetch(new Request(legacyUrl))
+  expect(accepted.status).toBe(400)
+  expect(accepted.headers.get("content-type")).toContain("text/html")
+  expect(await accepted.text()).toContain("The provider did not grant authorization")
+  const [cleaned] = await db
+    .select({ pendingCodeVerifier: schema.ExternalMcpConnectionTable.pendingCodeVerifier })
+    .from(schema.ExternalMcpConnectionTable)
+    .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, legacyConnection.id))
+    .limit(1)
+  expect(cleaned?.pendingCodeVerifier).toBeNull()
+
+  const sharedUrl = new URL("http://den-api.local/v1/mcp-connections/oauth/callback")
+  sharedUrl.searchParams.set("error", "access_denied")
+  sharedUrl.searchParams.set("state", versionOneState)
+  const wrongRoute = await app.fetch(new Request(sharedUrl))
+  expect(wrongRoute.status).toBe(400)
+  expect(await wrongRoute.json()).toMatchObject({ error: "invalid_request" })
+})
+
+test("version-two legacy callbacks use enterprise issuer validation", async () => {
+  const legacyConnection = await createExternalMcpConnection({
+    organizationId,
+    name: "Legacy engine callback",
+    url: "http://127.0.0.1:9/legacy-engine-callback",
+    authType: "oauth",
+    credentialMode: "shared",
+    oauthConfiguration: {
+      version: 1,
+      authorizationServerIssuer: null,
+      requestedScopes: [],
+      callbackMode: "legacy-v1",
+    },
+    createdByOrgMembershipId: memberId,
+    access: { orgWide: true, memberIds: [], teamIds: [] },
+  })
+  await db
+    .update(schema.ExternalMcpConnectionTable)
+    .set({
+      oauthConfiguration: {
+        version: 1,
+        authorizationServerIssuer: null,
+        requestedScopes: [],
+        callbackMode: "legacy-v1",
+      },
+      pendingCodeVerifier: "legacy-engine-pkce-verifier",
+    })
+    .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, legacyConnection.id))
+
+  const state = createOAuthStateToken({
+    organizationId,
+    orgMembershipId: memberId,
+    providerId: legacyConnection.id,
+    binding: externalMcpIdentityBinding(legacyConnection),
+    version: 2,
+    callbackMode: "legacy-v1",
+    secret: process.env.BETTER_AUTH_SECRET ?? "",
+  })
+  const callbackUrl = new URL(`http://den-api.local/v1/mcp-connections/${legacyConnection.id}/connect/callback`)
+  callbackUrl.searchParams.set("error", "access_denied")
+  callbackUrl.searchParams.set("state", state)
+
+  const response = await app.fetch(new Request(callbackUrl))
+  expect(response.status).toBe(400)
+  const html = await response.text()
+  expect(html).toContain("OpenWork could not register or identify its OAuth client with the authorization server")
+  expect(html).not.toContain("The provider did not grant authorization")
+})
+
+test("shared-callback version-two state is rejected by the legacy callback even when its path id matches", async () => {
+  const state = createOAuthStateToken({
+    organizationId,
+    orgMembershipId: memberId,
+    providerId: seededConnectionId(),
+    binding: externalMcpIdentityBinding({
+      url: "http://127.0.0.1:9/mcp",
+      authType: "oauth",
+      credentialMode: "per_member",
+    }),
+    version: 2,
+    callbackMode: "shared-v1",
+    secret: process.env.BETTER_AUTH_SECRET ?? "",
+  })
+  const callbackUrl = new URL(`http://den-api.local/v1/mcp-connections/${seededConnectionId()}/connect/callback`)
+  callbackUrl.searchParams.set("error", "access_denied")
+  callbackUrl.searchParams.set("state", state)
+
+  const response = await app.fetch(new Request(callbackUrl))
+  expect(response.status).toBe(400)
+  expect(await response.json()).toEqual({ error: "invalid_request", message: "Invalid or expired state." })
 })
 
 test("non-OAuth create validation returns the same structured network diagnostic", async () => {
@@ -282,6 +573,12 @@ test("stale admin sessions can configure and connect shared MCPs but cannot disc
   if (!isRecord(createdBody) || typeof createdBody.id !== "string") {
     throw new Error("create connection response did not include an id")
   }
+  expect(createdBody.oauthCallbackMode).toBe("shared-v1")
+  const sharedCallbackUrl = new URL("/v1/mcp-connections/oauth/callback", process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790").toString()
+  expect(createdBody.oauthCallbackUrl).toBe(sharedCallbackUrl)
+  expect(createdBody.oauthSharedCallbackUrl).toBe(sharedCallbackUrl)
+  expect("runtime" in createdBody).toBe(false)
+  expect("enterpriseRuntime" in createdBody).toBe(false)
 
   const accessResponse = await staleSessionRequest(`/v1/mcp-connections/${createdBody.id}/access`, "PUT", {
     access: {

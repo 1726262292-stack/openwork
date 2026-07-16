@@ -47,6 +47,7 @@ const DEN_ENV = {
   DEN_DB_ENCRYPTION_KEY: "local-dev-db-encryption-key-please-change-1234567890",
   BETTER_AUTH_SECRET: "local-dev-secret-not-for-production-use!!",
   BETTER_AUTH_URL: DEN_BASE_URL,
+  DEN_API_PUBLIC_URL: DEN_API_URL,
   DEN_BETTER_AUTH_TRUSTED_ORIGINS: DEN_TRUSTED_ORIGINS,
   CORS_ORIGINS: DEN_TRUSTED_ORIGINS,
   PROVISIONER_MODE: "stub",
@@ -157,8 +158,13 @@ async function mysqlQuery(sql) {
 
 async function ensureSchema(log) {
   try {
-    const schema = await mysqlQuery("SHOW TABLES LIKE 'organization'; SHOW TABLES LIKE 'scim_group'; SHOW COLUMNS FROM scim_provider LIKE 'group_mapping_mode';");
-    if (schema.includes("organization") && schema.includes("scim_group") && schema.includes("group_mapping_mode")) {
+    const schema = await mysqlQuery("SHOW TABLES LIKE 'organization'; SHOW TABLES LIKE 'desktop_connect_grant'; SHOW TABLES LIKE 'scim_group'; SHOW COLUMNS FROM scim_provider LIKE 'group_mapping_mode';");
+    if (
+      schema.includes("organization")
+      && schema.includes("desktop_connect_grant")
+      && schema.includes("scim_group")
+      && schema.includes("group_mapping_mode")
+    ) {
       log("Schema present");
       return;
     }
@@ -213,6 +219,7 @@ async function ensureDenApi(log) {
     env: {
       DEN_PROXY_LISTEN_PORT: String(DEN_API_PORT),
       DEN_PROXY_UPSTREAM_PORT: String(DEN_API_INTERNAL_PORT),
+      OPENWORK_EVAL_DEN_PROXY_CONTROL: "1",
     },
   });
   await writePidState("den-proxy.pid", proxyPid);
