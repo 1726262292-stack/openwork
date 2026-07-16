@@ -608,7 +608,10 @@ async function waitForConnectOrganizationRow(ctx, name) {
 async function waitForMarketplacePlugin(ctx, name) {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const found = await ctx.eval(`document.body.innerText.includes(${JSON.stringify(name)})`);
+    const found = await ctx.eval(`(() => {
+      const compact = (entry) => (entry?.innerText ?? entry?.textContent ?? '').replace(/\s+/g, ' ').trim();
+      return [...document.querySelectorAll('button')].some((button) => compact(button).includes(${JSON.stringify(name)}));
+    })()`);
     if (found) return;
     await ctx.control("extensions.refresh-marketplace").catch(() => {});
     await sleep(2_000);
