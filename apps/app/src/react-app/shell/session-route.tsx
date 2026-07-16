@@ -633,8 +633,9 @@ export function SessionRoute() {
           checkRestriction: checkDesktopRestriction,
         }) ||
         (
+          providerListQuery.data &&
           checkDesktopRestriction({ restriction: "allowCustomProviders" }) &&
-          !providerConnectedIds.some(
+          !providerListQuery.data.connected.some(
             (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
           )
         ) ||
