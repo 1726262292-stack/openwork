@@ -14,6 +14,7 @@ const DEN_API_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_DEN_API_URL);
 const DEN_WEB_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_DEN_WEB_URL || DEN_API_URL);
 const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
 const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
+const ORG_NAME = process.env.OPENWORK_EVAL_ORG_NAME?.trim() || "Acme Robotics";
 const PLATFORM_ADMIN_EMAIL = process.env.OPENWORK_EVAL_PLATFORM_ADMIN_EMAIL?.trim() || "";
 const PLATFORM_ADMIN_PASSWORD = process.env.OPENWORK_EVAL_PLATFORM_ADMIN_PASSWORD?.trim() || "";
 const MARK_VERIFIED_CMD = process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() || "";
@@ -267,7 +268,7 @@ async function ensureOrgAdminContext(ctx) {
   const orgs = listed.body?.orgs;
   ctx.assert(Array.isArray(orgs), "Current user organizations payload was missing orgs.");
   const activeOrgId = typeof listed.body?.activeOrgId === "string" ? listed.body.activeOrgId : null;
-  const activeOrg = orgs.find((org) => org.id === activeOrgId) ?? orgs[0];
+  const activeOrg = orgs.find((org) => org.name === ORG_NAME) ?? orgs.find((org) => org.id === activeOrgId) ?? orgs[0];
   ctx.assert(activeOrg && typeof activeOrg.id === "string", `Could not resolve an organization for ${ADMIN_EMAIL}.`);
   state.orgId = activeOrg.id;
 
