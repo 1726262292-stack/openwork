@@ -118,8 +118,6 @@ export function NotificationBell() {
           requestOpenMarketplacePlugin(action.pluginName);
         }
         navigate("/settings/cloud-marketplaces");
-      } else if (action.type === "install-marketplace-plugin") {
-        navigate("/settings/cloud-marketplaces");
       }
     },
     [markAllRead, navigate, reloadCoordinator],

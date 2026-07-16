@@ -12,7 +12,6 @@ import {
 import { desktopFetch, desktopFetchAgentContextDiagnostics } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
-import type { DenOrgMarketplace, DenOrgPluginResolved, DenResourceSnapshot } from "./den-types";
 import type { CloudImportedMarketplace, CloudImportedPlugin } from "../cloud/import-state";
 
 export type OpenworkServerCapabilities = {
@@ -250,28 +249,6 @@ export type OpenworkRuntimeConfigStatus = {
     keys: string[];
     migratableKeys: string[];
   };
-};
-
-export type OpenworkDesktopCloudSyncChange = {
-  id: string;
-  kind: "new" | "modified" | "removed";
-  resourceKind: "llmProvider" | "marketplace" | "plugin" | "configItem";
-  marketplaceId?: string;
-  pluginId?: string;
-  previousLastUpdatedAt: string | null;
-  nextLastUpdatedAt: string | null;
-  queuedAt: number;
-};
-
-export type OpenworkDesktopCloudSyncState = {
-  entries: Record<string, unknown>;
-  updatedAt: number;
-  version: 1;
-};
-
-export type OpenworkDesktopCloudSyncResult = {
-  changes: OpenworkDesktopCloudSyncChange[];
-  state: OpenworkDesktopCloudSyncState;
 };
 
 export type OpenworkCloudPluginInstallResult = {
@@ -1608,32 +1585,10 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         method: "PATCH",
         body: payload,
       }),
-    getDesktopCloudSync: (workspaceId: string) =>
-      requestJson<OpenworkDesktopCloudSyncState>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/desktop-cloud-sync`, {
-        token,
-        hostToken,
-        timeoutMs: timeouts.config,
-      }),
-    syncDesktopCloud: (workspaceId: string, snapshot: DenResourceSnapshot) =>
-      requestJson<OpenworkDesktopCloudSyncResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/desktop-cloud-sync`, {
-        token,
-        hostToken,
-        method: "POST",
-        body: { snapshot },
-        timeoutMs: timeouts.config,
-      }),
     listCloudPlugins: (workspaceId: string) =>
       requestJson<OpenworkCloudPluginsResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins`, {
         token,
         hostToken,
-        timeoutMs: timeouts.config,
-      }),
-    installCloudPlugin: (workspaceId: string, payload: { marketplaceId: string | null; marketplace?: DenOrgMarketplace | null; resolved: DenOrgPluginResolved }) =>
-      requestJson<OpenworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins`, {
-        token,
-        hostToken,
-        method: "POST",
-        body: payload,
         timeoutMs: timeouts.config,
       }),
     removeCloudPlugin: (workspaceId: string, pluginId: string) =>

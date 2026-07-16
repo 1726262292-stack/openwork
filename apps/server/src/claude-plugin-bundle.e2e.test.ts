@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
 import { startServer } from "./server.js";
 import { parseClaudePluginSource } from "./claude-plugin-bundle.js";
@@ -160,6 +161,96 @@ async function startOpenwork(options?: { branch?: string }) {
   };
 }
 
+async function seedHistoricalMarketplaceImport(workspaceRoot: string) {
+  const skillPath = join(workspaceRoot, ".opencode/skills/legacy-marketplace-plugin/legacy-skill/SKILL.md");
+  await mkdir(join(workspaceRoot, ".opencode/skills/legacy-marketplace-plugin/legacy-skill"), { recursive: true });
+  await writeFile(skillPath, "---\nname: legacy-skill\ndescription: Legacy\n---\n\nLegacy body.\n", "utf8");
+
+  const db = new Database(join(workspaceRoot, "runtime.sqlite"), { create: true });
+  try {
+    db.run("CREATE TABLE IF NOT EXISTS openwork_workspace_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+    db.run("CREATE TABLE IF NOT EXISTS cloud_plugin_install_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+    db.run(
+      "INSERT INTO openwork_workspace_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at",
+      [
+        "ws_1",
+        JSON.stringify({
+          cloudImports: {
+            skills: {},
+            providers: {},
+            marketplaces: {
+              marketplace_legacy: {
+                marketplaceId: "marketplace_legacy",
+                name: "Legacy Marketplace",
+                updatedAt: "2026-06-01T00:00:00.000Z",
+                pluginIds: ["plugin_legacy"],
+                importedAt: 1,
+              },
+            },
+            plugins: {
+              plugin_legacy: {
+                pluginId: "plugin_legacy",
+                marketplaceId: "marketplace_legacy",
+                name: "Legacy Marketplace Plugin",
+                description: "Imported before marketplace sync removal.",
+                updatedAt: "2026-06-02T00:00:00.000Z",
+                importedAt: 1,
+                files: [
+                  {
+                    configObjectId: "config_legacy_skill",
+                    denSkillId: "skill_legacy",
+                    externalMcpConnectionId: "connection_legacy",
+                    versionId: "version_legacy_skill",
+                    objectType: "skill",
+                    title: "Legacy Skill",
+                    path: ".opencode/skills/legacy-marketplace-plugin/legacy-skill/SKILL.md",
+                    updatedAt: "2026-06-02T00:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        }),
+        Date.now(),
+      ],
+    );
+    db.run(
+      "INSERT INTO cloud_plugin_install_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at",
+      [
+        "ws_1",
+        JSON.stringify({
+          skills: {},
+          providers: {},
+          marketplaces: {
+            marketplace_legacy: {
+              marketplaceId: "marketplace_legacy",
+              name: "Current Marketplace Record",
+              updatedAt: "2026-06-03T00:00:00.000Z",
+              pluginIds: ["plugin_current"],
+              importedAt: 2,
+            },
+          },
+          plugins: {
+            plugin_current: {
+              pluginId: "plugin_current",
+              marketplaceId: "marketplace_legacy",
+              name: "Current Local Plugin",
+              description: null,
+              updatedAt: null,
+              importedAt: 2,
+              files: [],
+            },
+          },
+        }),
+        Date.now(),
+      ],
+    );
+  } finally {
+    db.close();
+  }
+  return skillPath;
+}
+
 describe("parseClaudePluginSource", () => {
   test("parses URL variants", () => {
     expect(parseClaudePluginSource("https://github.com/slackapi/slack-mcp-plugin")).toEqual({
@@ -204,6 +295,64 @@ describe("parseClaudePluginSource", () => {
 });
 
 describe("claude plugin bundles", () => {
+  test("legacy Den cloud-plugin install route is gone", async () => {
+    const openwork = await startOpenwork();
+
+    const response = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins`, {
+      method: "POST",
+      headers: openwork.headers,
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(404);
+  });
+
+  test("historical marketplace plugin records still list and uninstall", async () => {
+    const openwork = await startOpenwork();
+    const skillPath = await seedHistoricalMarketplaceImport(openwork.workspaceRoot);
+
+    const listResponse = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins`, { headers: openwork.headers });
+    expect(listResponse.status).toBe(200);
+    const listBody: { marketplaces: Record<string, { pluginIds: string[] }>; plugins: Record<string, { marketplaceId: string | null; files: Array<{ denSkillId?: string | null; externalMcpConnectionId?: string | null }> }> } = await listResponse.json();
+    expect(listBody.plugins.plugin_legacy?.marketplaceId).toBe("marketplace_legacy");
+    expect(listBody.plugins.plugin_legacy?.files[0]).toMatchObject({
+      denSkillId: "skill_legacy",
+      externalMcpConnectionId: "connection_legacy",
+    });
+    expect(listBody.plugins.plugin_current?.marketplaceId).toBe("marketplace_legacy");
+    expect(listBody.marketplaces.marketplace_legacy?.pluginIds).toEqual(["plugin_current", "plugin_legacy"]);
+
+    const removeResponse = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins/plugin_legacy`, {
+      method: "DELETE",
+      headers: openwork.headers,
+    });
+    expect(removeResponse.status).toBe(200);
+    expect(existsSync(skillPath)).toBe(false);
+
+    const afterResponse = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins`, { headers: openwork.headers });
+    const afterBody: { marketplaces: Record<string, { pluginIds: string[] }>; plugins: Record<string, unknown> } = await afterResponse.json();
+    expect(afterBody.plugins.plugin_legacy).toBeUndefined();
+    expect(afterBody.plugins.plugin_current).toBeDefined();
+    expect(afterBody.marketplaces.marketplace_legacy?.pluginIds).toEqual(["plugin_current"]);
+  });
+
+  test("historical marketplace plugin records can uninstall before the first list", async () => {
+    const openwork = await startOpenwork();
+    const skillPath = await seedHistoricalMarketplaceImport(openwork.workspaceRoot);
+
+    const removeResponse = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins/plugin_legacy`, {
+      method: "DELETE",
+      headers: openwork.headers,
+    });
+    expect(removeResponse.status).toBe(200);
+    expect(existsSync(skillPath)).toBe(false);
+
+    const afterResponse = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins`, { headers: openwork.headers });
+    const afterBody: { plugins: Record<string, unknown> } = await afterResponse.json();
+    expect(afterBody.plugins.plugin_legacy).toBeUndefined();
+    expect(afterBody.plugins.plugin_current).toBeDefined();
+  });
+
   test("dryRun returns the Will-install preview with warnings", async () => {
     const openwork = await startOpenwork();
 
@@ -248,6 +397,7 @@ describe("claude plugin bundles", () => {
 
   test("installs skills, commands, and MCP servers; uninstall cleans up", async () => {
     const openwork = await startOpenwork();
+    await seedHistoricalMarketplaceImport(openwork.workspaceRoot);
 
     const installResponse = await fetch(`${openwork.base}/workspace/ws_1/claude-plugins`, {
       method: "POST",
@@ -257,6 +407,12 @@ describe("claude plugin bundles", () => {
     expect(installResponse.status).toBe(200);
     const installBody = await installResponse.json() as { item: { pluginId: string; files: Array<{ objectType: string; path: string }> } };
     expect(installBody.item.pluginId).toBe("github:slackapi/slack-mcp-plugin");
+
+    const cloudPluginsResponse = await fetch(`${openwork.base}/workspace/ws_1/cloud-plugins`, { headers: openwork.headers });
+    const cloudPluginsBody: { plugins: Record<string, { marketplaceId: string | null }> } = await cloudPluginsResponse.json();
+    expect(cloudPluginsBody.plugins[installBody.item.pluginId]?.marketplaceId).toBeNull();
+    expect(cloudPluginsBody.plugins.plugin_legacy?.marketplaceId).toBe("marketplace_legacy");
+    expect(cloudPluginsBody.plugins.plugin_current?.marketplaceId).toBe("marketplace_legacy");
 
     // Skill and command land namespaced under .opencode/.
     const skillPath = join(openwork.workspaceRoot, ".opencode/skills/slack-plugin/slack-search/SKILL.md");

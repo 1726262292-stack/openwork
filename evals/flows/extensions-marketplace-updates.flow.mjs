@@ -1,18 +1,12 @@
 /**
- * Extension Marketplace surface renders with the pending-update wiring.
+ * Extension Marketplace surface renders without the retired pending-update wiring.
  *
- * Signed-out baseline: the marketplace view must render its header, status
- * filters (including the "Updates" filter backed by pending cloud sync
- * changes), and the signed-out notice — without crashing on the new
- * pendingCloudPluginChanges store state.
- *
- * Cloud-gated update/badge assertions (Update / Update all / removed
- * upstream) require a Den org with a bumped plugin and are covered by the
- * markdown spec until eval cloud fixtures exist.
+ * Signed-out baseline: the marketplace view must render its header, Connect-only
+ * status filters, and the signed-out notice without relying on desktop sync state.
  */
 export default {
   id: "extensions-marketplace-updates",
-  title: "Marketplace renders with update filters and signed-out notice",
+  title: "Marketplace renders with Connect-only filters and signed-out notice",
   spec: "evals/cloud-marketplace-sync-flows.md",
   steps: [
     {
@@ -33,7 +27,7 @@ export default {
       run: async (ctx) => {
         await ctx.expectText("Extension Marketplace", { timeoutMs: 30_000 });
         await ctx.expectText("Installed");
-        await ctx.expectText("Updates");
+        await ctx.expectText("Available");
       },
     },
     {
@@ -58,14 +52,14 @@ export default {
       },
     },
     {
-      name: "Updates filter is interactive and view stays stable",
+      name: "Installed filter is interactive and view stays stable",
       run: async (ctx) => {
-        await ctx.clickText("Updates");
+        await ctx.clickText("Installed");
         await ctx.expectText("Extension Marketplace");
         await ctx.expectNoText("Something went wrong");
-        await ctx.screenshot("updates-filter", {
-          claim: "Selecting Updates keeps the Marketplace view stable.",
-          requireText: ["Extension Marketplace", "Updates"],
+        await ctx.screenshot("installed-filter", {
+          claim: "Selecting Installed keeps the Marketplace view stable.",
+          requireText: ["Extension Marketplace", "Installed"],
           rejectText: ["Something went wrong"],
           hashIncludes: "/settings/cloud-marketplaces",
         });

@@ -24,8 +24,7 @@ export type NotificationKind =
 export type NotificationAction =
   | { type: "open-model-picker"; providerIds: string[] }
   | { type: "reload-engine" }
-  | { type: "open-extensions-marketplace"; pluginName?: string }
-  | { type: "install-marketplace-plugin"; pluginName: string };
+  | { type: "open-extensions-marketplace"; pluginName?: string };
 
 export type AppNotification = {
   id: string;
@@ -64,7 +63,11 @@ type NotificationStore = {
 function prune(notifications: AppNotification[]): AppNotification[] {
   const cutoff = Date.now() - MAX_AGE_MS;
   return notifications
-    .filter((notification) => notification.updatedAt >= cutoff)
+    .filter((notification) =>
+      notification.updatedAt >= cutoff &&
+      !notification.dedupeKey?.startsWith("plugin-update:") &&
+      !notification.dedupeKey?.startsWith("plugin-removed:"),
+    )
     .slice(0, MAX_NOTIFICATIONS);
 }
 
@@ -88,7 +91,6 @@ function isAction(value: unknown): value is NotificationAction {
   const type = Reflect.get(value, "type");
   if (type === "reload-engine") return true;
   if (type === "open-extensions-marketplace") return true;
-  if (type === "install-marketplace-plugin") return true;
   if (type === "open-model-picker") {
     const providerIds = Reflect.get(value, "providerIds");
     return Array.isArray(providerIds) && providerIds.every((id) => typeof id === "string");

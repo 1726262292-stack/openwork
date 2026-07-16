@@ -1,6 +1,5 @@
 import { getMcpServerName, isBuiltInOpenWorkExtension, type McpDirectoryInfo } from "../../../app/constants";
 import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../app/cloud/import-state";
-import type { PendingCloudPluginChange } from "../../../app/cloud/desktop-cloud-sync";
 import { evaluateEnablement, type EnablementContext } from "../../../app/enablement";
 import type { EnablementResult } from "../../../app/extensions";
 import type { DenExternalMcpConnection, DenOrgMarketplaceResolved, DenOrgPlugin } from "../../../app/lib/den";
@@ -8,7 +7,7 @@ import type { McpServerEntry } from "../../../app/types";
 import { connectionNeedsReconnect } from "../connections/native-provider-connections";
 
 export type ExtensionItemSource = "builtin" | "marketplace" | "org-connection" | "mcp-directory" | "skill";
-export type ExtensionInstallState = "available" | "installed" | "update_available";
+export type ExtensionInstallState = "available" | "installed";
 export type ExtensionSetupState = "ready" | "needs_setup" | "partial";
 
 export type ExtensionResourceItem = {
@@ -33,8 +32,6 @@ export type ExtensionItem = {
   marketplaceName?: string;
   plugin?: DenOrgPlugin;
   importedPlugin?: CloudImportedPlugin;
-  /** Installed cloud plugin that was removed from the organization marketplace. */
-  removedUpstream?: boolean;
   orgMcpConnection?: DenExternalMcpConnection;
   mcpEntry?: McpDirectoryInfo;
   skill?: { name: string; description?: string; path: string };
@@ -45,7 +42,6 @@ export type ExtensionItemBuildInput = {
   mcpServers: McpServerEntry[];
   installedSkills: Array<{ name: string; description?: string; path: string }>;
   importedCloudPlugins: Record<string, CloudImportedPlugin>;
-  pendingCloudPluginChanges?: Record<string, PendingCloudPluginChange>;
   cloudMarketplaces: DenOrgMarketplaceResolved[];
   orgMcpConnections?: DenExternalMcpConnection[];
   enablementContext: EnablementContext;
@@ -64,10 +60,8 @@ function setupStateFromEnablement(enablement: { active: boolean; results: Enable
   return enablement.results.some((result) => result.met) ? "partial" : "needs_setup";
 }
 
-function cloudPluginStatus(imported: CloudImportedPlugin | null, plugin: DenOrgPlugin): ExtensionInstallState {
+function cloudPluginStatus(imported: CloudImportedPlugin | null): ExtensionInstallState {
   if (!imported) return "available";
-  const importedObjectCount = new Set(imported.files.map((file) => file.configObjectId)).size;
-  if (imported.updatedAt !== plugin.updatedAt || importedObjectCount !== plugin.memberCount) return "update_available";
   return "installed";
 }
 
@@ -181,8 +175,7 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
     const imported = input.importedCloudPlugins[plugin.id] ?? null;
     const manifest = plugin.extension?.manifest ?? undefined;
     const enablement = manifest?.enablement ? evaluateEnablement(manifest.enablement, input.enablementContext) : null;
-    const pendingChange = input.pendingCloudPluginChanges?.[plugin.id];
-    const installState = imported && pendingChange === "modified" ? "update_available" : cloudPluginStatus(imported, plugin);
+    const installState = cloudPluginStatus(imported);
     const externalConnectionIds = new Set(imported?.files.flatMap((file) => file.externalMcpConnectionId ? [file.externalMcpConnectionId] : []) ?? []);
     const connectionStates = [...externalConnectionIds].flatMap((id) => {
       const connection = input.orgMcpConnections?.find((entry) => entry.id === id);
@@ -228,7 +221,6 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
       resources: plugin.files.map(resourceFromImportedFile),
       marketplaceId: plugin.marketplaceId,
       importedPlugin: plugin,
-      removedUpstream: input.pendingCloudPluginChanges?.[plugin.pluginId] === "removed",
     }];
   });
 

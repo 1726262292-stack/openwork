@@ -108,6 +108,17 @@ describe("notification store", () => {
     expect(useNotificationStore.getState().notifications).toHaveLength(0);
   });
 
+  test("drops retired marketplace update notifications", () => {
+    const { add } = useNotificationStore.getState();
+    add({ kind: "cloud", title: "Update available", dedupeKey: "plugin-update:legacy" });
+    add({ kind: "cloud", title: "Removed upstream", dedupeKey: "plugin-removed:legacy" });
+    add({ kind: "system", title: "Still relevant" });
+
+    expect(useNotificationStore.getState().notifications.map((entry) => entry.title)).toEqual([
+      "Still relevant",
+    ]);
+  });
+
   test("caps the list at 100 entries", () => {
     const { add } = useNotificationStore.getState();
     for (let index = 0; index < 110; index += 1) {

@@ -49,6 +49,8 @@ export type CloudPluginResolved = {
 
 export type CloudImportedPluginFile = {
   configObjectId: string;
+  denSkillId?: string | null;
+  externalMcpConnectionId?: string | null;
   versionId: string | null;
   objectType: string;
   title: string;
@@ -76,6 +78,7 @@ type WorkspaceCloudImports = {
   providers: Record<string, unknown>;
   marketplaces: Record<string, { marketplaceId: string; name: string; updatedAt: string | null; pluginIds: string[]; importedAt: number | null }>;
   plugins: Record<string, CloudImportedPlugin>;
+  legacyOpenworkConfigMigrated: boolean;
 };
 
 const cloudPluginInstallConfigs = sqliteTable("cloud_plugin_install_configs", {
@@ -122,72 +125,6 @@ function parseJsonRecord(text: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-function normalizeConfigObjectType(value: unknown): CloudPluginConfigObjectType | null {
-  switch (value) {
-    case "skill":
-    case "agent":
-    case "command":
-    case "tool":
-    case "mcp":
-    case "hook":
-    case "context":
-    case "custom":
-      return value;
-    default:
-      return null;
-  }
-}
-
-function normalizeConfigObjectVersion(value: unknown): CloudPluginConfigObjectVersion | null {
-  if (!isRecord(value) || typeof value.id !== "string") return null;
-  return {
-    id: value.id,
-    rawSourceText: typeof value.rawSourceText === "string" ? value.rawSourceText : null,
-    normalizedPayloadJson: isRecord(value.normalizedPayloadJson) ? value.normalizedPayloadJson : null,
-  };
-}
-
-function normalizeConfigObject(value: unknown): CloudPluginConfigObject | null {
-  if (!isRecord(value) || typeof value.id !== "string" || typeof value.title !== "string") return null;
-  const objectType = normalizeConfigObjectType(value.objectType);
-  if (!objectType) return null;
-  return {
-    id: value.id,
-    objectType,
-    title: value.title,
-    description: typeof value.description === "string" ? value.description : null,
-    currentRelativePath: typeof value.currentRelativePath === "string" ? value.currentRelativePath : null,
-    status: typeof value.status === "string" ? value.status : "active",
-    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : null,
-    latestVersion: normalizeConfigObjectVersion(value.latestVersion),
-  };
-}
-
-function normalizeCloudPluginResolved(value: unknown): CloudPluginResolved | null {
-  if (!isRecord(value) || !isRecord(value.plugin) || !Array.isArray(value.memberships)) return null;
-  if (typeof value.plugin.id !== "string" || typeof value.plugin.name !== "string") return null;
-  const memberships = value.memberships.flatMap((entry) => {
-    if (!isRecord(entry) || typeof entry.configObjectId !== "string") return [];
-    const configObject = normalizeConfigObject(entry.configObject);
-    return [{ configObjectId: entry.configObjectId, ...(configObject ? { configObject } : {}) }];
-  });
-  return {
-    plugin: {
-      id: value.plugin.id,
-      name: value.plugin.name,
-      description: typeof value.plugin.description === "string" ? value.plugin.description : null,
-      updatedAt: typeof value.plugin.updatedAt === "string" ? value.plugin.updatedAt : null,
-    },
-    memberships,
-  };
-}
-
-export function readCloudPluginResolved(value: unknown): CloudPluginResolved {
-  const resolved = normalizeCloudPluginResolved(value);
-  if (!resolved) throw new ApiError(400, "invalid_cloud_plugin", "resolved cloud plugin is required");
-  return resolved;
 }
 
 function extractSkillBodyMarkdown(skillText: string): string {
@@ -461,6 +398,8 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
       if (!configObjectId || !objectType || !title || !path) return [];
       return [{
         configObjectId,
+        denSkillId: readString(file.denSkillId),
+        externalMcpConnectionId: readString(file.externalMcpConnectionId),
         versionId: readString(file.versionId),
         objectType,
         title,
@@ -483,6 +422,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
     providers: isRecord(root.providers) ? root.providers : {},
     marketplaces,
     plugins,
+    legacyOpenworkConfigMigrated: root.legacyOpenworkConfigMigrated === true,
   };
 }
 
@@ -548,15 +488,40 @@ async function cloudPluginDb(config: ServerConfig): Promise<CloudPluginDb> {
   return db;
 }
 
-export async function readInstalledCloudPlugins(config: ServerConfig, workspaceId: string): Promise<WorkspaceCloudImports> {
+export async function readInstalledCloudPlugins(
+  config: ServerConfig,
+  workspaceId: string,
+  legacyOpenworkConfig?: Record<string, unknown>,
+): Promise<WorkspaceCloudImports> {
   const db = await cloudPluginDb(config);
   const row = db.get(workspaceId);
-  if (!row) return readCloudImports({});
-  try {
-    return readCloudImports({ cloudImports: JSON.parse(row.configJson) });
-  } catch {
-    return readCloudImports({});
+  let current = readCloudImports({});
+  if (row) {
+    try {
+      current = readCloudImports({ cloudImports: JSON.parse(row.configJson) });
+    } catch {
+      return current;
+    }
   }
+  if (!legacyOpenworkConfig || current.legacyOpenworkConfigMigrated) return current;
+
+  const legacy = readCloudImports(legacyOpenworkConfig);
+  const marketplaces = { ...legacy.marketplaces };
+  for (const [marketplaceId, marketplace] of Object.entries(current.marketplaces)) {
+    const legacyPluginIds = marketplaces[marketplaceId]?.pluginIds ?? [];
+    marketplaces[marketplaceId] = {
+      ...marketplace,
+      pluginIds: [...new Set([...legacyPluginIds, ...marketplace.pluginIds])].sort(),
+    };
+  }
+  const migrated = {
+    ...current,
+    marketplaces,
+    plugins: { ...legacy.plugins, ...current.plugins },
+    legacyOpenworkConfigMigrated: true,
+  } satisfies WorkspaceCloudImports;
+  db.upsert({ workspaceId, configJson: JSON.stringify(migrated), updatedAt: Date.now() });
+  return migrated;
 }
 
 async function writeInstalledCloudPlugins(
@@ -610,12 +575,15 @@ export async function installCloudPlugin(input: {
   serverConfig: ServerConfig;
   workspaceId: string;
   workspaceRoot: string;
-  marketplaceId: string | null;
-  marketplace?: { id: string; name: string; updatedAt: string | null } | null;
+  legacyOpenworkConfig?: Record<string, unknown>;
   resolved: CloudPluginResolved;
 }): Promise<CloudPluginInstallResult> {
   const namespace = pluginNamespace(input.resolved.plugin.name, input.resolved.plugin.id);
-  const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
+  const cloudImports = await readInstalledCloudPlugins(
+    input.serverConfig,
+    input.workspaceId,
+    input.legacyOpenworkConfig,
+  );
   const existing = cloudImports.plugins[input.resolved.plugin.id];
   const files: CloudImportedPluginFile[] = [];
   const warnings: string[] = [];
@@ -680,7 +648,7 @@ export async function installCloudPlugin(input: {
 
   const imported: CloudImportedPlugin = {
     pluginId: input.resolved.plugin.id,
-    marketplaceId: input.marketplaceId,
+    marketplaceId: null,
     name: input.resolved.plugin.name,
     description: input.resolved.plugin.description,
     updatedAt: input.resolved.plugin.updatedAt,
@@ -693,26 +661,8 @@ export async function installCloudPlugin(input: {
     [input.resolved.plugin.id]: imported,
   };
 
-  let nextMarketplaces = cloudImports.marketplaces;
-  if (input.marketplaceId) {
-    const existingMarketplace = cloudImports.marketplaces[input.marketplaceId];
-    const pluginIds = new Set(existingMarketplace?.pluginIds ?? []);
-    pluginIds.add(input.resolved.plugin.id);
-    nextMarketplaces = {
-      ...cloudImports.marketplaces,
-      [input.marketplaceId]: {
-        marketplaceId: input.marketplaceId,
-        name: input.marketplace?.name ?? existingMarketplace?.name ?? input.marketplaceId,
-        updatedAt: input.marketplace?.updatedAt ?? existingMarketplace?.updatedAt ?? null,
-        pluginIds: [...pluginIds].sort(),
-        importedAt: existingMarketplace?.importedAt ?? Date.now(),
-      },
-    };
-  }
-
   await writeInstalledCloudPlugins(input.serverConfig, input.workspaceId, (current) => ({
     ...current,
-    marketplaces: nextMarketplaces,
     plugins: nextPlugins,
   }));
 
@@ -724,8 +674,13 @@ export async function removeCloudPlugin(input: {
   workspaceId: string;
   workspaceRoot: string;
   pluginId: string;
+  legacyOpenworkConfig?: Record<string, unknown>;
 }): Promise<CloudImportedPlugin> {
-  const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
+  const cloudImports = await readInstalledCloudPlugins(
+    input.serverConfig,
+    input.workspaceId,
+    input.legacyOpenworkConfig,
+  );
   const imported = cloudImports.plugins[input.pluginId];
   if (!imported) throw new ApiError(404, "cloud_plugin_not_installed", "Marketplace package is not installed in this workspace.");
 

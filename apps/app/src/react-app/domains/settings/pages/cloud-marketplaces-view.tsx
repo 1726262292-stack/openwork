@@ -4,7 +4,6 @@ import { toast } from "@/components/ui/sonner";
 
 import type { McpDirectoryInfo } from "@/app/constants";
 import type { CloudImportedPlugin } from "@/app/cloud/import-state";
-import type { PendingCloudPluginChange } from "@/app/cloud/desktop-cloud-sync";
 import { evaluateEnablement, type EnablementContext } from "@/app/enablement";
 import type { DenExternalMcpConnection, DenOrgMarketplaceResolved, DenOrgPlugin, DenOrgPluginResolved } from "@/app/lib/den";
 import { Button } from "@/components/ui/button";
@@ -46,7 +45,7 @@ import {
 } from "@/react-app/shell/notifications";
 
 type AsyncResult = { ok: boolean; message: string; warnings?: string[] };
-type MarketplacePackageStatus = "available" | "installed" | "update_available";
+type MarketplacePackageStatus = "available" | "installed";
 type MarketplaceStatusFilter = "all" | MarketplacePackageStatus;
 type CloudMarketplacesSession = Pick<
   ReturnType<typeof useDenSession>,
@@ -57,7 +56,6 @@ type DenSettingsExtensionsStore = {
   cloudOrgMarketplaces: () => DenOrgMarketplaceResolved[];
   cloudOrgMarketplacesStatus: () => string | null;
   importedCloudPlugins: () => Record<string, CloudImportedPlugin>;
-  pendingCloudPluginChanges: () => Record<string, PendingCloudPluginChange>;
   refreshCloudOrgMarketplaces: (options?: { force?: boolean }) => Promise<unknown>;
   removeCloudOrgPlugin: (pluginId: string) => Promise<AsyncResult>;
 };
@@ -170,10 +168,8 @@ function pluginManifestSearchText(plugin: DenOrgPlugin) {
   ].join(" ");
 }
 
-function pluginStatus(imported: CloudImportedPlugin | null, plugin: DenOrgPlugin): MarketplacePackageStatus {
+function pluginStatus(imported: CloudImportedPlugin | null): MarketplacePackageStatus {
   if (!imported) return "available";
-  const importedObjectCount = new Set(imported.files.map((file) => file.configObjectId)).size;
-  if (imported.updatedAt !== plugin.updatedAt || importedObjectCount !== plugin.memberCount) return "update_available";
   return "installed";
 }
 
@@ -234,7 +230,6 @@ export function CloudMarketplacesView({
 
   const marketplaces = extensions.cloudOrgMarketplaces();
   const importedPlugins = extensions.importedCloudPlugins();
-  const pendingChanges = extensions.pendingCloudPluginChanges();
   const extensionItemsByBuiltInId = React.useMemo(() => new Map(
     extensionItems.flatMap((item) => item.builtInEntry ? [[item.builtInEntry.id ?? item.builtInEntry.serverName ?? item.builtInEntry.name, item] as const] : []),
   ), [extensionItems]);
@@ -249,9 +244,7 @@ export function CloudMarketplacesView({
       const composition = pluginComposition(plugin);
       const counts = pluginCounts(plugin);
       const item = extensionItemsByPluginId.get(plugin.id);
-      const status: MarketplacePackageStatus = imported && pendingChanges[plugin.id] === "modified" && !isCloudBuiltInPlugin(plugin)
-        ? "update_available"
-        : item?.installState ?? (isCloudBuiltInPlugin(plugin) ? "installed" : pluginStatus(imported, plugin));
+      const status: MarketplacePackageStatus = item?.installState ?? (isCloudBuiltInPlugin(plugin) ? "installed" : pluginStatus(imported));
       return [{
         source: "cloud",
         marketplaceId: marketplace.marketplace.id,
@@ -272,7 +265,7 @@ export function CloudMarketplacesView({
         ].join(" ").toLowerCase(),
       }];
     }));
-  }, [extensionItemsByPluginId, importedPlugins, includeCloudMarketplaceRows, marketplaces, pendingChanges]);
+  }, [extensionItemsByPluginId, importedPlugins, includeCloudMarketplaceRows, marketplaces]);
 
   const builtInRows = React.useMemo<BuiltInMarketplaceRow[]>(() => {
     return builtInEntries.map((entry) => {
@@ -445,11 +438,6 @@ export function CloudMarketplacesView({
     [actionId, extensions],
   );
 
-  const removedUpstreamPlugins = React.useMemo(
-    () => Object.values(importedPlugins).filter((plugin) => pendingChanges[plugin.pluginId] === "removed"),
-    [importedPlugins, pendingChanges],
-  );
-
   const content = (
     <SettingsSection>
       <SettingsSectionHeader>
@@ -489,22 +477,6 @@ export function CloudMarketplacesView({
         <SettingsNotice>Loading marketplace extensions...</SettingsNotice>
       ) : null}
 
-      {removedUpstreamPlugins.map((plugin) => (
-        <SettingsNotice key={plugin.pluginId}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>{t("extensions.removed_upstream_notice", { name: plugin.name })}</span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={Boolean(actionId)}
-              onClick={() => void removePlugin(plugin.pluginId, plugin.name)}
-            >
-              {actionId === plugin.pluginId ? "Working..." : t("extensions.remove_from_workspace_button")}
-            </Button>
-          </div>
-        </SettingsNotice>
-      ))}
-
       <div className="space-y-3">
         <SettingsListSearchInput
           value={search}
@@ -512,14 +484,14 @@ export function CloudMarketplacesView({
           placeholder="Search marketplace extensions..."
         />
         <div className="flex flex-wrap items-center gap-2">
-          {(["all", "available", "installed", "update_available"] as const).map((filter) => (
+          {(["all", "available", "installed"] as const).map((filter) => (
             <Button
               key={filter}
               variant={statusFilter === filter ? "secondary" : "outline"}
               size="xs"
               onClick={() => setStatusFilter(filter)}
             >
-              {filter === "all" ? "All" : filter === "update_available" ? "Updates" : filter === "installed" ? "Installed" : "Available"}
+              {filter === "all" ? "All" : filter === "installed" ? "Installed" : "Available"}
             </Button>
           ))}
           <details className="group relative">

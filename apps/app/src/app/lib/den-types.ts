@@ -1,6 +1,6 @@
 // Den wire types shared across module boundaries (den.ts, den-session-events,
-// openwork-server, desktop cloud sync). Extracted from den.ts so that modules
-// needing only the shapes do not import the 2k-line client implementation —
+// openwork-server). Extracted from den.ts so that modules
+// needing only the shapes do not import the client implementation —
 // den.ts re-exports everything here, so existing imports keep working.
 import type {
   OpenWorkExtensionManifest,
@@ -111,30 +111,4 @@ export type DenOrgPluginResolved = {
   memberships: DenPluginMembership[];
   /** Future Den extension manifest; absent while Claude plugin imports are resource-only. */
   extension?: DenOrgExtensionProjection | null;
-};
-
-export type DenResourceSnapshotConfigItem = {
-  configItemId: string;
-  lastUpdatedAt: string;
-};
-
-export type DenResourceSnapshotPlugin = {
-  pluginId: string;
-  lastUpdatedAt: string;
-  configItems: DenResourceSnapshotConfigItem[];
-};
-
-export type DenResourceSnapshotMarketplace = {
-  lastUpdatedAt: string;
-  plugins: DenResourceSnapshotPlugin[];
-};
-
-export type DenResourceSnapshot = {
-  organizationId: string;
-  orgMemberId: string;
-  teamIds: string[];
-  resources: {
-    llmProviders: Record<string, string>;
-    marketplaces: Record<string, DenResourceSnapshotMarketplace>;
-  };
 };

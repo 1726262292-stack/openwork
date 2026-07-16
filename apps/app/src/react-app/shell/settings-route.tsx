@@ -1735,7 +1735,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       mcpServers: connectionsSnapshot.mcpServers,
       installedSkills: extensionsStore.skills(),
       importedCloudPlugins: extensionsSnapshot.importedCloudPlugins,
-      pendingCloudPluginChanges: extensionsSnapshot.pendingCloudPluginChanges,
       cloudMarketplaces: extensionsSnapshot.cloudOrgMarketplaces,
       orgMcpConnections: orgMcpConnections.connections,
       enablementContext,

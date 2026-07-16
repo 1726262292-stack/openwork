@@ -52,8 +52,6 @@ describe("cloud plugin installs", () => {
         serverConfig: config,
         workspaceId: WORKSPACE_ID,
         workspaceRoot: root,
-        marketplaceId: "marketplace_1",
-        marketplace: { id: "marketplace_1", name: "Team Marketplace", updatedAt: "2026-06-01T00:00:00.000Z" },
         resolved: {
           plugin: {
             id: "plugin_1",
@@ -102,12 +100,13 @@ describe("cloud plugin installs", () => {
       const imported = result.item;
 
       expect(imported.pluginId).toBe("plugin_1");
+      expect(imported.marketplaceId).toBeNull();
       expect(result.warnings).toEqual([]);
       expect(imported.files.map((file) => file.objectType).sort()).toEqual(["mcp", "skill"]);
 
       const installed = await readInstalledCloudPlugins(config, WORKSPACE_ID);
       expect(installed.plugins.plugin_1?.name).toBe("Creative Brief Plugin");
-      expect(installed.marketplaces.marketplace_1?.pluginIds).toEqual(["plugin_1"]);
+      expect(installed.marketplaces).toEqual({});
 
       const skillPath = join(root, ".opencode", "skills", "creative-brief-plugin", "brief-builder", "SKILL.md");
       expect(await readFile(skillPath, "utf8")).toContain("OWP_BRIEF_TEST_TOKEN");
@@ -149,7 +148,6 @@ describe("cloud plugin installs", () => {
         serverConfig: config,
         workspaceId: WORKSPACE_ID,
         workspaceRoot: root,
-        marketplaceId: null,
         resolved: {
           plugin: {
             id: "plugin_2",
@@ -255,7 +253,6 @@ describe("cloud plugin installs", () => {
         serverConfig: config,
         workspaceId: WORKSPACE_ID,
         workspaceRoot: root,
-        marketplaceId: null,
         resolved: {
           plugin: { id: "plugin_3", name: "Triage Plugin", description: null, updatedAt: null },
           memberships: [

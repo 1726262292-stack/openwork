@@ -1,4 +1,6 @@
 import { execSync } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
 // Narration is loaded from the approved script (evals/voiceovers/marketplace-connect-only-delivery.md).
@@ -692,10 +694,10 @@ async function seedLegacyLocalImport(ctx) {
   ctx.assert(resolvedResponse.response.ok, `Plugin resolved fetch failed: ${resolvedResponse.response.status} ${resolvedResponse.text.slice(0, 300)}`);
   const resolved = { plugin: state.plugin, memberships: resolvedResponse.body?.items ?? [] };
 
-  // Eval-only seeding: call the still-alive local OpenWork server cloud-plugin
-  // install route directly to simulate a pre-D2 legacy import. No UI path should
-  // call this route for Den marketplace plugins anymore.
-  const result = await ctx.eval(`(async () => {
+  // Eval-only seeding: write the legacy local-copy registry directly. The
+  // Den marketplace install route is intentionally gone; this simulates data
+  // that was already present before the removal.
+  const server = await ctx.eval(`(async () => {
     const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
     if (!bridge) return { ok: false, reason: "Electron bridge unavailable" };
     const info = await bridge("openworkServerInfo");
@@ -703,21 +705,93 @@ async function seedLegacyLocalImport(ctx) {
     const token = String(info?.ownerToken || info?.clientToken || "").trim();
     const workspaceId = (location.hash.match(/\\/workspace\\/([^/]+)/) || [])[1] || localStorage.getItem("openwork.react.activeWorkspace") || "";
     if (!baseUrl || !token || !workspaceId) return { ok: false, reason: "Missing OpenWork server connection" };
-    const response = await fetch(baseUrl + "/workspace/" + encodeURIComponent(workspaceId) + "/cloud-plugins", {
-      method: "POST",
-      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
-      body: JSON.stringify({
-        marketplaceId: ${JSON.stringify(state.marketplaceId)},
-        marketplace: ${JSON.stringify(state.marketplace)},
-        resolved: ${JSON.stringify(resolved)},
-      }),
-    });
-    const text = await response.text();
-    let body;
-    try { body = JSON.parse(text); } catch { body = text; }
-    return { ok: response.ok, status: response.status, body, text };
+    return { ok: true, baseUrl, token, workspaceId };
   })()`, { awaitPromise: true });
-  ctx.assert(result?.ok, `Legacy local import seeding failed: ${result?.status ?? "n/a"} ${String(result?.text ?? result?.reason ?? "").slice(0, 300)}`);
+  ctx.assert(server?.ok, `Legacy local import seeding failed: ${server?.reason ?? "missing server"}`);
+
+  const statusResponse = await fetch(`${server.baseUrl}/w/${encodeURIComponent(server.workspaceId)}/status`, {
+    headers: { authorization: `Bearer ${server.token}` },
+  });
+  const statusText = await statusResponse.text();
+  let statusBody;
+  try { statusBody = JSON.parse(statusText); } catch { statusBody = {}; }
+  ctx.assert(statusResponse.ok, `OpenWork status fetch failed: ${statusResponse.status} ${statusText.slice(0, 300)}`);
+  ctx.assert(statusBody?.workspace?.id === server.workspaceId, "OpenWork status resolved a different workspace.");
+  const workspaceRoot = statusBody?.workspace?.path;
+  const configPath = statusBody?.server?.configPath;
+  ctx.assert(typeof workspaceRoot === "string" && workspaceRoot.trim(), "OpenWork status did not expose a workspace path.");
+  const runtimeDbPath = process.env.OPENWORK_RUNTIME_DB?.trim() || (typeof configPath === "string" && configPath.trim() ? join(dirname(configPath), "runtime.sqlite") : "");
+  ctx.assert(runtimeDbPath, "Could not resolve OpenWork runtime DB path for legacy import seeding.");
+
+  const skillDir = join(workspaceRoot, ".opencode", "skills", "legacy-marketplace-plugin", SKILL_NAME);
+  const skillPath = join(skillDir, "SKILL.md");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(skillPath, `${skillSourceText()}\n`, "utf8");
+
+  const skillMembership = Array.isArray(resolved.memberships)
+    ? resolved.memberships.find((membership) => membership?.configObject?.objectType === "skill")
+    : null;
+  const configObject = skillMembership?.configObject ?? null;
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(runtimeDbPath);
+  try {
+    db.exec("CREATE TABLE IF NOT EXISTS cloud_plugin_install_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
+    db.exec("BEGIN IMMEDIATE");
+    const existingRow = db.prepare("SELECT config_json FROM cloud_plugin_install_configs WHERE workspace_id = ?").get(server.workspaceId);
+    let existing = {};
+    try {
+      const parsed = JSON.parse(typeof existingRow?.config_json === "string" ? existingRow.config_json : "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) existing = parsed;
+    } catch {
+      existing = {};
+    }
+    const existingMarketplaces = existing.marketplaces && typeof existing.marketplaces === "object" && !Array.isArray(existing.marketplaces)
+      ? existing.marketplaces
+      : {};
+    const existingPlugins = existing.plugins && typeof existing.plugins === "object" && !Array.isArray(existing.plugins)
+      ? existing.plugins
+      : {};
+    const configJson = JSON.stringify({
+      ...existing,
+      marketplaces: {
+        ...existingMarketplaces,
+        [state.marketplaceId]: {
+          marketplaceId: state.marketplaceId,
+          name: state.marketplace?.name ?? MARKETPLACE_NAME,
+          updatedAt: state.marketplace?.updatedAt ?? null,
+          pluginIds: [pluginId],
+          importedAt: Date.now(),
+        },
+      },
+      plugins: {
+        ...existingPlugins,
+        [pluginId]: {
+          pluginId,
+          marketplaceId: state.marketplaceId,
+          name: state.plugin?.name ?? PLUGIN_NAME,
+          description: state.plugin?.description ?? null,
+          updatedAt: state.plugin?.updatedAt ?? null,
+          importedAt: Date.now(),
+          files: [{
+            configObjectId: configObject?.id ?? skillMembership?.configObjectId ?? `config_${pluginId}`,
+            versionId: configObject?.latestVersion?.id ?? null,
+            objectType: "skill",
+            title: configObject?.title ?? SKILL_NAME,
+            path: `.opencode/skills/legacy-marketplace-plugin/${SKILL_NAME}/SKILL.md`,
+            updatedAt: configObject?.updatedAt ?? null,
+          }],
+        },
+      },
+    });
+    db.prepare("INSERT INTO cloud_plugin_install_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at")
+      .run(server.workspaceId, configJson, Date.now());
+    db.exec("COMMIT");
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  } finally {
+    db.close();
+  }
   await ctx.control("extensions.refresh-marketplace").catch(() => {});
 }
 

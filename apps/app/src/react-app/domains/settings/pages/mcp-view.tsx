@@ -828,9 +828,10 @@ export function McpView(props: McpViewProps) {
             open={!!detailPlugin}
             onClose={() => setDetailPlugin(null)}
             name={detailPlugin.name}
-            description={detailPlugin.description ?? "Marketplace extension installed in this workspace."}
+            description={detailPlugin.description ?? "Local extension installed in this workspace."}
             kind="extension"
             connected={true}
+            connectedLabel={t("connect.marketplace_local_copy_badge")}
             hidden={hidden}
             onUninstall={props.removeCloudPlugin ? () => {
               void props.removeCloudPlugin?.(detailPlugin.pluginId);
@@ -1002,9 +1003,10 @@ function McpQuickConnectSection(props: {
             <ExtensionCard
               key={`plugin:${plugin.pluginId}`}
               name={plugin.name}
-              description={plugin.description ?? `Marketplace extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
+              description={plugin.description ?? `Local extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
               kind="extension"
               connected={true}
+              connectedLabel={t("connect.marketplace_local_copy_badge")}
               hidden={hidden}
               actionLabel="View details"
               onClick={() => props.onPluginDetail?.(plugin)}

@@ -10,7 +10,7 @@ import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { t } from "@/i18n";
-import { readWorkspaceCloudImports, type CloudImportedPlugin } from "@/app/cloud/import-state";
+import type { CloudImportedPlugin } from "@/app/cloud/import-state";
 import type {
   OpenworkServerClient,
   OpenworkSessionSnapshot,
@@ -1181,8 +1181,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const listImportedPlugins = async (): Promise<CloudImportedPlugin[]> => {
-    const response = await props.client.getConfig(props.workspaceId);
-    const plugins = Object.values(readWorkspaceCloudImports(response.openwork).plugins)
+    const response = await props.client.listCloudPlugins(props.workspaceId);
+    const plugins = Object.values(response.plugins)
       .sort((left, right) => left.name.localeCompare(right.name));
     setToolImportedPlugins(plugins);
     return plugins;

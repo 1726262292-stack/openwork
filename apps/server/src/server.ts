@@ -25,13 +25,7 @@ import { defaultWorkspaceOpenworkConfig, ensureWorkspaceFiles, readRawOpencodeCo
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
-import {
-  normalizeResourceSnapshot,
-  readDesktopCloudSyncState,
-  readWorkspaceCloudImports,
-  syncDesktopCloudResources,
-} from "./desktop-cloud-sync.js";
-import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
+import { installCloudPlugin, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
 import {
   applyMaterializedBlueprintSessions,
@@ -104,7 +98,6 @@ const OPENCODE_VERSION = constants.opencodeVersion.trim().replace(/^v/, "");
 
 const OPENWORK_VOICE_REALTIME_MODEL = "gpt-realtime-2";
 const OPENWORK_VOICE_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
-let desktopCloudSyncQueue: Promise<void> = Promise.resolve();
 const agentDiagnosticsLastRunByServer = new WeakMap<ServerConfig, Map<string, number>>();
 const agentDiagnosticsInFlightByServer = new WeakMap<ServerConfig, Set<string>>();
 const AGENT_DIAGNOSTICS_RATE_LIMIT_CAPACITY = 1_000;
@@ -479,15 +472,6 @@ Help the user control OpenWork by using the semantic OpenWork UI tools.
 - If audio is unclear, ask the user to repeat it instead of guessing.
 - Ignore background speech that is not addressed to OpenWork.
 - Summarize tool results briefly and offer the next useful step.${contextSection}`;
-}
-
-function enqueueDesktopCloudSync<T>(operation: () => Promise<T>): Promise<T> {
-  const run = desktopCloudSyncQueue.then(operation);
-  desktopCloudSyncQueue = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
 }
 
 function readOpenAiClientSecret(payload: unknown): { clientSecret: string; expiresAt: number | null } {
@@ -1622,121 +1606,11 @@ function createRoutes(
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
   });
 
-  addRoute(routes, "GET", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const openwork = await readOpenworkConfigForWorkspace(config, workspace);
-    return jsonResponse(readDesktopCloudSyncState(openwork));
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/desktop-cloud-sync", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
-    const snapshot = normalizeResourceSnapshot(body.snapshot);
-    if (!snapshot) {
-      throw new ApiError(400, "invalid_payload", "snapshot is required");
-    }
-
-    const result = await enqueueDesktopCloudSync(async () => {
-      const openwork = await readOpenworkConfigForWorkspace(config, workspace);
-      const installed = await readInstalledCloudPlugins(config, workspace.id);
-      const cloudImports = {
-        ...installed,
-        providers: readWorkspaceCloudImports(openwork).providers,
-      };
-      const next = syncDesktopCloudResources({ openwork: { ...openwork, cloudImports }, snapshot });
-      // The plugin DB owns plugins/marketplaces, but provider import baselines live in
-      // the workspace config. Writing the merged cloudImports back erased providers
-      // and drove the provider-sync dispose/create loop.
-      await writeOpenworkWorkspaceConfig(config, workspace.id, (current) => ({
-        ...current,
-        desktopCloudSync: next.state,
-      }));
-      await recordAudit(workspace.path, {
-        id: shortId(),
-        workspaceId: workspace.id,
-        actor: ctx.actor ?? { type: "remote" },
-        action: "desktop_cloud_sync.update",
-        target: openworkConfigPath(workspace.path),
-        summary: "Updated desktop cloud sync state",
-        timestamp: Date.now(),
-      });
-      return next;
-    });
-    return jsonResponse({ changes: result.changes, state: result.state });
-  });
-
   addRoute(routes, "GET", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
+    const openwork = await readOpenworkConfigForWorkspace(config, workspace);
+    const cloudImports = await readInstalledCloudPlugins(config, workspace.id, openwork);
     return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: cloudImports.plugins });
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
-    const resolved = readCloudPluginResolved(body.resolved);
-    const marketplace = body.marketplace && typeof body.marketplace === "object" && !Array.isArray(body.marketplace)
-      ? Object.fromEntries(Object.entries(body.marketplace))
-      : null;
-    const marketplaceId = typeof body.marketplaceId === "string" && body.marketplaceId.trim()
-      ? body.marketplaceId.trim()
-      : null;
-
-    await requireApproval(ctx, {
-      workspaceId: workspace.id,
-      action: "cloud_plugins.install",
-      summary: `Install cloud plugin ${resolved.plugin.name}`,
-      paths: [openworkConfigPath(workspace.path), join(workspace.path, ".opencode")],
-    });
-
-    const result = await installCloudPlugin({
-      serverConfig: config,
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.path,
-      marketplaceId,
-      marketplace: marketplaceId
-        ? {
-            id: marketplaceId,
-            name: typeof marketplace?.name === "string" ? marketplace.name : marketplaceId,
-            updatedAt: typeof marketplace?.updatedAt === "string" ? marketplace.updatedAt : null,
-          }
-        : null,
-      resolved,
-    });
-    const imported = result.item;
-
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "cloud_plugins.install",
-      target: openworkConfigPath(workspace.path),
-      summary: `Installed cloud plugin ${resolved.plugin.name}`,
-      timestamp: Date.now(),
-    });
-
-    for (const file of imported.files) {
-      emitReloadEvent(ctx.reloadEvents, workspace, file.objectType === "mcp" ? "mcp" : file.objectType === "skill" ? "skills" : file.objectType === "agent" ? "agents" : file.objectType === "command" ? "commands" : "config", {
-        type: file.objectType === "skill" || file.objectType === "agent" || file.objectType === "command" || file.objectType === "mcp" ? file.objectType : "config",
-        name: file.title,
-        action: "added",
-      });
-    }
-
-    // Hot-register any bundled MCP servers with the running engine.
-    await syncRuntimeMcpToOpencodeEngine(
-      config,
-      workspace,
-      undefined,
-      undefined,
-      engineMcpServerState,
-    ).catch(() => undefined);
-
-    return jsonResponse({ item: imported, warnings: result.warnings });
   });
 
   // Claude Code plugin bundles (MCP + skills + commands + agents) installed
@@ -1769,7 +1643,7 @@ function createRoutes(
       serverConfig: config,
       workspaceId: workspace.id,
       workspaceRoot: workspace.path,
-      marketplaceId: null,
+      legacyOpenworkConfig: await readOpenworkConfigForWorkspace(config, workspace),
       resolved: bundle.resolved,
     });
     const imported = result.item;
@@ -1822,6 +1696,7 @@ function createRoutes(
       workspaceId: workspace.id,
       workspaceRoot: workspace.path,
       pluginId,
+      legacyOpenworkConfig: await readOpenworkConfigForWorkspace(config, workspace),
     });
 
     await recordAudit(workspace.path, {

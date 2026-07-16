@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { McpDirectoryInfo } from "../src/app/constants";
-import type { DenExternalMcpConnection } from "../src/app/lib/den";
+import type { CloudImportedPlugin } from "../src/app/cloud/import-state";
+import type { DenExternalMcpConnection, DenOrgMarketplaceResolved } from "../src/app/lib/den";
 import type { McpServerEntry } from "../src/app/types";
 import { buildExtensionItems } from "../src/react-app/domains/settings/extension-items";
 
@@ -55,6 +56,47 @@ const directNotionServer: McpServerEntry = {
     type: "remote",
     url: "https://mcp.notion.com/mcp",
   },
+};
+
+const importedMarketplacePlugin: CloudImportedPlugin = {
+  pluginId: "plugin_creative_brief",
+  marketplaceId: "marketplace_team",
+  name: "Creative Brief",
+  description: "Local copy from the old marketplace install path.",
+  updatedAt: "2026-06-01T00:00:00.000Z",
+  importedAt: 1,
+  files: [
+    {
+      configObjectId: "config_skill_brief",
+      versionId: "version_skill_brief",
+      objectType: "skill",
+      title: "Brief Builder",
+      path: ".opencode/skills/creative-brief-plugin/brief-builder/SKILL.md",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+    },
+  ],
+};
+
+const teamMarketplace: DenOrgMarketplaceResolved = {
+  marketplace: {
+    id: "marketplace_team",
+    name: "Team Marketplace",
+    description: null,
+    status: "active",
+    pluginCount: 1,
+    updatedAt: "2026-06-03T00:00:00.000Z",
+  },
+  plugins: [
+    {
+      id: importedMarketplacePlugin.pluginId,
+      name: "Creative Brief",
+      description: "Current cloud-delivered version.",
+      status: "active",
+      memberCount: 99,
+      updatedAt: "2026-06-03T00:00:00.000Z",
+      componentCounts: { skill: 99 },
+    },
+  ],
 };
 
 function orgMcpConnection(input: Partial<DenExternalMcpConnection> = {}): DenExternalMcpConnection {
@@ -177,5 +219,42 @@ describe("extension item projection", () => {
 
     expect(result.orgMcpConnectionItems).toEqual([]);
     expect(result.quickConnectEntries.map((entry) => entry.name)).toEqual(["Notion"]);
+  });
+
+  test("keeps installed marketplace copies installed without update state", () => {
+    const result = buildExtensionItems({
+      quickConnect: [],
+      mcpServers: [],
+      installedSkills: [],
+      importedCloudPlugins: { [importedMarketplacePlugin.pluginId]: importedMarketplacePlugin },
+      cloudMarketplaces: [teamMarketplace],
+      enablementContext: {},
+      isBuiltInConnected: () => false,
+    });
+
+    expect(result.cloudPluginItems.map((item) => ({ name: item.name, state: item.installState }))).toEqual([
+      { name: "Creative Brief", state: "installed" },
+    ]);
+  });
+
+  test("keeps local copies absent from the current catalog grouped under My Extensions", () => {
+    const result = buildExtensionItems({
+      quickConnect: [],
+      mcpServers: [],
+      installedSkills: [
+        {
+          name: "brief-builder",
+          description: "Use for creative briefs",
+          path: "/workspace/project/.opencode/skills/creative-brief-plugin/brief-builder/SKILL.md",
+        },
+      ],
+      importedCloudPlugins: { [importedMarketplacePlugin.pluginId]: importedMarketplacePlugin },
+      cloudMarketplaces: [],
+      enablementContext: {},
+      isBuiltInConnected: () => false,
+    });
+
+    expect(result.items.map((item) => item.id)).toEqual([`marketplace:installed:${importedMarketplacePlugin.pluginId}`]);
+    expect(result.items[0]?.resources.map((resource) => resource.title)).toEqual(["Brief Builder"]);
   });
 });

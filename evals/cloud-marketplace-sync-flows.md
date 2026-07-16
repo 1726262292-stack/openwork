@@ -1,115 +1,98 @@
-# Cloud marketplace sync flows
+# Cloud marketplace delivery flows
 
-End-to-end user flows for organization marketplace and plugin sync from Den to
-the desktop workspace.
+End-to-end user flows for Connect-only organization marketplace delivery and
+the lifecycle of local copies created by the retired desktop import path.
 
 ## Preflight
 
 1. Start Daytona Den server and Electron sandboxes.
-2. Sign the desktop app into Cloud Account.
-3. Create a local workspace.
-4. Use a Den org where the signed-in user can create plugins and marketplaces.
+2. Create a local workspace.
+3. Use a Den org where the signed-in user can create plugins and marketplaces.
 
-## Flow 1: Marketplace import with files
+## Flow 1: Connect-only marketplace catalog
 
-**Goal:** A plugin with config objects is published to a marketplace, imported
-from desktop, and materializes files/config in the workspace.
-
-### Setup
-
-Through Den API:
-
-1. Create a plugin with a recognizable name.
-2. Create at least one config object, such as a skill or command, with raw source text.
-3. Attach the config object to the plugin.
-4. Create a marketplace.
-5. Attach the plugin to the marketplace.
+**Goal:** Organization marketplace plugins are discoverable without offering a
+desktop install or update action.
 
 ### Steps
 
-1. Open Settings -> Extensions.
-2. Click `Refresh`.
-3. Select the marketplace if needed.
-4. Verify the plugin appears under `Available`.
-5. Click `Import`.
-6. Click reload if prompted.
-7. Inspect the workspace config files through the app or filesystem.
+1. Publish a recognizable plugin in an organization marketplace through Den.
+2. Sign the desktop app into that organization.
+3. Open Settings -> Extensions (Legacy) -> Marketplace.
+4. Refresh the catalog and open the plugin details.
+5. Open Settings -> OpenWork Connect and search for a capability from the plugin.
 
 ### Expected outcome
 
-- The marketplace and plugin are visible in desktop.
-- Import succeeds with a non-zero file count.
-- The expected skill/command/config file appears in the workspace.
-- Reload applies the imported config without losing workspace state.
+- The Marketplace row describes delivery through OpenWork Connect.
+- The row and details offer no Install, Import, or Update action.
+- The capability is available through OpenWork Connect.
 
-## Flow 2: Marketplace update sync
+## Flow 2: Signed-out catalog baseline
 
-**Goal:** Updating a plugin's config object in Den marks the desktop import as
-out of sync and re-import updates local files.
+**Goal:** Marketplace filters and signed-out guidance render without desktop
+snapshot state.
 
 ### Steps
 
-1. Import a non-empty plugin using Flow 1.
-2. Create a new config object version in Den with changed source text.
-3. Open Settings -> Extensions.
-4. Click `Refresh`.
-5. Verify the plugin row shows an update or out-of-sync state.
-6. Re-import the plugin.
-7. Inspect the local file contents.
+1. Sign out of OpenWork Cloud.
+2. Open Settings -> Extensions (Legacy) -> Marketplace.
+3. Select the Installed filter.
 
 ### Expected outcome
 
-- Desktop detects the updated plugin.
-- Re-import updates the local file contents.
-- The imported plugin state records the new version metadata.
+- All, Available, and Installed filters render; Updates does not.
+- The view remains stable and shows sign-in guidance.
 
-## Flow 3: Marketplace plugin removal
+## Flow 3: Existing local copy preservation
 
-**Goal:** Removing a plugin from a marketplace is reflected in desktop.
+**Goal:** A local copy from the retired import path remains user-owned even when
+the Den catalog changes.
 
 ### Steps
 
-1. Import a marketplace plugin.
-2. Remove that plugin from the marketplace through Den API.
-3. Open Marketplace settings and click `Refresh`.
+1. Seed a historical marketplace plugin registry record and its local file.
+2. Refresh the Marketplace and My Extensions views.
+3. Change or remove the upstream plugin in Den and refresh again.
+4. Remove the local copy explicitly from My Extensions.
 
 ### Expected outcome
 
-- The plugin no longer appears as available in that marketplace.
-- Previously imported local files are not silently deleted without user action.
-- The UI clearly distinguishes local imported state from current marketplace availability.
+- The copy is labeled `Local copy installed` and appears under My Extensions.
+- Upstream changes do not update or delete local files.
+- A copy absent from the catalog remains visible and uninstallable.
+- Explicit removal deletes the registered local files and registry record.
 
-## Flow 4: Metadata-only plugin import
+## Flow 4: Supported local plugin import
 
-**Goal:** A plugin with zero files imports without crashing and reports a clear
-zero-file result.
+**Goal:** GitHub/Claude plugin bundles remain the supported local installation
+path.
 
 ### Steps
 
-1. Create a plugin without config objects.
-2. Attach it to a marketplace.
-3. Open Marketplace settings and import it.
+1. Open My Extensions and choose the GitHub import action.
+2. Preview and install a plugin bundle containing a skill and MCP server.
+3. Verify both resources become available.
+4. Remove the local extension.
 
 ### Expected outcome
 
-- Import succeeds or returns a clear no-files message.
-- UI does not show a false non-zero file count.
-- No unexpected workspace files are created.
+- Preview does not write files.
+- Install materializes namespaced resources and hot-registers the MCP server.
+- The installed extension is listed as a local copy and can be fully removed.
 
 ## Flow 5: Marketplace refresh timing
 
-**Goal:** Measure how fast a newly published marketplace/plugin appears in the
-desktop Marketplace tab.
+**Goal:** Measure how fast a newly published marketplace plugin appears in the
+desktop catalog.
 
 ### Steps
 
 1. Open Marketplace settings.
-2. Create a marketplace and plugin through Den API.
-3. Attach the plugin to the marketplace.
-4. Click `Refresh`.
-5. Poll CDP until both names are visible.
+2. Publish a marketplace and plugin through Den.
+3. Refresh and poll until both names are visible.
 
 ### Expected outcome
 
-- Manual refresh should reveal the marketplace and plugin within a few seconds.
-- Record the duration in the eval report.
+- Manual refresh reveals the catalog entry within a few seconds.
+- No workspace files or local plugin registry rows are created.

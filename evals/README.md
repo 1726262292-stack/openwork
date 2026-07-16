@@ -256,7 +256,7 @@ Before reporting a flow as passed:
 - [`cloud-provider-sync-flows.md`](./cloud-provider-sync-flows.md) — org LLM
   provider import, update, delete, refresh timing, and permission boundaries.
 - [`cloud-marketplace-sync-flows.md`](./cloud-marketplace-sync-flows.md) —
-  marketplace plugin import/update/removal sync between Den and the desktop.
+  Connect-only marketplace delivery and preservation of historical local copies.
 - [`cloud-org-membership-flows.md`](./cloud-org-membership-flows.md) — org
   invitations, role updates, member removal, and domain restrictions.
 - [`daytona-server-failure-recovery-flows.md`](./daytona-server-failure-recovery-flows.md)
