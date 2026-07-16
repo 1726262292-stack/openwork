@@ -2286,7 +2286,7 @@ ipcMain.handle("openwork:shell:openExternal", async (_event, url) => {
 });
 ipcMain.handle("openwork:shell:relaunch", async () => {
   app.relaunch();
-  app.exit(0);
+  app.quit();
 });
 ipcMain.handle("openwork:system:architecture", async () => resolveArchitectureInfo());
 ipcMain.handle("openwork:system:microphoneStatus", async () => {
