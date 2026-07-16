@@ -516,6 +516,10 @@ async function completeDesktopCloudOnboardingIfNeeded(ctx) {
   await dismissStaleDialogs(ctx);
   await ctx.clickText("Continue with organization", { timeoutMs: 5_000 }).catch(() => {});
   await ctx.clickText("Continue to workspace", { timeoutMs: 8_000 }).catch(() => {});
+  await ctx.waitFor(
+    "window.location.hash.includes('/workspace/') || Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]'))",
+    { timeoutMs: 30_000, label: "workspace route or onboarding folder input" },
+  );
   const needsFolder = await ctx.eval("Boolean(document.querySelector('input[placeholder=\"/workspace/my-project\"]'))").catch(() => false);
   if (needsFolder) {
     await ctx.fill('input[placeholder="/workspace/my-project"]', WORKSPACE_PATH);
