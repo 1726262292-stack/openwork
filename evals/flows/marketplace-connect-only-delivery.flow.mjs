@@ -119,6 +119,7 @@ export default {
               timeoutMs: 30_000,
               label: "local extension actions ready",
             });
+            await sleep(800);
           },
           screenshot: { name: "frame-3-extensions-local", requireText: ["My Extensions", "Add Custom App", "From GitHub"], rejectText: [PLUGIN_NAME] },
         });
@@ -160,6 +161,13 @@ export default {
             await waitForMarketplacePlugin(ctx, PLUGIN_NAME);
             await ctx.clickText(PLUGIN_NAME, { selector: "button", timeoutMs: 20_000 });
             await ctx.waitForText("Local copy installed — still works, runs from this machine.", { timeoutMs: 20_000 });
+            await ctx.waitFor(`(() => {
+              const dialog = document.querySelector('[role="dialog"]');
+              if (!dialog) return false;
+              const style = getComputedStyle(dialog);
+              return style.opacity === '1' && style.transform === 'none';
+            })()`, { timeoutMs: 10_000, label: "local-copy detail animation settled" });
+            await sleep(300);
           },
           assert: async () => {
             const proof = await readMarketplaceState(ctx, PLUGIN_NAME);
