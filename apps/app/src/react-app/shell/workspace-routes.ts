@@ -19,6 +19,15 @@ export function globalSettingsRoute(tab: SettingsTab) {
   return `/settings/${tab}`;
 }
 
+export function sessionIdForLegacyWorkspaceInference(
+  routeWorkspaceId?: string | null,
+  routeSessionId?: string | null,
+): string | null {
+  if (routeWorkspaceId?.trim()) return null;
+  const sessionId = routeSessionId?.trim();
+  return sessionId || null;
+}
+
 export function legacySessionRoute(sessionId?: string | null) {
   const session = sessionId?.trim();
   return session ? `/session/${encodeURIComponent(session)}` : "/session";

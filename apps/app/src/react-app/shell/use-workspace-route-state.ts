@@ -53,7 +53,7 @@ import {
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
 } from "./session-memory";
-import { legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
+import { legacySessionRoute, sessionIdForLegacyWorkspaceInference, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   developerMode: boolean;
@@ -70,6 +70,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
   const selectedSessionId = params.sessionId?.trim() || null;
+  const workspaceInferenceSessionId = sessionIdForLegacyWorkspaceInference(routeWorkspaceId, selectedSessionId);
   const navigateToWorkspaceSession = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
     const id = workspaceId.trim();
     if (!id) {
@@ -126,6 +127,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const launchActivatedWorkspaceIdsRef = useRef(new Set<string>());
   const reconnectAttemptedWorkspaceIdRef = useRef("");
   const backgroundSessionLoadInFlight = useRef<Map<string, number>>(new Map());
+  const modernRouteSessionLoadKeyRef = useRef("");
   const rememberPendingCreatedSession = useCallback((workspaceId: string, sessionId: string) => {
     const id = sessionId.trim();
     if (!workspaceId || !id) return;
@@ -391,9 +393,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         list.activeId?.trim() ||
         nextWorkspaces[0]?.id ||
         "";
-      if (selectedSessionId) {
+      if (workspaceInferenceSessionId) {
         const match = cachedEntries.find((entry) =>
-          entry.sessions.some((session) => session?.id === selectedSessionId),
+          entry.sessions.some((session) => session?.id === workspaceInferenceSessionId),
         );
         if (match?.workspaceId) nextWorkspaceId = match.workspaceId;
       }
@@ -480,7 +482,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         markBootRouteReady();
       }
     }
-  }, [loadWorkspaceSessionsInBackground, markBootRouteReady, routeWorkspaceId, selectedSessionId]);
+  }, [loadWorkspaceSessionsInBackground, markBootRouteReady, routeWorkspaceId, workspaceInferenceSessionId]);
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {
@@ -721,12 +723,42 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   );
   const selectedWorkspaceServerToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
-  const selectedWorkspaceIsLoading = retryingWorkspaceIds.includes(selectedWorkspaceId);
   const selectedWorkspaceError = errorsByWorkspaceId[selectedWorkspaceId] ?? null;
   const selectedSessionKnown = Boolean(
     selectedSessionId &&
       (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).some((session) => session?.id === selectedSessionId),
   );
+  const modernRouteSessionLoadKey = routeWorkspaceId && selectedSessionId && selectedWorkspace && selectedWorkspaceEndpoint
+    ? JSON.stringify([
+        routeWorkspaceId,
+        selectedSessionId,
+        selectedWorkspaceEndpoint.baseUrl,
+        selectedWorkspaceEndpoint.workspaceId,
+        selectedWorkspaceEndpoint.token,
+      ])
+    : "";
+  const modernRouteSessionLoadPending = Boolean(
+    modernRouteSessionLoadKey &&
+      !selectedSessionKnown &&
+      modernRouteSessionLoadKeyRef.current !== modernRouteSessionLoadKey,
+  );
+  const selectedWorkspaceIsLoading = retryingWorkspaceIds.includes(selectedWorkspaceId) || modernRouteSessionLoadPending;
+  useEffect(() => {
+    if (!modernRouteSessionLoadKey || !selectedWorkspace) {
+      modernRouteSessionLoadKeyRef.current = "";
+      return;
+    }
+    if (selectedSessionKnown) {
+      modernRouteSessionLoadKeyRef.current = "";
+      return;
+    }
+    if (modernRouteSessionLoadKeyRef.current === modernRouteSessionLoadKey) return;
+    modernRouteSessionLoadKeyRef.current = modernRouteSessionLoadKey;
+    setRetryingWorkspaceIds((current) =>
+      current.includes(selectedWorkspace.id) ? current : [...current, selectedWorkspace.id],
+    );
+    void loadWorkspaceSessionsInBackground([selectedWorkspace]);
+  }, [loadWorkspaceSessionsInBackground, modernRouteSessionLoadKey, selectedSessionKnown, selectedWorkspace]);
   const routeNotFoundMessage = (() => {
     if (loading) return null;
     if (routeWorkspaceId && !selectedWorkspace) {
