@@ -826,19 +826,12 @@ function conversationWorker(params, emit) {
     const providers = await requestJson("providers.list", `/workspace/${encodeURIComponent(params.workspaceId)}/opencode/config/providers`);
     const model = chooseModel(providers.body);
     const conversationTitlePrefix = `ow-perf:${params.safeRunId}:conversation-`;
-    const listAllSessions = async () => {
-      const pageSize = 100;
-      const items = [];
-      for (let start = 0; start <= 10_000; start += pageSize) {
-        const response = await requestJson("conversation.cleanup.list", `/workspace/${encodeURIComponent(params.workspaceId)}/sessions?limit=${pageSize}&start=${start}`);
-        const pageItems = Array.isArray(response.body?.items) ? response.body.items : [];
-        items.push(...pageItems);
-        if (pageItems.length < pageSize) return items;
-      }
-      throw new Error("Conversation cleanup scanned more than 10000 sessions before reaching the end.");
-    };
     emit({ stage: "conversations.cleanup.scan", prefix: conversationTitlePrefix });
-    const listedSessions = await listAllSessions();
+    const cleanupList = await requestJson(
+      "conversation.cleanup.list",
+      `/workspace/${encodeURIComponent(params.workspaceId)}/sessions?limit=1000&search=${encodeURIComponent(conversationTitlePrefix)}`,
+    );
+    const listedSessions = Array.isArray(cleanupList.body?.items) ? cleanupList.body.items : [];
     const seenCleanupIds = new Set();
     const priorConversationSessions = listedSessions
       .filter((session) => typeof session?.id === "string" && typeof session.title === "string" && session.title.startsWith(conversationTitlePrefix))
