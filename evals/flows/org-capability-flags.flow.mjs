@@ -438,12 +438,12 @@ async function signInToDenWebWithoutOrg(ctx, email, password) {
 async function submitDenWebSignIn(ctx, email, password) {
   await clearDenWebSession(ctx);
   await goToDenWeb(ctx, "/");
-  await ctx.waitFor("document.body.innerText.includes('Sign in')", { timeoutMs: 30_000, label: "sign-in screen" });
-  await clickExactText(ctx, "Sign in", "button, a");
-  await ctx.waitFor("Boolean(document.querySelector('input[type=\"email\"], input[name=\"email\"]'))", { timeoutMs: 15_000, label: "email input" });
+  await ctx.waitFor("Boolean(document.querySelector('input[type=\"email\"], input[name=\"email\"]'))", { timeoutMs: 30_000, label: "email-first sign-in form" });
   await ctx.fill('input[type="email"], input[name="email"]', email);
+  await clickExactText(ctx, "Next", "button");
+  await ctx.waitFor("Boolean(document.querySelector('input[type=\"password\"]'))", { timeoutMs: 15_000, label: "password input" });
   await ctx.fill('input[type="password"]', password);
-  await clickLastExactText(ctx, "Sign in", "button");
+  await clickExactText(ctx, "Sign in", "button");
 }
 
 async function waitForDenWebSession(ctx, email) {
