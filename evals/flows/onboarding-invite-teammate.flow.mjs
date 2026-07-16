@@ -65,6 +65,16 @@ async function completeLocalFirstRun(ctx) {
   // welcome-route marks local first-run complete when a real user signs in from
   // /welcome; this flow signs in through settings, so it records the same
   // preference before driving /onboarding (fixture, not product behavior).
+  const state = await ctx.eval(`(() => {
+    const raw = localStorage.getItem("openwork.preferences");
+    const prefs = raw ? JSON.parse(raw) : {};
+    return {
+      completed: prefs.hasCompletedOnboarding === true,
+      onWelcome: location.hash.includes("/welcome"),
+    };
+  })()`);
+  if (state?.completed === true && state.onWelcome !== true) return;
+
   const completed = await ctx.eval(`(() => {
     const raw = localStorage.getItem("openwork.preferences");
     const prefs = raw ? JSON.parse(raw) : {};
@@ -73,6 +83,11 @@ async function completeLocalFirstRun(ctx) {
     return prefs.hasCompletedOnboarding;
   })()`);
   ctx.assert(completed === true, "Local first-run preference was not recorded.");
+  await ctx.eval("location.reload()");
+  await ctx.waitFor("Boolean(window.__openworkControl)", {
+    timeoutMs: 60_000,
+    label: "control API after first-run reload",
+  });
 }
 
 async function clickAcmeOrganization(ctx) {
