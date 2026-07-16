@@ -31,6 +31,73 @@ const refreshTokens = new Set();
 const requests = [];
 const drafts = [];
 
+const gmailThreadId = "thread-q3-launch";
+
+function gmailBodyData(value) {
+  return Buffer.from(value, "utf8").toString("base64url");
+}
+
+const gmailThreadMessages = [
+  {
+    id: "msg-q3-kickoff",
+    threadId: gmailThreadId,
+    snippet: "Hi Sarah, Thursday still works for the Q3 launch prep.",
+    payload: {
+      headers: [
+        { name: "From", value: "Jordan Demo <jordan.demo@acme.test>" },
+        { name: "To", value: "Sarah Chen <sarah@acme.test>" },
+        { name: "Subject", value: "Q3 launch" },
+        { name: "Date", value: "Mon, 13 Jul 2026 16:30:00 -0700" },
+        { name: "Message-ID", value: "<kickoff-1@acme.test>" },
+      ],
+      mimeType: "text/plain",
+      body: {
+        data: gmailBodyData([
+          "Hi Sarah,",
+          "Thursday still works for the Q3 launch prep.",
+          "I am checking the final room details now.",
+          "Jordan",
+        ].join("\n")),
+      },
+    },
+  },
+  {
+    id: "msg-q3-sarah-2",
+    threadId: gmailThreadId,
+    snippet: "Are we still on for Thursday? I need to confirm the room booking by Wednesday.",
+    payload: {
+      headers: [
+        { name: "From", value: "Sarah Chen <sarah@acme.test>" },
+        { name: "To", value: "Jordan Demo <jordan.demo@acme.test>" },
+        { name: "Subject", value: "Re: Q3 launch" },
+        { name: "Date", value: "Tue, 14 Jul 2026 09:15:00 -0700" },
+        { name: "Message-ID", value: "<sarah-2@acme.test>" },
+        { name: "References", value: "<kickoff-1@acme.test>" },
+      ],
+      mimeType: "text/plain",
+      body: {
+        data: gmailBodyData([
+          "Are we still on for Thursday?",
+          "I need to confirm the room booking by Wednesday.",
+          "Also bringing the updated launch checklist.",
+          "Sarah",
+        ].join("\n")),
+      },
+    },
+  },
+];
+
+const gmailMessagesById = new Map(gmailThreadMessages.map((message) => [message.id, message]));
+
+function gmailMessageShape(message, format) {
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    snippet: message.snippet,
+    payload: format === "full" ? message.payload : { headers: message.payload.headers },
+  };
+}
+
 function json(res, status, body, headers = {}) {
   res.writeHead(status, {
     "access-control-allow-origin": "*",
@@ -506,6 +573,50 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === "/gmail/v1/users/me/messages" && req.method === "GET") {
+      if (!isAuthorized(req)) {
+        json(res, 401, { error: { code: 401, message: "Invalid Credentials" } });
+        return;
+      }
+      const messages = [...gmailThreadMessages].reverse().map((message) => ({
+        id: message.id,
+        threadId: message.threadId,
+      }));
+      json(res, 200, { messages, resultSizeEstimate: messages.length });
+      return;
+    }
+
+    const gmailMessageMatch = url.pathname.match(/^\/gmail\/v1\/users\/me\/messages\/([^/]+)$/);
+    if (gmailMessageMatch && req.method === "GET") {
+      if (!isAuthorized(req)) {
+        json(res, 401, { error: { code: 401, message: "Invalid Credentials" } });
+        return;
+      }
+      const message = gmailMessagesById.get(decodeURIComponent(gmailMessageMatch[1]));
+      if (!message) {
+        json(res, 404, { error: { code: 404, message: "Message not found" } });
+        return;
+      }
+      json(res, 200, gmailMessageShape(message, url.searchParams.get("format")));
+      return;
+    }
+
+    if (url.pathname === `/gmail/v1/users/me/threads/${gmailThreadId}` && req.method === "GET") {
+      if (!isAuthorized(req)) {
+        json(res, 401, { error: { code: 401, message: "Invalid Credentials" } });
+        return;
+      }
+      json(res, 200, {
+        id: gmailThreadId,
+        messages: gmailThreadMessages.map((message) => ({
+          id: message.id,
+          threadId: message.threadId,
+          payload: message.payload,
+        })),
+      });
+      return;
+    }
+
     // Minimal Gmail drafts.create stand-in so the org Google Workspace flow
     // can be proven end-to-end: requires a token this mock issued, records
     // the request (external witness), returns Gmail-shaped ids.
@@ -516,10 +627,11 @@ const server = http.createServer(async (req, res) => {
       }
       const body = await readJson(req).catch(() => ({}));
       const raw = typeof body?.message?.raw === "string" ? body.message.raw : "";
-      drafts.push({ raw, at: new Date().toISOString() });
+      const threadId = typeof body?.message?.threadId === "string" ? body.message.threadId : null;
+      drafts.push({ raw, threadId, at: new Date().toISOString() });
       json(res, 200, {
         id: `draft-${randomUUID()}`,
-        message: { id: `msg-${randomUUID()}`, threadId: `thread-${randomUUID()}` },
+        message: { id: `msg-${randomUUID()}`, threadId: threadId || `thread-${randomUUID()}` },
       });
       return;
     }
