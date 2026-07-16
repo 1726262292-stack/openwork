@@ -7,6 +7,7 @@ import { ApiError } from "./errors.js";
 import { diagnoseMcpToolDenies, type McpToolDeny } from "./mcp.js";
 import { sanitizeDiagnosticString, sanitizeDiagnosticValue } from "./diagnostic-sanitizer.js";
 import { readRuntimeOpencodeConfig, runtimeMcpMap, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { externalFetch } from "./server-fetch.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { validateMcpConfig } from "./validators.js";
 
@@ -518,38 +519,6 @@ export const cloudMcpDeliveryState = new CloudMcpDeliveryStateStore();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-type CloudProbeFetch = (input: string, init?: RequestInit) => Promise<Response>;
-
-let cloudProbeFetchPromise: Promise<CloudProbeFetch> | undefined;
-
-function globalCloudProbeFetch(input: string, init?: RequestInit): Promise<Response> {
-  return globalThis.fetch(input, init);
-}
-
-function hasElectronNetFetch(value: unknown): value is { net: { fetch: CloudProbeFetch } } {
-  return isRecord(value) && isRecord(value.net) && typeof value.net.fetch === "function";
-}
-
-async function resolveCloudProbeFetch(): Promise<CloudProbeFetch> {
-  if (!process.versions.electron) return globalCloudProbeFetch;
-  try {
-    const moduleName = "electron";
-    const mod: unknown = await import(moduleName);
-    if (hasElectronNetFetch(mod)) {
-      const { net } = mod;
-      return (input, init) => net.fetch(input, init);
-    }
-  } catch {
-    // Fall through to Node/Bun fetch when Electron is unavailable in tests or bundlers.
-  }
-  return globalCloudProbeFetch;
-}
-
-function cloudProbeFetch(input: string, init?: RequestInit): Promise<Response> {
-  cloudProbeFetchPromise ??= resolveCloudProbeFetch();
-  return cloudProbeFetchPromise.then((resolvedFetch) => resolvedFetch(input, init));
 }
 
 function hashString(value: string): string {
@@ -1102,7 +1071,7 @@ async function mcpJsonRpcPost(input: {
   headers: Record<string, string>;
   body: unknown;
 }): Promise<{ response: Response; payload: unknown }> {
-  const response = await withCloudEndpointProbeTimeout((signal) => cloudProbeFetch(input.url, {
+  const response = await withCloudEndpointProbeTimeout((signal) => externalFetch(input.url, {
     method: "POST",
     headers: input.headers,
     body: JSON.stringify(input.body),
@@ -1198,7 +1167,7 @@ async function readDirectCloudTools(config: Record<string, unknown>): Promise<Di
       ...(sessionId ? { "mcp-session-id": sessionId } : {}),
       ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
     };
-    await withCloudEndpointProbeTimeout((signal) => cloudProbeFetch(url, {
+    await withCloudEndpointProbeTimeout((signal) => externalFetch(url, {
       method: "POST",
       headers: sessionHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),

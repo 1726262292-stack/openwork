@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { homedir } from "node:os";
 
 import { ApiError } from "../errors.js";
+import { externalFetch } from "../server-fetch.js";
 import type { ServerConfig } from "../types.js";
 
 export const GOOGLE_WORKSPACE_EXTENSION_ID = "google-workspace";
@@ -508,9 +509,9 @@ async function fetchGoogleJson(url: string, init: RequestInit = {}) {
   const timeout = setTimeout(() => controller.abort(), GOOGLE_WORKSPACE_API_TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(url, { ...init, signal: controller.signal });
+    response = await externalFetch(url, { ...init, signal: controller.signal });
   } catch (error) {
-    if ((error as { name?: string })?.name === "AbortError") throw new Error("Google request timed out. Check your connection and try again.");
+    if (error instanceof Error && error.name === "AbortError") throw new Error("Google request timed out. Check your connection and try again.");
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -518,7 +519,7 @@ async function fetchGoogleJson(url: string, init: RequestInit = {}) {
   const text = await response.text();
   let payload: unknown = null;
   if (text.trim()) {
-    try { payload = JSON.parse(text) as unknown; } catch { payload = { raw: text }; }
+    try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
   }
   if (!response.ok) {
     const details = isRecord(payload)
@@ -1112,7 +1113,7 @@ async function googleWorkspaceReadFile(config: ServerConfig, args: Record<string
   const url = exportMime
     ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(exportMime)}`
     : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`;
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const response = await externalFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   const content = await response.text();
   if (!response.ok) throw new Error(`Google Drive read failed (${response.status}): ${content}`);
   return { metadata, content };
@@ -1250,7 +1251,7 @@ export async function googleWorkspaceRunScopeSmokeTest(config: ServerConfig) {
     body: multipartRelatedBody({ name: "OpenWork Google Workspace smoke test.txt", mimeType: "text/plain" }, `OpenWork Google Workspace smoke test created at ${createdAt}.`, driveBoundary),
   });
   if (isRecord(driveFile) && typeof driveFile.id === "string") {
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveFile.id)}?alt=media`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    const response = await externalFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(driveFile.id)}?alt=media`, { headers: { Authorization: `Bearer ${accessToken}` } });
     if (!response.ok) throw new Error(`Google Drive smoke read failed (${response.status}): ${await response.text()}`);
   }
   const draft = await fetchGoogleJson("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
