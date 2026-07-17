@@ -231,6 +231,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * den-db json columns surface as strings on MariaDB backends (LONGTEXT +
+ * json_valid check; mysql2 only auto-parses native MySQL JSON). Coerce
+ * stringified documents before validation so policy reads do not silently
+ * collapse to permissive defaults.
+ */
+function coerceJsonDocument(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 export function normalizeOnboardingPrompts(value: unknown): string[] | undefined {
   const parsed = onboardingPromptsSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
@@ -253,7 +268,8 @@ export function normalizeOnboardingPromptDescriptions(
 export function normalizeOnboardingPromptConfig(
   value: unknown,
 ): OnboardingPromptConfig | undefined {
-  const raw = isRecord(value) ? value : null;
+  const document = coerceJsonDocument(value);
+  const raw = isRecord(document) ? document : null;
   const onboardingPrompts = normalizeOnboardingPrompts(raw?.onboardingPrompts);
   if (onboardingPrompts === undefined) return undefined;
 
@@ -273,7 +289,8 @@ export function normalizeOnboardingPromptConfig(
 export function normalizeDesktopPolicyValue(
   value: unknown,
 ): DesktopPolicyValue {
-  const parsed = desktopPolicyValueSchema.safeParse(value);
+  const document = coerceJsonDocument(value);
+  const parsed = desktopPolicyValueSchema.safeParse(document);
   if (parsed.success) {
     return Object.fromEntries(
       desktopPolicyKeys.flatMap((key) =>
@@ -314,8 +331,9 @@ export function normalizeDesktopPolicyDocument(
 export function normalizeDesktopPolicyDocumentWrite(
   value: unknown,
 ): DesktopPolicyDocumentWrite {
-  const policy = normalizeDesktopPolicyValue(value);
-  const raw = isRecord(value) ? value : null;
+  const document = coerceJsonDocument(value);
+  const policy = normalizeDesktopPolicyValue(document);
+  const raw = isRecord(document) ? document : null;
   const rawPrompts = raw?.onboardingPrompts;
   const rawDescriptions = raw?.onboardingPromptDescriptions;
   const onboardingPrompts = normalizeOnboardingPrompts(rawPrompts);
