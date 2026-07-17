@@ -23,6 +23,12 @@ const SAFE_INCLUDED_TAGS = new Set([
   "Capability Sources",
 ])
 
+const SAFE_INCLUDED_OPERATION_IDS = new Set([
+  "getV1DesktopPolicies",
+  "postV1DesktopPolicies",
+  "patchV1DesktopPoliciesByDesktopPolicyId",
+])
+
 const BLOCKED_OPERATION_IDS = new Set([
   "postApiKeys",
   "postV1ApiKeys",
@@ -73,6 +79,10 @@ export function isMcpOperationAllowed(input: {
   }
 
   if (explicit === true || explicit === "true") {
+    return true
+  }
+
+  if (SAFE_INCLUDED_OPERATION_IDS.has(operationId)) {
     return true
   }
 

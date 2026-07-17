@@ -23,8 +23,10 @@ let env: typeof import("../src/env.js").env
 let memberFacingMcpConnectionsEnabled: typeof import("../src/capability-sources/external-mcp-rollout.js")["memberFacingMcpConnectionsEnabled"]
 
 const userId = createDenTypeId("user")
+const adminUserId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
 const memberId = createDenTypeId("member")
+const adminMemberId = createDenTypeId("member")
 const capabilityOrganizationId = createDenTypeId("organization")
 const capabilityMemberId = createDenTypeId("member")
 const disabledOrganizationId = createDenTypeId("organization")
@@ -77,6 +79,11 @@ beforeAll(async () => {
     name: "Desktop Config User",
     email: `desktop-config+${userId}@test.local`,
   })
+  await db.insert(schema.AuthUserTable).values({
+    id: adminUserId,
+    name: "Desktop Config Admin User",
+    email: `desktop-config-admin+${adminUserId}@test.local`,
+  })
   await db.insert(schema.OrganizationTable).values({
     id: organizationId,
     name: "Desktop Config Org",
@@ -124,6 +131,12 @@ beforeAll(async () => {
       organizationId: onboardingOrganizationId,
       userId,
       role: "owner",
+    },
+    {
+      id: adminMemberId,
+      organizationId: onboardingOrganizationId,
+      userId: adminUserId,
+      role: "admin",
     },
   ])
   await db.insert(schema.TeamTable).values({
@@ -199,7 +212,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  const memberIds = [memberId, capabilityMemberId, disabledMemberId, onboardingMemberId]
+  const memberIds = [memberId, capabilityMemberId, disabledMemberId, onboardingMemberId, adminMemberId]
   const organizationIds = [organizationId, capabilityOrganizationId, disabledOrganizationId, onboardingOrganizationId]
   if (crudDesktopPolicyId) {
     await db.delete(schema.DesktopPolicyMemberTable).where(drizzle.eq(schema.DesktopPolicyMemberTable.desktopPolicyId, crudDesktopPolicyId))
@@ -220,7 +233,7 @@ afterAll(async () => {
   await db.delete(schema.MemberTable).where(drizzle.inArray(schema.MemberTable.id, memberIds))
   await db.delete(schema.OrganizationRoleTable).where(drizzle.inArray(schema.OrganizationRoleTable.organizationId, organizationIds))
   await db.delete(schema.OrganizationTable).where(drizzle.inArray(schema.OrganizationTable.id, organizationIds))
-  await db.delete(schema.AuthUserTable).where(drizzle.eq(schema.AuthUserTable.id, userId))
+  await db.delete(schema.AuthUserTable).where(drizzle.inArray(schema.AuthUserTable.id, [userId, adminUserId]))
 })
 
 async function requestDesktopConfig(activeOrganizationId: string) {
@@ -244,9 +257,10 @@ async function requestDesktopPolicyAdmin(input: {
   path: string
   body?: unknown
   expectedStatus: number
+  userId?: string
 }) {
   const headers = new Headers({
-    "x-den-internal-mcp-principal": session.createInternalMcpPrincipalHeader({ userId, organizationId: onboardingOrganizationId }),
+    "x-den-internal-mcp-principal": session.createInternalMcpPrincipalHeader({ userId: input.userId ?? userId, organizationId: onboardingOrganizationId }),
   })
   const init: RequestInit = { method: input.method, headers }
   if (input.body !== undefined) {
@@ -323,6 +337,36 @@ test("GET /v1/me/desktop-config returns the effective onboarding prompts", async
   const body = await requestDesktopConfig(onboardingOrganizationId)
   expect(body.onboardingPrompts).toEqual(highPriorityOnboardingPrompts)
   expect(body.onboardingPromptDescriptions).toEqual(highPriorityOnboardingPromptDescriptions)
+})
+
+test("desktop policy create and update require a workspace owner", async () => {
+  const createPayload = await requestDesktopPolicyAdmin({
+    method: "POST",
+    path: "/v1/desktop-policies",
+    expectedStatus: 403,
+    userId: adminUserId,
+    body: {
+      policyName: "Admin blocked desktop policy",
+      policy: { allowZenModel: true },
+      memberIds: [],
+      teamIds: [],
+    },
+  })
+  expect(createPayload?.error).toBe("forbidden")
+
+  const updatePayload = await requestDesktopPolicyAdmin({
+    method: "PATCH",
+    path: `/v1/desktop-policies/${encodeURIComponent(highPriorityPolicyId)}`,
+    expectedStatus: 403,
+    userId: adminUserId,
+    body: {
+      policyName: "Admin blocked desktop policy update",
+      policy: { allowZenModel: false },
+      memberIds: [],
+      teamIds: [],
+    },
+  })
+  expect(updatePayload?.error).toBe("forbidden")
 })
 
 test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and descriptions", async () => {

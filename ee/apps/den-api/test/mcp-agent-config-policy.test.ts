@@ -73,6 +73,40 @@ describe("agent-configurable org connections policy", () => {
     expect(allowed("getV1McpConnectionsByConnectionIdTools")).toBe(true)
   })
 
+  test("desktop policy list, create, and update are exposed while delete stays human-only", () => {
+    expect(allowed("getV1DesktopPolicies")).toBe(true)
+    expect(allowed("postV1DesktopPolicies")).toBe(true)
+    expect(allowed("patchV1DesktopPoliciesByDesktopPolicyId")).toBe(true)
+    expect(allowed("deleteV1DesktopPoliciesByDesktopPolicyId")).toBe(false)
+
+    const catalog = buildMcpCatalog(document)
+    expect(searchCapabilities(catalog, "desktop policy", 20)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: "GET",
+        path: "/v1/desktop-policies",
+        hasBody: false,
+      }),
+      expect.objectContaining({
+        method: "POST",
+        path: "/v1/desktop-policies",
+        hasBody: true,
+        bodySchema: expect.objectContaining({
+          required: expect.arrayContaining(["policyName", "policy"]),
+        }),
+      }),
+      expect.objectContaining({
+        method: "PATCH",
+        path: "/v1/desktop-policies/{desktopPolicyId}",
+        pathParams: ["desktopPolicyId"],
+        hasBody: true,
+      }),
+    ]))
+    expect(catalog).not.toContainEqual(expect.objectContaining({
+      method: "DELETE",
+      path: "/v1/desktop-policies/{desktopPolicyId}",
+    }))
+  })
+
   test("manual MCP tool execution stays outside the agent API catalog", () => {
     const operation = document.paths["/v1/mcp-connections/{connectionId}/tools/call"]?.post
     expect(operation).toBeDefined()

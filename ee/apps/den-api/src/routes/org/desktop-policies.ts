@@ -21,7 +21,7 @@ import { checkEntitlement } from "../../entitlements.js"
 import { jsonValidator, orgRoleRoute, paramValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationAdmin, idParamSchema, orgAccessFailureStatus } from "./shared.js"
+import { ensureOrganizationAdmin, ensureOwner, idParamSchema, orgAccessFailureStatus } from "./shared.js"
 
 type DesktopPolicyId = typeof DesktopPolicyTable.$inferSelect.id
 type MemberId = typeof MemberTable.$inferSelect.id
@@ -173,15 +173,15 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
         400: jsonResponse("The desktop policy request was invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to create desktop policies.", unauthorizedSchema),
         402: jsonResponse("Desktop policy management requires an Enterprise plan.", enterprisePlanRequiredSchema),
-        403: jsonResponse("Only workspace owners and admins can create desktop policies.", forbiddenSchema),
+        403: jsonResponse("Only workspace owners can create desktop policies.", forbiddenSchema),
         404: jsonResponse("A referenced member or team was not found.", notFoundSchema),
       },
     }),
-    orgRoleRoute(["admin"]),
+    orgRoleRoute(["owner"]),
     jsonValidator(desktopPolicyWriteSchema),
     async (c) => {
       const payload = c.get("organizationContext")
-      const permission = ensureOrganizationAdmin(c, "Only workspace owners and admins can manage desktop policies.")
+      const permission = ensureOwner(c)
       if (!permission.ok) {
         return c.json(permission.response, orgAccessFailureStatus(permission.response))
       }
@@ -257,16 +257,16 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
         400: jsonResponse("The desktop policy request was invalid.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in to update desktop policies.", unauthorizedSchema),
         402: jsonResponse("Desktop policy management requires an Enterprise plan.", enterprisePlanRequiredSchema),
-        403: jsonResponse("Only workspace owners and admins can update desktop policies.", forbiddenSchema),
+        403: jsonResponse("Only workspace owners can update desktop policies.", forbiddenSchema),
         404: jsonResponse("The policy or a referenced resource was not found.", notFoundSchema),
       },
     }),
-    orgRoleRoute(["admin"]),
+    orgRoleRoute(["owner"]),
     paramValidator(desktopPolicyParamsSchema),
     jsonValidator(desktopPolicyWriteSchema),
     async (c) => {
       const payload = c.get("organizationContext")
-      const permission = ensureOrganizationAdmin(c, "Only workspace owners and admins can manage desktop policies.")
+      const permission = ensureOwner(c)
       if (!permission.ok) {
         return c.json(permission.response, orgAccessFailureStatus(permission.response))
       }
