@@ -10,10 +10,12 @@ import { buildGmailDraftRaw, readGmailDraftIds } from "../../capability-sources/
 import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
 import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
 import {
-  buildGmailQuoteBlock,
+  buildDriveMultipartUpload,
   buildDriveSearchQuery,
+  buildGmailQuoteBlock,
   extractCalendarEvents,
   extractDriveFiles,
+  extractDrivePermission,
   extractGmailAttachmentData,
   extractGmailMessage,
   extractGmailMessageIds,
@@ -227,9 +229,47 @@ const driveFilesQuerySchema = z.object({
   maxResults: z.coerce.number().int().min(1).max(25).default(10).describe("Maximum files to return, capped at 25."),
 }).meta({ ref: "GoogleWorkspaceDriveFilesQuery" })
 
+const uploadDriveFileBodySchema = z.object({
+  filename: z.string().trim().min(1).max(255).refine((value) => !/[\r\n]/.test(value), "Filename must not contain line breaks.").describe("Filename to create in Google Drive."),
+  mimeType: z.string().trim().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/).describe("File MIME type."),
+  dataBase64: z.string().min(1).max(MAX_GMAIL_ATTACHMENT_BASE64_LENGTH).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).describe("File bytes as standard base64. The gmail-attachment capability returns dataBase64 in this exact encoding — pass it through directly to save an email attachment to Drive. Maximum decoded size: 10 MiB."),
+  folderId: z.string().trim().min(1).max(512).optional().describe("Optional Google Drive parent folder id."),
+}).strict().superRefine((input, context) => {
+  if (Buffer.byteLength(input.dataBase64, "base64") > MAX_GMAIL_ATTACHMENT_BYTES) {
+    context.addIssue({
+      code: "custom",
+      path: ["dataBase64"],
+      message: "File must be 10 MiB or less.",
+    })
+  }
+}).meta({ ref: "GoogleWorkspaceUploadDriveFileBody" })
+
 const driveFileParamSchema = z.object({
   fileId: z.string().trim().min(1).max(512).describe("Google Drive file id."),
 }).meta({ ref: "GoogleWorkspaceDriveFileParams" })
+
+const shareDriveFileBodySchema = z.object({
+  type: z.enum(["user", "domain"]).describe("Use type=user to share with one person, or type=domain to share with the entire organization."),
+  emailAddress: z.string().trim().email().max(320).optional().describe("Required when type=user; pass the person's email address, for example raghav@openworklabs.com."),
+  domain: z.string().trim().min(1).max(255).optional().describe("Required when type=domain; pass the organization's Google Workspace domain, for example openworklabs.com."),
+  role: z.enum(["reader", "commenter", "writer"]).default("reader").describe("Drive permission role to grant."),
+  sendNotificationEmail: z.boolean().default(true).describe("Whether Google should email the recipient about the new access."),
+}).strict().superRefine((input, context) => {
+  if (input.type === "user" && !input.emailAddress) {
+    context.addIssue({
+      code: "custom",
+      path: ["emailAddress"],
+      message: "emailAddress is required when type is user.",
+    })
+  }
+  if (input.type === "domain" && !input.domain) {
+    context.addIssue({
+      code: "custom",
+      path: ["domain"],
+      message: "domain is required when type is domain.",
+    })
+  }
+}).meta({ ref: "GoogleWorkspaceShareDriveFileBody" })
 
 const driveFileSummarySchema = z.object({
   id: z.string(),
@@ -245,6 +285,11 @@ const driveFilesResponseSchema = z.object({
   files: z.array(driveFileSummarySchema),
 }).meta({ ref: "GoogleWorkspaceDriveFilesResponse" })
 
+const uploadDriveFileResponseSchema = z.object({
+  ok: z.literal(true),
+  file: driveFileSummarySchema,
+}).meta({ ref: "GoogleWorkspaceUploadDriveFileResponse" })
+
 const driveFileResponseSchema = z.object({
   ok: z.literal(true),
   file: driveFileSummarySchema.extend({
@@ -252,6 +297,14 @@ const driveFileResponseSchema = z.object({
     truncated: z.boolean(),
   }),
 }).meta({ ref: "GoogleWorkspaceDriveFileResponse" })
+
+const shareDriveFileResponseSchema = z.object({
+  ok: z.literal(true),
+  fileId: z.string(),
+  permissionId: z.string(),
+  type: z.string(),
+  role: z.string(),
+}).meta({ ref: "GoogleWorkspaceShareDriveFileResponse" })
 
 type GoogleWorkspaceAccessToken =
   | { kind: "ok"; accessToken: string; account: ConnectedAccountRow }
@@ -771,6 +824,76 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
     },
   )
 
+  app.post(
+    "/v1/capabilities/google-workspace/drive-files",
+    describeRoute({
+      tags: ["Capability Sources"],
+      summary: "Upload file bytes to Google Drive as the calling member",
+      description: "Creates a file in the calling member's Google Drive using standard base64 bytes. The gmail-attachment capability returns dataBase64 in this exact encoding — pass it through directly to save an email attachment to Drive. The response file.webViewLink is the user-facing link — share it with the user.",
+      responses: {
+        200: jsonResponse("Google Drive file uploaded. The file.webViewLink is the user-facing link — share it with the user.", uploadDriveFileResponseSchema),
+        400: jsonResponse("The upload request was invalid.", invalidRequestSchema),
+        401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
+        409: jsonResponse("The calling member has not connected their Google account or is missing permission.", needsConnectionSchema),
+        502: jsonResponse("Google rejected the request.", upstreamErrorSchema),
+      },
+    }),
+    orgMemberRoute(),
+    jsonValidator(uploadDriveFileBodySchema),
+    async (c) => {
+      const payload = c.get("organizationContext")
+      const token = await googleWorkspaceToken({
+        organizationId: payload.organization.id,
+        orgMembershipId: payload.currentMember.id,
+      })
+      if (token.kind === "google_api_error") {
+        return c.json({ error: "google_api_error", message: token.message }, 502)
+      }
+      if (token.kind === "needs_connection") {
+        return c.json({ error: "needs_connection", message: token.message }, 409)
+      }
+      if (missingScope(token.account, [DRIVE_FILE_SCOPE, DRIVE_FULL_SCOPE])) {
+        return c.json({ error: "needs_connection", message: missingPermissionMessage("Google Drive write") }, 409)
+      }
+
+      const input = c.req.valid("json")
+      const metadata: { name: string; parents?: string[] } = { name: input.filename }
+      if (input.folderId) {
+        metadata.parents = [input.folderId]
+      }
+      const boundary = `openwork-${randomUUID()}`
+      const url = new URL(`${driveApiBase()}/upload/drive/v3/files`)
+      url.searchParams.set("uploadType", "multipart")
+      url.searchParams.set("fields", "id,name,mimeType,modifiedTime,webViewLink,size")
+      const uploadBody = buildDriveMultipartUpload({
+        metadata,
+        content: Buffer.from(input.dataBase64, "base64"),
+        mimeType: input.mimeType,
+        boundary,
+      })
+      const uploadBodyBytes = new Uint8Array(uploadBody.byteLength)
+      uploadBodyBytes.set(uploadBody)
+      const response = await googleWorkspaceApiFetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token.accessToken}`,
+          "content-type": `multipart/related; boundary=${boundary}`,
+        },
+        body: uploadBodyBytes,
+      })
+      if (!response.ok) {
+        return c.json(await googleApiError("Google Drive file upload", response), 502)
+      }
+
+      const file = extractDriveFiles({ files: [await readJson(response)] })[0]
+      if (!file?.id) {
+        return c.json({ error: "google_api_error", message: "Google Drive returned no file id." }, 502)
+      }
+
+      return c.json({ ok: true, file })
+    },
+  )
+
   app.get(
     "/v1/capabilities/google-workspace/drive-file/:fileId",
     describeRoute({
@@ -842,6 +965,74 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
           truncated: content.truncated,
         },
       })
+    },
+  )
+
+  app.post(
+    "/v1/capabilities/google-workspace/drive-file-share/:fileId",
+    describeRoute({
+      tags: ["Capability Sources"],
+      summary: "Share a Google Drive file with a person or the organization",
+      description: "Creates a Drive permission for one file using the calling member's Google Workspace account. To share with one person pass type=user plus emailAddress; to share with the entire organization pass type=domain plus the org's Google Workspace domain (e.g. openworklabs.com). Sharing files not created through OpenWork needs the Full Drive access feature enabled by an admin.",
+      responses: {
+        200: jsonResponse("Google Drive file shared.", shareDriveFileResponseSchema),
+        400: jsonResponse("The share request was invalid.", invalidRequestSchema),
+        401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
+        409: jsonResponse("The calling member has not connected their Google account or is missing permission.", needsConnectionSchema),
+        502: jsonResponse("Google rejected the request.", upstreamErrorSchema),
+      },
+    }),
+    orgMemberRoute(),
+    paramValidator(driveFileParamSchema),
+    jsonValidator(shareDriveFileBodySchema),
+    async (c) => {
+      const payload = c.get("organizationContext")
+      const token = await googleWorkspaceToken({
+        organizationId: payload.organization.id,
+        orgMembershipId: payload.currentMember.id,
+      })
+      if (token.kind === "google_api_error") {
+        return c.json({ error: "google_api_error", message: token.message }, 502)
+      }
+      if (token.kind === "needs_connection") {
+        return c.json({ error: "needs_connection", message: token.message }, 409)
+      }
+      if (missingScope(token.account, [DRIVE_FILE_SCOPE, DRIVE_FULL_SCOPE])) {
+        return c.json({ error: "needs_connection", message: missingPermissionMessage("Google Drive write") }, 409)
+      }
+
+      const { fileId } = c.req.valid("param")
+      const input = c.req.valid("json")
+      const permissionPayload = input.type === "user" && input.emailAddress
+        ? { type: input.type, role: input.role, emailAddress: input.emailAddress }
+        : input.type === "domain" && input.domain
+          ? { type: input.type, role: input.role, domain: input.domain }
+          : null
+      if (!permissionPayload) {
+        return c.json({ error: "invalid_request", details: "emailAddress is required for user shares and domain is required for domain shares." }, 400)
+      }
+
+      const url = new URL(`${driveApiBase()}/drive/v3/files/${encodeURIComponent(fileId)}/permissions`)
+      url.searchParams.set("sendNotificationEmail", String(input.sendNotificationEmail))
+      url.searchParams.set("fields", "id,type,role")
+      const response = await googleWorkspaceApiFetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(permissionPayload),
+      })
+      if (!response.ok) {
+        return c.json(await googleApiError("Google Drive file share", response), 502)
+      }
+
+      const permission = extractDrivePermission(await readJson(response))
+      if (!permission.id) {
+        return c.json({ error: "google_api_error", message: "Google Drive returned no permission id." }, 502)
+      }
+
+      return c.json({ ok: true, fileId, permissionId: permission.id, type: permission.type, role: permission.role })
     },
   )
 

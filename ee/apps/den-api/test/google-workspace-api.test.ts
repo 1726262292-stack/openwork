@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
-  buildGmailQuoteBlock,
+  buildDriveMultipartUpload,
   buildDriveSearchQuery,
+  buildGmailQuoteBlock,
   extractCalendarEvents,
   extractDriveFiles,
+  extractDrivePermission,
   extractGmailAttachmentData,
   extractGmailMessage,
   truncateText,
@@ -181,6 +183,18 @@ describe("Drive helpers", () => {
     expect(buildDriveSearchQuery("it's \\ tricky")).toBe("trashed = false and (name contains 'it\\'s \\\\ tricky' or fullText contains 'it\\'s \\\\ tricky')")
   })
 
+  test("buildDriveMultipartUpload frames metadata and preserves binary bytes", () => {
+    const boundary = "openwork-test-boundary"
+    const content = Buffer.from([0x00, 0xfb, 0xef, 0xbe, 0xff, 0x61])
+    const metadata = { name: "Résumé.txt", parents: ["folder_1"] }
+    const body = buildDriveMultipartUpload({ metadata, content, mimeType: "text/plain", boundary })
+    const prefix = Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: text/plain\r\n\r\n`, "utf8")
+    const suffix = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8")
+
+    expect(body.equals(Buffer.concat([prefix, content, suffix]))).toBe(true)
+    expect(body.subarray(prefix.byteLength, prefix.byteLength + content.byteLength).equals(content)).toBe(true)
+  })
+
   test("extractDriveFiles maps file metadata and preserves absent size as null", () => {
     expect(extractDriveFiles({
       files: [
@@ -218,6 +232,14 @@ describe("Drive helpers", () => {
         size: null,
       },
     ])
+  })
+
+  test("extractDrivePermission maps permission fields", () => {
+    expect(extractDrivePermission({ id: "perm_1", type: "domain", role: "reader", ignored: true })).toEqual({
+      id: "perm_1",
+      type: "domain",
+      role: "reader",
+    })
   })
 })
 
