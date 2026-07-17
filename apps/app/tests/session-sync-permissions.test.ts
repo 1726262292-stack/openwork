@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import type { PermissionRequest, PermissionV2Request, QuestionRequest } from "@opencode-ai/sdk/v2/client";
 
 import type { OpenworkSessionSnapshot } from "../src/app/lib/openwork-server";
+import { normalizeEvent } from "../src/app/utils";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import {
   __applySessionSyncEventForTest,
@@ -244,6 +245,38 @@ describe("session question sync", () => {
 });
 
 describe("session metadata sync", () => {
+  test("notifies listeners for untracked session creations after normalizing stream events", () => {
+    const updates: Array<{ sessionId: string; info: Record<string, unknown> }> = [];
+    const syncInput = {
+      workspaceId: "workspace-a",
+      baseUrl: "http://127.0.0.1:1234",
+      openworkToken: "token",
+      onSessionUpdated: (update: { sessionId: string; info: Record<string, unknown> }) => {
+        updates.push(update);
+      },
+    };
+    const cleanup = __createWorkspaceSessionSyncForTest(syncInput);
+
+    try {
+      const event = normalizeEvent({
+        type: "session.created",
+        properties: {
+          info: { id: "session-created", title: "Plan the offsite" },
+        },
+      });
+      if (!event) throw new Error("session.created event did not normalize");
+
+      __applySessionSyncEventForTest(syncInput, event);
+
+      expect(updates).toEqual([
+        { sessionId: "session-created", info: { id: "session-created", title: "Plan the offsite" } },
+      ]);
+      expect(getReactQueryClient().getQueryData(snapshotKey("workspace-a", "session-created"))).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
   test("notifies listeners for untracked session updates and preserves tracked cache updates", () => {
     const updates: Array<{ sessionId: string; info: Record<string, unknown> }> = [];
     const syncInput = {

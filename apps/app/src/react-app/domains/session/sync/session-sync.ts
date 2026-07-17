@@ -97,20 +97,23 @@ function isTrackedSession(entry: SyncEntry, sessionId: string) {
   return (entry.trackedSessionRefs.get(sessionId) ?? 0) > 0 || entry.retainedSessionTimers.has(sessionId);
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function getSessionUpdatedInfo(event: OpencodeEvent) {
-  if (event.type !== "session.updated") return null;
+  if (event.type !== "session.updated" && event.type !== "session.created") return null;
   const props = event.properties;
-  if (!props || typeof props !== "object") return null;
-  const record = props as { sessionID?: unknown; info?: unknown };
-  const info = record.info;
-  if (!info || typeof info !== "object") return null;
-  const sessionId = typeof record.sessionID === "string"
-    ? record.sessionID
-    : typeof (info as { id?: unknown }).id === "string"
-      ? (info as { id: string }).id
+  if (!isObjectRecord(props)) return null;
+  const info = props.info;
+  if (!isObjectRecord(info)) return null;
+  const sessionId = typeof props.sessionID === "string"
+    ? props.sessionID
+    : typeof info.id === "string"
+      ? info.id
       : "";
   if (!sessionId) return null;
-  return { sessionId, info: info as Record<string, unknown> };
+  return { sessionId, info };
 }
 
 function isLiveStatus(status: SessionStatus | null | undefined) {
@@ -604,6 +607,13 @@ export function coalescePendingDeltas(items: PendingDelta[]) {
 function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent) {
   const queryClient = getReactQueryClient();
   const input = entry.input;
+
+  if (event.type === "session.created") {
+    const update = getSessionUpdatedInfo(event);
+    if (!update) return;
+    for (const listener of entry.sessionUpdatedListeners) listener(update);
+    return;
+  }
 
   if (event.type === "session.updated") {
     const update = getSessionUpdatedInfo(event);

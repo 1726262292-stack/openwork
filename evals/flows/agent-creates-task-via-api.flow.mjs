@@ -226,7 +226,7 @@ export default {
           action: async () => {
             const toolLabel = await ctx.waitFor(
               `(() => {
-                const match = document.body.innerText.match(/openwork_session_create|session_create/i);
+                const match = document.body.innerText.match(/openwork[_\\s]session[_\\s]create/i);
                 return match ? match[0] : null;
               })()`,
               { timeoutMs: 180_000, label: "openwork_session_create tool call" },
@@ -236,7 +236,7 @@ export default {
           assert: async () => {
             await ctx.expectNoText("Something went wrong");
           },
-          screenshot: { name: "session-create-tool-call", requireText: ["session_create"], rejectText: ["Something went wrong"] },
+          screenshot: { name: "session-create-tool-call", requireText: ["openwork session create"], rejectText: ["Something went wrong"] },
         });
       },
     },
