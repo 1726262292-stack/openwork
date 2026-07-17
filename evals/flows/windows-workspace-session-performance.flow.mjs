@@ -1020,6 +1020,12 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await waitForControl(ctx);
+            await ctx.navigateHash("/settings/general");
+            await ctx.waitFor(`window.location.hash.includes("/settings/general")`, {
+              timeoutMs: 30_000,
+              label: "general settings baseline",
+            });
+            await dismissOpenWorkModelsPromo(ctx);
             state.runtime = await ctx.eval(`(async () => {
               const bridge = window.__OPENWORK_ELECTRON__;
               const invoke = bridge?.invokeDesktop;
@@ -1049,7 +1055,12 @@ export default {
             recordAssertion(ctx, typeof state.runtime?.userAgent === "string" && state.runtime.userAgent.includes("Electron"), "The renderer user agent is Electron.", state.runtime?.userAgent);
             recordAssertion(ctx, state.runtime?.build?.openworkDevMode === false, "appBuildInfo reports packaged/not dev mode.", state.runtime?.build);
           },
-          screenshot: { name: "packaged-windows-baseline", rejectText: ["Something went wrong"] },
+          screenshot: {
+            name: "packaged-windows-baseline",
+            requireText: ["Overview of all settings"],
+            rejectText: ["Something went wrong", "Use OpenWork Models without API keys"],
+            hashIncludes: "/settings/general",
+          },
         });
       },
     },
@@ -1127,6 +1138,7 @@ export default {
             };
             ctx.output("windows UI/session responsiveness metrics", JSON.stringify(state.ui, null, 2));
             ctx.output("cdp performance metrics after setup", JSON.stringify(state.perfAfterSetup.raw, null, 2));
+            await dismissOpenWorkModelsPromo(ctx);
           },
           assert: async () => {
             const params = readParams(ctx);
