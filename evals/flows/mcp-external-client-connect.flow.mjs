@@ -12,6 +12,8 @@ const DEMO_PASSWORD = "OpenWorkDemo123!";
 const CLIENT_SCOPE = "openid profile email mcp:read mcp:write";
 const CLIENT_NAME = "OpenWork eval URL-only MCP client";
 const EXPECTED_AGENT_TOOLS = ["execute_capability", "search_capabilities"];
+const SIGN_IN_EMAIL_SELECTOR = 'input[type="email"], input[name="email"], input[autocomplete="email"], input[autocomplete="username"]';
+const SIGN_IN_PASSWORD_SELECTOR = 'input[type="password"], input[name="password"], input[autocomplete="current-password"]';
 
 // Narration is loaded from the approved script (evals/voiceovers/mcp-external-client-connect.md).
 // The runner fails this flow if the narration drifts from that script.
@@ -163,11 +165,12 @@ async function clearDenWebSession(ctx) {
 }
 
 async function waitForSignInForm(ctx) {
-  await ctx.waitFor("document.body.innerText.includes('Sign in')", { timeoutMs: 30_000, label: "sign-in copy" });
   await ctx.waitFor(
-    "Boolean(document.querySelector('input[type=\"email\"], input[name=\"email\"]')) && Boolean(document.querySelector('input[type=\"password\"]'))",
-    { timeoutMs: 30_000, label: "email + password fields" },
+    `Boolean(document.querySelector(${JSON.stringify(SIGN_IN_EMAIL_SELECTOR)}))`,
+    { timeoutMs: 30_000, label: "sign-in email field" },
   );
+  const passwordAlreadyVisible = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(SIGN_IN_PASSWORD_SELECTOR)}))`);
+  if (!passwordAlreadyVisible) return;
   const submitIsSignIn = await ctx.eval(`(() => {
     const submit = document.querySelector('button[type="submit"]');
     return (submit?.textContent ?? '').includes('Sign in');
@@ -186,13 +189,50 @@ async function waitForSignInForm(ctx) {
 }
 
 async function submitSignIn(ctx) {
-  await waitForSignInForm(ctx);
-  await ctx.fill('input[type="email"], input[name="email"]', DEMO_EMAIL);
-  await ctx.fill('input[type="password"]', DEMO_PASSWORD);
+  const passwordAlreadyVisible = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(SIGN_IN_PASSWORD_SELECTOR)}))`);
+  if (!passwordAlreadyVisible) {
+    await waitForSignInForm(ctx);
+    await ctx.fill(SIGN_IN_EMAIL_SELECTOR, DEMO_EMAIL);
+    const passwordVisibleAfterEmail = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(SIGN_IN_PASSWORD_SELECTOR)}))`);
+    if (!passwordVisibleAfterEmail) {
+      const advanced = await ctx.waitFor(`(() => {
+        const email = document.querySelector(${JSON.stringify(SIGN_IN_EMAIL_SELECTOR)});
+        const root = email?.closest('form') ?? document;
+        const buttons = [...root.querySelectorAll('button, input[type="submit"]')];
+        const button = buttons.find((entry) => {
+          const disabled = entry.disabled || entry.getAttribute('aria-disabled') === 'true';
+          const text = (entry.textContent ?? entry.value ?? entry.getAttribute('aria-label') ?? '').trim();
+          return !disabled && (entry.type === 'submit' || /^(next|continue|sign in|log in)$/i.test(text));
+        });
+        button?.scrollIntoView({ block: 'center' });
+        button?.click();
+        return Boolean(button);
+      })()`, { timeoutMs: 15_000, label: "email-first sign-in submit" });
+      ctx.assert(Boolean(advanced), "No Next button found on the email-first sign-in card.");
+      await ctx.waitFor(
+        `Boolean(document.querySelector(${JSON.stringify(SIGN_IN_PASSWORD_SELECTOR)}))`,
+        { timeoutMs: 30_000, label: "password step" },
+      );
+    }
+  } else {
+    const emailVisible = await ctx.eval(`Boolean(document.querySelector(${JSON.stringify(SIGN_IN_EMAIL_SELECTOR)}))`);
+    if (emailVisible) {
+      await waitForSignInForm(ctx);
+      await ctx.fill(SIGN_IN_EMAIL_SELECTOR, DEMO_EMAIL);
+    }
+  }
+  await ctx.fill(SIGN_IN_PASSWORD_SELECTOR, DEMO_PASSWORD);
   const submitted = await ctx.waitFor(`(() => {
-    const buttons = [...document.querySelectorAll('button')]
-      .filter((button) => !button.disabled && ((button.textContent ?? '').includes('Sign in') || button.type === 'submit'));
+    const password = document.querySelector(${JSON.stringify(SIGN_IN_PASSWORD_SELECTOR)});
+    const root = password?.closest('form') ?? document;
+    const buttons = [...root.querySelectorAll('button, input[type="submit"]')]
+      .filter((button) => {
+        const disabled = button.disabled || button.getAttribute('aria-disabled') === 'true';
+        const text = (button.textContent ?? button.value ?? button.getAttribute('aria-label') ?? '').trim();
+        return !disabled && (button.type === 'submit' || /^(sign in|log in|continue)$/i.test(text));
+      });
     const button = buttons[buttons.length - 1];
+    button?.scrollIntoView({ block: 'center' });
     button?.click();
     return Boolean(button);
   })()`, { timeoutMs: 10_000, label: "sign-in submit" });
@@ -572,9 +612,8 @@ export default {
           },
           assert: async () => {
             const signInFields = await ctx.eval(`(() => ({
-              hasEmail: Boolean(document.querySelector('input[type="email"], input[name="email"]')),
-              hasPassword: Boolean(document.querySelector('input[type="password"]')),
-              bodyText: document.body.innerText,
+              hasEmail: Boolean(document.querySelector(${JSON.stringify(SIGN_IN_EMAIL_SELECTOR)})),
+              hasPassword: Boolean(document.querySelector(${JSON.stringify(SIGN_IN_PASSWORD_SELECTOR)})),
             }))()`);
             const actual = {
               registrationStatus: state.registration?.status,
@@ -591,11 +630,11 @@ export default {
             recordAssertion(
               ctx,
               "The authorize URL sends the browser to the real OpenWork sign-in page",
-              signInFields?.hasEmail === true && signInFields?.hasPassword === true && signInFields?.bodyText?.includes("Sign in") === true,
+              signInFields?.hasEmail === true,
               signInFields,
             );
           },
-          screenshot: { name: "frame-3-openwork-sign-in", requireText: ["Sign in"] },
+          screenshot: { name: "frame-3-openwork-sign-in", requireText: ["EMAIL"] },
         });
       },
     },

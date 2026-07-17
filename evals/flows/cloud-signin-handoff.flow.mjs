@@ -67,16 +67,30 @@ export default {
     {
       name: "Session is connected",
       run: async (ctx) => {
-        await ctx.expectText("Sign out", { timeoutMs: 45_000 });
-        const token = await ctx.eval(
-          "localStorage.getItem('openwork.den.authToken') ?? ''",
+        // A fresh sign-in persists the token, then the app auto-navigates to
+        // /onboarding (org chooser). A reused session stays on the account
+        // panel showing "Sign out". Both are valid signed-in landings.
+        await ctx.waitFor(
+          "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())",
+          { timeoutMs: 45_000, label: "persisted den auth token" },
         );
-        ctx.assert(typeof token === "string" && token.trim().length > 0, "No persisted den auth token.");
+        await ctx.waitFor(
+          `(() => {
+            const text = document.body.innerText;
+            return text.includes("Sign out") || location.hash.includes("/onboarding");
+          })()`,
+          { timeoutMs: 45_000, label: "signed-in landing (account panel or onboarding)" },
+        );
+        const status = await ctx.control("auth.status");
+        ctx.assert(status?.status === "signed_in", `auth.status is ${status?.status}, expected signed_in`);
+        const onOnboarding = await ctx.eval("location.hash.includes('/onboarding')");
         await ctx.screenshot("signed-in", {
-          claim: "Cloud Account shows a connected session after desktop handoff.",
-          requireText: ["Sign out"],
+          claim: onOnboarding
+            ? "Desktop handoff landed a signed-in session; the app offers the organization chooser."
+            : "Cloud Account shows a connected session after desktop handoff.",
+          requireText: onOnboarding ? ["Continue with organization"] : ["Sign out"],
           rejectText: ["Something went wrong"],
-          hashIncludes: "/settings/cloud-account",
+          hashIncludes: onOnboarding ? "/onboarding" : "/settings/cloud-account",
         });
       },
     },

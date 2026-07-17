@@ -213,7 +213,14 @@ export default {
             const nodes = [...document.querySelectorAll("button, [role=option], div")].filter(
               (el) => (el.textContent ?? "").trim().startsWith(${JSON.stringify(text)}),
             );
-            nodes.sort((a, b) => (a.textContent ?? "").length - (b.textContent ?? "").length);
+            // Prefer real buttons: clicking a same-text wrapper div never
+            // fires the React onClick that lives on the button inside it.
+            nodes.sort((a, b) => {
+              const aButton = a.tagName === "BUTTON" ? 0 : 1;
+              const bButton = b.tagName === "BUTTON" ? 0 : 1;
+              if (aButton !== bButton) return aButton - bButton;
+              return (a.textContent ?? "").length - (b.textContent ?? "").length;
+            });
             if (!nodes[0]) return false;
             nodes[0].click();
             return true;
