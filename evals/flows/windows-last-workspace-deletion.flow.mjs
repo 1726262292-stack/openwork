@@ -110,7 +110,7 @@ async function removeWorkspaceThroughSidebar(ctx, workspaceName) {
     const label = Array.from(document.querySelectorAll("span")).find(
       (element) => element.textContent?.trim() === ${JSON.stringify(workspaceName)},
     );
-    const header = label?.closest(".group\\/workspace-header");
+    const header = label?.closest("button")?.parentElement;
     const button = header?.querySelector('button[aria-label="Workspace options"]');
     if (!button) return false;
     button.click();
@@ -130,8 +130,9 @@ async function assertEmpty(ctx) {
   const server = await serverRequest(ctx, "/workspaces");
   ctx.assert((desktop?.workspaces ?? []).length === 0, "Expected zero persisted desktop workspaces");
   ctx.assert(serverWorkspaceItems(server).length === 0, "Expected zero server workspaces");
-  await ctx.expectHashIncludes("/welcome");
-  await ctx.expectText("Welcome to OpenWork");
+  await ctx.expectHashIncludes("/session");
+  await ctx.expectText("Create or connect a workspace");
+  await ctx.expectNoText("Preparing workspace");
   await ctx.expectNoText(MODEL_UNAVAILABLE_TEXT);
 }
 
@@ -166,7 +167,7 @@ export default {
     {
       name: "Remove the final workspace",
       run: async (ctx) => {
-        await ctx.prove("Removing the final workspace opens the clean welcome screen", {
+        await ctx.prove("Removing the final workspace opens the clean empty workspace screen", {
           voiceover: vo[1],
           action: async () => {
             await removeWorkspaceThroughSidebar(ctx, FIXTURES[1].name);
@@ -177,9 +178,9 @@ export default {
           },
           screenshot: {
             name: "final-workspace-removed",
-            requireText: ["Welcome to OpenWork", "Pick a folder to get started"],
-            rejectText: [...FIXTURES.map((fixture) => fixture.name), MODEL_UNAVAILABLE_TEXT],
-            hashIncludes: ["/welcome"],
+            requireText: ["Create or connect a workspace", "Create workspace"],
+            rejectText: [...FIXTURES.map((fixture) => fixture.name), "Preparing workspace", MODEL_UNAVAILABLE_TEXT],
+            hashIncludes: ["/session"],
           },
         });
       },
@@ -203,9 +204,9 @@ export default {
           },
           screenshot: {
             name: "empty-state-stays-quiet",
-            requireText: ["Welcome to OpenWork", "Pick a folder to get started"],
-            rejectText: [...FIXTURES.map((fixture) => fixture.name), MODEL_UNAVAILABLE_TEXT],
-            hashIncludes: ["/welcome"],
+            requireText: ["Create or connect a workspace", "Create workspace"],
+            rejectText: [...FIXTURES.map((fixture) => fixture.name), "Preparing workspace", MODEL_UNAVAILABLE_TEXT],
+            hashIncludes: ["/session"],
           },
         });
       },
@@ -220,14 +221,14 @@ export default {
             await sleep(2_000);
             await ctx.reconnect({ timeoutMs: 120_000 });
             await waitForDesktop(ctx);
-            await ctx.waitForText("Welcome to OpenWork", { timeoutMs: 90_000 });
+            await ctx.waitForText("Create or connect a workspace", { timeoutMs: 90_000 });
           },
           assert: async () => assertEmpty(ctx),
           screenshot: {
             name: "empty-state-after-restart",
-            requireText: ["Welcome to OpenWork", "Pick a folder to get started"],
-            rejectText: [...FIXTURES.map((fixture) => fixture.name), MODEL_UNAVAILABLE_TEXT],
-            hashIncludes: ["/welcome"],
+            requireText: ["Create or connect a workspace", "Create workspace"],
+            rejectText: [...FIXTURES.map((fixture) => fixture.name), "Preparing workspace", MODEL_UNAVAILABLE_TEXT],
+            hashIncludes: ["/session"],
           },
         });
       },
