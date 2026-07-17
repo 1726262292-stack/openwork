@@ -203,10 +203,6 @@ async function waitForChooser(ctx) {
     `Boolean(document.querySelector('[data-testid="org-chooser-root"]')) && document.body.innerText.includes('Choose an organization')`,
     { timeoutMs: 60_000, label: "organization chooser" },
   );
-  await ctx.waitFor(
-    `Boolean(document.querySelector('[data-testid="org-chooser-background"] canvas'))`,
-    { timeoutMs: 30_000, label: "Dithering shader canvas" },
-  );
 }
 
 async function forceChooser(ctx) {
@@ -240,15 +236,12 @@ async function openFreshChooser(ctx) {
 async function chooserVisualState(ctx) {
   return ctx.eval(`(() => {
     const root = document.querySelector('[data-testid="org-chooser-root"]');
-    const background = document.querySelector('[data-testid="org-chooser-background"]');
     const foreground = document.querySelector('[data-testid="org-chooser-foreground"]');
     const list = document.querySelector('[data-testid="org-chooser-list"]');
     const actions = document.querySelector('[data-testid="org-chooser-actions"]');
     const rootStyle = root ? getComputedStyle(root) : null;
-    const backgroundStyle = background ? getComputedStyle(background) : null;
     const foregroundStyle = foreground ? getComputedStyle(foreground) : null;
     const listStyle = list ? getComputedStyle(list) : null;
-    const backgroundRect = background?.getBoundingClientRect();
     const foregroundRect = foreground?.getBoundingClientRect();
     const listRect = list?.getBoundingClientRect();
 
@@ -259,15 +252,9 @@ async function chooserVisualState(ctx) {
       rootMinHeight: rootStyle?.minHeight ?? null,
       rootOverflowY: rootStyle?.overflowY ?? null,
       rootBackgroundColor: rootStyle?.backgroundColor ?? null,
-      backgroundAriaHidden: background?.getAttribute('aria-hidden') ?? null,
-      backgroundPointerEvents: backgroundStyle?.pointerEvents ?? null,
-      backgroundOpacity: backgroundStyle?.opacity ?? null,
-      backgroundPosition: backgroundStyle?.position ?? null,
-      backgroundZIndex: backgroundStyle?.zIndex ?? null,
-      backgroundCanvasCount: background?.querySelectorAll('canvas').length ?? 0,
       rootCanvasCount: root?.querySelectorAll('canvas').length ?? 0,
-      backgroundCoversViewport: Boolean(backgroundRect && backgroundRect.width >= window.innerWidth && backgroundRect.height >= window.innerHeight),
-      foregroundZIndex: foregroundStyle?.zIndex ?? null,
+      foregroundBackgroundColor: foregroundStyle?.backgroundColor ?? null,
+      foregroundBorderRadius: foregroundStyle?.borderRadius ?? null,
       foregroundOpacity: foregroundStyle?.opacity ?? null,
       foregroundWithinViewport: Boolean(foregroundRect && foregroundRect.left >= 0 && foregroundRect.right <= window.innerWidth + 1),
       listBackgroundColor: listStyle?.backgroundColor ?? null,
@@ -323,7 +310,7 @@ async function selectTargetOrg(ctx) {
 
 export default {
   id: "org-chooser-background",
-  title: "Organization chooser uses a restrained Dithering background without sacrificing readability",
+  title: "Organization chooser uses the join flow's light-paper treatment",
   kind: "user-facing",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL", "OPENWORK_EVAL_DEN_MULTI_ORG"],
   steps: [
@@ -336,7 +323,7 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The real organization chooser opens on a calm Dithering background", {
+        await ctx.prove("The real organization chooser opens on the join flow's light-paper surface", {
           voiceover: vo[0],
           action: async () => {
             await openFreshChooser(ctx);
@@ -344,13 +331,13 @@ export default {
           assert: async () => {
             await ctx.expectText("Choose an organization");
             const visual = await chooserVisualState(ctx);
-            ctx.assert(visual.backgroundCanvasCount === 1 && visual.rootCanvasCount === 1, `Expected exactly one chooser shader canvas: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.backgroundCoversViewport, `Background did not cover the viewport: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.rootBackgroundColor === "rgb(15, 29, 49)", `Unexpected root background color: ${JSON.stringify(visual)}`);
+            ctx.assert(visual.rootCanvasCount === 0, `The chooser should not render a separate shader: ${JSON.stringify(visual)}`);
+            ctx.assert(visual.foregroundBackgroundColor.startsWith("rgba(255, 255, 255,"), `The chooser is not using the light paper frame: ${JSON.stringify(visual)}`);
+            ctx.assert(visual.foregroundBorderRadius === "32px", `The chooser frame does not match the join flow radius: ${JSON.stringify(visual)}`);
           },
           screenshot: {
-            name: "chooser-calm-background",
-            claim: "The organization chooser opens on the new navy Dithering treatment with the chooser content in front.",
+            name: "chooser-light-paper",
+            claim: "The organization chooser opens on the same light-paper card treatment as the join flow.",
             requireText: ["Choose an organization", state.targetOrg?.name ?? EVAL_ORG_NAME],
             rejectText: ["Something went wrong"],
           },
@@ -360,24 +347,19 @@ export default {
     {
       name: "Frame 2",
       run: async (ctx) => {
-        await ctx.prove("The decorative texture is separate and low-opacity while the list stays readable", {
+        await ctx.prove("The inset organization list stays readable inside the paper frame", {
           voiceover: vo[1],
           action: async () => {
             await waitForChooser(ctx);
           },
           assert: async () => {
             const visual = await chooserVisualState(ctx);
-            const opacity = Number.parseFloat(visual.backgroundOpacity ?? "1");
-            ctx.assert(visual.backgroundAriaHidden === "true", `Background is not aria-hidden: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.backgroundPointerEvents === "none", `Background can receive pointer events: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.backgroundPosition === "fixed" && visual.backgroundZIndex === "0" && visual.foregroundZIndex === "10", `Background/foreground stacking changed: ${JSON.stringify(visual)}`);
-            ctx.assert(opacity > 0 && opacity <= 0.12, `Background opacity is not restrained: ${JSON.stringify(visual)}`);
             ctx.assert(visual.foregroundOpacity === "1" && visual.listOpacity === "1", `Foreground/list opacity should stay fully legible: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.listBackgroundColor === "rgb(255, 255, 255)", `Org list is not an opaque white surface: ${JSON.stringify(visual)}`);
+            ctx.assert(visual.listBackgroundColor.startsWith("rgba(248, 250, 252,"), `Org list is not using the light inset surface: ${JSON.stringify(visual)}`);
           },
           screenshot: {
             name: "chooser-readable-list",
-            claim: "The low-opacity decorative shader sits behind a crisp white organization list.",
+            claim: "The light paper frame contains a crisp, readable inset organization list.",
             requireText: ["Choose an organization", "member"],
             rejectText: ["Something went wrong"],
           },
@@ -425,14 +407,14 @@ export default {
           assert: async () => {
             const visual = await chooserVisualState(ctx);
             ctx.assert(visual.viewportWidth <= 430, `Mobile viewport was not applied: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.rootOverflowY === "auto" && typeof visual.rootMinHeight === "string" && visual.rootMinHeight.endsWith("px"), `Chooser shell is not scroll-safe: ${JSON.stringify(visual)}`);
+            ctx.assert(typeof visual.rootMinHeight === "string" && visual.rootMinHeight.endsWith("px"), `Chooser shell is not tall enough for the viewport: ${JSON.stringify(visual)}`);
             ctx.assert(visual.foregroundWithinViewport && visual.listWithinViewport, `Chooser content overflowed the mobile viewport: ${JSON.stringify(visual)}`);
-            ctx.assert(visual.listBackgroundColor === "rgb(255, 255, 255)", `Mobile org list is not readable white: ${JSON.stringify(visual)}`);
+            ctx.assert(visual.listBackgroundColor.startsWith("rgba(248, 250, 252,"), `Mobile org list is not using the readable inset surface: ${JSON.stringify(visual)}`);
             ctx.assert(visual.actionsText.includes("Create or join") && visual.actionsText.includes("Sign out"), `Mobile actions are not visible: ${JSON.stringify(visual)}`);
           },
           screenshot: {
             name: "chooser-mobile-actions",
-            claim: "On a phone-sized viewport, the same restrained background stays behind the readable chooser and its account actions.",
+            claim: "On a phone-sized viewport, the light paper chooser keeps its readable list and account actions.",
             requireText: ["Choose an organization", "Create or join", "Sign out"],
             rejectText: ["Something went wrong"],
           },
