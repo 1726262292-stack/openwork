@@ -125,14 +125,21 @@ export default {
             await ensureAcmeActiveOrg(ctx, coworkerToken);
             ctx.coworkerToken = coworkerToken;
 
-            await signInDesktopWithHandoff(ctx, coworkerToken);
+            await signInDesktopWithHandoff(ctx, coworkerToken, ctx.env.OPENWORK_EVAL_COWORKER_EMAIL.trim());
             await completeDesktopCloudOnboardingIfNeeded(ctx, ctx.env.OPENWORK_EVAL_WORKSPACE_PATH.trim());
             await navigateToWorkspaceSession(ctx);
           },
           assert: async () => {
             await ctx.expectHashIncludes("/workspace/");
-            const status = await currentAuthStatus(ctx);
-            ctx.assert(status.status === "signed_in", `Expected signed_in after coworker handoff, got ${status.status}.`);
+            const expected = ctx.env.OPENWORK_EVAL_COWORKER_EMAIL.trim();
+            const startedAt = Date.now();
+            let signedInAs = null;
+            while (Date.now() - startedAt < 60_000) {
+              signedInAs = await desktopSignedInEmail(ctx);
+              if (signedInAs === expected) break;
+              await new Promise((resolve) => setTimeout(resolve, 1_000));
+            }
+            ctx.assert(signedInAs === expected, `Desktop token belongs to ${signedInAs ?? "nobody"}, expected ${expected}.`);
           },
           screenshot: {
             name: "coworker-signed-in",
@@ -408,14 +415,40 @@ async function signOutDesktopCloudIfNeeded(ctx) {
 
   await openSettingsPanel(ctx, "cloud-account");
   await clickExactText(ctx, "Sign out", "button", 30_000);
-  await ctx.waitForText("Paste sign-in code", { timeoutMs: 60_000 });
+  // The manual-code collapsible may already be expanded from a prior run, in
+  // which case the trigger reads "Hide sign-in code" instead.
+  await ctx.waitFor(
+    `(() => { const t = document.body.innerText; return t.includes("Paste sign-in code") || t.includes("Hide sign-in code"); })()`,
+    { timeoutMs: 60_000, label: "signed-out cloud account panel" },
+  );
   await ctx.waitFor("!Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
     timeoutMs: 30_000,
     label: "desktop cloud token cleared",
   });
 }
 
-async function signInDesktopWithHandoff(ctx, token) {
+// Ground-truth desktop identity: read the app's own persisted token and ask
+// Den who it belongs to. The auth.status control action can lag behind the
+// app's session-revival path, so it is not a reliable identity source.
+async function desktopSignedInEmail(ctx) {
+  const token = await ctx.eval("(localStorage.getItem('openwork.den.authToken') ?? '').trim()");
+  if (!token) return null;
+  const apiBase = ctx.env.OPENWORK_EVAL_DEN_API_URL.trim().replace(/\/+$/, "");
+  const response = await fetch(`${apiBase}/v1/me`, { headers: { authorization: `Bearer ${token}` } });
+  if (!response.ok) return null;
+  const body = await response.json();
+  return body?.user?.email ?? null;
+}
+
+async function signInDesktopWithHandoff(ctx, token, expectedEmail) {
+  // The app can revive a recent cloud session on its own (post-#2885
+  // session-survival behavior), so decide based on identity, not on which
+  // panel affordances happen to be visible.
+  if ((await desktopSignedInEmail(ctx)) === expectedEmail) {
+    ctx.log(`Already signed in as ${expectedEmail}; skipping paste-code sign-in.`);
+    return;
+  }
+
   const handoff = await denRequest(ctx, token, "/v1/auth/desktop-handoff", {
     method: "POST",
     body: JSON.stringify({ desktopScheme: "openwork" }),
@@ -423,11 +456,38 @@ async function signInDesktopWithHandoff(ctx, token) {
   ctx.assert(typeof handoff?.openworkUrl === "string" && handoff.openworkUrl.length > 0, "Desktop handoff returned no openworkUrl.");
 
   await openSettingsPanel(ctx, "cloud-account");
-  await ctx.clickText("Paste sign-in code", { timeoutMs: 30_000 });
+  await ctx.waitFor(
+    `(() => {
+      const t = document.body.innerText;
+      return Boolean(document.querySelector('#den-signin-link')) || t.includes("Paste sign-in code") || t.includes("Sign out");
+    })()`,
+    { timeoutMs: 30_000, label: "cloud account panel settled" },
+  );
+  // A session revival may have signed us back in while the panel mounted.
+  if ((await desktopSignedInEmail(ctx)) === expectedEmail) {
+    ctx.log(`Session revived as ${expectedEmail} while opening the panel; skipping paste-code sign-in.`);
+    return;
+  }
+  // Signed in as someone else (possibly revived): sign out first so the
+  // paste-code affordance is reachable.
+  const showsSignOut = await ctx.eval(
+    `[...document.querySelectorAll("button")].some((b) => (b.textContent ?? "").trim() === "Sign out")`,
+  );
+  if (showsSignOut) {
+    await clickExactText(ctx, "Sign out", "button", 30_000);
+    await ctx.waitFor(
+      `(() => { const t = document.body.innerText; return t.includes("Paste sign-in code") || t.includes("Hide sign-in code"); })()`,
+      { timeoutMs: 60_000, label: "signed-out panel after account switch" },
+    );
+  }
+  const codeInputVisible = await ctx.eval("Boolean(document.querySelector('#den-signin-link'))");
+  if (!codeInputVisible) {
+    await ctx.clickText("Paste sign-in code", { timeoutMs: 30_000 });
+  }
   await ctx.fill("#den-signin-link", handoff.openworkUrl);
   await ctx.clickText("Finish sign-in", { timeoutMs: 30_000 });
   await ctx.waitFor("Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
-    timeoutMs: 60_000,
+    timeoutMs: 90_000,
     label: "persisted Den auth token",
   });
 }
