@@ -3,12 +3,26 @@
 // and Windows/Linux menu-bar visibility. Extracted from main.mjs as a
 // factory (createRuntimeManager pattern); the NATIVE_MENU_* channels are
 // consumed by the preload bridge.
-import { BrowserWindow, Menu, shell } from "electron";
+import { BrowserWindow, Menu, shell, webContents } from "electron";
 
 const NATIVE_MENU_OPEN_SETTINGS_EVENT = "openwork:native-menu:open-settings";
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "openwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "openwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "openwork:native-menu:zoom";
+const SELECT_ALL_SCRIPT = '(() => typeof window.__openworkChatSelectAll === "function" ? window.__openworkChatSelectAll() : false)()';
+
+async function selectAllFromNativeMenu(_item, browserWindow) {
+  const wc = webContents.getFocusedWebContents() ?? browserWindow?.webContents;
+
+  if (!wc) return;
+
+  try {
+    const handled = await wc.executeJavaScript(SELECT_ALL_SCRIPT, true);
+    if (handled !== true) wc.selectAll();
+  } catch {
+    wc.selectAll();
+  }
+}
 
 export function createApplicationMenu({ appName, docsUrl, getWindow }) {
   let applicationMenuVisible = process.platform === "darwin";
@@ -110,7 +124,11 @@ export function createApplicationMenu({ appName, docsUrl, getWindow }) {
             ? [
                 { role: "pasteAndMatchStyle" },
                 { role: "delete" },
-                { role: "selectAll" },
+                {
+                  label: "Select All",
+                  accelerator: "CmdOrCtrl+A",
+                  click: selectAllFromNativeMenu,
+                },
                 { type: "separator" },
                 {
                   label: "Speech",
@@ -130,7 +148,11 @@ export function createApplicationMenu({ appName, docsUrl, getWindow }) {
             : [
                 { role: "delete" },
                 { type: "separator" },
-                { role: "selectAll" },
+                {
+                  label: "Select All",
+                  accelerator: "CmdOrCtrl+A",
+                  click: selectAllFromNativeMenu,
+                },
               ]),
         ],
       },

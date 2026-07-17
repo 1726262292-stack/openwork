@@ -38,6 +38,7 @@ import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
 import { ArtifactList } from "@/components/chat/artifact"
+import { useChatSelectAll } from "@/components/chat/use-chat-select-all"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
 import {
   DescriptiveButtonContent,
@@ -854,6 +855,8 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, status, retryStatus }: MessageListProps) {
+  useChatSelectAll()
+
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
@@ -863,7 +866,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
     : null
 
   return (
-    <div className={cn("flex flex-col gap-2 @container/message-list")}>
+    <div data-chat-transcript className={cn("flex flex-col gap-2 @container/message-list")}>
       {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
 
       {items.map((item) => {
