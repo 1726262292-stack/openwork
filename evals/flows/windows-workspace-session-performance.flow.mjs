@@ -91,6 +91,7 @@ function readParams(ctx) {
     maxEventLoopP95Ms: requirePositiveInt(ctx.env, "OPENWORK_PERF_MAX_EVENT_LOOP_P95_MS", DEFAULTS.maxEventLoopP95Ms),
     maxEventAborts: requireNonNegativeInt(ctx.env, "OPENWORK_PERF_MAX_EVENT_ABORTS", DEFAULTS.maxEventAborts),
     maxJsHeapMb: requirePositiveInt(ctx.env, "OPENWORK_PERF_MAX_JS_HEAP_MB", DEFAULTS.maxJsHeapMb),
+    requireOutOfWindowSession: ctx.env.OPENWORK_PERF_REQUIRE_OUT_OF_WINDOW_SESSION?.trim() === "1",
     provider: provider || null,
     model: model || null,
   };
@@ -172,6 +173,7 @@ async function waitForBenchmarkSessionReady(ctx, workspaceId, session) {
   const routeNeedle = `/workspace/${workspaceId}/session/${session.sessionId}`;
   return ctx.waitFor(`(() => {
     const sessionId = ${quoted(session.sessionId)};
+    const expectedTitle = ${quoted(session.title)};
     const text = document.body?.innerText || "";
     const hashPath = (window.location.hash || "").replace(/^#/, "").split(/[?#]/)[0];
     const routePath = (window.__openworkControl?.snapshot?.().route || "").split(/[?#]/)[0];
@@ -181,14 +183,22 @@ async function waitForBenchmarkSessionReady(ctx, workspaceId, session) {
     const surfaceVisible = Boolean(surfaceRect && surfaceRect.width > 0 && surfaceRect.height > 0);
     const activeTab = Array.from(document.querySelectorAll('[data-session-tab-id][data-session-tab-active="true"]'))
       .find((element) => element.getAttribute("data-session-tab-id") === sessionId);
+    const activeTabTitle = activeTab?.querySelector('button[title]')?.textContent?.trim() || "";
+    const headerTitle = document.querySelector('[data-slot="sidebar-inset"] header h1')?.textContent?.trim() || "";
+    const routeState = window.__openwork?.slice?.("route");
+    const routeSession = routeState?.sessionsByWorkspaceId?.[${quoted(workspaceId)}]
+      ?.find((item) => item?.id === sessionId);
     const ready = hashPath === ${quoted(routeNeedle)} &&
       routePath === ${quoted(routeNeedle)} &&
       surfaceVisible &&
       Boolean(activeTab) &&
+      activeTabTitle === expectedTitle &&
+      headerTitle === expectedTitle &&
+      routeSession?.title === expectedTitle &&
       !text.includes("Preparing workspace") &&
       !text.includes("Pulling in the latest messages") &&
       !text.includes("Something went wrong");
-    return ready ? { hashPath, routePath, sessionId, surfaceVisible, activeTab: true } : null;
+    return ready ? { hashPath, routePath, sessionId, expectedTitle, surfaceVisible, activeTab: true, activeTabTitle, headerTitle, routeSessionTitle: routeSession.title } : null;
   })()`, { timeoutMs: 90_000, label: `benchmark session ready ${session.sessionId}` });
 }
 
@@ -330,6 +340,7 @@ async function measureSessionSwitches(ctx, workspaceId, sessions) {
     records.push({
       sessionId: session.sessionId,
       title: session.title,
+      indexedBeforeOpen: session.indexedBeforeOpen,
       durationMs: Date.now() - startedAt,
       route: await ctx.eval("window.__openworkControl.snapshot().route"),
       readiness,
@@ -631,7 +642,9 @@ function setupWorker(params, emit) {
         createdBenchmarkSessions: created.length,
         benchmarkSessionCount: benchmark.length,
         totalListedSessions: finalItems.length,
-        sampleSessions: benchmark.slice(0, 20).map((session) => ({ sessionId: session.id, title: session.title })),
+        sampleSessions: benchmark
+          .slice(0, workspace.workspaceIndex === 1 ? benchmark.length : 20)
+          .map((session) => ({ sessionId: session.id, title: session.title })),
       });
     }
 
@@ -650,6 +663,7 @@ function setupWorker(params, emit) {
         maxEventLoopP95Ms: params.maxEventLoopP95Ms,
         maxEventAborts: params.maxEventAborts,
         maxJsHeapMb: params.maxJsHeapMb,
+        requireOutOfWindowSession: params.requireOutOfWindowSession,
       },
       server: { initial: initialServer, afterEngineStart: serverAfterEngineStart },
       firstWorkspaceId: firstWorkspace.id,
@@ -1081,18 +1095,39 @@ export default {
     {
       name: "Frame 2 - navigable workspace/session scale",
       run: async (ctx) => {
+        const firstWorkspace = state.setup.workspaces[0];
+        await ctx.waitFor(`(() => {
+          const route = window.__openwork?.slice?.("route");
+          const workspace = route?.workspaces?.find((item) => item?.id === ${quoted(state.setup.firstWorkspaceId)});
+          return Boolean(workspace && !workspace.loading && route?.sessionsByWorkspaceId?.[${quoted(state.setup.firstWorkspaceId)}]?.length);
+        })()`, { timeoutMs: 90_000, label: "benchmark route session index" });
+        const indexedSessionIds = await ctx.eval(`(() => {
+          const route = window.__openwork?.slice?.("route");
+          return (route?.sessionsByWorkspaceId?.[${quoted(state.setup.firstWorkspaceId)}] || [])
+            .map((session) => session?.id)
+            .filter(Boolean);
+        })()`);
+        const indexedSessionIdSet = new Set(indexedSessionIds);
+        const sampleSessions = firstWorkspace.sampleSessions;
+        const switchSessions = [
+          ...sampleSessions.filter((session) => !indexedSessionIdSet.has(session.sessionId)),
+          ...sampleSessions.filter((session) => indexedSessionIdSet.has(session.sessionId)),
+        ].slice(0, Math.min(10, sampleSessions.length)).map((session) => ({
+          ...session,
+          indexedBeforeOpen: indexedSessionIdSet.has(session.sessionId),
+        }));
+        const finalSwitchTitle = switchSessions[Math.min(9, switchSessions.length - 1)]?.title;
         await ctx.prove("Many real benchmark workspaces and sessions remain navigable in the visible app", {
           voiceover: vo[1],
           action: async () => {
             const params = readParams(ctx);
-            const firstWorkspace = state.setup.workspaces[0];
             const availableSessions = firstWorkspace.sampleSessions;
             recordAssertion(ctx, availableSessions.length > 0, "The first benchmark workspace has real sessions available for UI switching.", firstWorkspace);
             await installFetchProbe(ctx, "session-switches");
             await waitForWorkspaceRouteReady(ctx, state.setup.firstWorkspaceId);
             const routeReadyMs = state.activationRouteReadyMs;
             const eventLoopLag = await measureEventLoopLag(ctx);
-            const switches = await measureSessionSwitches(ctx, state.setup.firstWorkspaceId, availableSessions);
+            const switches = await measureSessionSwitches(ctx, state.setup.firstWorkspaceId, switchSessions);
             const fetchProbe = await fetchProbeSummary(ctx);
             state.perfAfterSetup = await getPerformanceMetrics(ctx, "after-setup-and-switches");
             const jsHeapUsedMiB = performanceMetricMiB(state.perfAfterSetup, "JSHeapUsedSize");
@@ -1102,6 +1137,10 @@ export default {
               switches,
               fetchProbe,
               jsHeapUsedMiB,
+              routeIndexBeforeSwitches: {
+                count: indexedSessionIds.length,
+                outOfWindowSampleCount: switchSessions.filter((session) => !session.indexedBeforeOpen).length,
+              },
               sidebarResizeGutter: await ctx.eval(`(() => {
                 const rail = document.querySelector('[data-slot="sidebar-rail"]');
                 const inset = document.querySelector('[data-slot="sidebar-inset"]');
@@ -1153,11 +1192,13 @@ export default {
             recordAssertion(ctx, state.ui.eventLoopLag.p95 !== null && state.ui.eventLoopLag.p95 <= params.maxEventLoopP95Ms, "Renderer event-loop lag p95 stayed within OPENWORK_PERF_MAX_EVENT_LOOP_P95_MS.", { actualMs: state.ui.eventLoopLag.p95, budgetMs: params.maxEventLoopP95Ms, eventLoopLag: state.ui.eventLoopLag });
             recordAssertion(ctx, Number.isFinite(state.ui.jsHeapUsedMiB) && state.ui.jsHeapUsedMiB <= params.maxJsHeapMb, "After-setup renderer JS heap stayed within OPENWORK_PERF_MAX_JS_HEAP_MB.", { actualMiB: state.ui.jsHeapUsedMiB, budgetMiB: params.maxJsHeapMb, metric: "JSHeapUsedSize" });
             recordAssertion(ctx, state.ui.sidebarResizeGutter?.overlapPx > 0 && state.ui.sidebarResizeGutter.maskCoversOverlap === true && state.ui.sidebarResizeGutter.maskBackground !== "rgba(0, 0, 0, 0)" && state.ui.sidebarResizeGutter.maskPointerEvents === "none" && state.ui.sidebarResizeGutter.railPointerEvents !== "none", "The sidebar resize gutter paints over its main-pane overlap without blocking resize input.", state.ui.sidebarResizeGutter);
+            recordAssertion(ctx, state.ui.switches.records.every((record) => record.readiness?.activeTabTitle === record.title && record.readiness?.headerTitle === record.title && record.readiness?.routeSessionTitle === record.title), "Every switched session keeps its route state, header, and active-tab title aligned.", state.ui.switches.records);
+            recordAssertion(ctx, !params.requireOutOfWindowSession || state.ui.switches.records.some((record) => record.indexedBeforeOpen === false), "The dedicated regression configuration explicitly exercises an out-of-window routed session.", { required: params.requireOutOfWindowSession, totalListedSessions: firstWorkspace.totalListedSessions, routeIndexBeforeSwitches: state.ui.routeIndexBeforeSwitches, records: state.ui.switches.records });
             await ctx.expectHashIncludes(`/workspace/${state.setup.firstWorkspaceId}/session`);
           },
           screenshot: {
             name: "benchmark-sessions-navigable",
-            requireText: ["Search sessions"],
+            requireText: ["Search sessions", finalSwitchTitle],
             rejectText: ["Something went wrong", "Use OpenWork Models without API keys"],
           },
         });

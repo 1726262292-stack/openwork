@@ -39,6 +39,7 @@ import { useBootState } from "./boot-state";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import {
+  classifyRouteSessionReadError,
   describeRouteError,
   isTransientStartupError,
   mapDesktopWorkspace,
@@ -53,7 +54,14 @@ import {
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
 } from "./session-memory";
-import { legacySessionRoute, sessionIdForLegacyWorkspaceInference, workspaceSessionRoute } from "./workspace-routes";
+import {
+  legacySessionRoute,
+  mergeWorkspaceRouteSession,
+  preserveWorkspaceRouteSession,
+  removeWorkspaceRouteSession,
+  sessionIdForLegacyWorkspaceInference,
+  workspaceSessionRoute,
+} from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   developerMode: boolean;
@@ -62,6 +70,10 @@ export type UseWorkspaceRouteStateInput = {
   /** Receives the local openwork-server host info discovered during refresh. */
   onHostInfo: (info: OpenworkServerInfo | null) => void;
 };
+
+type ModernRouteSessionResolution =
+  | { key: string; status: "loading" }
+  | { key: string; status: "not-found" | "error"; message: string };
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const { developerMode, onServerSettingsChanged, onHostInfo } = input;
@@ -91,6 +103,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [modernRouteSessionResolution, setModernRouteSessionResolution] = useState<ModernRouteSessionResolution | null>(null);
+  const [routeRefreshVersion, setRouteRefreshVersion] = useState(0);
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
   const selectedWorkspace = useMemo(
@@ -122,12 +136,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const remoteWorkspaceCheckRunCounterRef = useRef(0);
   const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});
   const pendingCreatedSessionIdsRef = useRef<Record<string, Record<string, number>>>({});
+  const hydratedRouteSessionIdsRef = useRef<Record<string, string>>({});
   const startupRetryTimerRef = useRef<number | null>(null);
   const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>([]);
   const launchActivatedWorkspaceIdsRef = useRef(new Set<string>());
   const reconnectAttemptedWorkspaceIdRef = useRef("");
   const backgroundSessionLoadInFlight = useRef<Map<string, number>>(new Map());
-  const modernRouteSessionLoadKeyRef = useRef("");
   const rememberPendingCreatedSession = useCallback((workspaceId: string, sessionId: string) => {
     const id = sessionId.trim();
     if (!workspaceId || !id) return;
@@ -138,35 +152,47 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   }, []);
   const mergeFetchedSessionsWithPending = useCallback((workspaceId: string, fetched: RouteSession[], current: RouteSession[]) => {
     const pending = pendingCreatedSessionIdsRef.current[workspaceId];
-    if (!pending) return fetched;
+    let merged = fetched;
+    if (pending) {
+      const now = Date.now();
+      const fetchedIds = new Set(fetched.flatMap((session) => session?.id ? [String(session.id)] : []));
+      const pendingIds = Object.keys(pending);
 
-    const now = Date.now();
-    const fetchedIds = new Set(fetched.flatMap((session) => session?.id ? [String(session.id)] : []));
-    const pendingIds = Object.keys(pending);
-
-    for (const id of pendingIds) {
-      if (fetchedIds.has(id)) {
-        delete pending[id];
+      for (const id of pendingIds) {
+        if (fetchedIds.has(id)) {
+          delete pending[id];
+        }
       }
+
+      const preserved = current.filter((session) => {
+        const id = String(session?.id ?? "");
+        if (!id || fetchedIds.has(id)) return false;
+        const createdAt = pending[id];
+        if (typeof createdAt !== "number") return false;
+        if (now - createdAt > 30_000) {
+          delete pending[id];
+          return false;
+        }
+        return true;
+      });
+
+      if (Object.keys(pending).length === 0) {
+        delete pendingCreatedSessionIdsRef.current[workspaceId];
+      }
+
+      if (preserved.length > 0) merged = [...preserved, ...fetched];
     }
 
-    const preserved = current.filter((session) => {
-      const id = String(session?.id ?? "");
-      if (!id || fetchedIds.has(id)) return false;
-      const createdAt = pending[id];
-      if (typeof createdAt !== "number") return false;
-      if (now - createdAt > 30_000) {
-        delete pending[id];
-        return false;
-      }
-      return true;
-    });
-
-    if (Object.keys(pending).length === 0) {
-      delete pendingCreatedSessionIdsRef.current[workspaceId];
+    const hydratedSessionId = hydratedRouteSessionIdsRef.current[workspaceId];
+    if (hydratedSessionId && fetched.some((session) => session.id === hydratedSessionId)) {
+      delete hydratedRouteSessionIdsRef.current[workspaceId];
+      return merged;
     }
-
-    return preserved.length > 0 ? [...preserved, ...fetched] : fetched;
+    return preserveWorkspaceRouteSession(
+      merged,
+      current,
+      hydratedSessionId,
+    );
   }, []);
   const loadWorkspaceSessionsInBackground = useCallback(
     async (workspaces: RouteWorkspace[]) => {
@@ -475,6 +501,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     } finally {
       setLoading(false);
       refreshInFlightRef.current = false;
+      setRouteRefreshVersion((current) => current + 1);
       // Tell the boot overlay the first route data load has completed so
       // the overlay dismisses after BOTH the desktop boot and the workspace
       // list/sessions are ready.
@@ -735,37 +762,116 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         selectedWorkspaceEndpoint.baseUrl,
         selectedWorkspaceEndpoint.workspaceId,
         selectedWorkspaceEndpoint.token,
+        routeRefreshVersion,
       ])
     : "";
   const modernRouteSessionLoadPending = Boolean(
     modernRouteSessionLoadKey &&
       !selectedSessionKnown &&
-      modernRouteSessionLoadKeyRef.current !== modernRouteSessionLoadKey,
+      (modernRouteSessionResolution?.key !== modernRouteSessionLoadKey || modernRouteSessionResolution.status === "loading"),
   );
+  const activeModernRouteSessionResolution = modernRouteSessionResolution?.key === modernRouteSessionLoadKey
+    ? modernRouteSessionResolution
+    : null;
   const selectedWorkspaceIsLoading = retryingWorkspaceIds.includes(selectedWorkspaceId) || modernRouteSessionLoadPending;
   useEffect(() => {
-    if (!modernRouteSessionLoadKey || !selectedWorkspace) {
-      modernRouteSessionLoadKeyRef.current = "";
+    const stale = Object.entries(hydratedRouteSessionIdsRef.current).filter(
+      ([workspaceId, sessionId]) => workspaceId !== selectedWorkspaceId || sessionId !== selectedSessionId,
+    );
+    if (stale.length === 0) return;
+    for (const [workspaceId] of stale) delete hydratedRouteSessionIdsRef.current[workspaceId];
+    setSessionsByWorkspaceId((current) => {
+      let next = current;
+      for (const [workspaceId, sessionId] of stale) {
+        const items = current[workspaceId] ?? [];
+        const filtered = removeWorkspaceRouteSession(items, sessionId);
+        if (filtered === items) continue;
+        if (next === current) next = { ...current };
+        next[workspaceId] = filtered;
+      }
+      if (next !== current) sessionsByWorkspaceIdRef.current = next;
+      return next;
+    });
+  }, [selectedSessionId, selectedWorkspaceId]);
+  useEffect(() => {
+    if (!modernRouteSessionLoadKey || !selectedWorkspaceEndpoint || !selectedSessionId) {
+      setModernRouteSessionResolution(null);
       return;
     }
     if (selectedSessionKnown) {
-      modernRouteSessionLoadKeyRef.current = "";
+      setModernRouteSessionResolution(null);
       return;
     }
-    if (modernRouteSessionLoadKeyRef.current === modernRouteSessionLoadKey) return;
-    modernRouteSessionLoadKeyRef.current = modernRouteSessionLoadKey;
-    setRetryingWorkspaceIds((current) =>
-      current.includes(selectedWorkspace.id) ? current : [...current, selectedWorkspace.id],
-    );
-    void loadWorkspaceSessionsInBackground([selectedWorkspace]);
-  }, [loadWorkspaceSessionsInBackground, modernRouteSessionLoadKey, selectedSessionKnown, selectedWorkspace]);
+    let cancelled = false;
+    setModernRouteSessionResolution({ key: modernRouteSessionLoadKey, status: "loading" });
+
+    const hydrateSelectedSession = async () => {
+      const maxAttempts = 6;
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (cancelled) return;
+        try {
+          const response = await selectedWorkspaceEndpoint.client.getSession(
+            selectedWorkspaceEndpoint.workspaceId,
+            selectedSessionId,
+          );
+          if (cancelled) return;
+          if (response.item.id !== selectedSessionId) {
+            setModernRouteSessionResolution({
+              key: modernRouteSessionLoadKey,
+              status: "error",
+              message: "The server returned a different session.",
+            });
+            return;
+          }
+          setSessionsByWorkspaceId((current) => {
+            const currentItems = current[selectedWorkspaceId] ?? [];
+            if (currentItems.some((session) => session.id === selectedSessionId)) {
+              delete hydratedRouteSessionIdsRef.current[selectedWorkspaceId];
+              return current;
+            }
+            hydratedRouteSessionIdsRef.current[selectedWorkspaceId] = selectedSessionId;
+            const nextItems = mergeWorkspaceRouteSession(currentItems, response.item);
+            const next = { ...current, [selectedWorkspaceId]: nextItems };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          setErrorsByWorkspaceId((current) => ({ ...current, [selectedWorkspaceId]: null }));
+          setModernRouteSessionResolution(null);
+          return;
+        } catch (error) {
+          if (cancelled) return;
+          const message = error instanceof Error ? error.message : describeRouteError(error);
+          const kind = classifyRouteSessionReadError(error);
+          if (kind !== "retryable" || attempt + 1 >= maxAttempts) {
+            setModernRouteSessionResolution({
+              key: modernRouteSessionLoadKey,
+              status: kind === "not-found" ? "not-found" : "error",
+              message,
+            });
+            return;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, Math.min(500 * Math.pow(2, attempt), 4_000)));
+          if (cancelled) return;
+        }
+      }
+    };
+
+    void hydrateSelectedSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modernRouteSessionLoadKey, selectedSessionId, selectedSessionKnown, selectedWorkspaceId]);
   const routeNotFoundMessage = (() => {
     if (loading) return null;
     if (routeWorkspaceId && !selectedWorkspace) {
       return "Workspace was not found. Select a new workspace from the sidebar.";
     }
-    if (selectedSessionId && !selectedWorkspaceIsLoading && !selectedSessionKnown) {
+    if (selectedSessionId && !selectedSessionKnown && activeModernRouteSessionResolution?.status === "not-found") {
       return "Session was not found. Select a new session from the sidebar.";
+    }
+    if (selectedSessionId && !selectedSessionKnown && activeModernRouteSessionResolution?.status === "error") {
+      return `Session could not be loaded. ${activeModernRouteSessionResolution.message}`;
     }
     return null;
   })();
