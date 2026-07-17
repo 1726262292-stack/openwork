@@ -85,6 +85,12 @@ function normalizeStableDesktopVersion(value: string): string | null {
   return /^\d+\.\d+\.\d+$/.test(normalized) ? normalized : null;
 }
 
+function normalizeCurrentDesktopVersion(value: string): string | null {
+  const normalized = value.trim().replace(/^v/i, "");
+  if (normalizeStableDesktopVersion(normalized)) return normalized;
+  return parseComparableVersion(normalized) ? normalized : null;
+}
+
 /**
  * Compare two version strings. Returns -1 / 0 / 1 as usual, or null if
  * either side fails to parse. Accepts an optional leading `v` and handles
@@ -211,8 +217,11 @@ export function selectStableDesktopUpdate(input: {
   metadata: DenAppVersionMetadata;
   desktopConfig: DenDesktopConfig | null | undefined;
 }): StableDesktopUpdateSelection | null {
-  const currentVersion = normalizeStableDesktopVersion(input.currentVersion);
+  const currentVersion = normalizeCurrentDesktopVersion(input.currentVersion);
   if (!currentVersion) return null;
+  const currentRelease = releasePart(currentVersion);
+  if (!currentRelease) return null;
+  const currentReleaseVersion = currentRelease.join(".");
 
   const publishedVersions = [...new Set(input.metadata.publishedDesktopVersions.flatMap((version) => {
     const normalized = normalizeStableDesktopVersion(version);
@@ -235,14 +244,14 @@ export function selectStableDesktopUpdate(input: {
         restrictedVersions.some((allowedVersion) => compareVersions(publishedVersion, allowedVersion) === 0),
       );
   const targetVersion = approvedPublishedVersions
-    .filter((version) => compareVersions(version, currentVersion) === 1)
+    .filter((version) => compareVersions(version, currentReleaseVersion) === 1)
     .at(-1);
 
   if (targetVersion) {
     return { kind: "update", targetVersion, latestPublishedVersion };
   }
 
-  if (compareVersions(latestPublishedVersion, currentVersion) === 1 && restrictedVersions !== null) {
+  if (compareVersions(latestPublishedVersion, currentReleaseVersion) === 1 && restrictedVersions !== null) {
     return { kind: "blocked", latestPublishedVersion };
   }
 

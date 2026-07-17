@@ -234,7 +234,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
           refreshDesktopConfig,
         });
         if (!selection) {
-          throw new Error("Den returned an invalid desktop release inventory.");
+          throw new Error("Could not resolve a stable update for this build.");
         }
         if (selection.kind === "blocked") {
           setUpdateStatus({

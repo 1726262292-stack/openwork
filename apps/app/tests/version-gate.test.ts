@@ -11,6 +11,12 @@ const metadata = {
   publishedDesktopVersions: ["0.17.22", "0.17.23", "0.17.24"],
 };
 
+const stableDesktopMetadata = {
+  minAppVersion: "0.17.0",
+  latestAppVersion: "0.17.32",
+  publishedDesktopVersions: ["0.17.32", "0.17.31", "0.17.19"],
+};
+
 describe("selectStableDesktopUpdate", () => {
   test("selects the highest approved published release above the installed version", () => {
     expect(selectStableDesktopUpdate({
@@ -58,6 +64,68 @@ describe("selectStableDesktopUpdate", () => {
       metadata,
       desktopConfig: {},
     })).toEqual({ kind: "current", latestPublishedVersion: "0.17.24" });
+  });
+
+  test("treats a prerelease on the latest release line as current", () => {
+    expect(selectStableDesktopUpdate({
+      currentVersion: "0.17.32-alpha.1691",
+      metadata: stableDesktopMetadata,
+      desktopConfig: {},
+    })).toEqual({ kind: "current", latestPublishedVersion: "0.17.32" });
+  });
+
+  test("updates older prerelease builds to the latest stable release", () => {
+    expect(selectStableDesktopUpdate({
+      currentVersion: "0.17.19-alpha.3",
+      metadata: stableDesktopMetadata,
+      desktopConfig: {},
+    })).toEqual({
+      kind: "update",
+      targetVersion: "0.17.32",
+      latestPublishedVersion: "0.17.32",
+    });
+  });
+
+  test("returns null for unparseable installed versions", () => {
+    expect(selectStableDesktopUpdate({
+      currentVersion: "dev",
+      metadata: stableDesktopMetadata,
+      desktopConfig: {},
+    })).toBeNull();
+    expect(selectStableDesktopUpdate({
+      currentVersion: "garbage",
+      metadata: stableDesktopMetadata,
+      desktopConfig: {},
+    })).toBeNull();
+  });
+
+  test("preserves stable installed version selection behavior", () => {
+    expect(selectStableDesktopUpdate({
+      currentVersion: "0.17.31",
+      metadata: stableDesktopMetadata,
+      desktopConfig: {},
+    })).toEqual({
+      kind: "update",
+      targetVersion: "0.17.32",
+      latestPublishedVersion: "0.17.32",
+    });
+    expect(selectStableDesktopUpdate({
+      currentVersion: "0.17.32",
+      metadata: stableDesktopMetadata,
+      desktopConfig: {},
+    })).toEqual({ kind: "current", latestPublishedVersion: "0.17.32" });
+  });
+
+  test("respects restricted published versions for prerelease builds", () => {
+    expect(selectStableDesktopUpdate({
+      currentVersion: "0.17.19-alpha.1",
+      metadata: stableDesktopMetadata,
+      desktopConfig: { allowedDesktopVersions: ["0.17.31"] },
+    })).toEqual({
+      kind: "update",
+      targetVersion: "0.17.31",
+      latestPublishedVersion: "0.17.32",
+    });
   });
 
   test("uses the config returned by the manual refresh instead of a stale cached policy", async () => {
