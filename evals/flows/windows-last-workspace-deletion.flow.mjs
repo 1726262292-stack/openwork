@@ -101,6 +101,14 @@ async function resetFixtures(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 90_000, label: "app after fixture setup" });
   await ctx.waitForText(FIXTURES[0].name, { timeoutMs: 90_000 });
   await ctx.waitForText(FIXTURES[1].name, { timeoutMs: 90_000 });
+  const sidebarCollapsed = await ctx.eval('document.querySelector(\'[data-slot="sidebar"]\')?.getAttribute("data-state") === "collapsed"');
+  if (sidebarCollapsed) {
+    await ctx.clickText("Toggle Sidebar", { selector: "button", timeoutMs: 15_000 });
+    await ctx.waitFor('document.querySelector(\'[data-slot="sidebar"]\')?.getAttribute("data-state") === "expanded"', {
+      timeoutMs: 15_000,
+      label: "fixture sidebar expanded",
+    });
+  }
   return created;
 }
 
@@ -192,6 +200,11 @@ export default {
           voiceover: vo[2],
           action: async () => {
             await sleep(15_000);
+            await ctx.clickText("Toggle Sidebar", { selector: "button", timeoutMs: 15_000 });
+            await ctx.waitFor('document.querySelector(\'[data-slot="sidebar"]\')?.getAttribute("data-state") === "collapsed"', {
+              timeoutMs: 15_000,
+              label: "empty sidebar collapsed",
+            });
           },
           assert: async () => {
             await assertEmpty(ctx);
@@ -222,11 +235,16 @@ export default {
             await ctx.reconnect({ timeoutMs: 120_000 });
             await waitForDesktop(ctx);
             await ctx.waitForText("Create or connect a workspace", { timeoutMs: 90_000 });
+            await ctx.clickText("Create workspace", { selector: "button", timeoutMs: 15_000 });
+            await ctx.waitForText("Initialize a new folder-based workspace", { timeoutMs: 15_000 });
           },
-          assert: async () => assertEmpty(ctx),
+          assert: async () => {
+            await assertEmpty(ctx);
+            await ctx.expectText("Local workspace");
+          },
           screenshot: {
             name: "empty-state-after-restart",
-            requireText: ["Create or connect a workspace", "Create workspace"],
+            requireText: ["Create Workspace", "Initialize a new folder-based workspace", "Local workspace"],
             rejectText: [...FIXTURES.map((fixture) => fixture.name), "Preparing workspace", MODEL_UNAVAILABLE_TEXT],
             hashIncludes: ["/session"],
           },
