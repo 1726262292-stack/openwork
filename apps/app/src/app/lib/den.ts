@@ -324,6 +324,17 @@ export class DenApiError extends Error {
   }
 }
 
+/**
+ * True only for 401s that actually came from the Den API (its JSON error
+ * envelope parsed into a code). A bare/foreign 401 from a corporate proxy,
+ * captive portal, or LB while the control plane is unreachable must be
+ * treated as "unavailable", not as a revoked session — otherwise a VPN blip
+ * signs the user out and destroys the stored token.
+ */
+export function isDenSessionRevokedError(error: unknown): boolean {
+  return error instanceof DenApiError && error.status === 401 && error.code !== "request_failed";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -774,6 +785,34 @@ export function readDenSettings(): DenSettings {
     activeOrgId: (window.localStorage.getItem(STORAGE_ACTIVE_ORG_ID) ?? "").trim() || null,
     activeOrgSlug: (window.localStorage.getItem(STORAGE_ACTIVE_ORG_SLUG) ?? "").trim() || null,
     activeOrgName: (window.localStorage.getItem(STORAGE_ACTIVE_ORG_NAME) ?? "").trim() || null,
+  };
+}
+
+function mergePassiveDenField(
+  current: string | null | undefined,
+  next: string | null | undefined,
+): string | null {
+  const trimmed = next?.trim() ?? "";
+  return trimmed || current || null;
+}
+
+/**
+ * Merge an in-memory den-session snapshot over the persisted settings for the
+ * PASSIVE state->storage mirror. A passive sync must never delete persisted
+ * credentials just because in-memory state has not (or could not) load them —
+ * e.g. while the control plane is unreachable the org list never loads, and
+ * mirroring `activeOrg: null` used to erase the stored org (and, after a
+ * remount race, the auth token), permanently signing the user out on a
+ * transient VPN/network outage. Explicit sign-out/change-server flows clear
+ * storage through clearDenSession()/saveControlPlaneUrl() instead.
+ */
+export function mergePassiveDenSettings(current: DenSettings, next: DenSettings): DenSettings {
+  return {
+    ...resolveDenBaseUrls(next),
+    authToken: mergePassiveDenField(current.authToken, next.authToken),
+    activeOrgId: mergePassiveDenField(current.activeOrgId, next.activeOrgId),
+    activeOrgSlug: mergePassiveDenField(current.activeOrgSlug, next.activeOrgSlug),
+    activeOrgName: mergePassiveDenField(current.activeOrgName, next.activeOrgName),
   };
 }
 
