@@ -122,6 +122,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const sessionsByWorkspaceIdRef = useRef<Record<string, RouteSession[]>>({});
   const pendingCreatedSessionIdsRef = useRef<Record<string, Record<string, number>>>({});
   const startupRetryTimerRef = useRef<number | null>(null);
+  const externalSessionReloadTimerRef = useRef<number | null>(null);
   const [retryingWorkspaceIds, setRetryingWorkspaceIds] = useState<string[]>([]);
   const launchActivatedWorkspaceIdsRef = useRef(new Set<string>());
   const reconnectAttemptedWorkspaceIdRef = useRef("");
@@ -483,6 +484,23 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   }, [loadWorkspaceSessionsInBackground, markBootRouteReady, routeWorkspaceId, selectedSessionId]);
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
+    const currentList = sessionsByWorkspaceIdRef.current[selectedWorkspaceId] ?? [];
+    const currentIndex = currentList.findIndex((session) => session?.id === update.sessionId);
+    if (currentIndex < 0) {
+      const parentID = update.info.parentID;
+      if (typeof parentID === "string" && parentID.trim()) return;
+      if (externalSessionReloadTimerRef.current !== null) {
+        window.clearTimeout(externalSessionReloadTimerRef.current);
+      }
+      externalSessionReloadTimerRef.current = window.setTimeout(() => {
+        externalSessionReloadTimerRef.current = null;
+        const workspace = workspacesRef.current.find((item) => item.id === selectedWorkspaceId);
+        if (!workspace) return;
+        void loadWorkspaceSessionsInBackground([workspace]);
+      }, 300);
+      return;
+    }
+
     setSessionsByWorkspaceId((current) => {
       const list = current[selectedWorkspaceId] ?? [];
       const index = list.findIndex((session) => session?.id === update.sessionId);
@@ -495,7 +513,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       sessionsByWorkspaceIdRef.current = next;
       return next;
     });
-  }, [selectedWorkspaceId]);
+  }, [loadWorkspaceSessionsInBackground, selectedWorkspaceId]);
 
   useEffect(() => {
     workspacesRef.current = workspaces;
@@ -579,6 +597,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (startupRetryTimerRef.current !== null) {
         window.clearTimeout(startupRetryTimerRef.current);
         startupRetryTimerRef.current = null;
+      }
+      if (externalSessionReloadTimerRef.current !== null) {
+        window.clearTimeout(externalSessionReloadTimerRef.current);
+        externalSessionReloadTimerRef.current = null;
       }
       window.removeEventListener("openwork-server-settings-changed", handleSettingsChange);
       if (typeof document !== "undefined") {

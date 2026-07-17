@@ -48,6 +48,11 @@ const sessionSearchArgsSchema = z.object({
   messageLimit: z.number().int().positive().max(1000).optional().describe("Maximum recent messages to load per scanned session. Defaults to 400, max 1000."),
 });
 
+const sessionCreateArgsSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional().describe("Optional short title for the new OpenWork task/session. Pass this when the user names the task."),
+  workspaceId: z.string().trim().optional().describe("Optional OpenWork workspace id/name. Defaults to the workspace containing the current directory."),
+});
+
 const sessionReadArgsSchema = z.object({
   sessionId: z.string().trim().min(1).describe("OpenWork/OpenCode session ID returned by openwork_session_search."),
   workspaceId: z.string().trim().optional().describe("Optional OpenWork workspace id/name. Omit to resolve the session across all workspaces."),
@@ -90,6 +95,13 @@ const sessionEnvelopeSchema = z.object({
   item: sessionInfoSchema,
 }).passthrough();
 
+const sessionCreateEnvelopeSchema = z.object({
+  item: z.object({
+    id: z.string(),
+    title: z.string().nullish(),
+  }).passthrough(),
+}).passthrough();
+
 const sessionPartSchema = z.object({
   type: z.string().optional(),
   text: z.string().optional(),
@@ -112,6 +124,7 @@ const sessionMessagesEnvelopeSchema = z.object({
 
 const OPENWORK_UI_CONTROL_INSTRUCTION =
   `IMPORTANT: You are running inside the OpenWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the OpenWork UI in any way, ALWAYS use the openwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The openwork_ui_* tools control the app directly and are instant (one tool call).
+Creating a new session/task/chat for the user should use openwork_session_create (a backend API call), not openwork_ui_* actions.
 
 To open settings: openwork_ui_execute_action with actionId "settings.panel.open" and args {panel:"general"} (or "ai", "extensions", "permissions", "skills", "appearance", etc.)
 To add a provider: openwork_ui_execute_action with actionId "settings.provider.add" and optional args {providerId:"anthropic"}
@@ -122,6 +135,7 @@ To ask what OpenWork can do: openwork_ui_execute_action with actionId "help.capa
 const OPENWORK_SESSION_MEMORY_INSTRUCTION =
   `## Cross-session memory
 When the user asks what they said, what happened, or what was decided in another OpenWork chat/session, treat it as a session-history lookup, not hidden model memory.
+When the user asks to create or start a new OpenWork session/task/chat, use openwork_session_create through the backend API instead of UI-control actions.
 Use openwork_session_search first to search session titles and message transcripts across workspaces. If there is one clear match, use openwork_session_read with the returned sessionId/workspaceId to retrieve transcript context without navigating the UI.
 Answer only from the returned search/read results. If multiple sessions match, ask a short clarifying question. If the returned transcript is limited or missing the older context needed, say so instead of guessing.`;
 
@@ -538,6 +552,23 @@ async function readOpenWorkSession(rawArgs: unknown): Promise<object> {
   return { ok: false, error: `Session ${args.sessionId} was not found in matching OpenWork workspaces` };
 }
 
+async function createOpenWorkSession(rawArgs: unknown, context: OpenCodeContext): Promise<object> {
+  const args = sessionCreateArgsSchema.parse(rawArgs);
+  const workspace = await resolveContextWorkspace(args.workspaceId, context);
+  const payload = await postJson(
+    `/workspace/${encodeURIComponent(workspace.id)}/sessions`,
+    args.title ? { title: args.title } : {},
+  );
+  const session = sessionCreateEnvelopeSchema.parse(payload).item;
+  return {
+    ok: true,
+    workspaceId: workspace.id,
+    workspace: workspaceLabel(workspace),
+    sessionId: session.id,
+    title: session.title ?? undefined,
+  };
+}
+
 function serverUrl(): string {
   return String(process.env.OPENWORK_SERVER_URL || "").replace(/\/$/, "");
 }
@@ -738,6 +769,18 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
       },
     },
     } : {}),
+    openwork_session_create: {
+      description: "Create a new OpenWork task/session/chat via the OpenWork backend API without touching or driving the UI. Use this when the user says create a new task, create a new session, new chat, start a task, or similar; the new task appears in the user's sidebar automatically. Pass a short title when the user names the task.",
+      args: sessionCreateArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        try {
+          const result = await createOpenWorkSession(rawArgs, context);
+          return JSON.stringify(result, null, 2);
+        } catch (error) {
+          return JSON.stringify({ ok: false, error: unknownErrorMessage(error) }, null, 2);
+        }
+      },
+    },
     openwork_session_search: {
       description: "Search OpenWork past chat sessions by title and full message transcript text without navigating the UI. Use this when the user refers to another/past chat or asks what was said, decided, or done previously.",
       args: sessionSearchArgsSchema.shape,

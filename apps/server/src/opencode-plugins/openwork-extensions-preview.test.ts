@@ -33,6 +33,19 @@ const readResultSchema = z.object({
   }).passthrough()),
 }).passthrough();
 
+const createResultSchema = z.object({
+  ok: z.literal(true),
+  workspaceId: z.string(),
+  workspace: z.string(),
+  sessionId: z.string(),
+  title: z.string().optional(),
+}).passthrough();
+
+const errorResultSchema = z.object({
+  ok: z.literal(false),
+  error: z.string(),
+}).passthrough();
+
 afterEach(() => {
   while (stops.length) stops.pop()?.();
   if (originalServerUrl === undefined) delete process.env.OPENWORK_SERVER_URL;
@@ -49,8 +62,14 @@ async function transformedSystem(plugin: Awaited<ReturnType<typeof OpenWorkExten
   return output.system.join("\n");
 }
 
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const property = Reflect.get(value, key);
+  return typeof property === "string" ? property : undefined;
+}
+
 function startFakeOpenWorkServer() {
-  const requests: Array<{ pathname: string; search: string; authorization: string | null }> = [];
+  const requests: Array<{ method: string; pathname: string; search: string; authorization: string | null; body?: unknown }> = [];
 
   const workspaceOne = { id: "ws_1", name: "Main", path: "/tmp/main" };
   const workspaceTwo = { id: "ws_2", name: "Archive", displayName: "Archive", path: "/tmp/archive" };
@@ -61,13 +80,17 @@ function startFakeOpenWorkServer() {
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       const url = new URL(request.url);
-      requests.push({
+      const recorded = {
+        method: request.method,
         pathname: url.pathname,
         search: url.search,
         authorization: request.headers.get("authorization"),
-      });
+      };
+      const text = request.method === "GET" || request.method === "HEAD" ? "" : await request.text();
+      const body: unknown = text ? JSON.parse(text) : undefined;
+      requests.push(body === undefined ? recorded : { ...recorded, body });
 
       if (request.headers.get("authorization") !== "Bearer test-token") {
         return Response.json({ message: "Unauthorized" }, { status: 401 });
@@ -95,6 +118,11 @@ function startFakeOpenWorkServer() {
 
       if (url.pathname === "/workspaces") {
         return Response.json({ items: [workspaceOne, workspaceTwo], workspaces: [workspaceOne, workspaceTwo] });
+      }
+
+      if (url.pathname === "/workspace/ws_1/sessions" && request.method === "POST") {
+        const title = stringProperty(body, "title");
+        return Response.json({ item: { id: "ses_test123", ...(title ? { title } : {}) } }, { status: 201 });
       }
 
       if (url.pathname === "/workspace/ws_1/sessions") {
@@ -152,6 +180,54 @@ function startFakeOpenWorkServer() {
 describe("OpenWorkExtensionsPreview session tools", () => {
   test("plugin entry exposes only the factory export for the OpenCode loader", () => {
     expect(Object.keys(OpenWorkExtensionsPreviewEntry)).toEqual(["OpenWorkExtensionsPreview"]);
+  });
+
+  test("creates a new session through the OpenWork server with a title", async () => {
+    const fake = startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview();
+
+    const output = await plugin.tool.openwork_session_create.execute(
+      { title: "Plan the offsite" },
+      { directory: "/tmp/main" },
+    );
+    const parsed = createResultSchema.parse(JSON.parse(output));
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      workspaceId: "ws_1",
+      workspace: "Main",
+      sessionId: "ses_test123",
+      title: "Plan the offsite",
+    });
+    const request = fake.requests.find((item) => item.method === "POST" && item.pathname === "/workspace/ws_1/sessions");
+    expect(request?.authorization).toBe("Bearer test-token");
+    expect(request?.body).toEqual({ title: "Plan the offsite" });
+  });
+
+  test("creates a new session without a title", async () => {
+    const fake = startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview();
+
+    const output = await plugin.tool.openwork_session_create.execute({}, { directory: "/tmp/main" });
+    const parsed = createResultSchema.parse(JSON.parse(output));
+
+    expect(parsed.ok).toBe(true);
+    expect(parsed.workspaceId).toBe("ws_1");
+    expect(parsed.sessionId).toBe("ses_test123");
+    const request = fake.requests.find((item) => item.method === "POST" && item.pathname === "/workspace/ws_1/sessions");
+    expect(request?.body).toEqual({});
+  });
+
+  test("returns a structured error when session creation cannot reach OpenWork", async () => {
+    delete process.env.OPENWORK_SERVER_URL;
+    delete process.env.OPENWORK_SERVER_TOKEN;
+    const plugin = await OpenWorkExtensionsPreview();
+
+    const output = await plugin.tool.openwork_session_create.execute({}, { directory: "/tmp/main" });
+    const parsed = errorResultSchema.parse(JSON.parse(output));
+
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.length).toBeGreaterThan(0);
   });
 
   test("searches past chat transcript text and prefers the user's matching message", async () => {
@@ -265,11 +341,13 @@ describe("OpenWorkExtensionsPreview UI control tools", () => {
     expect(tools).not.toContain("openwork_ui_snapshot");
     expect(tools).not.toContain("openwork_ui_list_actions");
     expect(tools).not.toContain("openwork_ui_execute_action");
+    expect(tools).toContain("openwork_session_create");
     expect(tools).toContain("openwork_session_search");
     expect(tools).toContain("openwork_extension_list_actions");
 
     const system = await transformedSystem(plugin);
     expect(system).not.toContain("openwork_ui_");
+    expect(system).toContain("openwork_session_create");
     expect(system).toContain("openwork_session_search");
   });
 

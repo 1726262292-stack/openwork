@@ -180,6 +180,25 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/sessions", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const requestedTitle = body.title;
+    if (requestedTitle !== undefined && typeof requestedTitle !== "string") {
+      throw new ApiError(400, "invalid_payload", "title must be a string");
+    }
+    const title = requestedTitle?.trim().slice(0, 200);
+
+    const opencode = createWorkspaceOpencodeClient(config, workspace);
+    const session = unwrapOpencodeResult(
+      await (title ? opencode.session.create({ title }) : opencode.session.create()),
+      "/session",
+    );
+    return jsonResponse({ item: buildSession(session) }, 201);
+  });
+
   addRoute(routes, "GET", "/workspace/:id/session-groups", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const result = await readSessionGroupState(config, workspace.id);

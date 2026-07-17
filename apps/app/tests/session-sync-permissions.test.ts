@@ -16,6 +16,7 @@ import {
   seedPermissionState,
   seedQuestionState,
   seedSessionState,
+  snapshotKey,
   trackWorkspaceSessionSync,
   transcriptKey,
 } from "../src/react-app/domains/session/sync/session-sync";
@@ -237,6 +238,57 @@ describe("session question sync", () => {
       expect(getReactQueryClient().getQueryData(questionKey("workspace-a", "session-a"))).toEqual([]);
     } finally {
       releaseSession();
+      cleanup();
+    }
+  });
+});
+
+describe("session metadata sync", () => {
+  test("notifies listeners for untracked session updates and preserves tracked cache updates", () => {
+    const updates: Array<{ sessionId: string; info: Record<string, unknown> }> = [];
+    const syncInput = {
+      workspaceId: "workspace-a",
+      baseUrl: "http://127.0.0.1:1234",
+      openworkToken: "token",
+      onSessionUpdated: (update: { sessionId: string; info: Record<string, unknown> }) => {
+        updates.push(update);
+      },
+    };
+    const cleanup = __createWorkspaceSessionSyncForTest(syncInput);
+
+    try {
+      __applySessionSyncEventForTest(syncInput, {
+        type: "session.updated",
+        properties: {
+          sessionID: "session-untracked",
+          info: { id: "session-untracked", title: "New task" },
+        },
+      });
+
+      expect(updates.map((update) => update.sessionId)).toEqual(["session-untracked"]);
+      expect(getReactQueryClient().getQueryData(snapshotKey("workspace-a", "session-untracked"))).toBeUndefined();
+
+      getReactQueryClient().setQueryData(snapshotKey("workspace-a", "session-a"), snapshotWithMessages([], "session-a"));
+      const releaseSession = trackWorkspaceSessionSync(syncInput, "session-a");
+
+      try {
+        __applySessionSyncEventForTest(syncInput, {
+          type: "session.updated",
+          properties: {
+            sessionID: "session-a",
+            info: { id: "session-a", revert: { messageID: "msg-user" } },
+          },
+        });
+
+        expect(updates.map((update) => update.sessionId)).toEqual(["session-untracked", "session-a"]);
+        const snapshot = getReactQueryClient().getQueryData<OpenworkSessionSnapshot>(
+          snapshotKey("workspace-a", "session-a"),
+        );
+        expect(snapshot?.session.revert).toEqual({ messageID: "msg-user" });
+      } finally {
+        releaseSession();
+      }
+    } finally {
       cleanup();
     }
   });

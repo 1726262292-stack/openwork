@@ -608,6 +608,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.updated") {
     const update = getSessionUpdatedInfo(event);
     if (!update) return;
+    for (const listener of entry.sessionUpdatedListeners) listener(update);
     if (!isTrackedSession(entry, update.sessionId)) return;
     // Keep the cached snapshot's revert cursor in sync with the server. The
     // renderer derives the visible transcript from this cursor, so a revert
@@ -621,7 +622,6 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         return { ...current, session: { ...current.session, revert } };
       },
     );
-    for (const listener of entry.sessionUpdatedListeners) listener(update);
     return;
   }
 
@@ -1249,7 +1249,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     disposeTimer: null,
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
-    sessionUpdatedListeners: new Set(),
+    sessionUpdatedListeners: new Set(input.onSessionUpdated ? [input.onSessionUpdated] : []),
     sessionStatusListeners: new Set(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
