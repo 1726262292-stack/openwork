@@ -1086,6 +1086,18 @@ export function SessionRoute() {
     setCreateWorkspaceOpen(true);
   }, [checkDesktopRestriction, restrictionNotice, workspaces.length]);
 
+  const handleOpenProviderAuth = useCallback(() => {
+    // Keep the starter-card provider auth gate in parity with Settings.
+    if (checkDesktopRestriction({ restriction: "allowCustomProviders" })) {
+      restrictionNotice.show({
+        title: "Adding custom providers is disabled",
+        message: "Your organization administrator has disabled adding custom providers.",
+      });
+      return;
+    }
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+  }, [checkDesktopRestriction, restrictionNotice, sessionProviderAuthStore]);
+
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (!workspace) return;
@@ -1902,7 +1914,7 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
-      onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+      onOpenProviderAuth={handleOpenProviderAuth}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
         loading: false,
