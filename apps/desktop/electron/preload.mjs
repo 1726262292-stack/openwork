@@ -92,6 +92,14 @@ contextBridge.exposeInMainWorld("__OPENWORK_ELECTRON__", {
       return ipcRenderer.invoke("openwork:desktop", "__evalRelaunch");
     },
   },
+  nuke: {
+    preview() {
+      return ipcRenderer.invoke("openwork:desktop", "nukeOpenworkAndOpencodeConfigPreview");
+    },
+    execute() {
+      return ipcRenderer.invoke("openwork:desktop", "nukeOpenworkAndOpencodeConfigAndExit");
+    },
+  },
   updater: {
     getChannel() {
       return ipcRenderer.invoke("openwork:updater:getChannel");

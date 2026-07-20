@@ -32,6 +32,11 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import {
+  buildNukeManifest,
+  executeNukeFreshStart,
+  runPendingNukeCleanup,
+} from "./nuke.mjs";
+import {
   createConnectLinkReplayGuard,
   extractConnectExchange,
   resolveConnectExchangeUrl,
@@ -1708,10 +1713,22 @@ const desktopCommandHandlers = {
       const config = await persistConnectLinkClaims(verified.claims);
       return { ok: true, config };
   },
+  "nukeOpenworkAndOpencodeConfigPreview": async (event, ...args) => {
+      return buildNukeManifest({
+        env: process.env,
+        homedir: os.homedir(),
+        platform: process.platform,
+        userDataPath: app.getPath("userData"),
+      });
+  },
   "nukeOpenworkAndOpencodeConfigAndExit": async (event, ...args) => {
-      await rm(app.getPath("userData"), { recursive: true, force: true });
-      app.exit(0);
-      return undefined;
+      return executeNukeFreshStart({
+        app,
+        session,
+        runtimeManager,
+        uiControlServer,
+        removeWindowsBrandShortcut,
+      });
   },
   "orchestratorStartDetached": async (event, ...args) => {
       return runtimeManager.orchestratorStartDetached(args[0] ?? {});
@@ -2385,6 +2402,14 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     installMediaPermissionHandlers(session, () => mainWindow);
+    await runPendingNukeCleanup({
+      env: process.env,
+      homedir: os.homedir(),
+      platform: process.platform,
+      userDataPath: app.getPath("userData"),
+    }).catch((error) => {
+      console.warn("[nuke] pending cleanup failed", error);
+    });
     await workspaceStore.importBundledDesktopBootstrapConfigIfPreferred();
     const bootstrapConfig = await workspaceStore.getDesktopBootstrapConfig();
     currentDisplayAppName = bootstrapConfig.brandAppName?.slice(0, 64) || APP_NAME;

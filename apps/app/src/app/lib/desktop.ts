@@ -22,6 +22,9 @@ export type {
   ExecResult,
   LocalSkillCard,
   LocalSkillContent,
+  NukeManifestPreview,
+  NukeReceipt,
+  NukeReceiptError,
   OpencodeConfigFile,
   UpdaterEnvironment,
   CacheResetResult,
@@ -35,6 +38,8 @@ import type {
   DesktopCommandName,
   DesktopCommandResult,
   EvalRelaunchResult,
+  NukeManifestPreview,
+  NukeReceipt,
   WorkspaceList,
 } from "./desktop-types";
 import type { BrowserPanelTab } from "./desktop-types";
@@ -97,6 +102,10 @@ declare global {
       };
       dev?: {
         evalRelaunch?: () => Promise<EvalRelaunchResult>;
+      };
+      nuke?: {
+        preview?: () => Promise<NukeManifestPreview>;
+        execute?: () => Promise<NukeReceipt>;
       };
       updater?: {
         getChannel?: () => Promise<{
@@ -489,6 +498,7 @@ const {
   setDesktopBootstrapConfig,
   connectLinkVerify,
   connectLinkAccept,
+  nukeOpenworkAndOpencodeConfigPreview,
   nukeOpenworkAndOpencodeConfigAndExit,
   orchestratorStartDetached,
   sandboxDoctor,
@@ -547,6 +557,7 @@ export {
   setDesktopBootstrapConfig,
   connectLinkVerify,
   connectLinkAccept,
+  nukeOpenworkAndOpencodeConfigPreview,
   nukeOpenworkAndOpencodeConfigAndExit,
   orchestratorStartDetached,
   sandboxDoctor,
