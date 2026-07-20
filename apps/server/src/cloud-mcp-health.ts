@@ -138,6 +138,14 @@ export type CloudMcpRuntimeRegistrar = (
   options?: { throwOnFailure?: boolean },
 ) => Promise<CloudMcpRuntimeRegistrationResult>;
 
+export type CloudMcpLiveStatusObserver = (
+  config: ServerConfig,
+  workspace: WorkspaceInfo,
+  name: string,
+  mcpConfig: Record<string, unknown>,
+  status: string,
+) => void;
+
 export type CloudMcpServerMetadata = {
   serverVersion?: string;
   expectedOpencodeVersion?: string;
@@ -1517,10 +1525,13 @@ async function readOpencodeVersion(opencode: WorkspaceOpencodeClient): Promise<C
 
 async function inspectOpenworkCloud(input: {
   opencode: WorkspaceOpencodeClient;
+  config: ServerConfig;
+  workspace: WorkspaceInfo;
   directory: string | null;
   desiredConfig: Record<string, unknown>;
   providerModel?: CloudMcpProviderModelContext;
   probe: boolean;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
 }): Promise<Inspection> {
   const failures: CloudMcpFailure[] = [];
   const emptyTools = splitPresentMissing([], expectedTools());
@@ -1546,6 +1557,15 @@ async function inspectOpenworkCloud(input: {
   }
 
   const cloudStatus = statusResult.data?.[OPENWORK_CLOUD_MCP_NAME];
+  if (cloudStatus) {
+    input.refreshRegistrationFromLiveStatus?.(
+      input.config,
+      input.workspace,
+      OPENWORK_CLOUD_MCP_NAME,
+      input.desiredConfig,
+      cloudStatus.status,
+    );
+  }
   const engine = engineStatusFromMcpStatus(cloudStatus);
   if (cloudStatus?.status !== "connected") {
     failures.push(statusFailure(cloudStatus));
@@ -1795,6 +1815,7 @@ export async function readOpenworkCloudMcpHealth(input: {
   serverMetadata?: CloudMcpServerMetadata;
   probe?: boolean;
   createWorkspaceOpencodeClient: (config: ServerConfig, workspace: WorkspaceInfo) => WorkspaceOpencodeClient;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
 }): Promise<CloudMcpHealth> {
   const checkedAt = new Date().toISOString();
   const desired = await readDesiredState({ config: input.config, workspace: input.workspace, directory: input.directory });
@@ -1852,10 +1873,13 @@ export async function readOpenworkCloudMcpHealth(input: {
   if (desired.present && desired.config && !desired.validationProblem && input.directory && baseUrlConfigured(input.config, input.workspace)) {
     inspection = await inspectOpenworkCloud({
       opencode: input.createWorkspaceOpencodeClient(input.config, input.workspace),
+      config: input.config,
+      workspace: input.workspace,
       directory: input.directory,
       desiredConfig: desired.config,
       providerModel: input.providerModel,
       probe: input.probe === true,
+      refreshRegistrationFromLiveStatus: input.refreshRegistrationFromLiveStatus,
     });
     failures.push(...inspection.failures);
   }
@@ -1960,7 +1984,11 @@ async function wait(ms: number): Promise<void> {
 
 async function pollConnected(input: {
   opencode: WorkspaceOpencodeClient;
+  config: ServerConfig;
+  workspace: WorkspaceInfo;
   directory: string | null;
+  desiredConfig: Record<string, unknown>;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
 }): Promise<CloudMcpFailure | null> {
   let lastFailure: CloudMcpFailure | null = null;
   for (const delay of POLL_DELAYS_MS) {
@@ -1971,6 +1999,15 @@ async function pollConnected(input: {
       continue;
     }
     const cloudStatus = statusResult.data?.[OPENWORK_CLOUD_MCP_NAME];
+    if (cloudStatus) {
+      input.refreshRegistrationFromLiveStatus?.(
+        input.config,
+        input.workspace,
+        OPENWORK_CLOUD_MCP_NAME,
+        input.desiredConfig,
+        cloudStatus.status,
+      );
+    }
     if (cloudStatus?.status === "connected") return null;
     lastFailure = statusFailure(cloudStatus);
     if (cloudStatus?.status === "disabled" || cloudStatus?.status === "needs_auth" || cloudStatus?.status === "needs_client_registration" || cloudStatus?.status === "failed") {
@@ -1999,6 +2036,7 @@ export async function reconcileOpenworkCloudMcp(input: {
   serverMetadata?: CloudMcpServerMetadata;
   createWorkspaceOpencodeClient: (config: ServerConfig, workspace: WorkspaceInfo) => WorkspaceOpencodeClient;
   registerRuntimeMcp: CloudMcpRuntimeRegistrar;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
 }): Promise<CloudMcpHealth> {
   const readHealth = () => readOpenworkCloudMcpHealth({
     config: input.config,
@@ -2008,6 +2046,7 @@ export async function reconcileOpenworkCloudMcp(input: {
     serverMetadata: input.serverMetadata,
     createWorkspaceOpencodeClient: input.createWorkspaceOpencodeClient,
     probe: true,
+    refreshRegistrationFromLiveStatus: input.refreshRegistrationFromLiveStatus,
   });
   const configBody = input.body.config ?? input.body;
   const desiredConfig = canonicalizeCloudMcpConfig(normalizeCloudMcpConfig(configBody));
@@ -2054,7 +2093,14 @@ export async function reconcileOpenworkCloudMcp(input: {
   }
 
   const opencode = input.createWorkspaceOpencodeClient(input.config, input.workspace);
-  const connectedFailure = await pollConnected({ opencode, directory: input.directory });
+  const connectedFailure = await pollConnected({
+    opencode,
+    config: input.config,
+    workspace: input.workspace,
+    directory: input.directory,
+    desiredConfig,
+    refreshRegistrationFromLiveStatus: input.refreshRegistrationFromLiveStatus,
+  });
   if (connectedFailure) {
     cloudMcpDeliveryState.markFailed(input.workspace, input.directory, desiredRevision, connectedFailure);
     return healthWithFailure(await readHealth(), connectedFailure);
@@ -2078,6 +2124,7 @@ export async function reconcilePersistedOpenworkCloudMcp(input: {
   serverMetadata?: CloudMcpServerMetadata;
   createWorkspaceOpencodeClient: (config: ServerConfig, workspace: WorkspaceInfo) => WorkspaceOpencodeClient;
   registerRuntimeMcp: CloudMcpRuntimeRegistrar;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
   trigger?: string;
 }): Promise<CloudMcpHealth> {
   const runtimeConfig = await readRuntimeOpencodeConfig(input.config, input.workspace.id);

@@ -7,6 +7,7 @@ import {
   googleWorkspaceStatusConnectExtra,
   writeConnectState,
 } from "../connect-state.js";
+import type { CloudMcpLiveStatusObserver } from "../cloud-mcp-health.js";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
 import { ApiError } from "../errors.js";
 import {
@@ -55,6 +56,7 @@ interface RegisterCoreRoutesOptions {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   resolveOpencodeDirectory: (workspace: WorkspaceInfo) => string | null;
   createWorkspaceOpencodeClient: (config: ServerConfig, workspace: WorkspaceInfo) => WorkspaceOpencodeClient;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
   serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
   resolveToyUiEnabled: () => boolean;
   resolveDevLogPath: () => string | null;
@@ -112,6 +114,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     resolveWorkspace,
     resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
+    refreshRegistrationFromLiveStatus,
     serializeWorkspace,
     resolveToyUiEnabled,
     resolveDevLogPath,
@@ -123,6 +126,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   const connectSnapshotBaseOptions = {
     resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
+    refreshRegistrationFromLiveStatus,
     serverMetadata: { serverVersion, expectedOpencodeVersion: opencodeVersion },
   };
 

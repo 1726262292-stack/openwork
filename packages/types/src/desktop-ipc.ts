@@ -36,6 +36,7 @@ export type OpencodeExecutionSnapshot = {
 export type EngineInfo = {
   running: boolean;
   runtime: "direct";
+  managedByServer: boolean;
   baseUrl: string | null;
   projectDir: string | null;
   hostname: string | null;

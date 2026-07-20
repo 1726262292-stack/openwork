@@ -871,6 +871,7 @@ function envFlagEnabled(name) {
 const IDLE_ENGINE_INFO = Object.freeze({
   running: false,
   runtime: "direct",
+  managedByServer: false,
   baseUrl: null,
   projectDir: null,
   hostname: null,

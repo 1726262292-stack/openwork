@@ -5,6 +5,7 @@ import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import {
   readOpenworkCloudMcpHealth,
   type CloudMcpHealth,
+  type CloudMcpLiveStatusObserver,
   type CloudMcpProviderModelContext,
   type CloudMcpServerMetadata,
 } from "./cloud-mcp-health.js";
@@ -59,6 +60,7 @@ export type ConnectSnapshotOptions = {
   serverMetadata?: CloudMcpServerMetadata;
   resolveOpencodeDirectory?: (workspace: WorkspaceInfo) => string | null;
   createWorkspaceOpencodeClient?: (config: ServerConfig, workspace: WorkspaceInfo) => WorkspaceOpencodeClient;
+  refreshRegistrationFromLiveStatus?: CloudMcpLiveStatusObserver;
 };
 
 export type ConnectSnapshotInspection = {
@@ -222,6 +224,7 @@ async function resolveCloudHealth(config: ServerConfig, options: ConnectSnapshot
     serverMetadata: options.serverMetadata,
     probe: false,
     createWorkspaceOpencodeClient: options.createWorkspaceOpencodeClient,
+    refreshRegistrationFromLiveStatus: options.refreshRegistrationFromLiveStatus,
   });
   return {
     cloudHealth,

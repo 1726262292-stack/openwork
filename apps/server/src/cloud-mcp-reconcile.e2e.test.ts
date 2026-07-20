@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { OPENWORK_CLOUD_EXPECTED_TOOLS, OPENWORK_CLOUD_PLUGIN_CANARIES, cloudMcpDeliveryState } from "./cloud-mcp-health.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
-import { startServer } from "./server.js";
+import { inspectEngineMcpRegistration, registerTrustedOpencodeProcess, startServer } from "./server.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 type EngineRequest = {
@@ -24,6 +24,7 @@ type MockOpencodeOptions = {
   providerModelExists?: boolean;
   unsupportedToolIds?: boolean;
   initialConnected?: boolean;
+  connectAfterStatusReads?: number;
   hangHealth?: boolean;
   delayMcpStatusMs?: number;
   postFailure?: { status: number; body: unknown };
@@ -80,6 +81,7 @@ function allReadyToolIds(): string[] {
 function startMockOpencode(options: MockOpencodeOptions = {}) {
   const requests: EngineRequest[] = [];
   let registerCount = 0;
+  let statusReads = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -99,7 +101,11 @@ function startMockOpencode(options: MockOpencodeOptions = {}) {
         return Response.json({});
       }
       if (url.pathname === "/mcp" && request.method === "GET") {
+        statusReads += 1;
         if (options.delayMcpStatusMs) await new Promise((resolve) => setTimeout(resolve, options.delayMcpStatusMs));
+        if (options.connectAfterStatusReads && statusReads < options.connectAfterStatusReads) {
+          return Response.json({ "openwork-cloud": { status: "failed", error: "slow connect" } });
+        }
         return Response.json(registerCount > 0 || options.initialConnected ? { "openwork-cloud": { status: "connected" } } : {});
       }
       if (url.pathname === "/experimental/tool/ids") {
@@ -311,6 +317,34 @@ describe("openwork-cloud MCP strict reconcile", () => {
     const mcpPosts = mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp");
     expect(mcpPosts.length).toBe(1);
     expectDirectoryQuery(mcpPosts[0]?.search, root);
+  });
+
+  test("live status read heals a failed registration record after reconcile returns early", async () => {
+    const root = await createRoot();
+    const mock = startMockOpencode({ connectAfterStatusReads: 2 });
+    const baseUrl = `http://127.0.0.1:${mock.server.port}`;
+    const openwork = await startOpenwork([workspace("ws_1", root, baseUrl)]);
+    registerTrustedOpencodeProcess(openwork.config, {
+      baseUrl,
+      identity: "cloud-reconcile-live-heal",
+      isAlive: () => true,
+    });
+
+    const response = await reconcile(openwork.base);
+    const body = await responseRecord(response);
+    expect(response.status).toBe(200);
+    expect(firstFailure(body).code).toBe("opencode_mcp_sync_failed");
+    expect(inspectEngineMcpRegistration(
+      openwork.config,
+      openwork.config.workspaces[0]!,
+      "openwork-cloud",
+      cloudConfigForOpenwork(openwork.base),
+    )).toBe("connected");
+
+    const health = await responseRecord(await getHealth(openwork.base));
+    expect(health.phase).toBe("ready");
+    expect(health.usable).toBe(true);
+    expect(mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp").length).toBe(1);
   });
 
   test("rejects malformed desired config without persisting or registering it", async () => {
