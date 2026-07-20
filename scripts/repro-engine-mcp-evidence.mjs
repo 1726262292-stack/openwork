@@ -50,7 +50,13 @@ function envDelayMs() {
   return Math.round(value);
 }
 function windowMs() {
-  return 15000;
+  const raw = process.env.WINDOW_MS?.trim();
+  if (!raw) return 15000;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`WINDOW_MS must be a positive number of milliseconds (got ${raw})`);
+  }
+  return Math.round(value);
 }
 
 function stripTrailingSlashes(value) {
