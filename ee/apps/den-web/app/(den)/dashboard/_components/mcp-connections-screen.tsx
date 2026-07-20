@@ -13,7 +13,7 @@ import { getPluginRoute } from "../../_lib/den-org";
 import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { IntegrationIcon } from "./integration-icon";
 import { Microsoft365Dialog } from "./microsoft-365-dialog";
-import { openMcpAuthorizationWindow, safeMcpAuthorizationUrl } from "./mcp-authorization-url";
+import { openMcpAuthorizationWindow, safeMcpAuthorizationUrl, showMcpAuthorizationError } from "./mcp-authorization-url";
 import {
   editableMcpIdentityChanged,
   marketplaceIdentityOwnerNames,
@@ -25,6 +25,7 @@ import {
   connectionNeedsOAuthClientConfiguration,
   marketplaceConnectionNeedsAdminSetup,
 } from "./mcp-connection-setup";
+import { McpCredentialInput } from "./mcp-credential-input";
 import { shouldShowMcpConnectionsStagingBanner } from "./mcp-connections-capability";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { marketplaceQueryKeys, useMarketplaces } from "./marketplace-data";
@@ -40,6 +41,7 @@ import {
   type McpRequirementsDiscovery,
   type McpConnectionAccessInput,
   McpOAuthConfigurationRequiredError,
+  McpOAuthStartError,
   type UpdatedMcpConnection,
   type UpdateMcpConnectionInput,
   formatMcpConnectedTimestamp,
@@ -314,7 +316,13 @@ export function McpConnectionsScreen() {
       authorizationWindow.location.href = safeMcpAuthorizationUrl(result.authorizeUrl);
       pollUntilConnected(connectionId);
     } catch (connectError) {
-      authorizationWindow?.close();
+      const message = connectError instanceof Error ? connectError.message : "Failed to connect the MCP server.";
+      showMcpAuthorizationError(authorizationWindow, {
+        message,
+        ...(connectError instanceof McpOAuthStartError
+          ? { details: connectError.details }
+          : {}),
+      });
       if (connectError instanceof McpOAuthConfigurationRequiredError) {
         setOAuthClientConfigurationRequiredIds((current) => current.includes(connectionId)
           ? current
@@ -323,7 +331,7 @@ export function McpConnectionsScreen() {
       }
       setConnectionActionError({
         connectionId,
-        message: connectError instanceof Error ? connectError.message : "Failed to connect the MCP server.",
+        message,
       });
     }
   }
@@ -346,7 +354,9 @@ export function McpConnectionsScreen() {
         await handleConnectOAuth(created.id, authorizationWindow);
       }
     } catch (createError) {
-      authorizationWindow?.close();
+      showMcpAuthorizationError(authorizationWindow ?? null, {
+        message: createError instanceof Error ? createError.message : "Failed to create the MCP connection.",
+      });
       throw createError;
     }
   }
@@ -1208,7 +1218,9 @@ function GoogleWorkspaceDialog({
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client ID</label>
-                  <DenInput
+                  <McpCredentialInput
+                    kind="identifier"
+                    name="google-workspace-oauth-client-id"
                     value={clientId}
                     onChange={(event) => setClientId(event.target.value)}
                     placeholder="1234567890-abc.apps.googleusercontent.com"
@@ -1216,8 +1228,9 @@ function GoogleWorkspaceDialog({
                 </div>
                 <div>
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client secret</label>
-                  <DenInput
-                    type="password"
+                  <McpCredentialInput
+                    kind="secret"
+                    name="google-workspace-oauth-client-secret"
                     value={clientSecret}
                     onChange={(event) => setClientSecret(event.target.value)}
                     placeholder="GOCSPX-…"
@@ -2037,8 +2050,9 @@ function EditConnectionDialog({
               <label className="mb-1.5 block text-[12px] font-medium text-gray-700">
                 {identityChanged ? "Replacement API key (required)" : "Replacement API key (optional)"}
               </label>
-              <DenInput
-                type="password"
+              <McpCredentialInput
+                kind="secret"
+                name="mcp-replacement-api-key"
                 value={apiKey}
                 onChange={(event) => {
                   setApiKey(event.target.value);
@@ -2078,7 +2092,9 @@ function EditConnectionDialog({
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">
                     Client ID{configureOAuthClient ? " (required)" : ""}
                   </label>
-                  <DenInput
+                  <McpCredentialInput
+                    kind="identifier"
+                    name="mcp-oauth-client-id"
                     value={oauthClientId}
                     onChange={(event) => {
                       setOAuthClientId(event.target.value);
@@ -2090,8 +2106,9 @@ function EditConnectionDialog({
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">
                     {connection.oauthClientId ? "Replacement client secret (optional)" : "Client secret (optional)"}
                   </label>
-                  <DenInput
-                    type="password"
+                  <McpCredentialInput
+                    kind="secret"
+                    name="mcp-replacement-oauth-client-secret"
                     value={oauthClientSecret}
                     onChange={(event) => {
                       setOAuthClientSecret(event.target.value);
@@ -2714,7 +2731,13 @@ function AddConnectionDialog({
           {authType === "apikey" ? (
             <div>
               <label className="mb-1.5 block text-[12px] font-medium text-gray-700">API key</label>
-              <DenInput type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-..." />
+              <McpCredentialInput
+                kind="secret"
+                name="mcp-api-key"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="sk-..."
+              />
             </div>
           ) : null}
 
@@ -2742,7 +2765,9 @@ function AddConnectionDialog({
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client ID (optional for now)</label>
-                  <DenInput
+                  <McpCredentialInput
+                    kind="identifier"
+                    name="mcp-oauth-client-id"
                     value={oauthClientId}
                     onChange={(event) => setOAuthClientId(event.target.value)}
                     placeholder="1234567890.1234567890123"
@@ -2750,8 +2775,9 @@ function AddConnectionDialog({
                 </div>
                 <div>
                   <label className="mb-1.5 block text-[12px] font-medium text-gray-700">Client secret (optional for now)</label>
-                  <DenInput
-                    type="password"
+                  <McpCredentialInput
+                    kind="secret"
+                    name="mcp-oauth-client-secret"
                     value={oauthClientSecret}
                     onChange={(event) => setOAuthClientSecret(event.target.value)}
                     placeholder="Client secret"
