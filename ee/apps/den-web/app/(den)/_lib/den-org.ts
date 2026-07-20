@@ -941,6 +941,7 @@ export function parseOrgApiKeysPayload(payload: unknown): DenOrgApiKey[] {
 
 export function parseOrgScimPayload(payload: unknown): {
   baseUrl: string | null;
+  ssoReady: boolean;
   connection: DenOrgScimConnection | null;
   health: DenOrgScimHealth;
   scimToken: string | null;
@@ -948,6 +949,7 @@ export function parseOrgScimPayload(payload: unknown): {
   if (!isRecord(payload)) {
     return {
       baseUrl: null,
+      ssoReady: false,
       connection: null,
       health: {
         unresolvedFailureCount: 0,
@@ -1000,6 +1002,7 @@ export function parseOrgScimPayload(payload: unknown): {
 
   return {
     baseUrl: asString(payload.baseUrl),
+    ssoReady: payload.ssoReady === true,
     connection,
     health,
     scimToken: asString(payload.scimToken),
