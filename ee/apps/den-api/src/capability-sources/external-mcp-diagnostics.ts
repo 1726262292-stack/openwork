@@ -55,6 +55,8 @@ export type ExternalMcpDiagnostic = {
   payloadBytes?: number
   jsonRpcCode?: number
   connectUrl?: string
+  providerErrorMessage?: string
+  providerErrorData?: string
 }
 
 export type ExternalMcpSafeOutbound = {
@@ -77,6 +79,7 @@ type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>
 // without bound.
 export const EXTERNAL_MCP_JSON_RESPONSE_LIMIT_BYTES = 4 * 1024 * 1024
 export const EXTERNAL_MCP_SSE_RESPONSE_LIMIT_BYTES = 16 * 1024 * 1024
+const EXTERNAL_MCP_PROVIDER_DECLARED_ERROR_SNIFF_LIMIT_BYTES = 64 * 1024
 
 export class ExternalMcpLifecycleDeadlineError extends Error {
   constructor() {
@@ -235,6 +238,15 @@ type ProviderAuthorizationRequired = {
   provider?: string
 }
 
+type ProviderDeclaredErrorEvidence = {
+  phase: ExternalMcpDiagnosticPhase
+  jsonRpcCode: number
+  connectUrl?: string
+  provider?: string
+  message?: string
+  dataExcerpt?: string
+}
+
 function validatedProviderConnectUrl(value: string | undefined): string | undefined {
   if (!value) return undefined
   try {
@@ -268,6 +280,143 @@ function providerAuthorizationRequired(value: unknown): ProviderAuthorizationReq
     current = errorCause(current)
   }
   return null
+}
+
+function localRequestTimeout(value: unknown): boolean {
+  let current: unknown = value
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    const data = isRecord(current) ? current.data : undefined
+    if (isRecord(data) && typeof data.timeout === "number") return true
+    current = errorCause(current)
+  }
+  return false
+}
+
+function validProviderDeclaredJsonRpcId(envelope: Record<string, unknown>): boolean {
+  if (!("id" in envelope)) return true
+  const id = envelope.id
+  return id === null || typeof id === "string" || typeof id === "number"
+}
+
+function providerDeclaredDataExcerpt(data: Record<string, unknown> | null, connectUrl: string | undefined): string | undefined {
+  if (!data) return undefined
+  const entries = Object.entries(data)
+  if (connectUrl && entries.length === 1) {
+    const onlyEntry = entries[0]
+    if (onlyEntry) {
+      const [key, value] = onlyEntry
+      if ((key === "connect_url" || key === "url") && validatedProviderConnectUrl(typeof value === "string" ? value : undefined) === connectUrl) {
+        return undefined
+      }
+    }
+  }
+  try {
+    const serialized = JSON.stringify(data)
+    return typeof serialized === "string" ? sanitizedProviderTextExcerpt(serialized) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function providerDeclaredErrorFromEnvelope(
+  value: unknown,
+  phase: ExternalMcpDiagnosticPhase,
+): ProviderDeclaredErrorEvidence | null {
+  if (!isRecord(value) || !validProviderDeclaredJsonRpcId(value)) return null
+  const error = value.error
+  if (!isRecord(error) || typeof error.code !== "number" || !Number.isSafeInteger(error.code)) return null
+  const jsonRpcCode = error.code
+  const data = isRecord(error.data) ? error.data : null
+  const provider = data ? stringProperty(data, "provider") : undefined
+  const message = sanitizedProviderTextExcerpt(stringProperty(error, "message") ?? "")
+
+  const connectUrl = data ? validatedProviderConnectUrl(stringProperty(data, "connect_url")) : undefined
+  const elicitedUrl = jsonRpcCode === URL_ELICITATION_REQUIRED_JSON_RPC_CODE && data
+    ? validatedProviderConnectUrl(stringProperty(data, "url"))
+    : undefined
+  const dataExcerpt = providerDeclaredDataExcerpt(data, connectUrl ?? elicitedUrl)
+  const evidence = {
+    phase,
+    jsonRpcCode,
+    ...(provider ? { provider } : {}),
+    ...(message ? { message } : {}),
+    ...(dataExcerpt ? { dataExcerpt } : {}),
+  }
+  if (connectUrl) return { ...evidence, connectUrl }
+  if (elicitedUrl) return { ...evidence, connectUrl: elicitedUrl }
+
+  if (value.jsonrpc === "2.0" && jsonRpcCode < 0) {
+    return evidence
+  }
+  return null
+}
+
+function providerDeclaredErrorFromError(
+  value: unknown,
+  phase: ExternalMcpDiagnosticPhase,
+): ProviderDeclaredErrorEvidence | null {
+  let current: unknown = value
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    const code = isRecord(current) ? current.code : undefined
+    if (typeof code === "number" && Number.isSafeInteger(code) && code < 0) {
+      const data = isRecord(current) && isRecord(current.data) ? current.data : null
+      const connectUrl = data ? validatedProviderConnectUrl(stringProperty(data, "connect_url")) : undefined
+      const elicitedUrl = code === URL_ELICITATION_REQUIRED_JSON_RPC_CODE && data
+        ? validatedProviderConnectUrl(stringProperty(data, "url"))
+        : undefined
+      const dataExcerpt = providerDeclaredDataExcerpt(data, connectUrl ?? elicitedUrl)
+      const message = current instanceof Error
+        ? sanitizedProviderTextExcerpt(current.message)
+        : sanitizedProviderTextExcerpt(stringProperty(current, "message") ?? "")
+      const providerConnectUrl = connectUrl ?? elicitedUrl
+      return {
+        phase,
+        jsonRpcCode: code,
+        ...(providerConnectUrl ? { connectUrl: providerConnectUrl } : {}),
+        ...(message ? { message } : {}),
+        ...(dataExcerpt ? { dataExcerpt } : {}),
+      }
+    }
+    current = errorCause(current)
+  }
+  return null
+}
+
+function providerDeclaredErrorFromJson(
+  value: unknown,
+  phase: ExternalMcpDiagnosticPhase,
+): ProviderDeclaredErrorEvidence | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const evidence = providerDeclaredErrorFromEnvelope(item, phase)
+      if (evidence) return evidence
+    }
+    return null
+  }
+  return providerDeclaredErrorFromEnvelope(value, phase)
+}
+
+function providerAuthorizationClassification(connectUrl: string): Classification {
+  return {
+    phase: "PROVIDER_AUTHORIZATION",
+    category: "provider_authorization_required",
+    code: "MCP_PROVIDER_AUTH_REQUIRED",
+    retryable: false,
+    actionOwner: "member",
+    operatorAction: "Connect your account for this provider using its sign-in link, then retry this capability.",
+    connectUrl,
+  }
+}
+
+function providerDeclaredErrorClassification(): Classification {
+  return {
+    phase: "PROVIDER_EXECUTION",
+    category: "provider_declared_error",
+    code: "MCP_PROVIDER_DECLARED_ERROR",
+    retryable: false,
+    actionOwner: "provider_admin",
+    operatorAction: "Look up the provider-declared JSON-RPC error code with the provider, then correct the downstream condition and retry.",
+  }
 }
 
 function safeNativeToken(value: string | undefined, pattern: RegExp, maxLength = 64): string | undefined {
@@ -348,14 +497,17 @@ function serializedContentPayloadBytes(content: unknown[] | null): number {
   }
 }
 
-function sanitizedProviderToolExcerpt(texts: string[]): string | undefined {
-  const sanitized = texts
-    .join("\n")
+function sanitizedProviderTextExcerpt(text: string): string | undefined {
+  const sanitized = text
     .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
   if (!sanitized) return undefined
   return sanitized.length > 512 ? sanitized.slice(0, 512) : sanitized
+}
+
+function sanitizedProviderToolExcerpt(texts: string[]): string | undefined {
+  return sanitizedProviderTextExcerpt(texts.join("\n"))
 }
 
 type ProviderToolContentEvidence = {
@@ -473,8 +625,11 @@ function safeMessageFor(input: {
   phase: ExternalMcpDiagnosticPhase
   category: string
   code: string
+  highestPassed?: ExternalMcpHealthLevel
   providerStatus?: number
   providerCode?: string
+  jsonRpcCode?: number
+  providerErrorMessage?: string
 }): string {
   const message = safeBaseMessageFor(input)
   const details = [
@@ -488,6 +643,9 @@ function safeBaseMessageFor(input: {
   phase: ExternalMcpDiagnosticPhase
   category: string
   code: string
+  highestPassed?: ExternalMcpHealthLevel
+  jsonRpcCode?: number
+  providerErrorMessage?: string
 }): string {
   if (input.code === "MCP_LIFECYCLE_DEADLINE") {
     return "The MCP lifecycle exceeded OpenWork's bounded diagnostic deadline."
@@ -496,10 +654,24 @@ function safeBaseMessageFor(input: {
     return "The MCP server did not answer the current protocol request within its bounded timeout."
   }
   if (input.code === "MCP_PROVIDER_AUTH_REQUIRED") {
-    return "The provider answered but requires this user to authorize the downstream account before the tool can run."
+    const message = "The provider answered but requires this user to authorize the downstream account before the tool can run."
+    return input.providerErrorMessage
+      ? `${message} Provider-declared message (untrusted): "${input.providerErrorMessage}".`
+      : message
+  }
+  if (input.code === "MCP_PROVIDER_DECLARED_ERROR") {
+    const message = input.jsonRpcCode === undefined
+      ? "The provider answered with a JSON-RPC error OpenWork does not recognize."
+      : `The provider answered with a JSON-RPC error OpenWork does not recognize (code ${input.jsonRpcCode}).`
+    return input.providerErrorMessage
+      ? `${message} Provider-declared message (untrusted): "${input.providerErrorMessage}".`
+      : message
   }
   if (input.code === "MCP_RESPONSE_BODY_LIMIT") {
     return "The MCP server returned a response body larger than OpenWork can safely process."
+  }
+  if (input.highestPassed && HEALTH_RANK[input.highestPassed] >= HEALTH_RANK.protocol_ready && isUninformativeClassification(input)) {
+    return "The MCP server answered, but OpenWork could not interpret its response for the current request."
   }
   if (input.category === "security_blocked") {
     return "Den blocked the MCP URL because it violates the outbound network safety policy."
@@ -563,6 +735,14 @@ function safeBaseMessageFor(input: {
 }
 
 type Classification = Omit<ExternalMcpDiagnostic, "referenceId" | "highestPassed" | "message">
+
+function isUninformativeClassification(input: Pick<Classification, "phase" | "category" | "code">): boolean {
+  return input.code === `MCP_${input.phase}` && (
+    input.category === "oauth_failure"
+    || input.category === "mcp_protocol_failure"
+    || input.category === "connection_failure"
+  )
+}
 
 function logProviderToolEvidence(input: {
   referenceId: string
@@ -911,18 +1091,12 @@ function classifyError(error: unknown, fallbackPhase: ExternalMcpDiagnosticPhase
 
   const providerAuthorization = providerAuthorizationRequired(error)
   if (providerAuthorization) {
-    return {
-      phase: "PROVIDER_AUTHORIZATION",
-      category: "provider_authorization_required",
-      code: "MCP_PROVIDER_AUTH_REQUIRED",
-      retryable: false,
-      actionOwner: "member",
-      operatorAction: "Connect your account for this provider using its sign-in link, then retry this capability.",
-      connectUrl: providerAuthorization.connectUrl,
-    }
+    return providerAuthorizationClassification(providerAuthorization.connectUrl)
   }
 
-  if (numericErrorCode(error) === -32001) {
+  const numericCode = numericErrorCode(error)
+  if (numericCode === -32001) {
+    if (!localRequestTimeout(error)) return providerDeclaredErrorClassification()
     return {
       phase: fallbackPhase,
       category: "request_timeout",
@@ -932,7 +1106,7 @@ function classifyError(error: unknown, fallbackPhase: ExternalMcpDiagnosticPhase
       operatorAction: "Check provider latency and retry after the current MCP request can complete within its bounded timeout.",
     }
   }
-  if (numericErrorCode(error) === -32602 && fallbackPhase === "MCP_TOOL_EXECUTION") {
+  if (numericCode === -32602 && fallbackPhase === "MCP_TOOL_EXECUTION") {
     return {
       phase: "MCP_TOOL_EXECUTION",
       category: "mcp_tool_input_invalid",
@@ -942,6 +1116,7 @@ function classifyError(error: unknown, fallbackPhase: ExternalMcpDiagnosticPhase
       operatorAction: "Correct the tool arguments using the latest advertised input schema; do not retry the same arguments unchanged.",
     }
   }
+  if (numericCode !== undefined) return providerDeclaredErrorClassification()
 
   const name = errorName(error)
   if (name === "InvalidClientError" || name === "UnauthorizedClientError" || name === "InvalidClientMetadataError") {
@@ -1123,6 +1298,8 @@ export class ExternalMcpDiagnosticTracker {
   private forcedClassification: Classification | null = null
   private outbound: ExternalMcpSafeOutbound | null = null
   private providerRequestId: string | null = null
+  private providerDeclaredError: ProviderDeclaredErrorEvidence | null = null
+  private backgroundFailure: { phase: ExternalMcpDiagnosticPhase; error: unknown } | null = null
 
   constructor(referenceId: string, credentialContext?: {
     authType: "oauth" | "apikey" | "none"
@@ -1143,6 +1320,8 @@ export class ExternalMcpDiagnosticTracker {
     this.lastHttpStatus = null
     this.forcedClassification = null
     this.providerRequestId = null
+    this.providerDeclaredError = null
+    this.backgroundFailure = null
   }
 
   passed(phase: ExternalMcpDiagnosticPhase, health?: ExternalMcpHealthLevel): void {
@@ -1166,10 +1345,18 @@ export class ExternalMcpDiagnosticTracker {
     this.capturedFailure = { phase, error }
   }
 
+  captureBackgroundFailure(phase: ExternalMcpDiagnosticPhase, error: unknown): void {
+    this.backgroundFailure = { phase, error }
+  }
+
   captureResponseBodyLimit(phase: ExternalMcpDiagnosticPhase, error: unknown): void {
     const classification = classifyError(error, phase)
     this.failed(phase, classification)
     this.capturedFailure = { phase, error }
+  }
+
+  captureBackgroundResponseBodyLimit(phase: ExternalMcpDiagnosticPhase, error: unknown): void {
+    this.backgroundFailure = { phase, error }
   }
 
   recordHttpStatus(status: number): void {
@@ -1196,6 +1383,10 @@ export class ExternalMcpDiagnosticTracker {
         return
       }
     }
+  }
+
+  recordProviderDeclaredError(evidence: ProviderDeclaredErrorEvidence): void {
+    this.providerDeclaredError = evidence
   }
 
   providerToolError(result?: unknown): ExternalMcpDiagnosticError {
@@ -1258,6 +1449,7 @@ export class ExternalMcpDiagnosticTracker {
       ...(providerStatus === undefined ? {} : { providerStatus }),
       ...(providerCode ? { providerCode } : {}),
       payloadBytes: evidence.payloadBytes,
+      ...(evidence.excerpt ? { providerErrorMessage: evidence.excerpt } : {}),
     }
     logProviderToolEvidence({
       referenceId: this.referenceId,
@@ -1273,8 +1465,26 @@ export class ExternalMcpDiagnosticTracker {
 
   error(error: unknown, fallbackPhase = this.lastFailedPhase ?? this.phase): ExternalMcpDiagnosticError {
     if (error instanceof ExternalMcpDiagnosticError) return error
-    const source = errorCode(error) || !this.capturedFailure ? { phase: fallbackPhase, error } : this.capturedFailure
-    const inferredClassification = classifyError(source.error, source.phase)
+    let source = { phase: fallbackPhase, error }
+    let inferredClassification = classifyError(error, fallbackPhase)
+    const thrownProviderEvidence = providerDeclaredErrorFromError(error, fallbackPhase)
+    const thrownClassificationIsUninformative = isUninformativeClassification(inferredClassification)
+    if (thrownClassificationIsUninformative && this.providerDeclaredError) {
+      const evidence = this.providerDeclaredError
+      source = { phase: evidence.phase, error }
+      inferredClassification = evidence.connectUrl
+        ? providerAuthorizationClassification(evidence.connectUrl)
+        : providerDeclaredErrorClassification()
+    } else if (thrownClassificationIsUninformative && this.capturedFailure) {
+      const capturedClassification = classifyError(this.capturedFailure.error, this.capturedFailure.phase)
+      if (!isUninformativeClassification(capturedClassification)) {
+        source = this.capturedFailure
+        inferredClassification = capturedClassification
+      } else if (this.backgroundFailure) {
+        source = this.backgroundFailure
+        inferredClassification = classifyError(this.backgroundFailure.error, this.backgroundFailure.phase)
+      }
+    }
     const classified = this.forcedClassification
       && !TYPED_OAUTH_ERROR_NAMES.has(errorName(source.error))
       && inferredClassification.phase !== "MCP_VERSION"
@@ -1292,10 +1502,21 @@ export class ExternalMcpDiagnosticTracker {
             : "Reconnect the organization-managed provider account, then retry.",
         }
       : classified
+    const jsonRpcCode = numericErrorCode(error)
+      ?? this.providerDeclaredError?.jsonRpcCode
+      ?? numericErrorCode(source.error)
+    const providerEvidence = this.providerDeclaredError
+      ?? thrownProviderEvidence
+      ?? providerDeclaredErrorFromError(source.error, source.phase)
+    const providerErrorMessage = providerEvidence?.message
+    const providerErrorData = providerEvidence?.dataExcerpt
     const diagnosticWithoutMessage = {
       referenceId: this.referenceId,
       highestPassed: this.highestPassed,
       ...classification,
+      ...(jsonRpcCode === undefined ? {} : { jsonRpcCode }),
+      ...(providerErrorMessage ? { providerErrorMessage } : {}),
+      ...(providerErrorData ? { providerErrorData } : {}),
     }
     const diagnostic: ExternalMcpDiagnostic = {
       ...diagnosticWithoutMessage,
@@ -1304,7 +1525,6 @@ export class ExternalMcpDiagnosticTracker {
       ...(classification.phase === source.phase ? {} : { operationPhase: source.phase }),
       ...(this.outbound ? { outbound: this.outbound } : {}),
       ...(this.providerRequestId ? { providerRequestId: this.providerRequestId } : {}),
-      ...(numericErrorCode(source.error) === undefined ? {} : { jsonRpcCode: numericErrorCode(source.error) }),
     }
     return new ExternalMcpDiagnosticError(diagnostic, error)
   }
@@ -1389,22 +1609,123 @@ function preserveResponseMetadata(target: Response, source: Response): void {
   }
 }
 
-function boundedExternalMcpResponse(input: {
+function requestMethod(init: RequestInit | undefined): string {
+  return (init?.method ?? "GET").toUpperCase()
+}
+
+function isMcpEndpointRequest(input: string | URL, endpoint: URL): boolean {
+  const url = new URL(String(input))
+  return url.origin === endpoint.origin && url.pathname === endpoint.pathname
+}
+
+function isBackgroundMcpEndpointRequest(input: string | URL, init: RequestInit | undefined, endpoint: URL): boolean {
+  if (!isMcpEndpointRequest(input, endpoint)) return false
+  const method = requestMethod(init)
+  return (method === "GET" || method === "DELETE") && jsonRpcMethod(requestBodyText(init)) === null
+}
+
+function isProviderDeclaredErrorSniffEligible(input: {
+  url: string | URL
+  init: RequestInit | undefined
+  endpoint: URL
+  phase: ExternalMcpDiagnosticPhase
+  response: Response
+  contentType: string
+}): boolean {
+  return input.phase.startsWith("MCP_")
+    && requestMethod(input.init) === "POST"
+    && isMcpEndpointRequest(input.url, input.endpoint)
+    && input.response.ok
+    && input.contentType === "application/json"
+}
+
+function advertisedContentLength(response: Response): number | null {
+  const advertisedLength = response.headers.get("content-length")
+  if (!advertisedLength || !/^\d+$/.test(advertisedLength)) return null
+  const length = Number(advertisedLength)
+  return Number.isSafeInteger(length) ? length : null
+}
+
+async function responseTextWithinLimit(response: Response, limit: number): Promise<string | null> {
+  if (!response.body) return null
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let bytesRead = 0
+  try {
+    while (true) {
+      const next = await reader.read()
+      if (next.done) break
+      bytesRead += next.value.byteLength
+      if (bytesRead > limit) {
+        void reader.cancel().catch(() => undefined)
+        return null
+      }
+      chunks.push(next.value)
+    }
+  } catch {
+    return null
+  }
+  const bytes = new Uint8Array(bytesRead)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
+}
+
+async function sniffProviderDeclaredError(input: {
+  response: Response
+  phase: ExternalMcpDiagnosticPhase
+  tracker: ExternalMcpDiagnosticTracker
+}): Promise<void> {
+  const contentLength = advertisedContentLength(input.response)
+  if (contentLength !== null && contentLength > EXTERNAL_MCP_PROVIDER_DECLARED_ERROR_SNIFF_LIMIT_BYTES) return
+  let clone: Response
+  try {
+    clone = input.response.clone()
+  } catch {
+    return
+  }
+  const text = await responseTextWithinLimit(clone, EXTERNAL_MCP_PROVIDER_DECLARED_ERROR_SNIFF_LIMIT_BYTES)
+  if (text === null) return
+  try {
+    const parsed: unknown = JSON.parse(text)
+    const evidence = providerDeclaredErrorFromJson(parsed, input.phase)
+    if (evidence) input.tracker.recordProviderDeclaredError(evidence)
+  } catch {
+    // Sniffing is best-effort diagnostic evidence; the SDK still receives the original body.
+  }
+}
+
+async function boundedExternalMcpResponse(input: {
   response: Response
   contentType: string
   phase: ExternalMcpDiagnosticPhase
   tracker: ExternalMcpDiagnosticTracker
-}): Response {
+  background: boolean
+  sniffProviderDeclaredError: boolean
+}): Promise<Response> {
+  if (input.sniffProviderDeclaredError) {
+    // Clone before any original .body getter access. Bun breaks the tee if the
+    // original body getter is touched before clone(), which would empty the SDK body.
+    await sniffProviderDeclaredError({
+      response: input.response,
+      phase: input.phase,
+      tracker: input.tracker,
+    })
+  }
   if (!input.response.body) return input.response
   const limit = responseBodyLimit(input.contentType)
-  const advertisedLength = input.response.headers.get("content-length")
-  if (advertisedLength && /^\d+$/.test(advertisedLength)) {
-    const length = Number(advertisedLength)
-    if (Number.isSafeInteger(length) && length > limit) {
-      const error = new ExternalMcpResponseBodyLimitError()
-      input.tracker.captureResponseBodyLimit(input.phase, error)
-      throw input.tracker.error(error, input.phase)
+  const contentLength = advertisedContentLength(input.response)
+  if (contentLength !== null && contentLength > limit) {
+    const error = new ExternalMcpResponseBodyLimitError()
+    if (input.background) {
+      input.tracker.captureBackgroundResponseBodyLimit(input.phase, error)
+      throw error
     }
+    input.tracker.captureResponseBodyLimit(input.phase, error)
+    throw input.tracker.error(error, input.phase)
   }
 
   const reader = input.response.body.getReader()
@@ -1420,7 +1741,11 @@ function boundedExternalMcpResponse(input: {
         bytesRead += next.value.byteLength
         if (bytesRead > limit) {
           const error = new ExternalMcpResponseBodyLimitError()
-          input.tracker.captureResponseBodyLimit(input.phase, error)
+          if (input.background) {
+            input.tracker.captureBackgroundResponseBodyLimit(input.phase, error)
+          } else {
+            input.tracker.captureResponseBodyLimit(input.phase, error)
+          }
           await reader.cancel(error).catch(() => undefined)
           controller.error(error)
           return
@@ -1457,10 +1782,24 @@ export function createExternalMcpDiagnosticFetch(input: {
       input.tracker.failed("CONFIGURATION")
       throw input.tracker.error(error, "CONFIGURATION")
     }
-    input.tracker.begin(phase)
-    input.tracker.recordOutbound(url)
+    const background = isBackgroundMcpEndpointRequest(url, init, endpoint)
+    if (!background) {
+      input.tracker.begin(phase)
+      input.tracker.recordOutbound(url)
+    }
     try {
       const response = await input.fetch(url, init)
+      const contentType = (response.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? ""
+      if (background) {
+        return await boundedExternalMcpResponse({
+          response,
+          contentType,
+          phase,
+          tracker: input.tracker,
+          background,
+          sniffProviderDeclaredError: false,
+        })
+      }
       input.tracker.recordHttpStatus(response.status)
       input.tracker.recordProviderRequestId(response.headers)
       const challenge = response.headers.get("www-authenticate") ?? ""
@@ -1469,7 +1808,6 @@ export function createExternalMcpDiagnosticFetch(input: {
         && response.status === 401
         && !hasAuthorization
         && /\bbearer\b/i.test(challenge)
-      const contentType = (response.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? ""
       const classification = unauthenticatedChallenge
         ? null
         : httpClassification({
@@ -1492,9 +1830,27 @@ export function createExternalMcpDiagnosticFetch(input: {
       } else {
         input.tracker.failed(phase)
       }
-      return boundedExternalMcpResponse({ response, contentType, phase, tracker: input.tracker })
+      return await boundedExternalMcpResponse({
+        response,
+        contentType,
+        phase,
+        tracker: input.tracker,
+        background,
+        sniffProviderDeclaredError: isProviderDeclaredErrorSniffEligible({
+          url,
+          init,
+          endpoint,
+          phase,
+          response,
+          contentType,
+        }),
+      })
     } catch (error) {
-      input.tracker.captureFailure(phase, error)
+      if (background) {
+        input.tracker.captureBackgroundFailure(phase, error)
+      } else {
+        input.tracker.captureFailure(phase, error)
+      }
       throw error
     }
   }

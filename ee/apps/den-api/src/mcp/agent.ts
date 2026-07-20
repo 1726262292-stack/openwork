@@ -60,6 +60,8 @@ const externalMcpDiagnosticOutputSchema = z.object({
   payloadBytes: z.number().int().optional(),
   jsonRpcCode: z.number().int().optional(),
   connectUrl: z.string().url().optional(),
+  providerErrorMessage: z.string().optional(),
+  providerErrorData: z.string().optional(),
 })
 
 const connectionStatusOutputSchema = openworkCloudMcpConnectionActionSchema.extend({
