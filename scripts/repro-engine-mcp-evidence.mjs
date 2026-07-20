@@ -12,6 +12,8 @@ const SERVER_TOKEN = "repro-token";
 const runTag = `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 const children = new Set();
 const logStreams = new Set();
+const proxySockets = new Set();
+const proxyHoldTimers = new Set();
 let proxyServer = null;
 let cleanupStarted = false;
 
@@ -47,6 +49,9 @@ function envDelayMs() {
   }
   return Math.round(value);
 }
+function windowMs() {
+  return 15000;
+}
 
 function stripTrailingSlashes(value) {
   return value.replace(/\/+$/, "");
@@ -73,6 +78,11 @@ async function fetchJson(url, options = {}) {
   const response = await fetch(url, { ...options, headers });
   const text = await response.text();
   return { response, body: parseJsonText(text), text };
+}
+async function readNodeRequestJson(request) {
+  let body = "";
+  for await (const chunk of request) body += chunk.toString();
+  return parseJsonText(body);
 }
 function authOrigins(denApiUrl) {
   const url = new URL(denApiUrl);
@@ -169,14 +179,29 @@ async function bootstrapDen(denApiUrl) {
   if (typeof token !== "string" || !token) throw new Error("POST /v1/mcp/token did not return token");
   return { sessionToken, organization, mcpToken: token, mcpTokenBody: minted.body };
 }
-function startDelayProxy(targetBase, port, delayMs) {
+function startDelayProxy(targetBase, port) {
   const targetOrigin = stripTrailingSlashes(targetBase);
-  let t0 = Date.now();
-  let delayUntil = t0 + delayMs;
+  let armedUntilMs = 0;
+  let activeDelayMs = 0;
+  const holds = [];
 
-  const server = http.createServer((request, response) => {
+  const server = http.createServer(async (request, response) => {
     const requestUrl = request.url ?? "/";
-    const remaining = requestUrl.startsWith("/mcp/agent") ? delayUntil - Date.now() : 0;
+    const requestPath = new URL(requestUrl, "http://127.0.0.1").pathname;
+    if (request.method === "POST" && requestPath === "/__repro/arm") {
+      const body = await readNodeRequestJson(request);
+      const nextDelayMs = Number(own(body, "delayMs"));
+      const nextWindowMs = Number(own(body, "windowMs"));
+      activeDelayMs = Number.isFinite(nextDelayMs) && nextDelayMs >= 0 ? Math.round(nextDelayMs) : 9000;
+      const activeWindowMs = Number.isFinite(nextWindowMs) && nextWindowMs > 0 ? Math.round(nextWindowMs) : windowMs();
+      const armedAtMs = Date.now();
+      armedUntilMs = armedAtMs + activeWindowMs;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ armedAtMs, armedUntilMs, delayMs: activeDelayMs, windowMs: activeWindowMs }));
+      log(`Delay proxy armed for ${activeWindowMs}ms with per-request hold ${activeDelayMs}ms`);
+      return;
+    }
+
     const forward = () => {
       const targetUrl = new URL(`${targetOrigin}${requestUrl}`);
       const headers = { ...request.headers };
@@ -195,12 +220,24 @@ function startDelayProxy(targetBase, port, delayMs) {
       });
       request.pipe(proxyRequest);
     };
-    if (remaining > 0) {
-      log(`Delaying ${request.method ?? ""} ${requestUrl} for ${Math.ceil(remaining)}ms`);
-      setTimeout(forward, remaining);
+    if (requestPath.startsWith("/mcp/agent") && Date.now() <= armedUntilMs) {
+      const arrivedAtMs = Date.now();
+      log(`Delaying ${request.method ?? ""} ${requestUrl} for ${activeDelayMs}ms`);
+      const timer = setTimeout(() => {
+        proxyHoldTimers.delete(timer);
+        const heldMs = Date.now() - arrivedAtMs;
+        holds.push({ path: requestUrl, heldMs, at: new Date(arrivedAtMs).toISOString() });
+        log(`Forwarding held ${request.method ?? ""} ${requestUrl} after ${heldMs}ms`);
+        forward();
+      }, activeDelayMs);
+      proxyHoldTimers.add(timer);
       return;
     }
     forward();
+  });
+  server.on("connection", (socket) => {
+    proxySockets.add(socket);
+    socket.on("close", () => proxySockets.delete(socket));
   });
 
   return new Promise((resolve, reject) => {
@@ -208,14 +245,8 @@ function startDelayProxy(targetBase, port, delayMs) {
     server.listen(port, "127.0.0.1", () => {
       server.off("error", reject);
       proxyServer = server;
-      const arm = () => {
-        t0 = Date.now();
-        delayUntil = t0 + delayMs;
-        log(`Delay proxy armed until ${new Date(delayUntil).toISOString()}`);
-        return { t0, delayUntil };
-      };
       log(`Delay proxy listening on http://127.0.0.1:${port}, forwarding to ${targetOrigin}`);
-      resolve({ arm });
+      resolve({ holds });
     });
   });
 }
@@ -265,6 +296,7 @@ async function startOpenworkServer(paths, serverPort, opencodeBin) {
       HOME: paths.home,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   children.add(child);
   try {
@@ -283,6 +315,14 @@ async function serverJson(baseUrl, path, options = {}) {
     headers: { authorization: `Bearer ${SERVER_TOKEN}`, ...(options.headers ?? {}) },
   });
   assertOk(result, `${options.method ?? "GET"} ${path}`);
+  return result.body;
+}
+async function armProxy(proxyPort, delayMs, activeWindowMs) {
+  const result = await fetchJson(`http://127.0.0.1:${proxyPort}/__repro/arm`, {
+    method: "POST",
+    body: JSON.stringify({ delayMs, windowMs: activeWindowMs }),
+  });
+  assertOk(result, "POST /__repro/arm");
   return result.body;
 }
 
@@ -337,21 +377,40 @@ function redact(value, secrets) {
   return output;
 }
 
+function killProcessGroup(child, signal) {
+  if (typeof child.pid === "number") {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {}
+  }
+  child.kill(signal);
+}
+
 async function cleanup() {
   if (cleanupStarted) return;
   cleanupStarted = true;
+  for (const timer of proxyHoldTimers) clearTimeout(timer);
+  proxyHoldTimers.clear();
+  proxyServer?.unref();
+  proxyServer?.closeAllConnections?.();
+  for (const socket of proxySockets) socket.destroy();
   const closeProxy = proxyServer
     ? new Promise((resolve) => proxyServer.close(() => resolve()))
     : Promise.resolve();
   for (const child of children) {
-    if (child.exitCode === null) child.kill("SIGTERM");
+    if (child.exitCode === null) killProcessGroup(child, "SIGTERM");
   }
   await Promise.race([closeProxy, sleep(1000)]);
   await sleep(1200);
   for (const child of children) {
-    if (child.exitCode === null) child.kill("SIGKILL");
+    if (child.exitCode === null) killProcessGroup(child, "SIGKILL");
   }
   for (const stream of logStreams) stream.end();
+}
+
+async function writeFinalJson(value) {
+  await new Promise((resolve) => process.stdout.write(`${JSON.stringify(value)}\n`, resolve));
 }
 
 async function main() {
@@ -360,12 +419,13 @@ async function main() {
   const opencodeBin = envString("OPENWORK_OPENCODE_BIN");
   const reproDir = envString("REPRO_DIR");
   const delayMs = envDelayMs();
+  const activeWindowMs = windowMs();
   const serverPort = envPort("SERVER_PORT", 8790);
   const proxyPort = envPort("PROXY_PORT", 8791);
   const paths = { workspaceRoot: join(reproDir, "ws"), xdg: join(reproDir, "xdg"), xdgOpenwork: join(reproDir, "xdg", "openwork"), home: join(reproDir, "home"), logs: join(reproDir, "logs") };
 
   const den = await bootstrapDen(denApiUrl);
-  const proxy = await startDelayProxy(denApiUrl, proxyPort, delayMs);
+  const proxy = await startDelayProxy(denApiUrl, proxyPort);
   const openwork = await startOpenworkServer(paths, serverPort, opencodeBin);
   const workspaces = await serverJson(openwork.baseUrl, "/workspaces");
   const workspaceId = firstWorkspaceId(workspaces);
@@ -392,7 +452,9 @@ async function main() {
   };
 
   log("PHASE 1: seeding delayed openwork-cloud reconcile");
-  const armed = proxy.arm();
+  const armed = await armProxy(proxyPort, delayMs, activeWindowMs);
+  const armedUntilMs = Number(own(armed, "armedUntilMs"));
+  if (!Number.isFinite(armedUntilMs)) throw new Error(`Proxy arm response did not include armedUntilMs: ${JSON.stringify(armed)}`);
   const seedReconcile = await serverJson(openwork.baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/reconcile`, {
     method: "POST",
     body: JSON.stringify(reconcilePayload),
@@ -401,7 +463,7 @@ async function main() {
   const seedHealth = await serverJson(openwork.baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/mcp/openwork-cloud/health`);
 
   log("PHASE 2: waiting for delayed Den MCP handshake to heal live engine state");
-  await sleep(armed.delayUntil + 8000 - Date.now());
+  await sleep(armedUntilMs + 8000 - Date.now());
   const healedHealth = await pollHealedHealth(openwork.baseUrl, workspaceId);
   const healedMcp = await serverJson(openwork.baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/mcp`);
 
@@ -432,11 +494,16 @@ async function main() {
       healed: { mcp: healedMcp, health: healedHealth },
       diagnostics: { engineMcpSyncCheck, openworkCloudSyncStatuses, firstFailedCheck: own(diagnosticsReport, "firstFailedCheck") ?? null, overall: own(diagnosticsReport, "overall") ?? null },
     },
+    proxyHolds: proxy.holds,
     contradictionReproduced,
   };
 
+  await writeFinalJson(redact(evidence, [den.mcpToken, den.sessionToken]));
+  const forcedExit = setTimeout(() => process.exit(0), 2000);
+  forcedExit.unref();
   await cleanup();
-  console.log(JSON.stringify(redact(evidence, [den.mcpToken, den.sessionToken])));
+  clearTimeout(forcedExit);
+  process.exit(0);
 }
 
 process.once("SIGINT", () => void cleanup().finally(() => process.exit(130)));
@@ -445,5 +512,5 @@ process.once("SIGTERM", () => void cleanup().finally(() => process.exit(143)));
 main().catch(async (error) => {
   process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
   await cleanup();
-  process.exitCode = 1;
+  process.exit(1);
 });
