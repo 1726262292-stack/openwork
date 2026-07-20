@@ -54,6 +54,7 @@ export type ExternalMcpDiagnostic = {
   providerCode?: string
   payloadBytes?: number
   jsonRpcCode?: number
+  connectUrl?: string
 }
 
 export type ExternalMcpSafeOutbound = {
@@ -164,6 +165,7 @@ const SAFE_PROVIDER_REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/-]*$/
 const PROVIDER_STATUS_FIELDS = ["status", "statusCode", "httpStatus"]
 const PROVIDER_CODE_FIELDS = ["code", "error"]
 const PROVIDER_REQUEST_ID_FIELDS = ["requestId", "request_id", "transactionId", "transaction_id"]
+const URL_ELICITATION_REQUIRED_JSON_RPC_CODE = -32042
 
 const TYPED_OAUTH_ERROR_NAMES = new Set([
   "InvalidClientError",
@@ -226,6 +228,46 @@ function numericErrorCode(value: unknown): number | undefined {
     current = errorCause(current)
   }
   return undefined
+}
+
+type ProviderAuthorizationRequired = {
+  connectUrl: string
+  provider?: string
+}
+
+function validatedProviderConnectUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function providerAuthorizationRequired(value: unknown): ProviderAuthorizationRequired | null {
+  let current: unknown = value
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    const data = isRecord(current) ? current.data : undefined
+    if (isRecord(data)) {
+      const connectUrl = validatedProviderConnectUrl(stringProperty(data, "connect_url"))
+      if (connectUrl) {
+        const provider = stringProperty(data, "provider")
+        return { connectUrl, ...(provider ? { provider } : {}) }
+      }
+
+      const code = isRecord(current) ? current.code : undefined
+      if (code === URL_ELICITATION_REQUIRED_JSON_RPC_CODE) {
+        const url = validatedProviderConnectUrl(stringProperty(data, "url"))
+        if (url) {
+          const provider = stringProperty(data, "provider")
+          return { connectUrl: url, ...(provider ? { provider } : {}) }
+        }
+      }
+    }
+    current = errorCause(current)
+  }
+  return null
 }
 
 function safeNativeToken(value: string | undefined, pattern: RegExp, maxLength = 64): string | undefined {
@@ -452,6 +494,9 @@ function safeBaseMessageFor(input: {
   }
   if (input.code === "MCP_REQUEST_TIMEOUT") {
     return "The MCP server did not answer the current protocol request within its bounded timeout."
+  }
+  if (input.code === "MCP_PROVIDER_AUTH_REQUIRED") {
+    return "The provider answered but requires this user to authorize the downstream account before the tool can run."
   }
   if (input.code === "MCP_RESPONSE_BODY_LIMIT") {
     return "The MCP server returned a response body larger than OpenWork can safely process."
@@ -862,6 +907,19 @@ function classifyError(error: unknown, fallbackPhase: ExternalMcpDiagnosticPhase
   if (code) {
     const classified = classifyByCode(code)
     if (classified) return classified
+  }
+
+  const providerAuthorization = providerAuthorizationRequired(error)
+  if (providerAuthorization) {
+    return {
+      phase: "PROVIDER_AUTHORIZATION",
+      category: "provider_authorization_required",
+      code: "MCP_PROVIDER_AUTH_REQUIRED",
+      retryable: false,
+      actionOwner: "member",
+      operatorAction: "Connect your account for this provider using its sign-in link, then retry this capability.",
+      connectUrl: providerAuthorization.connectUrl,
+    }
   }
 
   if (numericErrorCode(error) === -32001) {

@@ -357,6 +357,61 @@ function addConnectionActionUrl(input: {
   return url ? { ...input.action, url } : input.action
 }
 
+function relayableProviderConnectUrl(connectUrl: string | undefined, connectionUrl: string): string | undefined {
+  if (!connectUrl) return undefined
+  try {
+    const candidate = new URL(connectUrl)
+    const connection = new URL(connectionUrl)
+    if (candidate.host !== connection.host) return undefined
+    return candidate.protocol === "http:" || candidate.protocol === "https:" ? candidate.toString() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function providerAuthorizationDiagnosticForConnection(input: {
+  diagnostic: ExternalMcpDiagnostic
+  connectionUrl: string
+}): ExternalMcpDiagnostic {
+  if (!input.diagnostic.connectUrl) return input.diagnostic
+  const connectUrl = relayableProviderConnectUrl(input.diagnostic.connectUrl, input.connectionUrl)
+  if (!connectUrl) {
+    const diagnostic = { ...input.diagnostic }
+    delete diagnostic.connectUrl
+    return diagnostic
+  }
+  return connectUrl === input.diagnostic.connectUrl
+    ? input.diagnostic
+    : { ...input.diagnostic, connectUrl }
+}
+
+function providerAuthorizationConnectionStatus(input: {
+  connection: Pick<ExternalMcpConnectionRow, "id" | "name" | "authType" | "credentialMode">
+  diagnostic: ExternalMcpDiagnostic
+  message: string
+}): ExternalConnectionStatus {
+  const status = buildExternalConnectionStatus({
+    connection: input.connection,
+    state: "needs_connection",
+    errorCode: "not_connected",
+    message: input.message,
+    diagnostic: input.diagnostic,
+    actionOwner: "member",
+    layer: "downstream_provider",
+  })
+  return {
+    ...status,
+    actor: "member",
+    action: {
+      type: "connect",
+      label: "Connect your provider account",
+      surface: "openwork_your_connections",
+      retry: "search_capabilities",
+      ...(input.diagnostic.connectUrl ? { url: input.diagnostic.connectUrl } : {}),
+    },
+  }
+}
+
 export function buildExternalConnectionStatus(input: {
   connection: Pick<ExternalMcpConnectionRow, "id" | "name" | "authType" | "credentialMode">
   state: ExternalConnectionStatus["state"]
@@ -364,6 +419,7 @@ export function buildExternalConnectionStatus(input: {
   message: string
   diagnostic?: ExternalMcpDiagnostic
   actionOwner?: "member" | "organization_admin"
+  layer?: ExternalConnectionStatus["layer"]
 }): ExternalConnectionStatus {
   const connectionName = input.connection.name
   const actionContract = {
@@ -383,7 +439,7 @@ export function buildExternalConnectionStatus(input: {
     const providerAdminAction = PROVIDER_ADMIN_ACTION_PATTERN.test(input.message)
     return {
       ...actionContract,
-      layer: input.diagnostic ? "mcp_connection" : "downstream_provider",
+      layer: input.layer ?? (input.diagnostic ? "mcp_connection" : "downstream_provider"),
       connectionId: input.connection.id,
       connectionName,
       authType: input.connection.authType,
@@ -430,7 +486,7 @@ export function buildExternalConnectionStatus(input: {
         : "Inspect"
   return {
     ...actionContract,
-    layer: input.diagnostic ? "mcp_connection" : "downstream_provider",
+    layer: input.layer ?? (input.diagnostic ? "mcp_connection" : "downstream_provider"),
     connectionId: input.connection.id,
     connectionName,
     authType: input.connection.authType,
@@ -1027,29 +1083,51 @@ export async function executeExternalCapability(input: {
     const message = upstreamErrorMessage(error)
     const authErrorCode = externalMcpAuthErrorCode(error, message)
     if (error instanceof ExternalMcpDiagnosticError) {
+      const diagnostic = error.diagnostic.code === "MCP_PROVIDER_AUTH_REQUIRED"
+        ? providerAuthorizationDiagnosticForConnection({ diagnostic: error.diagnostic, connectionUrl: connection.url })
+        : error.diagnostic
+      const log = externalMcpDiagnosticForLog(error, error.diagnostic.referenceId, "MCP_TOOL_EXECUTION")
       console.error("external_mcp_capability_execute_failed", {
         connectionId: connection.id,
         organizationId: connection.organizationId,
         connectionEndpoint: safeExternalMcpEndpointForLog(connection.url),
-        ...externalMcpDiagnosticForLog(error, error.diagnostic.referenceId, "MCP_TOOL_EXECUTION"),
+        ...log,
+        diagnostic,
       })
-      if (error.diagnostic.code === "MCP_INVALID_PARAMS" || error.diagnostic.code === "MCP_PROVIDER_INVALID_PARAMS") {
+      if (diagnostic.code === "MCP_INVALID_PARAMS" || diagnostic.code === "MCP_PROVIDER_INVALID_PARAMS") {
         return invalidCapabilityArguments({
           capability: buildExternalCapabilityName(connection.id, input.toolName),
           schemaDigest: currentSchemaDigest ?? input.schemaDigest,
-          diagnostic: error.diagnostic,
+          diagnostic,
           schemaGuidance,
         })
       }
+      if (diagnostic.code === "MCP_PROVIDER_AUTH_REQUIRED") {
+        const resultMessage = `${diagnostic.message} ${diagnostic.operatorAction} Diagnostic reference: ${diagnostic.referenceId}.`
+        return {
+          ok: false,
+          error: "needs_connection",
+          message: resultMessage,
+          diagnostic,
+          actionOwner: diagnostic.actionOwner,
+          operatorAction: diagnostic.operatorAction,
+          connectionStatus: providerAuthorizationConnectionStatus({
+            connection,
+            diagnostic,
+            message: resultMessage,
+          }),
+          ...(schemaGuidance ? { schemaGuidance } : {}),
+        }
+      }
       return {
         ok: false,
-        error: error.diagnostic.phase === "PROVIDER_EXECUTION" || error.diagnostic.phase === "PROVIDER_AUTHORIZATION"
+        error: diagnostic.phase === "PROVIDER_EXECUTION" || diagnostic.phase === "PROVIDER_AUTHORIZATION"
           ? "provider_error"
           : "connection_failed",
-        message: `${error.diagnostic.message} ${error.diagnostic.operatorAction} Diagnostic reference: ${error.diagnostic.referenceId}.`,
-        diagnostic: error.diagnostic,
-        actionOwner: error.diagnostic.actionOwner,
-        operatorAction: error.diagnostic.operatorAction,
+        message: `${diagnostic.message} ${diagnostic.operatorAction} Diagnostic reference: ${diagnostic.referenceId}.`,
+        diagnostic,
+        actionOwner: diagnostic.actionOwner,
+        operatorAction: diagnostic.operatorAction,
         ...(schemaGuidance ? { schemaGuidance } : {}),
         ...(authErrorCode
           ? {
@@ -1058,7 +1136,7 @@ export async function executeExternalCapability(input: {
                 state: "reauth_required",
                 errorCode: authErrorCode,
                 message,
-                diagnostic: error.diagnostic,
+                diagnostic,
               }),
             }
           : {}),

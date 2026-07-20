@@ -30,6 +30,13 @@ function networkError(code: string, secret = "Bearer super-secret-token") {
   return new Error("fetch failed", { cause })
 }
 
+function jsonRpcError(code: number, data?: Record<string, unknown>) {
+  const error = new Error(`MCP error ${code}: synthetic provider detail`)
+  Object.defineProperty(error, "code", { value: code, enumerable: true })
+  if (data) Object.defineProperty(error, "data", { value: data, enumerable: true })
+  return error
+}
+
 function captureConsoleError<T>(run: () => T): { result: T; errors: unknown[][] } {
   const errors: unknown[][] = []
   const originalError = console.error
@@ -451,6 +458,80 @@ describe("external MCP diagnostics", () => {
     })
     expect(error.diagnostic.operatorAction).toContain("do not retry the same arguments")
     expect(JSON.stringify(error.diagnostic)).not.toContain("private argument detail")
+  })
+
+  test("classifies downstream provider authorization links without treating -32001 as a timeout", () => {
+    const connectUrl = "https://mcp-gateway.fixture.test/servers/salesforce/connect/start"
+    const tracker = new ExternalMcpDiagnosticTracker("req_provider_auth")
+    tracker.begin("MCP_TOOL_EXECUTION")
+    const error = tracker.error(new Error("wrapped SDK error", {
+      cause: jsonRpcError(-32001, { connect_url: connectUrl, provider: "salesforce" }),
+    }))
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "PROVIDER_AUTHORIZATION",
+      category: "provider_authorization_required",
+      code: "MCP_PROVIDER_AUTH_REQUIRED",
+      retryable: false,
+      actionOwner: "member",
+      connectUrl,
+      jsonRpcCode: -32001,
+    })
+    expect(error.diagnostic.message).not.toContain("timeout")
+    expect(error.diagnostic.operatorAction).not.toContain("salesforce")
+  })
+
+  test("classifies URL elicitation as downstream provider authorization", () => {
+    const connectUrl = "https://mcp-gateway.fixture.test/servers/salesforce/connect/start"
+    const tracker = new ExternalMcpDiagnosticTracker("req_url_elicitation")
+    tracker.begin("MCP_TOOL_EXECUTION")
+    const error = tracker.error(jsonRpcError(-32042, { url: connectUrl }))
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "PROVIDER_AUTHORIZATION",
+      category: "provider_authorization_required",
+      code: "MCP_PROVIDER_AUTH_REQUIRED",
+      retryable: false,
+      actionOwner: "member",
+      connectUrl,
+      jsonRpcCode: -32042,
+    })
+  })
+
+  test.each([
+    ["local request timeout", { timeout: 30000 }],
+    ["maximum total timeout", { maxTotalTimeout: 90000, totalElapsed: 90001 }],
+    ["bare remote -32001", undefined],
+    ["unsafe connect_url scheme", { connect_url: "javascript:alert(1)" }],
+    ["non-http connect_url scheme", { connect_url: "ftp://mcp-gateway.fixture.test/servers/salesforce/connect/start" }],
+  ])("keeps %s classified as request timeout", (_name, data) => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_timeout")
+    tracker.begin("MCP_TOOL_EXECUTION")
+    const error = tracker.error(jsonRpcError(-32001, data))
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "MCP_TOOL_EXECUTION",
+      category: "request_timeout",
+      code: "MCP_REQUEST_TIMEOUT",
+      retryable: true,
+      actionOwner: "provider_admin",
+      jsonRpcCode: -32001,
+    })
+    expect(error.diagnostic.connectUrl).toBeUndefined()
+  })
+
+  test("keeps unknown remote JSON-RPC errors generic while preserving the code", () => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_remote_generic")
+    tracker.begin("MCP_TOOL_EXECUTION")
+    const error = tracker.error(jsonRpcError(-32050, { provider_detail: "must-not-surface" }))
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "MCP_TOOL_EXECUTION",
+      category: "mcp_protocol_failure",
+      code: "MCP_MCP_TOOL_EXECUTION",
+      jsonRpcCode: -32050,
+    })
+    expect(JSON.stringify(error.diagnostic)).not.toContain("must-not-surface")
   })
 
   test("classifies structured provider validation errors as correctable tool input", () => {
