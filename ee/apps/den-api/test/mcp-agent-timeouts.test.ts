@@ -11,6 +11,7 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
+  process.env.DEN_ALLOW_PRIVATE_MCP_URLS = process.env.DEN_ALLOW_PRIVATE_MCP_URLS ?? "1"
 }
 
 class MemoryTransport implements Transport {
@@ -152,13 +153,18 @@ test("capability search preserves the bounded-fanout coverage warning", () => {
   expect(JSON.parse(result.content[0]?.text ?? "{}")).toEqual(structured)
 })
 
-test("external capability failures preserve the safe MCP diagnostic envelope", () => {
+test("external capability failures preserve the slim agent-facing MCP error envelope", () => {
   const result = agentModule.externalCapabilityErrorToolResult({
     ok: false,
     error: "connection_failed",
     message: "Connection failed. Diagnostic reference: req_test.",
-    actionOwner: "network_admin",
-    operatorAction: "Repair the certificate chain.",
+    referenceId: "req_test",
+    retryable: false,
+    providerError: {
+      jsonRpcCode: -32050,
+      message: "Provider quota exceeded.",
+      data: '{"reason":"quota"}',
+    },
     connectionStatus: {
       version: 1,
       kind: "connection_action",
@@ -179,27 +185,17 @@ test("external capability failures preserve the safe MCP diagnostic envelope", (
         retry: "search_capabilities",
       },
     },
-    diagnostic: {
-      referenceId: "req_test",
-      phase: "NETWORK_TLS",
-      category: "tls_failure",
-      code: "MCP_CERT_HAS_EXPIRED",
-      highestPassed: "reachable",
-      retryable: false,
-      actionOwner: "network_admin",
-      operatorAction: "Repair the certificate chain.",
-      message: "TLS validation failed.",
-    },
   })
   expect(result.isError).toBe(true)
-  expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({
+  const payload = JSON.parse(result.content[0]?.text ?? "{}")
+  expect(payload).toMatchObject({
     error: "connection_failed",
-    actionOwner: "network_admin",
-    operatorAction: "Repair the certificate chain.",
-    diagnostic: {
-      referenceId: "req_test",
-      phase: "NETWORK_TLS",
-      actionOwner: "network_admin",
+    referenceId: "req_test",
+    retryable: false,
+    providerError: {
+      jsonRpcCode: -32050,
+      message: "Provider quota exceeded.",
+      data: '{"reason":"quota"}',
     },
     connectionStatus: {
       connectionId: "emc_test",
@@ -207,6 +203,10 @@ test("external capability failures preserve the safe MCP diagnostic envelope", (
       action: { type: "reconnect" },
     },
   })
+  expect("diagnostic" in payload).toBe(false)
+  expect("actionOwner" in payload).toBe(false)
+  expect("operatorAction" in payload).toBe(false)
+  expect("diagnostic" in payload.connectionStatus).toBe(false)
 })
 
 test("invalid capability arguments preserve corrective retry instructions", () => {

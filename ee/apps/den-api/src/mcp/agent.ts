@@ -8,7 +8,6 @@ import { openworkCloudMcpConnectionActionSchema } from "@openwork/types/den/mcp-
 import type { Hono } from "hono"
 import { z } from "zod"
 import { memberFacingMcpConnectionsEnabled } from "../capability-sources/external-mcp-rollout.js"
-import { EXTERNAL_MCP_DIAGNOSTIC_PHASES } from "../capability-sources/external-mcp-diagnostics.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
@@ -41,27 +40,10 @@ export const EXECUTE_CAPABILITY_ANNOTATIONS: ToolAnnotations = {
   openWorldHint: true,
 }
 
-const externalMcpDiagnosticOutputSchema = z.object({
-  referenceId: z.string(),
-  phase: z.enum(EXTERNAL_MCP_DIAGNOSTIC_PHASES),
-  category: z.string(),
-  code: z.string(),
-  highestPassed: z.enum(["configured", "reachable", "authorized", "protocol_ready", "catalog_ready", "operation_ready"]),
-  retryable: z.boolean(),
-  actionOwner: z.enum(["openwork", "network_admin", "provider_admin", "organization_admin", "member"]),
-  operatorAction: z.string(),
-  message: z.string(),
-  httpStatus: z.number().int().optional(),
-  operationPhase: z.enum(EXTERNAL_MCP_DIAGNOSTIC_PHASES).optional(),
-  outbound: z.object({ origin: z.string(), pathHash: z.string() }).optional(),
-  providerRequestId: z.string().optional(),
-  providerStatus: z.number().int().optional(),
-  providerCode: z.string().optional(),
-  payloadBytes: z.number().int().optional(),
+const externalMcpProviderErrorOutputSchema = z.object({
   jsonRpcCode: z.number().int().optional(),
-  connectUrl: z.string().url().optional(),
-  providerErrorMessage: z.string().optional(),
-  providerErrorData: z.string().optional(),
+  message: z.string().optional(),
+  data: z.string().optional(),
 })
 
 const connectionStatusOutputSchema = openworkCloudMcpConnectionActionSchema.extend({
@@ -75,7 +57,6 @@ const connectionStatusOutputSchema = openworkCloudMcpConnectionActionSchema.exte
     retry: z.literal("search_capabilities"),
     url: z.string().url().optional(),
   }),
-  diagnostic: externalMcpDiagnosticOutputSchema.optional(),
 })
 
 const capabilityMatchOutputSchema = z.object({
@@ -100,6 +81,28 @@ const capabilityMatchOutputSchema = z.object({
 export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
   matches: z.array(capabilityMatchOutputSchema),
   hint: z.string().optional(),
+})
+
+const externalCapabilityErrorPayloadSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+  referenceId: z.string().optional(),
+  retryable: z.boolean().optional(),
+  providerError: externalMcpProviderErrorOutputSchema.optional(),
+  connectionStatus: connectionStatusOutputSchema.optional(),
+  capability: z.string().optional(),
+  issues: z.array(z.object({
+    path: z.string(),
+    keyword: z.string(),
+    message: z.string(),
+  })).optional(),
+  schemaDigest: z.string().optional(),
+  sameArgumentsRetryable: z.literal(false).optional(),
+  retry: z.object({
+    action: z.enum(["correct_arguments", "search_capabilities"]),
+    searchRequired: z.boolean(),
+  }).optional(),
+  schemaGuidance: z.unknown().optional(),
 })
 
 export const AGENT_MCP_INSTRUCTIONS = [
@@ -133,22 +136,23 @@ function textContent(text: string): { text: string; type: "text" }[] {
 export function externalCapabilityErrorToolResult(
   result: Exclude<ExternalCapabilityExecuteResult, { ok: true }>,
 ): ExecuteCapabilityToolResult {
+  const payload = externalCapabilityErrorPayloadSchema.parse({
+    error: result.error,
+    message: result.message,
+    ...(result.referenceId === undefined ? {} : { referenceId: result.referenceId }),
+    ...(result.retryable === undefined ? {} : { retryable: result.retryable }),
+    ...(result.providerError ? { providerError: result.providerError } : {}),
+    ...(result.connectionStatus ? { connectionStatus: result.connectionStatus } : {}),
+    ...(result.capability ? { capability: result.capability } : {}),
+    ...(result.issues ? { issues: result.issues } : {}),
+    ...(result.schemaDigest ? { schemaDigest: result.schemaDigest } : {}),
+    ...(result.sameArgumentsRetryable === false ? { sameArgumentsRetryable: false } : {}),
+    ...(result.retry ? { retry: result.retry } : {}),
+    ...(result.schemaGuidance ? { schemaGuidance: result.schemaGuidance } : {}),
+  })
   return {
     isError: true,
-    content: textContent(JSON.stringify({
-      error: result.error,
-      message: result.message,
-      ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
-      ...(result.actionOwner ? { actionOwner: result.actionOwner } : {}),
-      ...(result.operatorAction ? { operatorAction: result.operatorAction } : {}),
-      ...(result.connectionStatus ? { connectionStatus: result.connectionStatus } : {}),
-      ...(result.capability ? { capability: result.capability } : {}),
-      ...(result.issues ? { issues: result.issues } : {}),
-      ...(result.schemaDigest ? { schemaDigest: result.schemaDigest } : {}),
-      ...(result.sameArgumentsRetryable === false ? { sameArgumentsRetryable: false } : {}),
-      ...(result.retry ? { retry: result.retry } : {}),
-      ...(result.schemaGuidance ? { schemaGuidance: result.schemaGuidance } : {}),
-    })),
+    content: textContent(JSON.stringify(payload)),
   }
 }
 
