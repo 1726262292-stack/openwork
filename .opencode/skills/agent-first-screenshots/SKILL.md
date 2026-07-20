@@ -95,7 +95,7 @@ node scripts/beautify.mjs in.png out.png [flags]
 #  --width 1600       final width   --ratio 16:9    extend canvas, never crop
 ```
 
-House style for docs/tutorials: cloud/dashboard shots use
+House style for packages/docs tutorials: cloud/dashboard shots use
 `--chrome browser --url app.openworklabs.com --bg paper --width 1600`;
 desktop shots use `--chrome mac --title OpenWork --bg indigo --width 1600`.
 Beautify AFTER verification — framing is presentation, not proof.

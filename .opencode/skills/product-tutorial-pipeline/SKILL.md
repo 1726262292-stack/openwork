@@ -5,7 +5,7 @@ description: Reproduce or refresh a product tutorial with polished screenshots e
 
 # Product Tutorial Pipeline
 
-The end-to-end recipe behind `docs/tutorials/openwork-cloud-team-quickstart.md`.
+The end-to-end recipe behind `packages/docs/cloud/team-quickstart.mdx`.
 Follow it to refresh that tutorial after product changes or to produce a new
 one. Companion skills: `cloud-dashboard-walkthrough` (web flows),
 `daytona-electron-den` (desktop), `agent-first-screenshots` (capture quality
@@ -75,23 +75,25 @@ from the pnpm store). Spot-check outputs visually before writing the doc.
 
 ## 4. Write the doc
 
-- Doc: `docs/tutorials/<tutorial-name>.md`; images:
-  `docs/tutorials/images/<tutorial-name>/NN-step.png` (relative links
-  `images/<tutorial-name>/…`).
+- Doc: `packages/docs/<tab>/<name>.mdx` with `title` and `description`
+  frontmatter.
+- Images: `packages/docs/images/<tutorial-name>/NN-step.png`; reference them
+  absolute as `/images/<tutorial-name>/…` and wrap each in `<Frame>`.
+- Register the page in `packages/docs/docs.json` under the right tab/group.
 - One image per beat, numbered in flow order; short imperative sections that
   mirror the product's exact labels (**Add member**, **Create plugin**, …).
 - Verify every referenced image exists:
 
   ```bash
-  for img in $(grep -oE 'images/[a-z0-9/-]+\.png' docs/tutorials/<doc>.md); do
-    [ -f "docs/tutorials/$img" ] || echo "MISSING: $img"; done
+  for img in $(grep -oE '/images/[a-z0-9/-]+\.png' packages/docs/<tab>/<name>.mdx); do
+    [ -f "packages/docs$img" ] || echo "MISSING: $img"; done
   ```
 
 ## 5. Ship
 
 Commit in story-shaped commits (fixes discovered along the way separate from
 docs), push, open a PR against `dev` with `gh pr create`, and embed 2–3 key
-screenshots in the PR body via `raw.githubusercontent.com/<org>/<repo>/<branch>/docs/tutorials/images/...`
+screenshots in the PR body via `raw.githubusercontent.com/<org>/<repo>/<branch>/packages/docs/images/...`
 links. State exactly what was validated (driven E2E) and what tests ran.
 
 ## Cleanup

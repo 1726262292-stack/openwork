@@ -6,7 +6,7 @@ description: Drive the OpenWork Cloud dashboard (Den Web / app.openworklabs.com)
 # Cloud Dashboard Walkthrough (Den Web via CDP)
 
 Drive the real OpenWork Cloud dashboard end-to-end as a user. Proven flow used
-to produce `docs/tutorials/openwork-cloud-team-quickstart.md` — reuse it for
+to produce `packages/docs/cloud/team-quickstart.mdx` — reuse it for
 tutorial refreshes, demos, and screenshot runs.
 
 ## Stack setup
