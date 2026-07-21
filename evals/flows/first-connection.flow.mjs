@@ -308,7 +308,7 @@ export default {
             await ctx.waitForText("Join your organization", { timeoutMs: 20_000 });
             await ctx.fill("#join-organization-input", requireStateValue(state.installPageUrl, "install page URL"));
             await clickExactText(ctx, "Connect", "button");
-            await ctx.waitForText("Connected to Acme Robotics", { timeoutMs: 30_000 });
+            await ctx.waitForText(`Connected to ${new URL(state.installConfig.webUrl).host}`, { timeoutMs: 30_000 });
             await ctx.waitForText("Sign in to OpenWork", { timeoutMs: 60_000 });
           },
           assert: async () => {
