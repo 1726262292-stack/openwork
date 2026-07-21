@@ -714,7 +714,13 @@ async function signInOnCurrentDenWebPage(ctx, email, password, { captureDesktopH
       || Boolean(document.querySelector('input[type="email"], input[name="email"]'))`,
     { timeoutMs: 45_000, label: "sign-in screen" },
   );
-  await clickTextIfPresent(ctx, "Sign in", "button, a");
+  const hasInitialAuthInput = await ctx.eval(
+    `Boolean(document.querySelector('input[type="email"], input[name="email"]'))
+      || Boolean(document.querySelector('input[type="password"]'))`,
+  );
+  if (!hasInitialAuthInput) {
+    await clickTextIfPresent(ctx, "Sign in", "button, a");
+  }
   await ctx.waitFor(
     `Boolean(document.querySelector('input[type="email"], input[name="email"]'))
       || Boolean(document.querySelector('input[type="password"]'))`,
