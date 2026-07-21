@@ -255,6 +255,11 @@ export default {
 
                 await ctx.expectText("Paste your install link");
                 await ctx.expectText("It's in the copy box on your team's install page");
+                await ctx.screenshot("bare-installer-paste-link-fallback", {
+                  claim: "A bare renamed installer asks for the install link from the checklist before resolving Acme's setup.",
+                  voiceover: vo[3],
+                  requireText: ["Paste your install link", "It's in the copy box on your team's install page"],
+                });
                 await ctx.fill("#install-link", requireStateValue(state.installPageUrl, "install page URL"));
                 await clickExactText(ctx, "Continue", "button");
                 await ctx.waitForText("This sets up OpenWork for Acme Robotics", { timeoutMs: 30_000 });
@@ -270,10 +275,6 @@ export default {
                   state.expiredResolve,
                 );
                 ctx.output("bare-installer-fallback-and-expired-link", JSON.stringify({ runs, secondBootstrap: secondBootstrap.parsed, expired, resolveLink: state.expiredResolve }, null, 2));
-              },
-              screenshot: {
-                name: "bare-installer-paste-link-resolves-acme",
-                requireText: ["This sets up OpenWork for Acme Robotics", "Configured via install link"],
               },
             });
           }, { targetId: state.installerUiTargetId });
