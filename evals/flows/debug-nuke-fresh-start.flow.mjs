@@ -358,7 +358,8 @@ function seedDesktopBootstrapScript() {
   return `
 $configHome=${psQuote(paths.configHome)}
 New-Item -ItemType Directory -Force -Path $configHome | Out-Null
-Set-Content -Path (Join-Path $configHome 'desktop-bootstrap.json') -Value ${psQuote(JSON.stringify(bootstrapFixture()))} -Encoding UTF8
+$bootstrapPath=Join-Path $configHome 'desktop-bootstrap.json'
+[System.IO.File]::WriteAllText($bootstrapPath, ${psQuote(JSON.stringify(bootstrapFixture()))}, [System.Text.UTF8Encoding]::new($false))
 $result=[ordered]@{ bootstrap=(Join-Path $configHome 'desktop-bootstrap.json'); baseUrl=${psQuote(BOOTSTRAP_BASE_URL)}; brandAppName=${psQuote(BRAND_APP_NAME)}; secretFixture=$true }
 Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 `;
@@ -706,8 +707,8 @@ export default {
             await ctx.expectText("Nuke & fresh start");
             await ctx.expectText("Nuke local state and start fresh?");
             await ctx.expectText("This removes local OpenWork, OpenCode, browser, token, runtime, cache, and orchestrator state on this device.");
-            await ctx.expectText("Will delete");
-            await ctx.expectText("Will survive");
+            await ctx.expectText("WILL DELETE");
+            await ctx.expectText("WILL SURVIVE");
             await ctx.expectText("Type NUKE to confirm");
             await ctx.expectText("Chromium storage cleared: default, persist:openwork-browser");
             await ctx.expectText("Nuke & relaunch");
@@ -717,8 +718,8 @@ export default {
             requireText: [
               "Nuke local state and start fresh?",
               "This removes local OpenWork, OpenCode, browser, token, runtime, cache, and orchestrator state on this device.",
-              "Will delete",
-              "Will survive",
+              "WILL DELETE",
+              "WILL SURVIVE",
               "Type NUKE to confirm",
               "Chromium storage cleared: default, persist:openwork-browser",
               "Nuke & relaunch",

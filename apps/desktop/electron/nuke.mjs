@@ -296,9 +296,12 @@ export function sanitizeDesktopBootstrapConfig(input, writtenAt = new Date().toI
 
 async function readJsonIfPresent(targetPath) {
   try {
-    return JSON.parse(await readFile(targetPath, "utf8"));
-  } catch {
-    return null;
+    const raw = await readFile(targetPath, "utf8");
+    const content = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    return { exists: true, ok: true, value: JSON.parse(content) };
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return { exists: false, ok: false, value: null };
+    return { exists: true, ok: false, value: null };
   }
 }
 
@@ -307,15 +310,31 @@ async function writeJsonFile(targetPath, value) {
   await writeFile(targetPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+export async function sanitizeDesktopBootstrapFiles({ canonicalPath, legacyPath }) {
+  const canonical = await readJsonIfPresent(canonicalPath);
+  const legacy = legacyPath ? await readJsonIfPresent(legacyPath) : { exists: false, ok: false, value: null };
+  const canonicalSanitized = canonical.ok ? sanitizeDesktopBootstrapConfig(canonical.value) : null;
+  const legacySanitized = legacy.ok ? sanitizeDesktopBootstrapConfig(legacy.value) : null;
+  const sanitized = canonicalSanitized ?? legacySanitized;
+
+  if (sanitized) {
+    await writeJsonFile(canonicalPath, sanitized);
+    if (legacyPath) await rm(legacyPath, { force: true });
+    return true;
+  }
+
+  if (canonical.exists) await rm(canonicalPath, { force: true });
+  if (legacyPath && legacy.exists) await rm(legacyPath, { force: true });
+  return false;
+}
+
 async function sanitizeDesktopBootstrapOnDisk(plan) {
   const preservePath = plan.manifest.preserveBootstrapPath;
   if (!preservePath) return false;
-  const legacyPath = plan.legacyBootstrapPath;
-  const source = await readJsonIfPresent(preservePath) ?? (legacyPath ? await readJsonIfPresent(legacyPath) : null);
-  const sanitized = sanitizeDesktopBootstrapConfig(source);
-  if (sanitized) await writeJsonFile(preservePath, sanitized);
-  if (legacyPath) await rm(legacyPath, { force: true }).catch(() => undefined);
-  return Boolean(sanitized);
+  return sanitizeDesktopBootstrapFiles({
+    canonicalPath: preservePath,
+    legacyPath: plan.legacyBootstrapPath,
+  });
 }
 
 function errorCode(error) {
@@ -503,9 +522,17 @@ async function quiesceForNuke({ runtimeManager, uiControlServer, removeWindowsBr
   await bestEffort(errors, "windows-brand-shortcut", removeWindowsBrandShortcut, 5000);
 }
 
+function preservePathsWithoutBootstrap(plan) {
+  const bootstrapPath = plan.manifest.preserveBootstrapPath;
+  if (!bootstrapPath) return plan.preservePaths;
+  const resolvedBootstrapPath = path.resolve(bootstrapPath);
+  return plan.preservePaths.filter((preservePath) => path.resolve(preservePath) !== resolvedBootstrapPath);
+}
+
 export async function runPendingNukeCleanup(input) {
   const plan = resolveNukePlan(input);
-  const pending = await readJsonIfPresent(plan.pendingPath);
+  const pendingFile = await readJsonIfPresent(plan.pendingPath);
+  const pending = pendingFile.ok ? pendingFile.value : null;
   const paths = Array.isArray(pending?.paths)
     ? pending.paths.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
     : [];
@@ -531,8 +558,11 @@ export async function executeNukeFreshStart({ app, session, runtimeManager, uiCo
     phaseErrors.push(receiptError(plan.manifest.preserveBootstrapPath ?? "desktop-bootstrap", error));
     return false;
   });
-  const deletionErrors = await deleteManifestPaths(plan.manifest, plan.platform, plan.preservePaths);
-  const verified = await verifyManifestDeletion(plan.manifest, [...phaseErrors, ...deletionErrors], plan.preservePaths);
+  const preservePaths = preservedBootstrap
+    ? plan.preservePaths
+    : preservePathsWithoutBootstrap(plan);
+  const deletionErrors = await deleteManifestPaths(plan.manifest, plan.platform, preservePaths);
+  const verified = await verifyManifestDeletion(plan.manifest, [...phaseErrors, ...deletionErrors], preservePaths);
   if (plan.platform === "win32" && verified.pendingRetry.length > 0) {
     await writePendingNukeFile(plan.pendingPath, verified.pendingRetry).catch((error) => {
       verified.errors.push(receiptError(plan.pendingPath, error));

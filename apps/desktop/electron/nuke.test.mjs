@@ -1,10 +1,32 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 
 import {
   buildNukeManifest,
   sanitizeDesktopBootstrapConfig,
+  sanitizeDesktopBootstrapFiles,
 } from "./nuke.mjs";
+
+async function exists(targetPath) {
+  try {
+    await readFile(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function withTempDir(fn) {
+  const root = await mkdtemp(path.join(tmpdir(), "openwork-nuke-test-"));
+  try {
+    await fn(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
 
 test("buildNukeManifest includes default macOS state roots and preserves bootstrap", () => {
   const home = "/Users/alice";
@@ -135,5 +157,67 @@ test("sanitizeDesktopBootstrapConfig strips secrets and keeps deployment fields"
     brandLogoUrl: "https://cdn.example.com/logo.png",
     brandIconUrl: "https://cdn.example.com/icon.png",
     writtenAt,
+  });
+});
+
+test("sanitizeDesktopBootstrapFiles strips a BOM-wrapped valid canonical bootstrap", async () => {
+  await withTempDir(async (root) => {
+    const canonicalPath = path.join(root, "desktop-bootstrap.json");
+    await writeFile(canonicalPath, `\ufeff${JSON.stringify({
+      baseUrl: "https://den.example.com",
+      requireSignin: true,
+      handoff: { grant: "secret-grant" },
+      claimLinks: [{ token: "secret-token" }],
+      prepared: { skillPath: "/tmp/skill" },
+    })}`, "utf8");
+
+    assert.equal(await sanitizeDesktopBootstrapFiles({ canonicalPath, legacyPath: null }), true);
+    const raw = await readFile(canonicalPath, "utf8");
+    const parsed = JSON.parse(raw);
+
+    assert.notEqual(raw.charCodeAt(0), 0xfeff);
+    assert.equal(parsed.baseUrl, "https://den.example.com");
+    assert.equal(parsed.requireSignin, true);
+    assert.equal(parsed.handoff, undefined);
+    assert.equal(parsed.claimLinks, undefined);
+    assert.equal(parsed.prepared, undefined);
+  });
+});
+
+test("sanitizeDesktopBootstrapFiles deletes truly malformed bootstrap files", async () => {
+  await withTempDir(async (root) => {
+    const canonicalPath = path.join(root, "desktop-bootstrap.json");
+    await writeFile(canonicalPath, "{not-json secret-grant secret-token", "utf8");
+
+    assert.equal(await sanitizeDesktopBootstrapFiles({ canonicalPath, legacyPath: null }), false);
+    assert.equal(await exists(canonicalPath), false);
+  });
+});
+
+test("sanitizeDesktopBootstrapFiles falls back from invalid canonical to valid legacy", async () => {
+  await withTempDir(async (root) => {
+    const canonicalPath = path.join(root, "canonical", "desktop-bootstrap.json");
+    const legacyPath = path.join(root, "legacy", "desktop-bootstrap.json");
+    await mkdir(path.dirname(canonicalPath), { recursive: true });
+    await mkdir(path.dirname(legacyPath), { recursive: true });
+    await writeFile(canonicalPath, "{not-json secret-grant", "utf8");
+    await writeFile(legacyPath, JSON.stringify({
+      baseUrl: "https://legacy.example.com",
+      requireSignin: true,
+      brandAppName: "Legacy Org",
+      handoff: { grant: "legacy-secret-grant" },
+      claimLinks: [{ token: "legacy-secret-token" }],
+    }), "utf8");
+
+    assert.equal(await sanitizeDesktopBootstrapFiles({ canonicalPath, legacyPath }), true);
+    const raw = await readFile(canonicalPath, "utf8");
+    const parsed = JSON.parse(raw);
+
+    assert.equal(parsed.baseUrl, "https://legacy.example.com");
+    assert.equal(parsed.brandAppName, "Legacy Org");
+    assert.equal(parsed.handoff, undefined);
+    assert.equal(parsed.claimLinks, undefined);
+    assert.equal(raw.includes("legacy-secret"), false);
+    assert.equal(await exists(legacyPath), false);
   });
 });
