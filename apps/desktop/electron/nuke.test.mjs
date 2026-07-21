@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -103,25 +102,6 @@ function fakeApp(userDataPath) {
 
 async function tinyDelay(ms = 140) {
   await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function listenLocalServer() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen({ port: 0, host: "127.0.0.1" }, () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Expected local TCP server address."));
-        return;
-      }
-      resolve({ server, port: address.port });
-    });
-  });
-}
-
-function closeLocalServer(server) {
-  return new Promise((resolve) => server.close(resolve));
 }
 
 test("buildNukeManifest includes default macOS state roots and preserves bootstrap", () => {
@@ -407,6 +387,7 @@ test("nuke worker payload only serializes safe path inputs", () => {
       APPDATA: "C:\\Users\\Alice\\AppData\\Roaming",
       OPENWORK_API_KEY: "secret-api-key",
       OPENWORK_TOKEN: "secret-token",
+      OPENWORK_ELECTRON_REMOTE_DEBUG_PORT: "9888",
       OPENWORK_TOKEN_STORE: "C:\\Users\\Alice\\AppData\\Roaming\\openwork\\tokens.json",
       XDG_CONFIG_HOME: "/tmp/config",
     },
@@ -427,13 +408,25 @@ test("nuke worker payload only serializes safe path inputs", () => {
   assert.equal(payload.nukeInput.env.APPDATA, "C:\\Users\\Alice\\AppData\\Roaming");
   assert.equal(payload.nukeInput.env.XDG_CONFIG_HOME, "/tmp/config");
   assert.equal(payload.nukeInput.env.OPENWORK_TOKEN_STORE, "C:\\Users\\Alice\\AppData\\Roaming\\openwork\\tokens.json");
-  assert.deepEqual(payload.appArgv, ["--remote-debugging-port=9888"]);
+  assert.deepEqual(payload.appArgv, []);
   assert.equal(serialized.includes("secret-api-key"), false);
   assert.equal(serialized.includes("secret-token"), false);
   assert.equal(serialized.includes("--secret"), false);
   assert.equal(serialized.includes("0.0.0.0"), false);
+  assert.equal(serialized.includes("9888"), false);
+  assert.equal(serialized.includes("OPENWORK_ELECTRON_REMOTE_DEBUG_PORT"), false);
   assert.equal(serialized.includes("OPENWORK_API_KEY"), false);
   assert.equal(serialized.includes("OPENWORK_TOKEN\""), false);
+
+  const devPayload = buildNukeWorkerPayload({
+    parentPid: 123,
+    nukeInput,
+    appExecutablePath: process.execPath,
+    appArgv: ["/repo/apps/desktop/electron/main.mjs", "--remote-debugging-port=9888"],
+    pendingPath: "/tmp/config/openwork/.nuke-pending.json",
+    nowMs: 1_000,
+  });
+  assert.deepEqual(devPayload.appArgv, ["/repo/apps/desktop/electron/main.mjs"]);
 });
 
 test("scheduleNukeCleanupWorker launches Electron as Node with a detached safe payload", async () => {
@@ -474,8 +467,9 @@ test("scheduleNukeCleanupWorker launches Electron as Node with a detached safe p
     assert.equal(spawnOptions.stdio, "ignore");
     assert.equal(spawnOptions.shell, undefined);
     assert.equal(spawnOptions.env.ELECTRON_RUN_AS_NODE, "1");
-    assert.equal(payload.nukeInput.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT, "9888");
-    assert.deepEqual(payload.appArgv, ["--remote-debugging-port=9888"]);
+    assert.equal(spawnOptions.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT, undefined);
+    assert.equal(payload.nukeInput.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT, undefined);
+    assert.deepEqual(payload.appArgv, []);
     assert.equal(JSON.stringify(payload).includes("do-not-write"), false);
 
     await rm(result.payloadPath, { force: true });
@@ -506,96 +500,28 @@ test("nuke cleanup worker waits for parent exit, clears pending path, removes pa
     await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     let launchedAfterParentExit = false;
     let launchedArgs = null;
+    let launchEnv = {};
 
     const result = await runNukeCleanupWorker(payloadPath, {
-      spawnApp: (_command, args) => {
+      env: { ELECTRON_RUN_AS_NODE: "1", OPENWORK_ELECTRON_REMOTE_DEBUG_PORT: "9888" },
+      relaunchHandleGraceMs: 0,
+      spawnApp: (_command, args, options) => {
         launchedAfterParentExit = parent.exitCode !== null;
         launchedArgs = args;
+        launchEnv = options.env;
         return { pid: 4321, unref: () => {} };
       },
     });
 
     assert.equal(result.launchPid, 4321);
     assert.equal(launchedAfterParentExit, true);
-    assert.deepEqual(launchedArgs, ["--remote-debugging-port=9888"]);
+    assert.deepEqual(launchedArgs, []);
+    assert.equal(launchEnv.ELECTRON_RUN_AS_NODE, undefined);
+    assert.equal(launchEnv.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT, undefined);
     assert.equal(await exists(targetPath), false);
     assert.equal(await exists(pendingPath), false);
     assert.equal(await exists(payloadPath), false);
     parent.kill();
-  });
-});
-
-test("nuke cleanup worker waits for the configured debug port to be released before launch", async () => {
-  await withTempDir(async (root) => {
-    const { server, port } = await listenLocalServer();
-    const payloadPath = path.join(root, "payload.json");
-    const payload = buildNukeWorkerPayload({
-      parentPid: 0,
-      nukeInput: pendingNukeInput(root),
-      appExecutablePath: process.execPath,
-      appArgv: [`--remote-debugging-port=${port}`],
-      pendingPath: pendingNukePath(root),
-      nowMs: Date.now(),
-    });
-    await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-    let released = false;
-    let launchedAfterRelease = false;
-    setTimeout(() => {
-      server.close(() => {
-        released = true;
-      });
-    }, 120);
-
-    const result = await runNukeCleanupWorker(payloadPath, {
-      noDebugPortGraceMs: 0,
-      spawnApp: () => {
-        launchedAfterRelease = released;
-        return { pid: 6543, unref: () => {} };
-      },
-    });
-
-    assert.equal(result.launchPid, 6543);
-    assert.equal(result.portWait.port, port);
-    assert.equal(result.portWait.timedOut, false);
-    assert.equal(launchedAfterRelease, true);
-    assert.equal(await exists(payloadPath), false);
-  });
-});
-
-test("nuke cleanup worker launches on debug port wait timeout", async () => {
-  await withTempDir(async (root) => {
-    const { server, port } = await listenLocalServer();
-    const payloadPath = path.join(root, "payload.json");
-    const input = pendingNukeInput(root);
-    input.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT = String(port);
-    const payload = buildNukeWorkerPayload({
-      parentPid: 0,
-      nukeInput: input,
-      appExecutablePath: process.execPath,
-      appArgv: [],
-      pendingPath: pendingNukePath(root),
-      nowMs: Date.now(),
-    });
-    await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-    let launchedWhilePortOccupied = false;
-
-    const result = await runNukeCleanupWorker(payloadPath, {
-      debugPortWaitDeadlineMs: 40,
-      debugPortWaitInitialIntervalMs: 10,
-      debugPortWaitMaxIntervalMs: 10,
-      noDebugPortGraceMs: 0,
-      spawnApp: () => {
-        launchedWhilePortOccupied = server.listening;
-        return { pid: 7654, unref: () => {} };
-      },
-    });
-
-    assert.equal(result.launchPid, 7654);
-    assert.equal(result.portWait.port, port);
-    assert.equal(result.portWait.timedOut, true);
-    assert.equal(launchedWhilePortOccupied, true);
-    assert.equal(await exists(payloadPath), false);
-    await closeLocalServer(server);
   });
 });
 
@@ -614,7 +540,7 @@ test("nuke cleanup worker still removes payload and launches app when cleanup th
     let launched = false;
 
     const result = await runNukeCleanupWorker(payloadPath, {
-      noDebugPortGraceMs: 0,
+      relaunchHandleGraceMs: 0,
       runPendingCleanup: async () => {
         throw new Error("cleanup failed");
       },

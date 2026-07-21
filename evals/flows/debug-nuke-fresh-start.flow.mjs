@@ -19,6 +19,8 @@ const ENV_NAMES = [
 
 const SANDBOX_ID = (process.env.OPENWORK_EVAL_WIN_SANDBOX_ID ?? "").trim();
 const CDP_URL = cleanUrl(process.env.OPENWORK_EVAL_CDP_URL);
+const INITIAL_INTERNAL_CDP_PORT = safeTcpPort(process.env.OPENWORK_EVAL_INITIAL_CDP_PORT) ?? 9222;
+const CDP_DISCOVERY_PORTS = [9223, 9224, 9225, 9226, 9227];
 const WIN_PROFILE = cleanWinPath(process.env.OPENWORK_EVAL_WIN_PROFILE ?? "");
 const RUN_TAG = `${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
 const BRAND_APP_NAME = "Nuke Proof Work";
@@ -27,6 +29,9 @@ const SEED_MARKER = `debug-nuke-seed-${RUN_TAG}`;
 const FAKE_AUTH_TOKEN = `eval-fake-token-${RUN_TAG}`;
 const LOCKER_SCRIPT_NAME = `openwork-nuke-locker-${RUN_TAG}.ps1`;
 const paths = buildWindowsPaths(WIN_PROFILE);
+let currentCdpUrl = CDP_URL;
+let currentInternalPort = INITIAL_INTERNAL_CDP_PORT;
+let currentRelayPort = null;
 
 const state = {
   firstReceiptPath: "",
@@ -46,6 +51,13 @@ function cleanUrl(value) {
 
 function cleanWinPath(value) {
   return String(value ?? "").trim().replace(/[\\/]+$/, "");
+}
+
+function safeTcpPort(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,5}$/.test(text)) return null;
+  const port = Number.parseInt(text, 10);
+  return port > 0 && port <= 65535 ? port : null;
 }
 
 function winJoin(base, ...segments) {
@@ -184,8 +196,112 @@ function daytonaPowerShellJson(ctx, label, script, options = {}) {
   return parseJsonOutput(result.stdout, label);
 }
 
+function relayPortForInternalPort(port) {
+  return 10_000 + port;
+}
+
+function discoverCdpPortScript(previousPort) {
+  return `
+$ports=@(${CDP_DISCOVERY_PORTS.join(",")})
+$exclude=${Number(previousPort) || 0}
+$deadline=(Get-Date).AddSeconds(120)
+$last=@()
+do {
+  $last=@()
+  $connections=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains [int]$_.LocalPort })
+  foreach($conn in $connections){
+    $pidValue=[int]$conn.OwningProcess
+    $name=$null
+    $alive=$false
+    try { $proc=Get-Process -Id $pidValue -ErrorAction Stop; $name=$proc.ProcessName; $alive=$true } catch {}
+    $isOpenWork=$alive -and $name -eq 'OpenWork'
+    $last += [pscustomobject][ordered]@{ port=[int]$conn.LocalPort; localAddress=[string]$conn.LocalAddress; pid=$pidValue; processName=$name; processAlive=$alive; isOpenWork=$isOpenWork }
+  }
+  $match=@($last | Where-Object { $_.isOpenWork -and $_.port -ne $exclude } | Sort-Object port | Select-Object -First 1)
+  if($match.Count -gt 0){
+    $result=[ordered]@{ found=$true; port=[int]$match[0].port; pid=[int]$match[0].pid; processName=[string]$match[0].processName; excludedPort=$exclude; candidates=$last }
+    Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
+    exit 0
+  }
+  Start-Sleep -Milliseconds 500
+} while((Get-Date) -lt $deadline)
+$result=[ordered]@{ found=$false; excludedPort=$exclude; candidates=$last }
+Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
+exit 47
+`;
+}
+
+function configureCdpRelayScript(internalPort, relayPort, previousRelayPort) {
+  return `
+$internal=${Number(internalPort) || 0}
+$relay=${Number(relayPort) || 0}
+$previous=${Number(previousRelayPort) || 0}
+$deletes=@()
+foreach($p in @($previous,$relay) | Where-Object { $_ -gt 0 } | Select-Object -Unique){
+  $out=& netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=$p 2>&1
+  $deletes += [pscustomobject][ordered]@{ port=$p; output=@($out | ForEach-Object { [string]$_ }) }
+}
+$addOut=& netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=$relay connectaddress=127.0.0.1 connectport=$internal 2>&1
+$addExit=$LASTEXITCODE
+$showOut=& netsh interface portproxy show v4tov4 2>&1
+$result=[ordered]@{ internalPort=$internal; relayPort=$relay; previousRelayPort=$previous; addExit=$addExit; addOutput=@($addOut | ForEach-Object { [string]$_ }); deleteOutput=$deletes; show=@($showOut | ForEach-Object { [string]$_ }) }
+Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
+if($addExit -ne 0){ exit 48 }
+`;
+}
+
+function previewUrlForRelay(ctx, relayPort, label) {
+  const result = spawnSync("daytona", ["preview-url", SANDBOX_ID, "-p", String(relayPort)], {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 1024 * 1024,
+  });
+  ctx.output(`${label} daytona-preview-url`, [
+    `$ daytona preview-url ${SANDBOX_ID} -p ${relayPort}`,
+    `exit=${result.status ?? "null"}`,
+    result.signal ? `signal=${result.signal}` : "",
+    result.error ? `error=${result.error.message}` : "",
+    result.stdout ? `stdout:\n${result.stdout}` : "stdout:",
+    result.stderr ? `stderr:\n${result.stderr}` : "stderr:",
+  ].filter(Boolean).join("\n"));
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`daytona preview-url failed with exit ${result.status}: ${result.stderr || result.stdout}`);
+  const lines = String(result.stdout ?? "").trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const match = lines[index].match(/https?:\/\/\S+/);
+    if (match) return cleanUrl(match[0]);
+  }
+  throw new Error(`daytona preview-url did not print a URL for relay port ${relayPort}: ${result.stdout}`);
+}
+
+function discoverAndRelayCdp(ctx, label, previousPort) {
+  const discovery = daytonaPowerShellJson(ctx, `${label} discover-active-cdp-port`, discoverCdpPortScript(previousPort), {
+    allowFailure: true,
+    timeoutMs: 140_000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  ctx.output(`${label} cdp-discovery-json`, JSON.stringify(discovery, null, 2));
+  if (discovery?.found !== true) {
+    throw new Error(`${label}: no active OpenWork.exe CDP listener found on ${CDP_DISCOVERY_PORTS.join(", ")} excluding ${previousPort}.`);
+  }
+  const internalPort = safeTcpPort(discovery.port);
+  if (!internalPort) throw new Error(`${label}: invalid discovered CDP port ${JSON.stringify(discovery.port)}.`);
+  const relayPort = relayPortForInternalPort(internalPort);
+  const relay = daytonaPowerShellJson(ctx, `${label} configure-cdp-portproxy`, configureCdpRelayScript(internalPort, relayPort, currentRelayPort), {
+    timeoutMs: 30_000,
+    maxBuffer: 1024 * 1024,
+  });
+  ctx.output(`${label} cdp-relay-json`, JSON.stringify(relay, null, 2));
+  const previewUrl = previewUrlForRelay(ctx, relayPort, label);
+  currentInternalPort = internalPort;
+  currentRelayPort = relayPort;
+  currentCdpUrl = previewUrl;
+  ctx.cdpBaseUrl = currentCdpUrl;
+  ctx.output(`${label} cdp-reattach-url`, JSON.stringify({ internalPort, relayPort, currentCdpUrl }, null, 2));
+}
+
 async function attachApp(ctx, timeoutMs = 90_000) {
-  ctx.cdpBaseUrl = CDP_URL;
+  ctx.cdpBaseUrl = currentCdpUrl;
   try {
     ctx.client?.close();
   } catch {
@@ -195,8 +311,8 @@ async function attachApp(ctx, timeoutMs = 90_000) {
   let lastError = null;
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const target = await pickAppTarget(CDP_URL);
-      const client = await connect(debuggerUrlFor(CDP_URL, target));
+      const target = await pickAppTarget(currentCdpUrl);
+      const client = await connect(debuggerUrlFor(currentCdpUrl, target));
       await client.send("Page.enable").catch(() => undefined);
       ctx.client = client;
       ctx.log(`Attached to remote Windows Electron target: ${target.title || target.url}`);
@@ -206,7 +322,7 @@ async function attachApp(ctx, timeoutMs = 90_000) {
       await sleep(500);
     }
   }
-  throw new Error(`Timed out after ${timeoutMs}ms attaching to ${CDP_URL}: ${lastError?.message ?? "unknown error"}`);
+  throw new Error(`Timed out after ${timeoutMs}ms attaching to ${currentCdpUrl}: ${lastError?.message ?? "unknown error"}`);
 }
 
 async function waitForAppShell(ctx, label = "OpenWork renderer") {
@@ -229,8 +345,10 @@ async function waitForRendererDisconnect(ctx, label, timeoutMs = 120_000) {
 }
 
 async function waitForRelaunch(ctx, label) {
+  const previousPort = currentInternalPort;
   await waitForRendererDisconnect(ctx, label);
-  await ctx.reconnect({ timeoutMs: 120_000 });
+  discoverAndRelayCdp(ctx, label, previousPort);
+  await attachApp(ctx, 120_000);
   await waitForAppShell(ctx, `${label} relaunched app`);
 }
 
@@ -761,7 +879,15 @@ export default {
     if (!/^[a-zA-Z]:\\/.test(WIN_PROFILE)) {
       throw new Error(`OPENWORK_EVAL_WIN_PROFILE must be an absolute Windows profile path, got ${JSON.stringify(WIN_PROFILE)}.`);
     }
-    ctx.cdpBaseUrl = CDP_URL;
+    ctx.output("debug-nuke-fresh-start-env", JSON.stringify({
+      sandboxId: SANDBOX_ID,
+      initialCdpUrl: CDP_URL,
+      initialInternalPort: INITIAL_INTERNAL_CDP_PORT,
+      optionalInitialPortEnv: process.env.OPENWORK_EVAL_INITIAL_CDP_PORT?.trim() || null,
+      winProfile: WIN_PROFILE,
+      discoveryPorts: CDP_DISCOVERY_PORTS,
+    }, null, 2));
+    ctx.cdpBaseUrl = currentCdpUrl;
     await attachApp(ctx, 60_000);
     await waitForAppShell(ctx, "precondition app");
   },
