@@ -71,6 +71,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11
+      '@openwork/install-config':
+        specifier: workspace:*
+        version: link:../../packages/install-config
       '@openwork/types':
         specifier: workspace:*
         version: link:../../packages/types
