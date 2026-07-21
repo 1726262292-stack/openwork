@@ -315,35 +315,51 @@ function bootstrapFixture() {
   };
 }
 
-function seedFilesScript() {
+function seedOpenworkConfigAndUserDataScript() {
   return `
 $profilePath=${psQuote(WIN_PROFILE)}
-$appData=${psQuote(paths.appData)}
-$localAppData=${psQuote(paths.localAppData)}
 $userData=${psQuote(paths.userData)}
-$opencode=${psQuote(paths.opencode)}
 $appOpenwork=${psQuote(paths.appDataOpenwork)}
 $configHome=${psQuote(paths.configHome)}
-$orchestrator=${psQuote(paths.orchestrator)}
-$localShareOpencode=${psQuote(paths.localShareOpencode)}
-$cacheOpencode=${psQuote(paths.cacheOpencode)}
-$dirs=@($userData,$opencode,$appOpenwork,$configHome,$orchestrator,$localShareOpencode,$cacheOpencode)
+$dirs=@($userData,$appOpenwork,$configHome)
 foreach($dir in $dirs){ New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 Set-Content -Path (Join-Path $userData 'eval-userdata-marker.txt') -Value 'delete-me-userdata' -Encoding UTF8
-Set-Content -Path (Join-Path $opencode 'auth.json') -Value '{"token":"dummy-opencode-auth"}' -Encoding UTF8
-Set-Content -Path (Join-Path $opencode 'mcp-auth.json') -Value '{"mcp":"dummy-opencode-mcp-auth"}' -Encoding UTF8
-[IO.File]::WriteAllBytes((Join-Path $opencode 'opencode.db'), [Text.Encoding]::UTF8.GetBytes('dummy opencode db ${RUN_TAG}'))
 Set-Content -Path (Join-Path $appOpenwork 'server.json') -Value '{"server":"dummy"}' -Encoding UTF8
 Set-Content -Path (Join-Path $appOpenwork 'env.json') -Value '{"APPDATA_ENV":"dummy"}' -Encoding UTF8
 Set-Content -Path (Join-Path $appOpenwork 'tokens.json') -Value '{"APPDATA_TOKEN":"dummy"}' -Encoding UTF8
 [IO.File]::WriteAllBytes((Join-Path $appOpenwork 'runtime.sqlite'), [Text.Encoding]::UTF8.GetBytes('dummy appdata runtime db ${RUN_TAG}'))
 Set-Content -Path (Join-Path $configHome 'env.json') -Value '{"LOCAL_ENV":"dummy"}' -Encoding UTF8
 Set-Content -Path (Join-Path $configHome 'tokens.json') -Value '{"LOCAL_TOKEN":"dummy"}' -Encoding UTF8
+$result=[ordered]@{ profile=$profilePath; userData=$userData; appOpenwork=$appOpenwork; configHome=$configHome }
+Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
+`;
+}
+
+function seedDesktopBootstrapScript() {
+  return `
+$configHome=${psQuote(paths.configHome)}
+New-Item -ItemType Directory -Force -Path $configHome | Out-Null
 Set-Content -Path (Join-Path $configHome 'desktop-bootstrap.json') -Value ${psQuote(JSON.stringify(bootstrapFixture()))} -Encoding UTF8
+$result=[ordered]@{ bootstrap=(Join-Path $configHome 'desktop-bootstrap.json'); baseUrl=${psQuote(BOOTSTRAP_BASE_URL)}; brandAppName=${psQuote(BRAND_APP_NAME)}; secretFixture=$true }
+Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
+`;
+}
+
+function seedOpencodeAndOrchestratorScript() {
+  return `
+$opencode=${psQuote(paths.opencode)}
+$orchestrator=${psQuote(paths.orchestrator)}
+$localShareOpencode=${psQuote(paths.localShareOpencode)}
+$cacheOpencode=${psQuote(paths.cacheOpencode)}
+$dirs=@($opencode,$orchestrator,$localShareOpencode,$cacheOpencode)
+foreach($dir in $dirs){ New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+Set-Content -Path (Join-Path $opencode 'auth.json') -Value '{"token":"dummy-opencode-auth"}' -Encoding UTF8
+Set-Content -Path (Join-Path $opencode 'mcp-auth.json') -Value '{"mcp":"dummy-opencode-mcp-auth"}' -Encoding UTF8
+[IO.File]::WriteAllBytes((Join-Path $opencode 'opencode.db'), [Text.Encoding]::UTF8.GetBytes('dummy opencode db ${RUN_TAG}'))
 Set-Content -Path (Join-Path $orchestrator 'openwork-orchestrator-auth.json') -Value '{"orchestrator":"dummy"}' -Encoding UTF8
 Set-Content -Path (Join-Path $localShareOpencode 'data-marker.txt') -Value 'dummy local share opencode' -Encoding UTF8
 Set-Content -Path (Join-Path $cacheOpencode 'cache-marker.txt') -Value 'dummy cache opencode' -Encoding UTF8
-$result=[ordered]@{ profile=$profilePath; paths=[ordered]@{ userData=$userData; opencode=$opencode; appOpenwork=$appOpenwork; configHome=$configHome; bootstrap=(Join-Path $configHome 'desktop-bootstrap.json'); orchestrator=$orchestrator; localShareOpencode=$localShareOpencode; cacheOpencode=$cacheOpencode } }
+$result=[ordered]@{ opencode=$opencode; orchestrator=$orchestrator; localShareOpencode=$localShareOpencode; cacheOpencode=$cacheOpencode }
 Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
 `;
 }
@@ -365,15 +381,38 @@ Write-Output ($checks | ConvertTo-Json -Depth 6 -Compress)
 `;
 }
 
-function postNukeProbeScript() {
+function postNukeStateRootsProbeScript() {
   return `
 function Names($p){ if(Test-Path -LiteralPath $p){ @(Get-ChildItem -LiteralPath $p -Force | ForEach-Object { $_.Name }) } else { @() } }
 $userData=${psQuote(paths.userData)}
 $opencode=${psQuote(paths.opencode)}
 $appOpenwork=${psQuote(paths.appDataOpenwork)}
 $configHome=${psQuote(paths.configHome)}
-$bootstrap=${psQuote(paths.bootstrap)}
 $pending=${psQuote(paths.pending)}
+$appOpenworkSeeded=@('server.json','env.json','tokens.json','runtime.sqlite') | ForEach-Object { [ordered]@{ name=$_; exists=(Test-Path -LiteralPath (Join-Path $appOpenwork $_)) } }
+$result=[ordered]@{
+  userData=[ordered]@{ path=$userData; exists=(Test-Path -LiteralPath $userData); markerExists=(Test-Path -LiteralPath (Join-Path $userData 'eval-userdata-marker.txt')); entries=(Names $userData) }
+  opencode=[ordered]@{ path=$opencode; exists=(Test-Path -LiteralPath $opencode); entries=(Names $opencode) }
+  appOpenwork=[ordered]@{ path=$appOpenwork; exists=(Test-Path -LiteralPath $appOpenwork); seededFiles=$appOpenworkSeeded; entries=(Names $appOpenwork) }
+  localOpenwork=[ordered]@{ path=$configHome; exists=(Test-Path -LiteralPath $configHome); entries=(Names $configHome); pendingExists=(Test-Path -LiteralPath $pending); envExists=(Test-Path -LiteralPath (Join-Path $configHome 'env.json')); tokensExists=(Test-Path -LiteralPath (Join-Path $configHome 'tokens.json')) }
+}
+Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+`;
+}
+
+function postNukeBootstrapProbeScript() {
+  return `
+$bootstrap=${psQuote(paths.bootstrap)}
+$bootstrapRaw=''
+$bootstrapParsed=$null
+if(Test-Path -LiteralPath $bootstrap){ $bootstrapRaw=Get-Content -Raw -LiteralPath $bootstrap; try { $bootstrapParsed=$bootstrapRaw | ConvertFrom-Json } catch {} }
+$result=[ordered]@{ path=$bootstrap; exists=(Test-Path -LiteralPath $bootstrap); raw=$bootstrapRaw; parsed=$bootstrapParsed }
+Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+`;
+}
+
+function latestReceiptProbeScript() {
+  return `
 $tempCandidates=@(${psQuote(paths.temp)},${psQuote(paths.windowsTemp)}) | Select-Object -Unique
 $receipts=@()
 foreach($dir in $tempCandidates){ if(Test-Path -LiteralPath $dir){ $receipts += @(Get-ChildItem -LiteralPath $dir -Filter 'openwork-nuke-receipt-*.json' -File -ErrorAction SilentlyContinue) } }
@@ -381,18 +420,7 @@ $latest=$receipts | Sort-Object LastWriteTimeUtc -Descending | Select-Object -Fi
 $receiptRaw=''
 $receipt=$null
 if($latest){ $receiptRaw=Get-Content -Raw -LiteralPath $latest.FullName; try { $receipt=$receiptRaw | ConvertFrom-Json } catch {} }
-$bootstrapRaw=''
-$bootstrapParsed=$null
-if(Test-Path -LiteralPath $bootstrap){ $bootstrapRaw=Get-Content -Raw -LiteralPath $bootstrap; try { $bootstrapParsed=$bootstrapRaw | ConvertFrom-Json } catch {} }
-$appOpenworkSeeded=@('server.json','env.json','tokens.json','runtime.sqlite') | ForEach-Object { [ordered]@{ name=$_; exists=(Test-Path -LiteralPath (Join-Path $appOpenwork $_)) } }
-$result=[ordered]@{
-  userData=[ordered]@{ path=$userData; exists=(Test-Path -LiteralPath $userData); markerExists=(Test-Path -LiteralPath (Join-Path $userData 'eval-userdata-marker.txt')); entries=(Names $userData) }
-  opencode=[ordered]@{ path=$opencode; exists=(Test-Path -LiteralPath $opencode); entries=(Names $opencode) }
-  appOpenwork=[ordered]@{ path=$appOpenwork; exists=(Test-Path -LiteralPath $appOpenwork); seededFiles=$appOpenworkSeeded; entries=(Names $appOpenwork) }
-  localOpenwork=[ordered]@{ path=$configHome; exists=(Test-Path -LiteralPath $configHome); entries=(Names $configHome); pendingExists=(Test-Path -LiteralPath $pending); envExists=(Test-Path -LiteralPath (Join-Path $configHome 'env.json')); tokensExists=(Test-Path -LiteralPath (Join-Path $configHome 'tokens.json')) }
-  bootstrap=[ordered]@{ path=$bootstrap; exists=(Test-Path -LiteralPath $bootstrap); raw=$bootstrapRaw; parsed=$bootstrapParsed }
-  receipt=[ordered]@{ searched=$tempCandidates; path=$(if($latest){$latest.FullName}else{$null}); raw=$receiptRaw; parsed=$receipt }
-}
+$result=[ordered]@{ searched=$tempCandidates; path=$(if($latest){$latest.FullName}else{$null}); raw=$receiptRaw; parsed=$receipt }
 Write-Output ($result | ConvertTo-Json -Depth 10 -Compress)
 `;
 }
@@ -533,8 +561,10 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await attachApp(ctx);
-            const seed = daytonaPowerShellJson(ctx, "seed-windows-profile-state", seedFilesScript());
-            ctx.output("seeded path summary", JSON.stringify(seed, null, 2));
+            const openworkSeed = daytonaPowerShellJson(ctx, "seed-openwork-config-and-userdata-state", seedOpenworkConfigAndUserDataScript());
+            const bootstrapSeed = daytonaPowerShellJson(ctx, "seed-secret-desktop-bootstrap", seedDesktopBootstrapScript());
+            const opencodeSeed = daytonaPowerShellJson(ctx, "seed-opencode-and-orchestrator-state", seedOpencodeAndOrchestratorScript());
+            ctx.output("seeded path summary", JSON.stringify({ openworkSeed, bootstrapSeed, opencodeSeed }, null, 2));
             daytonaCmd(ctx, "seeded-directories-dir", `dir "${paths.opencode}" & dir "${paths.configHome}" & dir "${paths.orchestrator}" & dir "${paths.userData}"`);
             await enableRendererState(ctx);
             await navigateToSettings(ctx, "general");
@@ -643,7 +673,10 @@ export default {
         await ctx.prove("Filesystem witnesses show only sanitized desktop-bootstrap.json survived and the nuke receipt recorded deleted paths", {
           voiceover: vo[3],
           assert: async () => {
-            const data = daytonaPowerShellJson(ctx, "post-first-nuke-filesystem-probe", postNukeProbeScript());
+            const roots = daytonaPowerShellJson(ctx, "post-first-nuke-state-roots-probe", postNukeStateRootsProbeScript());
+            const bootstrap = daytonaPowerShellJson(ctx, "post-first-nuke-bootstrap-probe", postNukeBootstrapProbeScript());
+            const receipt = daytonaPowerShellJson(ctx, "post-first-nuke-receipt-probe", latestReceiptProbeScript());
+            const data = { ...roots, bootstrap, receipt };
             daytonaCmd(ctx, "post-first-nuke-config-dir", `if exist "${paths.configHome}" (dir "${paths.configHome}") else (echo MISSING "${paths.configHome}")`, { allowFailure: true });
             daytonaCmd(ctx, "post-first-nuke-opencode-dir", `if exist "${paths.opencode}" (dir "${paths.opencode}") else (echo MISSING "${paths.opencode}")`, { allowFailure: true });
             ctx.output("post-first-nuke-witness-json", JSON.stringify(data, null, 2));
