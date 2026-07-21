@@ -458,7 +458,7 @@ $result=[ordered]@{
   appOpenwork=[ordered]@{ path=$appOpenwork; exists=(Test-Path -LiteralPath $appOpenwork); seededFiles=$appOpenworkSeeded; entries=(Names $appOpenwork) }
   localOpenwork=[ordered]@{ path=$configHome; exists=(Test-Path -LiteralPath $configHome); entries=(Names $configHome); pendingExists=(Test-Path -LiteralPath $pending); envExists=(Test-Path -LiteralPath (Join-Path $configHome 'env.json')); tokensExists=(Test-Path -LiteralPath (Join-Path $configHome 'tokens.json')) }
 }
-Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
 `;
 }
 
@@ -466,10 +466,38 @@ function postNukeBootstrapProbeScript() {
   return `
 $bootstrap=${psQuote(paths.bootstrap)}
 $bootstrapRaw=''
-$bootstrapParsed=$null
-if(Test-Path -LiteralPath $bootstrap){ $bootstrapRaw=Get-Content -Raw -LiteralPath $bootstrap; try { $bootstrapParsed=$bootstrapRaw | ConvertFrom-Json } catch {} }
-$result=[ordered]@{ path=$bootstrap; exists=(Test-Path -LiteralPath $bootstrap); raw=$bootstrapRaw; parsed=$bootstrapParsed }
-Write-Output ($result | ConvertTo-Json -Depth 8 -Compress)
+$parsedOk=$false
+$baseUrl=$null
+$requireSignin=$null
+$brandAppName=$null
+$propertyNames=@()
+if(Test-Path -LiteralPath $bootstrap){
+  $bootstrapRaw=Get-Content -Raw -LiteralPath $bootstrap
+  try {
+    $parsed=$bootstrapRaw | ConvertFrom-Json
+    $parsedOk=$true
+    $propertyNames=@($parsed.PSObject.Properties | ForEach-Object { [string]$_.Name })
+    $baseUrl=[string]$parsed.baseUrl
+    if($null -ne $parsed.requireSignin){ $requireSignin=[bool]$parsed.requireSignin }
+    $brandAppName=[string]$parsed.brandAppName
+  } catch {}
+}
+$result=[ordered]@{
+  path=$bootstrap
+  exists=(Test-Path -LiteralPath $bootstrap)
+  raw=$bootstrapRaw
+  parsedOk=$parsedOk
+  baseUrl=$baseUrl
+  requireSignin=$requireSignin
+  brandAppName=$brandAppName
+  propertyNames=$propertyNames
+  hasHandoff=($propertyNames -contains 'handoff')
+  hasClaimLinks=($propertyNames -contains 'claimLinks')
+  hasPrepared=($propertyNames -contains 'prepared')
+  containsSecretGrant=$bootstrapRaw.Contains('secret-grant')
+  containsSecretToken=$bootstrapRaw.Contains('secret-token')
+}
+Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 `;
 }
 
@@ -480,10 +508,22 @@ $receipts=@()
 foreach($dir in $tempCandidates){ if(Test-Path -LiteralPath $dir){ $receipts += @(Get-ChildItem -LiteralPath $dir -Filter 'openwork-nuke-receipt-*.json' -File -ErrorAction SilentlyContinue) } }
 $latest=$receipts | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
 $receiptRaw=''
-$receipt=$null
-if($latest){ $receiptRaw=Get-Content -Raw -LiteralPath $latest.FullName; try { $receipt=$receiptRaw | ConvertFrom-Json } catch {} }
-$result=[ordered]@{ searched=$tempCandidates; path=$(if($latest){$latest.FullName}else{$null}); raw=$receiptRaw; parsed=$receipt }
-Write-Output ($result | ConvertTo-Json -Depth 10 -Compress)
+$deletedCount=0
+$pendingRetry=@()
+$errorCount=0
+$preservedBootstrap=$null
+if($latest){
+  $receiptRaw=Get-Content -Raw -LiteralPath $latest.FullName
+  try {
+    $receiptJson=$receiptRaw | ConvertFrom-Json
+    if($null -ne $receiptJson.deleted){ $deletedCount=@($receiptJson.deleted).Count }
+    $pendingRetry=@($receiptJson.pendingRetry | ForEach-Object { [string]$_ })
+    if($null -ne $receiptJson.errors){ $errorCount=@($receiptJson.errors).Count }
+    if($null -ne $receiptJson.preservedBootstrap){ $preservedBootstrap=[bool]$receiptJson.preservedBootstrap }
+  } catch {}
+}
+$result=[ordered]@{ searched=$tempCandidates; path=$(if($latest){$latest.FullName}else{$null}); raw=$receiptRaw; deletedCount=$deletedCount; pendingRetry=$pendingRetry; errorCount=$errorCount; preservedBootstrap=$preservedBootstrap }
+Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 `;
 }
 
@@ -496,13 +536,28 @@ $receipts=@()
 foreach($dir in $tempCandidates){ if(Test-Path -LiteralPath $dir){ $receipts += @(Get-ChildItem -LiteralPath $dir -Filter 'openwork-nuke-receipt-*.json' -File -ErrorAction SilentlyContinue) } }
 $latest=$receipts | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
 $receiptRaw=''
-$receipt=$null
-if($latest){ $receiptRaw=Get-Content -Raw -LiteralPath $latest.FullName; try { $receipt=$receiptRaw | ConvertFrom-Json } catch {} }
+$receiptPendingRetry=@()
+$receiptDeletedCount=0
+$receiptErrorCount=0
+$receiptPreservedBootstrap=$null
+if($latest){
+  $receiptRaw=Get-Content -Raw -LiteralPath $latest.FullName
+  try {
+    $receiptJson=$receiptRaw | ConvertFrom-Json
+    $receiptPendingRetry=@($receiptJson.pendingRetry | ForEach-Object { [string]$_ })
+    if($null -ne $receiptJson.deleted){ $receiptDeletedCount=@($receiptJson.deleted).Count }
+    if($null -ne $receiptJson.errors){ $receiptErrorCount=@($receiptJson.errors).Count }
+    if($null -ne $receiptJson.preservedBootstrap){ $receiptPreservedBootstrap=[bool]$receiptJson.preservedBootstrap }
+  } catch {}
+}
 $pendingRaw=''
-$pending=$null
-if(Test-Path -LiteralPath $pendingPath){ $pendingRaw=Get-Content -Raw -LiteralPath $pendingPath; try { $pending=$pendingRaw | ConvertFrom-Json } catch {} }
-$result=[ordered]@{ lockedPath=$lockedPath; lockedExists=(Test-Path -LiteralPath $lockedPath); pendingPath=$pendingPath; pendingExists=(Test-Path -LiteralPath $pendingPath); pendingRaw=$pendingRaw; pending=$pending; receiptPath=$(if($latest){$latest.FullName}else{$null}); receiptRaw=$receiptRaw; receipt=$receipt }
-Write-Output ($result | ConvertTo-Json -Depth 10 -Compress)
+$pendingPaths=@()
+if(Test-Path -LiteralPath $pendingPath){
+  $pendingRaw=Get-Content -Raw -LiteralPath $pendingPath
+  try { $pendingPaths=@(($pendingRaw | ConvertFrom-Json).paths | ForEach-Object { [string]$_ }) } catch {}
+}
+$result=[ordered]@{ lockedPath=$lockedPath; lockedExists=(Test-Path -LiteralPath $lockedPath); pendingPath=$pendingPath; pendingExists=(Test-Path -LiteralPath $pendingPath); pendingRaw=$pendingRaw; pendingPaths=$pendingPaths; receiptPath=$(if($latest){$latest.FullName}else{$null}); receiptRaw=$receiptRaw; receiptPendingRetry=$receiptPendingRetry; receiptDeletedCount=$receiptDeletedCount; receiptErrorCount=$receiptErrorCount; receiptPreservedBootstrap=$receiptPreservedBootstrap }
+Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 `;
 }
 
@@ -579,11 +634,11 @@ function containsPath(pathsToSearch, expectedPath) {
 }
 
 function receiptPendingPaths(data) {
-  return arrayValue(data?.receipt?.pendingRetry);
+  return arrayValue(data?.receiptPendingRetry ?? data?.receipt?.pendingRetry);
 }
 
 function pendingFilePaths(data) {
-  return arrayValue(data?.pending?.paths);
+  return arrayValue(data?.pendingPaths ?? data?.pending?.paths);
 }
 
 function childNames(entry) {
@@ -622,8 +677,8 @@ function assertPostFirstNuke(ctx, data) {
   const seededAppOpenwork = arrayValue(data.appOpenwork?.seededFiles);
   const appOpenworkSurvivors = seededAppOpenwork.filter((entry) => entry?.exists === true).map((entry) => entry.name);
   const bootstrapRaw = String(data.bootstrap?.raw ?? "");
-  const bootstrap = data.bootstrap?.parsed ?? {};
-  const receipt = data.receipt?.parsed ?? {};
+  const bootstrap = data.bootstrap ?? {};
+  const receipt = data.receipt ?? {};
 
   witness(ctx, data.userData?.markerExists === false, "%APPDATA%\\com.differentai.openwork lost the seeded userData marker after relaunch", data.userData);
   witness(ctx, data.opencode?.exists === false, "%APPDATA%\\opencode is gone after the nuke", data.opencode);
@@ -633,13 +688,14 @@ function assertPostFirstNuke(ctx, data) {
   witness(ctx, data.localOpenwork?.pendingExists === false, ".nuke-pending.json is absent after the unlocked nuke", data.localOpenwork);
   witness(ctx, data.localOpenwork?.envExists === false && data.localOpenwork?.tokensExists === false, "Seeded LOCALAPPDATA env.json and tokens.json were removed", data.localOpenwork);
   witness(ctx, data.bootstrap?.exists === true, "desktop-bootstrap.json still exists", data.bootstrap?.path);
+  witness(ctx, bootstrap.parsedOk === true, "desktop-bootstrap.json parses as sanitized JSON", bootstrap);
   witness(ctx, bootstrap.baseUrl === BOOTSTRAP_BASE_URL, "desktop-bootstrap.json keeps baseUrl https://openwork-poc.example.test", bootstrap);
   witness(ctx, bootstrap.requireSignin === true, "desktop-bootstrap.json keeps requireSignin true", bootstrap);
   witness(ctx, bootstrap.brandAppName === BRAND_APP_NAME, `desktop-bootstrap.json keeps brandAppName ${BRAND_APP_NAME}`, bootstrap);
-  witness(ctx, !bootstrapRaw.includes("secret-grant"), "desktop-bootstrap.json no longer contains secret-grant", bootstrapRaw);
-  witness(ctx, !bootstrapRaw.includes("secret-token"), "desktop-bootstrap.json no longer contains secret-token", bootstrapRaw);
-  witness(ctx, !bootstrapRaw.includes("handoff") && !bootstrapRaw.includes("claimLinks") && !bootstrapRaw.includes("prepared"), "desktop-bootstrap.json strips handoff, claimLinks, and prepared", bootstrapRaw);
-  witness(ctx, Array.isArray(receipt.deleted) && receipt.deleted.length > 0, "The newest openwork-nuke-receipt JSON has a non-empty deleted[]", data.receipt);
+  witness(ctx, bootstrap.containsSecretGrant === false, "desktop-bootstrap.json no longer contains secret-grant", bootstrapRaw);
+  witness(ctx, bootstrap.containsSecretToken === false, "desktop-bootstrap.json no longer contains secret-token", bootstrapRaw);
+  witness(ctx, bootstrap.hasHandoff === false && bootstrap.hasClaimLinks === false && bootstrap.hasPrepared === false, "desktop-bootstrap.json strips handoff, claimLinks, and prepared", bootstrap);
+  witness(ctx, Number(receipt.deletedCount) > 0, "The newest openwork-nuke-receipt JSON has a non-empty deleted[]", data.receipt);
   state.firstReceiptPath = String(data.receipt?.path ?? "");
 }
 
