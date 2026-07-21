@@ -80,6 +80,15 @@ export function sendJson(response: ServerResponse, status: number, body: unknown
   response.end(JSON.stringify(body))
 }
 
+export function sendHtml(response: ServerResponse, status: number, body: string, headers?: Readonly<Record<string, string>>): void {
+  response.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    ...headers,
+  })
+  response.end(body)
+}
+
 export function sendSse(response: ServerResponse, body: unknown, headers?: Readonly<Record<string, string>>): void {
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",

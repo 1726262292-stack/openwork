@@ -4,6 +4,7 @@ import { deepFreeze, type DeepReadonly } from "../immutability.js"
 
 export const providerProfileIdSchema = z.enum([
   "synthetic-enterprise-oauth-mcp",
+  "gateway-auth-recovery",
   "servicenow-inbound-quickstart",
   "microsoft-work-iq",
   "microsoft-enterprise",

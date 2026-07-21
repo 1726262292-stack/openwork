@@ -127,6 +127,7 @@ export class InstanceState {
   readonly operations = new Map<string, MutableOperation>()
   readonly faultCounters = new Map<string, number>()
   private readonly traceEvents: SafeTraceEvent[] = []
+  private gatewayAuthRecoveryConnected = false
   private runtimeStatus: RuntimeSnapshot["status"] = "idle"
   private runtimeBaseUrl: string | null = null
 
@@ -181,6 +182,15 @@ export class InstanceState {
     this.tokens.clear()
     this.refreshTokens.clear()
     this.sessions.clear()
+    this.gatewayAuthRecoveryConnected = false
+  }
+
+  isGatewayAuthRecoveryConnected(): boolean {
+    return this.gatewayAuthRecoveryConnected
+  }
+
+  setGatewayAuthRecoveryConnected(connected: boolean): void {
+    this.gatewayAuthRecoveryConnected = connected
   }
 
   inheritEstablishedOAuthAuthority(source: InstanceState): void {

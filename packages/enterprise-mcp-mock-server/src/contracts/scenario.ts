@@ -7,6 +7,32 @@ import { getProviderProfile } from "../profiles/profiles.js"
 import { oauthRedirectUriSchema } from "./oauth.js"
 import { deepFreeze, type DeepReadonly } from "../immutability.js"
 
+export const gatewayAuthRecoveryDialectSchema = z.enum([
+  "correlated",
+  "uncorrelated",
+  "url_elicitation",
+  "unknown_code",
+  "rest_lookalike",
+])
+export type GatewayAuthRecoveryDialect = z.infer<typeof gatewayAuthRecoveryDialectSchema>
+
+export const gatewayAuthRecoveryHostileGetModeSchema = z.enum(["405", "reset"])
+export type GatewayAuthRecoveryHostileGetMode = z.infer<typeof gatewayAuthRecoveryHostileGetModeSchema>
+
+export const gatewayAuthRecoveryOptionsSchema = z.object({
+  dialect: gatewayAuthRecoveryDialectSchema,
+  hostileGetMode: gatewayAuthRecoveryHostileGetModeSchema,
+})
+export type GatewayAuthRecoveryOptions = DeepReadonly<z.infer<typeof gatewayAuthRecoveryOptionsSchema>>
+
+export interface GatewayAuthRecoveryScenarioOptions {
+  readonly dialect?: GatewayAuthRecoveryDialect
+  readonly hostileGetMode?: GatewayAuthRecoveryHostileGetMode
+}
+
+const defaultGatewayAuthRecoveryDialect: GatewayAuthRecoveryDialect = "correlated"
+const defaultGatewayAuthRecoveryHostileGetMode: GatewayAuthRecoveryHostileGetMode = "405"
+
 const rawScenarioSchema = z.object({
     schemaVersion: z.literal(1),
     id: z.string().regex(/^[a-z][a-z0-9-]*$/),
@@ -27,6 +53,7 @@ const rawScenarioSchema = z.object({
       requiredResourceScopes: z.array(z.string().min(1)).min(1),
     }),
     activeFault: activeFaultSchema.nullable(),
+    gatewayAuthRecovery: gatewayAuthRecoveryOptionsSchema.optional(),
     expected: z.object({
       outcome: z.enum(["success", "failure"]),
       firstFailedPhase: handshakePhaseSchema.nullable(),
@@ -54,6 +81,13 @@ export const scenarioSchema = rawScenarioSchema
     }
     if (!profile.oauth.registrationModes.includes(scenario.oauth.registration)) {
       context.addIssue({ code: "custom", message: "OAuth registration mode is not supported by the selected profile", path: ["oauth", "registration"] })
+    }
+    if (scenario.profileId === "gateway-auth-recovery") {
+      if (!scenario.gatewayAuthRecovery) {
+        context.addIssue({ code: "custom", message: "Gateway auth recovery scenarios require gatewayAuthRecovery options", path: ["gatewayAuthRecovery"] })
+      }
+    } else if (scenario.gatewayAuthRecovery) {
+      context.addIssue({ code: "custom", message: "gatewayAuthRecovery options only apply to the gateway-auth-recovery profile", path: ["gatewayAuthRecovery"] })
     }
     if (scenario.oauth.authorizationScopes.some((scope) => !profile.oauth.authorizationScopes.includes(scope))) {
       context.addIssue({ code: "custom", message: "Authorization scopes must belong to the selected profile", path: ["oauth", "authorizationScopes"] })
@@ -105,6 +139,12 @@ export const scenarioSchema = rawScenarioSchema
 
 export function createDefaultScenario(profileId: ProviderProfileId = "servicenow-inbound-quickstart"): EnterpriseMcpScenario {
   const profile = getProviderProfile(profileId)
+  const gatewayAuthRecovery = profileId === "gateway-auth-recovery"
+    ? {
+        dialect: defaultGatewayAuthRecoveryDialect,
+        hostileGetMode: defaultGatewayAuthRecoveryHostileGetMode,
+      }
+    : undefined
   return scenarioSchema.parse({
     schemaVersion: 1,
     id: `${profileId}-healthy`,
@@ -125,7 +165,24 @@ export function createDefaultScenario(profileId: ProviderProfileId = "servicenow
       requiredResourceScopes: profile.oauth.requiredResourceScopes,
     },
     activeFault: null,
+    ...(gatewayAuthRecovery ? { gatewayAuthRecovery } : {}),
     expected: { outcome: "success", firstFailedPhase: null, category: null },
+  })
+}
+
+export function createGatewayAuthRecoveryScenario(
+  options: GatewayAuthRecoveryScenarioOptions = {},
+  revision = 1,
+): EnterpriseMcpScenario {
+  const base = createDefaultScenario("gateway-auth-recovery")
+  const dialect = options.dialect ?? defaultGatewayAuthRecoveryDialect
+  const hostileGetMode = options.hostileGetMode ?? defaultGatewayAuthRecoveryHostileGetMode
+  const dialectId = dialect.replaceAll("_", "-")
+  return scenarioSchema.parse({
+    ...base,
+    id: `gateway-auth-recovery-${dialectId}-${hostileGetMode}`,
+    revision,
+    gatewayAuthRecovery: { dialect, hostileGetMode },
   })
 }
 

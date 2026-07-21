@@ -25,10 +25,18 @@ export {
   type FaultTrigger,
 } from "./contracts/fault.js"
 export {
+  createGatewayAuthRecoveryScenario,
+  gatewayAuthRecoveryDialectSchema,
+  gatewayAuthRecoveryHostileGetModeSchema,
+  gatewayAuthRecoveryOptionsSchema,
   scenarioSchema,
   createDefaultScenario,
   createFaultScenario,
   type EnterpriseMcpScenario,
+  type GatewayAuthRecoveryDialect,
+  type GatewayAuthRecoveryHostileGetMode,
+  type GatewayAuthRecoveryOptions,
+  type GatewayAuthRecoveryScenarioOptions,
 } from "./contracts/scenario.js"
 export {
   mockToolSchema,

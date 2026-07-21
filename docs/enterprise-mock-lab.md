@@ -106,6 +106,7 @@ Fidelity is recorded per aspect rather than inherited from one broad provider la
 | Profile ID | Product surface | Documented auth shape | Verified | Important boundary |
 | --- | --- | --- | --- | --- |
 | `synthetic-enterprise-oauth-mcp` | Standards-conformance OAuth/MCP surface | DCR or manual registration; `mcp.read`, `mcp.write`, `offline_access` | 2026-07-10 | Represents no Microsoft or ServiceNow product |
+| `gateway-auth-recovery` | Stateful gateway authorization recovery profile | No-auth MCP data plane for isolating downstream provider authorization recovery | 2026-07-21 | Synthetic Northwind ITSM tool and sign-in pages; represents no specific vendor |
 | `servicenow-inbound-quickstart` | ServiceNow MCP Server Console inbound Quickstart server | Manual registration; `mcp_server` acquisition and resource scope | 2026-07-10 | Customer family, patch, plugins, ACLs, domain separation, and transport behavior must be rechecked |
 | `microsoft-work-iq` | Microsoft Work IQ MCP | `api://workiq.svc.cloud.microsoft/WorkIQAgent.Ask` plus `offline_access`; audience `api://workiq.svc.cloud.microsoft` | 2026-07-12 | Ten tool names/input names and types are documented; bounded schemas, mutation safety extensions, and results are explicitly synthetic |
 | `microsoft-enterprise` | Microsoft MCP Server for Enterprise at `https://mcp.svc.cloud.microsoft/enterprise` | Resource `api://e8c77dc2-69b3-43f4-bc51-3213c9d915b4`; documented token-request scope `{resource}/.default` | 2026-07-12 | Real tenants must grant enabled delegated `MCP.*` permissions; schemas/results, revocation, app-only, sovereign cloud, and transport behavior are not claimed |
@@ -116,6 +117,7 @@ The UI shows each profile's stable fixture version, documentation links, verifie
 Profile source register (retrieved or rechecked through 2026-07-12 unless a profile records an earlier verification date):
 
 - MCP stable [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) and [authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization);
+- the synthetic `gateway-auth-recovery` profile is an OpenWork diagnostic fixture and intentionally has no vendor source;
 - ServiceNow [create an MCP server](https://www.servicenow.com/docs/r/intelligent-experiences/create-mcp-server.html) and [connect an MCP server/client](https://www.servicenow.com/docs/r/intelligent-experiences/connect-mcp-server-client.html);
 - Microsoft [Work IQ MCP overview](https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/mcp/overview), [permissions](https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/permissions), and [tool reference](https://learn.microsoft.com/en-us/microsoft-365/copilot/extensibility/work-iq/mcp/tool-reference);
 - Microsoft [MCP Registry EnterpriseMCP entry](https://github.com/mcp/io.github.microsoft/EnterpriseMCP), [MCP Server for Enterprise getting started](https://learn.microsoft.com/en-us/graph/mcp-server/get-started), and [Copilot Studio connection fields](https://learn.microsoft.com/en-us/graph/mcp-server/use-enterprise-mcp-server-copilot-studio);
@@ -196,7 +198,7 @@ Each fault also has a machine-readable diagnostic level. `connection` means OAut
 | `provider-unavailable` | `PROVIDER_EXECUTION` | `provider_unavailable` | Downstream provider transient availability |
 | `mutation-timeout-after-commit` | `PROVIDER_EXECUTION` | `mutation_indeterminate` | Provider mutation outcome after a disconnect; reconcile before any replay |
 
-Fault applicability is all profiles except for two deliberate boundaries: `oauth-dynamic-registration-unsupported` applies only to `synthetic-enterprise-oauth-mcp`, because the documented enterprise profiles use manual registration; `mutation-timeout-after-commit` applies only to profiles with mutation tools and therefore excludes the read-only `microsoft-enterprise` profile.
+Fault applicability covers the OAuth-backed profiles except for deliberate boundaries: `oauth-dynamic-registration-unsupported` applies only to `synthetic-enterprise-oauth-mcp`, because the documented enterprise profiles use manual registration; `mutation-timeout-after-commit` applies only to profiles with mutation tools and therefore excludes the read-only `microsoft-enterprise` profile. `gateway-auth-recovery` uses scenario options rather than the one-fault catalog because its dialect and hostile `GET` modes must be combined orthogonally.
 
 ### Live Microsoft 365 lesson represented by the fixture
 
@@ -342,6 +344,71 @@ rm -f "$LAB_COOKIES" "$LAB_HTML"
 ```
 
 The healthy UI probe runs in `fixture-conformance` mode. It must return `matches: true`, `outcome: success`, and `null` for both `firstFailedPhase` and `category`; it proves OAuth, MCP initialization, the exact pinned tool-name set, and schema validity, but deliberately does not execute a provider tool or compare every schema field byte-for-byte.
+
+## Reproduce the provider-authorization recovery experience in the app
+
+This path uses the package's `gateway-auth-recovery` profile directly as a provider-facing data plane. It is a **no-auth MCP** profile: add it to OpenWork with **No authentication** so the chat exercises only the downstream provider sign-in recovery. The profile is synthetic, uses Northwind-style names, and represents no vendor.
+
+Start the standalone server from the repository root:
+
+```bash
+export PORT=3978
+export GATEWAY_AUTH_DIALECT=uncorrelated
+export GATEWAY_AUTH_HOSTILE_GET=405
+pnpm --dir packages/enterprise-mcp-mock-server exec tsx --eval '
+import {
+  createEnterpriseMcpMockServer,
+  createGatewayAuthRecoveryScenario,
+  gatewayAuthRecoveryDialectSchema,
+  gatewayAuthRecoveryHostileGetModeSchema,
+} from "./src/index.ts"
+
+async function main() {
+  const dialect = gatewayAuthRecoveryDialectSchema.parse(process.env.GATEWAY_AUTH_DIALECT ?? "correlated")
+  const hostileGetMode = gatewayAuthRecoveryHostileGetModeSchema.parse(process.env.GATEWAY_AUTH_HOSTILE_GET ?? "405")
+  const port = Number(process.env.PORT ?? "3978")
+  const server = createEnterpriseMcpMockServer({
+    port,
+    scenario: createGatewayAuthRecoveryScenario({ dialect, hostileGetMode }),
+    secrets: { oauthClientSecret: "" },
+  })
+  await server.start()
+  console.log(`MCP URL: ${server.mcpUrl}`)
+  console.log(`State: ${new URL("/__scenario/state", server.baseUrl).href}`)
+  console.log(`Reset: curl -X POST ${new URL("/__scenario/reset", server.baseUrl).href}`)
+  await new Promise(() => undefined)
+}
+
+void main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})
+'
+```
+
+In the real OpenWork app:
+
+1. Go to **Settings → Connect → Organization connections → Add MCP server** (or the current org MCP connection entry point).
+2. Use the printed MCP URL, for example `http://127.0.0.1:3978/mcp`.
+3. Select **No authentication**, name it `Northwind ITSM recovery`, and save it for the org.
+4. In chat, type: `What incident tools do I have?` The app should list `get_incidents` / “List open incidents from the synthetic ITSM system.”
+5. Type: `Show me my open incidents`. The disconnected server returns the selected dialect. For `uncorrelated`, the wire body has `"id": null`, code `-32001`, and `error.data.connect_url` on the mock host. Chat should show a sign-in link to `http://127.0.0.1:3978/connect/start?provider=northwind-itsm`; it should not say timeout, transport failure, or auto-retry as if the tool already succeeded.
+6. Click the link. The page says **Northwind ITSM** and has a **Sign in and authorize** button. Click it; the next page says **Connected — return to the app**.
+7. Back in chat, retry: `Show me my open incidents`. The tool should now succeed with synthetic records including `INC0010023 — printer down — P3`.
+8. Re-arm the scenario and repeat: `curl -X POST http://127.0.0.1:3978/__scenario/reset`, then ask `Show me my open incidents` again and confirm the sign-in link returns.
+
+Switch dialects by stopping the process and restarting with a different value:
+
+```bash
+# Pick one pair, then rerun the pnpm start command above.
+export GATEWAY_AUTH_DIALECT=correlated GATEWAY_AUTH_HOSTILE_GET=405
+export GATEWAY_AUTH_DIALECT=url_elicitation GATEWAY_AUTH_HOSTILE_GET=405
+export GATEWAY_AUTH_DIALECT=unknown_code GATEWAY_AUTH_HOSTILE_GET=405
+export GATEWAY_AUTH_DIALECT=rest_lookalike GATEWAY_AUTH_HOSTILE_GET=405
+export GATEWAY_AUTH_DIALECT=uncorrelated GATEWAY_AUTH_HOSTILE_GET=reset
+```
+
+Use `uncorrelated` for the production-shaped JSON-RPC error that defeats SDK correlation. Use `GATEWAY_AUTH_HOSTILE_GET=reset` when you also want a background `GET /mcp` stream to destroy its socket; use `405` when you want a clean method-not-allowed response.
 
 ## Automated verification layers
 

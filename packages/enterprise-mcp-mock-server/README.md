@@ -25,6 +25,7 @@ import {
   createDefaultScenario,
   createEnterpriseMcpMockServer,
   createFaultScenario,
+  createGatewayAuthRecoveryScenario,
   listFaultDefinitions,
   listProviderProfiles,
   probeEnterpriseMcpMockServer,
@@ -71,6 +72,7 @@ The `oauth-invalid-client` fault is profile-aware. Microsoft profiles return an 
 | Profile | Fidelity boundary |
 | --- | --- |
 | `synthetic-enterprise-oauth-mcp` | OAuth/MCP standards-conformance profile, including DCR; no vendor claim |
+| `gateway-auth-recovery` | Stateful no-auth MCP profile for synthetic gateway authorization recovery in chat; no vendor claim |
 | `servicenow-inbound-quickstart` | Documented inbound Quickstart path, manual OAuth paths, `mcp_server`; synthetic provider behavior |
 | `microsoft-work-iq` | Documented Work IQ endpoint, delegated scope, ten tools, and current input names/types; bounded synthetic schemas/results plus explicit mock-only mutation controls |
 | `microsoft-enterprise` | Documented `https://mcp.svc.cloud.microsoft/enterprise`, Entra resource, `.default` token-request scope, and read-only catalog; synthetic schemas/results |
@@ -81,6 +83,8 @@ Each profile carries a stable `fixtureVersion`, documentation URLs, verification
 Work IQ follows the Microsoft tool reference updated 2026-06-03: `fetch` uses `entityUrls`; entity mutations use `parentUrl` or `entityUrl` plus a JSON-encoded `jsonBody`; actions/functions use `actionUrl`/`functionUrl`; `ask`, `list_agents`, `get_schema`, and `search_paths` use their documented input names and types. The bounded schemas are labelled synthetic because `approved` and `idempotency_key` are mock-only mutation extensions. The restricted mock schema chooses the documented `path` variant for `get_schema` and requires `path` plus `operationType`; it does not claim to encode the provider's `operationIds`/`path` exclusive-or rule.
 
 The Microsoft Enterprise profile requests the documented `api://e8c77dc2-69b3-43f4-bc51-3213c9d915b4/.default` scope. A real tenant must separately grant enabled delegated `MCP.*` permissions such as `MCP.User.Read.All`; this mock does not emulate Entra `.default` expansion. The Agent 365 Mail profile preserves dated endpoint, audience, scope, and tool-name evidence while explicitly labelling its argument shapes and results synthetic.
+
+The `gateway-auth-recovery` profile intentionally bypasses MCP OAuth so a real OpenWork app can be pointed at it as a no-auth org MCP connection and exercise only the downstream provider-authorization recovery path. Its `gatewayAuthRecovery` scenario options select one of five dialects (`correlated`, `uncorrelated`, `url_elicitation`, `unknown_code`, `rest_lookalike`) and the hostile MCP `GET` behavior (`405` or socket `reset`).
 
 ## OAuth scope model
 

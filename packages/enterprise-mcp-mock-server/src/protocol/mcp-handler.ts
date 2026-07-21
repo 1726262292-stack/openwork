@@ -40,6 +40,34 @@ const callToolParamsSchema = z.object({
   arguments: z.unknown().optional(),
 })
 const sessionLifetimeMs = 24 * 60 * 60 * 1000
+const gatewayAuthRecoveryProvider = "northwind-itsm"
+const gatewayAuthRecoveryDisplayName = "Northwind ITSM"
+
+function isGatewayAuthRecoveryProfile(profile: ProviderProfile): boolean {
+  return profile.id === "gateway-auth-recovery"
+}
+
+function gatewayAuthRecoveryToken(mcpUrl: string, scenario: EnterpriseMcpScenario): AccessTokenRecord {
+  return {
+    accessToken: "gateway-auth-recovery-no-auth",
+    familyId: "gateway-auth-recovery-no-auth",
+    clientId: scenario.oauth.clientId,
+    resource: mcpUrl,
+    scopes: scenario.oauth.requiredResourceScopes,
+    subject: "synthetic-gateway-user@example.invalid",
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  }
+}
+
+function gatewayConnectUrl(baseUrl: string): string {
+  const url = new URL("/connect/start", baseUrl)
+  url.searchParams.set("provider", gatewayAuthRecoveryProvider)
+  return url.href
+}
+
+function gatewayAuthorizationMessage(connectUrl: string): string {
+  return `Authorization required — connect your ${gatewayAuthRecoveryDisplayName} account to use this connector. Open [${connectUrl}](${connectUrl}) in a browser, sign in, then retry this request.`
+}
 
 function faultApplies(context: McpRequestContext, effect: FaultDefinition["effect"]): boolean {
   return context.activeFault?.effect === effect && context.state.shouldApplyFault(context.activeFault, context.scenario)
@@ -201,24 +229,49 @@ export async function handleMcpRequest(context: McpRequestContext): Promise<bool
     details: { method: request.method ?? "UNKNOWN", path: profile.endpointPath },
   })
 
-  if (!bearer) {
-    unauthorizedChallenge(context)
+  if (isGatewayAuthRecoveryProfile(profile) && request.method === "GET") {
+    if (scenario.gatewayAuthRecovery?.hostileGetMode === "reset") {
+      state.emit({
+        correlationId,
+        scenario,
+        phase: "MCP_TRANSPORT",
+        direction: "outbound",
+        kind: "response",
+        outcome: "failed",
+        summary: "Destroyed a synthetic hostile MCP GET stream socket",
+      })
+      request.socket.destroy()
+      return true
+    }
+    response.writeHead(405, { allow: "POST, DELETE", "cache-control": "no-store" })
+    response.end()
     return true
   }
 
-  const token = state.tokens.get(bearer)
-  if (faultApplies(context, "reject-audience") || !token || token.expiresAt < state.now() || token.resource !== mcpUrl) {
-    if (context.activeFault?.effect === "reject-audience") emitFault(context, "Rejected the access token MCP resource audience")
-    unauthorizedChallenge(context)
-    return true
-  }
-  if (
-    faultApplies(context, "reject-scope") ||
-    scenario.oauth.requiredResourceScopes.some((scope) => !token.scopes.includes(scope))
-  ) {
-    if (context.activeFault?.effect === "reject-scope") emitFault(context, "Rejected the access token for insufficient MCP resource scope")
-    sendJson(response, 403, { error: "insufficient_scope" }, { "www-authenticate": `Bearer error="insufficient_scope"` })
-    return true
+  let token: AccessTokenRecord
+  if (isGatewayAuthRecoveryProfile(profile)) {
+    token = gatewayAuthRecoveryToken(mcpUrl, scenario)
+  } else {
+    if (!bearer) {
+      unauthorizedChallenge(context)
+      return true
+    }
+
+    const accessToken = state.tokens.get(bearer)
+    if (faultApplies(context, "reject-audience") || !accessToken || accessToken.expiresAt < state.now() || accessToken.resource !== mcpUrl) {
+      if (context.activeFault?.effect === "reject-audience") emitFault(context, "Rejected the access token MCP resource audience")
+      unauthorizedChallenge(context)
+      return true
+    }
+    if (
+      faultApplies(context, "reject-scope") ||
+      scenario.oauth.requiredResourceScopes.some((scope) => !accessToken.scopes.includes(scope))
+    ) {
+      if (context.activeFault?.effect === "reject-scope") emitFault(context, "Rejected the access token for insufficient MCP resource scope")
+      sendJson(response, 403, { error: "insufficient_scope" }, { "www-authenticate": `Bearer error="insufficient_scope"` })
+      return true
+    }
+    token = accessToken
   }
 
   state.emit({
@@ -228,7 +281,9 @@ export async function handleMcpRequest(context: McpRequestContext): Promise<bool
     direction: "internal",
     kind: "lifecycle",
     outcome: "passed",
-    summary: "Accepted synthetic access token for this MCP resource",
+    summary: isGatewayAuthRecoveryProfile(profile)
+      ? "Accepted the no-auth gateway recovery MCP profile for provider-authorization testing"
+      : "Accepted synthetic access token for this MCP resource",
     details: { scopeCount: token.scopes.length, subjectHash: "synthetic-subject" },
   })
 
@@ -548,6 +603,11 @@ function handleToolCall(context: McpRequestContext, rpc: JsonRpcRequest, session
     return
   }
 
+  if (isGatewayAuthRecoveryProfile(context.profile)) {
+    handleGatewayAuthRecoveryToolCall(context, requestId, session, tool.name, argumentsResult.value)
+    return
+  }
+
   if (tool.kind === "mutation") {
     const approved = argumentsResult.value.approved
     const idempotencyKey = argumentsResult.value.idempotency_key
@@ -632,6 +692,103 @@ function handleToolCall(context: McpRequestContext, rpc: JsonRpcRequest, session
     summary: "Returned deterministic synthetic provider data",
     details: { profileId: context.profile.id, tool: tool.name },
   })
+}
+
+function handleGatewayAuthRecoveryToolCall(
+  context: McpRequestContext,
+  requestId: string | number,
+  session: SessionRecord,
+  toolName: string,
+  argumentsValue: Readonly<Record<string, unknown>>,
+): void {
+  if (!context.state.isGatewayAuthRecoveryConnected()) {
+    sendGatewayAuthRecoveryError(context, requestId)
+    return
+  }
+
+  const responseWasConformant = sendRpc(
+    context,
+    jsonRpcResult(requestId, successResult(gatewayAuthRecoveryReadResult(toolName, argumentsValue, context.state.issueOpaque("provider-request")))),
+    { "mcp-session-id": session.sessionId, "mcp-protocol-version": session.protocolVersion },
+  )
+  if (!responseWasConformant) return
+  context.state.emit({
+    correlationId: context.correlationId,
+    scenario: context.scenario,
+    phase: "PROVIDER_EXECUTION",
+    direction: "outbound",
+    kind: "response",
+    outcome: "passed",
+    summary: "Returned gateway auth recovery synthetic incident data",
+    details: { provider: gatewayAuthRecoveryProvider, tool: toolName },
+  })
+}
+
+function sendGatewayAuthRecoveryError(context: McpRequestContext, requestId: string | number): void {
+  const dialect = context.scenario.gatewayAuthRecovery?.dialect ?? "correlated"
+  const connectUrl = gatewayConnectUrl(context.baseUrl)
+  context.state.emit({
+    correlationId: context.correlationId,
+    scenario: context.scenario,
+    phase: "PROVIDER_AUTHORIZATION",
+    direction: "outbound",
+    kind: "response",
+    outcome: "failed",
+    summary: "Returned a synthetic gateway provider-authorization recovery error",
+    details: { dialect, provider: gatewayAuthRecoveryProvider },
+  })
+
+  if (dialect === "rest_lookalike") {
+    sendJson(context.response, 200, { error: { code: 500, message: "boom" } })
+    return
+  }
+
+  if (dialect === "unknown_code") {
+    sendRpc(context, jsonRpcError(requestId, -32050, "Authorization required before synthetic incidents can be read", {
+      provider: gatewayAuthRecoveryProvider,
+      reason: "authorization_required",
+    }))
+    return
+  }
+
+  if (dialect === "url_elicitation") {
+    sendRpc(context, jsonRpcError(requestId, -32042, gatewayAuthorizationMessage(connectUrl), { url: connectUrl }))
+    return
+  }
+
+  sendRpc(context, jsonRpcError(
+    dialect === "uncorrelated" ? null : requestId,
+    -32001,
+    gatewayAuthorizationMessage(connectUrl),
+    { connect_url: connectUrl, provider: gatewayAuthRecoveryProvider },
+  ))
+}
+
+function gatewayAuthRecoveryReadResult(
+  toolName: string,
+  argumentsValue: Readonly<Record<string, unknown>>,
+  providerRequestId: string,
+): unknown {
+  return {
+    provider: gatewayAuthRecoveryProvider,
+    tool: toolName,
+    requestId: providerRequestId,
+    records: [
+      {
+        number: "INC0010023",
+        short_description: "printer down",
+        priority: "P3",
+        state: "Open",
+      },
+      {
+        number: "INC0010042",
+        short_description: "badge reader intermittent",
+        priority: "P4",
+        state: "Open",
+      },
+    ],
+    arguments: Object.keys(argumentsValue).sort(),
+  }
 }
 
 function providerErrorResult(context: McpRequestContext): unknown | undefined {

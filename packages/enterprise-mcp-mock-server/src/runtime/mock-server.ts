@@ -22,7 +22,7 @@ import { getFaultDefinition } from "../faults/catalog.js"
 import { InstanceState } from "./instance-state.js"
 import { handleOAuthRequest } from "../protocol/oauth-handler.js"
 import { handleMcpRequest } from "../protocol/mcp-handler.js"
-import { HttpInputError, requestUrl, sendJson } from "../protocol/http-utils.js"
+import { HttpInputError, requestUrl, sendHtml, sendJson } from "../protocol/http-utils.js"
 
 const defaultHost = "127.0.0.1"
 const shutdownGraceMs = 500
@@ -35,6 +35,50 @@ function validateHost(host: string): void {
   if (host !== "127.0.0.1" && host !== "::1") {
     throw new Error("Enterprise MCP mock servers bind to loopback only")
   }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;")
+}
+
+function gatewayAuthRecoveryStateBody(state: InstanceState, scenario: EnterpriseMcpScenario): Readonly<Record<string, unknown>> {
+  const gatewayAuthRecovery = scenario.gatewayAuthRecovery
+  return {
+    connected: state.isGatewayAuthRecoveryConnected(),
+    dialect: gatewayAuthRecovery?.dialect ?? null,
+    hostileGetMode: gatewayAuthRecovery?.hostileGetMode ?? null,
+  }
+}
+
+function gatewayAuthRecoveryStartPage(baseUrl: string): string {
+  const completeUrl = new URL("/connect/complete", baseUrl)
+  return `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Northwind ITSM sign-in</title></head>
+  <body style="font-family: system-ui, sans-serif; max-width: 560px; margin: 48px auto;">
+    <h1>Northwind ITSM</h1>
+    <p>This is a synthetic sign-in page for the OpenWork gateway authorization recovery diagnostic. It represents no specific vendor.</p>
+    <form method="post" action="${escapeHtml(completeUrl.pathname)}">
+      <button style="font: inherit; padding: 10px 14px;">Sign in and authorize</button>
+    </form>
+  </body>
+</html>`
+}
+
+function gatewayAuthRecoveryCompletePage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Connected</title></head>
+  <body style="font-family: system-ui, sans-serif; max-width: 560px; margin: 48px auto;">
+    <h1>Connected — return to the app</h1>
+    <p>Northwind ITSM authorization is now connected for this synthetic scenario instance. Retry the same request in OpenWork.</p>
+  </body>
+</html>`
 }
 
 function listen(server: Server, port: number, host: string): Promise<number> {
@@ -348,6 +392,55 @@ class EnterpriseMcpMockServerRuntime implements EnterpriseMcpMockServer {
           mcpUrl: new URL(profile.endpointPath, baseUrl).href,
         })
         return
+      }
+      if (scenario.profileId === "gateway-auth-recovery") {
+        if (request.method === "GET" && url.pathname === "/__scenario/state") {
+          sendJson(response, 200, gatewayAuthRecoveryStateBody(this.state, scenario))
+          return
+        }
+        if ((request.method === "POST" || request.method === "GET") && url.pathname === "/__scenario/reset") {
+          this.state.setGatewayAuthRecoveryConnected(false)
+          this.state.emit({
+            correlationId,
+            scenario,
+            phase: "CONFIGURATION",
+            direction: "internal",
+            kind: "lifecycle",
+            outcome: "completed",
+            summary: "Reset the gateway auth recovery connection state",
+          })
+          sendJson(response, 200, gatewayAuthRecoveryStateBody(this.state, scenario))
+          return
+        }
+        if (request.method === "GET" && url.pathname === "/connect/start") {
+          this.state.emit({
+            correlationId,
+            scenario,
+            phase: "PROVIDER_AUTHORIZATION",
+            direction: "outbound",
+            kind: "response",
+            outcome: "started",
+            summary: "Served the synthetic provider sign-in page",
+            details: { provider: "northwind-itsm" },
+          })
+          sendHtml(response, 200, gatewayAuthRecoveryStartPage(baseUrl))
+          return
+        }
+        if ((request.method === "POST" || request.method === "GET") && url.pathname === "/connect/complete") {
+          this.state.setGatewayAuthRecoveryConnected(true)
+          this.state.emit({
+            correlationId,
+            scenario,
+            phase: "PROVIDER_AUTHORIZATION",
+            direction: "internal",
+            kind: "lifecycle",
+            outcome: "completed",
+            summary: "Completed the synthetic provider authorization recovery flow",
+            details: { provider: "northwind-itsm" },
+          })
+          sendHtml(response, 200, gatewayAuthRecoveryCompletePage())
+          return
+        }
       }
       const activeFault = scenario.activeFault ? getFaultDefinition(scenario.activeFault.id) : undefined
       if (

@@ -2,7 +2,7 @@ import { faultDefinitionSchema, type FaultDefinition } from "../contracts/fault.
 import type { ProviderProfileId } from "../contracts/profile.js"
 import { deepFreeze } from "../immutability.js"
 
-const allProfiles: ProviderProfileId[] = [
+const oauthBackedProfiles: ProviderProfileId[] = [
   "synthetic-enterprise-oauth-mcp",
   "servicenow-inbound-quickstart",
   "microsoft-work-iq",
@@ -19,7 +19,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_discovery_resource",
     retryable: false,
     operatorAction: "check_provider_metadata",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "omit-auth-challenge",
   },
   {
@@ -30,7 +30,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_discovery_resource",
     retryable: false,
     operatorAction: "check_provider_metadata",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "malformed-resource-metadata",
   },
   {
@@ -41,7 +41,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_discovery_issuer",
     retryable: false,
     operatorAction: "check_provider_metadata",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "issuer-mismatch",
   },
   {
@@ -52,7 +52,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_pkce_unsupported",
     retryable: false,
     operatorAction: "contact_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "omit-pkce-s256",
   },
   {
@@ -74,7 +74,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_client_registration",
     retryable: false,
     operatorAction: "register_client",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "reject-client",
   },
   {
@@ -85,7 +85,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_token",
     retryable: false,
     operatorAction: "reauthorize",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "reject-grant",
   },
   {
@@ -96,7 +96,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_wrong_audience",
     retryable: false,
     operatorAction: "reauthorize",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "reject-audience",
   },
   {
@@ -107,7 +107,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "oauth_insufficient_scope",
     retryable: false,
     operatorAction: "reauthorize",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "reject-scope",
   },
   {
@@ -118,7 +118,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_version",
     retryable: false,
     operatorAction: "check_configuration",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "reject-version",
   },
   {
@@ -129,7 +129,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_initialize",
     retryable: false,
     operatorAction: "contact_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "malform-initialize",
   },
   {
@@ -140,7 +140,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_session_expired",
     retryable: true,
     operatorAction: "reinitialize",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "expire-session",
   },
   {
@@ -151,7 +151,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_lifecycle",
     retryable: false,
     operatorAction: "contact_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "reject-initialized",
   },
   {
@@ -162,7 +162,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_transport",
     retryable: false,
     operatorAction: "check_provider_metadata",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "wrong-content-type",
   },
   {
@@ -173,7 +173,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_transport",
     retryable: true,
     operatorAction: "retry_after",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "broken-sse",
   },
   {
@@ -184,7 +184,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "catalog_empty",
     retryable: false,
     operatorAction: "inspect_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "empty-catalog",
   },
   {
@@ -195,7 +195,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_pagination_loop",
     retryable: false,
     operatorAction: "contact_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "repeat-cursor",
   },
   {
@@ -206,7 +206,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_duplicate_tool",
     retryable: false,
     operatorAction: "contact_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "duplicate-tool",
   },
   {
@@ -217,7 +217,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "mcp_invalid_tool_schema",
     retryable: false,
     operatorAction: "contact_provider",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "invalid-tool-schema",
   },
   {
@@ -228,7 +228,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "provider_authorization_denied",
     retryable: false,
     operatorAction: "request_provider_access",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "provider-authorization-denial",
   },
   {
@@ -239,7 +239,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "provider_policy_denied",
     retryable: false,
     operatorAction: "request_provider_access",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "provider-policy-denial",
   },
   {
@@ -250,7 +250,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "provider_throttled",
     retryable: true,
     operatorAction: "retry_after",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "provider-throttle",
   },
   {
@@ -261,7 +261,7 @@ const faults = deepFreeze(faultDefinitionSchema.array().parse([
     category: "provider_unavailable",
     retryable: true,
     operatorAction: "retry_after",
-    applicableProfiles: allProfiles,
+    applicableProfiles: oauthBackedProfiles,
     effect: "provider-unavailable",
   },
   {

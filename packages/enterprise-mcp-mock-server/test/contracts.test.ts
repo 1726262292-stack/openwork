@@ -37,7 +37,7 @@ void compileTimeCatalogReadonly
 test("provider profiles are declarative, unique, and provenance-labelled", () => {
   const profiles = listProviderProfiles()
   assert.equal(Object.isFrozen(profiles), true)
-  assert.equal(profiles.length, 5)
+  assert.equal(profiles.length, 6)
   assert.equal(new Set(profiles.map((profile) => profile.id)).size, profiles.length)
   for (const profile of profiles) {
     assert.equal(getProviderProfile(profile.id), profile)
@@ -45,7 +45,7 @@ test("provider profiles are declarative, unique, and provenance-labelled", () =>
     assert.equal(Object.isFrozen(profile.provenance), true)
     assert.equal(Object.isFrozen(profile.tools), true)
     assert.equal(Object.isFrozen(profile.tools[0]?.inputSchema), true)
-    assert.equal(profile.fixtureVersion, "2026-07-12.1")
+    assert.equal(profile.fixtureVersion, profile.id === "gateway-auth-recovery" ? "2026-07-21.1" : "2026-07-12.1")
     assert.ok(profile.provenance.documentationUrls.length > 0)
     assert.ok(profile.provenance.limitations.length > 0)
     assert.ok(profile.oauth.requiredResourceScopes.every((scope) => profile.oauth.authorizationScopes.includes(scope)))
@@ -62,6 +62,15 @@ test("provider profiles are declarative, unique, and provenance-labelled", () =>
   assert.equal(serviceNow.oauth.tokenPath, "/oauth_token.do")
   assert.equal(serviceNow.oauth.revocationPath, "/oauth_revoke.do")
   assert.equal(serviceNow.provenance.aspectFidelity.catalog, "synthetic")
+
+  const gatewayAuthRecovery = profiles.find((profile) => profile.id === "gateway-auth-recovery")
+  assert.ok(gatewayAuthRecovery)
+  assert.equal(gatewayAuthRecovery.provider, "synthetic")
+  assert.equal(gatewayAuthRecovery.endpointPath, "/mcp")
+  assert.equal(gatewayAuthRecovery.oauth.defaultClientAuthenticationMethod, "none")
+  assert.equal(gatewayAuthRecovery.tools[0]?.name, "get_incidents")
+  assert.equal(gatewayAuthRecovery.provenance.aspectFidelity.providerResults, "synthetic")
+  assert.ok(gatewayAuthRecovery.provenance.limitations.some((limitation) => /represents no/i.test(limitation)))
 
   const workIq = profiles.find((profile) => profile.id === "microsoft-work-iq")
   assert.ok(workIq)
