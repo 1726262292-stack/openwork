@@ -3,7 +3,7 @@ import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 const vo = await loadVoiceoverParagraphs("side-panel-not-restored-on-load");
 
 const EXTENSIONS_TOGGLE = 'button[aria-label="Extensions"][aria-pressed]';
-const EXTENSIONS_MARKER = "Apps (MCP) and OpenCode plugins live in one place.";
+const EXTENSIONS_MARKER = "Extensions (Legacy)";
 const UI_STATE_KEY = "openwork:ui-state:v1";
 
 async function waitForControl(ctx, label = "control API") {
@@ -71,6 +71,26 @@ async function closeExtensionsPanelIfOpen(ctx) {
   }
 }
 
+async function dismissPromoDialogs(ctx) {
+  for (let index = 0; index < 3; index += 1) {
+    const foundDialog = await ctx.eval(`(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      if (!dialog) return false;
+      const closeButton = Array.from(dialog.querySelectorAll("button")).find(
+        (button) => button.textContent.trim() === "Close",
+      );
+      if (closeButton) {
+        closeButton.click();
+      } else {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      }
+      return true;
+    })()`);
+    if (!foundDialog) return;
+    await ctx.waitFor("!document.querySelector('[role=\"dialog\"]')", { label: "promo dialog dismissed" });
+  }
+}
+
 async function readPersistedUiState(ctx) {
   return ctx.eval(`(() => {
     const raw = localStorage.getItem(${JSON.stringify(UI_STATE_KEY)}) ?? "{}";
@@ -117,6 +137,7 @@ export default {
             const sessionId = await waitForActiveSessionId(ctx);
             ctx.log(`active session: ${sessionId}`);
             await closeExtensionsPanelIfOpen(ctx);
+            await dismissPromoDialogs(ctx);
           },
           assert: async () => {
             const sessionId = await readRouteSessionId(ctx);
@@ -146,6 +167,7 @@ export default {
               { label: "Extensions toggle pressed" },
             );
             await ctx.waitForText(EXTENSIONS_MARKER, { timeoutMs: 30_000 });
+            await dismissPromoDialogs(ctx);
           },
           assert: async () => {
             await ctx.expectText(EXTENSIONS_MARKER);
@@ -160,7 +182,8 @@ export default {
           },
           screenshot: {
             name: "extensions-open",
-            requireText: [EXTENSIONS_MARKER],
+            requireText: ["Extensions (Legacy)"],
+            rejectText: ["Use OpenWork Models without API keys"],
           },
         });
       },
@@ -196,6 +219,7 @@ export default {
               `window.__openworkControl.snapshot().route.includes(${JSON.stringify(sessionId)})`,
               { timeoutMs: 30_000, label: "same session route after reload" },
             );
+            await dismissPromoDialogs(ctx);
           },
           assert: async () => {
             const pressed = await readExtensionsToggle(ctx);
