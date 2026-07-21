@@ -708,10 +708,27 @@ async function signInToDenWeb(ctx, email, password) {
 }
 
 async function signInOnCurrentDenWebPage(ctx, email, password, { captureDesktopHandoff = false } = {}) {
-  await ctx.waitFor("document.body.innerText.includes('Sign in')", { timeoutMs: 45_000, label: "sign-in screen" });
+  await ctx.waitFor(
+    `document.body.innerText.includes('Sign in')
+      || document.body.innerText.includes('Start using OpenWork')
+      || Boolean(document.querySelector('input[type="email"], input[name="email"]'))`,
+    { timeoutMs: 45_000, label: "sign-in screen" },
+  );
   await clickTextIfPresent(ctx, "Sign in", "button, a");
-  await ctx.waitFor("Boolean(document.querySelector('input[type=\"email\"], input[name=\"email\"]'))", { timeoutMs: 30_000, label: "email input" });
-  await ctx.fill('input[type="email"], input[name="email"]', email);
+  await ctx.waitFor(
+    `Boolean(document.querySelector('input[type="email"], input[name="email"]'))
+      || Boolean(document.querySelector('input[type="password"]'))`,
+    { timeoutMs: 30_000, label: "auth input" },
+  );
+  const hasEmailInput = await ctx.eval("Boolean(document.querySelector('input[type=\"email\"], input[name=\"email\"]'))");
+  const hasPasswordInput = await ctx.eval("Boolean(document.querySelector('input[type=\"password\"]'))");
+  if (hasEmailInput) {
+    await ctx.fill('input[type="email"], input[name="email"]', email);
+  }
+  if (hasEmailInput && !hasPasswordInput) {
+    await clickLastExactText(ctx, "Next", "button");
+    await ctx.waitFor("Boolean(document.querySelector('input[type=\"password\"]'))", { timeoutMs: 30_000, label: "password input" });
+  }
   await ctx.fill('input[type="password"]', password);
   if (captureDesktopHandoff) {
     await stubDesktopHandoffFetchCapture(ctx);
