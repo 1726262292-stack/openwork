@@ -1,7 +1,7 @@
 /**
  * Internal proof for Den's downstream-provider authorization relay.
  *
- * Runs app-less against a real Den API and two public mock OAuth MCP gateways
+ * Runs app-less against a real Den API and three public mock OAuth MCP gateways
  * supplied by the orchestrator through OPENWORK_EVAL_* environment variables.
  */
 import { createRequire } from "node:module";
@@ -18,12 +18,14 @@ const REQUIRED_ENV = [
   "OPENWORK_EVAL_DEN_API_URL",
   "OPENWORK_EVAL_GATEWAY_MCP_URL",
   "OPENWORK_EVAL_GATEWAY_MCP_URL_FOREIGN",
+  "OPENWORK_EVAL_GATEWAY_MCP_URL_UNCORRELATED",
 ];
 const RUN_TAG = `${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
 const ADMIN_EMAIL = `den-provider-auth-${RUN_TAG}@acme.test`;
 const ADMIN_PASSWORD = `OpenWork-${RUN_TAG}-Provider-Auth!`;
 const CONNECTION_A_NAME = `Salesforce Gateway Auth Required ${RUN_TAG}`;
 const CONNECTION_B_NAME = `Salesforce Gateway Foreign Link ${RUN_TAG}`;
+const CONNECTION_C_NAME = `Northwind Gateway Uncorrelated ${RUN_TAG}`;
 const TIMEOUT_WORDING = /latency|timed? ?out/i;
 
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
@@ -37,8 +39,10 @@ const state = {
   orgMode: null,
   gatewayA: null,
   gatewayB: null,
+  gatewayC: null,
   rawGatewayA: null,
   rawGatewayB: null,
+  rawGatewayC: null,
   health: null,
 };
 
@@ -56,7 +60,7 @@ function readEvalEnv() {
 }
 
 function missingEnvMessage() {
-  return `Missing required environment variables for ${FLOW_ID}: ${envSnapshot.missing.join(", ")}. Set OPENWORK_EVAL_DEN_API_URL, OPENWORK_EVAL_GATEWAY_MCP_URL, and OPENWORK_EVAL_GATEWAY_MCP_URL_FOREIGN to the Daytona Den API and mock gateway MCP URLs.`;
+  return `Missing required environment variables for ${FLOW_ID}: ${envSnapshot.missing.join(", ")}. Set OPENWORK_EVAL_DEN_API_URL, OPENWORK_EVAL_GATEWAY_MCP_URL, OPENWORK_EVAL_GATEWAY_MCP_URL_FOREIGN, and OPENWORK_EVAL_GATEWAY_MCP_URL_UNCORRELATED to the Daytona Den API and mock gateway MCP URLs.`;
 }
 
 function requiredEnv(ctx) {
@@ -71,6 +75,7 @@ function requiredEnv(ctx) {
     denApiUrl: stripTrailingSlashes(envSnapshot.values.OPENWORK_EVAL_DEN_API_URL),
     gatewayMcpUrl: stripTrailingSlashes(envSnapshot.values.OPENWORK_EVAL_GATEWAY_MCP_URL),
     foreignGatewayMcpUrl: stripTrailingSlashes(envSnapshot.values.OPENWORK_EVAL_GATEWAY_MCP_URL_FOREIGN),
+    uncorrelatedGatewayMcpUrl: stripTrailingSlashes(envSnapshot.values.OPENWORK_EVAL_GATEWAY_MCP_URL_UNCORRELATED),
   };
 }
 
@@ -449,16 +454,52 @@ async function searchAndExecuteGateway(ctx, connection, query) {
   });
 }
 
+async function executeGatewayMatchSuccessfully(ctx, connection, match) {
+  const expectedName = `mcp:${own(connection, "id")}:${TOOL_NAME}`;
+  return withAgentClient(ctx, async (client) => {
+    const execute = await client.callTool({
+      name: "execute_capability",
+      arguments: { name: expectedName, schemaDigest: own(match, "schemaDigest"), body: {} },
+    });
+    witness(ctx, own(execute, "isError") !== true, "retried execute_capability succeeds after the provider connect flow", execute);
+    const text = firstText(execute);
+    witness(ctx, typeof text === "string" && text.includes("INC0010023"), "retried execute_capability returns the recovered incident content", execute);
+    return { execute, text };
+  });
+}
+
 function assertSameHostConnectUrl(ctx, connectUrl, connectionUrl) {
   const connect = new URL(connectUrl);
   const connection = new URL(connectionUrl);
-  witness(ctx, connect.host === connection.host, "The provider connect link is on the same host as gateway A", { connectUrl, connectionUrl });
+  witness(ctx, connect.host === connection.host, "The provider connect link is on the same host as its gateway", { connectUrl, connectionUrl });
 }
 
 function assertForeignHostConnectUrl(ctx, connectUrl, connectionUrl) {
   const connect = new URL(connectUrl);
   const connection = new URL(connectionUrl);
   witness(ctx, connect.host !== connection.host, "The foreign provider connect link is on a different host than gateway B", { connectUrl, connectionUrl });
+}
+
+function assertUncorrelatedGatewayBody(ctx, rawGateway, label) {
+  const error = jsonRpcError(rawGateway.call.body);
+  const connectUrl = jsonRpcConnectUrl(rawGateway.call.body);
+  witness(ctx, own(rawGateway.call.body, "id") === null, `${label} raw tools/call body uses id: null`, rawGateway.call.body);
+  witness(ctx, own(error, "code") === -32001, `${label} raw tools/call body carries JSON-RPC -32001`, rawGateway.call.body);
+  witness(ctx, typeof connectUrl === "string", `${label} raw tools/call body carries error.data.connect_url`, rawGateway.call.body);
+}
+
+async function completeGatewayConnectFlow(ctx, connectUrl, label) {
+  const start = await fetch(connectUrl);
+  const startText = await start.text();
+  witness(ctx, start.status === 200, `${label} connect/start returns HTTP 200`, { status: start.status, body: startText.slice(0, 300) });
+  witness(ctx, (start.headers.get("content-type") ?? "").includes("text/html"), `${label} connect/start returns HTML`, start.headers.get("content-type"));
+  witness(ctx, startText.includes("Sign in and authorize"), `${label} connect/start renders the authorize button`, startText.slice(0, 300));
+
+  const completeUrl = new URL("/connect/complete", connectUrl);
+  const complete = await fetch(completeUrl, { method: "POST" });
+  const completeText = await complete.text();
+  witness(ctx, complete.status === 200, `${label} connect/complete POST returns HTTP 200`, { status: complete.status, body: completeText.slice(0, 300) });
+  witness(ctx, completeText.includes("Connected — return to the app"), `${label} connect/complete marks the provider connected`, completeText.slice(0, 300));
 }
 
 function assertProviderAuthEnvelope(ctx, envelope, expectedConnectUrl) {
@@ -601,6 +642,51 @@ export default {
               rawToolsCall: { httpStatus: state.rawGatewayB.call.response.status, body: state.rawGatewayB.call.body },
               selectedMatch: state.gatewayB.agentResult.match,
               executeEnvelope: state.gatewayB.agentResult.envelope,
+            }, null, 2));
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 5 — The uncorrelated production dialect still relays as needs_connection",
+      run: async (ctx) => {
+        await ctx.prove("A raw id:null provider authorization error survives the real Den agent execute pipeline", {
+          voiceover: vo[4],
+          action: async () => {
+            const { uncorrelatedGatewayMcpUrl } = requiredEnv(ctx);
+            state.gatewayC = await createGatewayConnection(ctx, { name: CONNECTION_C_NAME, url: uncorrelatedGatewayMcpUrl });
+            state.rawGatewayC = await captureRawGatewayAuthRequired(ctx, uncorrelatedGatewayMcpUrl, "gateway C");
+            state.gatewayC.agentResult = await searchAndExecuteGateway(ctx, state.gatewayC, `${CONNECTION_C_NAME} ${TOOL_NAME}`);
+          },
+          assert: async () => {
+            const { uncorrelatedGatewayMcpUrl } = requiredEnv(ctx);
+            assertSameHostConnectUrl(ctx, state.rawGatewayC.connectUrl, uncorrelatedGatewayMcpUrl);
+            assertUncorrelatedGatewayBody(ctx, state.rawGatewayC, "gateway C");
+            assertProviderAuthEnvelope(ctx, state.gatewayC.agentResult.envelope, state.rawGatewayC.connectUrl);
+            ctx.output("uncorrelated-gateway-c-needs-connection", JSON.stringify({
+              endpoint: uncorrelatedGatewayMcpUrl,
+              rawToolsCall: { httpStatus: state.rawGatewayC.call.response.status, body: state.rawGatewayC.call.body },
+              selectedMatch: state.gatewayC.agentResult.match,
+              executeEnvelope: state.gatewayC.agentResult.envelope,
+            }, null, 2));
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 6 — Provider sign-in recovers the same capability on retry",
+      run: async (ctx) => {
+        await ctx.prove("Completing the mock provider connect flow makes the retried Den execute succeed", {
+          voiceover: vo[5],
+          action: async () => {
+            await completeGatewayConnectFlow(ctx, state.rawGatewayC.connectUrl, "gateway C");
+            state.gatewayC.retryResult = await executeGatewayMatchSuccessfully(ctx, state.gatewayC, state.gatewayC.agentResult.match);
+          },
+          assert: async () => {
+            witness(ctx, String(state.gatewayC.retryResult.text ?? "").includes("INC0010023"), "The retried execute returns INC0010023 from the recovered provider", state.gatewayC.retryResult);
+            ctx.output("uncorrelated-gateway-c-recovered-retry", JSON.stringify({
+              connection: compactConnection(state.gatewayC),
+              retryText: state.gatewayC.retryResult.text,
             }, null, 2));
           },
         });

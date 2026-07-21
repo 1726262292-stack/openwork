@@ -28,8 +28,9 @@ const errorToolTitle = (process.env.MOCK_ERROR_TOOL_TITLE || errorToolName).trim
 const errorToolDescription = (process.env.MOCK_ERROR_TOOL_DESCRIPTION || "Returns a provider policy error from the mock OAuth MCP server.").trim();
 const errorToolStatus = Number(process.env.MOCK_ERROR_TOOL_STATUS || 403);
 const errorToolMode = (process.env.MOCK_ERROR_TOOL_MODE || "result").trim();
-const errorToolConnectUrl = (process.env.MOCK_ERROR_TOOL_CONNECT_URL || "https://connect.example.test/salesforce/start").trim();
+const errorToolConnectUrl = (process.env.MOCK_ERROR_TOOL_CONNECT_URL || "").trim();
 const errorToolProvider = (process.env.MOCK_ERROR_TOOL_PROVIDER || "salesforce").trim();
+const getStreamMode = (process.env.MOCK_GET_STREAM || "405").trim();
 const allowUnauthenticatedMcp = process.env.MOCK_ALLOW_UNAUTHENTICATED_MCP === "1";
 
 const clients = new Map();
@@ -38,6 +39,7 @@ const tokens = new Set();
 const refreshTokens = new Set();
 const requests = [];
 const drafts = [];
+let connected = false;
 
 const gmailThreadId = "thread-q3-launch";
 
@@ -177,6 +179,74 @@ function protectedResourceMetadata() {
     scopes_supported: advertisedScopes,
     bearer_methods_supported: ["header"],
   };
+}
+
+function isAuthorizationRequiredMode() {
+  return errorToolMode === "authorization_required" || errorToolMode === "authorization_required_uncorrelated";
+}
+
+function currentErrorToolConnectUrl() {
+  if (errorToolConnectUrl) return errorToolConnectUrl;
+  const url = new URL(`${issuer}/connect/start`);
+  url.searchParams.set("provider", errorToolProvider);
+  return url.toString();
+}
+
+function providerAuthRequiredResponse(message) {
+  const connectUrl = currentErrorToolConnectUrl();
+  const connectLink = `[${connectUrl}](${connectUrl})`;
+  return {
+    jsonrpc: "2.0",
+    id: errorToolMode === "authorization_required_uncorrelated" ? null : message.id,
+    error: {
+      code: -32001,
+      message: `Authorization required — connect your ${errorToolProvider} account to use this connector. Open ${connectLink} in a browser, sign in, then retry this request.`,
+      data: {
+        connect_url: connectUrl,
+        provider: errorToolProvider,
+      },
+    },
+  };
+}
+
+function providerConnectedResult() {
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify([
+          { id: "INC0010023", short_description: "printer down", priority: "P3" },
+          { id: "INC0010024", short_description: "badge reader offline", priority: "P2" },
+        ]),
+      },
+    ],
+  };
+}
+
+function connectStartPage(url) {
+  const provider = url.searchParams.get("provider") || errorToolProvider;
+  return `<!doctype html>
+<html>
+  <head><title>Connect ${escapeHtml(provider)}</title></head>
+  <body style="font-family: system-ui, sans-serif; max-width: 560px; margin: 48px auto;">
+    <h1>Connect ${escapeHtml(provider)}</h1>
+    <p>Sign in to authorize OpenWork to use this mock provider account.</p>
+    <form method="post" action="/connect/complete">
+      <button style="font: inherit; padding: 10px 14px;">Sign in and authorize</button>
+    </form>
+  </body>
+</html>`;
+}
+
+function connectCompletePage() {
+  return `<!doctype html>
+<html>
+  <head><title>Connected</title></head>
+  <body style="font-family: system-ui, sans-serif; max-width: 560px; margin: 48px auto;">
+    <h1>Connected — return to the app</h1>
+    <p>The mock provider account is now authorized. Return to OpenWork and retry the capability.</p>
+  </body>
+</html>`;
 }
 
 function authorizationServerMetadata() {
@@ -454,6 +524,9 @@ function mcpResult(message) {
       };
     case "tools/call":
       if (errorToolName && message.params?.name === errorToolName) {
+        if (isAuthorizationRequiredMode() && connected) {
+          return providerConnectedResult();
+        }
         return {
           isError: true,
           structuredContent: {
@@ -494,24 +567,13 @@ function mcpResult(message) {
 
 function mcpResponse(message) {
   if (
-    errorToolMode === "authorization_required"
+    isAuthorizationRequiredMode()
     && errorToolName
     && message.method === "tools/call"
     && message.params?.name === errorToolName
   ) {
-    const connectLink = `[${errorToolConnectUrl}](${errorToolConnectUrl})`;
-    return {
-      jsonrpc: "2.0",
-      id: message.id,
-      error: {
-        code: -32001,
-        message: `Authorization required — connect your ${errorToolProvider} account to use this connector. Open ${connectLink} in a browser, sign in, then retry this request.`,
-        data: {
-          connect_url: errorToolConnectUrl,
-          provider: errorToolProvider,
-        },
-      },
-    };
+    if (!connected) return providerAuthRequiredResponse(message);
+    return { jsonrpc: "2.0", id: message.id, result: providerConnectedResult() };
   }
 
   return { jsonrpc: "2.0", id: message.id, result: mcpResult(message) };
@@ -527,6 +589,10 @@ async function handleMcp(req, res) {
   }
 
   if (req.method === "GET") {
+    if (getStreamMode === "reset") {
+      req.socket.destroy();
+      return;
+    }
     json(res, 405, { error: "method_not_allowed" });
     return;
   }
@@ -574,6 +640,28 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/requests") {
       json(res, 200, { requests });
+      return;
+    }
+
+    if (url.pathname === "/__scenario/state" && req.method === "GET") {
+      json(res, 200, { connected, mode: errorToolMode });
+      return;
+    }
+
+    if (url.pathname === "/__scenario/reset" && req.method === "POST") {
+      connected = false;
+      json(res, 200, { connected, mode: errorToolMode });
+      return;
+    }
+
+    if (url.pathname === "/connect/start" && req.method === "GET") {
+      text(res, 200, connectStartPage(url));
+      return;
+    }
+
+    if (url.pathname === "/connect/complete" && (req.method === "GET" || req.method === "POST")) {
+      connected = true;
+      text(res, 200, connectCompletePage());
       return;
     }
 
