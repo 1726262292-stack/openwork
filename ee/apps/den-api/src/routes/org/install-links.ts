@@ -30,6 +30,7 @@ import { organizationCapabilityKeySchema } from "../../organization-capabilities
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
   desktopReleaseAssetName,
+  genericInstallerArtifactName,
   installerReleaseAssetUrl,
   resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
@@ -297,6 +298,14 @@ function contentDisposition(filename: string) {
   return `attachment; filename="${filename.replace(/["\\]/g, "-")}"`
 }
 
+function filenameTagHost(request: Request) {
+  return new URL(resolvePublicOrigin(request, env.apiPublicUrl)).host.replace(/:/g, "_")
+}
+
+function stampedWindowsInstallerFileName(request: Request, token: string) {
+  return `OpenWork-Installer--${filenameTagHost(request)}--${token}.exe`
+}
+
 function artifactFileName(platform: InstallPlatform, releaseTag: string) {
   return desktopReleaseAssetName(platform, releaseTag)
 }
@@ -532,36 +541,41 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       }
 
       const platform = platformResult.data.platform
+      const genericFileName = genericInstallerArtifactName(platform)
+      if (genericFileName) {
+        const configuredArtifact = await installer.resolveConfiguredArtifact(genericFileName)
+        if (configuredArtifact) {
+          const responseFileName = platform === "win-x64"
+            ? stampedWindowsInstallerFileName(c.req.raw, input.token)
+            : configuredArtifact.fileName ?? genericFileName
+          if (responseFileName.toLowerCase().endsWith(".zip")) {
+            const stamped = stampedZipPayload(configuredArtifact.filePath, resolved.config)
+            c.header("content-type", "application/zip")
+            c.header("content-length", String(stamped.byteLength))
+            c.header("content-disposition", contentDisposition(responseFileName))
+            c.header("cache-control", "private, max-age=300")
+            return c.body(bufferArrayBuffer(stamped))
+          }
+
+          c.header("content-type", configuredArtifactContentType(platform, responseFileName))
+          c.header("content-length", String(configuredArtifact.size))
+          c.header("content-disposition", contentDisposition(responseFileName))
+          c.header("cache-control", "private, max-age=300")
+          return stream(c, async (body) => {
+            for await (const chunk of createReadStream(configuredArtifact.filePath)) {
+              await body.write(chunk)
+            }
+          })
+        }
+      }
+
       const fileName = artifactFileName(platform, resolved.installerReleaseTag)
       if (!fileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
-      // Organization setup is always a separate deep-link step, so every Den
-      // deployment can return the ordinary installer without keys, wrapping,
-      // or a per-pod artifact cache.
-      const configuredArtifact = await installer.resolveConfiguredArtifact(fileName)
-      if (configuredArtifact) {
-        const responseFileName = configuredArtifact.fileName ?? fileName
-        if (responseFileName.toLowerCase().endsWith(".zip")) {
-          const stamped = stampedZipPayload(configuredArtifact.filePath, resolved.config)
-          c.header("content-type", "application/zip")
-          c.header("content-length", String(stamped.byteLength))
-          c.header("content-disposition", contentDisposition(responseFileName))
-          c.header("cache-control", "private, max-age=300")
-          return c.body(bufferArrayBuffer(stamped))
-        }
-
-        c.header("content-type", configuredArtifactContentType(platform, responseFileName))
-        c.header("content-length", String(configuredArtifact.size))
-        c.header("content-disposition", contentDisposition(responseFileName))
-        c.header("cache-control", "private, max-age=300")
-        return stream(c, async (body) => {
-          for await (const chunk of createReadStream(configuredArtifact.filePath)) {
-            await body.write(chunk)
-          }
-        })
-      }
+      // If no generic bootstrap installer is mounted, use the normal desktop
+      // release URL without forwarding the organization token to GitHub.
       return c.redirect(installer.resolveDirectUrl(platform, resolved.installerReleaseTag), 302)
     },
   )

@@ -34,6 +34,16 @@ export function desktopReleaseAssetName(platform: string, releaseTag: string) {
   return null
 }
 
+export function genericInstallerArtifactName(platform: string) {
+  if (platform === "mac-arm64" || platform === "mac-x64") {
+    return `openwork-installer-${platform}.zip`
+  }
+  if (platform === "win-x64") {
+    return "openwork-installer-win-x64.exe"
+  }
+  return null
+}
+
 /**
  * Resolves only an explicitly provisioned standard installer. The normal
  * internet-connected path redirects the browser to GitHub instead, so Den
@@ -64,6 +74,9 @@ function installerArtifactCandidates(fileName: string) {
   const macMatch = /^openwork-(mac-(?:arm64|x64))-/.exec(fileName)
   if (macMatch) {
     candidates.push(`openwork-installer-${macMatch[1]}.zip`)
+  }
+  if (/^openwork-win-x64-/.test(fileName)) {
+    candidates.push("openwork-installer-win-x64.exe")
   }
   return candidates
 }
