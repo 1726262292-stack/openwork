@@ -742,14 +742,21 @@ export default {
             await ctx.expectText("Sign in to get started with your workspace.");
             await ctx.expectText(`Sign in to ${BRAND_APP_NAME}`);
             await ctx.expectText("Paste sign-in code");
-            const storage = await ctx.eval(`(() => ({
-              preferences: localStorage.getItem('openwork.preferences'),
-              developerMode: localStorage.getItem('openwork.developerMode'),
-              authToken: localStorage.getItem('openwork.den.authToken'),
-              openworkKeys: Object.keys(localStorage).filter((key) => key.startsWith('openwork.')).sort(),
-            }))()`);
+            const storage = await ctx.eval(`(() => {
+              const preferencesRaw = localStorage.getItem('openwork.preferences');
+              let preferencesParsed = null;
+              try { preferencesParsed = preferencesRaw ? JSON.parse(preferencesRaw) : null; } catch {}
+              return {
+                preferences: preferencesRaw,
+                preferencesParsed,
+                developerMode: localStorage.getItem('openwork.developerMode'),
+                authToken: localStorage.getItem('openwork.den.authToken'),
+                openworkKeys: Object.keys(localStorage).filter((key) => key.startsWith('openwork.')).sort(),
+              };
+            })()`);
             witness(ctx, storage.authToken === null, "Seeded openwork.den.authToken is gone after Chromium storage clear", storage);
-            witness(ctx, storage.preferences === null, "Seeded openwork.preferences is gone after Chromium storage clear", storage);
+            witness(ctx, storage.preferencesParsed?.seededBy === undefined && storage.preferencesParsed?.runTag === undefined, "openwork.preferences contains no seededBy or runTag after Chromium storage clear", storage);
+            witness(ctx, storage.preferencesParsed?.hasCompletedOnboarding !== true, "openwork.preferences does not preserve completed onboarding after Chromium storage clear", storage);
             witness(ctx, storage.developerMode === null, "Seeded openwork.developerMode is gone after Chromium storage clear", storage);
             ctx.output("renderer-localStorage-after-first-nuke", JSON.stringify(storage, null, 2));
           },
