@@ -439,10 +439,11 @@ async function pathDeletedOrPreservedOnly(targetPath, preservePaths) {
   return onlyPreserveBranchesRemain(targetPath, preservePaths);
 }
 
-async function deleteManifestPaths(manifest, platform, preservePaths) {
+async function deleteManifestPaths(manifest, platform, preservePaths, options = {}) {
   const errors = [];
+  const removePath = typeof options.removePathWithRetry === "function" ? options.removePathWithRetry : removePathWithRetry;
   for (const targetPath of manifest.deletePaths) {
-    const error = await removePathWithRetry(targetPath, preservePaths, platform);
+    const error = await removePath(targetPath, preservePaths, platform);
     if (error) errors.push(receiptError(targetPath, error));
   }
   return errors;
@@ -466,11 +467,28 @@ async function verifyManifestDeletion(manifest, deletionErrors, preservePaths) {
   return { deleted, pendingRetry, errors };
 }
 
-async function writePendingNukeFile(pendingPath, paths) {
+function nukeNowIso(options = {}) {
+  return typeof options.nowIso === "string" && options.nowIso.trim()
+    ? options.nowIso.trim()
+    : new Date().toISOString();
+}
+
+function pendingCreatedAt(pending, fallback) {
+  const createdAt = typeof pending?.createdAt === "string" ? pending.createdAt.trim() : "";
+  return createdAt && Number.isFinite(Date.parse(createdAt)) ? createdAt : fallback;
+}
+
+function pendingCleanupResult({ ran, invalid = false, deleted = [], pendingRetry = [], errors = [] }) {
+  return { ran, invalid, deleted, pendingRetry, errors };
+}
+
+async function writePendingNukeFile(pendingPath, paths, pending = null, options = {}) {
   if (paths.length === 0) return;
+  const attemptedAt = nukeNowIso(options);
   await writeJsonFile(pendingPath, {
     paths,
-    createdAt: new Date().toISOString(),
+    createdAt: pendingCreatedAt(pending, attemptedAt),
+    attemptedAt,
   });
 }
 
@@ -529,17 +547,33 @@ function preservePathsWithoutBootstrap(plan) {
   return plan.preservePaths.filter((preservePath) => path.resolve(preservePath) !== resolvedBootstrapPath);
 }
 
-export async function runPendingNukeCleanup(input) {
+export async function runPendingNukeCleanup(input, options = {}) {
   const plan = resolveNukePlan(input);
   const pendingFile = await readJsonIfPresent(plan.pendingPath);
+  if (!pendingFile.exists) return pendingCleanupResult({ ran: false });
+  if (!pendingFile.ok) {
+    await rm(plan.pendingPath, { force: true });
+    return pendingCleanupResult({ ran: false, invalid: true });
+  }
   const pending = pendingFile.ok ? pendingFile.value : null;
   const paths = Array.isArray(pending?.paths)
     ? pending.paths.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
     : [];
-  if (paths.length === 0) return { ran: false };
-  await deleteManifestPaths({ ...plan.manifest, deletePaths: paths }, plan.platform, plan.preservePaths);
-  await rm(plan.pendingPath, { force: true }).catch(() => undefined);
-  return { ran: true };
+  if (paths.length === 0) {
+    await rm(plan.pendingPath, { force: true });
+    return pendingCleanupResult({ ran: false });
+  }
+
+  const manifest = { ...plan.manifest, deletePaths: paths };
+  const deletionErrors = await deleteManifestPaths(manifest, plan.platform, plan.preservePaths, options);
+  const verified = await verifyManifestDeletion(manifest, deletionErrors, [...plan.preservePaths, plan.pendingPath]);
+  if (verified.pendingRetry.length > 0) {
+    await writePendingNukeFile(plan.pendingPath, verified.pendingRetry, pending, options);
+    return pendingCleanupResult({ ran: true, ...verified });
+  }
+
+  await rm(plan.pendingPath, { force: true });
+  return pendingCleanupResult({ ran: true, ...verified });
 }
 
 export async function executeNukeFreshStart({ app, session, runtimeManager, uiControlServer, removeWindowsBrandShortcut }) {

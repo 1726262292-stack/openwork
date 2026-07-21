@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import {
   buildNukeManifest,
+  runPendingNukeCleanup,
   sanitizeDesktopBootstrapConfig,
   sanitizeDesktopBootstrapFiles,
 } from "./nuke.mjs";
@@ -26,6 +27,30 @@ async function withTempDir(fn) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function pendingNukeInput(root) {
+  return {
+    env: { XDG_CONFIG_HOME: path.join(root, "xdg") },
+    homedir: path.join(root, "home"),
+    platform: "darwin",
+    userDataPath: path.join(root, "userData"),
+  };
+}
+
+function pendingNukePath(root) {
+  return path.join(root, "xdg", "openwork", ".nuke-pending.json");
+}
+
+async function writePendingNuke(root, pending) {
+  const pendingPath = pendingNukePath(root);
+  await mkdir(path.dirname(pendingPath), { recursive: true });
+  await writeFile(pendingPath, `${JSON.stringify(pending, null, 2)}\n`, "utf8");
+  return pendingPath;
+}
+
+async function readJson(targetPath) {
+  return JSON.parse(await readFile(targetPath, "utf8"));
 }
 
 test("buildNukeManifest includes default macOS state roots and preserves bootstrap", () => {
@@ -219,5 +244,88 @@ test("sanitizeDesktopBootstrapFiles falls back from invalid canonical to valid l
     assert.equal(parsed.claimLinks, undefined);
     assert.equal(raw.includes("legacy-secret"), false);
     assert.equal(await exists(legacyPath), false);
+  });
+});
+
+test("runPendingNukeCleanup removes the sentinel after all pending paths are gone", async () => {
+  await withTempDir(async (root) => {
+    const targetPath = path.join(root, "locked-runtime.sqlite");
+    await writeFile(targetPath, "delete me", "utf8");
+    const pendingPath = await writePendingNuke(root, {
+      paths: [targetPath],
+      createdAt: "2026-07-20T00:00:00.000Z",
+    });
+
+    const result = await runPendingNukeCleanup(pendingNukeInput(root));
+
+    assert.equal(result.ran, true);
+    assert.deepEqual(result.pendingRetry, []);
+    assert.deepEqual(result.errors, []);
+    assert.ok(result.deleted.includes(targetPath));
+    assert.equal(await exists(targetPath), false);
+    assert.equal(await exists(pendingPath), false);
+  });
+});
+
+test("runPendingNukeCleanup rewrites only failed paths and removes them on the next boot", async () => {
+  await withTempDir(async (root) => {
+    const okPath = path.join(root, "ok-runtime.sqlite");
+    const failedPath = path.join(root, "locked-runtime.sqlite");
+    await writeFile(okPath, "delete me", "utf8");
+    await writeFile(failedPath, "locked", "utf8");
+    const createdAt = "2026-07-20T00:00:00.000Z";
+    const attemptedAt = "2026-07-21T00:00:00.000Z";
+    const pendingPath = await writePendingNuke(root, { paths: [okPath, failedPath], createdAt });
+
+    const firstResult = await runPendingNukeCleanup(pendingNukeInput(root), {
+      nowIso: attemptedAt,
+      removePathWithRetry: async (targetPath) => {
+        if (targetPath === failedPath) return new Error("simulated lock");
+        await rm(targetPath, { recursive: true, force: true });
+        return null;
+      },
+    });
+    const rewritten = await readJson(pendingPath);
+
+    assert.equal(firstResult.ran, true);
+    assert.deepEqual(firstResult.pendingRetry, [failedPath]);
+    assert.ok(firstResult.deleted.includes(okPath));
+    assert.equal(firstResult.errors.length, 1);
+    assert.equal(firstResult.errors[0].path, failedPath);
+    assert.equal(await exists(okPath), false);
+    assert.equal(await exists(failedPath), true);
+    assert.deepEqual(rewritten.paths, [failedPath]);
+    assert.equal(rewritten.createdAt, createdAt);
+    assert.equal(rewritten.attemptedAt, attemptedAt);
+
+    const secondResult = await runPendingNukeCleanup(pendingNukeInput(root));
+
+    assert.equal(secondResult.ran, true);
+    assert.deepEqual(secondResult.pendingRetry, []);
+    assert.deepEqual(secondResult.errors, []);
+    assert.ok(secondResult.deleted.includes(failedPath));
+    assert.equal(await exists(failedPath), false);
+    assert.equal(await exists(pendingPath), false);
+  });
+});
+
+test("runPendingNukeCleanup removes invalid or empty sentinels without looping", async () => {
+  await withTempDir(async (root) => {
+    const invalidPendingPath = pendingNukePath(root);
+    await mkdir(path.dirname(invalidPendingPath), { recursive: true });
+    await writeFile(invalidPendingPath, "{not-json", "utf8");
+
+    const invalidResult = await runPendingNukeCleanup(pendingNukeInput(root));
+
+    assert.equal(invalidResult.ran, false);
+    assert.equal(invalidResult.invalid, true);
+    assert.equal(await exists(invalidPendingPath), false);
+
+    const emptyPendingPath = await writePendingNuke(root, { paths: [] });
+    const emptyResult = await runPendingNukeCleanup(pendingNukeInput(root));
+
+    assert.equal(emptyResult.ran, false);
+    assert.equal(emptyResult.invalid, false);
+    assert.equal(await exists(emptyPendingPath), false);
   });
 });
