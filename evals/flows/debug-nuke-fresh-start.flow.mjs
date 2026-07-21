@@ -29,6 +29,9 @@ const SEED_MARKER = `debug-nuke-seed-${RUN_TAG}`;
 const FAKE_AUTH_TOKEN = `eval-fake-token-${RUN_TAG}`;
 const LOCKER_SCRIPT_NAME = `openwork-nuke-locker-${RUN_TAG}.ps1`;
 const paths = buildWindowsPaths(WIN_PROFILE);
+const WIN_PROFILE_USER = winBasename(WIN_PROFILE);
+const OUT_OF_BAND_BOOT_TASK_NAME = `OpenWorkNukeRetry-${RUN_TAG}`;
+const OUT_OF_BAND_BOOT_CMD_PATH = winJoin(paths.windowsTemp, `openwork-nuke-retry-${RUN_TAG}.cmd`);
 let currentCdpUrl = CDP_URL;
 let currentInternalPort = INITIAL_INTERNAL_CDP_PORT;
 let currentRelayPort = null;
@@ -42,6 +45,9 @@ const state = {
   unlockProbe: null,
   killResult: null,
   afterBootGuard: null,
+  executableProbe: null,
+  outOfBandBoot: null,
+  outOfBandCleanup: null,
   rendererSeedSnapshot: null,
 };
 
@@ -63,6 +69,11 @@ function safeTcpPort(value) {
 function winJoin(base, ...segments) {
   const head = cleanWinPath(base);
   return [head, ...segments.map((segment) => String(segment).replace(/^[\\/]+|[\\/]+$/g, ""))].filter(Boolean).join("\\");
+}
+
+function winBasename(path) {
+  const parts = cleanWinPath(path).split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] ?? "";
 }
 
 function buildWindowsPaths(profile) {
@@ -390,6 +401,24 @@ async function waitForRelaunch(ctx, label) {
   discoverAndRelayCdp(ctx, label, previousPort);
   await attachApp(ctx, 120_000);
   await waitForAppShell(ctx, `${label} relaunched app`);
+}
+
+async function bootOutOfBandForLockedRetry(ctx, executablePath) {
+  const previousPort = currentInternalPort;
+  state.outOfBandBoot = daytonaPowerShellJson(ctx, "out-of-band-windows-boot-for-locked-retry", outOfBandWindowsBootScript(executablePath), {
+    timeoutMs: 60_000,
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  ctx.output("out-of-band-windows-boot-json", JSON.stringify(state.outOfBandBoot, null, 2));
+  discoverAndRelayCdp(ctx, "out-of-band locked-path retry boot", previousPort);
+  await attachApp(ctx, 120_000);
+  await waitForAppShell(ctx, "out-of-band locked-path retry boot relaunched app");
+  state.outOfBandCleanup = daytonaPowerShellJson(ctx, "cleanup-out-of-band-windows-boot-task", cleanupOutOfBandBootTaskScript(), {
+    allowFailure: true,
+    timeoutMs: 30_000,
+    maxBuffer: 1024 * 1024,
+  });
+  ctx.output("cleanup-out-of-band-windows-boot-json", JSON.stringify(state.outOfBandCleanup, null, 2));
 }
 
 async function enableRendererState(ctx, options = {}) {
@@ -803,6 +832,76 @@ if(-not $stopped -or $existsAfter){ exit 46 }
 `;
 }
 
+function discoverMainOpenWorkExecutableScript() {
+  return `
+$processes=@(Get-CimInstance Win32_Process -Filter "Name = 'OpenWork.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and ($null -eq $_.CommandLine -or $_.CommandLine -notmatch '--type=') } | Sort-Object ProcessId)
+$selected=$processes | Select-Object -First 1
+$candidates=@($processes | ForEach-Object { [ordered]@{ processId=[int]$_.ProcessId; executablePath=[string]$_.ExecutablePath; commandLine=[string]$_.CommandLine } })
+$exePath=$null
+$processId=$null
+if($selected){ $exePath=[string]$selected.ExecutablePath; $processId=[int]$selected.ProcessId }
+$result=[ordered]@{ found=($null -ne $selected); executablePath=$exePath; processId=$processId; candidates=$candidates }
+Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
+if($null -eq $selected){ exit 52 }
+`;
+}
+
+function outOfBandWindowsBootScript(executablePath) {
+  return `
+$exe=${psQuote(executablePath)}
+$taskName=${psQuote(OUT_OF_BAND_BOOT_TASK_NAME)}
+$cmdPath=${psQuote(OUT_OF_BAND_BOOT_CMD_PATH)}
+$runUser=${psQuote(WIN_PROFILE_USER)}
+$stopped=@();$remaining=@();$createOut=@();$runOut=@();$createExit=$null;$runExit=$null;$cmdText='';$errorText=''
+if(-not $exe -or -not (Test-Path -LiteralPath $exe)){
+  $result=[ordered]@{ executablePath=$exe; executableExists=$false; error='OpenWork executable path missing before out-of-band boot' }
+  Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
+  exit 53
+}
+try {
+  foreach($proc in @(Get-Process -Name OpenWork -ErrorAction SilentlyContinue)){
+    $entry=[ordered]@{ pid=$proc.Id; stopped=$false; error='' }
+    try { Stop-Process -Id $proc.Id -Force -ErrorAction Stop; $entry.stopped=$true } catch { $entry.error=$_.Exception.Message }
+    $stopped += [pscustomobject]$entry
+  }
+  Start-Sleep -Milliseconds 1000
+  foreach($proc in @(Get-Process -Name OpenWork -ErrorAction SilentlyContinue)){
+    $remaining += [pscustomobject][ordered]@{ pid=$proc.Id }
+  }
+  $cmdText=('@echo off','set OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=','start "" "' + $exe + '"') -join [Environment]::NewLine
+  [IO.File]::WriteAllText($cmdPath, $cmdText + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+  $createArgs=@('/create','/f','/sc','once','/st','23:59','/ru',$runUser,'/it','/rl','highest','/tn',$taskName,'/tr',$cmdPath)
+  $createOut=@(& schtasks @createArgs 2>&1 | ForEach-Object { [string]$_ })
+  $createExit=$LASTEXITCODE
+  if($createExit -eq 0){
+    $runOut=@(& schtasks /run /tn $taskName 2>&1 | ForEach-Object { [string]$_ })
+    $runExit=$LASTEXITCODE
+  }
+} catch {
+  $errorText=$_.Exception.Message
+}
+$result=[ordered]@{ executablePath=$exe; executableExists=(Test-Path -LiteralPath $exe); runUser=$runUser; taskName=$taskName; cmdPath=$cmdPath; cmdText=$cmdText; stopped=$stopped; remainingBeforeRun=$remaining; createExit=$createExit; createOutput=$createOut; runExit=$runExit; runOutput=$runOut; error=$errorText }
+Write-Output ($result | ConvertTo-Json -Depth 7 -Compress)
+if($errorText){ exit 54 }
+if($createExit -ne 0){ exit 55 }
+if($runExit -ne 0){ exit 56 }
+`;
+}
+
+function cleanupOutOfBandBootTaskScript() {
+  return `
+$taskName=${psQuote(OUT_OF_BAND_BOOT_TASK_NAME)}
+$cmdPath=${psQuote(OUT_OF_BAND_BOOT_CMD_PATH)}
+$deleteOut=@(& schtasks.exe /delete /f /tn $taskName 2>&1 | ForEach-Object { [string]$_ })
+$deleteExit=$LASTEXITCODE
+$cmdRemoved=$false
+$cmdRemoveError=''
+try { Remove-Item -LiteralPath $cmdPath -Force -ErrorAction Stop; $cmdRemoved=$true } catch { $cmdRemoveError=$_.Exception.Message }
+$result=[ordered]@{ taskName=$taskName; cmdPath=$cmdPath; deleteExit=$deleteExit; deleteOutput=$deleteOut; cmdRemoved=$cmdRemoved; cmdRemoveError=$cmdRemoveError }
+Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
+`;
+}
+
 function containsPath(pathsToSearch, expectedPath) {
   const expected = cleanWinPath(expectedPath).toLowerCase();
   return arrayValue(pathsToSearch).some((entry) => {
@@ -860,13 +959,6 @@ function assertSeededDirectoryListing(ctx, listing) {
   witness(ctx, hasChild(listing.orchestrator, "openwork-orchestrator-auth.json"), "Seeded orchestrator directory lists openwork-orchestrator-auth.json", listing.orchestrator);
   witness(ctx, listing.userData?.exists === true, "Seeded %APPDATA%\\com.differentai.openwork userData root exists", listing.userData);
   witness(ctx, hasChild(listing.userData, "eval-userdata-marker.txt"), "Seeded userData directory lists eval-userdata-marker.txt", listing.userData);
-}
-
-async function triggerShellRelaunch(ctx) {
-  const hasRelaunch = await ctx.eval("Boolean(window.__OPENWORK_ELECTRON__?.shell?.relaunch)");
-  witness(ctx, hasRelaunch === true, "The packaged Electron bridge exposes shell.relaunch for the boot-guard retry", hasRelaunch);
-  await ctx.eval("window.__OPENWORK_ELECTRON__.shell.relaunch()", { awaitPromise: true }).catch(() => undefined);
-  await waitForRelaunch(ctx, "shell relaunch after locked-path retry");
 }
 
 function assertPostFirstNuke(ctx, data) {
@@ -1097,7 +1189,9 @@ export default {
             ctx.output("stop-runtime-sqlite-locker-json", JSON.stringify(state.killResult, null, 2));
             state.unlockProbe = daytonaPowerShellJson(ctx, "verify-runtime-sqlite-lock-released", unlockProbeScript(), { attempts: 2, timeoutMs: 30_000 });
             ctx.output("runtime-sqlite-unlock-probe", JSON.stringify(state.unlockProbe, null, 2));
-            await triggerShellRelaunch(ctx);
+            state.executableProbe = daytonaPowerShellJson(ctx, "discover-main-openwork-executable-before-out-of-band-boot", discoverMainOpenWorkExecutableScript(), { timeoutMs: 30_000 });
+            ctx.output("main-openwork-executable-before-out-of-band-boot-json", JSON.stringify(state.executableProbe, null, 2));
+            await bootOutOfBandForLockedRetry(ctx, String(state.executableProbe?.executablePath ?? ""));
             state.afterBootGuard = daytonaPowerShellJson(ctx, "after-boot-guard-locked-path-probe", lockedStateScript(), { attempts: 2 });
             ctx.output("after-boot-guard-witness-json", JSON.stringify(state.afterBootGuard, null, 2));
           },
@@ -1116,6 +1210,8 @@ export default {
             witness(ctx, hasPendingEvidence, "The pending retry file or newest receipt names the locked runtime.sqlite/config root", { pendingPaths, receiptPaths, pendingExists: afterLocked?.pendingExists });
             witness(ctx, state.killResult?.foundBefore === true && state.killResult?.stopped === true && state.killResult?.existsAfter === false, "Stop-Process terminated the detached PowerShell locker", state.killResult);
             witness(ctx, state.unlockProbe?.unlocked === true, "The runtime.sqlite exclusive handle was released before the retry boot", state.unlockProbe);
+            witness(ctx, state.executableProbe?.found === true && String(state.executableProbe?.executablePath ?? "").length > 0, "Harness discovered the main OpenWork.exe path before stopping the app", state.executableProbe);
+            witness(ctx, state.outOfBandBoot?.createExit === 0 && state.outOfBandBoot?.runExit === 0, "Interactive scheduled task launched a fresh OpenWork process without inherited remote debug port env", state.outOfBandBoot);
             witness(ctx, afterBoot?.pendingExists === false, "After the retry boot, .nuke-pending.json is gone", afterBoot);
             witness(ctx, afterBoot?.lockedExists === false, "After the retry boot, the formerly locked runtime.sqlite is gone", afterBoot);
           },
