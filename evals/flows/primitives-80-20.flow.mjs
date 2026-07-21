@@ -401,18 +401,9 @@ async function inspectExtensionsSurface(ctx) {
   })()`);
 }
 
-async function relaunchApp(ctx) {
-  await waitForAction(ctx, "eval.app.relaunch", { enabled: false, timeoutMs: 15_000 });
-  try {
-    await ctx.control("eval.app.relaunch");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/websocket|closed|target|detached|timeout/i.test(message)) throw error;
-    ctx.log(`Relaunch interrupted the current CDP connection as expected: ${message}`);
-  }
-  await wait(2_500);
-  await ctx.reconnect({ timeoutMs: 120_000 });
-  await waitForControl(ctx, "control API after app relaunch");
+async function reloadRendererClient(ctx) {
+  await ctx.eval("(() => { window.location.reload(); return true; })()");
+  await waitForControl(ctx, "control API after renderer reload");
 }
 
 export default {
@@ -562,19 +553,20 @@ export default {
     {
       name: "Restart restores durable workspace state",
       run: async (ctx) => {
-        await ctx.prove("Relaunching OpenWork restores the workspace, session history, settings route, and server connection", {
+        await ctx.prove("Reopening OpenWork restores the workspace, session history, settings route, and server connection", {
           voiceover: vo[4],
           action: async () => {
             ctx.assert(Boolean(createdSessionId), "No created session id is available for restart proof.");
             const beforeWorkspaceId = bootState?.selectedWorkspaceId ?? null;
-            await relaunchApp(ctx);
+            await reloadRendererClient(ctx);
             await routeSession(ctx);
             const afterBoot = await collectBootState(ctx);
+            const listedSessions = await waitForSessionListed(ctx, createdSessionId);
             await openSession(ctx, createdSessionId);
             const transcript = await waitForAssistantResponseInTranscript(ctx, NEW_SESSION_RESPONSE, { timeoutMs: 60_000, count: 6 });
             await openSettingsPanel(ctx, "connect", "Connect for teams");
             const connect = await inspectConnectSurface(ctx);
-            restartState = { beforeWorkspaceId, afterBoot, transcript, connect };
+            restartState = { beforeWorkspaceId, afterBoot, listedSessions, transcript, connect };
           },
           assert: async () => {
             ctx.assert(restartState !== null, "Restart state was not captured.");
@@ -584,6 +576,7 @@ export default {
               !restartState.beforeWorkspaceId || restartState.afterBoot.selectedWorkspaceId === restartState.beforeWorkspaceId,
               `Workspace changed across restart: ${JSON.stringify(restartState)}`,
             );
+            ctx.assert(restartState.listedSessions.some((session) => session.sessionId === createdSessionId), `Session ${createdSessionId} was not listed after renderer reload.`);
             ctx.assert(transcriptHasRoleText(restartState.transcript, "user", NEW_SESSION_PROMPT), "Restarted transcript is missing the user prompt.");
             ctx.assert(transcriptHasRoleText(restartState.transcript, "assistant", NEW_SESSION_RESPONSE), "Restarted transcript is missing the assistant response.");
             ctx.assert(restartState.connect.route.includes("/settings/connect"), `Settings route did not return after restart: ${JSON.stringify(restartState.connect)}`);
