@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -1078,6 +1079,7 @@ function runHeadlessInstallerWithSidecar() {
   const tempDir = makeTempDir("openwork-first-connection-sidecar-");
   const installerPath = copyInstallerTo(tempDir);
   writeFileSync(path.join(tempDir, INSTALL_SIDECAR_FILENAME), sidecarJson, "utf8");
+  rmSync(BOOTSTRAP_PATH, { force: true });
   return runInstaller(installerPath, ["--headless", "--dry-run"], sanitizedInstallerEnv({ OPENWORK_DESKTOP_BOOTSTRAP_PATH: BOOTSTRAP_PATH }), tempDir);
 }
 
