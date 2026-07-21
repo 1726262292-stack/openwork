@@ -315,14 +315,16 @@ export default {
             const bootstrap = await invokeDesktop(ctx, "getDesktopBootstrapConfig");
             witness(ctx, bootstrap?.requireSignin === true, "Pasting the install link writes a required sign-in bootstrap", bootstrap);
             witness(ctx, cleanBaseUrl(bootstrap?.baseUrl) === cleanBaseUrl(state.installConfig.webUrl), "The desktop bootstrap points at Acme's web server", bootstrap);
-            const serverInput = await ctx.eval("document.querySelector('input')?.value ?? ''");
-            witness(ctx, String(serverInput).includes(new URL(state.installConfig.webUrl).host), "The forced sign-in surface shows Acme's organization server", serverInput);
+            const serverHost = new URL(state.installConfig.webUrl).host;
+            const serverText = await ctx.eval("document.body.innerText");
+            witness(ctx, String(serverText).includes(serverHost), "The forced sign-in surface shows Acme's organization server", serverText);
             ctx.output("desktop-bootstrap-after-welcome-paste", JSON.stringify(bootstrap, null, 2));
-          },
-          screenshot: {
-            name: "plain-desktop-join-org-paste-forced-signin",
-            requireText: ["Welcome to OpenWork", "Sign in to OpenWork", "Cloud control plane URL"],
-            rejectText: ["Pick a folder"],
+            await ctx.screenshot("plain-desktop-join-org-paste-forced-signin", {
+              claim: "A plain first-run desktop asks whether to use OpenWork Cloud or join an organization, and pasting Acme's link binds it to Acme's server.",
+              voiceover: vo[4],
+              requireText: ["Welcome to OpenWork", "Sign in to OpenWork", `Connected to ${serverHost}`],
+              rejectText: ["Pick a folder"],
+            });
           },
         });
       },
