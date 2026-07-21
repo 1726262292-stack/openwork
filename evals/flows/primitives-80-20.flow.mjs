@@ -392,7 +392,8 @@ async function inspectExtensionsSurface(ctx) {
     return {
       route,
       hasExtensionsHeader: text.includes("Extensions (Legacy)") || text.includes("Extensions"),
-      hasApps: text.includes("Apps"),
+      hasMyExtensions: text.includes("My Extensions"),
+      hasMarketplace: text.includes("Marketplace"),
       hasRefresh: text.includes("Refresh"),
       hasAddApp: text.includes("Add App") || text.includes("Available apps") || text.includes("No apps connected yet"),
       hasConnectPath: text.includes("OpenWork Connect") || text.includes("Open Connect") || text.includes("Marketplace content now lives in Connect") || text.includes("My Extensions"),
@@ -534,7 +535,7 @@ export default {
           action: async () => {
             await openSettingsPanel(ctx, "connect", "Connect for teams");
             const connect = await inspectConnectSurface(ctx);
-            await openSettingsPanel(ctx, "extensions", "Apps");
+            await openSettingsPanel(ctx, "extensions", "My Extensions");
             await ctx.waitForText("Refresh", { timeoutMs: 30_000 });
             const extensions = await inspectExtensionsSurface(ctx);
             settingsState = { connect, extensions };
@@ -545,13 +546,13 @@ export default {
             ctx.assert(settingsState.connect.hasHeader && settingsState.connect.hasDescription, `Connect header did not render: ${JSON.stringify(settingsState.connect)}`);
             ctx.assert(settingsState.extensions.route.includes("/settings/extensions"), `Extensions route did not load: ${JSON.stringify(settingsState.extensions)}`);
             ctx.assert(settingsState.extensions.hasExtensionsHeader, `Extensions header did not render: ${JSON.stringify(settingsState.extensions)}`);
-            ctx.assert(settingsState.extensions.hasApps && settingsState.extensions.hasRefresh, `Extensions MCP surface did not render: ${JSON.stringify(settingsState.extensions)}`);
+            ctx.assert(settingsState.extensions.hasMyExtensions && settingsState.extensions.hasMarketplace && settingsState.extensions.hasRefresh, `Extensions MCP surface did not render: ${JSON.stringify(settingsState.extensions)}`);
             ctx.assert(settingsState.extensions.hasConnectPath, `Extensions did not expose the current Connect/marketplace path: ${JSON.stringify(settingsState.extensions)}`);
             await assertNoVisibleErrors(ctx);
           },
           screenshot: {
             name: "settings-extensions-server-backed-surface",
-            requireText: ["Extensions (Legacy)", "Apps", "Refresh"],
+            requireText: ["Extensions (Legacy)", "My Extensions", "Refresh"],
             rejectText: ERROR_TEXT,
             hashIncludes: "/settings/extensions",
           },
