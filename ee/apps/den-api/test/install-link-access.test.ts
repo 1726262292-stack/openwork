@@ -29,8 +29,8 @@ const connectKeyId = "owc-route-test"
 function defaultOrganizationMetadata(): Record<string, unknown> {
   return {
     brandAppName: "Acme Work",
-    brandLogoUrl: "https://assets.blueyonder.test/wordmark.svg",
-    brandIconUrl: "https://assets.blueyonder.test/icon.png",
+    brandLogoUrl: "https://assets.northwind.test/wordmark.svg",
+    brandIconUrl: "https://assets.northwind.test/icon.png",
   }
 }
 
@@ -478,8 +478,8 @@ test("zero-config install config mints a short-lived exchange without storing th
       org: { name: "Acme Robotics" },
       brand: {
         appName: "Acme Work",
-        logoUrl: "https://assets.blueyonder.test/wordmark.svg",
-        iconUrl: "https://assets.blueyonder.test/icon.png",
+        logoUrl: "https://assets.northwind.test/wordmark.svg",
+        iconUrl: "https://assets.northwind.test/icon.png",
       },
       requireSignin: true,
     },
@@ -563,8 +563,8 @@ test("install config includes a fresh signed organization handoff while preservi
   expect(verified.claims.org.name).toBe("Acme Robotics")
   expect(verified.claims.brand).toEqual({
     appName: "Acme Work",
-    logoUrl: "https://assets.blueyonder.test/wordmark.svg",
-    iconUrl: "https://assets.blueyonder.test/icon.png",
+    logoUrl: "https://assets.northwind.test/wordmark.svg",
+    iconUrl: "https://assets.northwind.test/icon.png",
   })
   expect(verified.claims.den.baseUrl).toBe(process.env.BETTER_AUTH_URL)
   expect(verified.claims.den.apiBaseUrl).toBe("http://127.0.0.1:8790")
