@@ -88,7 +88,6 @@ export default {
             voiceover: vo[0],
             // "On the OpenWork dashboard home, the admin clicks Download for this workspace"
             action: async () => {
-              await closeBrowserPages(INVITEE_CDP_URL);
               await ensureAdminToken(ctx);
               await ensureOrgId(ctx);
               await signInToDenWeb(ctx, ADMIN_EMAIL, ADMIN_PASSWORD);
@@ -584,15 +583,6 @@ async function closeTarget(cdpBaseUrl, targetId) {
   if (!targetId) return;
   const base = cdpBaseUrl.replace(/\/+$/, "");
   await fetch(`${base}/json/close/${encodeURIComponent(targetId)}`).catch(() => undefined);
-}
-
-async function closeBrowserPages(cdpBaseUrl) {
-  const targets = await listTargets(cdpBaseUrl).catch(() => []);
-  await Promise.allSettled(
-    targets
-      .filter((target) => target.type === "page" && target.id)
-      .map((target) => closeTarget(cdpBaseUrl, target.id)),
-  );
 }
 
 async function denApiFetch(pathname, options = {}) {
