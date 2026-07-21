@@ -296,7 +296,14 @@ export default {
             await ensureDesktopReady(ctx);
             await captureOriginalDesktopBootstrap(ctx);
             await resetDesktopToDefaultBootstrap(ctx);
-            await ctx.eval("(() => { location.hash = '#/welcome'; return true; })()");
+            await ctx.eval(`(() => {
+              const raw = localStorage.getItem('openwork.preferences');
+              const prefs = raw ? JSON.parse(raw) : {};
+              prefs.hasCompletedOnboarding = false;
+              localStorage.setItem('openwork.preferences', JSON.stringify(prefs));
+              location.hash = '#/welcome';
+              return true;
+            })()`);
             await ctx.waitForText("Use OpenWork Cloud", { timeoutMs: 45_000 });
             await ctx.waitFor("Boolean(document.querySelector('[data-testid=\"welcome-join-org\"]'))", {
               timeoutMs: 30_000,
