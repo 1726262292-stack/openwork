@@ -113,25 +113,42 @@ function witness(ctx, condition, assertion, actual) {
   ctx.assert(condition, assertion + (actual === undefined ? "" : ` (actual: ${evidenceText(actual).slice(0, 500)})`));
 }
 
+function isDaytonaTimeout(result) {
+  const message = result.error?.message ?? "";
+  return result.error?.code === "ETIMEDOUT" || (result.signal === "SIGTERM" && /timed out|ETIMEDOUT/i.test(message));
+}
+
 function daytonaCmd(ctx, label, command, options = {}) {
-  const result = spawnSync("daytona", ["exec", SANDBOX_ID, "--", "cmd", "/c", command], {
-    encoding: "utf8",
-    timeout: options.timeoutMs ?? 60_000,
-    maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024,
-  });
-  const output = [
-    `$ daytona exec ${SANDBOX_ID} -- cmd /c ${command}`,
-    `exit=${result.status ?? "null"}`,
-    result.error ? `error=${result.error.message}` : "",
-    result.stdout ? `stdout:\n${result.stdout}` : "stdout:",
-    result.stderr ? `stderr:\n${result.stderr}` : "stderr:",
-  ].filter(Boolean).join("\n");
-  ctx.output(label, output);
-  if (result.error && options.allowFailure !== true) throw result.error;
-  if (result.status !== 0 && options.allowFailure !== true) {
-    throw new Error(`Daytona command ${label} failed with exit ${result.status}: ${result.stderr || result.stdout}`);
+  const attempts = Math.max(1, Number.isInteger(options.attempts) ? options.attempts : 1);
+  let lastResult = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const result = spawnSync("daytona", ["exec", SANDBOX_ID, "--", "cmd", "/c", command], {
+      encoding: "utf8",
+      timeout: options.timeoutMs ?? 120_000,
+      maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024,
+    });
+    lastResult = result;
+    const timeout = isDaytonaTimeout(result);
+    const output = [
+      `$ daytona exec ${SANDBOX_ID} -- cmd /c ${command}`,
+      `attempt=${attempt}/${attempts}`,
+      `exit=${result.status ?? "null"}`,
+      result.signal ? `signal=${result.signal}` : "",
+      result.error ? `error=${result.error.message}` : "",
+      result.error?.code ? `errorCode=${result.error.code}` : "",
+      timeout && attempt < attempts ? "retry=timeout" : "",
+      result.stdout ? `stdout:\n${result.stdout}` : "stdout:",
+      result.stderr ? `stderr:\n${result.stderr}` : "stderr:",
+    ].filter(Boolean).join("\n");
+    ctx.output(attempts > 1 ? `${label} attempt ${attempt}/${attempts}` : label, output);
+    if (timeout && attempt < attempts) continue;
+    if (result.error && options.allowFailure !== true) throw result.error;
+    if (result.status !== 0 && options.allowFailure !== true) {
+      throw new Error(`Daytona command ${label} failed with exit ${result.status}: ${result.stderr || result.stdout}`);
+    }
+    return result;
   }
-  return result;
+  return lastResult;
 }
 
 function daytonaPowerShell(ctx, label, script, options = {}) {
@@ -656,7 +673,7 @@ export default {
             const bootstrapSeed = daytonaPowerShellJson(ctx, "seed-secret-desktop-bootstrap", seedDesktopBootstrapScript());
             const opencodeSeed = daytonaPowerShellJson(ctx, "seed-opencode-and-orchestrator-state", seedOpencodeAndOrchestratorScript());
             ctx.output("seeded path summary", JSON.stringify({ openworkSeed, bootstrapSeed, opencodeSeed }, null, 2));
-            const seededListing = daytonaPowerShellJson(ctx, "seeded-directories-listing", seededDirectoriesListingScript());
+            const seededListing = daytonaPowerShellJson(ctx, "seeded-directories-listing", seededDirectoriesListingScript(), { attempts: 2 });
             ctx.output("seeded-directories-listing-json", JSON.stringify(seededListing, null, 2));
             assertSeededDirectoryListing(ctx, seededListing);
             state.rendererSeedSnapshot = await enableRendererState(ctx);
@@ -664,7 +681,7 @@ export default {
             await ctx.waitForText("Overview of all settings", { timeoutMs: 60_000 });
           },
           assert: async () => {
-            const probe = daytonaPowerShellJson(ctx, "seeded-files-probe", fixtureProbeScript());
+            const probe = daytonaPowerShellJson(ctx, "seeded-files-probe", fixtureProbeScript(), { attempts: 2 });
             witness(ctx, probe.opencode?.auth === true, "%APPDATA%\\opencode\\auth.json exists", probe.opencode);
             witness(ctx, probe.opencode?.mcpAuth === true, "%APPDATA%\\opencode\\mcp-auth.json exists", probe.opencode);
             witness(ctx, probe.opencode?.db === true, "%APPDATA%\\opencode\\opencode.db exists", probe.opencode);
@@ -779,9 +796,9 @@ export default {
         await ctx.prove("Filesystem witnesses show only sanitized desktop-bootstrap.json survived and the nuke receipt recorded deleted paths", {
           voiceover: vo[3],
           assert: async () => {
-            const roots = daytonaPowerShellJson(ctx, "post-first-nuke-state-roots-probe", postNukeStateRootsProbeScript());
-            const bootstrap = daytonaPowerShellJson(ctx, "post-first-nuke-bootstrap-probe", postNukeBootstrapProbeScript());
-            const receipt = daytonaPowerShellJson(ctx, "post-first-nuke-receipt-probe", latestReceiptProbeScript());
+            const roots = daytonaPowerShellJson(ctx, "post-first-nuke-state-roots-probe", postNukeStateRootsProbeScript(), { attempts: 2 });
+            const bootstrap = daytonaPowerShellJson(ctx, "post-first-nuke-bootstrap-probe", postNukeBootstrapProbeScript(), { attempts: 2 });
+            const receipt = daytonaPowerShellJson(ctx, "post-first-nuke-receipt-probe", latestReceiptProbeScript(), { attempts: 2 });
             const data = { ...roots, bootstrap, receipt };
             ctx.output("post-first-nuke-directory-listing-json", JSON.stringify({ localOpenwork: roots.localOpenwork, opencode: roots.opencode }, null, 2));
             ctx.output("post-first-nuke-witness-json", JSON.stringify(data, null, 2));
@@ -804,14 +821,14 @@ export default {
             state.rendererSeedSnapshot = await enableRendererState(ctx, { includePreferences: false });
             await openNukeDialog(ctx);
             await executeNukeFromDialog(ctx, "second nuke with locked runtime.sqlite");
-            state.afterLockedNuke = daytonaPowerShellJson(ctx, "after-locked-nuke-pending-or-receipt", lockedStateScript());
+            state.afterLockedNuke = daytonaPowerShellJson(ctx, "after-locked-nuke-pending-or-receipt", lockedStateScript(), { attempts: 2 });
             ctx.output("after-locked-nuke-witness-json", JSON.stringify(state.afterLockedNuke, null, 2));
             state.killResult = daytonaPowerShellJson(ctx, "stop-runtime-sqlite-locker", stopLockerScript(state.lockPid), { allowFailure: true, timeoutMs: 30_000 });
             ctx.output("stop-runtime-sqlite-locker-json", JSON.stringify(state.killResult, null, 2));
-            state.unlockProbe = daytonaPowerShellJson(ctx, "verify-runtime-sqlite-lock-released", unlockProbeScript(), { timeoutMs: 30_000 });
+            state.unlockProbe = daytonaPowerShellJson(ctx, "verify-runtime-sqlite-lock-released", unlockProbeScript(), { attempts: 2, timeoutMs: 30_000 });
             ctx.output("runtime-sqlite-unlock-probe", JSON.stringify(state.unlockProbe, null, 2));
             await triggerShellRelaunch(ctx);
-            state.afterBootGuard = daytonaPowerShellJson(ctx, "after-boot-guard-locked-path-probe", lockedStateScript());
+            state.afterBootGuard = daytonaPowerShellJson(ctx, "after-boot-guard-locked-path-probe", lockedStateScript(), { attempts: 2 });
             ctx.output("after-boot-guard-witness-json", JSON.stringify(state.afterBootGuard, null, 2));
           },
           assert: async () => {
