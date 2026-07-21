@@ -36,6 +36,7 @@ const state = {
   unlockProbe: null,
   killResult: null,
   afterBootGuard: null,
+  rendererSeedSnapshot: null,
 };
 
 function cleanUrl(value) {
@@ -231,6 +232,24 @@ async function enableRendererState(ctx, options = {}) {
     `window.__debugNukeReloadMarker !== ${JSON.stringify(marker)} && document.readyState === 'complete' && Boolean(window.__OPENWORK_ELECTRON__)`,
     { timeoutMs: 60_000, label: "renderer reload after eval storage seed" },
   );
+  const authSnapshot = await ctx.eval(`(() => {
+    localStorage.setItem('openwork.den.authToken', ${JSON.stringify(FAKE_AUTH_TOKEN)});
+    localStorage.setItem('openwork.den.activeOrgId', 'org_eval_debug_nuke');
+    localStorage.setItem('openwork.den.activeOrgSlug', 'debug-nuke');
+    localStorage.setItem('openwork.den.activeOrgName', 'Debug Nuke Eval');
+    const token = localStorage.getItem('openwork.den.authToken');
+    return {
+      authTokenPresent: Boolean(token),
+      authTokenMatches: token === ${JSON.stringify(FAKE_AUTH_TOKEN)},
+      authToken: token ? '<seeded>' : null,
+      activeOrgId: localStorage.getItem('openwork.den.activeOrgId'),
+      activeOrgSlug: localStorage.getItem('openwork.den.activeOrgSlug'),
+      activeOrgName: localStorage.getItem('openwork.den.activeOrgName'),
+    };
+  })()`);
+  witness(ctx, authSnapshot.authTokenMatches === true, "Renderer localStorage accepted the seeded fake openwork.den.authToken after reload", authSnapshot);
+  witness(ctx, authSnapshot.activeOrgId === "org_eval_debug_nuke", "Renderer localStorage accepted the seeded active organization after reload", authSnapshot);
+  return authSnapshot;
 }
 
 async function navigateToSettings(ctx, tab) {
@@ -639,7 +658,7 @@ export default {
             const seededListing = daytonaPowerShellJson(ctx, "seeded-directories-listing", seededDirectoriesListingScript());
             ctx.output("seeded-directories-listing-json", JSON.stringify(seededListing, null, 2));
             assertSeededDirectoryListing(ctx, seededListing);
-            await enableRendererState(ctx);
+            state.rendererSeedSnapshot = await enableRendererState(ctx);
             await navigateToSettings(ctx, "general");
             await ctx.waitForText("Overview of all settings", { timeoutMs: 60_000 });
           },
@@ -665,8 +684,9 @@ export default {
             })()`);
             witness(ctx, storage["openwork.developerMode"] === "1", "Renderer localStorage has openwork.developerMode = 1", storage);
             witness(ctx, String(storage["openwork.preferences"] ?? "").includes("hasCompletedOnboarding"), "Renderer localStorage has openwork.preferences with hasCompletedOnboarding", storage);
-            witness(ctx, storage["openwork.den.authToken"] === FAKE_AUTH_TOKEN, "Renderer localStorage has the seeded fake openwork.den.authToken", { ...storage, "openwork.den.authToken": "<seeded>" });
-            ctx.output("renderer-localStorage-before-nuke", JSON.stringify({ ...storage, "openwork.den.authToken": "<seeded>" }, null, 2));
+            witness(ctx, state.rendererSeedSnapshot?.authTokenMatches === true, "Renderer localStorage had the seeded fake openwork.den.authToken immediately after reload", state.rendererSeedSnapshot);
+            const redactedStorage = { ...storage, "openwork.den.authToken": storage["openwork.den.authToken"] ? "<seeded>" : null };
+            ctx.output("renderer-localStorage-before-nuke", JSON.stringify(redactedStorage, null, 2));
           },
           screenshot: { name: "stateful-machine-before-nuke", requireText: ["Overview of all settings"], rejectText: ["Something went wrong"] },
         });
@@ -773,7 +793,7 @@ export default {
             state.lockPid = Number(lock.pid) || 0;
             state.lockVerified = lock.locked === true;
             witness(ctx, state.lockVerified, "PowerShell holds an exclusive FileShare.None handle on %LOCALAPPDATA%\\openwork\\runtime.sqlite", lock);
-            await enableRendererState(ctx, { includePreferences: false });
+            state.rendererSeedSnapshot = await enableRendererState(ctx, { includePreferences: false });
             await openNukeDialog(ctx);
             await executeNukeFromDialog(ctx, "second nuke with locked runtime.sqlite");
             state.afterLockedNuke = daytonaPowerShellJson(ctx, "after-locked-nuke-pending-or-receipt", lockedStateScript());
