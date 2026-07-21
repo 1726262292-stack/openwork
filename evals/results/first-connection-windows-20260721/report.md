@@ -11,7 +11,7 @@ Verdict summary:
 
 - Branch: `feat/first-connection`
 - Fix commit pushed during validation: `13e70876f fix(den-api): stamp generic Windows installer downloads`
-- Server sandbox: `openwork-server-20260721-141157`
+- Server sandbox: `openwork-server-20260721-141157` (`8682df2a-977c-4bfd-944f-aa957d417346`)
 - Windows sandbox: `c42adfa5-1c6e-443b-9087-18dda9768384`
 - Den Web: `https://3005-06rjegvkz6agvqbc.daytonaproxy01.net`
 - Den API: `https://8788-vxaw8posr6bfnp0a.daytonaproxy01.net`
