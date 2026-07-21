@@ -169,7 +169,7 @@ function daytonaCmd(ctx, label, command, options = {}) {
 }
 
 function daytonaPowerShell(ctx, label, script, options = {}) {
-  const encoded = encodePowerShell(script);
+  const encoded = encodePowerShell(`$ProgressPreference='SilentlyContinue'\n${script}`);
   const command = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
   if (command.length > 7900) {
     throw new Error(`PowerShell payload for ${label} is too long for cmd /c (${command.length} chars). Split the command.`);
@@ -177,17 +177,57 @@ function daytonaPowerShell(ctx, label, script, options = {}) {
   return daytonaCmd(ctx, label, command, options);
 }
 
-function parseJsonOutput(stdout, label) {
-  const lines = String(stdout ?? "").trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index];
-    if (!line.startsWith("{") && !line.startsWith("[")) continue;
-    try {
-      return JSON.parse(line);
-    } catch {
-      // Keep scanning: Daytona shells may print status text before JSON.
+function balancedJsonAt(text, start) {
+  const opener = text[start];
+  if (opener !== "{" && opener !== "[") return null;
+  const stack = [opener === "{" ? "}" : "]"];
+  let inString = false;
+  let escaping = false;
+  for (let index = start + 1; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+    } else if (char === "{") {
+      stack.push("}");
+    } else if (char === "[") {
+      stack.push("]");
+    } else if (char === "}" || char === "]") {
+      if (stack.pop() !== char) return null;
+      if (stack.length === 0) return text.slice(start, index + 1);
     }
   }
+  return null;
+}
+
+export function extractJsonOutputValues(stdout) {
+  const text = String(stdout ?? "");
+  const values = [];
+  for (let index = 0; index < text.length; index += 1) {
+    const jsonText = balancedJsonAt(text, index);
+    if (!jsonText) continue;
+    try {
+      values.push(JSON.parse(jsonText));
+    } catch {
+      // Keep scanning: Daytona shells may print non-JSON bracketed logs before the script JSON.
+    }
+    index += jsonText.length - 1;
+  }
+  return values;
+}
+
+export function parseJsonOutput(stdout, label) {
+  const values = extractJsonOutputValues(stdout);
+  if (values.length > 0) return values[values.length - 1];
   throw new Error(`Could not parse JSON output for ${label}: ${stdout}`);
 }
 
