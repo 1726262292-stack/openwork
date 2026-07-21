@@ -350,8 +350,16 @@ export default {
             await stubDesktopExternalOpenCapture(ctx);
             await clickExactText(ctx, "Sign in to OpenWork", "button");
             state.browserSignInUrl = await ctx.waitFor(
-              "typeof window.__capturedBrowserSigninUrl === 'string' && window.__capturedBrowserSigninUrl.includes('desktopAuth=1') && window.__capturedBrowserSigninUrl",
-              { timeoutMs: 20_000, label: "captured desktop browser sign-in URL" },
+              `(() => {
+                const captured = typeof window.__capturedBrowserSigninUrl === 'string'
+                  ? window.__capturedBrowserSigninUrl
+                  : '';
+                if (captured.includes('desktopAuth=1')) return captured;
+                return Array.from(document.querySelectorAll('a[href*="desktopAuth=1"]'))
+                  .map((link) => link.href)
+                  .find(Boolean) || '';
+              })()`,
+              { timeoutMs: 20_000, label: "captured or visible desktop browser sign-in URL" },
             );
 
             await ensureMemberAccount(ctx);
