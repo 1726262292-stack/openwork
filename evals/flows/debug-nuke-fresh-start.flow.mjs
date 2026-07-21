@@ -23,6 +23,7 @@ const WIN_PROFILE = cleanWinPath(process.env.OPENWORK_EVAL_WIN_PROFILE ?? "");
 const RUN_TAG = `${Date.now().toString(36)}-${randomBytes(2).toString("hex")}`;
 const BRAND_APP_NAME = "Nuke Proof Work";
 const BOOTSTRAP_BASE_URL = "https://openwork-poc.example.test";
+const SEED_MARKER = `debug-nuke-seed-${RUN_TAG}`;
 const FAKE_AUTH_TOKEN = `eval-fake-token-${RUN_TAG}`;
 const LOCKER_SCRIPT_NAME = `openwork-nuke-locker-${RUN_TAG}.ps1`;
 const paths = buildWindowsPaths(WIN_PROFILE);
@@ -82,6 +83,10 @@ function buildWindowsPaths(profile) {
 
 function psQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function seededJson(value) {
+  return psQuote(JSON.stringify({ ...value, seedMarker: SEED_MARKER, runTag: RUN_TAG }));
 }
 
 function encodePowerShell(script) {
@@ -320,12 +325,16 @@ function bootstrapFixture() {
     requireSignin: true,
     brandAppName: BRAND_APP_NAME,
     brandIconUrl: "https://openwork-poc.example.test/icon.png",
+    seedMarker: SEED_MARKER,
+    runTag: RUN_TAG,
     handoff: {
       grant: "secret-grant",
       denBaseUrl: BOOTSTRAP_BASE_URL,
       orgId: "org_debug_nuke",
       orgName: "Debug Nuke Org",
       orgSlug: "debug-nuke-org",
+      seedMarker: SEED_MARKER,
+      runTag: RUN_TAG,
       createdAt: "2026-07-20T00:00:00.000Z",
     },
     prepared: {
@@ -336,6 +345,8 @@ function bootstrapFixture() {
       skillTitle: "Secret Prepared Skill",
       skillsDir: "C:\\secret\\skills",
       skillPath: "C:\\secret\\skills\\prepared",
+      seedMarker: SEED_MARKER,
+      runTag: RUN_TAG,
       preparedAt: "2026-07-20T00:01:00.000Z",
     },
     claimLinks: [
@@ -344,6 +355,8 @@ function bootstrapFixture() {
         role: "admin",
         token: "secret-token",
         url: `${BOOTSTRAP_BASE_URL}/claim/debug-nuke`,
+        seedMarker: SEED_MARKER,
+        runTag: RUN_TAG,
         expiresAt: "2026-07-20T00:05:00.000Z",
       },
     ],
@@ -359,13 +372,13 @@ $appOpenwork=${psQuote(paths.appDataOpenwork)}
 $configHome=${psQuote(paths.configHome)}
 $dirs=@($userData,$appOpenwork,$configHome)
 foreach($dir in $dirs){ New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-Set-Content -Path (Join-Path $userData 'eval-userdata-marker.txt') -Value 'delete-me-userdata' -Encoding UTF8
-Set-Content -Path (Join-Path $appOpenwork 'server.json') -Value '{"server":"dummy"}' -Encoding UTF8
-Set-Content -Path (Join-Path $appOpenwork 'env.json') -Value '{"APPDATA_ENV":"dummy"}' -Encoding UTF8
-Set-Content -Path (Join-Path $appOpenwork 'tokens.json') -Value '{"APPDATA_TOKEN":"dummy"}' -Encoding UTF8
-[IO.File]::WriteAllBytes((Join-Path $appOpenwork 'runtime.sqlite'), [Text.Encoding]::UTF8.GetBytes('dummy appdata runtime db ${RUN_TAG}'))
-Set-Content -Path (Join-Path $configHome 'env.json') -Value '{"LOCAL_ENV":"dummy"}' -Encoding UTF8
-Set-Content -Path (Join-Path $configHome 'tokens.json') -Value '{"LOCAL_TOKEN":"dummy"}' -Encoding UTF8
+Set-Content -Path (Join-Path $userData 'eval-userdata-marker.txt') -Value ${psQuote(`delete-me-userdata ${SEED_MARKER} ${RUN_TAG}`)} -Encoding UTF8
+Set-Content -Path (Join-Path $appOpenwork 'server.json') -Value ${seededJson({ server: "dummy" })} -Encoding UTF8
+Set-Content -Path (Join-Path $appOpenwork 'env.json') -Value ${seededJson({ APPDATA_ENV: "dummy" })} -Encoding UTF8
+Set-Content -Path (Join-Path $appOpenwork 'tokens.json') -Value ${seededJson({ APPDATA_TOKEN: "dummy" })} -Encoding UTF8
+[IO.File]::WriteAllBytes((Join-Path $appOpenwork 'runtime.sqlite'), [Text.Encoding]::UTF8.GetBytes('dummy appdata runtime db ${SEED_MARKER} ${RUN_TAG}'))
+Set-Content -Path (Join-Path $configHome 'env.json') -Value ${seededJson({ LOCAL_ENV: "dummy" })} -Encoding UTF8
+Set-Content -Path (Join-Path $configHome 'tokens.json') -Value ${seededJson({ LOCAL_TOKEN: "dummy" })} -Encoding UTF8
 $result=[ordered]@{ profile=$profilePath; userData=$userData; appOpenwork=$appOpenwork; configHome=$configHome }
 Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 `;
@@ -390,12 +403,12 @@ $localShareOpencode=${psQuote(paths.localShareOpencode)}
 $cacheOpencode=${psQuote(paths.cacheOpencode)}
 $dirs=@($opencode,$orchestrator,$localShareOpencode,$cacheOpencode)
 foreach($dir in $dirs){ New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-Set-Content -Path (Join-Path $opencode 'auth.json') -Value '{"token":"dummy-opencode-auth"}' -Encoding UTF8
-Set-Content -Path (Join-Path $opencode 'mcp-auth.json') -Value '{"mcp":"dummy-opencode-mcp-auth"}' -Encoding UTF8
-[IO.File]::WriteAllBytes((Join-Path $opencode 'opencode.db'), [Text.Encoding]::UTF8.GetBytes('dummy opencode db ${RUN_TAG}'))
-Set-Content -Path (Join-Path $orchestrator 'openwork-orchestrator-auth.json') -Value '{"orchestrator":"dummy"}' -Encoding UTF8
-Set-Content -Path (Join-Path $localShareOpencode 'data-marker.txt') -Value 'dummy local share opencode' -Encoding UTF8
-Set-Content -Path (Join-Path $cacheOpencode 'cache-marker.txt') -Value 'dummy cache opencode' -Encoding UTF8
+Set-Content -Path (Join-Path $opencode 'auth.json') -Value ${seededJson({ token: "dummy-opencode-auth" })} -Encoding UTF8
+Set-Content -Path (Join-Path $opencode 'mcp-auth.json') -Value ${seededJson({ mcp: "dummy-opencode-mcp-auth" })} -Encoding UTF8
+[IO.File]::WriteAllBytes((Join-Path $opencode 'opencode.db'), [Text.Encoding]::UTF8.GetBytes('dummy opencode db ${SEED_MARKER} ${RUN_TAG}'))
+Set-Content -Path (Join-Path $orchestrator 'openwork-orchestrator-auth.json') -Value ${seededJson({ orchestrator: "dummy" })} -Encoding UTF8
+Set-Content -Path (Join-Path $localShareOpencode 'data-marker.txt') -Value ${psQuote(`dummy local share opencode ${SEED_MARKER} ${RUN_TAG}`)} -Encoding UTF8
+Set-Content -Path (Join-Path $cacheOpencode 'cache-marker.txt') -Value ${psQuote(`dummy cache opencode ${SEED_MARKER} ${RUN_TAG}`)} -Encoding UTF8
 $result=[ordered]@{ opencode=$opencode; orchestrator=$orchestrator; localShareOpencode=$localShareOpencode; cacheOpencode=$cacheOpencode }
 Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
 `;
@@ -445,26 +458,31 @@ Write-Output ($checks | ConvertTo-Json -Depth 6 -Compress)
 
 function postNukeStateRootsProbeScript() {
   return `
-function Names($p){ if(Test-Path -LiteralPath $p){ @(Get-ChildItem -LiteralPath $p -Force | ForEach-Object { $_.Name }) } else { @() } }
-$userData=${psQuote(paths.userData)}
-$opencode=${psQuote(paths.opencode)}
-$appOpenwork=${psQuote(paths.appDataOpenwork)}
-$configHome=${psQuote(paths.configHome)}
-$pending=${psQuote(paths.pending)}
-$appOpenworkSeeded=@('server.json','env.json','tokens.json','runtime.sqlite') | ForEach-Object { [ordered]@{ name=$_; exists=(Test-Path -LiteralPath (Join-Path $appOpenwork $_)) } }
+function N($p){if(Test-Path -LiteralPath $p){@(Get-ChildItem -LiteralPath $p -Force|%{$_.Name})}else{@()}}
+function S($r,$n){$p=Join-Path $r $n;$e=Test-Path -LiteralPath $p;$m=$false;$t=$false;if($e){try{$x=[IO.File]::ReadAllText($p);$m=$x.Contains($sm);$t=$x.Contains($rt)}catch{}}[ordered]@{name=$n;exists=$e;containsSeedMarker=$m;rawContainsRunTag=$t}}
+function SS($r,$ns){@($ns|%{S $r $_})}
+$sm=${psQuote(SEED_MARKER)};$rt=${psQuote(RUN_TAG)}
+$u=${psQuote(paths.userData)};$o=${psQuote(paths.opencode)};$a=${psQuote(paths.appDataOpenwork)};$c=${psQuote(paths.configHome)}
+$r=${psQuote(paths.orchestrator)};$s=${psQuote(paths.localShareOpencode)};$k=${psQuote(paths.cacheOpencode)};$p=${psQuote(paths.pending)}
+$appOpenworkSeeded=SS $a @('server.json','env.json','tokens.json','runtime.sqlite')
 $result=[ordered]@{
-  userData=[ordered]@{ path=$userData; exists=(Test-Path -LiteralPath $userData); markerExists=(Test-Path -LiteralPath (Join-Path $userData 'eval-userdata-marker.txt')); entries=(Names $userData) }
-  opencode=[ordered]@{ path=$opencode; exists=(Test-Path -LiteralPath $opencode); entries=(Names $opencode) }
-  appOpenwork=[ordered]@{ path=$appOpenwork; exists=(Test-Path -LiteralPath $appOpenwork); seededFiles=$appOpenworkSeeded; entries=(Names $appOpenwork) }
-  localOpenwork=[ordered]@{ path=$configHome; exists=(Test-Path -LiteralPath $configHome); entries=(Names $configHome); pendingExists=(Test-Path -LiteralPath $pending); envExists=(Test-Path -LiteralPath (Join-Path $configHome 'env.json')); tokensExists=(Test-Path -LiteralPath (Join-Path $configHome 'tokens.json')) }
+  userData=[ordered]@{path=$u;exists=(Test-Path -LiteralPath $u);markerExists=(Test-Path -LiteralPath (Join-Path $u 'eval-userdata-marker.txt'));seededFiles=(SS $u @('eval-userdata-marker.txt'));entries=(N $u)}
+  opencode=[ordered]@{path=$o;exists=(Test-Path -LiteralPath $o);seededFiles=(SS $o @('auth.json','mcp-auth.json','opencode.db'));entries=(N $o)}
+  appOpenwork=[ordered]@{path=$a;exists=(Test-Path -LiteralPath $a);seededFiles=$appOpenworkSeeded;entries=(N $a)}
+  localOpenwork=[ordered]@{path=$c;exists=(Test-Path -LiteralPath $c);entries=(N $c);seededFiles=(SS $c @('env.json','tokens.json'));pendingExists=(Test-Path -LiteralPath $p);envExists=(Test-Path -LiteralPath (Join-Path $c 'env.json'));tokensExists=(Test-Path -LiteralPath (Join-Path $c 'tokens.json'))}
+  orchestrator=[ordered]@{path=$r;exists=(Test-Path -LiteralPath $r);seededFiles=(SS $r @('openwork-orchestrator-auth.json'));entries=(N $r)}
+  localShareOpencode=[ordered]@{path=$s;exists=(Test-Path -LiteralPath $s);seededFiles=(SS $s @('data-marker.txt'));entries=(N $s)}
+  cacheOpencode=[ordered]@{path=$k;exists=(Test-Path -LiteralPath $k);seededFiles=(SS $k @('cache-marker.txt'));entries=(N $k)}
 }
-Write-Output ($result | ConvertTo-Json -Depth 5 -Compress)
+Write-Output ($result | ConvertTo-Json -Depth 7 -Compress)
 `;
 }
 
 function postNukeBootstrapProbeScript() {
   return `
 $bootstrap=${psQuote(paths.bootstrap)}
+$seedMarker=${psQuote(SEED_MARKER)}
+$runTag=${psQuote(RUN_TAG)}
 $bootstrapRaw=''
 $parsedOk=$false
 $baseUrl=$null
@@ -496,6 +514,8 @@ $result=[ordered]@{
   hasPrepared=($propertyNames -contains 'prepared')
   containsSecretGrant=$bootstrapRaw.Contains('secret-grant')
   containsSecretToken=$bootstrapRaw.Contains('secret-token')
+  containsSeedMarker=$bootstrapRaw.Contains($seedMarker)
+  rawContainsRunTag=$bootstrapRaw.Contains($runTag)
 }
 Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 `;
@@ -567,7 +587,7 @@ $lockPath=${psQuote(paths.localRuntimeSqlite)}
 $scriptPath=Join-Path ${psQuote(paths.temp)} ${psQuote(LOCKER_SCRIPT_NAME)}
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $lockPath) | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $scriptPath) | Out-Null
-Set-Content -Path $lockPath -Value 'locked runtime sqlite ${RUN_TAG}' -Encoding UTF8
+Set-Content -Path $lockPath -Value 'locked runtime sqlite ${SEED_MARKER} ${RUN_TAG}' -Encoding UTF8
 $locker=@'
 $path = ${psQuote(paths.localRuntimeSqlite)}
 $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
@@ -649,6 +669,26 @@ function hasChild(entry, name) {
   return childNames(entry).includes(name);
 }
 
+function fileContainsSeed(entry) {
+  return entry?.containsSeedMarker === true || entry?.rawContainsRunTag === true;
+}
+
+function seededMarkerSurvivors(data) {
+  const rootNames = ["userData", "opencode", "appOpenwork", "localOpenwork", "orchestrator", "localShareOpencode", "cacheOpencode"];
+  return rootNames.flatMap((rootName) =>
+    arrayValue(data[rootName]?.seededFiles)
+      .filter(fileContainsSeed)
+      .map((entry) => ({
+        root: rootName,
+        name: entry?.name,
+        path: entry?.path,
+        exists: entry?.exists,
+        containsSeedMarker: entry?.containsSeedMarker,
+        rawContainsRunTag: entry?.rawContainsRunTag,
+      })),
+  );
+}
+
 function assertSeededDirectoryListing(ctx, listing) {
   witness(ctx, listing.opencode?.exists === true, "Seeded %APPDATA%\\opencode root exists", listing.opencode);
   witness(ctx, hasChild(listing.opencode, "auth.json"), "Seeded opencode directory lists auth.json", listing.opencode);
@@ -675,14 +715,21 @@ function assertPostFirstNuke(ctx, data) {
   const localEntries = arrayValue(data.localOpenwork?.entries).map(String);
   const unexpectedLocal = localEntries.filter((entry) => entry !== "desktop-bootstrap.json");
   const seededAppOpenwork = arrayValue(data.appOpenwork?.seededFiles);
-  const appOpenworkSurvivors = seededAppOpenwork.filter((entry) => entry?.exists === true).map((entry) => entry.name);
+  const appOpenworkHardDeleteNames = ["server.json", "env.json", "runtime.sqlite"];
+  const appOpenworkHardDeleteSurvivors = seededAppOpenwork
+    .filter((entry) => appOpenworkHardDeleteNames.includes(String(entry?.name)) && entry?.exists === true)
+    .map((entry) => entry.name);
+  const appOpenworkMarkerSurvivors = seededAppOpenwork.filter(fileContainsSeed).map((entry) => entry.name);
+  const markerSurvivors = seededMarkerSurvivors(data);
   const bootstrapRaw = String(data.bootstrap?.raw ?? "");
   const bootstrap = data.bootstrap ?? {};
   const receipt = data.receipt ?? {};
 
   witness(ctx, data.userData?.markerExists === false, "%APPDATA%\\com.differentai.openwork lost the seeded userData marker after relaunch", data.userData);
   witness(ctx, data.opencode?.exists === false, "%APPDATA%\\opencode is gone after the nuke", data.opencode);
-  witness(ctx, appOpenworkSurvivors.length === 0, "%APPDATA%\\openwork no longer contains the seeded server/runtime/token files", data.appOpenwork);
+  witness(ctx, appOpenworkHardDeleteSurvivors.length === 0, "%APPDATA%\\openwork no longer contains seeded server/env/runtime files", data.appOpenwork);
+  witness(ctx, appOpenworkMarkerSurvivors.length === 0, "%APPDATA%\\openwork contains no seeded marker/runTag even if clean tokens.json is recreated", data.appOpenwork);
+  witness(ctx, markerSurvivors.length === 0, "No seeded marker or runTag survived in post-nuke seeded file probes", markerSurvivors);
   witness(ctx, data.localOpenwork?.exists === true, "%LOCALAPPDATA%\\openwork survives only as the preserved config directory", data.localOpenwork);
   witness(ctx, unexpectedLocal.length === 0, "%LOCALAPPDATA%\\openwork contains only desktop-bootstrap.json", localEntries);
   witness(ctx, data.localOpenwork?.pendingExists === false, ".nuke-pending.json is absent after the unlocked nuke", data.localOpenwork);
@@ -694,6 +741,7 @@ function assertPostFirstNuke(ctx, data) {
   witness(ctx, bootstrap.brandAppName === BRAND_APP_NAME, `desktop-bootstrap.json keeps brandAppName ${BRAND_APP_NAME}`, bootstrap);
   witness(ctx, bootstrap.containsSecretGrant === false, "desktop-bootstrap.json no longer contains secret-grant", bootstrapRaw);
   witness(ctx, bootstrap.containsSecretToken === false, "desktop-bootstrap.json no longer contains secret-token", bootstrapRaw);
+  witness(ctx, bootstrap.containsSeedMarker === false && bootstrap.rawContainsRunTag === false, "desktop-bootstrap.json no longer contains the seeded marker or runTag", bootstrap);
   witness(ctx, bootstrap.hasHandoff === false && bootstrap.hasClaimLinks === false && bootstrap.hasPrepared === false, "desktop-bootstrap.json strips handoff, claimLinks, and prepared", bootstrap);
   witness(ctx, Number(receipt.deletedCount) > 0, "The newest openwork-nuke-receipt JSON has a non-empty deleted[]", data.receipt);
   state.firstReceiptPath = String(data.receipt?.path ?? "");
@@ -847,9 +895,9 @@ export default {
       },
     },
     {
-      name: "Frame 4 — Nothing stateful survived except stripped provisioning",
+      name: "Frame 4 — No seeded state survived; clean runtime files may be recreated",
       run: async (ctx) => {
-        await ctx.prove("Filesystem witnesses show only sanitized desktop-bootstrap.json survived and the nuke receipt recorded deleted paths", {
+        await ctx.prove("Filesystem witnesses show seeded markers are gone, clean runtime credentials may be recreated, sanitized desktop-bootstrap.json survived, and the nuke receipt recorded deleted paths", {
           voiceover: vo[3],
           assert: async () => {
             const roots = daytonaPowerShellJson(ctx, "post-first-nuke-state-roots-probe", postNukeStateRootsProbeScript(), { attempts: 2 });
