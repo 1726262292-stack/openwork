@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import DOMPurify from "dompurify";
 import { Marked, type Tokens } from "marked";
@@ -145,6 +145,37 @@ function createEmojiAliases() {
 
 const emojiAliases = createEmojiAliases();
 const MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT = 100;
+const CODE_COPY_RESET_DELAY_MS = 2000;
+const CODE_COPY_ICON = `<svg data-openwork-code-copy-icon="" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+const CODE_COPIED_ICON = `<svg data-openwork-code-copy-check-icon="" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true" hidden><path d="M20 6 9 17l-5-5"/></svg>`;
+
+function codeCopyButton() {
+  return `<button type="button" data-openwork-code-copy="" class="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/70 bg-background/95 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Copy code block" title="Copy code block">${CODE_COPY_ICON}${CODE_COPIED_ICON}<span data-openwork-code-copy-label="" class="sr-only" aria-live="polite">Copy code block</span></button>`;
+}
+
+function codeBlockContainer(html: string, shiki: boolean) {
+  const shikiAttribute = shiki ? ` data-openwork-shiki="true"` : "";
+
+  return `<div data-openwork-code-block=""${shikiAttribute} class="relative my-4 overflow-hidden rounded-[18px] border border-border/70 bg-gray-2/60 font-mono text-xs leading-6 text-foreground">${codeCopyButton()}${html}</div>`;
+}
+
+function codeBlockHtml(text: string, lang: string | undefined) {
+  return codeBlockContainer(
+    `<pre class="overflow-x-auto px-4 pb-3 pt-11"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`,
+    false,
+  );
+}
+
+function setCodeCopyButtonState(button: HTMLButtonElement, copied: boolean) {
+  const label = button.querySelector("[data-openwork-code-copy-label]");
+  if (label) label.textContent = copied ? "Code block copied" : "Copy code block";
+
+  button.querySelector("[data-openwork-code-copy-icon]")?.toggleAttribute("hidden", copied);
+  button.querySelector("[data-openwork-code-copy-check-icon]")?.toggleAttribute("hidden", !copied);
+
+  button.title = copied ? "Copied" : "Copy code block";
+  button.setAttribute("aria-label", copied ? "Code block copied" : "Copy code block");
+}
 
 function parseShikiLanguage(lang: string) {
   const normalized = lang.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
@@ -191,10 +222,19 @@ function syncMarkdownImagePreviews(root: HTMLElement) {
 }
 
 function sanitizeMarkdownHtml(value: string) {
+  if (typeof DOMPurify.sanitize !== "function") {
+    return value;
+  }
+
   return DOMPurify.sanitize(value, {
     ADD_ATTR: [
       "checked",
       "class",
+      "data-openwork-code-block",
+      "data-openwork-code-copy",
+      "data-openwork-code-copy-check-icon",
+      "data-openwork-code-copy-icon",
+      "data-openwork-code-copy-label",
       "data-openwork-image-preview",
       "data-openwork-image-toggle",
       "data-openwork-image-toggle-label",
@@ -258,7 +298,7 @@ const baseMarkedOptions = {
       return `<blockquote class="my-4 rounded-r-lg border-l border-border bg-muted/40 pl-4 italic text-muted-foreground">${this.parser.parse(tokens)}</blockquote>`;
     },
     code({ text, lang }) {
-      return `<pre class="my-4 overflow-x-auto rounded-[18px] border border-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`;
+      return codeBlockHtml(text, lang);
     },
     codespan({ text }) {
       return `<code class="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">${escapeHtml(text)}</code>`;
@@ -340,7 +380,10 @@ const highlightedMarkdownParser = new Marked({
       return codeToHtml(code, {
         lang: language,
         meta: { __raw: props.join(" ") },
-        theme: "github-light",
+        themes: {
+          light: "github-light",
+          dark: "github-dark",
+        },
         transformers: [
           transformerNotationDiff({ matchAlgorithm: "v3" }),
           transformerNotationHighlight({ matchAlgorithm: "v3" }),
@@ -352,9 +395,22 @@ const highlightedMarkdownParser = new Marked({
         ],
       });
     },
-    container: `<div data-openwork-shiki="true" class="my-4 overflow-x-auto rounded-lg border border-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
+    container: codeBlockContainer(`<div class="overflow-x-auto px-4 pb-3 pt-11">%s</div>`, true),
   }),
 );
+
+export function renderMarkdownHtml(text: string) {
+  if (!text.trim()) {
+    return "";
+  }
+
+  return sanitizeMarkdownHtml(markdownParser.parse(text, { async: false }));
+}
+
+export async function renderHighlightedMarkdownHtml(text: string) {
+  const html = await highlightedMarkdownParser.parse(text, { async: true });
+  return sanitizeMarkdownHtml(html);
+}
 
 type MarkdownBlockInnerProps = {
   className?: string;
@@ -374,15 +430,45 @@ function MarkdownBlockInner({
   ...props
 }: MarkdownBlockInnerProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const codeCopyResetTimers = useRef(new Map<HTMLButtonElement, number>());
   const { openTargets, onOpenTarget } = useOpenTargets();
   const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; rect: DOMRect } | null>(null);
   const syncHtml = useMemo(() => {
-    if (!text.trim()) {
-      return "";
-    }
-    return sanitizeMarkdownHtml(markdownParser.parse(text, { async: false }));
+    return renderMarkdownHtml(text);
   }, [text]);
   const [highlightedHtml, setHighlightedHtml] = useState<{ text: string; html: string } | null>(null);
+
+  const handleCodeBlockCopy = useCallback(async (button: HTMLButtonElement, code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      return;
+    }
+
+    const previousTimer = codeCopyResetTimers.current.get(button);
+    if (previousTimer !== undefined) {
+      window.clearTimeout(previousTimer);
+    }
+
+    setCodeCopyButtonState(button, true);
+
+    const resetTimer = window.setTimeout(() => {
+      setCodeCopyButtonState(button, false);
+      codeCopyResetTimers.current.delete(button);
+    }, CODE_COPY_RESET_DELAY_MS);
+    codeCopyResetTimers.current.set(button, resetTimer);
+  }, []);
+
+  useEffect(() => {
+    const timers = codeCopyResetTimers.current;
+
+    return () => {
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer);
+      }
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (streaming || !hasFencedCodeBlock(text)) {
@@ -391,11 +477,9 @@ function MarkdownBlockInner({
     }
 
     let cancelled = false;
-    void highlightedMarkdownParser.parse(text, { async: true }).then((html) => {
-      const sanitizedHtml = sanitizeMarkdownHtml(html);
-
-      if (!cancelled && sanitizedHtml.trim()) {
-        setHighlightedHtml({ text, html: sanitizedHtml });
+    void renderHighlightedMarkdownHtml(text).then((html) => {
+      if (!cancelled && html.trim()) {
+        setHighlightedHtml({ text, html });
       }
     }).catch(() => {
       if (!cancelled) {
@@ -444,6 +528,17 @@ function MarkdownBlockInner({
 
     const handleClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
+
+      const copyButton = event.target.closest("[data-openwork-code-copy]");
+      if (copyButton instanceof HTMLButtonElement) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const codeBlock = copyButton.closest("[data-openwork-code-block]");
+        const code = codeBlock?.querySelector("code");
+        void handleCodeBlockCopy(copyButton, code?.textContent ?? "");
+        return;
+      }
 
       const chevron = event.target.closest("[data-openwork-link-chevron]");
       if (chevron instanceof HTMLElement) {
@@ -499,7 +594,7 @@ function MarkdownBlockInner({
       root.removeEventListener("load", handleLoad, true);
       root.removeEventListener("click", handleClick);
     };
-  }, [html, onOpenTarget, openTargets]);
+  }, [handleCodeBlockCopy, html, onOpenTarget, openTargets]);
 
   if (!html) {
     return null;
