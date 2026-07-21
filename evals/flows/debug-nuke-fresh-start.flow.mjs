@@ -364,6 +364,23 @@ Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
 `;
 }
 
+function seededDirectoriesListingScript() {
+  return `
+function ChildNames($p){ if(Test-Path -LiteralPath $p){ @(Get-ChildItem -LiteralPath $p -Force | ForEach-Object { $_.Name }) } else { @() } }
+$targets=@(
+  [ordered]@{ name='opencode'; path=${psQuote(paths.opencode)} },
+  [ordered]@{ name='configHome'; path=${psQuote(paths.configHome)} },
+  [ordered]@{ name='orchestrator'; path=${psQuote(paths.orchestrator)} },
+  [ordered]@{ name='userData'; path=${psQuote(paths.userData)} }
+)
+$result=[ordered]@{}
+foreach($target in $targets){
+  $result[$target.name]=[ordered]@{ path=$target.path; exists=(Test-Path -LiteralPath $target.path); children=(ChildNames $target.path) }
+}
+Write-Output ($result | ConvertTo-Json -Depth 6 -Compress)
+`;
+}
+
 function fixtureProbeScript() {
   return `
 $paths=@{
@@ -374,9 +391,17 @@ foreach($name in $paths.Keys){ $checks[$name]=[ordered]@{ path=$paths[$name]; ex
 $checks['opencode']['auth']=Test-Path -LiteralPath (Join-Path $paths.opencode 'auth.json')
 $checks['opencode']['mcpAuth']=Test-Path -LiteralPath (Join-Path $paths.opencode 'mcp-auth.json')
 $checks['opencode']['db']=Test-Path -LiteralPath (Join-Path $paths.opencode 'opencode.db')
+$checks['userData']['marker']=Test-Path -LiteralPath (Join-Path $paths.userData 'eval-userdata-marker.txt')
+$checks['appOpenwork']['server']=Test-Path -LiteralPath (Join-Path $paths.appOpenwork 'server.json')
+$checks['appOpenwork']['env']=Test-Path -LiteralPath (Join-Path $paths.appOpenwork 'env.json')
+$checks['appOpenwork']['tokens']=Test-Path -LiteralPath (Join-Path $paths.appOpenwork 'tokens.json')
+$checks['appOpenwork']['runtime']=Test-Path -LiteralPath (Join-Path $paths.appOpenwork 'runtime.sqlite')
 $checks['configHome']['env']=Test-Path -LiteralPath (Join-Path $paths.configHome 'env.json')
 $checks['configHome']['tokens']=Test-Path -LiteralPath (Join-Path $paths.configHome 'tokens.json')
+$checks['configHome']['bootstrap']=Test-Path -LiteralPath $paths.bootstrap
 $checks['orchestrator']['auth']=Test-Path -LiteralPath (Join-Path $paths.orchestrator 'openwork-orchestrator-auth.json')
+$checks['localShareOpencode']['dataMarker']=Test-Path -LiteralPath (Join-Path $paths.localShareOpencode 'data-marker.txt')
+$checks['cacheOpencode']['cacheMarker']=Test-Path -LiteralPath (Join-Path $paths.cacheOpencode 'cache-marker.txt')
 Write-Output ($checks | ConvertTo-Json -Depth 6 -Compress)
 `;
 }
@@ -485,6 +510,29 @@ if(-not $unlocked){ exit 45 }
 `;
 }
 
+function stopLockerScript(pid) {
+  return `
+$pidValue=${Number(pid) || 0}
+$foundBefore=$false
+$stopped=$false
+$errorText=''
+try {
+  $process=Get-Process -Id $pidValue -ErrorAction Stop
+  $foundBefore=$true
+  Stop-Process -Id $pidValue -Force -ErrorAction Stop
+  Start-Sleep -Milliseconds 500
+  $stopped=$true
+} catch {
+  $errorText=$_.Exception.Message
+}
+$existsAfter=$false
+try { $after=Get-Process -Id $pidValue -ErrorAction Stop; $existsAfter=$true } catch { $existsAfter=$false }
+$result=[ordered]@{ pid=$pidValue; foundBefore=$foundBefore; stopped=$stopped; existsAfter=$existsAfter; error=$errorText }
+Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
+if(-not $stopped -or $existsAfter){ exit 46 }
+`;
+}
+
 function containsPath(pathsToSearch, expectedPath) {
   const expected = cleanWinPath(expectedPath).toLowerCase();
   return arrayValue(pathsToSearch).some((entry) => {
@@ -499,6 +547,29 @@ function receiptPendingPaths(data) {
 
 function pendingFilePaths(data) {
   return arrayValue(data?.pending?.paths);
+}
+
+function childNames(entry) {
+  return arrayValue(entry?.children).map(String);
+}
+
+function hasChild(entry, name) {
+  return childNames(entry).includes(name);
+}
+
+function assertSeededDirectoryListing(ctx, listing) {
+  witness(ctx, listing.opencode?.exists === true, "Seeded %APPDATA%\\opencode root exists", listing.opencode);
+  witness(ctx, hasChild(listing.opencode, "auth.json"), "Seeded opencode directory lists auth.json", listing.opencode);
+  witness(ctx, hasChild(listing.opencode, "mcp-auth.json"), "Seeded opencode directory lists mcp-auth.json", listing.opencode);
+  witness(ctx, hasChild(listing.opencode, "opencode.db"), "Seeded opencode directory lists opencode.db", listing.opencode);
+  witness(ctx, listing.configHome?.exists === true, "Seeded %LOCALAPPDATA%\\openwork root exists", listing.configHome);
+  witness(ctx, hasChild(listing.configHome, "env.json"), "Seeded LOCALAPPDATA openwork directory lists env.json", listing.configHome);
+  witness(ctx, hasChild(listing.configHome, "tokens.json"), "Seeded LOCALAPPDATA openwork directory lists tokens.json", listing.configHome);
+  witness(ctx, hasChild(listing.configHome, "desktop-bootstrap.json"), "Seeded LOCALAPPDATA openwork directory lists desktop-bootstrap.json", listing.configHome);
+  witness(ctx, listing.orchestrator?.exists === true, "Seeded profile .openwork\\openwork-orchestrator root exists", listing.orchestrator);
+  witness(ctx, hasChild(listing.orchestrator, "openwork-orchestrator-auth.json"), "Seeded orchestrator directory lists openwork-orchestrator-auth.json", listing.orchestrator);
+  witness(ctx, listing.userData?.exists === true, "Seeded %APPDATA%\\com.differentai.openwork userData root exists", listing.userData);
+  witness(ctx, hasChild(listing.userData, "eval-userdata-marker.txt"), "Seeded userData directory lists eval-userdata-marker.txt", listing.userData);
 }
 
 async function triggerShellRelaunch(ctx) {
@@ -565,7 +636,9 @@ export default {
             const bootstrapSeed = daytonaPowerShellJson(ctx, "seed-secret-desktop-bootstrap", seedDesktopBootstrapScript());
             const opencodeSeed = daytonaPowerShellJson(ctx, "seed-opencode-and-orchestrator-state", seedOpencodeAndOrchestratorScript());
             ctx.output("seeded path summary", JSON.stringify({ openworkSeed, bootstrapSeed, opencodeSeed }, null, 2));
-            daytonaCmd(ctx, "seeded-directories-dir", `dir "${paths.opencode}" & dir "${paths.configHome}" & dir "${paths.orchestrator}" & dir "${paths.userData}"`);
+            const seededListing = daytonaPowerShellJson(ctx, "seeded-directories-listing", seededDirectoriesListingScript());
+            ctx.output("seeded-directories-listing-json", JSON.stringify(seededListing, null, 2));
+            assertSeededDirectoryListing(ctx, seededListing);
             await enableRendererState(ctx);
             await navigateToSettings(ctx, "general");
             await ctx.waitForText("Overview of all settings", { timeoutMs: 60_000 });
@@ -575,9 +648,14 @@ export default {
             witness(ctx, probe.opencode?.auth === true, "%APPDATA%\\opencode\\auth.json exists", probe.opencode);
             witness(ctx, probe.opencode?.mcpAuth === true, "%APPDATA%\\opencode\\mcp-auth.json exists", probe.opencode);
             witness(ctx, probe.opencode?.db === true, "%APPDATA%\\opencode\\opencode.db exists", probe.opencode);
+            witness(ctx, probe.userData?.marker === true, "%APPDATA%\\com.differentai.openwork seeded marker exists", probe.userData);
+            witness(ctx, probe.appOpenwork?.server === true && probe.appOpenwork?.env === true && probe.appOpenwork?.tokens === true && probe.appOpenwork?.runtime === true, "%APPDATA%\\openwork seeded server/env/tokens/runtime files exist", probe.appOpenwork);
             witness(ctx, probe.configHome?.env === true && probe.configHome?.tokens === true, "%LOCALAPPDATA%\\openwork env.json and tokens.json exist", probe.configHome);
             witness(ctx, probe.bootstrap?.exists === true, "%LOCALAPPDATA%\\openwork\\desktop-bootstrap.json exists", probe.bootstrap);
+            witness(ctx, probe.configHome?.bootstrap === true, "%LOCALAPPDATA%\\openwork\\desktop-bootstrap.json exists in configHome probe", probe.configHome);
             witness(ctx, probe.orchestrator?.auth === true, "profile .openwork\\openwork-orchestrator auth exists", probe.orchestrator);
+            witness(ctx, probe.localShareOpencode?.dataMarker === true, "profile .local\\share\\opencode data marker exists", probe.localShareOpencode);
+            witness(ctx, probe.cacheOpencode?.cacheMarker === true, "profile .cache\\opencode cache marker exists", probe.cacheOpencode);
             const storage = await ctx.eval(`(() => {
               const pick = ['openwork.preferences', 'openwork.developerMode', 'openwork.den.authToken'];
               const result = {};
@@ -677,8 +755,7 @@ export default {
             const bootstrap = daytonaPowerShellJson(ctx, "post-first-nuke-bootstrap-probe", postNukeBootstrapProbeScript());
             const receipt = daytonaPowerShellJson(ctx, "post-first-nuke-receipt-probe", latestReceiptProbeScript());
             const data = { ...roots, bootstrap, receipt };
-            daytonaCmd(ctx, "post-first-nuke-config-dir", `if exist "${paths.configHome}" (dir "${paths.configHome}") else (echo MISSING "${paths.configHome}")`, { allowFailure: true });
-            daytonaCmd(ctx, "post-first-nuke-opencode-dir", `if exist "${paths.opencode}" (dir "${paths.opencode}") else (echo MISSING "${paths.opencode}")`, { allowFailure: true });
+            ctx.output("post-first-nuke-directory-listing-json", JSON.stringify({ localOpenwork: roots.localOpenwork, opencode: roots.opencode }, null, 2));
             ctx.output("post-first-nuke-witness-json", JSON.stringify(data, null, 2));
             assertPostFirstNuke(ctx, data);
           },
@@ -701,7 +778,8 @@ export default {
             await executeNukeFromDialog(ctx, "second nuke with locked runtime.sqlite");
             state.afterLockedNuke = daytonaPowerShellJson(ctx, "after-locked-nuke-pending-or-receipt", lockedStateScript());
             ctx.output("after-locked-nuke-witness-json", JSON.stringify(state.afterLockedNuke, null, 2));
-            state.killResult = daytonaCmd(ctx, "kill-runtime-sqlite-locker", `taskkill /F /PID ${state.lockPid}`, { allowFailure: true, timeoutMs: 30_000 });
+            state.killResult = daytonaPowerShellJson(ctx, "stop-runtime-sqlite-locker", stopLockerScript(state.lockPid), { allowFailure: true, timeoutMs: 30_000 });
+            ctx.output("stop-runtime-sqlite-locker-json", JSON.stringify(state.killResult, null, 2));
             state.unlockProbe = daytonaPowerShellJson(ctx, "verify-runtime-sqlite-lock-released", unlockProbeScript(), { timeoutMs: 30_000 });
             ctx.output("runtime-sqlite-unlock-probe", JSON.stringify(state.unlockProbe, null, 2));
             await triggerShellRelaunch(ctx);
@@ -721,7 +799,7 @@ export default {
             witness(ctx, afterLocked?.lockedExists === true, "The locked runtime.sqlite still exists immediately after the locked nuke", afterLocked);
             witness(ctx, state.secondReceiptPath.length > 0 && state.secondReceiptPath !== state.firstReceiptPath, "The second nuke wrote a new receipt", { firstReceiptPath: state.firstReceiptPath, secondReceiptPath: state.secondReceiptPath });
             witness(ctx, hasPendingEvidence, "The pending retry file or newest receipt names the locked runtime.sqlite/config root", { pendingPaths, receiptPaths, pendingExists: afterLocked?.pendingExists });
-            witness(ctx, state.killResult?.status === 0, "taskkill terminated the detached PowerShell locker", { status: state.killResult?.status, stdout: state.killResult?.stdout, stderr: state.killResult?.stderr });
+            witness(ctx, state.killResult?.foundBefore === true && state.killResult?.stopped === true && state.killResult?.existsAfter === false, "Stop-Process terminated the detached PowerShell locker", state.killResult);
             witness(ctx, state.unlockProbe?.unlocked === true, "The runtime.sqlite exclusive handle was released before the retry boot", state.unlockProbe);
             witness(ctx, afterBoot?.pendingExists === false, "After the retry boot, .nuke-pending.json is gone", afterBoot);
             witness(ctx, afterBoot?.lockedExists === false, "After the retry boot, the formerly locked runtime.sqlite is gone", afterBoot);
