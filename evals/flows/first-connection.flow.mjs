@@ -302,8 +302,10 @@ export default {
               prefs.hasCompletedOnboarding = false;
               localStorage.setItem('openwork.preferences', JSON.stringify(prefs));
               location.hash = '#/welcome';
+              location.reload();
               return true;
             })()`);
+            await ensureDesktopReady(ctx);
             await ctx.waitForText("Use OpenWork Cloud", { timeoutMs: 45_000 });
             await ctx.waitFor("Boolean(document.querySelector('[data-testid=\"welcome-join-org\"]'))", {
               timeoutMs: 30_000,
