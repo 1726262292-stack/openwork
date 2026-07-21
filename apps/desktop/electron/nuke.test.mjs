@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import {
+  buildNukeWorkerNukeInput,
+  buildNukeWorkerPayload,
   buildNukeManifest,
+  executeNukeFreshStart,
   runPendingNukeCleanup,
   sanitizeDesktopBootstrapConfig,
   sanitizeDesktopBootstrapFiles,
+  scheduleNukeCleanupWorker,
 } from "./nuke.mjs";
+import { runNukeCleanupWorker } from "./nuke-worker.mjs";
 
 async function exists(targetPath) {
   try {
@@ -51,6 +57,51 @@ async function writePendingNuke(root, pending) {
 
 async function readJson(targetPath) {
   return JSON.parse(await readFile(targetPath, "utf8"));
+}
+
+function fakeSession() {
+  const session = {
+    clearStorageData: async () => {},
+    flushStorageData: () => {},
+  };
+  return {
+    defaultSession: session,
+    fromPartition: () => session,
+  };
+}
+
+function fakeRuntimeManager() {
+  return {
+    dispose: async () => {},
+    prepareFreshRuntime: async () => {},
+    sandboxCleanupOpenworkContainers: async () => ({ candidates: [], removed: [], errors: [] }),
+  };
+}
+
+function fakeUiControlServer() {
+  return { stop: async () => {} };
+}
+
+function fakeApp(userDataPath) {
+  return {
+    isPackaged: true,
+    relaunchCount: 0,
+    quitCount: 0,
+    getPath(name) {
+      if (name === "userData") return userDataPath;
+      throw new Error(`Unexpected app path ${name}`);
+    },
+    relaunch() {
+      this.relaunchCount += 1;
+    },
+    quit() {
+      this.quitCount += 1;
+    },
+  };
+}
+
+async function tinyDelay(ms = 140) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 test("buildNukeManifest includes default macOS state roots and preserves bootstrap", () => {
@@ -327,5 +378,250 @@ test("runPendingNukeCleanup removes invalid or empty sentinels without looping",
     assert.equal(emptyResult.ran, false);
     assert.equal(emptyResult.invalid, false);
     assert.equal(await exists(emptyPendingPath), false);
+  });
+});
+
+test("nuke worker payload only serializes safe path inputs", () => {
+  const nukeInput = buildNukeWorkerNukeInput({
+    env: {
+      APPDATA: "C:\\Users\\Alice\\AppData\\Roaming",
+      OPENWORK_API_KEY: "secret-api-key",
+      OPENWORK_TOKEN: "secret-token",
+      OPENWORK_TOKEN_STORE: "C:\\Users\\Alice\\AppData\\Roaming\\openwork\\tokens.json",
+      XDG_CONFIG_HOME: "/tmp/config",
+    },
+    homedir: "/tmp/home",
+    platform: "darwin",
+    userDataPath: "/tmp/userData",
+  });
+  const payload = buildNukeWorkerPayload({
+    parentPid: 123,
+    nukeInput,
+    appExecutablePath: process.execPath,
+    appArgv: ["--remote-debugging-port=9888"],
+    pendingPath: "/tmp/config/openwork/.nuke-pending.json",
+    nowMs: 1_000,
+  });
+  const serialized = JSON.stringify(payload);
+
+  assert.equal(payload.nukeInput.env.APPDATA, "C:\\Users\\Alice\\AppData\\Roaming");
+  assert.equal(payload.nukeInput.env.XDG_CONFIG_HOME, "/tmp/config");
+  assert.equal(payload.nukeInput.env.OPENWORK_TOKEN_STORE, "C:\\Users\\Alice\\AppData\\Roaming\\openwork\\tokens.json");
+  assert.equal(serialized.includes("secret-api-key"), false);
+  assert.equal(serialized.includes("secret-token"), false);
+  assert.equal(serialized.includes("OPENWORK_API_KEY"), false);
+  assert.equal(serialized.includes("OPENWORK_TOKEN\""), false);
+});
+
+test("scheduleNukeCleanupWorker launches Electron as Node with a detached safe payload", async () => {
+  await withTempDir(async (root) => {
+    const input = pendingNukeInput(root);
+    const plan = {
+      pendingPath: pendingNukePath(root),
+    };
+    const app = fakeApp(input.userDataPath);
+    let spawnCommand = "";
+    let spawnArgs = [];
+    let spawnOptions = { detached: false, env: {}, shell: "unset", stdio: "" };
+    let unrefCalled = false;
+
+    const result = await scheduleNukeCleanupWorker({
+      app,
+      input,
+      plan,
+      execPath: process.execPath,
+      argv: [process.execPath, "--remote-debugging-port=9888", "--ignored"],
+      env: { SECRET_TOKEN: "do-not-write", XDG_CONFIG_HOME: input.env.XDG_CONFIG_HOME },
+      spawnFn: (command, args, options) => {
+        spawnCommand = command;
+        spawnArgs = args;
+        spawnOptions = options;
+        return { pid: 9876, unref: () => { unrefCalled = true; } };
+      },
+    });
+    const payload = await readJson(result.payloadPath);
+
+    assert.equal(result.pid, 9876);
+    assert.equal(unrefCalled, true);
+    assert.equal(spawnCommand, process.execPath);
+    assert.ok(spawnArgs[0].endsWith("nuke-worker.mjs"));
+    assert.equal(spawnArgs[1], result.payloadPath);
+    assert.equal(spawnOptions.detached, true);
+    assert.equal(spawnOptions.stdio, "ignore");
+    assert.equal(spawnOptions.shell, undefined);
+    assert.equal(spawnOptions.env.ELECTRON_RUN_AS_NODE, "1");
+    assert.deepEqual(payload.appArgv, ["--remote-debugging-port=9888"]);
+    assert.equal(JSON.stringify(payload).includes("do-not-write"), false);
+
+    await rm(result.payloadPath, { force: true });
+  });
+});
+
+test("nuke cleanup worker waits for parent exit, clears pending path, removes payload, and launches app", async () => {
+  await withTempDir(async (root) => {
+    const targetPath = path.join(root, "userData");
+    await mkdir(targetPath, { recursive: true });
+    await writeFile(path.join(targetPath, "marker.txt"), "delete me", "utf8");
+    const pendingPath = await writePendingNuke(root, {
+      paths: [targetPath],
+      createdAt: "2026-07-20T00:00:00.000Z",
+    });
+    const parent = spawn(process.execPath, ["-e", "setTimeout(() => {}, 180)"], { stdio: "ignore" });
+    const payloadPath = path.join(root, "payload.json");
+    const payload = buildNukeWorkerPayload({
+      parentPid: parent.pid,
+      nukeInput: pendingNukeInput(root),
+      appExecutablePath: process.execPath,
+      appArgv: ["--remote-debugging-port=9888"],
+      pendingPath,
+      nowMs: Date.now(),
+    });
+    payload.parentWaitDeadlineAt = Date.now() + 4000;
+    payload.deadlineAt = Date.now() + 6000;
+    await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    let launchedAfterParentExit = false;
+    let launchedArgs = null;
+
+    const result = await runNukeCleanupWorker(payloadPath, {
+      spawnApp: (_command, args) => {
+        launchedAfterParentExit = parent.exitCode !== null;
+        launchedArgs = args;
+        return { pid: 4321, unref: () => {} };
+      },
+    });
+
+    assert.equal(result.launchPid, 4321);
+    assert.equal(launchedAfterParentExit, true);
+    assert.deepEqual(launchedArgs, ["--remote-debugging-port=9888"]);
+    assert.equal(await exists(targetPath), false);
+    assert.equal(await exists(pendingPath), false);
+    assert.equal(await exists(payloadPath), false);
+    parent.kill();
+  });
+});
+
+test("nuke cleanup worker still removes payload and launches app when cleanup throws", async () => {
+  await withTempDir(async (root) => {
+    const payloadPath = path.join(root, "payload.json");
+    const payload = buildNukeWorkerPayload({
+      parentPid: 0,
+      nukeInput: pendingNukeInput(root),
+      appExecutablePath: process.execPath,
+      appArgv: [],
+      pendingPath: pendingNukePath(root),
+      nowMs: Date.now(),
+    });
+    await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    let launched = false;
+
+    const result = await runNukeCleanupWorker(payloadPath, {
+      runPendingCleanup: async () => {
+        throw new Error("cleanup failed");
+      },
+      spawnApp: () => {
+        launched = true;
+        return { pid: 5432, unref: () => {} };
+      },
+    });
+
+    assert.equal(result.launchPid, 5432);
+    assert.equal(launched, true);
+    assert.equal(result.cleanup.errors[0].message, "cleanup failed");
+    assert.equal(await exists(payloadPath), false);
+  });
+});
+
+test("executeNukeFreshStart falls back to direct relaunch when worker spawn fails", async () => {
+  await withTempDir(async (root) => {
+    const input = pendingNukeInput(root);
+    await mkdir(input.userDataPath, { recursive: true });
+    const app = fakeApp(input.userDataPath);
+
+    const receipt = await executeNukeFreshStart({
+      app,
+      session: fakeSession(),
+      runtimeManager: fakeRuntimeManager(),
+      uiControlServer: fakeUiControlServer(),
+      removeWindowsBrandShortcut: async () => {},
+    }, {
+      input,
+      removePathWithRetry: async (targetPath) => {
+        if (targetPath === input.userDataPath) return new Error("simulated Chromium lock");
+        await rm(targetPath, { recursive: true, force: true });
+        return null;
+      },
+      scheduleCleanupWorker: async () => {
+        throw new Error("spawn failed");
+      },
+    });
+
+    assert.equal(receipt.relaunchMode, "direct");
+    assert.equal(receipt.workerScheduled, false);
+    assert.ok(receipt.pendingRetry.includes(input.userDataPath));
+    assert.ok(receipt.errors.some((error) => error.path === "nuke-cleanup-worker" && error.message === "spawn failed"));
+    assert.equal(await exists(pendingNukePath(root)), true);
+    await tinyDelay();
+    assert.equal(app.relaunchCount, 1);
+    assert.equal(app.quitCount, 1);
+  });
+});
+
+test("executeNukeFreshStart schedules cleanup worker for pending paths", async () => {
+  await withTempDir(async (root) => {
+    const input = pendingNukeInput(root);
+    await mkdir(input.userDataPath, { recursive: true });
+    const app = fakeApp(input.userDataPath);
+    let scheduled = false;
+
+    const receipt = await executeNukeFreshStart({
+      app,
+      session: fakeSession(),
+      runtimeManager: fakeRuntimeManager(),
+      uiControlServer: fakeUiControlServer(),
+      removeWindowsBrandShortcut: async () => {},
+    }, {
+      input,
+      removePathWithRetry: async (targetPath) => {
+        if (targetPath === input.userDataPath) return new Error("simulated Chromium lock");
+        await rm(targetPath, { recursive: true, force: true });
+        return null;
+      },
+      scheduleCleanupWorker: async () => {
+        scheduled = true;
+        return { pid: 1234, payloadPath: path.join(root, "payload.json") };
+      },
+    });
+
+    assert.equal(receipt.relaunchMode, "cleanup_worker");
+    assert.equal(receipt.workerScheduled, true);
+    assert.equal(scheduled, true);
+    assert.ok(receipt.pendingRetry.includes(input.userDataPath));
+    assert.equal(await exists(pendingNukePath(root)), true);
+    await tinyDelay();
+    assert.equal(app.relaunchCount, 0);
+    assert.equal(app.quitCount, 1);
+  });
+});
+
+test("executeNukeFreshStart relaunches directly when no paths remain pending", async () => {
+  await withTempDir(async (root) => {
+    const input = pendingNukeInput(root);
+    await mkdir(input.userDataPath, { recursive: true });
+    const app = fakeApp(input.userDataPath);
+
+    const receipt = await executeNukeFreshStart({
+      app,
+      session: fakeSession(),
+      runtimeManager: fakeRuntimeManager(),
+      uiControlServer: fakeUiControlServer(),
+      removeWindowsBrandShortcut: async () => {},
+    }, { input });
+
+    assert.equal(receipt.relaunchMode, "direct");
+    assert.equal(receipt.workerScheduled, false);
+    assert.deepEqual(receipt.pendingRetry, []);
+    await tinyDelay();
+    assert.equal(app.relaunchCount, 1);
+    assert.equal(app.quitCount, 1);
   });
 });

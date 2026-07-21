@@ -1,7 +1,10 @@
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const BROWSER_SESSION_PARTITION = "persist:openwork-browser";
 const NUKE_PARTITIONS = ["default", BROWSER_SESSION_PARTITION];
@@ -17,6 +20,29 @@ const OPENWORK_CONFIG_FILENAMES = [
   "env.json",
 ];
 const SHIP_IT_CACHE_DOMAIN = "com.differentai.openwork.ShipIt";
+const NUKE_WORKER_FILENAME = "nuke-worker.mjs";
+const NUKE_WORKER_DEADLINE_MS = 60_000;
+const NUKE_WORKER_PARENT_WAIT_MS = 30_000;
+const NUKE_WORKER_ENV_KEYS = [
+  "APPDATA",
+  "LOCALAPPDATA",
+  "OPENWORK_DATA_DIR",
+  "OPENWORK_DESKTOP_BOOTSTRAP_PATH",
+  "OPENWORK_DEV_MODE",
+  "OPENWORK_ELECTRON_USERDATA",
+  "OPENWORK_ENV_STORE",
+  "OPENWORK_RUNTIME_DB",
+  "OPENWORK_SERVER_CONFIG",
+  "OPENWORK_TOKEN_STORE",
+  "OPENCODE_CONFIG_DIR",
+  "OPENCODE_DB",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+];
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function pathApi(platform) {
   return platform === "win32" ? path.win32 : path.posix;
@@ -273,6 +299,85 @@ function resolveNukePlan(input) {
 
 export function buildNukeManifest(input) {
   return resolveNukePlan(input).manifest;
+}
+
+export function buildNukeWorkerNukeInput(input) {
+  const env = {};
+  for (const key of NUKE_WORKER_ENV_KEYS) {
+    const value = envValue(input.env, key);
+    if (value) env[key] = value;
+  }
+  return {
+    env,
+    homedir: String(input.homedir ?? ""),
+    platform: normalizePlatform(input.platform),
+    userDataPath: String(input.userDataPath ?? ""),
+  };
+}
+
+export function buildNukeWorkerPayload({ parentPid, nukeInput, appExecutablePath, appArgv, pendingPath, nowMs = Date.now() }) {
+  return {
+    version: 1,
+    parentPid: Number(parentPid) || 0,
+    nukeInput: buildNukeWorkerNukeInput(nukeInput),
+    appExecutablePath: String(appExecutablePath ?? ""),
+    appArgv: Array.isArray(appArgv) ? appArgv.filter((arg) => typeof arg === "string") : [],
+    pendingPath: String(pendingPath ?? ""),
+    parentWaitDeadlineAt: nowMs + NUKE_WORKER_PARENT_WAIT_MS,
+    deadlineAt: nowMs + NUKE_WORKER_DEADLINE_MS,
+  };
+}
+
+function nukeWorkerScriptPath() {
+  return path.join(__dirname, NUKE_WORKER_FILENAME);
+}
+
+function nukeWorkerPayloadPath() {
+  return path.join(os.tmpdir(), `openwork-nuke-worker-${Date.now()}-${randomBytes(6).toString("hex")}.json`);
+}
+
+async function writeNukeWorkerPayload(payloadPath, payload) {
+  await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function nukeWorkerSpawnEnv(env = process.env) {
+  return { ...env, ELECTRON_RUN_AS_NODE: "1" };
+}
+
+function nukeRelaunchArgv(app, argv) {
+  const input = Array.isArray(argv) ? argv.slice(1) : [];
+  const output = [];
+  if (app?.isPackaged !== true && input[0]?.endsWith("main.mjs")) output.push(input.shift());
+  for (const arg of input) {
+    if (typeof arg === "string" && arg.startsWith("--remote-debugging-")) output.push(arg);
+  }
+  return output;
+}
+
+export async function scheduleNukeCleanupWorker({ app, input, plan, spawnFn, execPath = process.execPath, argv = process.argv, env = process.env }) {
+  const payloadPath = nukeWorkerPayloadPath();
+  const payload = buildNukeWorkerPayload({
+    parentPid: process.pid,
+    nukeInput: input,
+    appExecutablePath: execPath,
+    appArgv: nukeRelaunchArgv(app, argv),
+    pendingPath: plan.pendingPath,
+  });
+  await writeNukeWorkerPayload(payloadPath, payload);
+  try {
+    const launchWorker = typeof spawnFn === "function" ? spawnFn : spawn;
+    const child = launchWorker(execPath, [nukeWorkerScriptPath(), payloadPath], {
+      detached: true,
+      env: nukeWorkerSpawnEnv(env),
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.unref();
+    return { pid: child.pid ?? null, payloadPath };
+  } catch (error) {
+    await rm(payloadPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export function sanitizeDesktopBootstrapConfig(input, writtenAt = new Date().toISOString()) {
@@ -540,6 +645,11 @@ async function quiesceForNuke({ runtimeManager, uiControlServer, removeWindowsBr
   await bestEffort(errors, "windows-brand-shortcut", removeWindowsBrandShortcut, 5000);
 }
 
+/** @returns {"cleanup_worker" | "direct"} */
+function nukeReceiptRelaunchMode(workerScheduled) {
+  return workerScheduled ? "cleanup_worker" : "direct";
+}
+
 function preservePathsWithoutBootstrap(plan) {
   const bootstrapPath = plan.manifest.preserveBootstrapPath;
   if (!bootstrapPath) return plan.preservePaths;
@@ -576,8 +686,9 @@ export async function runPendingNukeCleanup(input, options = {}) {
   return pendingCleanupResult({ ran: true, ...verified });
 }
 
-export async function executeNukeFreshStart({ app, session, runtimeManager, uiControlServer, removeWindowsBrandShortcut }) {
-  const input = {
+/** @returns {Promise<import("@openwork/types/desktop-ipc").NukeReceipt>} */
+export async function executeNukeFreshStart({ app, session, runtimeManager, uiControlServer, removeWindowsBrandShortcut }, options = {}) {
+  const input = options.input ?? {
     env: process.env,
     homedir: os.homedir(),
     platform: process.platform,
@@ -595,25 +706,39 @@ export async function executeNukeFreshStart({ app, session, runtimeManager, uiCo
   const preservePaths = preservedBootstrap
     ? plan.preservePaths
     : preservePathsWithoutBootstrap(plan);
-  const deletionErrors = await deleteManifestPaths(plan.manifest, plan.platform, preservePaths);
+  const deletionErrors = await deleteManifestPaths(plan.manifest, plan.platform, preservePaths, options);
   const verified = await verifyManifestDeletion(plan.manifest, [...phaseErrors, ...deletionErrors], preservePaths);
-  if (plan.platform === "win32" && verified.pendingRetry.length > 0) {
+  if (verified.pendingRetry.length > 0) {
     await writePendingNukeFile(plan.pendingPath, verified.pendingRetry).catch((error) => {
       verified.errors.push(receiptError(plan.pendingPath, error));
     });
+  }
+  const scheduleCleanupWorker = typeof options.scheduleCleanupWorker === "function"
+    ? options.scheduleCleanupWorker
+    : scheduleNukeCleanupWorker;
+  let workerScheduled = false;
+  if (verified.pendingRetry.length > 0) {
+    try {
+      await scheduleCleanupWorker({ app, input, plan });
+      workerScheduled = true;
+    } catch (error) {
+      verified.errors.push(receiptError("nuke-cleanup-worker", error));
+    }
   }
   const receipt = {
     deleted: verified.deleted,
     pendingRetry: verified.pendingRetry,
     errors: verified.errors,
     preservedBootstrap,
+    relaunchMode: nukeReceiptRelaunchMode(workerScheduled),
+    workerScheduled,
   };
   await writeReceipt(receipt).catch((error) => {
     receipt.errors.push(receiptError("nuke-receipt", error));
   });
 
   setTimeout(() => {
-    app.relaunch();
+    if (!workerScheduled) app.relaunch();
     app.quit();
   }, 100);
 

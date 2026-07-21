@@ -308,6 +308,8 @@ export type NukeReceipt = {
   pendingRetry: string[];
   errors: NukeReceiptError[];
   preservedBootstrap: boolean;
+  relaunchMode: "cleanup_worker" | "direct";
+  workerScheduled: boolean;
 };
 
 export type DesktopFetchInit = {
