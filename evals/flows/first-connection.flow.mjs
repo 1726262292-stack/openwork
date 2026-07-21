@@ -266,7 +266,7 @@ export default {
 
                 const expired = await prepareExpiredInstallLink(ctx);
                 state.expiredResolve = await resolveLinkInInstallerUi(ctx, expired.expiredInstallLink);
-                witness(ctx, expired.configStatus === 404, "The rotated-away install token no longer resolves from Den", expired);
+                witness(ctx, expired.configStatus === 404, "The expired install token no longer resolves from Den", expired);
                 witness(ctx, state.expiredResolve.status === 400, "The installer resolve-link API rejects the expired link", state.expiredResolve);
                 witness(
                   ctx,
@@ -1135,15 +1135,32 @@ function readBootstrapConfig(ctx, bootstrapPath) {
 }
 
 async function prepareExpiredInstallLink(ctx) {
-  const old = await mintInstallLink(ctx, { rotate: true });
-  const fresh = await mintInstallLink(ctx, { rotate: true });
-  const config = await denApiFetch(`/v1/install-config?token=${encodeURIComponent(old.token)}`, { method: "GET" });
+  const expired = await mintInstallLink(ctx, { rotate: false });
+  revokeInstallLinkToken(ctx, expired.token);
+  const config = await denApiFetch(`/v1/install-config?token=${encodeURIComponent(expired.token)}`, { method: "GET" });
   return {
-    expiredInstallLink: installPageUrlForBrowser(old.installPageUrl),
-    replacementInstallLink: installPageUrlForBrowser(fresh.installPageUrl),
+    expiredInstallLink: installPageUrlForBrowser(expired.installPageUrl),
     configStatus: config.response.status,
     configBody: config.body,
   };
+}
+
+function revokeInstallLinkToken(ctx, token) {
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const sql = "UPDATE install_link SET revoked_at = CURRENT_TIMESTAMP(3) WHERE token_hash = "
+    + JSON.stringify(tokenHash);
+  const commands = [
+    ["mysql", ["-uroot", "-ppassword", "openwork_den", "-e", sql]],
+    ["docker", ["exec", "openwork-web-local-mysql", "mysql", "-uroot", "-ppassword", "openwork_den", "-e", sql]],
+  ];
+  const attempts = commands.map(([command, args]) => {
+    const result = spawnSync(command, args, { encoding: "utf8" });
+    return { command: `${command} ${args.join(" ")}`, status: result.status, stderr: result.stderr ?? "", error: result.error?.message ?? "" };
+  });
+  if (attempts.some((attempt) => attempt.status === 0)) {
+    return;
+  }
+  ctx.assert(false, `Could not revoke throwaway install link for expired-link coverage: ${JSON.stringify(attempts).slice(0, 900)}`);
 }
 
 async function resolveLinkInInstallerUi(ctx, installLink) {
