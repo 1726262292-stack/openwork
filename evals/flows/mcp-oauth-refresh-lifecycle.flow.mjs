@@ -16,7 +16,7 @@ export default {
     {
       name: "Exercise the real refresh lifecycle",
       run: async (ctx) => {
-        await ctx.prove("The OAuth harness covers serial refresh, concurrent rotation, reuse, and session revocation", {
+        await ctx.prove("The OAuth harness proves serial refresh, concurrent grace recovery, stale reuse revocation, and session revocation", {
           voiceover: vo[0],
           action: async () => {
             const result = spawnSync(

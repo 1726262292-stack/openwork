@@ -39,7 +39,7 @@ function probeAccessTokenLifetime(overrides: Record<string, string>) {
 test("MCP OAuth access tokens use a short lifetime", () => {
   const result = probeAccessTokenLifetime({})
   expect(result.status).toBe(0)
-  expect(result.stdout.trim()).toBe(String(15 * 60))
+  expect(result.stdout.trim()).toBe(String(45 * 60))
 })
 
 test("MCP OAuth access-token test override can shorten the lifetime", () => {
@@ -57,11 +57,11 @@ test("MCP OAuth access-token test override is ignored outside dev mode", () => {
     OPENWORK_DEV_MODE: "0",
   })
   expect(result.status).toBe(0)
-  expect(result.stdout.trim()).toBe(String(15 * 60))
+  expect(result.stdout.trim()).toBe(String(45 * 60))
 })
 
 test("MCP OAuth access-token test override rejects invalid lifetimes", () => {
-  for (const value of ["0", "1.5", "abc", String(15 * 60 + 1)]) {
+  for (const value of ["0", "1.5", "abc", String(45 * 60 + 1)]) {
     const result = probeAccessTokenLifetime({
       DEN_MCP_TEST_ACCESS_TOKEN_EXPIRES_IN_SECONDS: value,
       OPENWORK_DEV_MODE: "1",
@@ -77,7 +77,16 @@ test("invalid MCP OAuth access-token test override is ignored outside dev mode",
     OPENWORK_DEV_MODE: "0",
   })
   expect(result.status).toBe(0)
-  expect(result.stdout.trim()).toBe(String(15 * 60))
+  expect(result.stdout.trim()).toBe(String(45 * 60))
+})
+
+test("MCP OAuth access-token lifetime stays below the JWKS grace period", async () => {
+  seedRequiredEnv()
+  const [{ DEN_MCP_DEFAULT_ACCESS_TOKEN_EXPIRES_IN_SECONDS }, { DEN_JWKS_GRACE_PERIOD_SECONDS }] = await Promise.all([
+    import("../src/mcp/token-lifetime.js"),
+    import("../src/mcp/jwt-policy.js"),
+  ])
+  expect(DEN_MCP_DEFAULT_ACCESS_TOKEN_EXPIRES_IN_SECONDS).toBeLessThan(DEN_JWKS_GRACE_PERIOD_SECONDS)
 })
 
 test("rotating MCP refresh grants use a thirty-day inactivity window", async () => {
