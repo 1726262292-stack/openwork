@@ -30,6 +30,7 @@ const NUKE_WORKER_ENV_KEYS = [
   "OPENWORK_DESKTOP_BOOTSTRAP_PATH",
   "OPENWORK_DEV_MODE",
   "OPENWORK_ELECTRON_USERDATA",
+  "OPENWORK_ELECTRON_REMOTE_DEBUG_PORT",
   "OPENWORK_ENV_STORE",
   "OPENWORK_RUNTIME_DB",
   "OPENWORK_SERVER_CONFIG",
@@ -43,6 +44,7 @@ const NUKE_WORKER_ENV_KEYS = [
 ];
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REMOTE_DEBUGGING_PORT_ARG = "--remote-debugging-port";
 
 function pathApi(platform) {
   return platform === "win32" ? path.win32 : path.posix;
@@ -315,13 +317,42 @@ export function buildNukeWorkerNukeInput(input) {
   };
 }
 
+function safeRemoteDebugPort(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,5}$/.test(text)) return null;
+  const port = Number.parseInt(text, 10);
+  return port > 0 && port <= 65535 ? port : null;
+}
+
+function safeNukeWorkerAppArgv(argv) {
+  const input = Array.isArray(argv) ? argv : [];
+  const output = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const arg = typeof input[index] === "string" ? input[index].trim() : "";
+    if (!arg) continue;
+    if (index === 0 && arg.endsWith("main.mjs")) {
+      output.push(arg);
+      continue;
+    }
+    const inlinePrefix = `${REMOTE_DEBUGGING_PORT_ARG}=`;
+    const inlinePort = arg.startsWith(inlinePrefix) ? safeRemoteDebugPort(arg.slice(inlinePrefix.length)) : null;
+    const splitPort = arg === REMOTE_DEBUGGING_PORT_ARG ? safeRemoteDebugPort(input[index + 1]) : null;
+    const port = inlinePort ?? splitPort;
+    if (port) {
+      output.push(`${REMOTE_DEBUGGING_PORT_ARG}=${port}`);
+      break;
+    }
+  }
+  return output;
+}
+
 export function buildNukeWorkerPayload({ parentPid, nukeInput, appExecutablePath, appArgv, pendingPath, nowMs = Date.now() }) {
   return {
     version: 1,
     parentPid: Number(parentPid) || 0,
     nukeInput: buildNukeWorkerNukeInput(nukeInput),
     appExecutablePath: String(appExecutablePath ?? ""),
-    appArgv: Array.isArray(appArgv) ? appArgv.filter((arg) => typeof arg === "string") : [],
+    appArgv: safeNukeWorkerAppArgv(appArgv),
     pendingPath: String(pendingPath ?? ""),
     parentWaitDeadlineAt: nowMs + NUKE_WORKER_PARENT_WAIT_MS,
     deadlineAt: nowMs + NUKE_WORKER_DEADLINE_MS,
@@ -348,9 +379,7 @@ function nukeRelaunchArgv(app, argv) {
   const input = Array.isArray(argv) ? argv.slice(1) : [];
   const output = [];
   if (app?.isPackaged !== true && input[0]?.endsWith("main.mjs")) output.push(input.shift());
-  for (const arg of input) {
-    if (typeof arg === "string" && arg.startsWith("--remote-debugging-")) output.push(arg);
-  }
+  output.push(...safeNukeWorkerAppArgv(input));
   return output;
 }
 
