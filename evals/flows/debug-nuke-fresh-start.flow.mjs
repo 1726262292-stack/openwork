@@ -786,10 +786,28 @@ try {
 '@
 Set-Content -Path $scriptPath -Value $locker -Encoding UTF8
 $process=Start-Process powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$scriptPath) -WindowStyle Hidden -PassThru
-Start-Sleep -Milliseconds 900
 $locked=$false
-try { $probe=[System.IO.File]::Open($lockPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None); $probe.Dispose() } catch [System.IO.IOException] { $locked=$true }
-$result=[ordered]@{ path=$lockPath; script=$scriptPath; pid=$process.Id; locked=$locked; exists=(Test-Path -LiteralPath $lockPath) }
+$processExited=$false
+$exitCode=$null
+$waitedMs=0
+for($i=0; $i -lt 60; $i++){
+  Start-Sleep -Milliseconds 250
+  $waitedMs += 250
+  try { $process.Refresh() } catch {}
+  if($process.HasExited){
+    $processExited=$true
+    try { $exitCode=[int]$process.ExitCode } catch {}
+    break
+  }
+  try {
+    $probe=[System.IO.File]::Open($lockPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    $probe.Dispose()
+  } catch [System.IO.IOException] {
+    $locked=$true
+    break
+  }
+}
+$result=[ordered]@{ path=$lockPath; script=$scriptPath; pid=$process.Id; locked=$locked; processExited=$processExited; exitCode=$exitCode; waitedMs=$waitedMs; exists=(Test-Path -LiteralPath $lockPath) }
 Write-Output ($result | ConvertTo-Json -Depth 4 -Compress)
 if(-not $locked){ exit 44 }
 `;
