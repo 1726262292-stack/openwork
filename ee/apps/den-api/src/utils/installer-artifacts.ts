@@ -4,6 +4,7 @@ import { env } from "../env.js"
 
 export type ConfiguredInstallerArtifact = {
   filePath: string
+  fileName?: string
   size: number
 }
 
@@ -44,11 +45,25 @@ export async function resolveConfiguredInstallerArtifact(
   if (!env.installerArtifactsDir) {
     return null
   }
-  const filePath = path.join(env.installerArtifactsDir, fileName)
-  try {
-    const artifact = await stat(filePath)
-    return artifact.isFile() ? { filePath, size: artifact.size } : null
-  } catch {
-    return null
+  for (const candidate of installerArtifactCandidates(fileName)) {
+    const filePath = path.join(env.installerArtifactsDir, candidate)
+    try {
+      const artifact = await stat(filePath)
+      if (artifact.isFile()) {
+        return { filePath, fileName: candidate, size: artifact.size }
+      }
+    } catch {
+      // Try the next candidate.
+    }
   }
+  return null
+}
+
+function installerArtifactCandidates(fileName: string) {
+  const candidates = [fileName]
+  const macMatch = /^openwork-(mac-(?:arm64|x64))-/.exec(fileName)
+  if (macMatch) {
+    candidates.push(`openwork-installer-${macMatch[1]}.zip`)
+  }
+  return candidates
 }

@@ -1,11 +1,12 @@
 import {
+  INSTALL_SIDECAR_FILENAME,
   installConfigSchema,
 } from "@openwork/install-config"
 import { connectLinkClaimsSchema } from "@openwork/connect-link"
 import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable, OrganizationTable, RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
-import { createReadStream } from "node:fs"
+import { createReadStream, readFileSync } from "node:fs"
 import type { MiddlewareHandler } from "hono"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
@@ -32,6 +33,7 @@ import {
   installerReleaseAssetUrl,
   resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
+import { appendStoredEntryToZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
 
@@ -305,6 +307,20 @@ function installerContentType(platform: InstallPlatform) {
   return "application/vnd.appimage"
 }
 
+function configuredArtifactContentType(platform: InstallPlatform, fileName: string) {
+  return fileName.toLowerCase().endsWith(".zip") ? "application/zip" : installerContentType(platform)
+}
+
+function stampedZipPayload(filePath: string, config: ReturnType<typeof buildInstallConfig>) {
+  const sidecar = Buffer.from(`${JSON.stringify(config, null, 2)}\n`, "utf8")
+  return Buffer.from(appendStoredEntryToZip(readFileSync(filePath), INSTALL_SIDECAR_FILENAME, sidecar))
+}
+
+function bufferArrayBuffer(buffer: Buffer) {
+  const bytes = new Uint8Array(buffer.byteLength)
+  bytes.set(buffer)
+  return bytes.buffer
+}
 
 const setActiveOrganizationFromParam: MiddlewareHandler<{ Variables: OrgRouteVariables }> = async (c, next) => {
   const parsed = denTypeIdSchema("organization").safeParse(c.req.param("organizationId"))
@@ -526,9 +542,19 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       // or a per-pod artifact cache.
       const configuredArtifact = await installer.resolveConfiguredArtifact(fileName)
       if (configuredArtifact) {
-        c.header("content-type", installerContentType(platform))
+        const responseFileName = configuredArtifact.fileName ?? fileName
+        if (responseFileName.toLowerCase().endsWith(".zip")) {
+          const stamped = stampedZipPayload(configuredArtifact.filePath, resolved.config)
+          c.header("content-type", "application/zip")
+          c.header("content-length", String(stamped.byteLength))
+          c.header("content-disposition", contentDisposition(responseFileName))
+          c.header("cache-control", "private, max-age=300")
+          return c.body(bufferArrayBuffer(stamped))
+        }
+
+        c.header("content-type", configuredArtifactContentType(platform, responseFileName))
         c.header("content-length", String(configuredArtifact.size))
-        c.header("content-disposition", contentDisposition(fileName))
+        c.header("content-disposition", contentDisposition(responseFileName))
         c.header("cache-control", "private, max-age=300")
         return stream(c, async (body) => {
           for await (const chunk of createReadStream(configuredArtifact.filePath)) {
