@@ -33,6 +33,7 @@ const ERROR_TEXT = [
 let bootState = null;
 let markdownSessionId = null;
 let createdSessionId = null;
+let newSessionTranscript = null;
 let settingsState = null;
 let restartState = null;
 
@@ -178,6 +179,44 @@ async function readTranscript(ctx, count = 30) {
   return ctx.control("session.read_transcript", { count });
 }
 
+function transcriptMessages(transcript) {
+  return Array.isArray(transcript?.messages) ? transcript.messages : [];
+}
+
+function transcriptHasRoleText(transcript, role, text) {
+  return transcriptMessages(transcript).some((message) => (
+    message?.role === role && typeof message.text === "string" && message.text.includes(text)
+  ));
+}
+
+async function waitForAssistantResponseInTranscript(ctx, response, { timeoutMs = 120_000, count = 30 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastTranscript = null;
+  let lastError = null;
+
+  await waitForAction(ctx, "session.read_transcript", { enabled: false, timeoutMs: Math.min(timeoutMs, 45_000) });
+  while (Date.now() < deadline) {
+    try {
+      const transcript = await readTranscript(ctx, count);
+      lastTranscript = transcript;
+      lastError = null;
+      if (transcriptHasRoleText(transcript, "assistant", response)) return transcript;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await wait(500);
+  }
+
+  const summary = transcriptMessages(lastTranscript)
+    .map((message) => `${message?.role ?? "unknown"}: ${String(message?.text ?? "").slice(0, 140)}`)
+    .join(" | ");
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for an assistant transcript message containing ${JSON.stringify(response)}` +
+      (lastError ? `; last error: ${lastError}` : "") +
+      (summary ? `; transcript: ${summary}` : ""),
+  );
+}
+
 function markdownDomInfoExpression() {
   return `(() => {
     const assistantMessages = Array.from(document.querySelectorAll('[data-message-role="assistant"]'));
@@ -314,7 +353,7 @@ async function sendPromptAndWait(ctx, prompt, response) {
   });
   await waitForAction(ctx, "composer.send");
   await ctx.control("composer.send");
-  await ctx.waitForText(response, { timeoutMs: 120_000 });
+  return waitForAssistantResponseInTranscript(ctx, response);
 }
 
 async function openSettingsPanel(ctx, panel, requiredText) {
@@ -465,16 +504,16 @@ export default {
             await ctx.control("session.create_task");
             createdSessionId = await waitForSelectedSessionId(ctx, previousSessionId, "newly created session id");
             await waitForSessionListed(ctx, createdSessionId);
-            await sendPromptAndWait(ctx, NEW_SESSION_PROMPT, NEW_SESSION_RESPONSE);
+            newSessionTranscript = await sendPromptAndWait(ctx, NEW_SESSION_PROMPT, NEW_SESSION_RESPONSE);
           },
           assert: async () => {
             ctx.assert(Boolean(createdSessionId), "New session id was not captured.");
             const sessions = await waitForSessionListed(ctx, createdSessionId);
             ctx.assert(sessions.some((session) => session.sessionId === createdSessionId), `Session ${createdSessionId} is not listed.`);
-            const transcript = await readTranscript(ctx, 6);
-            const messages = Array.isArray(transcript?.messages) ? transcript.messages : [];
+            const transcript = newSessionTranscript ?? await waitForAssistantResponseInTranscript(ctx, NEW_SESSION_RESPONSE, { count: 6 });
+            const messages = transcriptMessages(transcript);
             ctx.assert(messages.some((message) => message.role === "user" && message.text.includes(NEW_SESSION_PROMPT)), "User prompt was not persisted in the transcript.");
-            ctx.assert(messages.some((message) => message.role === "assistant" && message.text.includes(NEW_SESSION_RESPONSE)), "Assistant response was not persisted in the transcript.");
+            ctx.assert(transcriptHasRoleText(transcript, "assistant", NEW_SESSION_RESPONSE), "Assistant response was not persisted in the transcript.");
             await ctx.expectText(NEW_SESSION_RESPONSE);
             await assertNoVisibleErrors(ctx);
           },
@@ -531,8 +570,7 @@ export default {
             await routeSession(ctx);
             const afterBoot = await collectBootState(ctx);
             await openSession(ctx, createdSessionId);
-            await ctx.waitForText(NEW_SESSION_RESPONSE, { timeoutMs: 60_000 });
-            const transcript = await readTranscript(ctx, 6);
+            const transcript = await waitForAssistantResponseInTranscript(ctx, NEW_SESSION_RESPONSE, { timeoutMs: 60_000, count: 6 });
             await openSettingsPanel(ctx, "connect", "Connect for teams");
             const connect = await inspectConnectSurface(ctx);
             restartState = { beforeWorkspaceId, afterBoot, transcript, connect };
@@ -545,9 +583,8 @@ export default {
               !restartState.beforeWorkspaceId || restartState.afterBoot.selectedWorkspaceId === restartState.beforeWorkspaceId,
               `Workspace changed across restart: ${JSON.stringify(restartState)}`,
             );
-            const transcriptText = JSON.stringify(restartState.transcript);
-            ctx.assert(transcriptText.includes(NEW_SESSION_PROMPT), "Restarted transcript is missing the user prompt.");
-            ctx.assert(transcriptText.includes(NEW_SESSION_RESPONSE), "Restarted transcript is missing the assistant response.");
+            ctx.assert(transcriptHasRoleText(restartState.transcript, "user", NEW_SESSION_PROMPT), "Restarted transcript is missing the user prompt.");
+            ctx.assert(transcriptHasRoleText(restartState.transcript, "assistant", NEW_SESSION_RESPONSE), "Restarted transcript is missing the assistant response.");
             ctx.assert(restartState.connect.route.includes("/settings/connect"), `Settings route did not return after restart: ${JSON.stringify(restartState.connect)}`);
             ctx.assert(restartState.connect.hasHeader && restartState.connect.hasDescription, `Connect settings did not render after restart: ${JSON.stringify(restartState.connect)}`);
             await assertNoVisibleErrors(ctx);
