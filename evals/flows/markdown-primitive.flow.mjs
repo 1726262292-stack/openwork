@@ -19,12 +19,21 @@ function messageSelector(messageId) {
 
 async function closeTransientUi(ctx) {
   await ctx.eval(`(() => {
+    const closeFind = document.querySelector('button[aria-label="Close find"]');
+    if (closeFind instanceof HTMLButtonElement && !closeFind.disabled) {
+      closeFind.click();
+    }
+
     for (let index = 0; index < 3; index += 1) {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     }
     return true;
   })()`);
+  await ctx.waitFor(
+    `!document.querySelector(${JSON.stringify(FIND_INPUT)}) && !document.querySelector('mark[data-search-highlight="true"]')`,
+    { timeoutMs: 30_000, label: "find UI and search highlights to clear" },
+  );
 }
 
 async function waitForControl(ctx) {
