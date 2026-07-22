@@ -12,9 +12,9 @@ confirms the connection. Works identically for self-hosted servers.
 
 2. The invitee opens that link and sees a three-step checklist — download, open the installer, sign in — with the install link pinned in a copy box the whole time, and a promise that this page will confirm once their desktop is connected.
 
-3. They download and open the installer, and it already knows the team: "This sets up OpenWork for Acme Robotics", with the server address right there — one click installs.
+3. They download and open the installer — it asks for exactly one thing, the link pinned on this page; until it gets one, nothing installs, so there is no wrong server to end up on.
 
-4. And if the installer ever can't read its stamp — say the file got renamed — it doesn't guess: it asks for the install link, the same one still sitting in the checklist, and pasting it continues exactly the same way.
+4. They paste the link and the installer confirms the team and server, then installs the version their organization supports — and an expired link fails plainly with what to do next.
 
 5. Suppose someone skips all that and installs the plain OpenWork app instead: on first run it asks — use OpenWork Cloud, or join your organization by pasting your link — so the invitee pastes the same link and the app binds to their team's server; nothing ever defaults silently.
 
