@@ -12,5 +12,12 @@ describe("desktop handoff public URL", () => {
     expect(resolveDesktopDenBaseUrl(new Request("http://0.0.0.0:8788/v1/auth/desktop-handoff", {
       headers: { origin: "http://0.0.0.0:3005" },
     }))).toBe("https://public.example.test/api/den")
+
+    expect(resolveDesktopDenBaseUrl(new Request("http://127.0.0.1:8788/v1/auth/desktop-handoff", {
+      headers: {
+        "x-forwarded-host": "0.0.0.0:3005",
+        "x-forwarded-proto": "https",
+      },
+    }))).toBe("https://public.example.test/api/den")
   })
 })

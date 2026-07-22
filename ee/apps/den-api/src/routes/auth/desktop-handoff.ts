@@ -148,6 +148,9 @@ export function resolveDesktopDenBaseUrl(request: Request) {
   const origin = `${protocol}://${targetHost}`
   try {
     const url = new URL(origin)
+    if (url.hostname === "0.0.0.0") {
+      return configuredDesktopDenBaseUrl()
+    }
     if (isWebAppHost(url.hostname)) {
       return withDenProxyPath(url.origin)
     }
