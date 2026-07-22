@@ -14,14 +14,11 @@
  *
  * `pnpm evals --stack-down` stops what the harness started.
  */
-import { spawn, execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { openSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve, dirname } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(RUNNER_DIR, "..", "..");
@@ -63,17 +60,21 @@ const DEN_ENV = {
   INFERENCE_PROXY_BASE_URL: process.env.INFERENCE_PROXY_BASE_URL ?? "http://127.0.0.1:8791",
 };
 
-const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+const sleep = (ms: number) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 
-function devUserDataHome() {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function devUserDataHome(): string {
   return EVAL_ELECTRON_USERDATA;
 }
 
-function devBootstrapPath() {
+function devBootstrapPath(): string {
   return join(devUserDataHome(), "openwork-dev-data", "home", ".config", "openwork", "desktop-bootstrap.json");
 }
 
-async function httpOk(url, timeoutMs = 2_500) {
+async function httpOk(url: string, timeoutMs = 2_500): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -85,22 +86,22 @@ async function httpOk(url, timeoutMs = 2_500) {
   }
 }
 
-async function hasCdpPageTarget(baseUrl) {
+async function hasCdpPageTarget(baseUrl: string): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2_500);
     const response = await fetch(`${baseUrl}/json/list`, { signal: controller.signal });
     clearTimeout(timer);
     if (!response.ok) return false;
-    const targets = await response.json();
+    const targets: unknown = await response.json();
     return Array.isArray(targets)
-      && targets.some((target) => target?.type === "page" && typeof target.webSocketDebuggerUrl === "string");
+      && targets.some((target) => isRecord(target) && target.type === "page" && typeof target.webSocketDebuggerUrl === "string");
   } catch {
     return false;
   }
 }
 
-async function signInDemoOwner() {
+async function signInDemoOwner(): Promise<string | null> {
   try {
     const response = await fetch(`${DEN_API_URL}/api/auth/sign-in/email`, {
       method: "POST",
@@ -108,18 +109,46 @@ async function signInDemoOwner() {
       body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
     });
     if (!response.ok) return null;
-    const payload = await response.json();
-    return typeof payload.token === "string" && payload.token ? payload.token : null;
+    const payload: unknown = await response.json();
+    return isRecord(payload) && typeof payload.token === "string" && payload.token ? payload.token : null;
   } catch {
     return null;
   }
 }
 
-async function run(command, args, options = {}) {
-  return execFileAsync(command, args, { cwd: REPO_ROOT, maxBuffer: 16 * 1024 * 1024, ...options });
+interface RunOptions {
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  maxBuffer?: number;
 }
 
-function spawnDetached(command, args, { logName, env, cwd }) {
+interface RunResult {
+  stdout: string;
+  stderr: string;
+}
+
+async function run(command: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
+  return new Promise((resolveRun, reject) => {
+    execFile(command, args, { cwd: REPO_ROOT, maxBuffer: 16 * 1024 * 1024, encoding: "utf8", ...options }, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolveRun({
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+interface SpawnDetachedOptions {
+  logName: string;
+  env: NodeJS.ProcessEnv;
+  cwd?: string;
+}
+
+function spawnDetached(command: string, args: string[], { logName, env, cwd }: SpawnDetachedOptions): number {
   // Redirect stdio to a log file — inheriting it would keep the parent's
   // pipes open forever and hang any shell pipeline wrapping the runner.
   const logFd = openSync(join(STATE_DIR, `${logName}.log`), "a");
@@ -130,15 +159,16 @@ function spawnDetached(command, args, { logName, env, cwd }) {
     stdio: ["ignore", logFd, logFd],
   });
   child.unref();
+  if (!child.pid) throw new Error(`Could not spawn ${command}.`);
   return child.pid;
 }
 
-async function writePidState(name, value) {
+async function writePidState(name: string, value: unknown): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
   await writeFile(join(STATE_DIR, name), String(value));
 }
 
-async function readPidState(name) {
+async function readPidState(name: string): Promise<string | null> {
   try {
     return (await readFile(join(STATE_DIR, name), "utf8")).trim();
   } catch {
@@ -146,7 +176,7 @@ async function readPidState(name) {
   }
 }
 
-async function ensureMysql(log) {
+async function ensureMysql(log: (message: string) => void): Promise<void> {
   try {
     const { stdout } = await run("docker", ["inspect", "-f", "{{.State.Health.Status}}", MYSQL_CONTAINER]);
     if (stdout.trim() === "healthy") {
@@ -162,7 +192,7 @@ async function ensureMysql(log) {
   log("MySQL healthy");
 }
 
-async function mysqlQuery(sql) {
+async function mysqlQuery(sql: string): Promise<string> {
   const { stdout } = await run("docker", [
     "exec", MYSQL_CONTAINER,
     "mysql", "-uroot", "-ppassword", DEN_DATABASE_NAME, "-N", "-e", sql,
@@ -170,7 +200,7 @@ async function mysqlQuery(sql) {
   return stdout.trim();
 }
 
-async function ensureSchema(log) {
+async function ensureSchema(log: (message: string) => void): Promise<void> {
   try {
     const schema = await mysqlQuery("SHOW TABLES LIKE 'organization'; SHOW TABLES LIKE 'desktop_connect_grant'; SHOW TABLES LIKE 'scim_group'; SHOW COLUMNS FROM scim_provider LIKE 'group_mapping_mode';");
     if (
@@ -195,7 +225,7 @@ async function ensureSchema(log) {
   log("Schema pushed");
 }
 
-async function ensureDenApi(log) {
+async function ensureDenApi(log: (message: string) => void): Promise<void> {
   const publicHealthOk = await httpOk(`${DEN_API_URL}/health`);
   const denWebPathHealthOk = await httpOk(`${DEN_API_URL}/api/den/health`);
   if (publicHealthOk && denWebPathHealthOk) {
@@ -210,7 +240,7 @@ async function ensureDenApi(log) {
   }
 
   log(`Starting den-api on internal :${DEN_API_INTERNAL_PORT} (proxied on :${DEN_API_PORT})...`);
-  const pid = spawnDetached("npx", ["tsx", "src/main.ts"], {
+  const pid = spawnDetached("pnpm", ["exec", "tsx", "src/main.ts"], {
     logName: "den-api",
     cwd: join(REPO_ROOT, "ee", "apps", "den-api"),
     env: DEN_ENV,
@@ -228,7 +258,7 @@ async function ensureDenApi(log) {
   }
 
   log(`Starting den proxy on :${DEN_API_PORT} -> :${DEN_API_INTERNAL_PORT}...`);
-  const proxyPid = spawnDetached(process.execPath, [join(RUNNER_DIR, "den-proxy.mjs")], {
+  const proxyPid = spawnDetached(process.execPath, [join(RUNNER_DIR, "den-proxy.ts")], {
     logName: "den-proxy",
     env: {
       DEN_PROXY_LISTEN_PORT: String(DEN_API_PORT),
@@ -247,7 +277,7 @@ async function ensureDenApi(log) {
   throw new Error("den proxy did not expose /api/den/health within 30s.");
 }
 
-async function ensureDenWeb(log) {
+async function ensureDenWeb(log: (message: string) => void): Promise<void> {
   if (await httpOk(`${DEN_WEB_ORIGIN}/api/den/health`)) {
     log(`den-web already healthy at ${DEN_WEB_ORIGIN}`);
     return;
@@ -276,13 +306,13 @@ async function ensureDenWeb(log) {
   throw new Error(`den-web did not become healthy at ${DEN_WEB_ORIGIN} within 90s.`);
 }
 
-async function ensureSeed(log) {
+async function ensureSeed(log: (message: string) => void): Promise<void> {
   if (await signInDemoOwner()) {
     log(`Demo org present (${DEMO_EMAIL})`);
     return;
   }
   log("Seeding demo org (Acme Robotics)...");
-  await run("npx", ["tsx", "scripts/seed-demo-org.ts"], {
+  await run("pnpm", ["exec", "tsx", "scripts/seed-demo-org.ts"], {
     cwd: join(REPO_ROOT, "ee", "apps", "den-api"),
     env: { ...process.env, ...DEN_ENV },
   });
@@ -292,13 +322,13 @@ async function ensureSeed(log) {
   log("Demo org seeded");
 }
 
-async function freeStaleAppPorts(log) {
+async function freeStaleAppPorts(log: (message: string) => void): Promise<void> {
   // If no app page target is serving but the dev ports are held, a previous
   // run left a half-dead app behind (e.g. Electron without its renderer).
   // Clear them so the fresh spawn does not lose the bind race.
   for (const port of [9823, 5173]) {
     try {
-      const { stdout } = await execFileAsync("lsof", ["-nP", "-ti", `tcp:${port}`]);
+      const { stdout } = await run("lsof", ["-nP", "-ti", `tcp:${port}`]);
       const pids = stdout.split("\n").map((line) => line.trim()).filter(Boolean);
       for (const pid of pids) {
         try {
@@ -315,7 +345,7 @@ async function freeStaleAppPorts(log) {
   await sleep(1_500);
 }
 
-async function ensureApp(log, cdpCandidates) {
+async function ensureApp(log: (message: string) => void, cdpCandidates: string[]): Promise<void> {
   for (const candidate of cdpCandidates) {
     if (await hasCdpPageTarget(candidate)) {
       log(`App CDP already reachable at ${candidate} — make sure it targets the local Den (reload after bootstrap changes).`);
@@ -354,7 +384,13 @@ async function ensureApp(log, cdpCandidates) {
   throw new Error("Dev Electron CDP page target did not come up within 3 minutes.");
 }
 
-export async function ensureDenStack({ log, cdpCandidates, skipApp = false }) {
+export interface EnsureDenStackOptions {
+  log(message: string): void;
+  cdpCandidates: string[];
+  skipApp?: boolean;
+}
+
+export async function ensureDenStack({ log, cdpCandidates, skipApp = false }: EnsureDenStackOptions): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
   await ensureMysql(log);
   await ensureSchema(log);
@@ -376,7 +412,11 @@ export async function ensureDenStack({ log, cdpCandidates, skipApp = false }) {
   log(`Den stack ready — flows get OPENWORK_EVAL_DEN_API_URL=${DEN_API_URL}, OPENWORK_EVAL_DEN_WEB_URL=${DEN_WEB_ORIGIN}, and a fresh ${DEMO_EMAIL} token.`);
 }
 
-export async function denStackDown({ log }) {
+export interface DenStackDownOptions {
+  log(message: string): void;
+}
+
+export async function denStackDown({ log }: DenStackDownOptions): Promise<void> {
   const proxyPid = await readPidState("den-proxy.pid");
   if (proxyPid) {
     try { process.kill(Number(proxyPid)); log(`Stopped den-proxy (pid ${proxyPid})`); } catch { /* already gone */ }
