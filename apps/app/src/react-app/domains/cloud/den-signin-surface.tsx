@@ -4,8 +4,6 @@ import {
   Cloud,
   ChevronDown,
   ChevronUp,
-  Users,
-  Share2,
 } from "lucide-react";
 import { PaperGrainGradient } from "@openwork/ui/react";
 
@@ -58,60 +56,40 @@ const errorBannerClass =
   "rounded-xl border border-red-7/30 bg-red-1/40 px-3 py-2 text-xs text-red-11";
 
 /* ------------------------------------------------------------------ */
-/*  Brand icon via Simple Icons CDN                                    */
-/* ------------------------------------------------------------------ */
-
-function BrandIcon({ slug, size = 18 }: { slug: string; size?: number }) {
-  return (
-    <img
-      src={`https://cdn.simpleicons.org/${slug}`}
-      alt=""
-      width={size}
-      height={size}
-      loading="lazy"
-      style={{ display: "block" }}
-    />
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Right-side showcase: capabilities + team features                  */
 /* ------------------------------------------------------------------ */
 
 const capabilities = [
-  { slug: "googlesheets", title: "Edit spreadsheets", desc: "Create, clean, and transform CSV and Excel files." },
-  { slug: "semanticweb", title: "Control your browser", desc: "Automate the built-in browser for repetitive web tasks." },
-  { slug: "apple", title: "Organize files", desc: "Read, write, and manage files and folders." },
-  { slug: "zapier", title: "Automate tasks", desc: "Build reusable workflows with skills and commands." },
-  { slug: "medium", title: "Generate content", desc: "Draft documents, emails, and reports." },
-  { slug: "stripe", title: "Connect to APIs", desc: "Plug into external services and tools via MCP." },
+  { titleKey: "welcome.capability_spreadsheets", descKey: "welcome.capability_spreadsheets_desc" },
+  { titleKey: "welcome.capability_browser", descKey: "welcome.capability_browser_desc" },
+  { titleKey: "welcome.capability_files", descKey: "welcome.capability_files_desc" },
+  { titleKey: "welcome.capability_automate", descKey: "welcome.capability_automate_desc" },
+  { titleKey: "welcome.capability_content", descKey: "welcome.capability_content_desc" },
+  { titleKey: "welcome.capability_apis", descKey: "welcome.capability_apis_desc" },
 ];
 
 function ShowcasePanel() {
   return (
     <div className="flex flex-col gap-5">
-      {/* Hero */}
+      {/* Label */}
       <div>
-        <h2 className="text-[20px] font-semibold tracking-[-0.01em] text-dls-text">
-          Your computer,
-          <br />
-          but it works for you.
-        </h2>
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-dls-secondary">
+          {t("welcome.showcase_label")}
+        </div>
       </div>
 
       {/* Capabilities */}
       <div className="grid grid-cols-3 gap-2">
         {capabilities.map((cap) => (
           <div
-            key={cap.title}
+            key={cap.titleKey}
             className="flex flex-col gap-1.5 rounded-xl border border-dls-border bg-dls-surface p-3"
           >
-            <BrandIcon slug={cap.slug} size={18} />
             <div className="text-[12px] font-medium leading-tight text-dls-text">
-              {cap.title}
+              {t(cap.titleKey)}
             </div>
             <div className="text-[11px] leading-snug text-dls-secondary">
-              {cap.desc}
+              {t(cap.descKey)}
             </div>
           </div>
         ))}
@@ -119,26 +97,20 @@ function ShowcasePanel() {
 
       {/* Team features */}
       <div className="grid grid-cols-2 gap-2">
-        <div className="flex items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3">
-          <Share2 size={16} className="mt-0.5 shrink-0 text-dls-secondary" strokeWidth={1.5} />
-          <div>
-            <div className="text-[12px] font-medium text-dls-text">
-              Shared extensions
-            </div>
-            <div className="mt-0.5 text-[11px] leading-snug text-dls-secondary">
-              Share approved skills, MCPs, and plugins with your organization.
-            </div>
+        <div className="flex flex-col gap-1.5 rounded-xl border border-dls-border bg-dls-surface p-3">
+          <div className="text-[12px] font-medium text-dls-text">
+            {t("welcome.showcase_shared_extensions")}
+          </div>
+          <div className="text-[11px] leading-snug text-dls-secondary">
+            {t("welcome.showcase_shared_extensions_desc")}
           </div>
         </div>
-        <div className="flex items-start gap-2.5 rounded-xl border border-dls-border bg-dls-surface p-3">
-          <Users size={16} className="mt-0.5 shrink-0 text-dls-secondary" strokeWidth={1.5} />
-          <div>
-            <div className="text-[12px] font-medium text-dls-text">
-              Provision your team
-            </div>
-            <div className="mt-0.5 text-[11px] leading-snug text-dls-secondary">
-              Manage workspaces, models, and permissions.
-            </div>
+        <div className="flex flex-col gap-1.5 rounded-xl border border-dls-border bg-dls-surface p-3">
+          <div className="text-[12px] font-medium text-dls-text">
+            {t("welcome.showcase_provision_team")}
+          </div>
+          <div className="text-[11px] leading-snug text-dls-secondary">
+            {t("welcome.showcase_provision_team_desc")}
           </div>
         </div>
       </div>

@@ -1,9 +1,9 @@
 /** @jsxImportSource react */
 import { type ReactNode } from "react";
-import { ShareIcon, UserGroupIcon } from "@heroicons/react/24/solid";
 import { PaperGrainGradient } from "@openwork/ui/react";
 
 import { t } from "../../../i18n";
+import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import {
   Page,
   PageBackground,
@@ -14,55 +14,33 @@ import {
 } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
+import { displayCustomControlPlaneUrl } from "../settings/cloud/control-plane-url";
 import { OrganizationServerAffordance } from "../settings/cloud/organization-server-affordance";
-
-interface BrandIconProps {
-  slug: string;
-  className?: string;
-}
-
-function BrandIcon({ slug, className }: BrandIconProps) {
-  return (
-    <img
-      className={cn("block size-4", className)}
-      src={`https://cdn.simpleicons.org/${slug}/_/777b84`}
-      alt=""
-      loading="lazy"
-    />
-  );
-}
 
 const capabilities = [
   {
-    slug: "googlesheets",
-    title: "Edit spreadsheets",
-    desc: "Create, clean, and transform CSV and Excel files.",
+    titleKey: "welcome.capability_spreadsheets",
+    descKey: "welcome.capability_spreadsheets_desc",
   },
   {
-    slug: "semanticweb",
-    title: "Control your browser",
-    desc: "Automate the built-in browser for repetitive web tasks.",
+    titleKey: "welcome.capability_browser",
+    descKey: "welcome.capability_browser_desc",
   },
   {
-    slug: "apple",
-    title: "Organize files",
-    desc: "Read, write, and manage files and folders.",
+    titleKey: "welcome.capability_files",
+    descKey: "welcome.capability_files_desc",
   },
   {
-    slug: "zapier",
-    title: "Automate tasks",
-    desc: "Build reusable workflows with skills and commands.",
+    titleKey: "welcome.capability_automate",
+    descKey: "welcome.capability_automate_desc",
   },
   {
-    slug: "medium",
-    title: "Generate content",
-    desc: "Draft documents, emails, and reports.",
+    titleKey: "welcome.capability_content",
+    descKey: "welcome.capability_content_desc",
   },
   {
-    slug: "stripe",
-    title: "Connect to APIs",
-    desc: "Plug into external services and tools via MCP.",
+    titleKey: "welcome.capability_apis",
+    descKey: "welcome.capability_apis_desc",
   },
 ];
 
@@ -70,48 +48,39 @@ function ShowcasePanel() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">
-          Your computer,
-          <br />
-          but it works for you.
-        </h2>
+        <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          {t("welcome.showcase_label")}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         {capabilities.map((cap) => (
           <div
-            key={cap.title}
-            className="flex flex-col gap-2.5 rounded-xl border border-border p-3"
+            key={cap.titleKey}
+            className="flex flex-col gap-1.5 rounded-xl border border-border p-3"
           >
-            <BrandIcon className="size-4" slug={cap.slug} />
             <div className="text-sm font-medium leading-tight text-foreground">
-              {cap.title}
+              {t(cap.titleKey)}
             </div>
             <div className="text-xs leading-snug text-muted-foreground">
-              {cap.desc}
+              {t(cap.descKey)}
             </div>
           </div>
         ))}
-        <div className="flex flex-col items-start gap-2.5 rounded-xl border border-border p-3">
-            <ShareIcon className="size-4 shrink-0 text-muted-foreground" />
-            <div className="flex flex-col gap-1.5">
-              <div className="text-sm font-medium text-foreground">
-              Shared extensions
-              </div>
-              <div className="text-xs leading-snug text-muted-foreground">
-              Share approved skills, MCPs, and plugins with your organization.
-              </div>
-            </div>
+        <div className="flex flex-col gap-1.5 rounded-xl border border-border p-3">
+          <div className="text-sm font-medium text-foreground">
+            {t("welcome.showcase_shared_extensions")}
           </div>
-        <div className="flex flex-col items-start gap-2.5 rounded-xl border border-border p-3">
-          <UserGroupIcon className="size-4 shrink-0 text-muted-foreground" />
-          <div className="flex flex-col gap-1.5">
-            <div className="text-sm font-medium text-foreground">
-              Provision your team
-            </div>
-            <div className="text-xs leading-snug text-muted-foreground">
-              Manage workspaces, models, and permissions.
-            </div>
+          <div className="text-xs leading-snug text-muted-foreground">
+            {t("welcome.showcase_shared_extensions_desc")}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 rounded-xl border border-border p-3">
+          <div className="text-sm font-medium text-foreground">
+            {t("welcome.showcase_provision_team")}
+          </div>
+          <div className="text-xs leading-snug text-muted-foreground">
+            {t("welcome.showcase_provision_team_desc")}
           </div>
         </div>
       </div>
@@ -134,6 +103,7 @@ type WelcomePageProps = {
   organizationServerError: string | null;
   organizationServerUrl: string;
   onOrganizationServerSave: (url: string) => Promise<boolean>;
+  developerMode: boolean;
 };
 
 type OnboardingStepProps = {
@@ -171,7 +141,11 @@ export function WelcomePage({
   organizationServerError,
   organizationServerUrl,
   onOrganizationServerSave,
+  developerMode,
 }: WelcomePageProps) {
+  const showConnectedOrganizationServer =
+    !developerMode && displayCustomControlPlaneUrl(organizationServerUrl) !== "";
+
   return (
     <Page className="min-h-screen">
       <PageBackground />
@@ -184,6 +158,15 @@ export function WelcomePage({
             {/* ---- Left: onboarding steps ---- */}
             <div className="flex w-full flex-col items-center justify-center px-8 py-16 lg:w-[45%] lg:px-12">
               <div className="flex w-full max-w-md flex-col gap-10">
+                <img
+                  src={resolveExtensionIconSrc("/openwork-mark.svg")}
+                  alt=""
+                  width={32}
+                  height={32}
+                  className="size-8"
+                  data-testid="welcome-brand-mark"
+                />
+
                 {/* Header */}
                 <PageHeader className="text-left">
                   <PageTitle>{t("welcome.title")}</PageTitle>
@@ -192,11 +175,6 @@ export function WelcomePage({
 
                 {/* Steps */}
                 <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-2">
-                    <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                      Get started
-                    </h2>
-                  </div>
                   <OnboardingStep number="1" title="Pick a folder">
                     Choose any folder on your machine to get started.
                   </OnboardingStep>
@@ -218,11 +196,18 @@ export function WelcomePage({
                   >
                     {busy
                       ? t("welcome.creating_workspace")
-                      : (getStartedLabel || t("welcome.get_started"))}
+                      : (getStartedLabel || t("welcome.pick_folder"))}
                   </Button>
                   <div className="flex flex-col gap-2">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      Joining a team?
+                    <div
+                      className="flex items-center gap-3 py-1"
+                      data-testid="welcome-or-divider"
+                    >
+                      <div className="h-px flex-1 bg-border" />
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {t("welcome.or")}
+                      </span>
+                      <div className="h-px flex-1 bg-border" />
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {onTeamSignIn ? (
@@ -235,7 +220,10 @@ export function WelcomePage({
                           <div className="text-sm font-medium">
                             {t("welcome.use_cloud")}
                           </div>
-                          <div className="truncate text-xs text-muted-foreground">
+                          <div
+                            className="text-xs leading-snug text-muted-foreground"
+                            data-testid="welcome-team-signin-subtitle"
+                          >
                             {t("welcome.use_cloud_subtitle")}
                           </div>
                         </button>
@@ -249,41 +237,61 @@ export function WelcomePage({
                         <div className="text-sm font-medium">
                           {t("welcome.join_org")}
                         </div>
-                        <div className="truncate text-xs text-muted-foreground">
+                        <div
+                          className="text-xs leading-snug text-muted-foreground"
+                          data-testid="welcome-join-org-subtitle"
+                        >
                           {t("welcome.join_org_subtitle")}
                         </div>
                       </button>
                     </div>
                   </div>
-                  <OrganizationServerAffordance
-                    busy={organizationServerBusy}
-                    error={organizationServerError}
-                    onSave={onOrganizationServerSave}
-                    url={organizationServerUrl}
-                  />
                   {error ? (
                     <p className="text-center text-xs text-destructive">{error}</p>
                   ) : null}
-                  {showManualFolder ? (
-                    <div className="rounded-xl border border-dashed border-border p-3">
-                      <label className="grid gap-2 text-xs font-medium text-muted-foreground">
-                        Daytona folder path
-                        <input
-                          className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal text-foreground outline-none focus:border-ring"
-                          value={manualFolder ?? ""}
-                          onChange={(event) => onManualFolderChange?.(event.target.value)}
-                          placeholder="/workspace/my-project"
-                        />
-                      </label>
-                      <Button
-                        className="mt-2 w-full"
-                        variant="outline"
-                        onClick={onUseManualFolder}
-                        disabled={busy || !manualFolder?.trim()}
-                      >
-                        Use this folder
-                      </Button>
-                    </div>
+                  {developerMode ? (
+                    <section
+                      className="flex flex-col gap-3"
+                      data-testid="welcome-developer-section"
+                    >
+                      <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                        {t("welcome.developer_section")}
+                      </div>
+                      <OrganizationServerAffordance
+                        busy={organizationServerBusy}
+                        error={organizationServerError}
+                        onSave={onOrganizationServerSave}
+                        url={organizationServerUrl}
+                      />
+                      {showManualFolder ? (
+                        <div className="rounded-xl border border-dashed border-border p-3">
+                          <label className="grid gap-2 text-xs font-medium text-muted-foreground">
+                            Daytona folder path
+                            <input
+                              className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal text-foreground outline-none focus:border-ring"
+                              value={manualFolder ?? ""}
+                              onChange={(event) => onManualFolderChange?.(event.target.value)}
+                              placeholder="/workspace/my-project"
+                            />
+                          </label>
+                          <Button
+                            className="mt-2 w-full"
+                            variant="outline"
+                            onClick={onUseManualFolder}
+                            disabled={busy || !manualFolder?.trim()}
+                          >
+                            Use this folder
+                          </Button>
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : showConnectedOrganizationServer ? (
+                    <OrganizationServerAffordance
+                      busy={organizationServerBusy}
+                      error={organizationServerError}
+                      onSave={onOrganizationServerSave}
+                      url={organizationServerUrl}
+                    />
                   ) : null}
                 </div>
               </div>

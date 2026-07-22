@@ -6,7 +6,7 @@ requires a custom installer that writes desktop-bootstrap.json, or a hidden
 developer-mode field. This makes it a first-class, copy-paste affordance on
 the welcome screen and at the top of Advanced settings.
 
-1. On a fresh install, the welcome screen offers more than Get started. Beneath it sits a quiet link that says Using OpenWork on-premises, so an enterprise user sees immediately where to point the app at their company's server before signing in to anything.
+1. On a fresh install the welcome screen stays clean, and an IT admin who flips on developer mode reveals a quiet Developer section with a link that says Using OpenWork on-premises, for pointing the app at the company's server before signing in to anything.
 
 2. Clicking it opens a simple dialog titled Connect to your organization's server. The user pastes the address exactly as IT shared it and saves.
 

@@ -136,6 +136,10 @@ export function WelcomeRoute() {
   const [organizationServerBusy, setOrganizationServerBusy] = useState(false);
   const [organizationServerError, setOrganizationServerError] = useState<string | null>(null);
   const [joinOrganizationOpen, setJoinOrganizationOpen] = useState(false);
+  const [developerMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("openwork.developerMode") === "1";
+  });
   const showOpenWorkModelsPromo = useOpenWorkModelsPromoEligibility();
 
   // If user already completed onboarding, redirect away immediately.
@@ -406,6 +410,7 @@ export function WelcomeRoute() {
         organizationServerError={organizationServerError}
         organizationServerUrl={organizationServerUrl}
         onOrganizationServerSave={handleOrganizationServerSave}
+        developerMode={developerMode}
       />
       <JoinOrganizationDialog
         open={joinOrganizationOpen}

@@ -71,6 +71,7 @@ async function resetToDefaultWelcome(ctx) {
   });
   await ctx.eval(`(async () => {
     ${writeOnboardingPrefScript(false)};
+    localStorage.setItem("openwork.developerMode", "1");
     location.hash = "#/welcome";
     location.reload();
     return true;
@@ -151,19 +152,22 @@ export default {
     {
       name: "Frame 1",
       run: async (ctx) => {
-        await ctx.prove("The fresh welcome screen offers an on-premises server link under Get started", {
+        await ctx.prove("With developer mode on, the welcome screen exposes the on-premises server link under a Developer label", {
           voiceover: vo[0],
           action: async () => {
             await resetToDefaultWelcome(ctx);
           },
           assert: async () => {
             await ctx.expectText("Pick a folder to get started");
+            // The Developer label renders via CSS text-transform: uppercase,
+            // which Chromium reflects in document.body.innerText.
+            await ctx.expectText("DEVELOPER");
             await ctx.expectText("Using OpenWork on-premises?");
             await ctx.expectNoText(`Connected to ${ORG_HOST}`);
           },
           screenshot: {
             name: "frame-1",
-            requireText: ["Pick a folder to get started", "Using OpenWork on-premises?"],
+            requireText: ["Pick a folder to get started", "DEVELOPER", "Using OpenWork on-premises?"],
             rejectText: [`Connected to ${ORG_HOST}`, "Something went wrong"],
           },
         });
@@ -287,6 +291,7 @@ export default {
                 requireSignin: true,
               });
               await ctx.eval(`(() => {
+                localStorage.removeItem("openwork.developerMode");
                 location.hash = "#/signin";
                 location.reload();
                 return true;
