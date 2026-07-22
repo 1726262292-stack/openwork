@@ -125,7 +125,9 @@ export default defineFlow({
             await ctx.control("route.settings.general");
           },
           assert: async () => {
-            await ctx.expectRoute("/settings/general");
+            // Settings routes are workspace-scoped on onboarded profiles
+            // (/workspace/<id>/settings/general), so match the suffix.
+            await ctx.expectHashIncludes("/settings/general");
             await ctx.expectText(STABLE_APP_TEXT);
             const source = await readFile(FLOW_CONTRACT_PATH, "utf8");
             const excerpt = interfaceExcerpt(source, "ScreenshotOptions");
@@ -156,7 +158,7 @@ export default defineFlow({
             await ctx.control("route.settings.appearance");
           },
           assert: async () => {
-            await ctx.expectRoute("/settings/appearance");
+            await ctx.expectHashIncludes("/settings/appearance");
             await ctx.expectText(STABLE_APP_TEXT);
           },
           screenshot: {
