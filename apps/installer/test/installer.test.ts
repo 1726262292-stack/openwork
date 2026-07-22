@@ -4,11 +4,77 @@ import os from "node:os"
 import path from "node:path"
 import { installConfigUrlFor } from "@openwork/install-config"
 
+import {
+  appleScriptString,
+  buildCompressedDmgArgs,
+  buildFinderLayoutScript,
+  buildReadWriteDmgArgs,
+  buildTiffutilArgs,
+  dmgBackgroundPaths,
+  dmgLayout,
+  dmgWindowBounds,
+} from "../scripts/dmg-layout.mjs"
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { buildConstantsConfig, parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
 import { removableInstallerBundlePath, windowsInstalledExePath, writeBootstrapConfig } from "../src/install"
 import { releaseAssetFor } from "../src/release-asset"
 import { startInstallerServer } from "../src/server"
+
+describe("mac DMG layout helpers", () => {
+  test("builds the approved Finder window and icon layout", () => {
+    expect(dmgWindowBounds(dmgLayout.window)).toEqual([100, 100, 760, 500])
+
+    const script = buildFinderLayoutScript({
+      appName: "Install OpenWork.app",
+      backgroundPath: "/Volumes/Install OpenWork/.background/bg.tiff",
+      mountPoint: "/Volumes/Install OpenWork",
+    })
+
+    expect(script).toContain("set bounds of dmgWindow to {100, 100, 760, 500}")
+    expect(script).toContain("set icon size of viewOptions to 128")
+    expect(script).toContain("set label position of viewOptions to bottom")
+    expect(script).toContain("set background picture of viewOptions to backgroundFile")
+    expect(script).toContain('set position of item "Install OpenWork.app" of dmgWindow to {330, 180}')
+  })
+
+  test("builds DMG background and hdiutil arguments", () => {
+    expect(dmgBackgroundPaths("/tmp/root")).toEqual({
+      backgroundDir: "/tmp/root/.background",
+      tiff: "/tmp/root/.background/bg.tiff",
+    })
+    expect(buildTiffutilArgs("/assets/dmg-background", "/tmp/root/.background/bg.tiff")).toEqual([
+      "-cathidpicheck",
+      "/assets/dmg-background/bg.png",
+      "/assets/dmg-background/bg@2x.png",
+      "-out",
+      "/tmp/root/.background/bg.tiff",
+    ])
+    expect(buildReadWriteDmgArgs({ sourceFolder: "/tmp/root", outputPath: "/tmp/openwork.rw.dmg" })).toEqual([
+      "create",
+      "-format",
+      "UDRW",
+      "-volname",
+      "Install OpenWork",
+      "-srcfolder",
+      "/tmp/root",
+      "-ov",
+      "/tmp/openwork.rw.dmg",
+    ])
+    expect(buildCompressedDmgArgs({ inputPath: "/tmp/openwork.rw.dmg", outputPath: "/tmp/OpenWork.dmg" })).toEqual([
+      "convert",
+      "/tmp/openwork.rw.dmg",
+      "-format",
+      "UDZO",
+      "-ov",
+      "-o",
+      "/tmp/OpenWork.dmg",
+    ])
+  })
+
+  test("escapes AppleScript strings", () => {
+    expect(appleScriptString('/tmp/Install "OpenWork"/back\\ground.tiff')).toBe('/tmp/Install \\"OpenWork\\"/back\\\\ground.tiff')
+  })
+})
 
 describe("desktopBootstrapPath", () => {
   test("honors the explicit override", () => {
