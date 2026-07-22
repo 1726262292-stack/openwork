@@ -193,6 +193,7 @@ export function WelcomePage({
                     className="w-full"
                     onClick={onGetStarted}
                     disabled={busy}
+                    data-testid="welcome-primary-cta"
                   >
                     {busy
                       ? t("welcome.creating_workspace")
