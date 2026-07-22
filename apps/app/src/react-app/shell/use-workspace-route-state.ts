@@ -23,13 +23,14 @@ import { createClient } from "@/app/lib/opencode";
 import { createOpenworkServerClient, type OpenworkServerClient } from "@/app/lib/openwork-server";
 import { readDenBootstrapConfig } from "@/app/lib/den";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
-import {
-  resolveWorkspaceEndpoint,
-  type ResolvedWorkspaceEndpoint,
-} from "@/app/lib/workspace-endpoint";
+import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import type { WorkspaceConnectionState } from "@/app/types";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { t } from "@/i18n";
+import {
+  createWorkspaceServerClientResolver,
+  useWorkspaceServerClient,
+} from "@/react-app/infra/workspace-server-client";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -118,18 +119,25 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // hit the worker that owns the workspace, not the user's local server. The
   // single source of truth for that routing is `resolveWorkspaceEndpoint`.
   //
-  // We read the latest local server's baseUrl/token through a ref so the
+  // We refresh the memoized endpoint resolver behind a ref so the
   // `endpointForWorkspace` callback stays permanently stable. Otherwise it
   // would change on every `setBaseUrl`/`setToken`, which used to cascade up
   // through `loadWorkspaceSessionsInBackground` and `refreshRouteState` and
   // produce a tight render-refresh-setWorkspaces loop.
-  const localServerRef = useRef<{ baseUrl: string; token: string }>({ baseUrl: "", token: "" });
-  useEffect(() => {
-    localServerRef.current = { baseUrl, token };
-  }, [baseUrl, token]);
+  const currentWorkspaceServerClientResolver = useMemo(
+    () => createWorkspaceServerClientResolver({ baseUrl, token }),
+    [baseUrl, token],
+  );
+  const workspaceServerClientResolverRef = useRef(currentWorkspaceServerClientResolver);
+  workspaceServerClientResolverRef.current = currentWorkspaceServerClientResolver;
+  const updateLocalServer = useCallback((next: { baseUrl: string; token: string }) => {
+    const resolver = createWorkspaceServerClientResolver(next);
+    workspaceServerClientResolverRef.current = resolver;
+    return resolver;
+  }, []);
   const endpointForWorkspace = useCallback(
     (workspace: RouteWorkspace | null | undefined): ResolvedWorkspaceEndpoint | null =>
-      resolveWorkspaceEndpoint(workspace, localServerRef.current),
+      workspaceServerClientResolverRef.current(workspace),
     [],
   );
   const refreshInFlightRef = useRef(false);
@@ -363,10 +371,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await resolveOpenworkConnection();
       onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
-        // Keep `localServerRef` in lockstep with the disconnected state.
+        // Keep the workspace endpoint resolver in lockstep with the disconnected state.
         // Otherwise a previously-cached baseUrl/token would still resolve a
-        // (now invalid) endpoint for any callback that consults the ref.
-        localServerRef.current = { baseUrl: "", token: "" };
+        // (now invalid) endpoint for any callback that consults the resolver ref.
+        updateLocalServer({ baseUrl: "", token: "" });
         setClient(null);
         setBaseUrl("");
         setToken("");
@@ -379,15 +387,15 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         return;
       }
 
-      // Update the local-server ref synchronously, BEFORE we kick off any
+      // Update the local-server resolver synchronously, BEFORE we kick off any
       // workspace-scoped requests below. `endpointForWorkspace` reads from
-      // this ref synchronously; the `useEffect` that mirrors `[baseUrl,
-      // token]` into the ref doesn't run until after the next React commit,
+      // this resolver synchronously; the render that mirrors `[baseUrl,
+      // token]` into the resolver doesn't run until after the next React commit,
       // which is too late for the `activateWorkspace` and
       // `loadWorkspaceSessionsInBackground` calls that fire later in this
       // function. Stale ref => `resolveWorkspaceEndpoint` returns null for
       // local workspaces => sidebar gets stuck in "loading" forever.
-      localServerRef.current = { baseUrl: normalizedBaseUrl, token: resolvedToken };
+      const routeWorkspaceServerClientResolver = updateLocalServer({ baseUrl: normalizedBaseUrl, token: resolvedToken });
 
       const openworkClient = createOpenworkServerClient({
         baseUrl: normalizedBaseUrl,
@@ -429,6 +437,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         if (match?.workspaceId) nextWorkspaceId = match.workspaceId;
       }
 
+      updateLocalServer({ baseUrl: normalizedBaseUrl, token: resolvedToken });
+
       setClient(openworkClient);
       setBaseUrl(normalizedBaseUrl);
       setToken(resolvedToken);
@@ -460,7 +470,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (nextWorkspaceId && list.activeId !== nextWorkspaceId && !launchActivatedWorkspaceIdsRef.current.has(nextWorkspaceId)) {
         launchActivatedWorkspaceIdsRef.current.add(nextWorkspaceId);
         const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === nextWorkspaceId) ?? null;
-        const nextEndpoint = endpointForWorkspace(nextWorkspace);
+        const nextEndpoint = routeWorkspaceServerClientResolver(nextWorkspace);
         if (nextEndpoint) {
           void nextEndpoint.client.activateWorkspace(nextEndpoint.workspaceId).catch(() => undefined);
         }
@@ -512,7 +522,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         markBootRouteReady();
       }
     }
-  }, [loadWorkspaceSessionsInBackground, markBootRouteReady, routeWorkspaceId, workspaceInferenceSessionId]);
+  }, [loadWorkspaceSessionsInBackground, markBootRouteReady, routeWorkspaceId, updateLocalServer, workspaceInferenceSessionId]);
   const handleRuntimeSessionUpdated = useCallback((update: { sessionId: string; info: Record<string, unknown> }) => {
     if (!selectedWorkspaceId) return;
     setSessionsByWorkspaceId((current) => {
@@ -752,10 +762,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // Single source of truth for the selected workspace's server URL/token/id.
   // For remote workspaces this is the worker that owns the workspace; for
   // local workspaces it's the user's local OpenWork server.
-  const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
-  );
+  const selectedWorkspaceEndpoint = useWorkspaceServerClient(selectedWorkspace, { baseUrl, token });
   const selectedWorkspaceServerToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
   const selectedWorkspaceError = errorsByWorkspaceId[selectedWorkspaceId] ?? null;
