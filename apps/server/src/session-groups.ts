@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { eq } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { WorkspaceCursorEventStore } from "./cursor-event-store.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir, shortId } from "./utils.js";
 
@@ -40,11 +41,6 @@ const sessionGroupStates = sqliteTable("session_group_states", {
 type SessionGroupDb = {
   get: (workspaceId: string) => { stateJson: string; updatedAt: number } | undefined;
   upsert: (value: { workspaceId: string; stateJson: string; updatedAt: number }) => void;
-};
-
-type SessionGroupEventState = {
-  seq: number;
-  events: SessionGroupEvent[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -213,11 +209,10 @@ export async function updateSessionGroupState(
 }
 
 export class SessionGroupEventStore {
-  private eventsByWorkspace = new Map<string, SessionGroupEventState>();
-  private maxSize: number;
+  private events: WorkspaceCursorEventStore<SessionGroupEvent>;
 
   constructor(maxSize = 500) {
-    this.maxSize = maxSize;
+    this.events = new WorkspaceCursorEventStore(maxSize);
   }
 
   record(
@@ -225,33 +220,23 @@ export class SessionGroupEventStore {
     action: SessionGroupEventAction,
     details?: { groupId?: string; sessionId?: string },
   ): SessionGroupEvent {
-    const state = this.eventsByWorkspace.get(workspaceId) ?? { seq: 0, events: [] };
-    const event: SessionGroupEvent = {
+    return this.events.record(workspaceId, (seq) => ({
       id: shortId(),
-      seq: ++state.seq,
+      seq,
       workspaceId,
       type: "session_groups.updated",
       action,
       ...(details?.groupId ? { groupId: details.groupId } : {}),
       ...(details?.sessionId ? { sessionId: details.sessionId } : {}),
       timestamp: Date.now(),
-    };
-
-    state.events.push(event);
-    if (state.events.length > this.maxSize) {
-      state.events.splice(0, state.events.length - this.maxSize);
-    }
-    this.eventsByWorkspace.set(workspaceId, state);
-    return event;
+    }));
   }
 
   list(workspaceId: string, since?: number): SessionGroupEvent[] {
-    const cursor = typeof since === "number" && Number.isFinite(since) ? since : 0;
-    const state = this.eventsByWorkspace.get(workspaceId);
-    return state ? state.events.filter((event) => event.seq > cursor) : [];
+    return this.events.list(workspaceId, since);
   }
 
   cursor(workspaceId: string): number {
-    return this.eventsByWorkspace.get(workspaceId)?.seq ?? 0;
+    return this.events.cursor(workspaceId);
   }
 }

@@ -222,4 +222,20 @@ describe("session group API", () => {
     expect(store.cursor("quiet")).toBe(1);
     expect(store.cursor("busy")).toBe(3);
   });
+
+  test("preserves session group event payload shape", () => {
+    const store = new SessionGroupEventStore();
+    const event = store.record("ws_1", "assigned", { groupId: "grp_1", sessionId: "ses_1" });
+
+    expect(event).toMatchObject({
+      seq: 1,
+      workspaceId: "ws_1",
+      type: "session_groups.updated",
+      action: "assigned",
+      groupId: "grp_1",
+      sessionId: "ses_1",
+    });
+    expect(typeof event.id).toBe("string");
+    expect(typeof event.timestamp).toBe("number");
+  });
 });

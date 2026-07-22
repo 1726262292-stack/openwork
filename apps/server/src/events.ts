@@ -1,32 +1,24 @@
 import type { ReloadEvent, ReloadReason, ReloadTrigger } from "./types.js";
+import { CursorEventStore } from "./cursor-event-store.js";
 import { shortId } from "./utils.js";
 
 export class ReloadEventStore {
-  private events: ReloadEvent[] = [];
-  private seq = 0;
-  private maxSize: number;
+  private events: CursorEventStore<ReloadEvent>;
   private lastRecorded: Map<string, number> = new Map();
 
   constructor(maxSize = 200) {
-    this.maxSize = maxSize;
+    this.events = new CursorEventStore(maxSize);
   }
 
   record(workspaceId: string, reason: ReloadReason, trigger?: ReloadTrigger): ReloadEvent {
-    const event: ReloadEvent = {
+    return this.events.record((seq) => ({
       id: shortId(),
-      seq: ++this.seq,
+      seq,
       workspaceId,
       reason,
       trigger,
       timestamp: Date.now(),
-    };
-
-    this.events.push(event);
-    if (this.events.length > this.maxSize) {
-      this.events.splice(0, this.events.length - this.maxSize);
-    }
-
-    return event;
+    }));
   }
 
   recordDebounced(
@@ -44,11 +36,10 @@ export class ReloadEventStore {
   }
 
   list(workspaceId: string, since?: number): ReloadEvent[] {
-    const cursor = Number.isFinite(since) ? (since as number) : 0;
-    return this.events.filter((event) => event.workspaceId === workspaceId && event.seq > cursor);
+    return this.events.list(workspaceId, since);
   }
 
   cursor(): number {
-    return this.seq;
+    return this.events.cursor();
   }
 }

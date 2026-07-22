@@ -1,3 +1,4 @@
+import { WorkspaceCursorEventStore } from "./cursor-event-store.js";
 import type { TokenScope } from "./types.js";
 import { shortId } from "./utils.js";
 
@@ -25,23 +26,16 @@ export type FileSessionRecord = {
   expiresAt: number;
 };
 
-type WorkspaceEventState = {
-  seq: number;
-  events: FileSessionEvent[];
-};
-
 export class FileSessionStore {
   private sessions = new Map<string, FileSessionRecord>();
 
-  private workspaceEvents = new Map<string, WorkspaceEventState>();
+  private workspaceEvents: WorkspaceCursorEventStore<FileSessionEvent>;
 
   private maxSessions: number;
 
-  private maxEventsPerWorkspace: number;
-
   constructor(options?: { maxSessions?: number; maxEventsPerWorkspace?: number }) {
     this.maxSessions = options?.maxSessions ?? 256;
-    this.maxEventsPerWorkspace = options?.maxEventsPerWorkspace ?? 500;
+    this.workspaceEvents = new WorkspaceCursorEventStore(options?.maxEventsPerWorkspace ?? 500);
   }
 
   create(input: {
@@ -96,34 +90,20 @@ export class FileSessionStore {
     toPath?: string;
     revision?: string;
   }): FileSessionEvent {
-    const state = this.workspaceEvents.get(input.workspaceId) ?? { seq: 0, events: [] };
-    const event: FileSessionEvent = {
+    return this.workspaceEvents.record(input.workspaceId, (seq) => ({
       id: shortId(),
-      seq: state.seq + 1,
+      seq,
       workspaceId: input.workspaceId,
       type: input.type,
       path: input.path,
       toPath: input.toPath,
       revision: input.revision,
       timestamp: Date.now(),
-    };
-    state.seq = event.seq;
-    state.events.push(event);
-    if (state.events.length > this.maxEventsPerWorkspace) {
-      state.events.splice(0, state.events.length - this.maxEventsPerWorkspace);
-    }
-    this.workspaceEvents.set(input.workspaceId, state);
-    return event;
+    }));
   }
 
   listWorkspaceEvents(workspaceId: string, since = 0): { items: FileSessionEvent[]; cursor: number } {
-    const state = this.workspaceEvents.get(workspaceId);
-    if (!state) {
-      return { items: [], cursor: 0 };
-    }
-    const cursor = Number.isFinite(since) && since > 0 ? since : 0;
-    const items = state.events.filter((item) => item.seq > cursor);
-    return { items, cursor: state.seq };
+    return { items: this.workspaceEvents.list(workspaceId, since), cursor: this.workspaceEvents.cursor(workspaceId) };
   }
 
   private pruneExpired(): void {
