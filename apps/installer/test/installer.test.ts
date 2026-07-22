@@ -6,7 +6,7 @@ import { installConfigUrlFor } from "@openwork/install-config"
 
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { buildConstantsConfig, parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
-import { writeBootstrapConfig } from "../src/install"
+import { removableInstallerBundlePath, writeBootstrapConfig } from "../src/install"
 import { releaseAssetFor } from "../src/release-asset"
 import { startInstallerServer } from "../src/server"
 
@@ -382,5 +382,29 @@ describe("writeBootstrapConfig", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe("removableInstallerBundlePath", () => {
+  const homeDir = "/Users/example"
+  const executablePath = "Contents/MacOS/openwork-installer"
+
+  test("allows only the installer app bundle in common writable locations", () => {
+    expect(removableInstallerBundlePath(`/Applications/Install OpenWork.app/${executablePath}`, homeDir, "darwin")).toBe(
+      "/Applications/Install OpenWork.app",
+    )
+    expect(removableInstallerBundlePath(`${homeDir}/Applications/Install OpenWork.app/${executablePath}`, homeDir, "darwin")).toBe(
+      `${homeDir}/Applications/Install OpenWork.app`,
+    )
+    expect(removableInstallerBundlePath(`${homeDir}/Downloads/Install OpenWork.app/${executablePath}`, homeDir, "darwin")).toBe(
+      `${homeDir}/Downloads/Install OpenWork.app`,
+    )
+  })
+
+  test("rejects DMG mounts, wrong app names, nested copies, and other platforms", () => {
+    expect(removableInstallerBundlePath(`/Volumes/Install OpenWork/Install OpenWork.app/${executablePath}`, homeDir, "darwin")).toBeNull()
+    expect(removableInstallerBundlePath(`/Applications/OpenWork.app/${executablePath}`, homeDir, "darwin")).toBeNull()
+    expect(removableInstallerBundlePath(`${homeDir}/Downloads/OpenWork/Install OpenWork.app/${executablePath}`, homeDir, "darwin")).toBeNull()
+    expect(removableInstallerBundlePath(`/Applications/Install OpenWork.app/${executablePath}`, homeDir, "linux")).toBeNull()
   })
 })

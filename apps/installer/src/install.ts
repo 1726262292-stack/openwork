@@ -39,6 +39,7 @@ const status: InstallStatus = {
 
 const HOSTED_DESKTOP_WEB_URL = "https://app.openworklabs.com"
 const HOSTED_DESKTOP_API_URL = "https://api.openworklabs.com"
+const INSTALLER_APP_BUNDLE_NAME = "Install OpenWork.app"
 
 type BootstrapCandidate = {
   config: Record<string, unknown>
@@ -188,6 +189,46 @@ function run(command: string, args: string[]): Promise<void> {
       else reject(new Error(`${command} ${args.join(" ")} exited with ${code}`))
     })
   })
+}
+
+export function removableInstallerBundlePath(
+  selfPath: string,
+  homeDir: string = os.homedir(),
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  if (platform !== "darwin") return null
+  const trimmedSelfPath = selfPath.trim()
+  const trimmedHomeDir = homeDir.trim()
+  if (!trimmedSelfPath || !trimmedHomeDir) return null
+
+  let current = path.resolve(trimmedSelfPath)
+  while (true) {
+    if (path.basename(current) === INSTALLER_APP_BUNDLE_NAME) {
+      const parent = path.dirname(current)
+      const allowedParents = ["/Applications", path.join(trimmedHomeDir, "Applications"), path.join(trimmedHomeDir, "Downloads")].map((entry) =>
+        path.resolve(entry),
+      )
+      return allowedParents.includes(parent) ? current : null
+    }
+
+    const parent = path.dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+}
+
+export function scheduleInstallerSelfCleanup(selfPath: string = process.execPath): void {
+  const bundlePath = removableInstallerBundlePath(selfPath)
+  if (!bundlePath || !existsSync(bundlePath)) return
+  try {
+    const child = spawn("/bin/sh", ["-c", "sleep 1; /bin/rm -rf \"$1\"", "openwork-installer-cleanup", bundlePath], {
+      detached: true,
+      stdio: "ignore",
+    })
+    child.unref()
+  } catch {
+    // Best-effort cleanup only; the installed app was already launched or installed.
+  }
 }
 
 function installDmg(dmgPath: string, workDir: string): string {
