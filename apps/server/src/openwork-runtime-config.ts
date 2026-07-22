@@ -23,13 +23,13 @@ import {
   openworkOfficeAttachmentsPluginPath,
 } from "./openwork-extensions-plugin-path.js";
 import type { ServerConfig } from "./types.js";
+import { runtimeStorageDir } from "./runtime-db.js";
 import {
   onRuntimeOpencodeConfigWrite,
   readRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
   runtimeMcpMap,
   runtimePluginList,
-  runtimeStorageDir,
   type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 

@@ -11,10 +11,10 @@ import {
 } from "./cloud-mcp-health.js";
 import { googleWorkspaceLegacyConfigured } from "./extensions/google-workspace.js";
 import { readBoundedRegularTextFile } from "./jsonc.js";
+import { runtimeStorageDir } from "./runtime-db.js";
 import {
   inspectRuntimeOpencodeConfigState,
   runtimeMcpMap,
-  runtimeStorageDir,
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { ensureDir } from "./utils.js";
