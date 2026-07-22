@@ -188,6 +188,14 @@ plugin (configured in `.opencode/opencode.json`). Every tool takes
 - Screenshots should include `claim`, `requireText`, `rejectText`, or
   `hashIncludes` whenever possible. A screenshot without an assertion is only a
   visual checkpoint, not proof that the workflow passed.
+- Pretty screenshots are available with `pretty: true` (or
+  `pretty: { padding, radius }`) on the existing screenshot primitive. The
+  default padding is `0.06` of the longer raw capture edge, rounded corners
+  default to `18px`, and the runner adds validations for the mesh-gradient
+  background corners, rounded clipping, drop shadow, and unchanged app-content
+  center pixel. Use this for PR hero frames, newsletters, and docs; the evidence
+  semantics stay the same, and duplicate detection still compares the raw app
+  capture.
 - Use direct `browser_eval` only for debugging/prototyping or when a flow has
   not yet been codified. If the behavior matters for a PR, codify it before
   calling the UI validation complete.
