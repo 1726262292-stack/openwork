@@ -110,7 +110,7 @@ const ssoConnectionResponseSchema = z.object({
 
 const metadataQuerySchema = z.object({
   format: z.enum(["xml", "json"]).default("xml"),
-}).meta({ ref: "OrganizationSsoMetadataQuery" })
+})
 
 const domainVerificationResponseSchema = z.object({
   domainVerificationToken: z.string().min(1),
