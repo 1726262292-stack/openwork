@@ -829,3 +829,296 @@ ID              32711835-499b-4b1a-9755-f1e2c4aa4a30
 State           STOPPED
 Region          us
 ```
+
+---
+
+## Victory lap — v0.17.38 branded run stopped on residual handoff defect
+
+Date: 2026-07-22. This run used a fresh Daytona Den server on `dev` at `5f40b1148` and the real GitHub release asset `v0.17.38/OpenWork-Installer-win-x64.exe`. It was intended to be the clean pass, but it exposed a remaining no-workaround blocker in the browser-to-desktop handoff path. I stopped rather than replacing the bad URL.
+
+### Victory-lap verdict summary
+
+- Overall: **Failed / stopped at browser handoff**. Server versioning, branding, redirect, Windows download, Windows install, and forced sign-in branding passed. The Den Web proxy-generated desktop handoff URL still contained `denBaseUrl=https://0.0.0.0:3005/api/den`, so the app could not complete sign-in without a workaround.
+- New fix PR opened: <https://github.com/different-ai/openwork/pull/3009> — `fix(den-api): use public handoff URL for forwarded zero host`.
+- Mac branding spot-check: **Not run** because the instructions say to stop on any residual defect.
+- Expired-link negative check: **Not run** after the handoff blocker.
+
+### Victory-lap sandboxes and URLs
+
+- Server sandbox: `openwork-server-victory-v01738-20260722-0556` / `e2d3adc7-9e2b-434c-a180-55033394ee71`.
+- Windows sandbox: `openwork-win-victory-v01738-20260722-0605` / `80c71c42-7956-449d-8195-3a9bc985f79d` (`windows-medium`).
+- Den Web: `https://3005-0obq6xy5mmmznswx.daytonaproxy01.net`.
+- Den API: `https://8788-hhotogw2f2uylqlt.daytonaproxy01.net`.
+- Worker proxy: `https://8789-lmzljkhzgtl2m566.daytonaproxy01.net`.
+- Seeded org: `Acme Robotics`, `org_01ky4yk9bbextsbtcc57rfsrbp`.
+- Install token: `7at1JTxUuS_QmpxBll53jNH2yshChKH3KLOJ3hzSv2g`.
+
+### Branding chain findings
+
+- Den API `buildInstallConfig` reads `organization.metadata.brandAppName`, `brandLogoUrl`, and `brandIconUrl`; it falls back to `organization.logo` only for `logoUrl` and to `OpenWork` for `appName`.
+- `packages/install-config` carries `appName`, `clientName`, `webUrl`, `apiUrl`, `requireSignin`, `logoUrl`, and `iconUrl`. Its desktop bootstrap schema allows `brandAppName`, `brandLogoUrl`, and `brandIconUrl`.
+- The v0.17.38 installer writes `brandAppName` and `brandLogoUrl` into `desktop-bootstrap.json`. It did **not** write `brandIconUrl` in this run even though install-config returned `iconUrl`; that matches the current installer code path.
+- The desktop app applies `brandAppName` at boot (`document.title`, Electron app name, and user agent product token) and renders `brandLogoUrl` on the forced sign-in screen. It can apply a brand icon only when `brandIconUrl` is present in the bootstrap or later connect-link state; this install bootstrap did not include it.
+
+Brand setup used the natural owner/admin API path:
+
+```text
+POST /v1/org/brand-assets as alex@acme.test owner
+PATCH /v1/org {"brandAppName":"Acme Robotics Desk"}
+```
+
+Managed asset URLs hosted by this Den deployment:
+
+```text
+logoUrl: https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/logo/510f4519764d097d2237a067729f3f461645fd003cef79391fd999e5070310d2.png?signature=dpnMAHZhwA4OO3uMZe2XMgfg0Dh30LqPN4XAyOzio74
+iconUrl: https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/icon/de61fcc580058d0798b335e79b59a66f12e9fae564ce5a3c5ba006f2a15fea79.png?signature=9GW8XBcXB4UVZK8Lc47U9WYifG_W2-rK085LI82x2d8
+```
+
+Both public asset URLs returned `HTTP/2 200`, `content-type: image/png`; the wordmark was `512×128` and the icon was `256×256`.
+
+### Step 1 — Server, seed, branding, version, install config
+
+Server launch command:
+
+```sh
+bash .devcontainer/test-server-on-daytona.sh dev --name openwork-server-victory-v01738-20260722-0556
+```
+
+Relevant output:
+
+```text
+HEAD is now at 5f40b11 docs(skills): refresh release skill to the real dev-branch process ... (#3005)
+OpenWork Daytona server stack ready
+Den Web:       https://3005-0obq6xy5mmmznswx.daytonaproxy01.net
+Den API:       https://8788-hhotogw2f2uylqlt.daytonaproxy01.net
+Worker Proxy:  https://8789-lmzljkhzgtl2m566.daytonaproxy01.net
+```
+
+Seed output:
+
+```text
+✓ org: org_01ky4yk9bbextsbtcc57rfsrbp
+✓ 17 members · 12 teams · 14 plugins · 71 config objects
+→ login: alex@acme.test / OpenWorkDemo123!
+```
+
+App-version check:
+
+```json
+{"minAppVersion":"0.17.0","latestAppVersion":"0.17.38"}
+```
+
+Install-config check:
+
+```json
+{
+  "appName": "Acme Robotics Desk",
+  "clientName": "Acme Robotics",
+  "webUrl": "https://3005-0obq6xy5mmmznswx.daytonaproxy01.net",
+  "apiUrl": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net",
+  "requireSignin": true,
+  "logoUrl": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/logo/510f4519764d097d2237a067729f3f461645fd003cef79391fd999e5070310d2.png?signature=dpnMAHZhwA4OO3uMZe2XMgfg0Dh30LqPN4XAyOzio74",
+  "iconUrl": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/icon/de61fcc580058d0798b335e79b59a66f12e9fae564ce5a3c5ba006f2a15fea79.png?signature=9GW8XBcXB4UVZK8Lc47U9WYifG_W2-rK085LI82x2d8"
+}
+```
+
+Den install page also rendered the custom wordmark and app name. Screenshot: `screenshots/victory-v01738-install-page-branded-waiting.png`.
+
+### Step 2 — Redirect gate and server egress block
+
+Redirect check:
+
+```text
+HTTP/2 302
+location: https://github.com/different-ai/openwork/releases/download/v0.17.38/OpenWork-Installer-win-x64.exe
+```
+
+Server-side GitHub/release egress was blocked before the Windows flow. The base Daytona server image did not include `iptables`, so I installed the package before lockdown, then applied both `/etc/hosts` loopback entries and `iptables` output rejects for the resolved GitHub/release IPs.
+
+Block proof:
+
+```text
+127.0.0.1 github.com api.github.com objects.githubusercontent.com release-assets.githubusercontent.com github-releases.githubusercontent.com
+::1 github.com api.github.com objects.githubusercontent.com release-assets.githubusercontent.com github-releases.githubusercontent.com
+iptables_github_rules 10
+probe github.com: curl: (7) Failed to connect to github.com port 443
+probe api.github.com: curl: (7) Failed to connect to api.github.com port 443
+probe release-assets.githubusercontent.com: curl: (7) Failed to connect to release-assets.githubusercontent.com port 443
+probe objects.githubusercontent.com: curl: (7) Failed to connect to objects.githubusercontent.com port 443
+```
+
+`ss -tupn` sampling during the Windows flow found no forbidden GitHub strings:
+
+```text
+github: 0
+release-assets: 0
+objects.githubusercontent: 0
+140.82.: 0
+185.199.: 0
+```
+
+### Step 3 — Windows download through Den URL
+
+The Windows sandbox downloaded through Den with `curl.exe -L -OJ -v`:
+
+```text
+> GET /v1/install/win-x64?token=7at1JTxUuS_QmpxBll53jNH2yshChKH3KLOJ3hzSv2g HTTP/1.1
+> Host: 8788-hhotogw2f2uylqlt.daytonaproxy01.net
+< HTTP/1.1 302 Found
+< Location: https://github.com/different-ai/openwork/releases/download/v0.17.38/OpenWork-Installer-win-x64.exe
+* Issue another request to this URL: 'https://github.com/different-ai/openwork/releases/download/v0.17.38/OpenWork-Installer-win-x64.exe'
+< Content-Disposition: attachment; filename=OpenWork-Installer-win-x64.exe
+```
+
+File proof:
+
+```text
+OpenWork-Installer-win-x64.exe 114894848 bytes
+SHA256 38ba64d2742d1dc87021f1c613b1332108fcea6718bf84283b690fd69fe0a41a
+```
+
+Fact: the Windows client followed Den's 302 and downloaded the real released installer bytes from GitHub/release-assets. The Den server did not stream the installer bytes.
+
+### Step 4 — Bare dry run
+
+```text
+whoami=nt authority\system
+LOCALAPPDATA=C:\WINDOWS\system32\config\systemprofile\AppData\Local
+bootstrap-before=False
+exit=2
+[openwork-installer] Installer is not configured. Paste an OpenWork install link, or run with --install-link <url>.
+bootstrap-after=False
+```
+
+Verdict: Passed.
+
+### Step 5 — Installer UI branding
+
+I started the real released Windows installer in its built-in manual HTTP UI mode for remote inspection. The paste screen showed the new Paste button. Screenshot: `screenshots/victory-v01738-installer-paste.png`.
+
+After resolving the install link, the confirm screen rendered the custom managed Den PNG, not the default SVG:
+
+```json
+{
+  "title": "Acme Robotics Desk Installer",
+  "text": "Acme Robotics Desk Installer\nThis sets up Acme Robotics Desk for Acme Robotics (https://3005-0obq6xy5mmmznswx.daytonaproxy01.net).\nConfigured via install link.\nInstall\nExit",
+  "img": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/logo/510f4519764d097d2237a067729f3f461645fd003cef79391fd999e5070310d2.png?signature=dpnMAHZhwA4OO3uMZe2XMgfg0Dh30LqPN4XAyOzio74",
+  "logoClass": "logo",
+  "naturalWidth": 512,
+  "naturalHeight": 128
+}
+```
+
+Screenshot: `screenshots/victory-v01738-installer-custom-logo.png`.
+
+Note: the headless Chrome screenshot path denied clipboard API access, so I submitted the visible UI input through DOM automation after capturing the Paste button. I do not count that as a native clipboard-click pass; it is only the UI-rendering assertion.
+
+### Step 6 — Real Windows install with released v0.17.38 installer
+
+The real install was run as interactive `Administrator` via Task Scheduler, not as SYSTEM:
+
+```text
+whoami:
+daytona-sandbox\administrator
+LOCALAPPDATA=C:\Users\Administrator\AppData\Local
+Acme Robotics Desk Installer — Acme Robotics
+[openwork-installer] Configured via install link.
+[check-version] Deployment supports OpenWork 0.17.38.
+[install] Installing OpenWork...
+[done] OpenWork 0.17.38 installed successfully.
+Last Result: 0
+```
+
+No `EBUSY` or install failure appeared in `C:\ow\victory-install.log`.
+
+Installed path proof:
+
+```text
+C:\Users\Administrator\AppData\Local\Programs\@openworkdesktop\OpenWork.exe 201246720 bytes
+legacy-exists=False
+```
+
+Interactive bootstrap content:
+
+```json
+{
+  "baseUrl": "https://3005-0obq6xy5mmmznswx.daytonaproxy01.net",
+  "apiBaseUrl": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net",
+  "requireSignin": true,
+  "brandAppName": "Acme Robotics Desk",
+  "brandLogoUrl": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/logo/510f4519764d097d2237a067729f3f461645fd003cef79391fd999e5070310d2.png?signature=dpnMAHZhwA4OO3uMZe2XMgfg0Dh30LqPN4XAyOzio74",
+  "writtenAt": "2026-07-22T13:09:40.499Z"
+}
+```
+
+Important finding: `brandIconUrl` was absent from the installer-written bootstrap even though install-config returned `iconUrl`.
+
+### Step 7 — Launch installed app as interactive user
+
+The app launched from the correct installed path and showed forced sign-in against the org server with branding applied:
+
+```json
+{
+  "title": "Acme Robotics Desk",
+  "text": "Welcome to Acme Robotics Desk\n\nSign in to get started with your workspace.\n\nSign in to Acme Robotics Desk\nConnected to 3005-0obq6xy5mmmznswx.daytonaproxy01.net\nChange\nPaste sign-in code",
+  "ua": "Mozilla/5.0 ... AcmeRoboticsDesk/0.17.38 Chrome/134.0.6998.205 Electron/35.7.5 Safari/537.36",
+  "brandLogo": "https://8788-hhotogw2f2uylqlt.daytonaproxy01.net/v1/brand-assets/org_01ky4yk9bbextsbtcc57rfsrbp/logo/510f4519764d097d2237a067729f3f461645fd003cef79391fd999e5070310d2.png?signature=dpnMAHZhwA4OO3uMZe2XMgfg0Dh30LqPN4XAyOzio74"
+}
+```
+
+Screenshot: `screenshots/victory-v01738-app-forced-signin-branded.png`.
+
+Branding honesty: app title, sign-in copy, user-agent product token, and forced-sign-in wordmark were branded. The bootstrap did not include `brandIconUrl`, so I cannot claim the app icon was branded from the installer bootstrap.
+
+### Step 8 — Browser sign-in handoff defect
+
+Windows Edge signed in successfully at the Den Web desktop-auth URL and reached the expected web state:
+
+```text
+You're signed in.
+Open the desktop app to continue.
+Open OpenWork
+Go to dashboard →
+```
+
+Screenshot: `screenshots/victory-v01738-den-web-open-openwork.png`.
+
+However, the same Den Web proxy endpoint that the page uses for desktop handoff returned a non-public deep link:
+
+```json
+{
+  "grant": "OngoILFSsO7Q4KBISllCKvaL6uFTEfAv",
+  "expiresAt": "2026-07-22T13:22:58.175Z",
+  "openworkUrl": "openwork://den-auth?grant=OngoILFSsO7Q4KBISllCKvaL6uFTEfAv&denBaseUrl=https%3A%2F%2F0.0.0.0%3A3005%2Fapi%2Fden"
+}
+```
+
+This fails the required #2995 live check (`denBaseUrl` must not be `0.0.0.0`). Clicking the web button did not sign the app in, and the install page stayed in `Waiting for sign-in…`. Screenshot after the attempted click: `screenshots/victory-v01738-den-web-after-open-click-still-not-connected.png`.
+
+Control check: a direct Den API call with `Origin: https://0.0.0.0:3005` returned the public Den Web proxy URL, but the Den Web proxy path still forwarded a zero host. PR #3009 covers the missing forwarded-host branch.
+
+### New defect PR #3009
+
+- PR: <https://github.com/different-ai/openwork/pull/3009>
+- Branch: `fix/desktop-handoff-forwarded-zero-host`
+- Minimal fix: when `resolveDesktopDenBaseUrl` sees `x-forwarded-host: 0.0.0.0:3005`, return the configured public desktop Den base URL instead of `https://0.0.0.0:3005/api/den`.
+- Validation:
+
+```text
+pnpm --filter @openwork-ee/den-db build && pnpm --filter @openwork-ee/den-api exec bun test test/desktop-handoff-public-url.test.ts
+→ 1 pass, 0 fail
+
+pnpm --filter @openwork-ee/den-api build
+→ passed
+```
+
+### Victory-lap required exact facts
+
+- Server egress: **Blocked before the Windows flow** with `/etc/hosts` plus `iptables`; server-side GitHub curls failed. `ss -tupn` sampling during the Windows installer flow showed zero forbidden GitHub/release IP or host strings.
+- Redirect target: **Correct** — `https://github.com/different-ai/openwork/releases/download/v0.17.38/OpenWork-Installer-win-x64.exe`.
+- Who downloaded bytes: **The Windows client** downloaded the released installer bytes by following Den's 302 to GitHub/release-assets. The Den server returned redirects/JSON only.
+- Windows bootstrap profile handling: **Interactive profile**. The real install ran as `daytona-sandbox\administrator` and wrote `C:\Users\Administrator\AppData\Local\openwork\desktop-bootstrap.json`. SYSTEM dry-run used the SYSTEM profile and wrote no bootstrap.
+
+### Victory-lap stopped state
+
+Per the defect rule, I stopped validation after the handoff blocker and did not run the Mac spot-check or expired-link negative check. Sandboxes were stopped and not deleted after evidence capture.
