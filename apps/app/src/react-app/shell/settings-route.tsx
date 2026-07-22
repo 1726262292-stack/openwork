@@ -17,7 +17,6 @@ import {
   type OpenworkServerClient,
   type OpenworkWorkspaceInfo,
 } from "@/app/lib/openwork-server";
-import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { buildOpenworkEnvRuntimeKey } from "@/app/lib/openwork-env-runtime";
 import {
   collectAgentContextDiagnosticObservations,
@@ -172,6 +171,10 @@ import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory"
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
+import {
+  createWorkspaceServerClientResolver,
+  useWorkspaceServerClient,
+} from "@/react-app/infra/workspace-server-client";
 import {
   buildLocalProviderConfig,
   OPENAI_IMAGE_EXTENSION_ID,
@@ -520,10 +523,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         : emptyWorkspaceDisplay,
     [emptyWorkspaceDisplay, selectedWorkspace],
   );
-  const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
+  const workspaceServerClientResolver = useMemo(
+    () => createWorkspaceServerClientResolver({ baseUrl, token }),
+    [baseUrl, token],
   );
+  const selectedWorkspaceEndpoint = useWorkspaceServerClient(selectedWorkspace, { baseUrl, token });
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
 
   routeStateRef.current = {
@@ -1213,15 +1217,23 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       const list = await client.listWorkspaces();
       const serverWorkspaceIds = new Set(list.items.map((workspace) => workspace.id));
       const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
+      const routeWorkspaceServerClientResolver = createWorkspaceServerClientResolver({
+        baseUrl: normalizedBaseUrl,
+        token: resolvedToken,
+      });
       const sessionEntries = await Promise.all(
         nextWorkspaces.map(async (workspace) => {
-          if (!serverWorkspaceIds.has(workspace.id)) {
+          const endpoint = routeWorkspaceServerClientResolver(workspace);
+          if (!endpoint) {
+            return { workspaceId: workspace.id, sessions: [], error: null as string | null };
+          }
+          if (!endpoint.isRemote && !serverWorkspaceIds.has(workspace.id)) {
             return { workspaceId: workspace.id, sessions: [], error: null as string | null };
           }
           try {
-            const response = await client.listSessions(workspace.id, { limit: 200 });
+            const response = await endpoint.client.listSessions(endpoint.workspaceId, { limit: 200 });
             const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
-            const items = workspaceRoot
+            const items = workspaceRoot && !endpoint.isRemote
               ? (response.items ?? []).filter((session) =>
                   normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
                 )
@@ -1907,7 +1919,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setLegacySelectedWorkspaceId(workspaceId);
     writeActiveWorkspaceId(workspaceId);
     const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
-    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    const endpoint = workspaceServerClientResolver(workspace);
     if (endpoint) {
       void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
     }
@@ -1916,7 +1928,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       void workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
     }
     navigate(workspaceSettingsRoute(workspaceId, settingsPathForRoute(route)), { state: location.state });
-  }, [baseUrl, location, navigate, route, selectedWorkspaceId, token, workspaces]);
+  }, [location, navigate, route, selectedWorkspaceId, workspaceServerClientResolver, workspaces]);
 
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1958,7 +1970,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const handleExportWorkspaceConfig = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
     if (!workspace) return;
-    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    const endpoint = workspaceServerClientResolver(workspace);
     if (endpoint) {
       setExportWorkspaceBusy(true);
       try {
@@ -1970,7 +1982,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       return;
     }
     throw new Error("OpenWork server is unavailable. Reconnect the server before exporting workspace config.");
-  }, [baseUrl, token, workspaces]);
+  }, [workspaceServerClientResolver, workspaces]);
 
   const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
     if (typeof window !== "undefined") {
