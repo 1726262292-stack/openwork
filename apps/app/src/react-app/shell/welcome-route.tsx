@@ -394,7 +394,6 @@ export function WelcomeRoute() {
     <>
       <WelcomePage
         onGetStarted={handleGetStarted}
-        getStartedLabel={t("welcome.local_only")}
         busy={state.createBusy}
         error={state.createError}
         manualFolder={manualFolder}
