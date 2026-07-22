@@ -247,7 +247,7 @@ export default {
           },
           screenshot: {
             name: "markdown-search-highlighted",
-            requireText: ["Find in conversation", "markdown-primitive-highlight"],
+            requireText: ["markdown-primitive-highlight", "Copy code block"],
             rejectText: ["Something went wrong"],
           },
         });
