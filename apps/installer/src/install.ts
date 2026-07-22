@@ -206,18 +206,23 @@ export function removableInstallerBundlePath(
   const trimmedSelfPath = selfPath.trim()
   const trimmedHomeDir = homeDir.trim()
   if (!trimmedSelfPath || !trimmedHomeDir) return null
+  // macOS paths are POSIX; use posix path semantics explicitly so the logic
+  // (and its tests) behave identically on any host platform.
+  if (!trimmedSelfPath.startsWith("/") || !trimmedHomeDir.startsWith("/")) return null
 
-  let current = path.resolve(trimmedSelfPath)
+  let current = path.posix.normalize(trimmedSelfPath)
   while (true) {
-    if (path.basename(current) === INSTALLER_APP_BUNDLE_NAME) {
-      const parent = path.dirname(current)
-      const allowedParents = ["/Applications", path.join(trimmedHomeDir, "Applications"), path.join(trimmedHomeDir, "Downloads")].map((entry) =>
-        path.resolve(entry),
-      )
+    if (path.posix.basename(current) === INSTALLER_APP_BUNDLE_NAME) {
+      const parent = path.posix.dirname(current)
+      const allowedParents = [
+        "/Applications",
+        path.posix.join(trimmedHomeDir, "Applications"),
+        path.posix.join(trimmedHomeDir, "Downloads"),
+      ].map((entry) => path.posix.normalize(entry))
       return allowedParents.includes(parent) ? current : null
     }
 
-    const parent = path.dirname(current)
+    const parent = path.posix.dirname(current)
     if (parent === current) return null
     current = parent
   }
