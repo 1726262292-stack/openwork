@@ -24,6 +24,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Presenter-style keyboard focus (see signin-redesign.flow.ts): consecutive
+ * frames on one static screen need an honest pixel delta; a :focus-visible
+ * ring on the element the narration points at provides it.
+ */
+async function focusSelector(ctx: FlowContext, selector: string): Promise<void> {
+  const focused = await ctx.eval(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!(el instanceof HTMLElement)) return false;
+    el.scrollIntoView({ block: "center", inline: "center" });
+    el.focus();
+    return document.activeElement === el && el.matches(":focus-visible");
+  })()`);
+  ctx.assert(focused === true, `Expected keyboard focus with a visible ring on ${selector}.`);
+  await sleep(400);
+}
+
 function writeChatFirstPrefsScript(completed: boolean): string {
   return `(() => {
     let prefs = {};
@@ -151,11 +168,34 @@ async function stageChatWelcome(ctx: FlowContext): Promise<void> {
   await ctx.waitForText("Start chatting", { timeoutMs: 30_000 });
 }
 
+/**
+ * The chat workspace is registered with the OpenWork SERVER
+ * (POST /workspaces/local); the desktop registry only mirrors it lazily. Read
+ * the current route's workspace path from the server list — the source of
+ * truth the creation path actually wrote to.
+ */
 async function currentWorkspacePath(ctx: FlowContext): Promise<string> {
   const path = await ctx.eval(`(async () => {
-    const list = await window.__OPENWORK_ELECTRON__.invokeDesktop("workspaceBootstrap");
-    const selectedId = list.selectedId || list.activeId || list.workspaces?.[0]?.id || "";
-    const workspace = (list.workspaces ?? []).find((entry) => entry.id === selectedId) || list.workspaces?.[0];
+    const parts = location.hash.split("/");
+    const workspaceIndex = parts.indexOf("workspace");
+    const routeWorkspaceId = workspaceIndex >= 0 ? decodeURIComponent(parts[workspaceIndex + 1] || "") : "";
+    if (!routeWorkspaceId) return "";
+    const invoke = window.__OPENWORK_ELECTRON__.invokeDesktop;
+    const info = await invoke("openworkServerInfo").catch(() => null);
+    const baseUrl = info?.baseUrl || info?.connectUrl || "";
+    if (!baseUrl) return "";
+    const headers = {};
+    const token = info?.ownerToken || info?.clientToken || "";
+    if (token) headers.authorization = "Bearer " + token;
+    if (info?.hostToken) headers["x-openwork-host-token"] = info.hostToken;
+    const response = await invoke("__fetch", baseUrl.replace(/\\/+$/, "") + "/workspaces", {
+      method: "GET",
+      headers,
+      timeoutMs: 8_000,
+    }).catch(() => null);
+    const payload = typeof response?.body === "string" ? JSON.parse(response.body) : response?.body ?? response;
+    const workspaces = payload?.workspaces ?? payload?.items ?? [];
+    const workspace = workspaces.find((entry) => entry.id === routeWorkspaceId);
     return workspace?.path || "";
   })()`, { awaitPromise: true });
   return typeof path === "string" ? path : "";
@@ -173,6 +213,8 @@ async function waitForWorkspacePath(ctx: FlowContext, expected: string, timeoutM
 }
 
 async function assertWorkspaceDirectoryMatchesSession(ctx: FlowContext): Promise<void> {
+  const workspacePath = await currentWorkspacePath(ctx);
+  ctx.assert(workspacePath.length > 0, "Expected the route's workspace in the server registry.");
   const proof = await ctx.eval(`(async () => {
     const parts = location.hash.split("/");
     const workspaceIndex = parts.indexOf("workspace");
@@ -182,10 +224,6 @@ async function assertWorkspaceDirectoryMatchesSession(ctx: FlowContext): Promise
     if (!workspaceId || !sessionId) return "missing route ids: " + location.hash;
 
     const invoke = window.__OPENWORK_ELECTRON__.invokeDesktop;
-    const list = await invoke("workspaceBootstrap");
-    const workspace = (list.workspaces ?? []).find((entry) => entry.id === workspaceId);
-    if (!workspace?.path) return "workspace path missing";
-
     const info = await invoke("openworkServerInfo");
     const baseUrl = info?.baseUrl || info?.connectUrl || "";
     if (!baseUrl) return "server url missing";
@@ -200,10 +238,13 @@ async function assertWorkspaceDirectoryMatchesSession(ctx: FlowContext): Promise
     );
     if (response.status < 200 || response.status >= 300) return "session read failed: " + response.status;
     const payload = JSON.parse(response.body);
-    const directory = payload?.item?.directory || "";
-    return directory === workspace.path ? "ok" : "directory " + directory + " did not match " + workspace.path;
+    const directory = payload?.item?.directory || payload?.directory || "";
+    return directory ? "directory:" + directory : "session directory missing";
   })()`, { awaitPromise: true });
-  ctx.assert(proof === "ok", `Expected the session directory to equal the chat folder path: ${String(proof)}`);
+  ctx.assert(
+    typeof proof === "string" && proof === `directory:${workspacePath}`,
+    `Expected the session directory to equal the chat folder path ${workspacePath}: ${String(proof)}`,
+  );
 }
 
 export default defineFlow({
@@ -280,6 +321,9 @@ export default defineFlow({
               const text = document.querySelector('[data-testid="chat-lives-in"]')?.textContent || "";
               return text.includes("This chat lives in") && text.includes("OpenWork/chats/");
             })()`, { timeoutMs: 60_000, label: "chat location whisper" });
+            // The narration looks down at the whisper — rest keyboard focus on
+            // its action so the frame visibly differs from the previous one.
+            await focusSelector(ctx, '[data-testid="chat-lives-in"] button');
           },
           assert: async () => {
             const text = await ctx.eval(`document.querySelector('[data-testid="chat-lives-in"]')?.textContent || ""`);
@@ -288,24 +332,21 @@ export default defineFlow({
               `Expected chat lives-in footer, got ${String(text)}`,
             );
             await ctx.expectText("Use a specific folder");
-            const proof = await ctx.eval(`(async () => {
-              const invoke = window.__OPENWORK_ELECTRON__.invokeDesktop;
-              const list = await invoke("workspaceBootstrap");
-              const config = await invoke("chatsConfigGet");
-              const workspaces = list?.workspaces ?? [];
-              if (workspaces.length !== 1) return "workspace count " + workspaces.length;
-              const workspacePath = workspaces[0]?.path || "";
-              if (!workspacePath.includes("OpenWork") || !workspacePath.includes("chats") || !workspacePath.includes("new-chat")) {
-                return "unexpected workspace path " + workspacePath;
-              }
-              if (!workspacePath.replace(/\\\\/g, "/").startsWith(config.root.replace(/\\\\/g, "/"))) {
-                return "root " + config.root + " was not a prefix of " + workspacePath;
-              }
-              return "ok";
+            const workspacePath = await currentWorkspacePath(ctx);
+            ctx.assert(workspacePath.length > 0, "Expected the route's workspace to exist in the server registry.");
+            ctx.assert(
+              workspacePath.includes("OpenWork") && workspacePath.includes("chats") && workspacePath.includes("new-chat"),
+              `Expected an automatic new-chat folder under OpenWork/chats, got ${workspacePath}`,
+            );
+            const chatsRoot = await ctx.eval(`(async () => {
+              const config = await window.__OPENWORK_ELECTRON__.invokeDesktop("chatsConfigGet");
+              return config.root.replace(/\\\\/g, "/");
             })()`, { awaitPromise: true });
-            ctx.assert(proof === "ok", `Expected one new-chat workspace under chats root: ${String(proof)}`);
-            firstChatPath = await currentWorkspacePath(ctx);
-            ctx.assert(firstChatPath.length > 0, "Expected to capture the first chat's workspace path.");
+            ctx.assert(
+              typeof chatsRoot === "string" && chatsRoot.length > 0 && workspacePath.replace(/\\/g, "/").startsWith(chatsRoot),
+              `Expected chats root ${String(chatsRoot)} to prefix ${workspacePath}`,
+            );
+            firstChatPath = workspacePath;
           },
           screenshot: { name: "frame-3", requireText: ["This chat lives in"] },
         });

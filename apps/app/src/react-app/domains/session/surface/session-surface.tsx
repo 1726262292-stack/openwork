@@ -106,6 +106,7 @@ import {
   type ConnectCapabilityInventory,
 } from "./connect-capability-inventory";
 import { ChangeLocationDialog } from "@/react-app/domains/onboarding/change-location-dialog";
+import { ensureDesktopLocalOpenworkConnection } from "@/react-app/shell/desktop-local-openwork";
 import { resolveOpenworkConnection } from "@/react-app/shell/openwork-connection";
 import { writeActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
@@ -1495,14 +1496,27 @@ export function SessionSurface(props: SessionSurfaceProps) {
     await desktopBridge.workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
     writeActiveWorkspaceId(workspaceId);
 
-    if (!resolvedToken) throw new Error(t("change_location.server_unavailable"));
     const workspace = list.workspaces.find((entry) => entry.id === workspaceId) ?? null;
+    // Boot the engine for the new workspace before binding a session to it —
+    // same order the welcome onboarding path uses (create folder → register →
+    // connect), otherwise the route bounces back to the previous workspace.
+    if (workspace) {
+      await ensureDesktopLocalOpenworkConnection({
+        route: "session",
+        workspace,
+        allWorkspaces: list.workspaces,
+      }).catch(() => undefined);
+    }
+    const fresh = await resolveOpenworkConnection().catch(() => null);
+    const sessionBaseUrl = fresh?.normalizedBaseUrl || normalizedBaseUrl;
+    const sessionToken = fresh?.resolvedToken || resolvedToken;
+    if (!sessionToken) throw new Error(t("change_location.server_unavailable"));
     const directory = workspace?.path?.trim() || folder;
-    const workspaceBaseUrl = buildOpenworkWorkspaceBaseUrl(normalizedBaseUrl, workspaceId) ?? normalizedBaseUrl;
+    const workspaceBaseUrl = buildOpenworkWorkspaceBaseUrl(sessionBaseUrl, workspaceId) ?? sessionBaseUrl;
     const session = unwrap(await createClient(
       `${workspaceBaseUrl.replace(/\/+$/g, "")}/opencode`,
       directory || undefined,
-      { token: resolvedToken, mode: "openwork" },
+      { token: sessionToken, mode: "openwork" },
     ).session.create({ directory: directory || undefined }));
 
     writeLastSessionFor(workspaceId, session.id);
