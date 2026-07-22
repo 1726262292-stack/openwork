@@ -53,6 +53,12 @@ function writeOnboardingPrefScript(completed: boolean): string {
     }
     if (!prefs || typeof prefs !== "object" || Array.isArray(prefs)) prefs = {};
     prefs.hasCompletedOnboarding = ${completed ? "true" : "false"};
+    // This flow proves the classic (flag-off) welcome; a prior chat-first run
+    // on the same app may have left the flag on.
+    const featureFlags = prefs.featureFlags && typeof prefs.featureFlags === "object" && !Array.isArray(prefs.featureFlags)
+      ? prefs.featureFlags
+      : {};
+    prefs.featureFlags = { ...featureFlags, chatFirstOnboarding: false };
     localStorage.setItem("openwork.preferences", JSON.stringify(prefs));
     return true;
   })()`;
