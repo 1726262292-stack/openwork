@@ -179,7 +179,13 @@ async function downloadAsset(asset: ReleaseAsset, targetPath: string, opts: Inst
   await writer.end()
 }
 
-function run(command: string, args: string[]): Promise<void> {
+const WINDOWS_SPAWN_BUSY_RETRIES = 5
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function spawnOnce(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: "ignore" })
     child.on("error", reject)
@@ -188,6 +194,28 @@ function run(command: string, args: string[]): Promise<void> {
       else reject(new Error(`${command} ${args.join(" ")} exited with ${code}`))
     })
   })
+}
+
+async function run(command: string, args: string[]): Promise<void> {
+  for (let attempt = 0; attempt <= WINDOWS_SPAWN_BUSY_RETRIES; attempt += 1) {
+    try {
+      await spawnOnce(command, args)
+      return
+    } catch (error) {
+      const canRetry = process.platform === "win32" && error instanceof Error && error.message.includes("EBUSY")
+      if (!canRetry || attempt === WINDOWS_SPAWN_BUSY_RETRIES) throw error
+      await wait(300 * (attempt + 1))
+    }
+  }
+  throw new Error(`${command} ${args.join(" ")} did not start`)
+}
+
+export function windowsInstalledExePath(localAppData: string): string {
+  const candidates = [
+    path.join(localAppData, "Programs", "OpenWork", "OpenWork.exe"),
+    path.join(localAppData, "Programs", "@openworkdesktop", "OpenWork.exe"),
+  ]
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]
 }
 
 function installDmg(dmgPath: string, workDir: string): string {
@@ -219,7 +247,7 @@ async function installExe(exePath: string): Promise<string> {
   // silent install (shortcuts, uninstaller, updater layout all included).
   await run(exePath, ["/S"])
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")
-  return path.join(localAppData, "Programs", "OpenWork", "OpenWork.exe")
+  return windowsInstalledExePath(localAppData)
 }
 
 function installAppImage(appImagePath: string): string {
