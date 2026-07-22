@@ -1,12 +1,9 @@
-import {
-  INSTALL_SIDECAR_FILENAME,
-  installConfigSchema,
-} from "@openwork/install-config"
+import { installConfigSchema } from "@openwork/install-config"
 import { connectLinkClaimsSchema } from "@openwork/connect-link"
 import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable, OrganizationTable, RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
-import { createReadStream, readFileSync } from "node:fs"
+import { createReadStream } from "node:fs"
 import type { MiddlewareHandler } from "hono"
 import type { Hono } from "hono"
 import { stream } from "hono/streaming"
@@ -29,12 +26,10 @@ import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, 
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
-  desktopReleaseAssetName,
   genericInstallerArtifactName,
   installerReleaseAssetUrl,
   resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
-import { appendStoredEntryToZip } from "../../utils/zip-append.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
 
@@ -99,7 +94,6 @@ type InstallPlatform = z.infer<typeof installPlatformSchema>
 
 export type InstallExperienceDependencies = {
   resolveConfiguredArtifact: typeof resolveConfiguredInstallerArtifact
-  resolveDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
   mintConnectGrant: typeof mintDesktopConnectGrant
   previewConnectGrant: typeof previewDesktopConnectGrant
   consumeConnectGrant: typeof consumeDesktopConnectGrant
@@ -107,10 +101,6 @@ export type InstallExperienceDependencies = {
 
 const defaultInstallerDependencies: InstallExperienceDependencies = {
   resolveConfiguredArtifact: resolveConfiguredInstallerArtifact,
-  resolveDirectUrl: (platform, releaseTag) => {
-    const fileName = desktopReleaseAssetName(platform, releaseTag)
-    return fileName ? installerReleaseAssetUrl(fileName, { releaseTag }) : OPENWORK_DOWNLOAD_URL
-  },
   mintConnectGrant: mintDesktopConnectGrant,
   previewConnectGrant: previewDesktopConnectGrant,
   consumeConnectGrant: consumeDesktopConnectGrant,
@@ -290,24 +280,21 @@ async function resolveInstallConfigForToken(token: string, request: Request) {
   return {
     config: buildInstallConfig({ organization: row.organization, request }),
     installLinkId: row.installLink.id,
+    organizationSlug: row.organization.slug,
     installerReleaseTag: installerReleaseTagForMetadata(row.organization.metadata),
   }
 }
 
+function safeAttachmentSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "workspace"
+}
+
 function contentDisposition(filename: string) {
   return `attachment; filename="${filename.replace(/["\\]/g, "-")}"`
-}
-
-function filenameTagHost(request: Request) {
-  return new URL(resolvePublicOrigin(request, env.apiPublicUrl)).host.replace(/:/g, "_")
-}
-
-function stampedWindowsInstallerFileName(request: Request, token: string) {
-  return `OpenWork-Installer--${filenameTagHost(request)}--${token}.exe`
-}
-
-function artifactFileName(platform: InstallPlatform, releaseTag: string) {
-  return desktopReleaseAssetName(platform, releaseTag)
 }
 
 function installerContentType(platform: InstallPlatform) {
@@ -316,19 +303,63 @@ function installerContentType(platform: InstallPlatform) {
   return "application/vnd.appimage"
 }
 
-function configuredArtifactContentType(platform: InstallPlatform, fileName: string) {
-  return fileName.toLowerCase().endsWith(".zip") ? "application/zip" : installerContentType(platform)
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`
 }
 
-function stampedZipPayload(filePath: string, config: ReturnType<typeof buildInstallConfig>) {
-  const sidecar = Buffer.from(`${JSON.stringify(config, null, 2)}\n`, "utf8")
-  return Buffer.from(appendStoredEntryToZip(readFileSync(filePath), INSTALL_SIDECAR_FILENAME, sidecar))
+function installConfigEndpoint(apiUrl: string, token: string) {
+  return new URL(`/v1/install-config?token=${encodeURIComponent(token)}`, new URL(apiUrl).origin).toString()
 }
 
-function bufferArrayBuffer(buffer: Buffer) {
-  const bytes = new Uint8Array(buffer.byteLength)
-  bytes.set(buffer)
-  return bytes.buffer
+function linuxInstallScript(input: { token: string; config: z.infer<typeof installConfigSchema> }) {
+  const configUrl = installConfigEndpoint(input.config.apiUrl, input.token)
+  return `#!/usr/bin/env sh
+# OpenWork Linux setup for ${input.config.clientName}.
+# Downloads no code. It writes the desktop bootstrap config, then tells you
+# where to download the current OpenWork AppImage.
+set -eu
+
+CONFIG_URL=${shellQuote(configUrl)}
+CLIENT_NAME=${shellQuote(input.config.clientName)}
+WEB_URL=${shellQuote(input.config.webUrl)}
+API_URL=${shellQuote(input.config.apiUrl)}
+DOWNLOAD_URL=${shellQuote(OPENWORK_DOWNLOAD_URL)}
+
+if command -v curl >/dev/null 2>&1; then
+  FETCH="curl -fsSL"
+elif command -v wget >/dev/null 2>&1; then
+  FETCH="wget -qO-"
+else
+  echo "OpenWork setup requires curl or wget." >&2
+  exit 1
+fi
+
+echo "Checking your OpenWork install link..."
+# shellcheck disable=SC2086
+$FETCH "$CONFIG_URL" >/dev/null
+
+CONFIG_HOME="\${XDG_CONFIG_HOME:-$HOME/.config}"
+BOOTSTRAP_DIR="$CONFIG_HOME/openwork"
+BOOTSTRAP_PATH="$BOOTSTRAP_DIR/desktop-bootstrap.json"
+mkdir -p "$BOOTSTRAP_DIR"
+
+cat > "$BOOTSTRAP_PATH" <<EOF
+{
+  "baseUrl": "$WEB_URL",
+  "apiBaseUrl": "$API_URL",
+  "requireSignin": true
+}
+EOF
+
+echo
+echo "This sets up OpenWork for $CLIENT_NAME."
+echo "Wrote $BOOTSTRAP_PATH"
+echo
+echo "Download the OpenWork AppImage here:"
+echo "  $DOWNLOAD_URL"
+echo
+echo "Run the AppImage, then sign in — your team's workspace is preconfigured."
+`
 }
 
 const setActiveOrganizationFromParam: MiddlewareHandler<{ Variables: OrgRouteVariables }> = async (c, next) => {
@@ -510,11 +541,11 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     "/v1/install/:platform",
     describeRoute({
       tags: ["Organizations"],
-      summary: "Download OpenWork desktop",
-      description: "Streams an explicitly provisioned standard OpenWork installer or redirects directly to the configured standard release. Organization setup remains a separate Den deep-link step.",
+      summary: "Download OpenWork installer",
+      description: "Always serves the OpenWork installer for the requested platform. By default Den redirects to the public release asset; operators can optionally mount installer artifacts for an air-gapped mirror.",
       responses: {
         200: textResponse("Installer artifact returned successfully."),
-        302: emptyResponse("Den redirected the browser to a verified normal desktop download."),
+        302: emptyResponse("Den redirected the browser to the public OpenWork installer release asset."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many installer download attempts.", rateLimitedSchema),
@@ -541,25 +572,23 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       }
 
       const platform = platformResult.data.platform
+      if (platform.startsWith("linux-")) {
+        return new Response(linuxInstallScript({ token: input.token, config: resolved.config }), {
+          headers: {
+            "content-type": "text/x-shellscript; charset=utf-8",
+            "content-disposition": contentDisposition(`openwork-linux-setup-${safeAttachmentSlug(resolved.organizationSlug)}.sh`),
+            "cache-control": "no-store",
+          },
+        })
+      }
+
       const genericFileName = genericInstallerArtifactName(platform)
       if (genericFileName) {
         const configuredArtifact = await installer.resolveConfiguredArtifact(genericFileName)
         if (configuredArtifact) {
-          const responseFileName = platform === "win-x64"
-            ? stampedWindowsInstallerFileName(c.req.raw, input.token)
-            : configuredArtifact.fileName ?? genericFileName
-          if (responseFileName.toLowerCase().endsWith(".zip")) {
-            const stamped = stampedZipPayload(configuredArtifact.filePath, resolved.config)
-            c.header("content-type", "application/zip")
-            c.header("content-length", String(stamped.byteLength))
-            c.header("content-disposition", contentDisposition(responseFileName))
-            c.header("cache-control", "private, max-age=300")
-            return c.body(bufferArrayBuffer(stamped))
-          }
-
-          c.header("content-type", configuredArtifactContentType(platform, responseFileName))
+          c.header("content-type", installerContentType(platform))
           c.header("content-length", String(configuredArtifact.size))
-          c.header("content-disposition", contentDisposition(responseFileName))
+          c.header("content-disposition", contentDisposition(genericFileName))
           c.header("cache-control", "private, max-age=300")
           return stream(c, async (body) => {
             for await (const chunk of createReadStream(configuredArtifact.filePath)) {
@@ -569,14 +598,11 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         }
       }
 
-      const fileName = artifactFileName(platform, resolved.installerReleaseTag)
-      if (!fileName) {
+      if (!genericFileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported installer platform." }] }, 400)
       }
 
-      // If no generic bootstrap installer is mounted, use the normal desktop
-      // release URL without forwarding the organization token to GitHub.
-      return c.redirect(installer.resolveDirectUrl(platform, resolved.installerReleaseTag), 302)
+      return c.redirect(installerReleaseAssetUrl(genericFileName, { releaseTag: resolved.installerReleaseTag }), 302)
     },
   )
 }
