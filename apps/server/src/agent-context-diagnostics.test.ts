@@ -26,6 +26,7 @@ import {
 import type { InspectAgentDiagnosticsEngine } from "./agent-context-engine-inspection.js";
 import type { ConnectSnapshot } from "./connect-state.js";
 import { buildOpenworkRuntimeConfigObjectFromSnapshot } from "./openwork-runtime-config.js";
+import { runtimeDbPath } from "./runtime-db.js";
 import {
   inspectEngineMcpRegistration,
   registerTrustedOpencodeProcess,
@@ -33,7 +34,6 @@ import {
   syncAllWorkspacesRuntimeMcpToEngine,
 } from "./server.js";
 import {
-  runtimeDbPath,
   writeRuntimeOpencodeConfig,
   type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
