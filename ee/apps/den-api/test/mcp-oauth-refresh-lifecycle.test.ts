@@ -435,7 +435,7 @@ function createConcurrentRefreshFetch(records: RefreshRecord[]): typeof fetch {
   }
 }
 
-childTest("two concurrent SDK requests after access expiry race one replay success against invalid_grant failures", async () => {
+childTest("two concurrent SDK requests after access expiry recover during refresh rotation grace", async () => {
   const grant = await issueOAuthGrant()
   const firstRefreshToken = requireRefreshToken(grant.tokens)
   const provider = new HarnessOAuthProvider(grant)
@@ -451,39 +451,79 @@ childTest("two concurrent SDK requests after access expiry race one replay succe
     ])
 
     const statuses = refreshRecords.map((record) => record.status)
-    const firstRefreshAttempts = refreshRecords.filter((record) => record.refreshToken === firstRefreshToken)
+    const firstRefreshAttempts = refreshRecords.slice(0, 2)
+    const rotatedRefreshTokens: string[] = []
+    for (const record of firstRefreshAttempts) {
+      const parsed = OAuthTokensSchema.safeParse(record.body)
+      expect(parsed.success).toBe(true)
+      if (parsed.success) rotatedRefreshTokens.push(requireRefreshToken(parsed.data))
+    }
     expect(refreshRecords.length).toBeGreaterThanOrEqual(2)
-    expect(refreshRecords.slice(0, 2).map((record) => record.refreshToken)).toEqual([firstRefreshToken, firstRefreshToken])
-    expect(statuses.some((status) => status === 200)).toBe(true)
-    expect(statuses.every((status) => status < 500)).toBe(true)
-    expect(firstRefreshAttempts.some((record) =>
-      record.status === 400 && isRecord(record.body) && record.body.error === "invalid_grant"
-    )).toBe(true)
-    expect(results.filter((result) => result.status === "fulfilled").length).toBeLessThan(2)
+    expect(firstRefreshAttempts.map((record) => record.refreshToken)).toEqual([firstRefreshToken, firstRefreshToken])
+    expect(statuses.every((status) => status >= 200 && status < 300)).toBe(true)
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true)
+    expect(rotatedRefreshTokens).not.toContain(firstRefreshToken)
+    expect(new Set(rotatedRefreshTokens).size).toBe(rotatedRefreshTokens.length)
+    const savedRefreshTokens = provider.savedTokens.map((tokens) => requireRefreshToken(tokens))
+    expect(savedRefreshTokens.length).toBeGreaterThanOrEqual(2)
+    expect(savedRefreshTokens).not.toContain(firstRefreshToken)
+    expect(new Set(savedRefreshTokens).size).toBe(savedRefreshTokens.length)
   } finally {
     await first.client.close()
     await second.client.close()
   }
 }, 12_000)
 
-childTest("reusing a rotated refresh token returns invalid_grant and revokes the token family", async () => {
+childTest("reusing a rotated refresh token within grace succeeds, but stale replay revokes the token family", async () => {
   const grant = await issueOAuthGrant()
   const clientId = grant.clientInformation.client_id
   const firstRefreshToken = requireRefreshToken(grant.tokens)
+  const [originalGrant] = await db
+    .select({ id: schema.OAuthRefreshTokenTable.id })
+    .from(schema.OAuthRefreshTokenTable)
+    .where(drizzle.eq(schema.OAuthRefreshTokenTable.clientId, clientId))
+    .limit(1)
+  expect(originalGrant).toBeDefined()
+  if (!originalGrant) throw new Error("Authorization-code exchange did not store the original refresh grant")
+
   const rotated = await refreshOAuthToken({ clientId, refreshToken: firstRefreshToken })
   expect(rotated.status).toBe(200)
   const rotatedTokens = OAuthTokensSchema.parse(rotated.body)
-  expect(requireRefreshToken(rotatedTokens)).not.toBe(firstRefreshToken)
+  const rotatedRefreshToken = requireRefreshToken(rotatedTokens)
+  expect(rotatedRefreshToken).not.toBe(firstRefreshToken)
 
-  const replay = await refreshOAuthToken({ clientId, refreshToken: firstRefreshToken })
-  expect(replay.status).toBe(400)
-  expect(isRecord(replay.body) && replay.body.error).toBe("invalid_grant")
+  const replayWithinGrace = await refreshOAuthToken({ clientId, refreshToken: firstRefreshToken })
+  expect(replayWithinGrace.status).toBe(200)
+  const graceTokens = OAuthTokensSchema.parse(replayWithinGrace.body)
+  const graceRefreshToken = requireRefreshToken(graceTokens)
+  expect(graceRefreshToken).not.toBe(firstRefreshToken)
+  expect(graceRefreshToken).not.toBe(rotatedRefreshToken)
 
-  const grants = await db
+  const grantsAfterGraceReplay = await db
     .select({ revoked: schema.OAuthRefreshTokenTable.revoked })
     .from(schema.OAuthRefreshTokenTable)
     .where(drizzle.eq(schema.OAuthRefreshTokenTable.clientId, clientId))
-  expect(grants.filter((refreshGrant) => refreshGrant.revoked === null)).toEqual([])
+  expect(grantsAfterGraceReplay.filter((refreshGrant) => refreshGrant.revoked === null).length).toBeGreaterThan(0)
+
+  await db.update(schema.OAuthRefreshTokenTable)
+    .set({ revoked: new Date(Date.now() - 31_000) })
+    .where(drizzle.eq(schema.OAuthRefreshTokenTable.id, originalGrant.id))
+
+  const staleReplay = await refreshOAuthToken({ clientId, refreshToken: firstRefreshToken })
+  expect(staleReplay.status).toBe(400)
+  expect(isRecord(staleReplay.body) && staleReplay.body.error).toBe("invalid_grant")
+
+  const grants = await db
+    .select({ id: schema.OAuthRefreshTokenTable.id })
+    .from(schema.OAuthRefreshTokenTable)
+    .where(drizzle.eq(schema.OAuthRefreshTokenTable.clientId, clientId))
+  expect(grants).toHaveLength(0)
+
+  for (const successor of [rotatedRefreshToken, graceRefreshToken]) {
+    const replaySuccessor = await refreshOAuthToken({ clientId, refreshToken: successor })
+    expect(replaySuccessor.status).toBe(400)
+    expect(isRecord(replaySuccessor.body) && replaySuccessor.body.error).toBe("invalid_grant")
+  }
 }, 8_000)
 
 childTest("revoked bound sessions currently make the MCP resource reject an otherwise unexpired access token", async () => {
