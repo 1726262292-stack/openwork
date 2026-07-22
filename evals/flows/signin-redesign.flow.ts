@@ -10,50 +10,36 @@ const DEFAULT_DEN_API_BASE_URL = "https://app.openworklabs.com/api/den";
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
 if (!vo) throw new Error("Missing approved voice-over script for signin-redesign.");
 
-function isPoint(value: unknown): value is { x: number; y: number } {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("x" in value) || !("y" in value)) return false;
-  return typeof value.x === "number" && typeof value.y === "number";
-}
-
-/** Let hover transitions settle before the frame is captured. */
+/** Let focus-ring transitions settle before the frame is captured. */
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 400));
 }
 
 /**
- * Presenter-style pointer movement: frames 1-4 narrate different regions of
- * one static screen, so each frame moves the real mouse (trusted CDP input)
- * the way a presenter would — onto the primary CTA, across to the showcase
- * panel, onto a team card, then back to neutral. Hover styles give each
- * capture an honest pixel delta.
+ * Presenter-style keyboard focus: frames 1-4 narrate different regions of one
+ * static screen, so each frame moves keyboard focus the way a presenter
+ * tabbing through the screen would (synthetic mouse hover does not repaint in
+ * the Electron/VNC harness, but :focus-visible rings do). Focused frames show
+ * the ring on the narrated element; blurred frames give the clean wide shot.
  */
-async function moveMouseTo(ctx: FlowContext, x: number, y: number): Promise<void> {
-  const client = ctx.client;
-  if (!client) throw new Error("CDP client unavailable for pointer movement.");
-  await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+async function focusTestId(ctx: FlowContext, testId: string): Promise<void> {
+  const focused = await ctx.eval(`(() => {
+    const el = document.querySelector('[data-testid="${testId}"]');
+    if (!(el instanceof HTMLElement)) return false;
+    el.focus();
+    return document.activeElement === el && el.matches(":focus-visible");
+  })()`);
+  ctx.assert(focused === true, `Expected keyboard focus with a visible ring on ${testId}.`);
   await settle();
 }
 
-async function hoverSelector(ctx: FlowContext, selector: string): Promise<void> {
-  const point = await ctx.eval(`(() => {
-    const el = document.querySelector(${JSON.stringify(selector)});
-    if (!el) return null;
-    el.scrollIntoView({ block: "center", inline: "center" });
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return null;
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+async function blurActiveElement(ctx: FlowContext): Promise<void> {
+  await ctx.eval(`(() => {
+    const el = document.activeElement;
+    if (el instanceof HTMLElement && el !== document.body) el.blur();
+    return true;
   })()`);
-  if (!isPoint(point)) throw new Error(`Could not resolve hover point for ${selector}`);
-  await moveMouseTo(ctx, point.x, point.y);
-}
-
-async function hoverViewportFraction(ctx: FlowContext, fx: number, fy: number): Promise<void> {
-  const point = await ctx.eval(
-    `(() => ({ x: Math.round(window.innerWidth * ${fx}), y: Math.round(window.innerHeight * ${fy}) }))()`,
-  );
-  if (!isPoint(point)) throw new Error("Could not resolve viewport hover point.");
-  await moveMouseTo(ctx, point.x, point.y);
+  await settle();
 }
 
 function writeOnboardingPrefScript(completed: boolean): string {
@@ -93,7 +79,9 @@ async function resetToDefaultWelcome(ctx: FlowContext): Promise<void> {
     localStorage.removeItem("openwork.den.activeOrgId");
     localStorage.removeItem("openwork.den.activeOrgSlug");
     localStorage.removeItem("openwork.den.activeOrgName");
-    localStorage.removeItem("openwork.developerMode");
+    // "0" portrays the packaged default: dev builds (like this eval app)
+    // otherwise show the welcome Developer section by default.
+    localStorage.setItem("openwork.developerMode", "0");
     ${writeOnboardingPrefScript(false)};
     location.hash = "#/welcome";
     location.reload();
@@ -114,9 +102,9 @@ export default defineFlow({
           voiceover: vo[0],
           action: async () => {
             await resetToDefaultWelcome(ctx);
-            // The narration ends on "a single primary button" — rest the
-            // pointer there, like a presenter would.
-            await hoverSelector(ctx, '[data-testid="welcome-primary-cta"]');
+            // The narration ends on "a single primary button" — rest keyboard
+            // focus there, like a presenter tabbing to it.
+            await focusTestId(ctx, "welcome-primary-cta");
           },
           assert: async () => {
             const markPresent = await ctx.eval(`Boolean(document.querySelector('[data-testid="welcome-brand-mark"]'))`);
@@ -141,8 +129,9 @@ export default defineFlow({
         await ctx.prove("The showcase panel uses a quiet label and plain-text capabilities without borrowed logos", {
           voiceover: vo[1],
           action: async () => {
-            // Attention moves to the right panel; the pointer follows.
-            await hoverViewportFraction(ctx, 0.72, 0.5);
+            // Attention moves to the right panel — clear the focus ring for
+            // the clean panel shot.
+            await blurActiveElement(ctx);
           },
           assert: async () => {
             // The label renders through CSS text-transform: uppercase, which
@@ -166,8 +155,8 @@ export default defineFlow({
         await ctx.prove("The secondary sign-in paths sit behind an or divider with full subtitles", {
           voiceover: vo[2],
           action: async () => {
-            // Hover the first team card — its hover tint marks the frame.
-            await hoverSelector(ctx, '[data-testid="welcome-team-signin"]');
+            // Focus the first team card — its ring marks the frame.
+            await focusTestId(ctx, "welcome-team-signin");
           },
           assert: async () => {
             const dividerPresent = await ctx.eval(`Boolean(document.querySelector('[data-testid="welcome-or-divider"]'))`);
@@ -199,8 +188,8 @@ export default defineFlow({
         await ctx.prove("The normal first-run screen hides on-premises and Daytona developer plumbing", {
           voiceover: vo[3],
           action: async () => {
-            // Back to a neutral wide shot: pointer to the top-left corner.
-            await moveMouseTo(ctx, 8, 8);
+            // Back to a neutral wide shot: clear the focus ring.
+            await blurActiveElement(ctx);
           },
           assert: async () => {
             await ctx.expectNoText("Using OpenWork on-premises?");

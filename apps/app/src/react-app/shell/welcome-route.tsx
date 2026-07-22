@@ -136,9 +136,15 @@ export function WelcomeRoute() {
   const [organizationServerBusy, setOrganizationServerBusy] = useState(false);
   const [organizationServerError, setOrganizationServerError] = useState<string | null>(null);
   const [joinOrganizationOpen, setJoinOrganizationOpen] = useState(false);
+  // Tri-state gate for the welcome Developer section: explicit "1" shows it,
+  // explicit "0" hides it, and dev builds default to visible so local/dev
+  // sandboxes keep the manual folder affordance. Packaged builds default off.
   const [developerMode] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("openwork.developerMode") === "1";
+    const stored = window.localStorage.getItem("openwork.developerMode");
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+    return import.meta.env.DEV;
   });
   const showOpenWorkModelsPromo = useOpenWorkModelsPromoEligibility();
 

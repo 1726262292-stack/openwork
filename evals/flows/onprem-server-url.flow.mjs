@@ -31,10 +31,36 @@ async function setDesktopBootstrapConfig(ctx, config) {
 }
 
 async function currentDenBaseUrls(ctx) {
-  return ctx.eval(`(() => ({
-    baseUrl: localStorage.getItem("openwork.den.baseUrl") || ${JSON.stringify(DEFAULT_DEN_BASE_URL)},
-    apiBaseUrl: localStorage.getItem("openwork.den.apiBaseUrl") || ${JSON.stringify(DEFAULT_DEN_API_BASE_URL)},
-  }))()`);
+  return ctx.eval(`(async () => {
+    const fallback = {
+      baseUrl: localStorage.getItem("openwork.den.baseUrl") || ${JSON.stringify(DEFAULT_DEN_BASE_URL)},
+      apiBaseUrl: localStorage.getItem("openwork.den.apiBaseUrl") || ${JSON.stringify(DEFAULT_DEN_API_BASE_URL)},
+    };
+    const invokeDesktop = window.__OPENWORK_ELECTRON__?.invokeDesktop;
+    if (!invokeDesktop) return fallback;
+    const config = await invokeDesktop("getDesktopBootstrapConfig").catch(() => null);
+    return {
+      baseUrl: config?.baseUrl || fallback.baseUrl,
+      apiBaseUrl: config?.apiBaseUrl || fallback.apiBaseUrl,
+    };
+  })()`, { awaitPromise: true });
+}
+
+/**
+ * On desktop the control-plane URL's source of truth is the desktop
+ * bootstrap config (writeDenSettings removes the localStorage key there);
+ * localStorage only remains authoritative on web.
+ */
+async function persistedControlPlaneBaseUrl(ctx) {
+  const value = await ctx.eval(`(async () => {
+    const invokeDesktop = window.__OPENWORK_ELECTRON__?.invokeDesktop;
+    if (invokeDesktop) {
+      const config = await invokeDesktop("getDesktopBootstrapConfig").catch(() => null);
+      if (config?.baseUrl) return config.baseUrl;
+    }
+    return localStorage.getItem("openwork.den.baseUrl") || "";
+  })()`, { awaitPromise: true });
+  return typeof value === "string" ? value : "";
 }
 
 async function closeDialogs(ctx) {
@@ -214,8 +240,8 @@ export default {
           assert: async () => {
             await ctx.expectText(`Connected to ${ORG_HOST}`);
             await ctx.expectText("Change");
-            const stored = await ctx.eval(`localStorage.getItem("openwork.den.baseUrl")`);
-            ctx.assert(stored === ORG_URL, `Expected localStorage control plane URL to be ${ORG_URL}, got ${stored}`);
+            const stored = await persistedControlPlaneBaseUrl(ctx);
+            ctx.assert(stored === ORG_URL, `Expected persisted control plane URL to be ${ORG_URL}, got ${stored}`);
           },
           screenshot: {
             name: "frame-3",
@@ -265,7 +291,7 @@ export default {
           assert: async () => {
             await ctx.expectText("Using OpenWork on-premises?");
             await ctx.expectNoText(`Connected to ${ORG_HOST}`);
-            const stored = await ctx.eval(`localStorage.getItem("openwork.den.baseUrl")`);
+            const stored = await persistedControlPlaneBaseUrl(ctx);
             ctx.assert(stored === DEFAULT_DEN_BASE_URL, `Expected reset control plane URL to be ${DEFAULT_DEN_BASE_URL}, got ${stored}`);
           },
           screenshot: {
@@ -296,7 +322,7 @@ export default {
                 location.reload();
                 return true;
               })()`);
-              await ctx.waitForText("Sign in with OpenWork Cloud", { timeoutMs: 60_000 });
+              await ctx.waitForText("Sign in to OpenWork", { timeoutMs: 60_000 });
               await ctx.expectNoText("Developer mode only");
               await ctx.expectText("Using OpenWork on-premises?");
               await ctx.clickText("Using OpenWork on-premises?");
@@ -317,7 +343,7 @@ export default {
               await ctx.expectText(`Connected to ${ORG_HOST}`);
               await ctx.expectText("Change");
               await ctx.expectNoText("Developer mode only");
-              const stored = await ctx.eval(`localStorage.getItem("openwork.den.baseUrl")`);
+              const stored = await persistedControlPlaneBaseUrl(ctx);
               ctx.assert(stored === ORG_URL, `Expected forced sign-in control plane URL to be ${ORG_URL}, got ${stored}`);
               const bootstrap = await ctx.eval(`(async () => {
                 const config = await window.__OPENWORK_ELECTRON__.invokeDesktop("getDesktopBootstrapConfig");
