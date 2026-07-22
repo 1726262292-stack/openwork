@@ -6,7 +6,7 @@ import { installConfigUrlFor } from "@openwork/install-config"
 
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { buildConstantsConfig, parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
-import { removableInstallerBundlePath, writeBootstrapConfig } from "../src/install"
+import { removableInstallerBundlePath, windowsInstalledExePath, writeBootstrapConfig } from "../src/install"
 import { releaseAssetFor } from "../src/release-asset"
 import { startInstallerServer } from "../src/server"
 
@@ -55,6 +55,20 @@ describe("releaseAssetFor", () => {
   test("rejects unsupported targets", () => {
     expect(() => releaseAssetFor("0.17.7", "win32", "arm64")).toThrow()
     expect(() => releaseAssetFor("", "darwin", "arm64")).toThrow()
+  })
+})
+
+describe("windowsInstalledExePath", () => {
+  test("reports the installed electron-builder package directory", () => {
+    const temp = mkdtempSync(path.join(os.tmpdir(), "openwork-installed-path-"))
+    const installed = path.join(temp, "Programs", "@openworkdesktop", "OpenWork.exe")
+    mkdirSync(path.dirname(installed), { recursive: true })
+    writeFileSync(installed, "")
+    try {
+      expect(windowsInstalledExePath(temp)).toBe(installed)
+    } finally {
+      rmSync(temp, { recursive: true, force: true })
+    }
   })
 })
 
