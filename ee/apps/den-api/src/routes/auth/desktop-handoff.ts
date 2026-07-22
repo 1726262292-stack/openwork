@@ -152,11 +152,18 @@ function withDenProxyPath(origin: string) {
   return url.toString().replace(/\/+$/, "")
 }
 
-function resolveDesktopDenBaseUrl(request: Request) {
+function configuredDesktopDenBaseUrl() {
+  return env.desktopDenBaseUrl ?? withDenProxyPath(env.betterAuthUrl)
+}
+
+export function resolveDesktopDenBaseUrl(request: Request) {
   const originHeader = readSingleHeader(request.headers.get("origin"))
   if (originHeader) {
     try {
       const originUrl = new URL(originHeader)
+      if (originUrl.hostname === "0.0.0.0") {
+        return configuredDesktopDenBaseUrl()
+      }
       if ((originUrl.protocol === "https:" || originUrl.protocol === "http:") && isWebAppHost(originUrl.hostname)) {
         return withDenProxyPath(originUrl.origin)
       }
@@ -171,7 +178,7 @@ function resolveDesktopDenBaseUrl(request: Request) {
   const protocol = forwardedProto ?? new URL(request.url).protocol.replace(/:$/, "")
   const targetHost = forwardedHost ?? host
   if (!targetHost) {
-    return env.desktopDenBaseUrl ?? `${env.betterAuthUrl}/api/den`
+    return configuredDesktopDenBaseUrl()
   }
 
   const origin = `${protocol}://${targetHost}`
