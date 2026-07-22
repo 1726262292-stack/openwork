@@ -1122,3 +1122,51 @@ pnpm --filter @openwork-ee/den-api build
 ### Victory-lap stopped state
 
 Per the defect rule, I stopped validation after the handoff blocker and did not run the Mac spot-check or expired-link negative check. Sandboxes were stopped and not deleted after evidence capture.
+
+---
+
+## Victory lap — clean pass (post #3009)
+
+Date: 2026-07-22. I restarted the stopped victory-lap sandboxes, updated the server checkout to latest `dev` (`11fcf6b fix(den-api): use public handoff URL for forwarded zero host (#3009)`), and reran the skipped legs against the real released v0.17.38 Windows installer with no URL edits.
+
+### Clean-pass sandboxes and URLs
+
+- Server sandbox: `openwork-server-victory-v01738-20260722-0556` / `e2d3adc7-9e2b-434c-a180-55033394ee71`.
+- Windows sandbox: `openwork-win-victory-v01738-20260722-0605` / `80c71c42-7956-449d-8195-3a9bc985f79d` (`windows-medium`).
+- Den Web: `https://3005-zq1qxjuimk2sonr1.daytonaproxy01.net`.
+- Den API: `https://8788-gv3nldqg7cr76xti.daytonaproxy01.net`.
+- Worker proxy: `https://8789-njhuqwuhwj5mjoqc.daytonaproxy01.net`.
+- Seeded org: `Acme Robotics`, `org_01ky50rc9fexxt4c40hbvvhtnm`.
+- Main install token: `JtDREhI7junOJq0pZO2HUYLGQTuNYtXbjT8M16zT5B0`.
+- Rotated replacement token: `Z5e9Jx-B-FMAi0S18B7LJ6V3X4sFfvIh6_khCIYhLag`.
+
+### Clean-pass verdict summary
+
+- Overall: **Passed**. Latest `dev` includes #3009, the handoff URL is public, the installed Windows app reaches the branded Acme org, the install page flips to Connected, the expired-link UI negative check passes, and the local macOS installer UI renders the managed wordmark.
+- Server/latest-dev gates: **Passed**. `/v1/app-version` returned `latestAppVersion: "0.17.38"`; install-config returned `appName: "Acme Robotics Desk"`, `clientName: "Acme Robotics"`, `requireSignin: true`, and managed `logoUrl`/`iconUrl` under the restarted Den API host.
+- Redirect gate: **Passed**. `/v1/install/win-x64?token=...` returned `302 Location: https://github.com/different-ai/openwork/releases/download/v0.17.38/OpenWork-Installer-win-x64.exe` both before and after server GitHub egress lockdown.
+- Server egress lockdown: **Passed**. `/etc/hosts` loopback entries plus 10 iptables OUTPUT rejects were applied for GitHub/release hosts; server-side curls to `github.com`, `api.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`, and `github-releases.githubusercontent.com` all failed. `ss -tupn` forbidden-string counts were `github: 0`, `release-assets: 0`, `objects.githubusercontent: 0`, `140.82.: 0`, `185.199.: 0`; current sockets showed local DB/proxy traffic and Daytona control-plane traffic only.
+- Windows released installer: **Passed**. Reused `C:\ow\OpenWork-Installer-win-x64.exe` after verifying `Length=114894848` and `SHA256=38ba64d2742d1dc87021f1c613b1332108fcea6718bf84283b690fd69fe0a41a`.
+- Windows bare gate: **Passed**. SYSTEM `--headless --dry-run` exited `2` with `Installer is not configured...` and left the SYSTEM bootstrap absent.
+- Windows installer branding gate: **Passed**. Manual HTTP UI paste screen rendered; resolving the live install link returned the custom logo/title (`custom-logo-ok=True`, `custom-title-ok=True`, `custom-client-ok=True`).
+- Windows real install: **Passed**. The released installer ran as interactive `Administrator`, downloaded/installed OpenWork 0.17.38, exited `0`, and wrote `C:\Users\Administrator\AppData\Local\openwork\desktop-bootstrap.json` with the restarted Den URLs and `brandAppName`/`brandLogoUrl`. Because this was the same stopped sandbox and Daytona preview URLs rotated after restart, I removed the stale previous-run Administrator bootstrap before this install so the validation started from a clean installer state.
+- Handoff blocker leg: **Passed**. The Den Web proxy POST returned `openwork://den-auth?...&denBaseUrl=https%3A%2F%2F3005-zq1qxjuimk2sonr1.daytonaproxy01.net%2Fapi%2Fden`; decoded `denBaseUrl` was `https://3005-zq1qxjuimk2sonr1.daytonaproxy01.net/api/den` and `hasZeroHost: false`. The installed app consumed the unmodified handoff URL through the registered Windows `openwork` protocol handler, signed in as `alex@acme.test`, selected `Acme Robotics`, and reached the workspace/settings signed-in state. Automation note: Edge/CDP did not expose its external-protocol confirmation to the test harness, so I invoked Windows Shell on the exact unmodified `openwork://` URL minted by the page after the button path stored the handoff grant; I did not edit `denBaseUrl` or write app auth state.
+- Install page connected: **Passed**. The original install page changed step 3 from `Waiting for sign-in…` to `✓ Connected — OpenWork is set up for Acme Robotics`.
+- Expired-link negative check: **Passed**. After rotating the install link, submitting the old link in the installer UI showed `This install link has expired or was replaced. Ask your workspace admin for a fresh one from the Members page.`
+- macOS branding spot-check: **Passed**. Locally compiled `@openwork/installer`, ran its manual HTTP UI with the same custom `OPENWORK_INSTALLER_LOGO_URL`, and captured Chrome proof that the macOS UI rendered the Acme wordmark (`naturalWidth: 720`, `naturalHeight: 180`) and `Acme Robotics Desk Installer` title.
+
+### Clean-pass evidence screenshots
+
+- Branded forced sign-in after the clean install: `screenshots/victory-clean-app-forced-signin-branded.png`.
+- Den Web signed-in handoff page: `screenshots/victory-clean-den-web-open-openwork.png`.
+- Windows app signed in to Acme Robotics: `screenshots/victory-clean-windows-app-connected.png`.
+- Install page step 3 connected: `screenshots/victory-clean-den-install-page-connected.png`.
+- Expired-link installer UI error: `screenshots/victory-clean-installer-old-link-expired.png`.
+- macOS compiled installer UI wordmark: `screenshots/victory-clean-mac-installer-custom-logo.png`.
+
+### Clean-pass required exact facts
+
+- Server egress: **Blocked** before the Windows/sign-in flow with `/etc/hosts` plus iptables rejects for resolved GitHub/release IPs. Server-side probes to GitHub/release hosts failed, and `ss -tupn` checks showed zero GitHub/release host/IP strings.
+- Redirect target: **Correct** — `https://github.com/different-ai/openwork/releases/download/v0.17.38/OpenWork-Installer-win-x64.exe`.
+- Who downloaded bytes: **The Windows client**. This run reused the previously downloaded released installer EXE after hash/size verification; during the real install, the Windows installer downloaded the v0.17.38 desktop app bytes from GitHub/release assets. Den returned JSON/302 responses and did not stream or cache installer/app bytes.
+- Branding chain findings: **Install-config carried the custom branding** (`Acme Robotics Desk`, managed wordmark, managed icon). The Windows installer bootstrap wrote `brandAppName` and `brandLogoUrl`; the desktop then fetched org desktop config and stored both `brandLogoUrl` and `brandIconUrl`. The forced sign-in and macOS installer UIs visibly rendered the managed Acme wordmark; the connected app showed `Acme Robotics` / `Owner · Connected`.
