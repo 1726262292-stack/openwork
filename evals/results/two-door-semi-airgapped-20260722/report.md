@@ -595,11 +595,11 @@ Sandbox openwork-server-two-door-fix-20260722-0937 stopped
 Sandbox openwork-win-two-door-fix-20260722-0941 stopped
 
 ID              32711835-499b-4b1a-9755-f1e2c4aa4a30
-State           STOPPING
+State           STOPPED
 Region          us
 
 ID              a5a17f95-727f-4a18-a2d4-e623a3759769
-State           STOPPING
+State           STOPPED
 Snapshot        windows-medium
 Region          us
 ```
