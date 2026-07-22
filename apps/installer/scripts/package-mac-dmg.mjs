@@ -4,7 +4,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync
 import os from "node:os"
 import path from "node:path"
 
-const appName = "OpenWork Installer.app"
+const appName = "Install OpenWork.app"
 const executableName = "openwork-installer"
 
 function fail(message) {
@@ -38,8 +38,8 @@ function writeInfoPlist(appPath) {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>OpenWork Installer</string>
-  <key>CFBundleDisplayName</key><string>OpenWork Installer</string>
+  <key>CFBundleName</key><string>Install OpenWork</string>
+  <key>CFBundleDisplayName</key><string>Install OpenWork</string>
   <key>CFBundleIdentifier</key><string>com.differentai.openwork.installer</string>
   <key>CFBundleExecutable</key><string>${executableName}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -60,6 +60,7 @@ function stageInput(inputPath, stagedAppPath) {
     execFileSync("ditto", [inputPath, stagedAppPath], { stdio: "inherit" })
     const stagedBinary = path.join(stagedAppPath, "Contents", "MacOS", executableName)
     if (!existsSync(stagedBinary)) fail(`App bundle is missing Contents/MacOS/${executableName}`)
+    writeInfoPlist(stagedAppPath)
     return
   }
 
@@ -82,7 +83,7 @@ const stagingRoot = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-dmg-"
 try {
   mkdirSync(path.dirname(outputPath), { recursive: true })
   stageInput(inputPath, path.join(stagingRoot, appName))
-  execFileSync("hdiutil", ["create", "-volname", "OpenWork Installer", "-srcfolder", stagingRoot, "-ov", "-format", "UDZO", outputPath], { stdio: "inherit" })
+  execFileSync("hdiutil", ["create", "-volname", "Install OpenWork", "-srcfolder", stagingRoot, "-ov", "-format", "UDZO", outputPath], { stdio: "inherit" })
   console.log(`[package-mac-dmg] Wrote ${outputPath}`)
 } finally {
   rmSync(stagingRoot, { recursive: true, force: true })
