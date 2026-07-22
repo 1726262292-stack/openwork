@@ -128,8 +128,20 @@ async function waitForCreatedSessionInRoute(ctx) {
   return ctx.waitFor(
     `(() => {
       const route = window.__openworkControl.snapshot().route || "";
-      const match = /session\/([^/?#]+)/.exec(route);
-      return match ? decodeURIComponent(match[1]) : null;
+      const marker = "/session/";
+      const markerIndex = route.indexOf(marker);
+      if (markerIndex < 0) return null;
+      const afterMarker = route.slice(markerIndex + marker.length);
+      const stopIndexes = [afterMarker.indexOf("/"), afterMarker.indexOf("?"), afterMarker.indexOf("#")]
+        .filter((index) => index >= 0);
+      const stopIndex = stopIndexes.length > 0 ? Math.min(...stopIndexes) : afterMarker.length;
+      const encodedSessionId = afterMarker.slice(0, stopIndex);
+      if (!encodedSessionId) return null;
+      try {
+        return decodeURIComponent(encodedSessionId);
+      } catch {
+        return encodedSessionId;
+      }
     })()`,
     { timeoutMs: 30_000, label: "created session in route" },
   );
