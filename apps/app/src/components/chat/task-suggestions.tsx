@@ -9,7 +9,9 @@ import {
 } from "@/components/descriptive-button"
 import { useMessageList } from "@/components/chat/message-list-provider"
 import { cn } from "@/lib/utils"
+import { t } from "@/i18n"
 import { useOrgRestrictions } from "@/react-app/domains/cloud/desktop-config-provider"
+import { useLocal } from "@/react-app/kernel/local-provider"
 import { BoltIcon, CubeIcon, DocumentChartBarIcon, GlobeAltIcon, SparklesIcon } from "@heroicons/react/24/solid"
 
 const CSV_PROMPT =
@@ -39,6 +41,7 @@ interface TaskSuggestionsProps {
 
 export function TaskSuggestions({ className }: TaskSuggestionsProps) {
   const { displaySuggestions, providerConnectedCount, dispatchAction, setPrompt } = useMessageList()
+  const local = useLocal()
   const orgRestrictions = useOrgRestrictions()
   const organizationPrompts = orgRestrictions.onboardingPrompts
   const organizationPromptDescriptions = orgRestrictions.onboardingPromptDescriptions
@@ -49,21 +52,56 @@ export function TaskSuggestions({ className }: TaskSuggestionsProps) {
 
   const noProviders = providerConnectedCount === 0
   const hasOrganizationPrompts = organizationPrompts !== undefined
+  const showChatFirstSuggestions = local.prefs.featureFlags.chatFirstOnboarding && !hasOrganizationPrompts
+  const chatFirstCards = [
+    {
+      title: t("suggestions.summarize_week"),
+      description: t("suggestions.summarize_week_desc"),
+      prompt: t("suggestions.summarize_week_prompt"),
+      icon: <SparklesIcon className="size-6 text-purple-10" aria-hidden />,
+    },
+    {
+      title: t("suggestions.clean_spreadsheet"),
+      description: t("suggestions.clean_spreadsheet_desc"),
+      prompt: t("suggestions.clean_spreadsheet_prompt"),
+      icon: <DocumentChartBarIcon className="size-6 text-green-10" aria-hidden />,
+    },
+    {
+      title: t("suggestions.draft_document"),
+      description: t("suggestions.draft_document_desc"),
+      prompt: t("suggestions.draft_document_prompt"),
+      icon: <CubeIcon className="size-6 text-amber-10" aria-hidden />,
+    },
+    {
+      title: t("suggestions.automate_web_task"),
+      description: t("suggestions.automate_web_task_desc"),
+      prompt: t("suggestions.automate_web_task_prompt"),
+      icon: <GlobeAltIcon className="size-6 text-blue-10" aria-hidden />,
+    },
+  ]
 
   return (
     <div className={cn("@container flex flex-col gap-4 pt-1", className)}>
       <p className="text-muted-foreground font-medium select-none">
-        {noProviders
+        {showChatFirstSuggestions
+          ? t("suggestions.what_do_you_need")
+          : noProviders
           ? "Connect a model provider to get started:"
           : hasOrganizationPrompts
             ? "Try one of your organization's prompts:"
             : "Try one of these:"}
       </p>
-      <div className="grid min-w-0 gap-2 @lg:grid-cols-2 @2xl:grid-cols-3">
-        {noProviders ? (
+      {/* Chat-first keeps the four suggestions even with zero providers (the
+          composer's "No AI model connected" notice carries provider guidance
+          on fresh installs). */}
+      <div className={cn("grid min-w-0 gap-2 @lg:grid-cols-2", showChatFirstSuggestions ? "@2xl:grid-cols-4" : "@2xl:grid-cols-3")}>
+        {noProviders && !showChatFirstSuggestions ? (
           <DescriptiveButton
             orientation="vertical"
-            className="border-blue-7/50 bg-blue-2/30 hover:bg-blue-3/40 @lg:col-span-2 @2xl:col-span-3"
+            className={cn(
+              "border-blue-7/50 bg-blue-2/30 hover:bg-blue-3/40 @lg:col-span-2",
+              showChatFirstSuggestions ? "@2xl:col-span-4" : "@2xl:col-span-3",
+            )}
             onClick={() =>
               dispatchAction({
                 target: "settings",
@@ -102,8 +140,21 @@ export function TaskSuggestions({ className }: TaskSuggestionsProps) {
                 </DescriptiveButtonContent>
               </DescriptiveButton>
             )
-          })
+            })
         ) : (
+          showChatFirstSuggestions ? (
+            <>
+              {chatFirstCards.map((card) => (
+                <DescriptiveButton key={card.title} orientation="vertical" onClick={() => setPrompt(card.prompt)}>
+                  <DescriptiveButtonIcon>{card.icon}</DescriptiveButtonIcon>
+                  <DescriptiveButtonContent>
+                    <DescriptiveButtonTitle>{card.title}</DescriptiveButtonTitle>
+                    <DescriptiveButtonDescription>{card.description}</DescriptiveButtonDescription>
+                  </DescriptiveButtonContent>
+                </DescriptiveButton>
+              ))}
+            </>
+          ) : (
           <>
             <DescriptiveButton orientation="vertical" onClick={() => setPrompt(CSV_PROMPT)}>
               <DescriptiveButtonIcon>
@@ -144,6 +195,7 @@ export function TaskSuggestions({ className }: TaskSuggestionsProps) {
               </DescriptiveButtonContent>
             </DescriptiveButton>
           </>
+          )
         )}
       </div>
     </div>

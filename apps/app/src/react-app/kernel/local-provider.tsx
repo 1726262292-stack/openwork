@@ -44,6 +44,7 @@ export type LocalPreferences = {
   releaseChannel: ReleaseChannel;
   featureFlags: {
     microsandboxCreateSandbox: boolean;
+    chatFirstOnboarding: boolean;
     /**
      * Memory Bank preview. Client-only, per-device, never synced. Gates desktop
      * UI surfacing (the management panel + copy-prompt affordance); the routes
@@ -89,7 +90,7 @@ const INITIAL_PREFS: LocalPreferences = {
   defaultModel: null,
   selectedAgent: null,
   releaseChannel: "stable",
-  featureFlags: { microsandboxCreateSandbox: true, memory: false },
+  featureFlags: { microsandboxCreateSandbox: true, chatFirstOnboarding: false, memory: false },
   hasCompletedOnboarding: false,
   analyticsEnabled: true,
   desktopNotifications: DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE,
@@ -129,6 +130,10 @@ export function LocalProvider({ children }: LocalProviderProps) {
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
     const persisted = readPersisted(LOCAL_PREFERENCES_KEY, INITIAL_PREFS);
+    const featureFlags = persisted.featureFlags && typeof persisted.featureFlags === "object"
+      ? persisted.featureFlags
+      : INITIAL_PREFS.featureFlags;
+    persisted.featureFlags = { ...INITIAL_PREFS.featureFlags, ...featureFlags };
     persisted.desktopNotifications = isDesktopNotificationPreference(persisted.desktopNotifications)
       ? persisted.desktopNotifications
       : DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE;

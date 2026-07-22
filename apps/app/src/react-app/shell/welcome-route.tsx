@@ -4,11 +4,14 @@ import { useNavigate } from "react-router-dom";
 
 import { t } from "../../i18n";
 import {
+  chatWorkspacePrepare,
+  chatsConfigGet,
   pickDirectory,
   resolveWorkspaceListSelectedId,
   workspaceCreateRemote,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
+  type ChatsConfig,
   type WorkspaceInfo,
   type WorkspaceList,
 } from "../../app/lib/desktop";
@@ -19,6 +22,7 @@ import { usePlatform } from "../kernel/platform";
 import { WelcomePage } from "../domains/onboarding/welcome-page";
 import { ProviderSelectionStep } from "../domains/onboarding/provider-selection-step";
 import { AttributionStep, type AttributionSource } from "../domains/onboarding/attribution-step";
+import { ChangeLocationDialog } from "../domains/onboarding/change-location-dialog";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "../domains/workspace/types";
 import {
@@ -53,6 +57,12 @@ function focusPromptSoon() {
   const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
   [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
 }
+
+const FALLBACK_CHATS_CONFIG: ChatsConfig = {
+  root: "",
+  isDefault: true,
+  displayRoot: "~/OpenWork",
+};
 
 type WelcomeState = {
   modalOpen: boolean;
@@ -136,6 +146,8 @@ export function WelcomeRoute() {
   const [organizationServerBusy, setOrganizationServerBusy] = useState(false);
   const [organizationServerError, setOrganizationServerError] = useState<string | null>(null);
   const [joinOrganizationOpen, setJoinOrganizationOpen] = useState(false);
+  const [changeLocationOpen, setChangeLocationOpen] = useState(false);
+  const [chatsConfig, setChatsConfig] = useState<ChatsConfig | null>(null);
   // Tri-state gate for the welcome Developer section: explicit "1" shows it,
   // explicit "0" hides it, and dev builds default to visible so local/dev
   // sandboxes keep the manual folder affordance. Packaged builds default off.
@@ -147,6 +159,23 @@ export function WelcomeRoute() {
     return import.meta.env.DEV;
   });
   const showOpenWorkModelsPromo = useOpenWorkModelsPromoEligibility();
+  const chatFirst = local.prefs.featureFlags.chatFirstOnboarding;
+  const effectiveChatsConfig = chatsConfig ?? FALLBACK_CHATS_CONFIG;
+
+  useEffect(() => {
+    if (!chatFirst) return;
+    let cancelled = false;
+    void chatsConfigGet()
+      .then((config) => {
+        if (!cancelled) setChatsConfig(config);
+      })
+      .catch(() => {
+        if (!cancelled) setChatsConfig(FALLBACK_CHATS_CONFIG);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chatFirst]);
 
   // If user already completed onboarding, redirect away immediately.
   useEffect(() => {
@@ -269,6 +298,12 @@ export function WelcomeRoute() {
           if (targetSessionId) writeLastSessionFor(targetWorkspaceId, targetSessionId);
         }
         dispatch({ type: "close" });
+        if (options?.skipOnboardingInterstitials) {
+          markOnboardingComplete();
+          navigate(targetWorkspaceId ? workspaceSessionRoute(targetWorkspaceId, targetSessionId) : "/session", { replace: true });
+          if (targetSessionId) focusPromptSoon();
+          return;
+        }
         // Show the provider selection step before navigating to the session.
         dispatch({ type: "provider-step", workspaceId: targetWorkspaceId, sessionId: targetSessionId });
 
@@ -281,7 +316,7 @@ export function WelcomeRoute() {
         dispatch({ type: "create:finish" });
       }
     },
-    [],
+    [markOnboardingComplete, navigate],
   );
 
   const handleCreateRemote = useCallback(
@@ -357,11 +392,23 @@ export function WelcomeRoute() {
       dispatch({ type: "open" });
       return;
     }
+    if (chatFirst) {
+      try {
+        const prepared = await chatWorkspacePrepare();
+        await handleCreateWorkspace("starter", prepared.path, { skipOnboardingInterstitials: true });
+        return;
+      } catch (error) {
+        dispatch({
+          type: "create:error",
+          error: error instanceof Error ? error.message : t("welcome.chat_folder_error"),
+        });
+      }
+    }
     const picked = await pickDirectory({ title: t("onboarding.authorize_folder") });
     const folder = typeof picked === "string" ? picked : null;
     if (!folder) return;
     await handleCreateWorkspace("starter", folder);
-  }, [handleCreateWorkspace]);
+  }, [chatFirst, handleCreateWorkspace]);
 
   const handleUseManualFolder = useCallback(async () => {
     const folder = manualFolder.trim();
@@ -404,6 +451,10 @@ export function WelcomeRoute() {
     <>
       <WelcomePage
         onGetStarted={handleGetStarted}
+        getStartedLabel={chatFirst ? t("welcome.start_chatting") : undefined}
+        chatFirst={chatFirst}
+        chatsDisplayRoot={effectiveChatsConfig.displayRoot}
+        onChangeLocation={() => setChangeLocationOpen(true)}
         busy={state.createBusy}
         error={state.createError}
         manualFolder={manualFolder}
@@ -418,6 +469,15 @@ export function WelcomeRoute() {
         onOrganizationServerSave={handleOrganizationServerSave}
         developerMode={developerMode}
       />
+      {chatFirst ? (
+        <ChangeLocationDialog
+          open={changeLocationOpen}
+          onOpenChange={setChangeLocationOpen}
+          mode="global"
+          config={effectiveChatsConfig}
+          onSaved={(config) => setChatsConfig(config)}
+        />
+      ) : null}
       <JoinOrganizationDialog
         open={joinOrganizationOpen}
         onOpenChange={setJoinOrganizationOpen}

@@ -31,6 +31,7 @@ import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { applyBrandAppName } from "./brand-app-name.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { createChatsStore } from "./chats-store.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import {
   buildNukeManifest,
@@ -936,6 +937,7 @@ const workspaceStore = createWorkspaceStore({
   defaultRequireSignin: DEFAULT_DESKTOP_REQUIRE_SIGNIN,
   forceRequireSignin: FORCE_DESKTOP_REQUIRE_SIGNIN,
 });
+const chatsStore = createChatsStore({ app });
 
 const connectLinkReplayGuard = createConnectLinkReplayGuard({
   filePath: path.join(app.getPath("userData"), "connect-link-seen.json"),
@@ -1564,6 +1566,15 @@ const desktopCommandHandlers = {
   },
   "workspaceImportConfig": async (event, ...args) => {
       return workspaceStore.importConfig(args[0] ?? {});
+  },
+  "chatsConfigGet": async (event, ...args) => {
+      return chatsStore.getChatsConfig();
+  },
+  "chatsRootSet": async (event, ...args) => {
+      return chatsStore.setChatsRoot(args[0] ?? null);
+  },
+  "chatWorkspacePrepare": async (event, ...args) => {
+      return chatsStore.prepareChatFolder(args[0] ?? {});
   },
   "opencodeCommandList": async (event, ...args) => {
       return listCommandNames(String(args[0]?.scope ?? "").trim(), String(args[0]?.projectDir ?? "").trim());

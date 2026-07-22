@@ -14,6 +14,7 @@ export type RemoteWorkspaceInput = {
 
 export type CreateWorkspaceOptions = {
   projectLabel?: string | null;
+  skipOnboardingInterstitials?: boolean;
 };
 
 export type CreateWorkspaceProgress = {

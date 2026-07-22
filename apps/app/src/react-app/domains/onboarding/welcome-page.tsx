@@ -91,6 +91,9 @@ function ShowcasePanel() {
 type WelcomePageProps = {
   onGetStarted: () => void;
   getStartedLabel?: string;
+  chatFirst?: boolean;
+  chatsDisplayRoot?: string;
+  onChangeLocation?: () => void;
   busy?: boolean;
   error?: string | null;
   manualFolder?: string;
@@ -129,6 +132,9 @@ function OnboardingStep({ number, title, children }: OnboardingStepProps) {
 export function WelcomePage({
   onGetStarted,
   getStartedLabel,
+  chatFirst = false,
+  chatsDisplayRoot,
+  onChangeLocation,
   busy,
   error,
   manualFolder,
@@ -175,15 +181,25 @@ export function WelcomePage({
 
                 {/* Steps */}
                 <div className="flex flex-col gap-4">
-                  <OnboardingStep number="1" title="Pick a folder">
-                    Choose any folder on your machine to get started.
-                  </OnboardingStep>
-                  <OnboardingStep number="2" title="Chat">
-                    Describe what you need. OpenWork handles the rest.
-                  </OnboardingStep>
-                  <OnboardingStep number="3" title="Interact">
-                    Review results, approve actions, and iterate.
-                  </OnboardingStep>
+                  {chatFirst ? (
+                    <>
+                      <OnboardingStep number="1" title={t("welcome.step_chat")}>{t("welcome.step_chat_desc")}</OnboardingStep>
+                      <OnboardingStep number="2" title={t("welcome.step_review")}>{t("welcome.step_review_desc")}</OnboardingStep>
+                      <OnboardingStep number="3" title={t("welcome.step_reuse")}>{t("welcome.step_reuse_desc")}</OnboardingStep>
+                    </>
+                  ) : (
+                    <>
+                      <OnboardingStep number="1" title="Pick a folder">
+                        Choose any folder on your machine to get started.
+                      </OnboardingStep>
+                      <OnboardingStep number="2" title="Chat">
+                        Describe what you need. OpenWork handles the rest.
+                      </OnboardingStep>
+                      <OnboardingStep number="3" title="Interact">
+                        Review results, approve actions, and iterate.
+                      </OnboardingStep>
+                    </>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2">
@@ -199,6 +215,22 @@ export function WelcomePage({
                       ? t("welcome.creating_workspace")
                       : (getStartedLabel || t("welcome.pick_folder"))}
                   </Button>
+                  {chatFirst ? (
+                    <div
+                      className="text-center text-xs text-muted-foreground"
+                      data-testid="welcome-chats-location"
+                    >
+                      <span>{t("welcome.chats_saved_in", { root: chatsDisplayRoot ?? "~/OpenWork" })}</span>{" "}
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="h-auto p-0 text-xs text-muted-foreground"
+                        onClick={onChangeLocation}
+                      >
+                        {t("welcome.change_location")}
+                      </Button>
+                    </div>
+                  ) : null}
                   <div className="flex flex-col gap-2">
                     <div
                       className="flex items-center gap-3 py-1"

@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
@@ -13,9 +14,11 @@ import { t } from "@/i18n";
 import { readWorkspaceCloudImports, type CloudImportedPlugin } from "@/app/cloud/import-state";
 import { createDenClient, readDenSettings } from "@/app/lib/den";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
-import type {
-  OpenworkServerClient,
-  OpenworkSessionSnapshot,
+import {
+  buildOpenworkWorkspaceBaseUrl,
+  createOpenworkServerClient,
+  type OpenworkServerClient,
+  type OpenworkSessionSnapshot,
 } from "@/app/lib/openwork-server";
 import type {
   ComposerAttachment,
@@ -41,7 +44,7 @@ import type {
 } from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
 import { ReactSessionComposer } from "./composer/composer";
 import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./composer/mention-encoding";
-import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
+import { desktopBridge, openDesktopUrl, type ChatsConfig } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
@@ -102,6 +105,10 @@ import {
   listAssignedConnectCapabilities,
   type ConnectCapabilityInventory,
 } from "./connect-capability-inventory";
+import { ChangeLocationDialog } from "@/react-app/domains/onboarding/change-location-dialog";
+import { resolveOpenworkConnection } from "@/react-app/shell/openwork-connection";
+import { writeActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
+import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
@@ -226,6 +233,42 @@ function transcriptToText(messages: UIMessage[]) {
       return text ? [text] : [];
     })
     .join("\n\n---\n\n");
+}
+
+function folderNameFromPath(folderPath: string) {
+  const normalized = folderPath.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "workspace";
+}
+
+function focusPromptSoon() {
+  if (typeof window === "undefined") return;
+  const focus = () => window.dispatchEvent(new Event("openwork:focusPrompt"));
+  [0, 80, 240, 600].forEach((delay) => window.setTimeout(focus, delay));
+}
+
+function normalizePathForPrefix(value: string) {
+  return value.trim().replace(/\\/g, "/").replace(/\/+$/g, "").toLowerCase();
+}
+
+function displayChatWorkspacePath(workspacePath: string, config: ChatsConfig): string | null {
+  const workspace = workspacePath.trim();
+  const root = config.root.trim();
+  if (!workspace || !root) return null;
+
+  const normalizedWorkspace = normalizePathForPrefix(workspace);
+  const normalizedRoot = normalizePathForPrefix(root);
+  if (normalizedWorkspace !== normalizedRoot && !normalizedWorkspace.startsWith(`${normalizedRoot}/`)) {
+    return null;
+  }
+
+  const displayRoot = config.displayRoot.replace(/[\\/]+$/g, "");
+  if (normalizedWorkspace === normalizedRoot) return displayRoot || config.displayRoot;
+
+  const workspaceForSlice = workspace.replace(/\\/g, "/");
+  const rootForSlice = root.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const suffix = workspaceForSlice.slice(rootForSlice.length);
+  return `${displayRoot}${suffix.startsWith("/") ? suffix : `/${suffix}`}`;
 }
 
 function isSessionSurfaceMounted(sessionId: string) {
@@ -486,8 +529,10 @@ function mergeDrafts(drafts: ComposerDraft[]): ComposerDraft | null {
 
 export function SessionSurface(props: SessionSurfaceProps) {
   const local = useLocal();
+  const navigate = useNavigate();
   const { config: shellConfig } = useShellConfig();
   const showThinking = local.prefs.showThinking;
+  const chatFirst = local.prefs.featureFlags.chatFirstOnboarding;
   const findOpen = useSessionFindStore((state) => state.open);
   const findSessionId = useSessionFindStore((state) => state.sessionId);
   const findAppliedQuery = useSessionFindStore((state) => state.appliedQuery);
@@ -532,6 +577,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     promise: Promise<ConnectCapabilityInventory>;
   } | null>(null);
   const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
+  const [chatsConfig, setChatsConfig] = useState<ChatsConfig | null>(null);
+  const [changeLocationOpen, setChangeLocationOpen] = useState(false);
   const [cloudQueueRetryVersion, setCloudQueueRetryVersion] = useState(0);
   const sending = props.cloudMcpSubmissionState.status === "sending";
   const cloudQueueBlockedRef = useRef(false);
@@ -565,6 +612,22 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const currentSnapshot = snapshotQuery.data?.session.id === props.sessionId ? snapshotQuery.data : null;
   const transcriptState = useSharedQueryState<UIMessage[]>(transcriptQueryKey, EMPTY_TRANSCRIPT);
   const statusState = useSharedQueryState(statusQueryKey, currentSnapshot?.status ?? IDLE_STATUS);
+
+  useEffect(() => {
+    if (!chatFirst) {
+      setChatsConfig(null);
+      return;
+    }
+    let cancelled = false;
+    void desktopBridge.chatsConfigGet()
+      .then((config) => {
+        if (!cancelled) setChatsConfig(config);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [chatFirst]);
 
   useEffect(() => {
     if (!currentSnapshot) return;
@@ -690,6 +753,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
     return [...baseRenderedMessages, ...evalMarkdownMessages];
   }, [baseRenderedMessages, evalMarkdownMessages]);
+  const chatWorkspaceDisplayPath = useMemo(() => {
+    if (!chatFirst || !chatsConfig) return null;
+    return displayChatWorkspacePath(props.workspaceRoot, chatsConfig);
+  }, [chatFirst, chatsConfig, props.workspaceRoot]);
+  const showChatLocationWhisper = chatWorkspaceDisplayPath !== null && renderedMessages.length === 0;
   const seedMarkdownPrimitiveControlAction = useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -1400,6 +1468,48 @@ export function SessionSurface(props: SessionSurfaceProps) {
     void typeComposerText(prompt);
   }, [typeComposerText]);
 
+  const handleUseSpecificFolder = useCallback(async (folderPath: string) => {
+    const folder = folderPath.trim();
+    if (!folder) throw new Error(t("change_location.path_required"));
+
+    const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveOpenworkConnection();
+    if (!normalizedBaseUrl || (!resolvedToken && !resolvedHostToken)) {
+      throw new Error(t("change_location.server_unavailable"));
+    }
+
+    const list = await createOpenworkServerClient({
+      baseUrl: normalizedBaseUrl,
+      token: resolvedToken || undefined,
+      hostToken: resolvedHostToken || undefined,
+    }).createLocalWorkspace({
+      folderPath: folder,
+      name: folderNameFromPath(folder),
+      preset: "starter",
+    });
+    const workspaceId = desktopBridge.resolveWorkspaceListSelectedId(list)
+      || list.workspaces[list.workspaces.length - 1]?.id
+      || "";
+    if (!workspaceId) throw new Error(t("change_location.workspace_create_failed"));
+
+    await desktopBridge.workspaceSetSelected(workspaceId).catch(() => undefined);
+    await desktopBridge.workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
+    writeActiveWorkspaceId(workspaceId);
+
+    if (!resolvedToken) throw new Error(t("change_location.server_unavailable"));
+    const workspace = list.workspaces.find((entry) => entry.id === workspaceId) ?? null;
+    const directory = workspace?.path?.trim() || folder;
+    const workspaceBaseUrl = buildOpenworkWorkspaceBaseUrl(normalizedBaseUrl, workspaceId) ?? normalizedBaseUrl;
+    const session = unwrap(await createClient(
+      `${workspaceBaseUrl.replace(/\/+$/g, "")}/opencode`,
+      directory || undefined,
+      { token: resolvedToken, mode: "openwork" },
+    ).session.create({ directory: directory || undefined }));
+
+    writeLastSessionFor(workspaceId, session.id);
+    navigate(workspaceSessionRoute(workspaceId, session.id), { replace: true });
+    focusPromptSoon();
+  }, [navigate]);
+
   useEffect(() => {
     const resetReconnectState = () => {
       useChatMcpReconnectStore.getState().reset();
@@ -1851,6 +1961,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
           }
         />
         </DevProfiler>
+        {showChatLocationWhisper ? (
+          <div
+            className="mx-3 mt-2 text-center text-xs text-muted-foreground"
+            data-testid="chat-lives-in"
+          >
+            <span>{t("chat.lives_in", { path: chatWorkspaceDisplayPath ?? "" })}</span>{" "}
+            <button
+              type="button"
+              className="font-medium underline underline-offset-2 hover:text-foreground"
+              onClick={() => setChangeLocationOpen(true)}
+            >
+              {t("chat.use_specific_folder")}
+            </button>
+          </div>
+        ) : null}
+        {chatsConfig ? (
+          <ChangeLocationDialog
+            open={changeLocationOpen}
+            onOpenChange={setChangeLocationOpen}
+            mode="chat"
+            config={chatsConfig}
+            onSaved={(config) => setChatsConfig(config)}
+            onUseSpecificFolder={handleUseSpecificFolder}
+          />
+        ) : null}
       </div>
       {/* Error display moved inline into the session conversation area */}
       {props.developerMode ? <SessionDebugPanel model={model} snapshot={snapshot} /> : null}

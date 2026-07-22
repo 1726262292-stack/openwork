@@ -29,6 +29,8 @@ export type {
   OpencodeConfigFile,
   UpdaterEnvironment,
   CacheResetResult,
+  ChatWorkspacePrepareResult,
+  ChatsConfig,
 } from "./desktop-types";
 
 import type {
@@ -495,6 +497,9 @@ const {
   workspaceImportConfig,
   workspaceOpenworkRead,
   workspaceOpenworkWrite,
+  chatsConfigGet,
+  chatsRootSet,
+  chatWorkspacePrepare,
   opencodeCommandList,
   opencodeCommandWrite,
   opencodeCommandDelete,
@@ -554,6 +559,9 @@ export {
   workspaceImportConfig,
   workspaceOpenworkRead,
   workspaceOpenworkWrite,
+  chatsConfigGet,
+  chatsRootSet,
+  chatWorkspacePrepare,
   opencodeCommandList,
   opencodeCommandWrite,
   opencodeCommandDelete,

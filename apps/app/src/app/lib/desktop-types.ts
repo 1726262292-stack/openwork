@@ -10,6 +10,8 @@ export type {
   BrandIconApplyResult,
   BrandIconState,
   CacheResetResult,
+  ChatWorkspacePrepareResult,
+  ChatsConfig,
   DesktopBootstrapConfig,
   DesktopCommandArgs,
   DesktopCommandInvokers,

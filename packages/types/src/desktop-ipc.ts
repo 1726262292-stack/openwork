@@ -342,6 +342,19 @@ export type WorkspaceCreateInput = {
   preset?: string | null;
 };
 
+export type ChatsConfig = {
+  root: string;
+  isDefault: boolean;
+  displayRoot: string;
+};
+
+export type ChatWorkspacePrepareResult = {
+  path: string;
+  slug: string;
+  root: string;
+  displayPath: string;
+};
+
 export type WorkspaceCreateRemoteInput = {
   baseUrl: string;
   remoteType?: "openwork" | "opencode" | null;
@@ -416,6 +429,9 @@ export type DesktopCommandMap = {
     args: [input: { archivePath: string; targetDir: string; name?: string | null }];
     result: unknown;
   };
+  chatsConfigGet: { args: []; result: ChatsConfig };
+  chatsRootSet: { args: [root: string | null]; result: ChatsConfig };
+  chatWorkspacePrepare: { args: [input?: { name?: string }]; result: ChatWorkspacePrepareResult };
 
   // Opencode custom commands
   opencodeCommandList: {
