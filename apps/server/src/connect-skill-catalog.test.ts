@@ -9,7 +9,7 @@ import {
   renderOpenWorkConnectSkillInstruction,
   resetOpenWorkConnectSkillCatalogCacheForTests,
 } from "./connect-skill-catalog.js";
-import { writeConnectCloudMcp } from "./connect-state.js";
+import { readConnectCloudMcp, writeConnectCloudMcp } from "./connect-state.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -150,7 +150,7 @@ describe("OpenWork Connect skill catalog", () => {
     }, fetcher);
 
     expect(skills).toHaveLength(1);
-    expect(skills[0]?.capability).toBe("skill:skill_customer_briefing");
+    expect(skills?.[0]?.capability).toBe("skill:skill_customer_briefing");
     expect(requests.map((request) => request.body.method)).toEqual([
       "initialize",
       "notifications/initialized",
@@ -196,7 +196,7 @@ describe("OpenWork Connect skill catalog", () => {
     }, fetcher);
 
     expect(skills).toHaveLength(1);
-    expect(skills[0]?.capability).toBe("plugin:plg_test:cfg_test");
+    expect(skills?.[0]?.capability).toBe("plugin:plg_test:cfg_test");
   });
 
   test("reads the skill catalog from server-scoped Connect MCP config", async () => {
@@ -234,5 +234,57 @@ describe("OpenWork Connect skill catalog", () => {
     resetOpenWorkConnectSkillCatalogCacheForTests();
     const again = await readOpenWorkConnectSkillCatalog(config, skillIndexFetcher("skill:skill_promoted"));
     expect(again[0]?.capability).toBe("skill:skill_promoted");
+  });
+
+  test("skips revoked or dead configs and promotes the first working candidate", async () => {
+    const config = await serverConfig();
+    // Poisoned server-scoped copy: stale local Den URL with a revoked token.
+    await writeConnectCloudMcp(config, {
+      type: "remote",
+      url: "https://stale.local.test/mcp/agent",
+      enabled: true,
+      headers: { Authorization: "Bearer revoked" },
+    });
+    await writeRuntimeOpencodeConfig(config, "ws_legacy", (current) => ({
+      ...current,
+      mcp: {
+        "openwork-cloud": {
+          type: "remote",
+          url: "https://connect.example/mcp/agent",
+          enabled: true,
+          headers: { Authorization: "Bearer live" },
+        },
+      },
+    }));
+
+    const working = skillIndexFetcher("skill:skill_live");
+    const fetcher = async (url: string, init?: RequestInit) => {
+      if (url.startsWith("https://stale.local.test")) {
+        return Response.json({ error: "mcp_session_revoked" }, { status: 401 });
+      }
+      return working(url, init);
+    };
+
+    const skills = await readOpenWorkConnectSkillCatalog(config, fetcher);
+    expect(skills[0]?.capability).toBe("skill:skill_live");
+
+    // The working workspace config must replace the poisoned server-scoped copy.
+    const promoted = await readConnectCloudMcp(config);
+    expect(promoted?.url).toBe("https://connect.example/mcp/agent");
+  });
+
+  test("returns empty when every candidate config is unusable", async () => {
+    const config = await serverConfig();
+    await writeConnectCloudMcp(config, {
+      type: "remote",
+      url: "https://stale.local.test/mcp/agent",
+      enabled: true,
+    });
+    const fetcher = async () => Response.json({ error: "invalid_token" }, { status: 401 });
+
+    expect(await readOpenWorkConnectSkillCatalog(config, fetcher)).toEqual([]);
+    // The dead config must not be re-promoted or kept as a false positive.
+    const kept = await readConnectCloudMcp(config);
+    expect(kept?.url).toBe("https://stale.local.test/mcp/agent");
   });
 });
