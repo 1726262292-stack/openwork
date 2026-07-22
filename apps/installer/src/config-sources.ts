@@ -1,11 +1,8 @@
-import { installConfigSchema, installConfigUrlFor, INSTALL_SIDECAR_FILENAME, parseInstallerFilenameTag, type InstallConfig } from "@openwork/install-config"
-import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import path from "node:path"
+import { installConfigSchema, installConfigUrlFor, type InstallConfig } from "@openwork/install-config"
 import { BUILD_API_URL, BUILD_APP_NAME, BUILD_CLIENT_NAME, BUILD_LOGO_URL, BUILD_REQUIRE_SIGNIN, BUILD_WEB_URL } from "./generated/build-config"
 import type { InstallerConfig } from "./config"
 
-export type InstallerConfigSource = "env" | "sidecar" | "filename" | "build" | "install-link"
+export type InstallerConfigSource = "env" | "build" | "install-link"
 
 export type InstallerConfigResolution = {
   config: InstallerConfig
@@ -19,10 +16,9 @@ export type InstallLinkConfigResult =
 
 type ConfigSourceOptions = {
   env?: NodeJS.ProcessEnv
-  execPath?: string
   fetcher?: typeof fetch
-  readMountTable?: () => string
   warn?: (message: string) => void
+  buildConstants?: BuildConstants
 }
 
 type ResolveOptions = ConfigSourceOptions & {
@@ -30,6 +26,24 @@ type ResolveOptions = ConfigSourceOptions & {
 }
 
 const INSTALL_LINK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,}$/
+
+export type BuildConstants = {
+  appName: string
+  clientName: string
+  webUrl: string
+  apiUrl: string
+  logoUrl: string
+  requireSignin: boolean
+}
+
+const DEFAULT_BUILD_CONSTANTS: BuildConstants = {
+  appName: BUILD_APP_NAME,
+  clientName: BUILD_CLIENT_NAME,
+  webUrl: BUILD_WEB_URL,
+  apiUrl: BUILD_API_URL,
+  logoUrl: BUILD_LOGO_URL,
+  requireSignin: BUILD_REQUIRE_SIGNIN,
+}
 
 export class InstallerConfigMissingError extends Error {
   constructor() {
@@ -73,16 +87,6 @@ function parseConfigPayload(payload: unknown, label: string, options?: ConfigSou
   return toInstallerConfig(parsed.data)
 }
 
-function readJsonConfigFile(filePath: string, options?: ConfigSourceOptions) {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"))
-    return parseConfigPayload(parsed, filePath, options)
-  } catch (error) {
-    warn(options, `Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`)
-    return null
-  }
-}
-
 function parseRequireSignin(value: string | undefined, fallback: boolean) {
   if (value === undefined) {
     return fallback
@@ -113,81 +117,6 @@ export function envOverrides(env: NodeJS.ProcessEnv = process.env): InstallerCon
     logoUrl: logoUrl ? normalizeUrl(logoUrl, "logo URL") : null,
     requireSignin: parseRequireSignin(env.OPENWORK_INSTALLER_REQUIRE_SIGNIN, BUILD_REQUIRE_SIGNIN),
   }
-}
-
-function appBundleSidecarPath(execPath: string) {
-  const match = /(.*)\/[^/]+\.app\/Contents\/MacOS\/[^/]+$/.exec(execPath)
-  return match ? path.join(match[1], INSTALL_SIDECAR_FILENAME) : null
-}
-
-export function parseMountTableLine(line: string): { source: string; mountPoint: string; options: string } | null {
-  const match = /^(.+) on (\/.+?) \(([^)]*)\)$/.exec(line)
-  return match ? { source: match[1], mountPoint: match[2], options: match[3] } : null
-}
-
-function hasNullfsOption(options: string) {
-  return options.split(",").some((option) => option.trim() === "nullfs")
-}
-
-function isPathPrefix(prefix: string, value: string) {
-  return value === prefix || value.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)
-}
-
-export function resolveTranslocatedOriginalPath(execPath: string, mountTable: string): string | null {
-  for (const line of mountTable.split(/\r?\n/)) {
-    const mount = parseMountTableLine(line)
-    if (mount && hasNullfsOption(mount.options) && isPathPrefix(mount.mountPoint, execPath)) {
-      return mount.source
-    }
-  }
-  return null
-}
-
-export function isTranslocatedPath(execPath: string): boolean {
-  return /\/AppTranslocation\//.test(execPath)
-}
-
-function readMountTable(options: ConfigSourceOptions) {
-  try {
-    return options.readMountTable?.() ?? execFileSync("/sbin/mount", { encoding: "utf8" })
-  } catch (error) {
-    warn(options, `Could not read mount table: ${error instanceof Error ? error.message : String(error)}`)
-    return null
-  }
-}
-
-export function readSidecarConfig(options: ConfigSourceOptions = {}): InstallerConfig | null {
-  const execPath = options.execPath ?? process.execPath
-  const sidecarPaths = [
-    path.join(path.dirname(execPath), INSTALL_SIDECAR_FILENAME),
-    appBundleSidecarPath(execPath),
-  ].filter((value): value is string => Boolean(value))
-
-  for (const sidecarPath of sidecarPaths) {
-    if (!existsSync(sidecarPath)) {
-      continue
-    }
-    const config = readJsonConfigFile(sidecarPath, options)
-    if (config) {
-      return config
-    }
-  }
-
-  if (isTranslocatedPath(execPath)) {
-    const mountTable = readMountTable(options)
-    const originalAppPath = mountTable ? resolveTranslocatedOriginalPath(execPath, mountTable) : null
-    if (originalAppPath) {
-      warn(options, `translocated launch detected; origenal app at ${originalAppPath}`)
-      // The nullfs SOURCE for App Translocation is the original .app bundle, so
-      // the sidecar lives next to that bundle rather than next to its binary.
-      const sidecarPath = path.join(path.dirname(originalAppPath), INSTALL_SIDECAR_FILENAME)
-      if (existsSync(sidecarPath)) {
-        return readJsonConfigFile(sidecarPath, options)
-      }
-    }
-  }
-
-  return null
 }
 
 function localHostAllowsHttp(host: string) {
@@ -265,16 +194,6 @@ async function fetchInstallConfig(configUrl: string, options?: ConfigSourceOptio
   return config ? { status: "resolved", config } : { status: "unresolved" }
 }
 
-export async function filenameTagConfig(options: ConfigSourceOptions = {}): Promise<InstallerConfig | null> {
-  const execPath = options.execPath ?? process.execPath
-  const tag = parseInstallerFilenameTag(path.basename(execPath))
-  if (!tag) {
-    return null
-  }
-
-  return configFromResult(await fetchInstallConfig(installConfigUrlFor(tag.host, tag.token), options))
-}
-
 export async function installLinkConfig(input: string, options: ConfigSourceOptions = {}): Promise<InstallerConfig | null> {
   return configFromResult(await resolveInstallLinkConfig(input, options))
 }
@@ -287,12 +206,12 @@ export async function resolveInstallLinkConfig(input: string, options: ConfigSou
   return fetchInstallConfig(parsed.url, options)
 }
 
-export function buildConstantsConfig(): InstallerConfig | null {
-  const appName = BUILD_APP_NAME.trim() || "OpenWork"
-  const clientName = BUILD_CLIENT_NAME.trim()
-  const webUrl = BUILD_WEB_URL.trim()
-  const apiUrl = BUILD_API_URL.trim()
-  const logoUrl = BUILD_LOGO_URL.trim()
+export function buildConstantsConfig(constants: BuildConstants = DEFAULT_BUILD_CONSTANTS): InstallerConfig | null {
+  const appName = constants.appName.trim() || "OpenWork"
+  const clientName = constants.clientName.trim()
+  const webUrl = constants.webUrl.trim()
+  const apiUrl = constants.apiUrl.trim()
+  const logoUrl = constants.logoUrl.trim()
   if (!clientName || !webUrl || !apiUrl) {
     return null
   }
@@ -303,7 +222,7 @@ export function buildConstantsConfig(): InstallerConfig | null {
     webUrl: normalizeUrl(webUrl, "web URL"),
     apiUrl: normalizeUrl(apiUrl, "API URL"),
     logoUrl: logoUrl ? normalizeUrl(logoUrl, "logo URL") : null,
-    requireSignin: BUILD_REQUIRE_SIGNIN,
+    requireSignin: constants.requireSignin,
   }
 }
 
@@ -313,8 +232,6 @@ export function installerConfigSourceLabel(source: InstallerConfigSource) {
       return "environment overrides"
     case "build":
       return "built-in deployment config"
-    case "sidecar":
-    case "filename":
     case "install-link":
       return "install link"
   }
@@ -326,17 +243,7 @@ export async function resolveInstallerConfig(options: ResolveOptions = {}): Prom
     return { config: envConfig, source: "env" }
   }
 
-  const sidecarConfig = readSidecarConfig(options)
-  if (sidecarConfig) {
-    return { config: sidecarConfig, source: "sidecar" }
-  }
-
-  const filenameConfig = await filenameTagConfig(options)
-  if (filenameConfig) {
-    return { config: filenameConfig, source: "filename" }
-  }
-
-  const buildConfig = buildConstantsConfig()
+  const buildConfig = buildConstantsConfig(options.buildConstants)
   if (buildConfig) {
     return { config: buildConfig, source: "build" }
   }

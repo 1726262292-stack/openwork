@@ -279,7 +279,7 @@ export function InstallScreen() {
           ) : null}
           <h1 className="den-title-xl">Download {config.appName} for {config.clientName}</h1>
           <p className="den-copy">
-            Den will stay on this page while you install the standard {config.appName} app, connect it to {config.clientName}, and sign in.
+            This page walks you through connecting this computer to {config.clientName}.
           </p>
         </div>
 
@@ -302,8 +302,8 @@ export function InstallScreen() {
               </span>
               <div className="grid gap-3">
                 <div>
-                  <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Download for {primaryLabel}</p>
-                  <p className="den-copy">Run the normal signed installer. When installation finishes, return to this page.</p>
+                  <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Download the OpenWork installer for {primaryLabel}</p>
+                  <p className="den-copy">It&apos;s a small setup app. When the download finishes, open it and keep this page open.</p>
                 </div>
                 <div className="grid gap-3">
                   <a
@@ -360,7 +360,7 @@ export function InstallScreen() {
                 2
               </span>
               <div className="grid gap-3">
-                <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Open the installer — it should say {config.clientName}. If it asks for a link, paste this one:</p>
+                <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Open the installer and paste this link:</p>
                 <div className="grid gap-2" data-testid="install-copy-link">
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <input className="den-input min-w-0 flex-1 text-xs" value={currentLink} readOnly onFocus={(event) => event.currentTarget.select()} />
@@ -369,6 +369,7 @@ export function InstallScreen() {
                     </button>
                   </div>
                 </div>
+                <p className="den-copy">The installer only continues with a valid link — that&apos;s what connects this computer to {config.clientName}.</p>
               </div>
             </li>
 

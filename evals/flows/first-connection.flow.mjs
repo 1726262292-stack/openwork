@@ -1,4 +1,4 @@
-import { execFileSync, execSync, spawn, spawnSync } from "node:child_process";
+import { execSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -7,10 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
-  statSync,
-  writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -26,15 +23,12 @@ const DEN_WEB_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_DEN_WEB_URL);
 const ADMIN_CDP_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_WEB_CDP_ADMIN);
 const INVITEE_CDP_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_WEB_CDP_INVITEE);
 const INSTALLER_BIN = process.env.OPENWORK_EVAL_INSTALLER_BIN?.trim() ?? "";
-const ARTIFACTS_DIR = process.env.OPENWORK_EVAL_ARTIFACTS_DIR?.trim() ?? "";
 const MARK_VERIFIED_CMD = process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() || "";
 const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
 const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const RUN_TAG = Date.now().toString(36);
 const MEMBER_EMAIL = process.env.OPENWORK_EVAL_MEMBER_EMAIL?.trim() || `riley.first.connection+${RUN_TAG}@acme.test`;
 const MEMBER_PASSWORD = process.env.OPENWORK_EVAL_MEMBER_PASSWORD?.trim() || "OpenWorkDemo123!";
-const INSTALL_SIDECAR_FILENAME = "openwork-installer.json";
-const MAC_ARTIFACT_FILENAME = "openwork-installer-mac-arm64.zip";
 const BOOTSTRAP_PATH = process.env.OPENWORK_EVAL_BOOTSTRAP_PATH?.trim()
   || path.join(makeTempDir("openwork-first-connection-bootstrap-"), "desktop-bootstrap.json");
 
@@ -47,15 +41,14 @@ const state = {
   installPageUrl: null,
   installToken: null,
   installConfig: null,
-  sidecarJson: null,
-  sidecarConfig: null,
   installPageTargetId: null,
   installerUiTargetId: null,
   authTargetId: null,
-  frame3InstallerRun: null,
+  frame3DownloadRedirect: null,
+  frame3BareRun: null,
   frame3Ui: null,
+  frame4InstallerRun: null,
   frame4Ui: null,
-  frame4BareRuns: null,
   expiredResolve: null,
   memberSetup: null,
   browserSignInUrl: null,
@@ -75,7 +68,6 @@ export default {
     "OPENWORK_EVAL_WEB_CDP_ADMIN",
     "OPENWORK_EVAL_WEB_CDP_INVITEE",
     "OPENWORK_EVAL_INSTALLER_BIN",
-    "OPENWORK_EVAL_ARTIFACTS_DIR",
     "OPENWORK_EVAL_MARK_VERIFIED_CMD",
   ],
   steps: [
@@ -155,7 +147,8 @@ export default {
             assert: async () => {
               await ctx.expectText("Download OpenWork for Acme Robotics");
               await ctx.expectText("Download for");
-              await ctx.expectText("Open the installer");
+              await ctx.expectText("Download the OpenWork installer");
+              await ctx.expectText("Open the installer and paste this link:");
               await ctx.expectText("Sign in");
               await ctx.expectText("Waiting for sign-in");
               const checklist = await ctx.eval(`(() => ({
@@ -173,7 +166,7 @@ export default {
             },
             screenshot: {
               name: "invitee-acme-install-checklist",
-              requireText: ["Download OpenWork for Acme Robotics", "Open the installer", "Waiting for sign-in"],
+              requireText: ["Download OpenWork for Acme Robotics", "Download the OpenWork installer", "Open the installer and paste this link:", "Waiting for sign-in"],
             },
           });
         }, { targetId: state.installPageTargetId });
@@ -185,41 +178,37 @@ export default {
         state.installerUiTargetId = state.installerUiTargetId ?? (await newPageTarget(INVITEE_CDP_URL)).id;
         try {
           await withClient(ctx, INVITEE_CDP_URL, async () => {
-            await ctx.prove("The stamped macOS installer download keeps the binary byte-identical, carries Acme in its sidecar, and writes Acme's bootstrap in a dry run", {
+            await ctx.prove("The Acme install download redirects to the generic installer, and a bare installer asks for the pinned link without writing any bootstrap", {
               voiceover: vo[2],
-              // "They download and open the installer, and it already knows the team: \"This s"
+              // "They download and open the installer — it asks for exactly one thing, the link"
               action: async () => {
-                const witnessResult = await fetchAndVerifyStampedMacInstaller(ctx);
-                state.sidecarJson = witnessResult.sidecarJson;
-                state.sidecarConfig = witnessResult.sidecarConfig;
-                ctx.output("stamped-mac-installer", JSON.stringify(witnessResult.output, null, 2));
+                state.frame3DownloadRedirect = await fetchAndVerifyMacInstallerRedirect(ctx);
+                ctx.output("mac-installer-redirect", JSON.stringify(state.frame3DownloadRedirect, null, 2));
 
-                state.frame3InstallerRun = runHeadlessInstallerWithSidecar();
-                state.frame3Ui = await startInstallerUi("openwork-first-connection-sidecar-ui-", {
-                  sidecarJson: requireStateValue(state.sidecarJson, "installer sidecar JSON"),
-                });
+                state.frame3BareRun = runBareInstallerWithoutConfig();
+                state.frame3Ui = await startInstallerUi("openwork-first-connection-bare-ui-");
                 await navigateToAbsolute(ctx, state.frame3Ui.url);
-                await ctx.waitForText("This sets up OpenWork for Acme Robotics", { timeoutMs: 30_000 });
+                await ctx.waitForText("Paste your install link", { timeoutMs: 30_000 });
+                await ctx.waitForText("It's in the copy box on your team's install page", { timeoutMs: 30_000 });
               },
               assert: async () => {
-                const run = requireInstallerRun(state.frame3InstallerRun, "frame 3 installer run");
-                witness(ctx, run.status === 0, "The real installer dry-run exited successfully", run.combined);
-                witness(ctx, run.stdout.includes("OpenWork Installer — Acme Robotics"), "Installer stdout names Acme Robotics", run.stdout);
-                witness(ctx, run.stdout.includes("Configured via install link"), "Installer stdout explains it was configured by an install link", run.stdout);
-                witness(ctx, run.stdout.includes("Dry run ok"), "Installer stdout reports Dry run ok", run.stdout);
-                const bootstrap = readBootstrapConfig(ctx, BOOTSTRAP_PATH);
-                witness(ctx, cleanBaseUrl(bootstrap.parsed.baseUrl) === cleanBaseUrl(state.installConfig.webUrl), "The dry-run bootstrap baseUrl matches Acme's web URL", bootstrap.parsed);
-                witness(ctx, cleanBaseUrl(bootstrap.parsed.apiBaseUrl) === cleanBaseUrl(state.installConfig.apiUrl), "The dry-run bootstrap apiBaseUrl matches Acme's API URL", bootstrap.parsed);
-                witness(ctx, bootstrap.parsed.requireSignin === true, "The dry-run bootstrap requires sign-in", bootstrap.parsed);
-                ctx.output("headless-installer-dry-run", run.combined);
+                const redirect = requireRedirectWitness(state.frame3DownloadRedirect);
+                witness(ctx, redirect.status === 302, "The macOS installer download returns a 302 instead of stamped bytes", redirect);
+                witness(ctx, redirect.location === redirect.expectedLocation, "The redirect Location is the exact generic macOS installer release asset", redirect);
 
-                await ctx.expectText("This sets up OpenWork for Acme Robotics");
-                await ctx.expectText("Configured via install link");
-                await ctx.expectText("Install");
+                const run = requireBareNoConfigRun(state.frame3BareRun);
+                witness(ctx, run.missing.status === 2, "Bare --headless --dry-run exits setup-required without an install link", run.missing.combined);
+                witness(ctx, run.missing.combined.includes("Paste an OpenWork install link"), "The bare headless installer asks for an OpenWork install link", run.missing.combined);
+                const writtenBootstraps = run.bootstrapPaths.filter((candidate) => existsSync(candidate));
+                witness(ctx, writtenBootstraps.length === 0, "Bare --headless --dry-run writes no desktop bootstrap, so it cannot default to the wrong server", { bootstrapPaths: run.bootstrapPaths, writtenBootstraps });
+                ctx.output("bare-installer-setup-required", run.missing.combined);
+
+                await ctx.expectText("Paste your install link");
+                await ctx.expectText("It's in the copy box on your team's install page");
               },
               screenshot: {
-                name: "stamped-installer-announces-acme",
-                requireText: ["This sets up OpenWork for Acme Robotics", "Configured via install link", "Install"],
+                name: "bare-installer-asks-for-install-link",
+                requireText: ["Paste your install link", "It's in the copy box on your team's install page", "Continue"],
               },
             });
           }, { targetId: state.installerUiTargetId });
@@ -237,35 +226,39 @@ export default {
         state.installerUiTargetId = state.installerUiTargetId ?? (await newPageTarget(INVITEE_CDP_URL)).id;
         try {
           await withClient(ctx, INVITEE_CDP_URL, async () => {
-            await ctx.prove("A bare renamed installer asks for the install link from the checklist, accepts Acme's link, and rejects an expired replacement", {
+            await ctx.prove("Pasting Acme's install link lets the installer confirm the team and server, write the Acme bootstrap, and reject an expired link plainly", {
               voiceover: vo[3],
-              // "And if the installer ever can't read its stamp — say the file got renamed — "
+              // "They paste the link and the installer confirms the team and server, then installs"
               action: async () => {
-                state.frame4BareRuns = runBareInstallerFallback();
-                state.frame4Ui = await startInstallerUi("openwork-first-connection-bare-ui-", { binaryName: "OpenWork-Renamed" });
+                state.frame4InstallerRun = runInstallerWithInstallLink();
+                state.frame4Ui = await startInstallerUi("openwork-first-connection-link-ui-");
                 await navigateToAbsolute(ctx, state.frame4Ui.url);
                 await ctx.waitForText("Paste your install link", { timeoutMs: 30_000 });
                 await ctx.waitForText("It's in the copy box on your team's install page", { timeoutMs: 30_000 });
-              },
-              assert: async () => {
-                const runs = requireBareRuns(state.frame4BareRuns);
-                witness(ctx, runs.missing.status === 2, "The bare installer exits with setup-required status when no link is supplied", runs.missing.combined);
-                witness(ctx, runs.missing.combined.includes("Paste an OpenWork install link"), "The bare installer asks for an OpenWork install link", runs.missing.combined);
-                witness(ctx, runs.withLink.status === 0, "The bare installer dry-run succeeds when Acme's install link is supplied", runs.withLink.combined);
-                witness(ctx, runs.withLink.stdout.includes("OpenWork Installer — Acme Robotics"), "The --install-link dry-run resolves to Acme Robotics", runs.withLink.stdout);
-                const secondBootstrap = readBootstrapConfig(ctx, runs.secondBootstrapPath);
-                witness(ctx, secondBootstrap.parsed.requireSignin === true, "The --install-link dry-run writes a required sign-in bootstrap", secondBootstrap.parsed);
-
-                await ctx.expectText("Paste your install link");
-                await ctx.expectText("It's in the copy box on your team's install page");
-                await ctx.screenshot("bare-installer-paste-link-fallback", {
-                  claim: "A bare renamed installer asks for the install link from the checklist before resolving Acme's setup.",
-                  voiceover: vo[3],
-                  requireText: ["Paste your install link", "It's in the copy box on your team's install page"],
-                });
                 await ctx.fill("#install-link", requireStateValue(state.installPageUrl, "install page URL"));
                 await clickExactText(ctx, "Continue", "button");
                 await ctx.waitForText("This sets up OpenWork for Acme Robotics", { timeoutMs: 30_000 });
+              },
+              assert: async () => {
+                const run = requireInstallLinkRun(state.frame4InstallerRun);
+                witness(ctx, run.withLink.status === 0, "The bare installer dry-run succeeds when Acme's install link is supplied", run.withLink.combined);
+                witness(ctx, run.withLink.stdout.includes("OpenWork Installer — Acme Robotics"), "The --install-link dry-run resolves to Acme Robotics", run.withLink.stdout);
+                witness(ctx, run.withLink.stdout.includes("Configured via install link"), "The --install-link dry-run reports the install-link configuration source", run.withLink.stdout);
+                witness(ctx, run.withLink.stdout.includes("Dry run ok"), "The --install-link dry-run checks the organization-supported app version", run.withLink.stdout);
+                const bootstrap = readBootstrapConfig(ctx, run.bootstrapPath);
+                witness(ctx, cleanBaseUrl(bootstrap.parsed.baseUrl) === cleanBaseUrl(state.installConfig.webUrl), "The --install-link bootstrap baseUrl matches Acme's web URL", bootstrap.parsed);
+                witness(ctx, cleanBaseUrl(bootstrap.parsed.apiBaseUrl) === cleanBaseUrl(state.installConfig.apiUrl), "The --install-link bootstrap apiBaseUrl matches Acme's API URL", bootstrap.parsed);
+                witness(ctx, bootstrap.parsed.requireSignin === true, "The --install-link dry-run writes a required sign-in bootstrap", bootstrap.parsed);
+
+                await ctx.expectText("This sets up OpenWork for Acme Robotics");
+                await ctx.expectText(new URL(state.installConfig.webUrl).host);
+                await ctx.expectText("Configured via install link");
+                await ctx.expectText("Install");
+                await ctx.screenshot("installer-confirms-acme-after-paste", {
+                  claim: "Pasting Acme's install link lets the installer confirm the team and server before installing.",
+                  voiceover: vo[3],
+                  requireText: ["This sets up OpenWork for Acme Robotics", new URL(state.installConfig.webUrl).host, "Configured via install link", "Install"],
+                });
 
                 const expired = await prepareExpiredInstallLink(ctx);
                 state.expiredResolve = await resolveLinkInInstallerUi(ctx, expired.expiredInstallLink);
@@ -277,7 +270,7 @@ export default {
                   "The installer explains that the install link expired or was replaced",
                   state.expiredResolve,
                 );
-                ctx.output("bare-installer-fallback-and-expired-link", JSON.stringify({ runs, secondBootstrap: secondBootstrap.parsed, expired, resolveLink: state.expiredResolve }, null, 2));
+                ctx.output("installer-install-link-bootstrap-and-expired-link", JSON.stringify({ run, bootstrap: bootstrap.parsed, expired, resolveLink: state.expiredResolve }, null, 2));
               },
             });
           }, { targetId: state.installerUiTargetId });
@@ -458,7 +451,7 @@ export default {
             },
             screenshot: {
               name: "install-page-connected-to-acme",
-              requireText: ["Connected", "OpenWork is set up for Acme Robotics"],
+              requireText: ["Download the OpenWork installer", "Open the installer and paste this link:", "Connected", "OpenWork is set up for Acme Robotics"],
             },
           });
         }, { targetId: state.installPageTargetId });
@@ -499,18 +492,25 @@ function requireStateValue(value, label) {
   throw new Error(`${label} was not prepared by an earlier frame.`);
 }
 
-function requireInstallerRun(value, label) {
-  if (value && typeof value === "object" && typeof value.status === "number") {
+function requireRedirectWitness(value) {
+  if (value && typeof value === "object" && typeof value.status === "number" && typeof value.location === "string" && typeof value.expectedLocation === "string") {
     return value;
   }
-  throw new Error(`${label} was not prepared by an earlier frame.`);
+  throw new Error("Installer redirect witness was not prepared.");
 }
 
-function requireBareRuns(value) {
-  if (value && typeof value === "object" && value.missing && value.withLink && typeof value.secondBootstrapPath === "string") {
+function requireBareNoConfigRun(value) {
+  if (value && typeof value === "object" && value.missing && Array.isArray(value.bootstrapPaths)) {
     return value;
   }
-  throw new Error("Bare installer runs were not prepared.");
+  throw new Error("Bare no-config installer run was not prepared.");
+}
+
+function requireInstallLinkRun(value) {
+  if (value && typeof value === "object" && value.withLink && typeof value.bootstrapPath === "string") {
+    return value;
+  }
+  throw new Error("Install-link installer run was not prepared.");
 }
 
 async function withClient(ctx, cdpBaseUrl, fn, options = {}) {
@@ -1009,74 +1009,76 @@ function installPageUrlForBrowser(installLink) {
   return new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, DEN_WEB_URL).toString();
 }
 
-async function fetchAndVerifyStampedMacInstaller(ctx) {
+async function fetchLatestSupportedAppVersion(ctx) {
+  const version = await denApiFetch("/v1/app-version", { method: "GET" });
+  ctx.assert(version.response.ok, `App-version fetch failed: ${version.response.status} ${version.text.slice(0, 300)}`);
+  const latestAppVersion = typeof version.body?.latestAppVersion === "string" ? version.body.latestAppVersion.trim() : "";
+  ctx.assert(latestAppVersion.length > 0, `App-version response did not include latestAppVersion: ${version.text.slice(0, 300)}`);
+  return latestAppVersion;
+}
+
+function compareVersion(left, right) {
+  const leftParts = left.split(".").map((part) => Number.parseInt(part, 10));
+  const rightParts = right.split(".").map((part) => Number.parseInt(part, 10));
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+async function expectedInstallerReleaseTag(ctx) {
+  const token = await ensureAdminToken(ctx);
+  const org = await denApiFetch("/v1/org", {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  ctx.assert(org.response.ok, `Organization fetch failed: ${org.response.status} ${org.text.slice(0, 300)}`);
+  const versions = org.body?.organization?.metadata?.allowedDesktopVersions;
+  if (Array.isArray(versions)) {
+    const allowed = versions
+      .filter((version) => typeof version === "string" && version.trim())
+      .map((version) => version.trim())
+      .sort(compareVersion);
+    const maxAllowed = allowed.at(-1);
+    if (maxAllowed) return `v${maxAllowed}`;
+  }
+  return `v${await fetchLatestSupportedAppVersion(ctx)}`;
+}
+
+async function fetchAndVerifyMacInstallerRedirect(ctx) {
   const token = requireStateValue(state.installToken, "install token");
   const downloadUrl = `${DEN_API_URL}/v1/install/mac-arm64?token=${encodeURIComponent(token)}`;
-  const response = await fetch(downloadUrl, { headers: { accept: "application/zip" } });
-  const bytes = Buffer.from(await response.arrayBuffer());
-  ctx.assert(response.ok, `Stamped macOS installer download failed: ${response.status} ${bytes.toString("utf8", 0, Math.min(bytes.length, 300))}`);
-
-  const tempDir = makeTempDir("openwork-first-connection-download-");
-  const stampedZipPath = path.join(tempDir, "stamped.zip");
-  const stampedDir = path.join(tempDir, "stamped");
-  const sourceDir = path.join(tempDir, "source");
-  mkdirSync(stampedDir, { recursive: true });
-  mkdirSync(sourceDir, { recursive: true });
-  writeFileSync(stampedZipPath, bytes);
-  unzip(stampedZipPath, stampedDir);
-
-  const sidecarPath = findExtractedFile(stampedDir, INSTALL_SIDECAR_FILENAME, ctx);
-  const sidecarJson = readFileSync(sidecarPath, "utf8");
-  const sidecarConfig = JSON.parse(sidecarJson);
-  witness(ctx, sidecarConfig.clientName === "Acme Robotics", "The stamped sidecar names Acme Robotics", sidecarConfig);
-  witness(ctx, sidecarConfig.requireSignin === true, "The stamped sidecar requires sign-in", sidecarConfig);
-
-  const sourceZipPath = path.join(ARTIFACTS_DIR, MAC_ARTIFACT_FILENAME);
-  ctx.assert(existsSync(sourceZipPath), `Source macOS artifact was missing: ${sourceZipPath}`);
-  unzip(sourceZipPath, sourceDir);
-
-  const stampedRecords = fileRecords(stampedDir).filter((record) => path.basename(record.relativePath) !== INSTALL_SIDECAR_FILENAME);
-  const sourceRecords = fileRecords(sourceDir);
-  ctx.assert(stampedRecords.length > 0, "Stamped zip did not contain an installer payload.");
-  const sourceByRelativePath = new Map(sourceRecords.map((record) => [record.relativePath, record]));
-  for (const stampedRecord of stampedRecords) {
-    const sourceRecord = sourceByRelativePath.get(stampedRecord.relativePath);
-    ctx.assert(Boolean(sourceRecord), `Source artifact did not include ${stampedRecord.relativePath}.`);
-    ctx.assert(sourceRecord.sha256 === stampedRecord.sha256, `Extracted ${stampedRecord.relativePath} changed between source and stamped zip.`);
-  }
-
-  const installerRecord = chooseInstallerRecord(stampedRecords);
-  const sourceInstallerRecord = sourceByRelativePath.get(installerRecord.relativePath);
-  ctx.assert(Boolean(sourceInstallerRecord), `Source artifact did not include installer ${installerRecord.relativePath}.`);
-  ctx.assert(sourceInstallerRecord.sha256 === installerRecord.sha256, "Extracted installer binary hash did not match the source artifact.");
+  const response = await fetch(downloadUrl, {
+    headers: { accept: "application/x-apple-diskimage" },
+    redirect: "manual",
+  });
+  const location = response.headers.get("location") ?? "";
+  const releaseTag = await expectedInstallerReleaseTag(ctx);
+  const fileName = "OpenWork-Installer-mac-arm64.dmg";
+  const expectedLocation = `https://github.com/different-ai/openwork/releases/download/${encodeURIComponent(releaseTag)}/${encodeURIComponent(fileName)}`;
+  const parsedLocation = location ? new URL(location) : null;
 
   return {
-    sidecarJson,
-    sidecarConfig,
-    output: {
-      downloadUrl,
-      stampedZipPath,
-      sourceZipPath,
-      contentType: response.headers.get("content-type"),
-      contentDisposition: response.headers.get("content-disposition"),
-      sidecar: sidecarConfig,
-      comparedFiles: stampedRecords.map((record) => ({ relativePath: record.relativePath, sha256: record.sha256, bytes: record.bytes })),
-      installerBinary: {
-        relativePath: installerRecord.relativePath,
-        stampedSha256: installerRecord.sha256,
-        sourceSha256: sourceInstallerRecord.sha256,
-        byteIdentical: sourceInstallerRecord.sha256 === installerRecord.sha256,
-      },
-    },
+    downloadUrl,
+    status: response.status,
+    location,
+    expectedLocation,
+    releaseTag,
+    fileName,
+    githubReleaseAsset: parsedLocation
+      ? {
+          host: parsedLocation.host,
+          pathname: parsedLocation.pathname,
+        }
+      : null,
   };
 }
 
-async function startInstallerUi(tempPrefix, { sidecarJson = null, binaryName = "openwork-installer" } = {}) {
+async function startInstallerUi(tempPrefix, { binaryName = "openwork-installer" } = {}) {
   const tempDir = makeTempDir(tempPrefix);
   const installerPath = copyInstallerTo(tempDir, binaryName);
-  if (sidecarJson) {
-    writeFileSync(path.join(tempDir, INSTALL_SIDECAR_FILENAME), sidecarJson, "utf8");
-  }
   const child = spawn(installerPath, [], {
     cwd: tempDir,
     env: sanitizedInstallerEnv({ OPENWORK_INSTALLER_UI: "manual" }),
@@ -1101,28 +1103,42 @@ async function startInstallerUi(tempPrefix, { sidecarJson = null, binaryName = "
   throw new Error(`Installer UI did not print a ready URL in time: ${output}`);
 }
 
-function runHeadlessInstallerWithSidecar() {
-  const sidecarJson = requireStateValue(state.sidecarJson, "installer sidecar JSON");
-  const tempDir = makeTempDir("openwork-first-connection-sidecar-");
-  const installerPath = copyInstallerTo(tempDir);
-  writeFileSync(path.join(tempDir, INSTALL_SIDECAR_FILENAME), sidecarJson, "utf8");
-  rmSync(BOOTSTRAP_PATH, { force: true });
-  return runInstaller(installerPath, ["--headless", "--dry-run"], sanitizedInstallerEnv({ OPENWORK_DESKTOP_BOOTSTRAP_PATH: BOOTSTRAP_PATH }), tempDir);
+function isolatedInstallerHome(tempDir) {
+  const xdgConfigHome = path.join(tempDir, "xdg-config");
+  const home = path.join(tempDir, "home");
+  mkdirSync(xdgConfigHome, { recursive: true });
+  mkdirSync(home, { recursive: true });
+  return {
+    env: { XDG_CONFIG_HOME: xdgConfigHome, HOME: home },
+    bootstrapPaths: [
+      path.join(xdgConfigHome, "openwork", "desktop-bootstrap.json"),
+      path.join(home, ".config", "openwork", "desktop-bootstrap.json"),
+    ],
+  };
 }
 
-function runBareInstallerFallback() {
-  const installLink = requireStateValue(state.installPageUrl, "install page URL");
+function runBareInstallerWithoutConfig() {
   const tempDir = makeTempDir("openwork-first-connection-bare-");
-  const installerPath = copyInstallerTo(tempDir, "OpenWork-Renamed");
-  const missing = runInstaller(installerPath, ["--headless", "--dry-run"], sanitizedInstallerEnv(), tempDir);
-  const secondBootstrapPath = path.join(tempDir, "second-desktop-bootstrap.json");
+  const installerPath = copyInstallerTo(tempDir);
+  const isolated = isolatedInstallerHome(tempDir);
+  const missing = runInstaller(installerPath, ["--headless", "--dry-run"], sanitizedInstallerEnv(isolated.env), tempDir);
+  return { missing, bootstrapPaths: isolated.bootstrapPaths };
+}
+
+function runInstallerWithInstallLink() {
+  const installLink = requireStateValue(state.installPageUrl, "install page URL");
+  const tempDir = makeTempDir("openwork-first-connection-link-");
+  const installerPath = copyInstallerTo(tempDir);
+  const isolated = isolatedInstallerHome(tempDir);
+  const bootstrapPath = BOOTSTRAP_PATH;
+  rmSync(bootstrapPath, { force: true });
   const withLink = runInstaller(
     installerPath,
     ["--headless", "--dry-run", "--install-link", installLink],
-    sanitizedInstallerEnv({ OPENWORK_DESKTOP_BOOTSTRAP_PATH: secondBootstrapPath }),
+    sanitizedInstallerEnv({ ...isolated.env, OPENWORK_DESKTOP_BOOTSTRAP_PATH: bootstrapPath }),
     tempDir,
   );
-  return { missing, withLink, secondBootstrapPath };
+  return { withLink, bootstrapPath };
 }
 
 function runInstaller(installerPath, args, env, cwd) {
@@ -1229,51 +1245,6 @@ async function waitForInstallPageConnected(ctx) {
 
 function makeTempDir(prefix) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
-}
-
-function unzip(zipPath, outputDir) {
-  execFileSync("unzip", ["-oq", zipPath, "-d", outputDir], { stdio: "pipe" });
-}
-
-function sha256File(filePath) {
-  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
-}
-
-function listFilesRecursive(rootDir) {
-  const files = [];
-  for (const entry of readdirSync(rootDir, { withFileTypes: true })) {
-    const entryPath = path.join(rootDir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listFilesRecursive(entryPath));
-    } else if (entry.isFile()) {
-      files.push(entryPath);
-    }
-  }
-  return files;
-}
-
-function fileRecords(rootDir) {
-  return listFilesRecursive(rootDir)
-    .map((filePath) => ({
-      absolutePath: filePath,
-      relativePath: path.relative(rootDir, filePath).split(path.sep).join("/"),
-      sha256: sha256File(filePath),
-      bytes: statSync(filePath).size,
-    }))
-    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-}
-
-function findExtractedFile(rootDir, basename, ctx) {
-  const matches = fileRecords(rootDir).filter((record) => path.basename(record.relativePath) === basename);
-  ctx.assert(matches.length === 1, `Expected exactly one ${basename} in ${rootDir}, found ${matches.length}.`);
-  return matches[0].absolutePath;
-}
-
-function chooseInstallerRecord(records) {
-  const exact = records.find((record) => path.basename(record.relativePath) === "openwork-installer");
-  if (exact) return exact;
-  const likely = records.find((record) => path.basename(record.relativePath).toLowerCase().includes("installer"));
-  return likely ?? records[0];
 }
 
 function redactUrlParam(rawUrl, param) {

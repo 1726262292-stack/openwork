@@ -209,43 +209,52 @@ export function WelcomePage({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {onTeamSignIn ? (
-                      <Button
-                        type="button"
-                        size="lg"
-                        className="h-auto min-h-24 flex-col items-start justify-start gap-2 whitespace-normal px-4 py-4 text-left"
-                        onClick={onTeamSignIn}
-                        data-testid="welcome-team-signin"
-                      >
-                        <span>{t("welcome.use_cloud")}</span>
-                        <span className="text-xs font-normal opacity-80">
-                          {t("welcome.use_cloud_subtitle")}
-                        </span>
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="lg"
-                      className="h-auto min-h-24 flex-col items-start justify-start gap-2 whitespace-normal px-4 py-4 text-left"
-                      onClick={onJoinOrganization}
-                      data-testid="welcome-join-org"
-                    >
-                      <span>{t("welcome.join_org")}</span>
-                      <span className="text-xs font-normal opacity-80">
-                        {t("welcome.join_org_subtitle")}
-                      </span>
-                    </Button>
-                  </div>
                   <Button
+                    type="button"
                     size="lg"
-                    variant="outline"
                     className="w-full"
                     onClick={onGetStarted}
                     disabled={busy}
                   >
-                    {busy ? t("welcome.creating_workspace") : (getStartedLabel || t("welcome.local_only"))}
+                    {busy
+                      ? t("welcome.creating_workspace")
+                      : (getStartedLabel || t("welcome.get_started"))}
                   </Button>
+                  <div className="flex flex-col gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">
+                      Joining a team?
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {onTeamSignIn ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/50"
+                          onClick={onTeamSignIn}
+                          data-testid="welcome-team-signin"
+                        >
+                          <div className="text-sm font-medium">
+                            {t("welcome.use_cloud")}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {t("welcome.use_cloud_subtitle")}
+                          </div>
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:bg-accent/50"
+                        onClick={onJoinOrganization}
+                        data-testid="welcome-join-org"
+                      >
+                        <div className="text-sm font-medium">
+                          {t("welcome.join_org")}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {t("welcome.join_org_subtitle")}
+                        </div>
+                      </button>
+                    </div>
+                  </div>
                   <OrganizationServerAffordance
                     busy={organizationServerBusy}
                     error={organizationServerError}

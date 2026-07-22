@@ -2,11 +2,10 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { installConfigUrlFor, parseInstallerFilenameTag } from "@openwork/install-config"
+import { installConfigUrlFor } from "@openwork/install-config"
 
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
-import { parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
-import { isTranslocatedPath, parseMountTableLine, readSidecarConfig, resolveTranslocatedOriginalPath } from "../src/config-sources"
+import { buildConstantsConfig, parseInstallLinkInput, resolveInstallerConfig } from "../src/config"
 import { writeBootstrapConfig } from "../src/install"
 import { releaseAssetFor } from "../src/release-asset"
 import { startInstallerServer } from "../src/server"
@@ -100,189 +99,97 @@ describe("resolveInstallerConfig", () => {
   })
 
   test("fails without a configured deployment", async () => {
-    await expect(resolveInstallerConfig({ env: {}, execPath: path.join(os.tmpdir(), "openwork-installer") })).rejects.toThrow()
+    await expect(resolveInstallerConfig({ env: {} })).rejects.toThrow()
   })
 
-  test("prefers env overrides over sidecar config", async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-precedence-"))
-    try {
-      const execPath = path.join(dir, "openwork-installer")
-      writeFileSync(execPath, "")
-      writeFileSync(path.join(dir, "openwork-installer.json"), JSON.stringify({
-        clientName: "Sidecar",
-        webUrl: "https://sidecar.example.com",
-        apiUrl: "https://sidecar-api.example.com",
+  test("prefers env overrides over pasted install links", async () => {
+    const resolution = await resolveInstallerConfig({
+      env: {
+        OPENWORK_INSTALLER_CLIENT_NAME: "Env",
+        OPENWORK_INSTALLER_WEB_URL: "https://env.example.com",
+        OPENWORK_INSTALLER_API_URL: "https://env-api.example.com",
+      },
+      installLink: "not an install link",
+    })
+
+    expect(resolution.source).toBe("env")
+    expect(resolution.config.clientName).toBe("Env")
+  })
+
+  test("reads build constants before pasted install links", async () => {
+    const resolution = await resolveInstallerConfig({
+      env: {},
+      buildConstants: {
+        appName: "Build Work",
+        clientName: "Build Corp",
+        webUrl: "https://build.example.com/",
+        apiUrl: "https://build-api.example.com/",
+        logoUrl: "https://build.example.com/logo.svg",
+        requireSignin: true,
+      },
+      installLink: "https://app.example.com/install?token=abcDEF12",
+      fetcher: () => {
+        throw new Error("install link should not be fetched when build constants exist")
+      },
+    })
+
+    expect(resolution.source).toBe("build")
+    expect(resolution.config).toEqual({
+      appName: "Build Work",
+      clientName: "Build Corp",
+      webUrl: "https://build.example.com",
+      apiUrl: "https://build-api.example.com",
+      logoUrl: "https://build.example.com/logo.svg",
+      requireSignin: true,
+    })
+  })
+
+  test("ignores empty placeholder build constants", () => {
+    expect(buildConstantsConfig({
+      appName: "",
+      clientName: "",
+      webUrl: "",
+      apiUrl: "",
+      logoUrl: "",
+      requireSignin: false,
+    })).toBeNull()
+  })
+
+  test("resolves pasted install links", async () => {
+    const configServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({
+        clientName: "Linked Corp",
+        webUrl: "https://linked.example.com/",
+        apiUrl: "https://linked-api.example.com/",
         requireSignin: true,
         logoUrl: null,
-      }))
-
+      }),
+    })
+    try {
       const resolution = await resolveInstallerConfig({
-        env: {
-          OPENWORK_INSTALLER_CLIENT_NAME: "Env",
-          OPENWORK_INSTALLER_WEB_URL: "https://env.example.com",
-          OPENWORK_INSTALLER_API_URL: "https://env-api.example.com",
-        },
-        execPath,
+        env: {},
+        installLink: `http://127.0.0.1:${configServer.port}/install?token=abcDEF12`,
       })
 
-      expect(resolution.source).toBe("env")
-      expect(resolution.config.clientName).toBe("Env")
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  // macOS-only semantics: .app bundles (and their slash-separated exec paths)
-  // do not exist on Windows, where path.join builds a backslashed path the
-  // bundle matcher rightly rejects.
-  test.skipIf(process.platform === "win32")("reads sidecar next to the enclosing app bundle", async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-app-sidecar-"))
-    try {
-      const macOsDir = path.join(dir, "OpenWork Installer.app", "Contents", "MacOS")
-      mkdirSync(macOsDir, { recursive: true })
-      const execPath = path.join(macOsDir, "OpenWork Installer")
-      writeFileSync(execPath, "")
-      writeFileSync(path.join(dir, "openwork-installer.json"), JSON.stringify({
-        clientName: "Bundle Sidecar",
-        webUrl: "https://bundle.example.com",
-        apiUrl: "https://bundle-api.example.com",
-        requireSignin: true,
-        logoUrl: null,
-      }))
-
-      const resolution = await resolveInstallerConfig({ env: {}, execPath })
-      expect(resolution.source).toBe("sidecar")
-      expect(resolution.config.clientName).toBe("Bundle Sidecar")
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-})
-
-describe("macOS App Translocation helpers", () => {
-  test("parses a normal mount table line", () => {
-    expect(parseMountTableLine("/private/tmp/OpenWork Installer.app on /private/var/folders/abc/T/AppTranslocation/123 (nullfs, local, read-only)")).toEqual({
-      source: "/private/tmp/OpenWork Installer.app",
-      mountPoint: "/private/var/folders/abc/T/AppTranslocation/123",
-      options: "nullfs, local, read-only",
-    })
-  })
-
-  test("parses paths with spaces and on in the source", () => {
-    expect(parseMountTableLine("/private/tmp/folder with spaces/source on disk/OpenWork Installer.app on /private/var/folders/abc/T/AppTranslocation/UUID With Space (nullfs, local)")).toEqual({
-      source: "/private/tmp/folder with spaces/source on disk/OpenWork Installer.app",
-      mountPoint: "/private/var/folders/abc/T/AppTranslocation/UUID With Space",
-      options: "nullfs, local",
-    })
-  })
-
-  test("ignores junk mount table lines", () => {
-    expect(parseMountTableLine("not a mount table line")).toBeNull()
-    expect(parseMountTableLine("/private/tmp/OpenWork Installer.app on /private/var/folders/abc/T/AppTranslocation/123")).toBeNull()
-  })
-
-  test("resolves the original app through the translocated /d path", () => {
-    const mountPoint = "/private/var/folders/abc/T/AppTranslocation/123"
-    const source = "/private/tmp/OpenWork Installer.app"
-    const execPath = `${mountPoint}/d/OpenWork Installer.app/Contents/MacOS/openwork-installer`
-
-    expect(resolveTranslocatedOriginalPath(execPath, `${source} on ${mountPoint} (nullfs, local, nodev)\n`)).toBe(source)
-  })
-
-  test("skips non-nullfs mounts", () => {
-    const mountPoint = "/private/var/folders/abc/T/AppTranslocation/123"
-    const source = "/private/tmp/OpenWork Installer.app"
-    const execPath = `${mountPoint}/d/OpenWork Installer.app/Contents/MacOS/openwork-installer`
-
-    expect(resolveTranslocatedOriginalPath(execPath, `${source} on ${mountPoint} (apfs, local)\n`)).toBeNull()
-  })
-
-  test("requires a mountpoint path-prefix boundary", () => {
-    const mountPoint = "/private/var/folders/abc/T/AppTranslocation/123"
-    const source = "/private/tmp/OpenWork Installer.app"
-    const execPath = `${mountPoint}-suffix/d/OpenWork Installer.app/Contents/MacOS/openwork-installer`
-
-    expect(resolveTranslocatedOriginalPath(execPath, `${source} on ${mountPoint} (nullfs, local)\n`)).toBeNull()
-  })
-
-  test("returns null when no translocation mount matches", () => {
-    const execPath = "/private/var/folders/abc/T/AppTranslocation/123/d/OpenWork Installer.app/Contents/MacOS/openwork-installer"
-    const mountTable = "/private/tmp/OpenWork Installer.app on /private/var/folders/abc/T/AppTranslocation/other (nullfs, local)\n"
-
-    expect(resolveTranslocatedOriginalPath(execPath, mountTable)).toBeNull()
-  })
-
-  test("detects App Translocation paths", () => {
-    expect(isTranslocatedPath("/private/var/folders/abc/T/AppTranslocation/123/d/OpenWork Installer.app/Contents/MacOS/openwork-installer")).toBe(true)
-    expect(isTranslocatedPath("/Applications/OpenWork Installer.app/Contents/MacOS/openwork-installer")).toBe(false)
-  })
-
-  test("reads the sidecar next to the original translocated app", () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-translocated-"))
-    try {
-      const originalAppPath = path.join(dir, "OpenWork Installer.app")
-      const mountPoint = "/private/var/folders/abc/T/AppTranslocation/123"
-      const execPath = `${mountPoint}/d/OpenWork Installer.app/Contents/MacOS/openwork-installer`
-      mkdirSync(originalAppPath, { recursive: true })
-      writeFileSync(path.join(dir, "openwork-installer.json"), JSON.stringify({
-        clientName: "Translocated Sidecar",
-        webUrl: "https://translocated.example.com",
-        apiUrl: "https://translocated-api.example.com",
-        requireSignin: true,
-        logoUrl: null,
-      }))
-
-      expect(readSidecarConfig({
-        execPath,
-        readMountTable: () => `${originalAppPath} on ${mountPoint} (nullfs, local, read-only)\n`,
-        warn: () => undefined,
-      })).toEqual({
+      expect(resolution.source).toBe("install-link")
+      expect(resolution.config).toEqual({
         appName: "OpenWork",
-        clientName: "Translocated Sidecar",
-        webUrl: "https://translocated.example.com",
-        apiUrl: "https://translocated-api.example.com",
+        clientName: "Linked Corp",
+        webUrl: "https://linked.example.com",
+        apiUrl: "https://linked-api.example.com",
         requireSignin: true,
         logoUrl: null,
       })
     } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  test("falls through when the translocation mount is missing", () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-translocated-missing-"))
-    try {
-      const originalAppPath = path.join(dir, "OpenWork Installer.app")
-      const execPath = "/private/var/folders/abc/T/AppTranslocation/123/d/OpenWork Installer.app/Contents/MacOS/openwork-installer"
-      writeFileSync(path.join(dir, "openwork-installer.json"), JSON.stringify({
-        clientName: "Missing Mount Sidecar",
-        webUrl: "https://missing.example.com",
-        apiUrl: "https://missing-api.example.com",
-        requireSignin: false,
-        logoUrl: null,
-      }))
-
-      expect(readSidecarConfig({
-        execPath,
-        readMountTable: () => `${originalAppPath} on /private/var/folders/abc/T/AppTranslocation/other (nullfs, local)\n`,
-        warn: () => undefined,
-      })).toBeNull()
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
+      configServer.stop(true)
     }
   })
 })
 
 describe("install link helpers", () => {
-  test("parses filename stamps and install config URLs", () => {
-    expect(parseInstallerFilenameTag("OpenWork-Installer--127.0.0.1_8790--abcDEF12.exe")).toEqual({
-      host: "127.0.0.1:8790",
-      token: "abcDEF12",
-    })
-    expect(parseInstallerFilenameTag("OpenWork-Installer--api.example.com--abcDEF12")).toEqual({
-      host: "api.example.com",
-      token: "abcDEF12",
-    })
+  test("builds install config URLs", () => {
     expect(installConfigUrlFor("127.0.0.1:8790", "abcDEF12")).toBe("http://127.0.0.1:8790/v1/install-config?token=abcDEF12")
     expect(installConfigUrlFor("api.example.com", "abcDEF12")).toBe("https://api.example.com/v1/install-config?token=abcDEF12")
   })

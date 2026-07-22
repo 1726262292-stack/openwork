@@ -35,11 +35,14 @@ export function desktopReleaseAssetName(platform: string, releaseTag: string) {
 }
 
 export function genericInstallerArtifactName(platform: string) {
-  if (platform === "mac-arm64" || platform === "mac-x64") {
-    return `openwork-installer-${platform}.zip`
+  if (platform === "mac-arm64") {
+    return "OpenWork-Installer-mac-arm64.dmg"
+  }
+  if (platform === "mac-x64") {
+    return "OpenWork-Installer-mac-x64.dmg"
   }
   if (platform === "win-x64") {
-    return "openwork-installer-win-x64.exe"
+    return "OpenWork-Installer-win-x64.exe"
   }
   return null
 }
@@ -55,28 +58,14 @@ export async function resolveConfiguredInstallerArtifact(
   if (!env.installerArtifactsDir) {
     return null
   }
-  for (const candidate of installerArtifactCandidates(fileName)) {
-    const filePath = path.join(env.installerArtifactsDir, candidate)
-    try {
-      const artifact = await stat(filePath)
-      if (artifact.isFile()) {
-        return { filePath, fileName: candidate, size: artifact.size }
-      }
-    } catch {
-      // Try the next candidate.
+  const filePath = path.join(env.installerArtifactsDir, fileName)
+  try {
+    const artifact = await stat(filePath)
+    if (artifact.isFile()) {
+      return { filePath, fileName, size: artifact.size }
     }
+  } catch {
+    // Missing or inaccessible artifacts are treated as unmounted.
   }
   return null
-}
-
-function installerArtifactCandidates(fileName: string) {
-  const candidates = [fileName]
-  const macMatch = /^openwork-(mac-(?:arm64|x64))-/.exec(fileName)
-  if (macMatch) {
-    candidates.push(`openwork-installer-${macMatch[1]}.zip`)
-  }
-  if (/^openwork-win-x64-/.test(fileName)) {
-    candidates.push("openwork-installer-win-x64.exe")
-  }
-  return candidates
 }
