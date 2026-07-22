@@ -603,3 +603,229 @@ State           STOPPED
 Snapshot        windows-medium
 Region          us
 ```
+
+---
+
+## PR #2996 revalidation — packaged Windows installer on real Windows
+
+Date: 2026-07-22. This revalidation used PR #2996 head `6d3523faf1a61afa7df43acf34c6051448c1360f` (`fix(installer): retry busy Windows app launch`) and a fresh Daytona `windows-medium` sandbox.
+
+### PR #2996 revalidation verdict
+
+- Overall: **Passed**. The PR-built client installer ran the real, non-dry-run Windows install twice on real Windows without `EBUSY: resource busy or locked, uv_spawn`.
+- First install: **Passed**. `OpenWork-Installer-win-x64.exe --headless --install-link ...` downloaded `openwork-win-x64-0.17.37.exe`, launched the silent NSIS app installer, exited `0`, and installed OpenWork under the real `@openworkdesktop` directory.
+- Installed-path proof: **Passed**. `C:\Users\Administrator\AppData\Local\Programs\@openworkdesktop\OpenWork.exe` existed at 201,246,720 bytes; the legacy `Programs\OpenWork\OpenWork.exe` path was absent.
+- App launch: **Passed**. The installed app launched as the interactive Administrator user and displayed forced sign-in connected to the Daytona Den Web host. VNC screenshot: <https://b8tgacyg507ru26g.public.blob.vercel-storage.com/pr-2996-revalidation/browser-screenshot-1784720728500-2pvB2qMvU5VnxXTMr3nL9xeYmeuGYc.png>.
+- Second install over existing install: **Passed**. I ran the same PR-built installer a second time while the app had already been launched; it again exited `0` with no EBUSY.
+
+### Revalidation sandboxes and URLs
+
+- Server sandbox reused/restarted: `openwork-server-two-door-fix-20260722-0937` / `32711835-499b-4b1a-9755-f1e2c4aa4a30`.
+- Windows sandbox created: `openwork-win-pr2996-20260722-0430` / `cf12c124-5e73-4c7e-9430-ba06eb61b5f9` (`windows-medium`).
+- Den Web: `https://3005-wbwttwpcctxbura6.daytonaproxy01.net`.
+- Den API: `https://8788-z88rce8ylwllcnaa.daytonaproxy01.net`.
+- Worker proxy: `https://8789-x5aaamh4agccc6se.daytonaproxy01.net`.
+- Seeded org: `Acme Robotics`, `org_01ky4sb78weh58hqvdje8ecj31`.
+- Install token used by both installer runs: `aNAOBUHK_bqVnF7ZzlISNp9_XxOjAqVGL0tEuB9CnyQ`.
+
+### Build PR #2996 installer locally
+
+Commands:
+
+```sh
+git worktree add --detach /var/folders/8j/hhcc8zs100d3fd654fjkk9580000gn/T/opencode/ow-pr2996-revalidate-20260722042530 origin/fix/windows-installer-spawn-retry
+pnpm install --frozen-lockfile
+pnpm --filter @openwork/install-config build
+pnpm --filter @openwork/installer test
+cd apps/installer
+bun build --compile --minify --target=bun-windows-x64 src/index.ts src/server-worker.ts --outfile dist/openwork-installer
+cp dist/openwork-installer.exe dist/OpenWork-Installer-win-x64.exe
+```
+
+Relevant output:
+
+```text
+HEAD is now at 6d3523faf fix(installer): retry busy Windows app launch
+@openwork/install-config build: ESM + DTS build success
+bun test v1.3.10
+22 pass
+0 fail
+[240ms] compile  dist/openwork-installer.exe bun-windows-x64-v1.3.10
+4dfd274aaace6bd03537807e110dc9a9fa42af06f223f04031abf36de893d202  apps/installer/dist/OpenWork-Installer-win-x64.exe
+```
+
+The binary was transferred to Windows through a temporary public prerelease and then the prerelease was deleted. Windows-side proof:
+
+```text
+Directory of C:\ow
+07/22/2026  11:30 AM       115,564,544 OpenWork-Installer-win-x64.exe
+SHA256 hash of C:\ow\OpenWork-Installer-win-x64.exe:
+4dfd274aaace6bd03537807e110dc9a9fa42af06f223f04031abf36de893d202
+CertUtil: -hashfile command completed successfully.
+temp release deleted
+```
+
+### Server restart, seed, app-version, install-config
+
+Commands:
+
+```sh
+daytona sandbox start openwork-server-two-door-fix-20260722-0937
+daytona exec openwork-server-two-door-fix-20260722-0937 -- "bash -lc 'set -euo pipefail; cd /workspace; DEN_WEB_PUBLIC_URL=\"https://3005-wbwttwpcctxbura6.daytonaproxy01.net\" DEN_API_PUBLIC_URL=\"https://8788-z88rce8ylwllcnaa.daytonaproxy01.net\" DEN_WORKER_PROXY_PUBLIC_URL=\"https://8789-x5aaamh4agccc6se.daytonaproxy01.net\" DEN_WEB_PORT=3005 DEN_API_PORT=8788 DEN_WORKER_PROXY_PORT=8789 bash .devcontainer/start-daytona-server.sh'"
+daytona exec openwork-server-two-door-fix-20260722-0937 -- "bash -lc 'cd /workspace && pnpm --filter @openwork/email build && cd /workspace/ee/apps/den-api && OPENWORK_DEV_MODE=1 DEN_ORG_MODE=multi_org DATABASE_URL=mysql://root:password@127.0.0.1:3306/openwork_den DEN_DB_ENCRYPTION_KEY=daytona-den-db-encryption-key-please-change-1234567890 BETTER_AUTH_SECRET=daytona-den-auth-secret-please-change-1234567890 BETTER_AUTH_URL=https://3005-wbwttwpcctxbura6.daytonaproxy01.net DEN_API_PUBLIC_URL=https://8788-z88rce8ylwllcnaa.daytonaproxy01.net pnpm exec tsx scripts/seed-demo-org.ts --reset'"
+```
+
+Relevant output:
+
+```text
+OpenWork Daytona server stack ready
+Den Web:       https://3005-wbwttwpcctxbura6.daytonaproxy01.net
+Den API:       https://8788-z88rce8ylwllcnaa.daytonaproxy01.net
+Worker Proxy:  https://8789-x5aaamh4agccc6se.daytonaproxy01.net
+✓ org: org_01ky4sb78weh58hqvdje8ecj31
+✓ 17 members · 12 teams · 14 plugins · 71 config objects
+```
+
+Version/install-link checks:
+
+```json
+{"minAppVersion":"0.17.0","latestAppVersion":"0.17.37"}
+{"token":"aNAOBUHK_bqVnF7ZzlISNp9_XxOjAqVGL0tEuB9CnyQ","installPageUrl":"https://3005-wbwttwpcctxbura6.daytonaproxy01.net/install?token=aNAOBUHK_bqVnF7ZzlISNp9_XxOjAqVGL0tEuB9CnyQ"}
+```
+
+Install config and redirect proof:
+
+```json
+{
+  "appName": "OpenWork",
+  "clientName": "Acme Robotics",
+  "webUrl": "https://3005-wbwttwpcctxbura6.daytonaproxy01.net",
+  "apiUrl": "https://8788-z88rce8ylwllcnaa.daytonaproxy01.net",
+  "requireSignin": true
+}
+```
+
+```text
+HTTP/2 302
+location: https://github.com/different-ai/openwork/releases/download/v0.17.37/OpenWork-Installer-win-x64.exe
+```
+
+### First real Windows install with PR #2996 binary
+
+The installer was run as the interactive Administrator user via scheduled task because `daytona exec` itself runs as SYSTEM/session 0.
+
+Command shape executed in `C:\ow\run-pr2996-install-1.cmd`:
+
+```bat
+"C:\ow\OpenWork-Installer-win-x64.exe" --headless --install-link "https://3005-wbwttwpcctxbura6.daytonaproxy01.net/install?token=aNAOBUHK_bqVnF7ZzlISNp9_XxOjAqVGL0tEuB9CnyQ"
+```
+
+Trimmed log output (`[download]` repeated 425 times while streaming `openwork-win-x64-0.17.37.exe`):
+
+```text
+whoami:
+daytona-sandbox\administrator
+LOCALAPPDATA=C:\Users\Administrator\AppData\Local
+OpenWork Installer — Acme Robotics
+[openwork-installer] Configured via install link.
+[write-config] Writing deployment configuration...
+[check-version] Checking your deployment for the supported app version...
+[check-version] Deployment supports OpenWork 0.17.37.
+[install] Installing OpenWork...
+[done] OpenWork 0.17.37 installed successfully.
+exit=0
+download-line-count=425
+```
+
+Installed path and bootstrap proof:
+
+```text
+FullName      : C:\Users\Administrator\AppData\Local\Programs\@openworkdesktop\OpenWork.exe
+Length        : 201246720
+legacy OpenWork path absent
+```
+
+```json
+{
+  "baseUrl": "https://3005-wbwttwpcctxbura6.daytonaproxy01.net",
+  "apiBaseUrl": "https://8788-z88rce8ylwllcnaa.daytonaproxy01.net",
+  "requireSignin": true,
+  "brandAppName": "OpenWork"
+}
+```
+
+### Launch installed app via VNC
+
+Launch command shape:
+
+```bat
+start "" "C:\Users\Administrator\AppData\Local\Programs\@openworkdesktop\OpenWork.exe"
+```
+
+Process proof:
+
+```text
+Path : C:\Users\Administrator\AppData\Local\Programs\@openworkdesktop\OpenWork.exe
+```
+
+Inspected VNC screenshot showed the running app at forced sign-in: `Welcome to OpenWork`, `Sign in to get started with your workspace`, and `Connected to 3005-wbwttwpcctxbura6.daytonaproxy01.net`.
+
+### Second real install over existing install
+
+I ran the same PR-built binary a second time after the app had already been launched. NSIS closed the running app during the reinstall; the installer still exited cleanly and did not emit `EBUSY`.
+
+Command shape executed in `C:\ow\run-pr2996-install-2.cmd`:
+
+```bat
+"C:\ow\OpenWork-Installer-win-x64.exe" --headless --install-link "https://3005-wbwttwpcctxbura6.daytonaproxy01.net/install?token=aNAOBUHK_bqVnF7ZzlISNp9_XxOjAqVGL0tEuB9CnyQ"
+```
+
+Trimmed log output (`[download]` repeated 295 times):
+
+```text
+whoami:
+daytona-sandbox\administrator
+LOCALAPPDATA=C:\Users\Administrator\AppData\Local
+OpenWork Installer — Acme Robotics
+[openwork-installer] Configured via install link.
+[write-config] Writing deployment configuration...
+[check-version] Checking your deployment for the supported app version...
+[check-version] Deployment supports OpenWork 0.17.37.
+[install] Installing OpenWork...
+[done] OpenWork 0.17.37 installed successfully.
+exit=0
+download-line-count=295
+```
+
+Post-second-run path proof stayed on the real installed location:
+
+```text
+FullName      : C:\Users\Administrator\AppData\Local\Programs\@openworkdesktop\OpenWork.exe
+Length        : 201246720
+```
+
+After relaunching, VNC again showed the forced sign-in screen connected to `3005-wbwttwpcctxbura6.daytonaproxy01.net`.
+
+### Stop sandboxes after PR #2996 revalidation
+
+Commands:
+
+```sh
+daytona stop openwork-win-pr2996-20260722-0430
+daytona stop openwork-server-two-door-fix-20260722-0937
+daytona info openwork-win-pr2996-20260722-0430
+daytona info openwork-server-two-door-fix-20260722-0937
+```
+
+Output:
+
+```text
+ID              cf12c124-5e73-4c7e-9430-ba06eb61b5f9
+State           STOPPED
+Snapshot        windows-medium
+Region          us
+
+ID              32711835-499b-4b1a-9755-f1e2c4aa4a30
+State           STOPPED
+Region          us
+```
