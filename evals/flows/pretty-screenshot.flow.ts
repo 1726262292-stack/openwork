@@ -225,6 +225,12 @@ export default defineFlow({
       run: async (ctx) => {
         await ctx.prove("Pretty compositing is implemented in Chromium with no platform branches", {
           voiceover: vo[4],
+          action: async () => {
+            // Leave the app as we found it: this flow parked it on Settings for
+            // the frames above; later flows (e.g. core-flow) expect the session
+            // surface to be reachable again.
+            await ctx.control("route.session");
+          },
           assert: async () => {
             const source = await readFile(PRETTY_SOURCE_PATH, "utf8");
             const forbidden = matchingLines(source, /\bprocess\.platform\b|\bos\.platform\b|\bdarwin\b|\bwin32\b|\bx11grab\b|\bscreencapture\b/);
