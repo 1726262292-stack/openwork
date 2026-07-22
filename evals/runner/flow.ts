@@ -1,4 +1,7 @@
 import type { CdpClient, CdpTarget } from "./cdp.ts";
+import type { PrettyOptions } from "./pretty.ts";
+
+export type { PrettyOptions } from "./pretty.ts";
 
 export type EvalMode = "automation" | "demo";
 
@@ -86,6 +89,7 @@ export interface ScreenshotOptions {
   name?: string;
   claim?: string;
   voiceover?: string;
+  pretty?: boolean | PrettyOptions;
   requireText?: string[];
   rejectText?: string[];
   hashIncludes?: string;

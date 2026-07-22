@@ -4,6 +4,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { captureScreenshot, connect, debuggerUrlFor, evaluate, listTargets, pickAppTarget } from "./cdp.ts";
 import { captureDaytonaComputerUseScreenshot } from "./daytona-computer-use.ts";
+import { compositePrettyFrame } from "./pretty.ts";
 import type {
   AssertionEvidence,
   ClickTextOptions,
@@ -691,17 +692,45 @@ export class EvalContext implements FlowContext {
       closeClients.push(client);
     }
     try {
-      const buffer = preCapturedBuffer ?? await captureScreenshot(this.requireClient(screenshotClient));
+      const rawBuffer = preCapturedBuffer ?? await captureScreenshot(this.requireClient(screenshotClient));
+      const rawHash = createHash("sha256").update(rawBuffer).digest("hex");
+      let buffer = rawBuffer;
+      const prettyValidations: FrameValidation[] = [];
+      if (options.pretty) {
+        const prettyLabel = "Pretty composite applied (mesh-gradient bg, rounded corners, shadow)";
+        if (this.client) {
+          try {
+            const prettyOptions = typeof options.pretty === "boolean" ? undefined : options.pretty;
+            const composite = await compositePrettyFrame(this.client, rawBuffer, prettyOptions);
+            buffer = composite.buffer;
+            prettyValidations.push({
+              label: prettyLabel,
+              passed: true,
+              detail: `${composite.result.width}x${composite.result.height}, pad ${composite.result.padding}px, radius ${composite.result.radius}px`,
+            });
+            prettyValidations.push(
+              { label: "Pretty: canvas corners show the gradient background", passed: composite.result.checks.cornersAreBackground },
+              { label: "Pretty: rounded corners clip the capture", passed: composite.result.checks.roundedCornerClipped },
+              { label: "Pretty: drop shadow darkens below the card", passed: composite.result.checks.shadowDarkensBelowCard },
+              { label: "Pretty: center still shows the app content", passed: composite.result.checks.centerIsAppContent },
+            );
+          } catch (error) {
+            prettyValidations.push({ label: prettyLabel, passed: false, detail: messageText(error) });
+          }
+        } else {
+          prettyValidations.push({ label: prettyLabel, passed: false, detail: "No primary CDP page client available." });
+        }
+      }
       await writeFile(join(this.outDir, fileName), buffer);
       this.screenshots.push(fileName);
       const bodyText = textClient ? await evaluate(textClient, "document.body.innerText").catch(() => "") : "";
       const url = textClient ? await evaluate(textClient, "location.href").catch(() => "") : "";
-      const hash = createHash("sha256").update(buffer).digest("hex");
       const dimensions = pngDimensions(buffer);
       const validations: FrameValidation[] = [
         { label: "PNG exists and is non-empty", passed: buffer.length > 0, detail: `${buffer.length} bytes` },
         { label: "PNG dimensions are sane", passed: Boolean(dimensions?.width && dimensions?.height), detail: dimensions ? `${dimensions.width}x${dimensions.height}` : "unknown" },
-        { label: "Frame is not a duplicate of the previous capture", passed: this.lastScreenshotHash !== hash, detail: hash.slice(0, 12) },
+        { label: "Frame is not a duplicate of the previous capture", passed: this.lastScreenshotHash !== rawHash, detail: rawHash.slice(0, 12) },
+        ...prettyValidations,
       ];
       for (const text of options.requireText ?? []) {
         validations.push({ label: `Required visible text: ${text}`, passed: typeof bodyText === "string" && bodyText.includes(text) });
@@ -713,7 +742,7 @@ export class EvalContext implements FlowContext {
         validations.push({ label: `URL hash includes ${options.hashIncludes}`, passed: typeof url === "string" && url.includes(options.hashIncludes), detail: typeof url === "string" ? url : String(url) });
       }
       const passed = validations.every((item) => item.passed);
-      this.lastScreenshotHash = hash;
+      this.lastScreenshotHash = rawHash;
       const frame: FrameEvidenceInput = {
         type: "frame",
         status: passed ? "passed" : "failed",
