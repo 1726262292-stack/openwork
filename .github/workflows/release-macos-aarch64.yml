@@ -47,7 +47,7 @@ on:
         description: "Build + push Daytona worker snapshot"
         required: false
         type: boolean
-        default: true
+        default: false
       build_electron:
         description: "Build + publish Electron desktop artifacts (macOS/Linux/Windows)"
         required: false
@@ -104,7 +104,7 @@ jobs:
           INPUT_PUBLISH_DAYTONA_SNAPSHOT: ${{ github.event.inputs.publish_daytona_snapshot }}
           DEFAULT_PUBLISH_SIDECARS: ${{ vars.RELEASE_PUBLISH_SIDECARS }}
           DEFAULT_PUBLISH_NPM: ${{ vars.RELEASE_PUBLISH_NPM }}
-          DEFAULT_PUBLISH_DAYTONA_SNAPSHOT: ${{ vars.RELEASE_PUBLISH_DAYTONA_SNAPSHOT }}
+          DEFAULT_PUBLISH_DAYTONA_SNAPSHOT: "false"
           DEFAULT_NOTARIZE: ${{ vars.MACOS_NOTARIZE }}
           DEFAULT_BUILD_ELECTRON: ${{ vars.RELEASE_PUBLISH_ELECTRON }}
           DEFAULT_SIGN_WINDOWS: ${{ vars.RELEASE_SIGN_WINDOWS }}
