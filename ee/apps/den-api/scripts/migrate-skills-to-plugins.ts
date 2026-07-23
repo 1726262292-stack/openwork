@@ -11,6 +11,16 @@
  * Usage:
  *   pnpm --filter @openwork-ee/den-api migrate:skills-to-plugins        # dry run
  *   pnpm --filter @openwork-ee/den-api migrate:skills-to-plugins -- --yes
+ *
+ * Incident recovery after the legacy tables have already been dropped:
+ *   1. Restore a PlanetScale backup to a branch.
+ *   2. Copy skill, skill_hub, skill_hub_skill, and skill_hub_member into main
+ *      under a prefix such as recovered_ (for example, recovered_skill).
+ *   3. Run against production using the PlanetScale serverless driver over HTTPS
+ *      (DATABASE_URL is NOT reachable externally):
+ *      DATABASE_HOST=... DATABASE_USERNAME=... DATABASE_PASSWORD=... DEN_DB_ENCRYPTION_KEY=... \
+ *        pnpm --filter @openwork-ee/den-api migrate:skills-to-plugins -- --table-prefix recovered_ --yes
+ *   4. Drop the recovered_* tables after verifying the migrated plugins.
  */
 import { createDenDb, type DenDbMode } from "@openwork-ee/den-db"
 import { and, asc, eq, isNull, sql } from "@openwork-ee/den-db/drizzle"
@@ -32,6 +42,7 @@ import {
   DEFAULT_OPENWORK_MARKETPLACE_NAME,
 } from "../src/routes/org/plugin-system/default-marketplaces.js"
 
+const tablePrefix = resolveTablePrefix()
 const { db } = createDenDb(resolveDbConfig())
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -70,9 +81,31 @@ type Summary = {
   skipped: number
 }
 
+type LegacyTableName = "skill" | "skill_hub" | "skill_hub_skill" | "skill_hub_member"
+
 function parseDbMode(value: string | undefined): DenDbMode | undefined {
   if (value === "mysql" || value === "planetscale") return value
   return undefined
+}
+
+function cliValue(flag: string) {
+  const index = process.argv.indexOf(flag)
+  if (index === -1) return null
+  const value = process.argv[index + 1]
+  if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value.`)
+  return value
+}
+
+function resolveTablePrefix() {
+  const prefix = cliValue("--table-prefix") ?? process.env.SKILL_MIGRATION_TABLE_PREFIX ?? ""
+  if (!/^[a-z0-9_]*$/.test(prefix)) {
+    throw new Error("--table-prefix/SKILL_MIGRATION_TABLE_PREFIX may only contain lowercase letters, digits, and underscores.")
+  }
+  return prefix
+}
+
+function legacyTable(name: LegacyTableName) {
+  return sql.raw(`${tablePrefix}${name}`)
 }
 
 function resolveDbConfig() {
@@ -146,7 +179,7 @@ async function legacyRows(query: ReturnType<typeof sql>) {
 async function legacySkills(): Promise<LegacySkillRow[]> {
   const rows = await legacyRows(sql`
     select id, organization_id, created_by_org_membership_id, title, description, skill_text, shared, created_at, updated_at
-    from skill
+    from ${legacyTable("skill")}
     order by created_at asc, id asc
   `)
   return rows.map((row) => ({
@@ -163,12 +196,12 @@ async function legacySkills(): Promise<LegacySkillRow[]> {
 }
 
 async function legacyHubs(): Promise<LegacyHubRow[]> {
-  const rows = await legacyRows(sql`select id from skill_hub`)
+  const rows = await legacyRows(sql`select id from ${legacyTable("skill_hub")}`)
   return rows.map((row) => ({ id: requiredString(row, "id") }))
 }
 
 async function legacyHubSkills(): Promise<LegacyHubSkillRow[]> {
-  const rows = await legacyRows(sql`select id, skill_hub_id, skill_id from skill_hub_skill`)
+  const rows = await legacyRows(sql`select id, skill_hub_id, skill_id from ${legacyTable("skill_hub_skill")}`)
   return rows.map((row) => ({
     id: requiredString(row, "id"),
     skillHubId: requiredString(row, "skill_hub_id"),
@@ -177,7 +210,7 @@ async function legacyHubSkills(): Promise<LegacyHubSkillRow[]> {
 }
 
 async function legacyHubMembers(): Promise<LegacyHubMemberRow[]> {
-  const rows = await legacyRows(sql`select id, skill_hub_id, org_membership_id, team_id from skill_hub_member`)
+  const rows = await legacyRows(sql`select id, skill_hub_id, org_membership_id, team_id from ${legacyTable("skill_hub_member")}`)
   return rows.map((row) => ({
     id: requiredString(row, "id"),
     orgMembershipId: optionalStringField(row, "org_membership_id"),
