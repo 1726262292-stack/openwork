@@ -9,7 +9,8 @@ const vo = await loadVoiceoverParagraphs("desktop-policies-cloud-mcp");
 if (!vo) throw new Error("Missing approved voice-over script for desktop-policies-cloud-mcp.");
 
 const DEN_WEB_URL = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? "http://localhost:3005").trim().replace(/\/+$/, "");
-const DESKTOP_URL = (process.env.OPENWORK_EVAL_DESKTOP_URL ?? "http://localhost:5173").trim().replace(/\/+$/, "");
+const DEN_WEB_HOST = new URL(DEN_WEB_URL).host;
+const DEN_DESKTOP_POLICIES_URL = new URL("/dashboard/desktop-policies", DEN_WEB_URL).toString();
 const ADMIN_EMAIL = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
 const ADMIN_PASSWORD = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const MEMBER_EMAIL = process.env.OPENWORK_EVAL_MEMBER_EMAIL?.trim() || "jordan.demo@acme.test";
@@ -422,10 +423,36 @@ async function ensureDesktopSignedIn(ctx: FlowContext): Promise<void> {
 }
 
 async function enterDenPolicies(ctx: FlowContext): Promise<void> {
-  // Cross-origin navigation swaps the renderer process, which drops the CDP
-  // socket; reconnect to the (sole) page target before driving Den web.
-  await ctx.eval(`location.assign(${JSON.stringify(DEN_WEB_URL)})`).catch(() => undefined);
-  await ctx.reconnect();
+  // The built-in browser control action registers with the session page, so
+  // leave settings for the sessions home and open an empty session first.
+  await ctx.navigateHash("/session");
+  await ctx.waitFor(
+    "window.__openworkControl.listActions().some((action) => action.id === 'session.create_task' && !action.disabled)",
+    { timeoutMs: 60_000, label: "session.create_task action available" },
+  );
+  // The action can flicker to disabled while the workspace runtime boots.
+  const createTaskDeadline = Date.now() + 45_000;
+  for (;;) {
+    try {
+      await ctx.control("session.create_task");
+      break;
+    } catch (error) {
+      if (Date.now() > createTaskDeadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+    }
+  }
+  await ctx.waitFor(
+    "window.__openworkControl.listActions().some((action) => action.id === 'browser.open_url' && !action.disabled)",
+    { timeoutMs: 60_000, label: "browser.open_url action available" },
+  );
+  await ctx.switchToNewTab({
+    label: "Den web desktop policies",
+    timeoutMs: 60_000,
+    match: (target) => target.url.includes(DEN_WEB_HOST),
+    trigger: async () => {
+      await ctx.control("browser.open_url", { url: DEN_WEB_URL });
+    },
+  });
   await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 60_000, label: "Den web" });
   const signIn = await ctx.eval(`fetch('/api/auth/sign-in/email', {
     method: 'POST',
@@ -436,11 +463,29 @@ async function enterDenPolicies(ctx: FlowContext): Promise<void> {
   const status = isRecord(signIn) ? readNumber(signIn, "status") : null;
   const body = isRecord(signIn) ? readString(signIn, "body") ?? "" : "";
   ctx.assert(status === 200, `Den browser sign-in failed: ${status ?? "unknown"} ${body}`);
-  await ctx.eval(`location.assign(${JSON.stringify(`${DEN_WEB_URL}/dashboard/desktop-policies`)})`);
-  await ctx.waitFor("document.body.innerText.includes('Desktop policies') && document.body.innerText.includes('New policy')", {
+  await ctx.eval(`location.assign(${JSON.stringify(DEN_DESKTOP_POLICIES_URL)})`);
+  await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 60_000, label: "Den desktop policies route" });
+  await ctx.waitFor(`document.body.innerText.includes('Desktop policies') && document.body.innerText.includes('New policy') && document.body.innerText.includes(${JSON.stringify(DEFAULT_POLICY_NAME)})`, {
     timeoutMs: 60_000,
     label: "desktop policies page",
   });
+}
+
+async function closeBuiltInBrowserTabs(ctx: FlowContext): Promise<void> {
+  await ctx.waitFor("Boolean(window.__OPENWORK_ELECTRON__)", { timeoutMs: 10_000, label: "Electron bridge before closing browser tabs" });
+  await ctx.eval(`(async () => {
+    const bridge = window.__OPENWORK_ELECTRON__;
+    if (!bridge) throw new Error('Electron bridge is unavailable.');
+    if (bridge.invokeDesktop) {
+      try {
+        return await bridge.invokeDesktop('openwork:browser:closeAllTabs');
+      } catch (error) {
+        if (!String(error).includes('not implemented')) throw error;
+      }
+    }
+    if (bridge.browser?.closeAllTabs) return bridge.browser.closeAllTabs();
+    throw new Error('Browser closeAllTabs IPC is unavailable.');
+  })()`, { awaitPromise: true });
 }
 
 async function signInApi(email: string, password: string): Promise<string | null> {
@@ -680,8 +725,9 @@ export default defineFlow({
             const clicked = await ctx.eval(`(() => {
               const rows = [...document.querySelectorAll('tr')];
               const row = rows.find((entry) => (entry.textContent ?? '').includes(${JSON.stringify(DEFAULT_POLICY_NAME)}));
-              const link = row ? [...row.querySelectorAll('a, button')].find((entry) => /Edit|View/.test((entry.textContent ?? '').trim())) : null;
+              const link = row ? [...row.querySelectorAll('a, button')].find((entry) => (entry.textContent ?? '').trim() === 'Edit') : null;
               if (!link) return false;
+              link.scrollIntoView({ block: 'center' });
               link.click();
               return true;
             })()`);
@@ -723,9 +769,9 @@ export default defineFlow({
         await ctx.prove("The desktop app picks up the restricted config and shows the organization policy banner", {
           voiceover: vo[4],
           action: async () => {
-            await ctx.eval(`location.assign(${JSON.stringify(DESKTOP_URL)})`).catch(() => undefined);
-            await ctx.reconnect();
-            await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "desktop control API after Den web" });
+            await ctx.switchBack();
+            await closeBuiltInBrowserTabs(ctx);
+            await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "desktop control API after closing Den web tab" });
             const config = await syncConfigToApp(ctx);
             ctx.assert(config.allowCustomProviders === false, `Effective desktop config did not restrict custom providers: ${bodyPreview(config)}`);
             await ctx.navigateHash("/settings/general");
@@ -806,9 +852,6 @@ export default defineFlow({
         await patchDefaultPolicyDirect(ctx, true);
         const config = await currentDesktopConfig(ctx);
         ctx.assert(config.allowCustomProviders !== false, `Cleanup did not restore custom providers: ${bodyPreview(config)}`);
-        await ctx.eval(`location.assign(${JSON.stringify(DESKTOP_URL)})`).catch(() => undefined);
-        await ctx.reconnect();
-        await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "desktop control API for cleanup" });
         await syncConfigToApp(ctx);
         ctx.recordEvidence({
           type: "assertion",
