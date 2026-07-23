@@ -111,6 +111,8 @@ export default {
   "composer.send_options": "More send options",
   "composer.queued_attachments_only": "{count} attachment(s)",
   "composer.queued_count": "{count} queued",
+  "composer.queued_send_now": "Send now",
+  "composer.queued_send_now_hint": "Send this message now instead of waiting for the agent to finish",
   "composer.escape_to_stop": "Hit Escape again to stop the agent",
   "composer.skill_source": "Skill",
   "composer.stop": "Stop",
