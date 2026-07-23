@@ -22,7 +22,7 @@ const OPENWORK_CLOUD_DIRECT_TOOL_NAMES = [
 ] satisfies string[];
 export const OPENWORK_CLOUD_PLUGIN_CANARIES = [
   "openwork_docs_search",
-  "openwork_extension_list_actions",
+  "openwork_query",
 ] satisfies string[];
 
 const POLL_DELAYS_MS = [0, 250, 750, 1500, 3000];

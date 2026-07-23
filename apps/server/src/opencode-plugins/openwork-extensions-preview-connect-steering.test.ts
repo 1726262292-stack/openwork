@@ -23,7 +23,7 @@ const originalServerUrl = process.env.OPENWORK_SERVER_URL;
 const originalServerToken = process.env.OPENWORK_SERVER_TOKEN;
 
 const UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION =
-  "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
+  "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_query with id extension.actions to inspect available extension actions, then openwork_execute with id extension.call for the matching action.";
 
 beforeEach(() => {
   resetOpenWorkExtensionDiscoveryInstructionCacheForTests();
