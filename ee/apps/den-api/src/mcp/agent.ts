@@ -31,10 +31,7 @@ import {
 } from "./ui-artifacts.js"
 import {
   UI_ARTIFACT_KINDS,
-  UI_ARTIFACT_RENDER_CAPABILITY,
-  UI_ARTIFACT_SEARCH_CAPABILITY,
   UI_ARTIFACT_SCHEMA_VERSION,
-  UI_ARTIFACT_USE_CAPABILITY,
   type UiArtifactPreferences,
 } from "@openwork/types/ui-artifact"
 
@@ -137,22 +134,7 @@ const BASE_AGENT_MCP_INSTRUCTIONS = [
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ]
 
-const UI_ARTIFACT_AGENT_MCP_INSTRUCTIONS = [
-  `When UI Artifacts are enabled, a successful execute_capability result may include uiArtifactSuggestions. A suggestion is optional and expires at the end of the current turn. Render at most one suggested artifact per turn, skip duplicate dedupeKey values, and prefer an artifact only when it materially improves the answer.`,
-  `To render, follow only the returned invocation: call execute_capability with ${UI_ARTIFACT_SEARCH_CAPABILITY} once, then call execute_capability with ${UI_ARTIFACT_USE_CAPABILITY} using the exact searched schema digest and example body. The alpha examples are visibly marked mock data; never replace their payload with provider values or imply that the card contains live provider data.`,
-  "After a successful artifact use, say the native artifact is visible and use narration.summary plus only decision-relevant visibleFacts. Do not repeat every visible row, paste the structured payload, or feed artifact suggestions/results back into provider tools.",
-  `Approval and rejection are stateful mock actions through ${UI_ARTIFACT_USE_CAPABILITY}. Never infer a decision from conversation context or execute one merely because a button exists. Act only after the user explicitly chooses Approve or Reject, send only operation, artifactId, instanceId, itemId, decision, expectedRevision, and an optional short note, and refresh the artifact after a revision conflict.`,
-  `The legacy ${UI_ARTIFACT_RENDER_CAPABILITY} capability may be accepted for an older render receipt, but new artifact searches return ${UI_ARTIFACT_USE_CAPABILITY}.`,
-]
-
-export function buildAgentMcpInstructions(uiArtifactsEnabled = false) {
-  return [
-    ...BASE_AGENT_MCP_INSTRUCTIONS,
-    ...(uiArtifactsEnabled ? UI_ARTIFACT_AGENT_MCP_INSTRUCTIONS : []),
-  ].join("\n")
-}
-
-export const AGENT_MCP_INSTRUCTIONS = buildAgentMcpInstructions()
+export const AGENT_MCP_INSTRUCTIONS = BASE_AGENT_MCP_INSTRUCTIONS.join("\n")
 
 async function mcpRequestMethod(request: Request): Promise<string | null> {
   if (request.method.toUpperCase() !== "POST") return null
@@ -316,12 +298,12 @@ export async function executeCapabilityWithBudget<T extends ExecuteCapabilityToo
   }
 }
 
-export function createAgentMcpServer(input: { uiArtifactsEnabled?: boolean } = {}): McpServer {
+export function createAgentMcpServer(): McpServer {
   return new McpServer({
     name: "openwork-den-api-agent",
     version: "1.0.0",
   }, {
-    instructions: buildAgentMcpInstructions(input.uiArtifactsEnabled),
+    instructions: AGENT_MCP_INSTRUCTIONS,
   })
 }
 
@@ -448,7 +430,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
       }))
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
-    const uiArtifactPreferences = (method === "initialize" || method === "tools/call") && memberIdentity
+    const uiArtifactPreferences = method === "tools/call" && memberIdentity
       ? await readUiArtifactPreferences(memberIdentity.orgMembershipId)
       : {
           protocol: "openwork.ui-artifact-preferences" as const,
@@ -457,9 +439,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           enabledArtifactIds: [...UI_ARTIFACT_KINDS],
           updatedAt: null,
         } satisfies UiArtifactPreferences
-    const server = createAgentMcpServer({
-      uiArtifactsEnabled: uiArtifactPreferences.enabled,
-    })
+    const server = createAgentMcpServer()
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       registerAgentSkillResources({
         server,

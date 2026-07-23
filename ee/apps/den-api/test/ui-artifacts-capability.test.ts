@@ -105,6 +105,10 @@ describe("execute_capability UI artifact adapter", () => {
     })
     const parsed = uiArtifactSuggestionEnvelopeSchema.parse(suggestion)
     expect(parsed.suggestions[0]?.artifactId).toBe("calendar.view")
+    expect(parsed.agentInstruction).toContain("expires at the end of the current turn")
+    expect(parsed.agentInstruction).toContain("Render at most one suggestion")
+    expect(parsed.agentInstruction).toContain("never replace its payload with provider values")
+    expect(parsed.agentInstruction).toContain("never infer or execute an approval decision")
     expect(parsed.contextPolicy).toEqual({
       selection: "optional",
       maxRendersThisTurn: 1,

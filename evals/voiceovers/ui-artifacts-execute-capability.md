@@ -2,7 +2,7 @@
 
 This demo follows deterministic mock data through the same two-tool cloud surface available to any compatible agent engine. It first proves the alpha is inert while disabled, then shows artifact discovery, composable widget rendering, multiple calendar presentations, explicit approval, state replacement, and stale-revision protection without contacting a live provider.
 
-1. UI Artifacts is off by default. With the member preference disabled, the agent initialization contains no artifact steering, artifact capabilities cannot be discovered or executed, the right-rail entry is absent, and an artifact-shaped tool receipt stays in the ordinary chat renderer.
+1. UI Artifacts is off by default. Agent initialization never carries persistent artifact steering; enabled suggestions inject bounded guidance only into that turn. With the member preference disabled, artifact capabilities cannot be discovered or executed, the right-rail entry is absent, and an artifact-shaped tool receipt stays in the ordinary chat renderer.
 
 2. After the member opts in, UI Artifacts appears in the right rail. The member can inspect seven standard chat-native patterns, including a variant-driven Calendar and a composable Widgets collection, then decide which ones the agent is allowed to suggest and render.
 

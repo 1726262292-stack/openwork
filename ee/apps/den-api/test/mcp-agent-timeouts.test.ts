@@ -128,25 +128,6 @@ test("agent MCP server keeps UI artifact steering out of the default initialize 
   await server.close()
 })
 
-test("agent MCP server adds UI artifact steering only for an opted-in member", async () => {
-  const server = agentModule.createAgentMcpServer({ uiArtifactsEnabled: true })
-  const client = new Client({ name: "test-client", version: "1.0.0" })
-  const transports = createMemoryTransportPair()
-
-  await server.connect(transports.server)
-  await client.connect(transports.client)
-
-  expect(client.getInstructions()).toContain("suggestion is optional")
-  expect(client.getInstructions()).toContain("Render at most one suggested artifact per turn")
-  expect(client.getInstructions()).toContain("skip duplicate dedupeKey values")
-  expect(client.getInstructions()).toContain("never replace their payload with provider values")
-  expect(client.getInstructions()).toContain("Never infer a decision")
-  expect(client.getInstructions()).toContain("send only operation, artifactId, instanceId, itemId, decision, expectedRevision")
-
-  await client.close()
-  await server.close()
-})
-
 test("agent MCP server exposes a standards-shaped remote skill index", () => {
   const index = agentModule.buildAgentSkillIndex([{
     name: "customer-briefing",

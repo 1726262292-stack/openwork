@@ -200,9 +200,9 @@ export default {
           clientInfo: { name: FLOW_ID, version: "1.0.0" },
         }, ctx);
         ctx.assert(
-          initializedOn.instructions?.includes("uiArtifactSuggestions")
-            && initializedOn.instructions?.includes(USE_CAPABILITY),
-          "Enabled UI artifact steering was not added to MCP initialization.",
+          !initializedOn.instructions?.includes("uiArtifactSuggestions")
+            && !initializedOn.instructions?.includes("openwork.ui_artifacts"),
+          "Persistent UI artifact steering leaked into MCP initialization after opt-in.",
         );
       },
     },

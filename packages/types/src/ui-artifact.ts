@@ -429,6 +429,7 @@ export type UiArtifactSearchResult = z.infer<typeof uiArtifactSearchResultSchema
 export const uiArtifactSuggestionEnvelopeSchema = z.object({
   protocol: z.literal("openwork.ui-artifact-suggestions"),
   schemaVersion: z.literal(UI_ARTIFACT_SCHEMA_VERSION),
+  agentInstruction: z.string().trim().min(1).max(1_200),
   trigger: z.object({
     capability: z.string().trim().min(1).max(500),
   }).strict(),

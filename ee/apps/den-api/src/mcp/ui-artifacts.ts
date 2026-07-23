@@ -217,6 +217,13 @@ export function suggestUiArtifactForCapability(input: {
   return uiArtifactSuggestionEnvelopeSchema.parse({
     protocol: "openwork.ui-artifact-suggestions",
     schemaVersion: UI_ARTIFACT_SCHEMA_VERSION,
+    agentInstruction: [
+      "This optional UI enhancement expires at the end of the current turn.",
+      "Render at most one suggestion and skip duplicate dedupeKey values.",
+      "If it materially improves the answer, follow the returned invocation once, then use the exact searched schema digest and example body.",
+      "The alpha example is mock data: never replace its payload with provider values or imply it is live.",
+      "After rendering, use narration.summary and only decision-relevant visibleFacts; never infer or execute an approval decision without the user's explicit choice.",
+    ].join(" "),
     trigger: { capability: input.capability },
     contextPolicy: {
       selection: "optional",
