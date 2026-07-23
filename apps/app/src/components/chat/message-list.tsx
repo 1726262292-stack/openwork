@@ -63,6 +63,7 @@ import {
 } from "@/components/ui/message"
 import { Tool } from "@/components/ui/tool"
 import { CapabilityCallLine } from "@/components/chat/capability-call-line"
+import { SubagentRunLine } from "@/components/chat/subagent-run-line"
 import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group"
 import {
   isApplyPatchToolPart,
@@ -204,11 +205,21 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
     return <OpenWorkSessionCreateTool part={part} />
   }
 
-  // Sub-agent runs keep the generic card until the dedicated two-line
-  // rendering lands; failed calls keep it for the reconnect/Retry flow.
-  const isFailed = part.state === "output-error"
-  if (part.type === "dynamic-tool" && !isTaskToolPart(part) && !isFailed) {
-    return <CapabilityCallLine part={part} />
+  if (isTaskToolPart(part)) {
+    return <SubagentRunLine part={part} />
+  }
+
+  // Failed calls use the same sentence line with the "failures are
+  // instructions" treatment (inline Reconnect/Retry).
+  if (part.type === "dynamic-tool") {
+    return (
+      <CapabilityCallLine
+        part={part}
+        onReconnect={onMcpReconnect}
+        onReopenAuthorization={onMcpReopenAuthorization}
+        onRetry={onMcpRetry}
+      />
+    )
   }
 
   return (
