@@ -483,15 +483,56 @@ function renderPlainTextWithSearchHighlights(text: string, highlightQuery: strin
   return nodes
 }
 
+// Bare URL, excluding trailing punctuation that usually ends a sentence.
+const PLAIN_URL_RE = /https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?]/g
+
+/** User bubbles are plain text, so bare https:// URLs need explicit anchors. */
+function renderPlainTextWithLinks(text: string, highlightQuery: string | undefined, keyPrefix: string) {
+  const nodes: React.ReactNode[] = []
+  let cursor = 0
+  for (const match of text.matchAll(PLAIN_URL_RE)) {
+    const start = match.index
+    const url = match[0]
+    if (start > cursor) {
+      nodes.push(
+        <React.Fragment key={`${keyPrefix}:pre:${cursor}`}>
+          {renderPlainTextWithSearchHighlights(text.slice(cursor, start), highlightQuery, `${keyPrefix}:pre:${cursor}`)}
+        </React.Fragment>
+      )
+    }
+    nodes.push(
+      <a
+        key={`${keyPrefix}:url:${start}`}
+        href={url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8 break-all"
+      >
+        {url}
+      </a>
+    )
+    cursor = start + url.length
+  }
+  if (nodes.length === 0) return renderPlainTextWithSearchHighlights(text, highlightQuery, keyPrefix)
+  if (cursor < text.length) {
+    nodes.push(
+      <React.Fragment key={`${keyPrefix}:post:${cursor}`}>
+        {renderPlainTextWithSearchHighlights(text.slice(cursor), highlightQuery, `${keyPrefix}:post:${cursor}`)}
+      </React.Fragment>
+    )
+  }
+  return nodes
+}
+
 function renderUserTextWithSkillChips(text: string, highlightQuery: string | undefined) {
-  if (!USER_SKILL_TOKEN_RE.test(text)) return renderPlainTextWithSearchHighlights(text, highlightQuery, "text")
+  if (!USER_SKILL_TOKEN_RE.test(text)) return renderPlainTextWithLinks(text, highlightQuery, "text")
   let offset = 0
   return text.split(USER_SKILL_TOKEN_RE).map((segment) => {
     const key = `${offset}:${segment}`
     offset += segment.length
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
-    return <React.Fragment key={key}>{renderPlainTextWithSearchHighlights(segment, highlightQuery, key)}</React.Fragment>
+    return <React.Fragment key={key}>{renderPlainTextWithLinks(segment, highlightQuery, key)}</React.Fragment>
   })
 }
 
