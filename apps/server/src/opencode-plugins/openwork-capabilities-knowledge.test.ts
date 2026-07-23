@@ -27,7 +27,7 @@ describe("OpenWork capabilities knowledge plugin", () => {
     expect(knowledge).toContain("JWTs signed and validated with EdDSA");
     expect(knowledge).toContain("30-day inactivity window");
     expect(knowledge).toContain("reference_id");
-    expect(knowledge).toContain("OpenWork documentation tools answer product questions. Never use them as a substitute for performing an action against ServiceNow, Slack, Notion, Linear, Google Workspace, a marketplace, or another connected service.");
+    expect(knowledge).toContain("OpenWork documentation tools answer product questions. Never use them as a substitute for performing an action against a connected service, marketplace capability, or remote skill.");
     expect(knowledge).toContain("require the user to sign in to OpenWork first");
     expect(knowledge).toContain("Runtime steering from the OpenWork extensions plugin is the source of truth");
     expect(knowledge).not.toContain("First call `openwork-cloud_search_capabilities`");
