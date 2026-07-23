@@ -505,9 +505,9 @@ function ApprovalArtifact(props: {
           </li>
         ))}
       </ol>
-      {props.artifact.operation === "replace" ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">Updated mock state · revision {props.artifact.revision}</p>
-      ) : null}
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        {props.artifact.operation === "replace" ? "Updated mock state" : "Mock state"} · revision {props.artifact.revision}
+      </p>
     </ArtifactFrame>
   )
 }

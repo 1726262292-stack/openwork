@@ -769,12 +769,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
       sideEffect: "mutation",
       disabled: !props.sessionId,
       execute: (args) => {
-        const candidate = args && typeof args === "object" && "result" in args
-          ? (args as { result?: unknown }).result
+        const controlArgs = args && typeof args === "object"
+          ? (args as { result?: unknown; clearPrompt?: unknown })
+          : null;
+        const candidate = controlArgs && "result" in controlArgs
+          ? controlArgs.result
           : args;
         const result = uiArtifactRenderResultSchema.parse(candidate);
         const seeded = createUiArtifactEvalMessages(props.sessionId, result);
         setEvalMarkdownMessages(seeded.messages);
+        if (controlArgs?.clearPrompt === true) {
+          setComposerDraft(props.sessionId, "");
+        }
         return {
           ok: true,
           assistantMessageId: seeded.assistantMessageId,
@@ -782,7 +788,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         };
       },
     };
-  }, [props.sessionId]);
+  }, [props.sessionId, setComposerDraft]);
   useControlAction(props.isControlTarget ? seedUiArtifactControlAction : null);
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(

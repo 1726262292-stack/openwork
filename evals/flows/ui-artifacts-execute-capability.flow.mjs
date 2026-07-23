@@ -372,12 +372,17 @@ export default {
         await ctx.prove("The successful execute response replaces the card with revision two while stale replay is rejected", {
           voiceover: vo[4],
           action: async () => {
-            await ctx.control("eval.ui_artifact.seed_chat", { result: state.approvalUpdatedResult });
+            await ctx.control("eval.ui_artifact.seed_chat", {
+              result: state.approvalUpdatedResult,
+              clearPrompt: true,
+            });
             await ctx.eval(`document.querySelector('[data-ui-artifact-id="work.approvals"]')?.scrollIntoView({ block: "center" })`);
           },
           assert: async () => {
             await ctx.expectText("Updated mock state · revision 2", { timeoutMs: 20_000 });
             await ctx.expectText("approved");
+            const composerText = await ctx.eval(`document.querySelector("[contenteditable='true']")?.textContent?.trim() || ""`);
+            ctx.assert(composerText === "", "The submitted approval prompt remained in the composer.");
             const renderedApprovalCards = await ctx.eval(
               `document.querySelectorAll('[data-ui-artifact-id="work.approvals"]').length`,
             );
