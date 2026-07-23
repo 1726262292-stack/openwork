@@ -9,7 +9,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
-import { getCapabilityCallSentence, trackCapabilityCallDuration } from "@/lib/capability-call"
+import { getCapabilityCallSentence } from "@/lib/capability-call"
+import { trackToolCallDuration } from "@/lib/tool-call-duration"
 import { isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 
@@ -37,7 +38,7 @@ export function CapabilityCallLine({ part, className }: CapabilityCallLineProps)
   const [open, setOpen] = useState(false)
   const inFlight = isToolPartInFlight(part)
   const sentence = getCapabilityCallSentence(part)
-  const duration = trackCapabilityCallDuration(part)
+  const duration = trackToolCallDuration(part)
   const line = inFlight ? sentence.present : sentence.past
 
   return (

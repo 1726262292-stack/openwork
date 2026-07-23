@@ -63,6 +63,7 @@ import {
 } from "@/components/ui/message"
 import { Tool } from "@/components/ui/tool"
 import { CapabilityCallLine } from "@/components/chat/capability-call-line"
+import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group"
 import {
   isApplyPatchToolPart,
   isBashToolPart,
@@ -86,7 +87,8 @@ import {
   getActiveToolLabel,
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
+import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
+import type { AnyToolPart } from "@/lib/tool-aggregate"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
 
@@ -394,6 +396,14 @@ const AssistantMessage = React.memo(
               return (
                 <div key={`file-${index}`} className="w-fit max-w-full">
                   <FileMessage part={group.part} tone="assistant" />
+                </div>
+              )
+            }
+
+            if (group.kind === "tool-aggregate") {
+              return (
+                <div key={`tool-aggregate-${index}`} className="w-full">
+                  <ToolAggregateGroup parts={group.parts} />
                 </div>
               )
             }
@@ -772,7 +782,7 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, showThinking } = useMessageList()
   const lastItem = items[items.length - 1]
   // Branch/revert must target a real server-side message id. Synthetic
   // client-side messages (e.g. session errors) don't exist on the server and
@@ -822,14 +832,50 @@ function MessageGroup({
     )
   }
 
+  // Consecutive step messages that contain nothing but command/edit/read/
+  // search tool calls merge into one aggregate line (Paper "Recurring
+  // actions"); any prose, reasoning, or other tool breaks the run.
+  const renderItems = (slice: UIMessageWithIndex[], offset: number) => {
+    const nodes: React.ReactNode[] = []
+    let run: { parts: AnyToolPart[]; messages: UIMessage[]; key: string } | null = null
+    const flush = () => {
+      if (!run) return
+      nodes.push(
+        <div key={`aggregate-${run.key}`}>
+          <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
+            <ToolAggregateGroup parts={run.parts} className="w-full" />
+          </Message>
+          <ArtifactList messages={run.messages} includeTargetFallbacks={false} />
+        </div>
+      )
+      run = null
+    }
+    slice.forEach((item, sliceIndex) => {
+      const aggregateParts =
+        item.message.role === "assistant" && !isSessionErrorMessage(item.message)
+          ? getAggregateOnlyParts(item.message, showThinking)
+          : null
+      if (aggregateParts) {
+        if (!run) run = { parts: [], messages: [], key: item.message.id }
+        run.parts.push(...aggregateParts)
+        run.messages.push(item.message)
+        return
+      }
+      flush()
+      nodes.push(renderItem(item, offset + sliceIndex))
+    })
+    flush()
+    return nodes
+  }
+
   return (
       <div className="flex flex-col gap-2 group/message-group">
       {stepItems.length > 0 ? (
         <div ref={stepsRef} className="max-h-[520px] overflow-y-auto">
-          {stepItems.map((item, groupIndex) => renderItem(item, groupIndex))}
+          {renderItems(stepItems, 0)}
         </div>
       ) : null}
-      {proseItems.map((item, groupIndex) => renderItem(item, stepItems.length + groupIndex))}
+      {renderItems(proseItems, stepItems.length)}
       {lastTextMessage && !isStreaming && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
           <MessageActions className="flex gap-0">
