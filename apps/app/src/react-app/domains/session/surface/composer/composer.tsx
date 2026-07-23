@@ -69,6 +69,7 @@ type ComposerProps = {
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
+  openWorkModelsEntitled?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   attachments: ComposerAttachment[];
@@ -1707,6 +1708,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                     if (!props.steering) props.onModelChange(model);
                   }}
                   disabled={props.steering}
+                  openWorkModelsEntitled={props.openWorkModelsEntitled}
                 />
                 {props.modelUnavailable ? (
                   <span className="text-xs font-medium text-red-10">Model no longer available</span>

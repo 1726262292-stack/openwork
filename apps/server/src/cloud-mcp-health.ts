@@ -1385,8 +1385,12 @@ async function readProviderProjection(input: {
   opencode: WorkspaceOpencodeClient;
   directory: string | null;
   providerModel: CloudMcpProviderModelContext;
+  /** Kept for call-site compatibility; experimental MCP omissions always fall back. */
   experimentalToolIdsIncludeMcpTools: boolean | null;
 }): Promise<ProviderProjectionSnapshot> {
+  // experimentalToolIdsIncludeMcpTools is intentionally unused: a global IDs hit
+  // must not hard-fail when the per-model experimental list omits MCP tools.
+  void input.experimentalToolIdsIncludeMcpTools;
   let experimentalSplit: ToolSnapshot | null = null;
   let experimentalError: unknown;
   try {
@@ -1414,29 +1418,10 @@ async function readProviderProjection(input: {
     experimentalError = thrownOpencodeFailure("provider_projection", "/experimental/tool", error).details;
   }
 
-  if (input.experimentalToolIdsIncludeMcpTools === true) {
-    const split = experimentalSplit ?? splitPresentMissing([], expectedTools());
-    const projectionFailure = failure({
-      code: "provider_tool_projection_missing",
-      stage: "provider_projection",
-      retryable: false,
-      recommendedAction: "Choose a model that can use OpenWork Cloud tools",
-      message: "The current provider/model projection is missing openwork-cloud tools.",
-      aliases: ["provider_projection_missing"],
-      details: { provider: input.providerModel.provider, model: input.providerModel.model, missing: split.missing, source: "experimental_tool" },
-    });
-    return {
-      checked: true,
-      provider: input.providerModel.provider,
-      model: input.providerModel.model,
-      source: "experimental_tool",
-      present: split.present,
-      missing: split.missing,
-      ...(experimentalError ? { error: experimentalError } : {}),
-      failure: projectionFailure,
-    };
-  }
-
+  // OpenCode's /experimental/tool enumerates ToolRegistry tools and often omits
+  // MCP tools that prompts still attach at runtime. Always fall back to
+  // /provider tool-call capability when the per-model experimental list is
+  // incomplete — even if global /experimental/tool/ids includes MCP tools.
   return readProviderCapability({
     opencode: input.opencode,
     directory: input.directory,
