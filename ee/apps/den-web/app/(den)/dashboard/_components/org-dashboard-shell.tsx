@@ -168,6 +168,8 @@ export function SidebarBrandMark({
   );
 }
 
+const DEFAULT_WORKSPACE_FAVICON_HREF = "/openwork-mark.svg";
+
 export function WorkspaceFavicon({
   metadata,
 }: {
@@ -176,16 +178,17 @@ export function WorkspaceFavicon({
   const iconUrl = getManagedBrandIconUrl(metadata ?? null);
 
   useEffect(() => {
-    if (!iconUrl) {
-      return;
-    }
-
     let favicon = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
-    const created = favicon === null;
     if (!favicon) {
       favicon = document.createElement("link");
       favicon.rel = "icon";
       document.head.appendChild(favicon);
+    }
+
+    if (!iconUrl) {
+      favicon.href = DEFAULT_WORKSPACE_FAVICON_HREF;
+      favicon.removeAttribute("type");
+      return;
     }
 
     const previousHref = favicon.getAttribute("href");
@@ -197,12 +200,8 @@ export function WorkspaceFavicon({
       : "image/png";
 
     return () => {
-      if (created) {
-        favicon.remove();
-        return;
-      }
       if (previousHref === null) {
-        favicon.removeAttribute("href");
+        favicon.setAttribute("href", DEFAULT_WORKSPACE_FAVICON_HREF);
       } else {
         favicon.setAttribute("href", previousHref);
       }

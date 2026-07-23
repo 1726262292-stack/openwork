@@ -747,6 +747,7 @@ export async function refreshDenBootstrapConfigFromShell(): Promise<DenBootstrap
 
 export async function setDenBootstrapConfig(
   next: ShellDesktopBootstrapConfig,
+  options?: { dispatchSettingsChanged?: boolean },
 ): Promise<DenBootstrapConfig> {
   const normalized = resolveDenBootstrapConfig(next);
 
@@ -766,9 +767,11 @@ export async function setDenBootstrapConfig(
     applyDesktopBootstrapConfig(normalized);
   }
 
-  dispatchDenSettingsChanged({
-    settings: readDenSettings(),
-  });
+  if (options?.dispatchSettingsChanged !== false) {
+    dispatchDenSettingsChanged({
+      settings: readDenSettings(),
+    });
+  }
 
   return readDenBootstrapConfig();
 }
