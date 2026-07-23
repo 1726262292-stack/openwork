@@ -464,6 +464,7 @@ describe("OpenWorkExtensionsPreview UI control tools", () => {
     expect(tools).toContain("openwork_session_create");
     expect(tools).toContain("openwork_session_search");
     expect(tools).toContain("openwork_extension_list_actions");
+    expect(tools).not.toContain("openwork_extensions_export");
 
     const system = await transformedSystem(plugin);
     expect(system).not.toContain("openwork_ui_");
