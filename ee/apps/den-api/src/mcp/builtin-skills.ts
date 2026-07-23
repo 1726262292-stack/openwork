@@ -26,6 +26,17 @@ description: |
 
 Create exactly one new Cloud skill. Do not publish it to a marketplace and do not grant org-wide access in this flow.
 
+## Fast path (prefer these exact MCP names)
+
+Call \`openwork-cloud_execute_capability\` with these names. Skip broad search unless a call returns \`unknown_capability\`.
+
+| Step | Capability | Call |
+| --- | --- | --- |
+| Create | \`postPlugins\` | body below |
+| Verify | \`getPluginsResolved\` | path \`{ "pluginId": "<id>" }\` |
+
+Optional pre-check only when a same-named skill may already exist: \`getConfigObjects\` with query \`{ "type": "skill", "q": "<skill-name>" }\`.
+
 ## Required skill format
 
 Produce one complete \`SKILL.md\` with:
@@ -38,16 +49,19 @@ Produce one complete \`SKILL.md\` with:
 
 ## Workflow
 
-1. Search OpenWork Cloud with 2-4 keyword variants for plugin create and any existing skill with the same name. Use only exact capability names returned by search.
-2. If an exact skill already exists, stop and ask whether to update it instead. Do not create a duplicate.
-3. Draft the complete \`SKILL.md\`.
-4. Execute the plugin-create capability with:
-   - a clear plugin \`name\` (usually the skill title)
-   - one component: \`{"type":"skill","input":{"rawSourceText":"<complete SKILL.md>"}}\`
-   - no \`marketplaceId\`
-   - no \`orgWide\`
-5. Read back the created plugin detail. Report plugin id, skill/config-object id, and that it is private to the creator until published or shared.
-6. On authorization or validation errors, report them. Do not fall back to a workspace-local skill unless the user explicitly asks for one.
+1. Draft the complete \`SKILL.md\`.
+2. Execute \`postPlugins\` with body:
+   \`\`\`json
+   {
+     "name": "<plugin title>",
+     "components": [
+       { "type": "skill", "input": { "rawSourceText": "<complete SKILL.md>" } }
+     ]
+   }
+   \`\`\`
+   Do not send \`marketplaceId\` or \`orgWide\`.
+3. Execute \`getPluginsResolved\` with the returned plugin id. Report plugin id, skill/config-object id, and that it is private until published or shared.
+4. On authorization or validation errors, report them. Do not fall back to a workspace-local skill unless the user explicitly asks for one.
 `
 
 const ADD_TO_MARKETPLACE_SOURCE = `---
@@ -65,6 +79,16 @@ description: |
 
 Attach one existing plugin to one marketplace. Do not create a new skill or plugin in this flow.
 
+## Fast path (prefer these exact MCP names)
+
+Call \`openwork-cloud_execute_capability\` with these names. Skip broad search unless a call returns \`unknown_capability\`.
+
+| Step | Capability | Call |
+| --- | --- | --- |
+| List marketplaces | \`getMarketplaces\` | no path/body |
+| Attach plugin | \`postMarketplacesPlugins\` | path + body below |
+| Verify | \`getMarketplacesResolved\` | path \`{ "marketplaceId": "<id>" }\` |
+
 ## Interpret the target
 
 Treat "this" / "this skill" / "this plugin" as:
@@ -77,10 +101,12 @@ A skill always lives inside a plugin. Marketplace membership is on the plugin id
 
 ## Workflow
 
-1. Search OpenWork Cloud for marketplaces, the target plugin, and the add-marketplace-plugin capability. Use only exact names returned by search.
-2. Confirm the marketplace and plugin with the user when more than one match exists.
-3. Execute the add-marketplace-plugin capability with \`marketplaceId\` in path and \`{"pluginId":"<plugin id>"}\` in body.
-4. Read back the marketplace detail and confirm the plugin is listed.
+1. If \`marketplaceId\` is unknown, execute \`getMarketplaces\` and pick the named marketplace (ask when ambiguous).
+2. Resolve \`pluginId\` from conversation context or ask. Do not recreate the plugin.
+3. Execute \`postMarketplacesPlugins\` with:
+   - path: \`{ "marketplaceId": "<id>" }\`
+   - body: \`{ "pluginId": "<plugin id>" }\`
+4. Execute \`getMarketplacesResolved\` and confirm the plugin is listed.
 5. Stop. Do not grant user access unless the user asks for that separately.
 `
 
@@ -99,22 +125,33 @@ description: |
 
 Grant marketplace access to one member. Do not create plugins or attach plugins in this flow.
 
+## Fast path (prefer these exact MCP names)
+
+Call \`openwork-cloud_execute_capability\` with these names. Skip broad search unless a call returns \`unknown_capability\`.
+
+| Step | Capability | Call |
+| --- | --- | --- |
+| List marketplaces | \`getMarketplaces\` | no path/body |
+| Grant access | \`postMarketplacesAccess\` | path + body below |
+| Verify | \`getMarketplacesAccess\` | path \`{ "marketplaceId": "<id>" }\` |
+
 ## Interpret the target
 
 Treat "this user" / "them" as:
 
-1. the person just named in the conversation, otherwise
-2. the person the user identifies by name/email, otherwise
+1. an \`orgMembershipId\` (\`om_…\`) already present in the conversation, otherwise
+2. the person the user identifies — ask for their \`orgMembershipId\` if you only have a name/email and cannot resolve it from prior tool results, otherwise
 3. ask who to grant and which marketplace
 
 ## Workflow
 
-1. Search OpenWork Cloud for organization members, marketplaces, and marketplace access-grant create. Use only exact capability names returned by search.
-2. Resolve the member's \`orgMembershipId\` and the target \`marketplaceId\`. Ask when ambiguous.
-3. Execute the marketplace access-grant capability with \`marketplaceId\` in path and body:
-   \`{"orgMembershipId":"<member id>","role":"viewer"}\`
-   Use \`manager\` only when the user explicitly asks for manage access.
-4. Read back marketplace access grants and confirm the member is listed.
+1. If \`marketplaceId\` is unknown, execute \`getMarketplaces\` and pick the named marketplace (ask when ambiguous).
+2. Resolve \`orgMembershipId\`. Do not invent one.
+3. Execute \`postMarketplacesAccess\` with:
+   - path: \`{ "marketplaceId": "<id>" }\`
+   - body: \`{ "orgMembershipId": "<om_…>", "role": "viewer" }\`
+   Use \`"role": "manager"\` only when the user explicitly asks for manage access.
+4. Execute \`getMarketplacesAccess\` and confirm the member is listed.
 5. Stop. Do not change plugin membership unless asked.
 `
 
