@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   composeOpenWorkExtensionDiscoveryInstruction,
+  composeSkillAuthoringInstruction,
   composeSteeringFromEngineMcpStatus,
   OPENWORK_CLOUD_CONNECTION_INSTRUCTION,
+  OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION,
   OPENWORK_CONNECT_DISABLED_INSTRUCTION,
   OPENWORK_CONNECT_SIGN_IN_INSTRUCTION,
   OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION,
+  OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION,
   resetOpenWorkExtensionDiscoveryInstructionCacheForTests,
   resolveOpenWorkExtensionDiscoveryInstruction,
   type OpenWorkEngineMcpStatusClient,
@@ -114,6 +117,7 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("verified ready for this exact workspace/model");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("use openwork-cloud_search_capabilities");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("available_skills");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("Skill creation:");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("Gmail");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("image generation");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("relay connectionStatus.action exactly");
@@ -121,6 +125,30 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
     expect(composeOpenWorkExtensionDiscoveryInstruction(state(health()))).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
     expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), connectCatalogEnabled: false })).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
     expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), googleWorkspace: { legacyConfigured: true } })).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
+  });
+
+  test("selects one compact skill-authoring prompt from verified Cloud access", () => {
+    expect(composeSkillAuthoringInstruction(OPENWORK_CLOUD_CONNECTION_INSTRUCTION)).toEqual({
+      mode: "cloud",
+      prompt: OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION,
+    });
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("Skill creation: Cloud");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("skill-creator Remote Cloud flow");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).not.toContain("Skill creation: Local");
+
+    for (const instruction of [
+      OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION,
+      OPENWORK_CONNECT_SIGN_IN_INSTRUCTION,
+      OPENWORK_CONNECT_DISABLED_INSTRUCTION,
+    ]) {
+      expect(composeSkillAuthoringInstruction(instruction)).toEqual({
+        mode: "local",
+        prompt: OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION,
+      });
+    }
+    expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).toContain("Skill creation: Local");
+    expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).toContain("skill-creator local flow");
+    expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).not.toContain("Skill creation: Cloud");
   });
 
   test("keeps neutral steering when provider projection is missing", () => {
