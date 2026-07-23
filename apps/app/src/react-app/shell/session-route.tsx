@@ -1546,6 +1546,7 @@ export function SessionRoute() {
     id: "command_palette.open",
     label: "Open the command palette",
     description: "Open the in-app command palette so the next choice is visible.",
+    effects: { data: "none", ui: "dialog", external: false },
     sideEffect: "none",
     execute: () => setCommandPaletteOpen(true),
   }), []);

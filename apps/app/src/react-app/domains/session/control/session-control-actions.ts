@@ -99,6 +99,8 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     id: "session.list_sessions",
     label: "List available sessions",
     description: "Return the list of sessions across workspaces so the user can ask to open one by name.",
+    kind: "query",
+    effects: { data: "read", ui: "none", external: false },
     sideEffect: "none",
     execute: () => {
       const out: { sessionId: string; title: string; workspace: string; updatedAt: number }[] = [];
@@ -199,6 +201,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     id: "session.model_picker.open",
     label: "Open the model picker",
     description: "Open the current session model picker.",
+    effects: { data: "none", ui: "dialog", external: false },
     sideEffect: "none",
     disabled: !selectedWorkspaceId,
     execute: openModelPicker,
@@ -347,6 +350,8 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     id: "session.group.list",
     label: "List session groups",
     description: "List all groups in a workspace with their IDs and labels.",
+    kind: "query",
+    effects: { data: "read", ui: "none", external: false },
     sideEffect: "none",
     args: [{ name: "workspaceId", type: "string", required: false, description: "Workspace ID. Defaults to selected." }],
     execute: (args) => {

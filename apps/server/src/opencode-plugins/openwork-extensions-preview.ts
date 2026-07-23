@@ -15,6 +15,11 @@ import {
   type OpenCodeContext,
   type OpenWorkEngineMcpStatusClient,
 } from "./openwork-extensions-preview-steering.js";
+import {
+  buildOpenworkProviderContributions,
+  type ConnectSkillDescriptor,
+  type EngineMcpDescriptor,
+} from "./openwork-provider-adapters.js";
 
 type ExtensionActionPayload = {
   extensionId: string;
@@ -37,6 +42,24 @@ const uiExecuteArgsSchema = z.object({
   actionId: z.string().describe("The action id from openwork_ui_list_actions, e.g. 'settings.panel.open' or 'composer.set_text'."),
   args: z.record(z.string(), z.unknown()).optional().describe("JSON arguments for the action, if required."),
 });
+
+const openworkAffordanceRequestSchema = z.object({
+  id: z.string().trim().min(1).describe("Semantic affordance id from openwork_context."),
+  args: z.record(z.string(), z.unknown()).optional().describe("JSON arguments for the affordance."),
+  expectedRevision: z.number().int().nonnegative().optional().describe("Context revision from openwork_context. Use for commands to prevent stale writes."),
+  actor: z.string().trim().min(1).optional().describe("Optional agent or client id used to attribute serialized commands."),
+});
+
+const connectSkillDescriptorSchema = z.object({
+  name: z.string(),
+  title: z.string().optional(),
+  description: z.string(),
+  capability: z.string(),
+}).passthrough();
+
+const connectSkillsEnvelopeSchema = z.object({
+  skills: z.array(connectSkillDescriptorSchema),
+}).passthrough();
 
 const browserOpenUrlArgsSchema = z.object({
   url: z.string().describe("The website URL to open in the OpenWork built-in browser."),
@@ -130,6 +153,12 @@ const sessionMessagesEnvelopeSchema = z.object({
   items: z.array(sessionMessageSchema),
 }).passthrough();
 
+const OPENWORK_AGENT_SURFACE_INSTRUCTION =
+  `## OpenWork app context
+Use openwork_context when the request depends on the current OpenWork screen, open tabs, split view, focused pane, sidebar, side panel, settings panel, or available app actions.
+Each affordance declares its effects and executor. Use openwork_query only for side-effect-free affordances whose executor is OpenWork. Use openwork_execute for OpenWork commands. If executor names another tool, call that exact tool instead.
+Reading another session does not require opening it. Prefer the session.search then session.read affordances for transcript questions; use session.create for new chats and a UI command only when the user asks to navigate.`;
+
 const OPENWORK_UI_CONTROL_INSTRUCTION =
   `IMPORTANT: You are running inside the OpenWork desktop app. When the user asks you to open settings, navigate the app, add providers, or control the OpenWork UI in any way, ALWAYS use the openwork_ui_* tools — NOT the browser_* tools. The browser tools are for external websites only. The openwork_ui_* tools control the app directly and are instant (one tool call).
 
@@ -138,17 +167,6 @@ To add a provider: openwork_ui_execute_action with actionId "settings.provider.a
 To see what the user sees: openwork_ui_snapshot
 To list all available actions: openwork_ui_list_actions
 To ask what OpenWork can do: openwork_ui_execute_action with actionId "help.capabilities"`;
-
-const OPENWORK_SESSION_MEMORY_INSTRUCTION =
-  `## Cross-session memory
-When the user asks what they said, what happened, or what was decided in another OpenWork chat/session, treat it as a session-history lookup, not hidden model memory.
-Use openwork_session_search first to search session titles and message transcripts across workspaces. If there is one clear match, use openwork_session_read with the returned sessionId/workspaceId to retrieve transcript context without navigating the UI.
-Answer only from the returned search/read results. If multiple sessions match, ask a short clarifying question. If the returned transcript is limited or missing the older context needed, say so instead of guessing.`;
-
-const OPENWORK_SESSION_CREATION_INSTRUCTION =
-  `## Creating sessions
-When the user asks to create one or more new OpenWork sessions or chats, ALWAYS use openwork_session_create. Do not use UI-control tools or browser automation to create sessions.
-Pass one entry per requested session, with a short title and a self-contained prompt describing the work for that session. The tool creates and starts every session in the background without navigating away from the current chat. After the call, report only the sessions in created and clearly report any failures.`;
 
 const OPENWORK_BROWSER_INSTRUCTION =
   `Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the OpenWork app itself. Those are for browsing external websites.
@@ -330,6 +348,127 @@ async function serverGet(path: string): Promise<unknown> {
   const payload = await parseResponse(response);
   if (!response.ok) throw new Error(errorMessage(payload, "OpenWork server request failed"));
   return payload;
+}
+
+async function readConnectSkillDescriptors(): Promise<ConnectSkillDescriptor[]> {
+  try {
+    const parsed = connectSkillsEnvelopeSchema.safeParse(
+      await serverGet("/experimental/connect/skills"),
+    );
+    return parsed.success ? parsed.data.skills : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readEngineMcpDescriptors(
+  client: OpenWorkEngineMcpStatusClient | undefined,
+  directory: string | undefined,
+): Promise<EngineMcpDescriptor[]> {
+  if (!client) return [];
+  try {
+    const result = await client.mcp.status(directory ? { query: { directory } } : undefined);
+    const payload = isRecord(result) && result.data !== undefined ? result.data : result;
+    if (!isRecord(payload)) return [];
+    return Object.entries(payload).map(([name, entry]) => {
+      const status = typeof entry === "string"
+        ? entry
+        : optionalStringProperty(entry, "status");
+      return status ? { name, status } : { name };
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function readOpenworkAgentContext(
+  engineMcpStatusClient: OpenWorkEngineMcpStatusClient | undefined,
+  engineMcpStatusDirectory: string | undefined,
+): Promise<Record<string, unknown>> {
+  const [uiResult, skills, mcps] = await Promise.all([
+    uiBridgeRequest("/context"),
+    readConnectSkillDescriptors(),
+    readEngineMcpDescriptors(engineMcpStatusClient, engineMcpStatusDirectory),
+  ]);
+  const contributions = buildOpenworkProviderContributions(skills, mcps);
+  const providerAffordances = contributions.flatMap((contribution) => contribution.affordances);
+  const uiContext = isRecord(uiResult) && isRecord(uiResult.context) ? uiResult.context : null;
+  if (!uiContext) {
+    return {
+      ok: true,
+      context: null,
+      ui: uiResult,
+      availableAffordances: providerAffordances,
+      contributions,
+    };
+  }
+  const uiAffordances = Array.isArray(uiContext.availableAffordances)
+    ? uiContext.availableAffordances
+    : [];
+  return {
+    ok: true,
+    context: {
+      ...uiContext,
+      availableAffordances: [...uiAffordances, ...providerAffordances],
+      contributions,
+    },
+  };
+}
+
+async function queryOpenworkAffordance(rawArgs: unknown): Promise<unknown> {
+  const request = openworkAffordanceRequestSchema.parse(rawArgs);
+  if (request.id === "session.search") {
+    return searchOpenWorkSessions(request.args ?? {});
+  }
+  if (request.id === "session.read") {
+    return readOpenWorkSession(request.args ?? {});
+  }
+  if (request.id === "extension.actions") {
+    const args = listActionsArgsSchema.parse(request.args ?? {});
+    const query = args.extensionId ? `?extensionId=${encodeURIComponent(args.extensionId)}` : "";
+    return serverGet(`/experimental/extensions/actions${query}`);
+  }
+  if (request.id.startsWith("connect.")) {
+    return {
+      ok: false,
+      error: "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
+      code: "executor-required",
+    };
+  }
+  return uiBridgeRequest("/query", {
+    method: "POST",
+    body: request,
+  });
+}
+
+async function executeOpenworkAffordance(
+  rawArgs: unknown,
+  context: OpenCodeContext,
+): Promise<unknown> {
+  const request = openworkAffordanceRequestSchema.parse(rawArgs);
+  if (request.id === "session.create") {
+    return createOpenWorkSessions(request.args ?? {}, context);
+  }
+  if (request.id === "extension.call") {
+    const args = callArgsSchema.parse(request.args ?? {});
+    return postJson("/experimental/extensions/call", {
+      extensionId: args.extensionId,
+      action: args.action,
+      args: args.args ?? {},
+      context: contextPayload(context),
+    });
+  }
+  if (request.id.startsWith("connect.")) {
+    return {
+      ok: false,
+      error: "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
+      code: "executor-required",
+    };
+  }
+  return uiBridgeRequest("/command", {
+    method: "POST",
+    body: request,
+  });
 }
 
 function collapseWhitespace(value: string): string {
@@ -761,16 +900,41 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
     // remote skills, session, browser, and UI tools never overlap by accident.
     const sections = combineInstructionSections(
       createInstructionSection("routing", extensionInstruction),
+      createInstructionSection("agent-surface", OPENWORK_AGENT_SURFACE_INSTRUCTION),
       createInstructionSection("skill-authoring", skillAuthoring.prompt),
       createInstructionSection("connect-skills", skillInstruction),
-      createInstructionSection("session-create", OPENWORK_SESSION_CREATION_INSTRUCTION),
-      createInstructionSection("session-memory", OPENWORK_SESSION_MEMORY_INSTRUCTION),
       createInstructionSection("browser", OPENWORK_BROWSER_INSTRUCTION),
       uiControlEnabled ? createInstructionSection("ui-control", OPENWORK_UI_CONTROL_INSTRUCTION) : null,
     );
     output.system.push(...composeAgentInstructions(sections));
   },
   tool: {
+    openwork_context: {
+      description: "Read one semantic snapshot of OpenWork: current screen, retained conversation tabs, split view and focused pane, sidebar and side panel state, settings panel, provider contributions, remote skill guidance, and available affordances with explicit effects and executors.",
+      args: {},
+      async execute() {
+        return JSON.stringify(
+          await readOpenworkAgentContext(engineMcpStatusClient, engineMcpStatusDirectory),
+          null,
+          2,
+        );
+      },
+    },
+    openwork_query: {
+      description: "Run a side-effect-free OpenWork affordance whose executor is OpenWork. Use the exact id and arguments from openwork_context. This reads backend or app state without navigation or window focus.",
+      args: openworkAffordanceRequestSchema.shape,
+      async execute(rawArgs: unknown) {
+        return JSON.stringify(await queryOpenworkAffordance(rawArgs), null, 2);
+      },
+    },
+    openwork_execute: {
+      description: "Execute an OpenWork command whose executor is OpenWork. Use the exact id and arguments from openwork_context, and pass expectedRevision for UI commands to prevent stale writes. If the descriptor names another executor tool, call that tool instead.",
+      args: openworkAffordanceRequestSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        const mergedContext = { ...factoryContext, ...normalizeOpenCodeContext(context) };
+        return JSON.stringify(await executeOpenworkAffordance(rawArgs, mergedContext), null, 2);
+      },
+    },
     openwork_extension_list_actions: {
       description: `List extension actions currently exposed by OpenWork. ${OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION}`,
       args: listActionsArgsSchema.shape,

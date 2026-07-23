@@ -79,6 +79,7 @@ import {
   type ConversationTabHistory,
   type ConversationHistoryDirection,
 } from "./conversation-tab-history";
+import { useWorkbenchStore, type WorkbenchSessionTab } from "./workbench-store";
 
 const STARTUP_SKELETON_ROWS = [
   { id: "intro", titleWidth: "42%", bodyWidth: "88%" },
@@ -87,11 +88,9 @@ const STARTUP_SKELETON_ROWS = [
 ];
 const GLOBAL_VOICE_SIDE_PANEL_KEY = "__openwork_voice__";
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
+const EMPTY_SESSION_TABS: WorkbenchSessionTab[] = [];
 
-export type OpenSessionTab = {
-  workspaceId: string;
-  sessionId: string;
-};
+export type OpenSessionTab = WorkbenchSessionTab;
 
 type PendingConversationHistoryNavigation = {
   history: ConversationTabHistory;
@@ -238,13 +237,6 @@ function sessionTitleForId(groups: WorkspaceSessionGroup[], id: string | null | 
   return match ? getDisplaySessionTitle(match.title) : "";
 }
 
-function sessionExistsInWorkspace(groups: WorkspaceSessionGroup[], workspaceId: string, sessionId: string | null | undefined) {
-  if (!sessionId) return false;
-  return groups.some((group) => (
-    group.workspace.id === workspaceId && group.sessions.some((session) => session.id === sessionId)
-  ));
-}
-
 function isTrackableAccessibleTarget(target: OpenTarget) {
   return isOpenableFileTarget(target) || isLocalhostBrowserTarget(target);
 }
@@ -370,12 +362,21 @@ export function SessionPage(props: SessionPageProps) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [sessionActionId, setSessionActionId] = useState<string | null>(null);
-  const [sessionTabs, setSessionTabs] = useState<OpenSessionTab[]>([]);
+  const workbenchWorkspaceId = useWorkbenchStore((state) => state.workspaceId);
+  const workbenchTabs = useWorkbenchStore((state) => state.tabs);
+  const workbenchSplitSessionId = useWorkbenchStore((state) => state.splitSessionId);
+  const focusedWorkbenchPane = useWorkbenchStore((state) => state.focusedPane);
+  const syncWorkbench = useWorkbenchStore((state) => state.sync);
+  const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
+  const closeWorkbenchTab = useWorkbenchStore((state) => state.closeTab);
+  const setWorkbenchSplit = useWorkbenchStore((state) => state.setSplit);
+  const focusWorkbenchPane = useWorkbenchStore((state) => state.focusPane);
+  const sessionTabs = workbenchWorkspaceId === props.selectedWorkspaceId ? workbenchTabs : EMPTY_SESSION_TABS;
+  const splitSessionId = workbenchWorkspaceId === props.selectedWorkspaceId ? workbenchSplitSessionId : null;
   const [conversationHistory, setConversationHistory] = useState(() => (
     createConversationTabHistory(props.selectedWorkspaceId, props.selectedSessionId)
   ));
   const [pendingConversationHistoryNavigation, setPendingConversationHistoryNavigation] = useState<PendingConversationHistoryNavigation | null>(null);
-  const [splitSessionId, setSplitSessionId] = useState<string | null>(null);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [createGroupLabel, setCreateGroupLabel] = useState("");
   const [createGroupWorkspaceId, setCreateGroupWorkspaceId] = useState<string | null>(null);
@@ -665,6 +666,7 @@ export function SessionPage(props: SessionPageProps) {
       id: "voice.panel.open",
       label: "Open Voice Mode",
       description: "Open the sticky Voice Mode right-side panel.",
+      effects: { data: "none", ui: "layout", external: false },
       sideEffect: "none",
       execute: () => {
         setCurrentSidePanel("voice");
@@ -679,6 +681,7 @@ export function SessionPage(props: SessionPageProps) {
       id: "voice.panel.close",
       label: "Close Voice Mode",
       description: "Close the Voice Mode right-side panel.",
+      effects: { data: "none", ui: "layout", external: false },
       sideEffect: "none",
       execute: () => {
         setCurrentSidePanel(null);
@@ -726,30 +729,28 @@ export function SessionPage(props: SessionPageProps) {
     return () => window.clearTimeout(id);
   }, [pendingConversationHistoryNavigation]);
   useEffect(() => {
-    setSessionTabs((current) => {
-      const currentWorkspaceTabs = current.filter((tab) => tab.workspaceId === props.selectedWorkspaceId);
-      const next = props.selectedSessionId && !currentWorkspaceTabs.some((tab) => tab.sessionId === props.selectedSessionId)
-        ? [...currentWorkspaceTabs, { workspaceId: props.selectedWorkspaceId, sessionId: props.selectedSessionId }]
-        : currentWorkspaceTabs;
-      return next.filter((tab) => (
-        tab.sessionId === props.selectedSessionId ||
-        sessionExistsInWorkspace(props.sidebar.workspaceSessionGroups, tab.workspaceId, tab.sessionId)
-      ));
+    const workspaceGroup = props.sidebar.workspaceSessionGroups.find(
+      (group) => group.workspace.id === props.selectedWorkspaceId,
+    );
+    syncWorkbench({
+      workspaceId: props.selectedWorkspaceId,
+      primarySessionId: props.selectedSessionId,
+      sessionsKnown: workspaceGroup?.status === "ready",
+      sessions: (workspaceGroup?.sessions ?? []).map((session) => ({
+        workspaceId: props.selectedWorkspaceId,
+        sessionId: session.id,
+        title: getDisplaySessionTitle(session.title),
+      })),
     });
-  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups]);
+  }, [
+    props.selectedSessionId,
+    props.selectedWorkspaceId,
+    props.sidebar.workspaceSessionGroups,
+    syncWorkbench,
+  ]);
   useEffect(() => {
     props.onSessionTabsChange?.(sessionTabs);
   }, [sessionTabs, props.onSessionTabsChange]);
-  useEffect(() => {
-    if (!splitSessionId) return;
-    if (splitSessionId === props.selectedSessionId) {
-      setSplitSessionId(null);
-      return;
-    }
-    if (!sessionExistsInWorkspace(props.sidebar.workspaceSessionGroups, props.selectedWorkspaceId, splitSessionId)) {
-      setSplitSessionId(null);
-    }
-  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar.workspaceSessionGroups, splitSessionId]);
   const sessionActionTitle = useMemo(
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionActionId),
     [props.sidebar.workspaceSessionGroups, sessionActionId],
@@ -826,18 +827,66 @@ export function SessionPage(props: SessionPageProps) {
   );
 
   const openSessionTab = useCallback((workspaceId: string, sessionId: string) => {
-    setSessionTabs((current) => {
-      const next = current.filter((tab) => tab.workspaceId === workspaceId);
-      if (next.some((tab) => tab.sessionId === sessionId)) return next;
-      return [...next, { workspaceId, sessionId }];
+    openWorkbenchTab({
+      workspaceId,
+      sessionId,
+      title: sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId),
     });
     props.sidebar.onOpenSession(workspaceId, sessionId);
-  }, [props.sidebar]);
+  }, [openWorkbenchTab, props.sidebar]);
+
+  const focusWorkbenchSessionControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "workbench.session.focus",
+    label: "Focus an open session",
+    description: "Focus a session already visible in either split-screen pane, or reuse its existing tab without opening a duplicate.",
+    effects: { data: "none", ui: "navigate", external: false },
+    sideEffect: "navigation",
+    requiresArgs: true,
+    args: [{
+      name: "sessionId",
+      type: "string",
+      required: true,
+      description: "Session id from the OpenWork context resources or conversation tabs.",
+    }],
+    execute: (args) => {
+      if (!args || typeof args !== "object" || !("sessionId" in args) || typeof args.sessionId !== "string") {
+        return { ok: false, error: "sessionId is required" };
+      }
+      const sessionId = args.sessionId.trim();
+      if (!sessionId) return { ok: false, error: "sessionId is required" };
+      if (sessionId === props.selectedSessionId) {
+        focusWorkbenchPane("primary");
+        return { ok: true, sessionId, reused: "primary-pane" };
+      }
+      if (sessionId === splitSessionId) {
+        focusWorkbenchPane("secondary");
+        return { ok: true, sessionId, reused: "secondary-pane" };
+      }
+      const tab = sessionTabs.find((entry) => entry.sessionId === sessionId);
+      if (tab) {
+        props.sidebar.onOpenSession(tab.workspaceId, tab.sessionId);
+        return { ok: true, sessionId, reused: "tab" };
+      }
+      const workspace = props.sidebar.workspaceSessionGroups.find((group) => (
+        group.sessions.some((session) => session.id === sessionId)
+      ));
+      if (!workspace) return { ok: false, error: `Session is unavailable: ${sessionId}` };
+      openSessionTab(workspace.workspace.id, sessionId);
+      return { ok: true, sessionId, reused: "new-tab" };
+    },
+  }), [
+    focusWorkbenchPane,
+    openSessionTab,
+    props.selectedSessionId,
+    props.sidebar,
+    sessionTabs,
+    splitSessionId,
+  ]);
+  useControlAction(focusWorkbenchSessionControlAction);
 
   const closeSessionTab = useCallback((sessionId: string) => {
     const nextTab = sessionTabs.find((tab) => tab.sessionId !== sessionId && tab.workspaceId === props.selectedWorkspaceId);
-    setSessionTabs((current) => current.filter((tab) => tab.sessionId !== sessionId));
-    setSplitSessionId((current) => current === sessionId ? null : current);
+    closeWorkbenchTab(sessionId);
     setPendingConversationHistoryNavigation(null);
     setConversationHistory((current) => removeConversationHistoryEntry(current, props.selectedWorkspaceId, sessionId));
     if (sessionId !== props.selectedSessionId) return;
@@ -847,7 +896,7 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     props.sidebar.onSelectWorkspace(props.selectedWorkspaceId);
-  }, [props.selectedSessionId, props.selectedWorkspaceId, props.sidebar, sessionTabs]);
+  }, [closeWorkbenchTab, props.selectedSessionId, props.selectedWorkspaceId, props.sidebar, sessionTabs]);
 
   const navigateConversationHistory = useCallback((direction: ConversationHistoryDirection) => {
     if (!canNavigateSelectedConversationHistory(
@@ -1173,7 +1222,7 @@ export function SessionPage(props: SessionPageProps) {
                               <button
                                 type="button"
                                 className="rounded p-0.5 text-dls-secondary hover:bg-dls-hover hover:text-dls-text disabled:pointer-events-none disabled:opacity-40"
-                                onClick={() => setSplitSessionId(split ? null : tab.sessionId)}
+                                onClick={() => setWorkbenchSplit(split ? null : tab.sessionId)}
                                 disabled={active}
                                 title={split ? "Close split" : "Open in split view"}
                                 aria-label={split ? "Close split" : "Open in split view"}
@@ -1196,7 +1245,12 @@ export function SessionPage(props: SessionPageProps) {
                     </div>
                   ) : null}
                   <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-                    <div className={cn("min-h-0 min-w-0 flex-1", canRenderSplitSurface && "lg:border-r lg:border-border")}>
+                    <div
+                      className={cn("min-h-0 min-w-0 flex-1", canRenderSplitSurface && "lg:border-r lg:border-border")}
+                      data-workbench-pane="primary"
+                      data-workbench-pane-focused={focusedWorkbenchPane === "primary" ? "true" : undefined}
+                      onPointerDown={() => focusWorkbenchPane("primary")}
+                    >
                       <SessionSurface
                         // Spread `surface` first so the explicit per-workspace
                         // routing props below CAN'T be silently overridden by
@@ -1223,7 +1277,12 @@ export function SessionPage(props: SessionPageProps) {
                       />
                     </div>
                     {canRenderSplitSurface ? (
-                      <div className="min-h-0 min-w-0 flex-1 border-t border-border lg:border-t-0">
+                      <div
+                        className="min-h-0 min-w-0 flex-1 border-t border-border lg:border-t-0"
+                        data-workbench-pane="secondary"
+                        data-workbench-pane-focused={focusedWorkbenchPane === "secondary" ? "true" : undefined}
+                        onPointerDown={() => focusWorkbenchPane("secondary")}
+                      >
                         <SessionSurface
                           {...props.surface!}
                           client={props.openworkServerClient!}

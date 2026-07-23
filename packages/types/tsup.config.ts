@@ -4,6 +4,9 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "agent-context-diagnostics": "src/agent-context-diagnostics.ts",
+    "openwork-affordance": "src/openwork-affordance.ts",
+    "openwork-context": "src/openwork-context.ts",
+    "openwork-provider": "src/openwork-provider.ts",
     "den/desktop-app-restrictions": "src/den/desktop-app-restrictions.ts",
     "den/desktop-policies": "src/den/desktop-policies.ts",
     "den/egress-diagnostics": "src/den/egress-diagnostics.ts",
