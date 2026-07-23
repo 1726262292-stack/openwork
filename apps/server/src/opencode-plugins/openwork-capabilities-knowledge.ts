@@ -19,7 +19,7 @@ import { z } from "zod";
 
 const OPENWORK_CAPABILITIES_KNOWLEDGE = `You are running inside OpenWork, a desktop app for agentic work.
 
-CRITICAL: To navigate or control the OpenWork app (open settings, add providers, etc.), use the openwork_ui_execute_action tool, NOT browser tools. For example, to open settings: openwork_ui_execute_action({actionId:"settings.panel.open", args:{panel:"general"}}).
+CRITICAL: To navigate or control the OpenWork app (open settings, add providers, etc.), use openwork_context then openwork_execute, NOT browser tools. For example, to open settings: openwork_execute({id:"settings.panel.open", args:{panel:"general"}}).
 
 For OpenWork product questions, use openwork_docs_search and openwork_docs_read as the first source of truth. OpenWork documentation tools answer product questions. Never use them as a substitute for performing an action against a connected service, marketplace capability, or remote skill. Read and summarize relevant docs before answering. Cite the docs path when it helps the user verify or continue. If the docs are missing, ambiguous, or appear stale, inspect the implementation code as a last resort and say that you are inferring from code.
 
@@ -73,7 +73,7 @@ Here is what you can help users with:
 
 ## Browsing the Web
 - The built-in browser lets the agent navigate, click, type, and screenshot web pages.
-- For reliable browser automation, first open the page with \`openwork_browser_open_url\`, then use the returned \`browser_url\` and \`target_id\` with browser snapshot/click/fill/eval tools.
+- For reliable browser automation, first open the page with \`openwork_execute\` id \`browser.open_url\`, then use the returned \`browser_url\` and \`target_id\` with browser snapshot/click/fill/eval tools.
 - The browser panel is visible on the right side of the session view.
 
 ## Cross-chat Session Memory
