@@ -1029,7 +1029,7 @@ function GlobalPinnedSessions({ entries }: { entries: GlobalPinnedSessionEntry[]
         </div>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuSub>
+            <SidebarMenuSub className="gap-1">
               {entries.map((entry) => (
                 <GlobalPinnedSessionTree
                   key={`${entry.group.workspace.id}:${entry.sessionId}`}
@@ -1075,7 +1075,7 @@ function GlobalArchivedSessions({ entries }: { entries: GlobalArchivedSessionEnt
           <CollapsibleContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuSub>
+                <SidebarMenuSub className="gap-1">
                   {entries.map((entry) => (
                     <GlobalArchivedSessionItem
                       key={`${entry.group.workspace.id}:${entry.session.id}`}
@@ -1406,7 +1406,7 @@ function WorkspaceSidebarGroup({
             </div>
 
             <CollapsibleContent className="pt-px">
-              <SidebarMenuSub>
+              <SidebarMenuSub className="gap-1">
                 {showRemoteConnectionIssue ? (
                   <RemoteConnectionIssueCard
                     message={connectionIssueMessage}
