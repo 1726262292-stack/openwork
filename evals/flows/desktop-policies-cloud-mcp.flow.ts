@@ -412,14 +412,20 @@ async function ensureDesktopSignedIn(ctx: FlowContext): Promise<void> {
     await ctx.waitFor("location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "workspace route after control creation" });
   }
 
+  // The sync marker records the first successful cloud MCP reconciliation for
+  // a scope; on resumed profiles the connection can already be configured, in
+  // which case maintenance reports "ok" without rewriting the marker.
   await ctx.waitFor(
-    "Boolean(localStorage.getItem('openwork.den.mcp.sync'))",
-    { timeoutMs: 180_000, label: "openwork.den.mcp.sync marker" },
+    "Boolean(localStorage.getItem('openwork.den.mcp.sync')) || (localStorage.getItem('openwork.den.mcp.lastMaintenanceOutcome') ?? '').includes('\"status\":\"ok\"')",
+    { timeoutMs: 180_000, label: "cloud MCP sync marker or healthy maintenance outcome" },
   );
 }
 
 async function enterDenPolicies(ctx: FlowContext): Promise<void> {
-  await ctx.eval(`location.assign(${JSON.stringify(DEN_WEB_URL)})`);
+  // Cross-origin navigation swaps the renderer process, which drops the CDP
+  // socket; reconnect to the (sole) page target before driving Den web.
+  await ctx.eval(`location.assign(${JSON.stringify(DEN_WEB_URL)})`).catch(() => undefined);
+  await ctx.reconnect();
   await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 60_000, label: "Den web" });
   const signIn = await ctx.eval(`fetch('/api/auth/sign-in/email', {
     method: 'POST',
@@ -717,7 +723,8 @@ export default defineFlow({
         await ctx.prove("The desktop app picks up the restricted config and shows the organization policy banner", {
           voiceover: vo[4],
           action: async () => {
-            await ctx.eval(`location.assign(${JSON.stringify(DESKTOP_URL)})`);
+            await ctx.eval(`location.assign(${JSON.stringify(DESKTOP_URL)})`).catch(() => undefined);
+            await ctx.reconnect();
             await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "desktop control API after Den web" });
             const config = await syncConfigToApp(ctx);
             ctx.assert(config.allowCustomProviders === false, `Effective desktop config did not restrict custom providers: ${bodyPreview(config)}`);
@@ -799,7 +806,8 @@ export default defineFlow({
         await patchDefaultPolicyDirect(ctx, true);
         const config = await currentDesktopConfig(ctx);
         ctx.assert(config.allowCustomProviders !== false, `Cleanup did not restore custom providers: ${bodyPreview(config)}`);
-        await ctx.eval(`location.assign(${JSON.stringify(DESKTOP_URL)})`);
+        await ctx.eval(`location.assign(${JSON.stringify(DESKTOP_URL)})`).catch(() => undefined);
+        await ctx.reconnect();
         await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "desktop control API for cleanup" });
         await syncConfigToApp(ctx);
         ctx.recordEvidence({
