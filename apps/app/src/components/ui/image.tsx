@@ -1,5 +1,11 @@
-import { cn } from "@/lib/utils"
 import * as React from "react"
+
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 
 export type GeneratedImageLike = {
   src?: string
@@ -42,9 +48,7 @@ export const Image = ({
   ...props
 }: ImageProps) => {
   const [objectUrl, setObjectUrl] = React.useState<string | undefined>(undefined)
-  const [expanded, setExpanded] = React.useState(false)
-  const [canExpand, setCanExpand] = React.useState(false)
-  const imageRef = React.useRef<HTMLImageElement | null>(null)
+  const [open, setOpen] = React.useState(false)
 
   React.useEffect(() => {
     if (uint8Array && mediaType) {
@@ -62,39 +66,6 @@ export const Image = ({
   const base64Src = getImageSrc({ base64, mediaType })
   const imageSrc = src ?? base64Src ?? objectUrl
 
-  const updateCanExpand = React.useCallback((image: HTMLImageElement) => {
-    if (previewMaxHeight <= 0 && previewMaxWidth <= 0) {
-      setCanExpand(false)
-      return
-    }
-
-    if (!image.naturalWidth || !image.naturalHeight) {
-      setCanExpand(false)
-      return
-    }
-
-    const widerThanPreview = previewMaxWidth > 0 && image.naturalWidth > previewMaxWidth
-    const tallerThanPreview = previewMaxHeight > 0 && image.naturalHeight > previewMaxHeight
-    setCanExpand(widerThanPreview || tallerThanPreview)
-  }, [previewMaxHeight, previewMaxWidth])
-
-  React.useEffect(() => {
-    setExpanded(false)
-  }, [imageSrc])
-
-  React.useEffect(() => {
-    const image = imageRef.current
-    if (!image) return
-
-    updateCanExpand(image)
-
-    if (globalThis.ResizeObserver === undefined) return
-
-    const observer = new ResizeObserver(() => updateCanExpand(image))
-    observer.observe(image)
-    return () => observer.disconnect()
-  }, [imageSrc, updateCanExpand])
-
   if (!imageSrc) {
     return (
       <div
@@ -110,7 +81,7 @@ export const Image = ({
   }
 
   const constrained = previewMaxHeight > 0 || previewMaxWidth > 0
-  const previewStyle = !expanded && constrained
+  const previewStyle = constrained
     ? {
         ...style,
         ...(previewMaxHeight > 0 ? { maxHeight: previewMaxHeight } : {}),
@@ -120,20 +91,16 @@ export const Image = ({
 
   const image = (
     <img
-      ref={imageRef}
       src={imageSrc}
       alt={alt}
       className={cn(
         "h-auto w-auto overflow-hidden rounded-md object-contain",
-        expanded || !constrained ? "max-w-full" : null,
+        constrained ? null : "max-w-full",
         className
       )}
       role="img"
       style={previewStyle}
-      onLoad={(event) => {
-        updateCanExpand(event.currentTarget)
-        onLoad?.(event)
-      }}
+      onLoad={onLoad}
       {...props}
     />
   )
@@ -143,30 +110,26 @@ export const Image = ({
   }
 
   return (
-    <div className="inline-flex max-w-full flex-col items-start gap-1">
-      <div className="relative inline-block max-w-full overflow-hidden rounded-md">
+    <>
+      <button
+        type="button"
+        className="inline-block max-w-full cursor-zoom-in rounded-md text-left transition-opacity hover:opacity-90"
+        onClick={() => setOpen(true)}
+        aria-label={`Expand ${alt}`}
+        title={alt}
+      >
         {image}
-        {!expanded && canExpand ? (
-          <div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-background via-background/90 to-transparent pb-2 pt-8">
-            <button
-              type="button"
-              className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-              onClick={() => setExpanded(true)}
-            >
-              Show full image
-            </button>
-          </div>
-        ) : null}
-      </div>
-      {expanded && canExpand ? (
-        <button
-          type="button"
-          className="rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          onClick={() => setExpanded(false)}
-        >
-          Show less
-        </button>
-      ) : null}
-    </div>
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] w-auto max-w-[min(90vw,56rem)] overflow-hidden border-none bg-transparent p-0 shadow-none sm:max-w-[min(90vw,56rem)]">
+          <DialogTitle className="sr-only">{alt}</DialogTitle>
+          <img
+            src={imageSrc}
+            alt={alt}
+            className="max-h-[85vh] w-auto max-w-full rounded-xl object-contain"
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
