@@ -432,6 +432,27 @@ describe("OpenWork Cloud MCP reconciler", () => {
       health: health({ usable: false, failure: failure("provider_projection_missing") }),
     })).toBe("Current model can’t use Cloud tools");
 
+    const canonicalProjectionFailure = {
+      ...failure("provider_tool_projection_missing"),
+      stage: "provider_projection" as const,
+      recommendedAction: "Choose a model that can use OpenWork Cloud tools",
+    };
+    expect(cloudMcpFailureStageLabel({
+      signedIn: true,
+      orgSelected: true,
+      health: health({ usable: false, failure: canonicalProjectionFailure }),
+    })).toBe("Current model can’t use Cloud tools");
+    expect(cloudMcpDisplaySummary({
+      signedIn: true,
+      orgSelected: true,
+      connecting: false,
+      health: health({ usable: false, failure: canonicalProjectionFailure }),
+    })).toMatchObject({
+      statusLabel: "Degraded",
+      stageLabel: "Current model can’t use Cloud tools",
+      recommendedAction: "Choose a model that can use OpenWork Cloud tools.",
+    });
+
     const summary = cloudMcpDisplaySummary({
       signedIn: true,
       orgSelected: true,

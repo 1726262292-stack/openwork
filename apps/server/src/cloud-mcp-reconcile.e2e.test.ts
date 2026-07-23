@@ -573,6 +573,32 @@ describe("openwork-cloud MCP strict reconcile", () => {
     });
   });
 
+  test("falls back to provider capability when global MCP tool IDs exist but per-model experimental projection omits them", async () => {
+    const root = await createRoot();
+    const mock = startMockOpencode({
+      // Global IDs include Cloud MCP tools…
+      toolIds: allReadyToolIds(),
+      // …but the per-model experimental list does not (OpenCode ToolRegistry quirk).
+      providerToolIds: [...OPENWORK_CLOUD_PLUGIN_CANARIES],
+      providerToolCalling: true,
+      cloudToolsAsSse: true,
+    });
+    const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)]);
+
+    const body = await responseRecord(await reconcile(openwork.base, "ws_1", { provider: "anthropic", model: "claude" }));
+    expect(body.phase).toBe("ready");
+    expect(body.usable).toBe(true);
+    expect(body.usableByCurrentModel).toBe(true);
+    expect(requireRecord(requireRecord(body.compatibility, "compatibility").experimentalToolIds, "experimentalToolIds")).toMatchObject({
+      includesMcpTools: true,
+    });
+    expect(requireRecord(requireRecord(body.tools, "tools").providerProjection, "projection")).toMatchObject({
+      source: "provider_capability",
+      modelExists: true,
+      toolCalling: true,
+    });
+  });
+
   test("reports extension canary missing when docs canary is present but extension canary is absent", async () => {
     const root = await createRoot();
     const mock = startMockOpencode({ toolIds: [...OPENWORK_CLOUD_EXPECTED_TOOLS, "openwork_docs_search"] });

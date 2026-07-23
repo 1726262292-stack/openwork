@@ -721,6 +721,30 @@ export function SessionRoute() {
   const handleModelPickerOpen = useCallback(() => {
     void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
   }, [sessionProviderAuthStore]);
+  const openWorkModelsEntitled = useMemo(() => {
+    if (!denAuth.isSignedIn) return false;
+    const fromOrg = sessionProviderAuthSnapshot.cloudOrgProviders.some(
+      (provider) =>
+        [provider.providerId, provider.source].some(
+          (value) => value?.trim().toLowerCase() === "openwork",
+        ),
+    );
+    const fromImport = Object.values(sessionProviderAuthSnapshot.importedCloudProviders ?? {}).some(
+      (provider) =>
+        [provider.providerId, provider.source, provider.sourceProviderId].some(
+          (value) => value?.trim().toLowerCase() === "openwork",
+        ),
+    );
+    return fromOrg || fromImport;
+  }, [
+    denAuth.isSignedIn,
+    sessionProviderAuthSnapshot.cloudOrgProviders,
+    sessionProviderAuthSnapshot.importedCloudProviders,
+  ]);
+  const refreshOpenWorkModels = useCallback(async () => {
+    await sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+    await sessionProviderAuthStore.refreshProviders();
+  }, [sessionProviderAuthStore]);
   const modelPicker = useModelPicker({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -785,6 +809,7 @@ export function SessionRoute() {
     clientReady: Boolean(opencodeClient),
     workspaceId: selectedWorkspaceId,
     providerConnectedIds,
+    openWorkModelsEntitled,
   });
 
   const {
@@ -947,7 +972,13 @@ export function SessionRoute() {
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
-      onModelPickerOpenChange: modelPicker.setCompactOpen,
+      openWorkModelsEntitled,
+      onModelPickerOpenChange: (open: boolean) => {
+        modelPicker.setCompactOpen(open);
+        if (open) {
+          void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+        }
+      },
       onModelChange: (model: ModelRef) => {
         local.setPrefs((previous) => ({
           ...previous,
@@ -1136,6 +1167,7 @@ export function SessionRoute() {
     modelVariantLabel,
     modelVariantValue,
     navigate,
+    openWorkModelsEntitled,
     opencodeBaseUrl,
     opencodeClient,
     providerConnectedIds,
@@ -1145,6 +1177,7 @@ export function SessionRoute() {
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
+    sessionProviderAuthStore,
     sessionsByWorkspaceId,
     submitWithCloudMcpReadiness,
     token,
@@ -2409,6 +2442,8 @@ export function SessionRoute() {
         handleOpenSettings("/settings/general");
       }}
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
+      openWorkModelsEntitled={openWorkModelsEntitled}
+      onRefreshOpenWorkModels={refreshOpenWorkModels}
     />
     </WorkspaceProvider>
   );

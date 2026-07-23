@@ -118,6 +118,20 @@ function normalizeCode(code: string | null | undefined): string {
   return code?.trim().toLowerCase().replace(/[-.]/g, "_") ?? "";
 }
 
+function isProviderProjectionFailure(failure?: OpenworkCloudMcpFailure | null): boolean {
+  if (!failure) return false;
+  if (failure.stage === "provider_projection") return true;
+  const code = normalizeCode(failure.code);
+  if (
+    code === "provider_tool_projection_missing" ||
+    code === "provider_projection_missing" ||
+    code === "provider_projection_unavailable"
+  ) {
+    return true;
+  }
+  return code.includes("provider_projection") || code.includes("provider_tool_projection");
+}
+
 function normalizedContextScope(context: CloudMcpOperationContext): CloudMcpScope | null {
   return normalizeCloudMcpScope({
     denBaseUrl: context.denBaseUrl,
@@ -418,7 +432,7 @@ export function cloudMcpFailureStageLabel(input: {
   if (code.includes("auth") || code.includes("token") || code.includes("unauthorized")) return "Cloud authentication expired";
   if (code === "cloud_tools_missing") return "Cloud endpoint tools are missing";
   if (code === "cloud_status_missing" || code === "cloud_registration_failed") return "Cloud tools weren’t registered";
-  if (code.includes("provider_projection")) return "Current model can’t use Cloud tools";
+  if (isProviderProjectionFailure(input.health?.firstFailure)) return "Current model can’t use Cloud tools";
   if (code.includes("tool_ids") || code.includes("client_registration")) return "OpenWork components need updating";
   if (code === "extensions_plugin_missing") return "Agent instructions are out of date";
   if (code.includes("unreachable") || code.includes("connection") || code.includes("status_missing")) return "Cloud connection unavailable";
@@ -445,7 +459,7 @@ export function cloudMcpRecommendedAction(input: {
   if (code.includes("membership")) return "Ask an organization admin to grant access.";
   if (code.includes("scope")) return "Reconnect OpenWork Cloud with the required permissions.";
   if (code.includes("policy") || code.includes("forbidden") || code.includes("resource")) return "Check organization policy and resource access.";
-  if (code.includes("provider_projection")) return "Choose a model that can use OpenWork Cloud tools.";
+  if (isProviderProjectionFailure(input.health?.firstFailure)) return "Choose a model that can use OpenWork Cloud tools.";
   if (code.includes("tool_ids") || code.includes("client_registration")) return "Update OpenWork, then retry.";
   if (code === "extensions_plugin_missing") return "Reload the agent so OpenWork instructions are current.";
   if (code === "cloud_tools_missing") return "Reconnect OpenWork Cloud so the endpoint exposes search_capabilities and execute_capability.";
