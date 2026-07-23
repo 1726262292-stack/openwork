@@ -126,6 +126,34 @@ Practical examples:
 - Creating a new task in a workspace navigates to
   `/workspace/<workspace-id>/session/<new-session-id>`.
 
+## Agent-readable workbench state
+
+The URL remains authoritative for the active workspace and primary session.
+`domains/session/chat/workbench-store.ts` owns the additional workbench state
+that a URL cannot represent: retained conversation tabs, the secondary split
+session, and which pane is focused. It is process memory so this state survives
+temporary navigation to Settings, but it does not replace route identity.
+
+`shell/openwork-context-projector.ts` combines route state, the workbench store,
+UI chrome state, and panel-tab state into the shared
+`OpenworkContextSnapshot` contract. `OpenworkContextPublisher` publishes that
+snapshot through `window.__openworkControl`; the desktop loopback bridge and
+`openwork-ui-mcp` expose the same contract without requiring every element to
+be mounted or visible.
+
+Control registrations have semantic metadata:
+
+- `kind: "query"` is a concurrent, side-effect-free read and must not focus the
+  desktop window.
+- `kind: "command"` can change UI, durable data, or an external system.
+  Commands are serialized and may use `expectedRevision` to reject stale work.
+- `effects`, `confirmation`, `availability`, and `executor` let agents choose
+  behavior from data instead of relying on a large steering prompt.
+
+Do not register backend reads as pretend navigation actions. Add an explicit
+query, keep UI commands outcome-oriented, and scope session operations by ID so
+split-screen sessions cannot be confused.
+
 ## Testing
 
 - Unit: `bun test tests/` (CI-gated). Pure logic and parsers belong here.

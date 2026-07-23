@@ -14,6 +14,21 @@
       "development": "./src/agent-context-diagnostics.ts",
       "default": "./src/agent-context-diagnostics.ts"
     },
+    "./openwork-affordance": {
+      "types": "./src/openwork-affordance.ts",
+      "development": "./src/openwork-affordance.ts",
+      "default": "./src/openwork-affordance.ts"
+    },
+    "./openwork-context": {
+      "types": "./src/openwork-context.ts",
+      "development": "./src/openwork-context.ts",
+      "default": "./src/openwork-context.ts"
+    },
+    "./openwork-provider": {
+      "types": "./src/openwork-provider.ts",
+      "development": "./src/openwork-provider.ts",
+      "default": "./src/openwork-provider.ts"
+    },
     "./den/desktop-app-restrictions": {
       "types": "./src/den/desktop-app-restrictions.ts",
       "development": "./src/den/desktop-app-restrictions.ts",

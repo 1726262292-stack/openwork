@@ -154,6 +154,7 @@ export type SessionSurfaceProps = {
   workspaceId: string;
   workspaceRoot: string;
   sessionId: string;
+  isControlTarget: boolean;
   opencodeBaseUrl: string;
   openworkToken: string;
   developerMode: boolean;
@@ -721,7 +722,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       },
     };
   }, [props.sessionId]);
-  useControlAction(seedMarkdownPrimitiveControlAction);
+  useControlAction(props.isControlTarget ? seedMarkdownPrimitiveControlAction : null);
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
@@ -1232,6 +1233,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     id: "composer.set_text",
     label: "Type into the composer",
     description: "Replace the current session draft and type the supplied text visibly.",
+    effects: { data: "none", ui: "focus", external: false },
     sideEffect: "none",
     requiresArgs: true,
     args: [{ name: "text", type: "string", required: true, description: "Prompt text to place in the composer." }],
@@ -1245,7 +1247,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return { draftLength: text.length };
     },
   }), [attachments, buildDraft, props.onDraftChange, typeComposerText]);
-  useControlAction(composerSetTextControlAction);
+  useControlAction(props.isControlTarget ? composerSetTextControlAction : null);
 
   const composerSendControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "composer.send",
@@ -1259,7 +1261,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return true;
     },
   }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
-  useControlAction(composerSendControlAction);
+  useControlAction(props.isControlTarget ? composerSendControlAction : null);
 
   const composerStopControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "composer.stop",
@@ -1273,7 +1275,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return true;
     },
   }), [chatStreaming, handleAbort]);
-  useControlAction(composerStopControlAction);
+  useControlAction(props.isControlTarget ? composerStopControlAction : null);
 
   const loadConnectCapabilityInventory = async (): Promise<ConnectCapabilityInventory> => {
     const settings = readDenSettings();
@@ -1594,6 +1596,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     id: "session.scroll_top",
     label: "Go to the top of the session",
     description: "Scroll the visible session transcript to the first messages.",
+    effects: { data: "none", ui: "focus", external: false },
     sideEffect: "none",
     execute: () => {
       const container = scrollRef.current;
@@ -1602,24 +1605,27 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return { ok: true, position: "top" };
     },
   }), []);
-  useControlAction(sessionScrollTopControlAction);
+  useControlAction(props.isControlTarget ? sessionScrollTopControlAction : null);
 
   const sessionScrollBottomControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.scroll_bottom",
     label: "Go to the bottom of the session",
     description: "Scroll the visible session transcript to the newest messages and composer area.",
+    effects: { data: "none", ui: "focus", external: false },
     sideEffect: "none",
     execute: () => {
       sessionScroll.jumpToLatest("smooth");
       return { ok: true, position: "bottom" };
     },
   }), [sessionScroll.jumpToLatest]);
-  useControlAction(sessionScrollBottomControlAction);
+  useControlAction(props.isControlTarget ? sessionScrollBottomControlAction : null);
 
   const sessionLatestMessageControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.latest_message",
     label: "Read the latest session message",
     description: "Return the latest visible message in the current session transcript.",
+    kind: "query",
+    effects: { data: "read", ui: "none", external: false },
     sideEffect: "none",
     execute: () => {
       const message = renderedMessages[renderedMessages.length - 1];
@@ -1633,12 +1639,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     },
   }), [props.sessionId, renderedMessages]);
-  useControlAction(sessionLatestMessageControlAction);
+  useControlAction(props.isControlTarget ? sessionLatestMessageControlAction : null);
 
   const sessionReadTranscriptControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.read_transcript",
     label: "Read the current session transcript",
     description: "Return the last messages from the current session transcript as readable text, including the session ID, title, and message count.",
+    kind: "query",
+    effects: { data: "read", ui: "none", external: false },
     sideEffect: "none",
     args: [{ name: "count", type: "number", required: false, description: "Number of recent messages to return, from 1 to 30. Defaults to 10." }],
     execute: (args) => {
@@ -1661,7 +1669,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     },
   }), [props.sessionId, renderedMessages]);
-  useControlAction(sessionReadTranscriptControlAction);
+  useControlAction(props.isControlTarget ? sessionReadTranscriptControlAction : null);
 
   return (
     <DevProfiler id="SessionSurface">

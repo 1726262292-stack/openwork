@@ -1,4 +1,7 @@
 export * from "./agent-context-diagnostics"
+export * from "./openwork-affordance"
+export * from "./openwork-context"
+export * from "./openwork-provider"
 export * from "./den/desktop-policies"
 export * from "./den/egress-diagnostics"
 export * from "./den/inference"

@@ -119,7 +119,12 @@ function startFakeOpenWorkServer() {
         return Response.json({
           ok: true,
           schemaVersion: 1,
-          skills: [],
+          skills: [{
+            name: "customer-briefing",
+            title: "Customer briefing",
+            description: "Prepare a connected customer briefing.",
+            capability: "skill:skl_customer_briefing",
+          }],
           instruction: "<available_skills><skill><name>customer-briefing</name></skill></available_skills>",
         });
       }
@@ -194,6 +199,88 @@ function startFakeOpenWorkServer() {
 describe("OpenWorkExtensionsPreview session tools", () => {
   test("plugin entry exposes only the factory export for the OpenCode loader", () => {
     expect(Object.keys(OpenWorkExtensionsPreviewEntry)).toEqual(["OpenWorkExtensionsPreview"]);
+  });
+
+  test("projects built-in, extension, and Connect providers into one agent context", async () => {
+    startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview({
+      client: {
+        mcp: {
+          status: async () => ({
+            data: {
+              notion: { status: "connected" },
+              "openwork-cloud": { status: "connected" },
+            },
+          }),
+        },
+      },
+    });
+
+    const output = await plugin.tool.openwork_context.execute();
+    const parsed = z.object({
+      context: z.object({
+        contributions: z.array(z.object({
+          featureId: z.string(),
+          affordances: z.array(z.object({
+            id: z.string(),
+            executor: z.object({ kind: z.string(), tool: z.string().optional() }),
+          }).passthrough()),
+          guidance: z.array(z.object({
+            ref: z.string(),
+          }).passthrough()),
+        }).passthrough()),
+      }).passthrough().nullable().optional(),
+      contributions: z.array(z.object({
+        featureId: z.string(),
+        affordances: z.array(z.object({
+          id: z.string(),
+          executor: z.object({ kind: z.string(), tool: z.string().optional() }),
+        }).passthrough()),
+        guidance: z.array(z.object({
+          ref: z.string(),
+        }).passthrough()),
+      }).passthrough()).optional(),
+    }).passthrough().parse(JSON.parse(output));
+    const contributions = parsed.context?.contributions ?? parsed.contributions ?? [];
+
+    expect(contributions.map((contribution) => contribution.featureId)).toEqual([
+      "sessions",
+      "extensions",
+      "mcp:notion",
+      "connect",
+    ]);
+    expect(contributions.find((contribution) => contribution.featureId === "connect")?.guidance)
+      .toContainEqual(expect.objectContaining({ ref: "skill:skl_customer_briefing" }));
+    expect(
+      contributions.flatMap((contribution) => contribution.affordances)
+        .find((affordance) => affordance.id === "connect.capability.execute")?.executor,
+    ).toEqual({
+      kind: "tool",
+      tool: "openwork-cloud_execute_capability",
+    });
+  });
+
+  test("routes semantic session queries without navigating the UI", async () => {
+    startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview();
+
+    const output = await plugin.tool.openwork_query.execute({
+      id: "session.read",
+      args: { sessionId: "ses_archive", count: 2 },
+    });
+    const parsed = z.object({
+      ok: z.literal(true),
+      id: z.literal("session.read"),
+      result: readResultSchema,
+      effects: z.object({
+        data: z.literal("read"),
+        ui: z.literal("none"),
+        external: z.literal(false),
+      }),
+    }).parse(JSON.parse(output));
+
+    expect(parsed.result.sessionId).toBe("ses_archive");
+    expect(parsed.result.messages.at(-1)?.text).toContain("archive importer");
   });
 
   test("searches past chat transcript text and prefers the user's matching message", async () => {
@@ -371,14 +458,18 @@ describe("OpenWorkExtensionsPreview UI control tools", () => {
     expect(tools).not.toContain("openwork_ui_snapshot");
     expect(tools).not.toContain("openwork_ui_list_actions");
     expect(tools).not.toContain("openwork_ui_execute_action");
+    expect(tools).toContain("openwork_context");
+    expect(tools).toContain("openwork_query");
+    expect(tools).toContain("openwork_execute");
     expect(tools).toContain("openwork_session_create");
     expect(tools).toContain("openwork_session_search");
     expect(tools).toContain("openwork_extension_list_actions");
 
     const system = await transformedSystem(plugin);
     expect(system).not.toContain("openwork_ui_");
-    expect(system).toContain("ALWAYS use openwork_session_create");
-    expect(system).toContain("openwork_session_search");
+    expect(system).toContain("Use openwork_context");
+    expect(system).toContain("session.search");
+    expect(system).not.toContain("ALWAYS use openwork_session_create");
   });
 
   test("registers UI-control tools and steering when opted in", async () => {

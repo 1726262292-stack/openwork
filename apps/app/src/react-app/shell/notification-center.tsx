@@ -69,6 +69,8 @@ export function NotificationBell() {
     id: "notifications.list",
     label: "List notifications",
     description: "Return the current notification center entries.",
+    kind: "query",
+    effects: { data: "read", ui: "none", external: false },
     sideEffect: "none",
     execute: () => notifications.map((n) => ({
       id: n.id,
