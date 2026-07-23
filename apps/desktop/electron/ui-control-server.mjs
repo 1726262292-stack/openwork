@@ -58,13 +58,11 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
     return JSON.stringify(JSON.stringify(value ?? {}));
   }
 
-  async function evaluateOpenworkControl(expression, options = {}) {
+  async function evaluateOpenworkControl(expression) {
     const win = await getWindow();
-    if (options.focus === true) {
-      win.show();
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
+    // Commands mutate renderer state directly and do not require the desktop
+    // window to become active. Foreground activation must be an explicit
+    // affordance, never an implicit side effect of remote control.
     return win.webContents.executeJavaScript(expression, true);
   }
 
@@ -102,7 +100,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
           return { ok: false, error: "Missing OpenWork affordance id." };
         }
         return control[${JSON.stringify(command)}](input);
-      })()`, { focus: command === "command" });
+      })()`);
     }
     if (command === "execute") {
       return evaluateOpenworkControl(`(async () => {
@@ -114,7 +112,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
         }
         control.setEnabled?.(true);
         return control.execute(input.actionId, input.args ?? {});
-      })()`, { focus: true });
+      })()`);
     }
     return { ok: false, error: `Unknown OpenWork control command: ${command}` };
   }

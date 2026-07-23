@@ -977,7 +977,7 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
       },
     },
     openwork_execute: {
-      description: "Execute an OpenWork command whose executor is OpenWork. Use the exact id and arguments from openwork_context, and pass expectedRevision for UI commands to prevent stale writes. If the descriptor names another executor tool, call that tool instead.",
+      description: "Execute an OpenWork command whose executor is OpenWork without activating the desktop window. Use the exact id and arguments from openwork_context, and pass expectedRevision for UI commands to prevent stale writes. If the descriptor names another executor tool, call that tool instead.",
       args: openworkAffordanceRequestSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const mergedContext = { ...factoryContext, ...normalizeOpenCodeContext(context) };
@@ -1031,7 +1031,7 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
       },
     },
     openwork_ui_execute_action: {
-      description: `Execute an OpenWork UI action by its id. Use openwork_ui_list_actions first to see available actions. ${OPENWORK_UI_CONTROL_INSTRUCTION}`,
+      description: `Execute an OpenWork UI action by its id without activating the desktop window. Use openwork_ui_list_actions first to see available actions. ${OPENWORK_UI_CONTROL_INSTRUCTION}`,
       args: uiExecuteArgsSchema.shape,
       async execute(rawArgs: unknown) {
         const { actionId, args } = uiExecuteArgsSchema.parse(rawArgs);

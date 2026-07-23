@@ -239,7 +239,7 @@ server.tool(
 // ── ui.execute_action ──
 server.tool(
   "ui_execute_action",
-  "Execute an OpenWork UI action by its id. Use ui_list_actions first to see available actions and their required arguments.",
+  "Execute an OpenWork UI action by its id without activating the desktop window. Use ui_list_actions first to see available actions and their required arguments.",
   {
     actionId: z.string().describe("The action id from ui_list_actions, e.g. 'session.create_task' or 'composer.set_text'"),
     args: z.record(z.unknown()).optional().describe("JSON arguments for the action, if required"),
@@ -279,7 +279,7 @@ server.tool(
 // ── ui.command ──
 server.tool(
   "ui_command",
-  "Execute a semantic OpenWork command by id. Use ui_context first and pass its revision to prevent acting on stale UI state.",
+  "Execute a semantic OpenWork command by id while OpenWork remains in the background. Use ui_context first and pass its revision to prevent acting on stale UI state.",
   {
     id: z.string().describe("Command id from ui_context"),
     args: z.record(z.unknown()).optional().describe("JSON arguments for the command, if required"),
