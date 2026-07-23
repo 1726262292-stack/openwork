@@ -8,6 +8,7 @@ import {
   readOpenWorkConnectSkillCatalog,
   renderOpenWorkConnectSkillInstruction,
   resetOpenWorkConnectSkillCatalogCacheForTests,
+  type OpenWorkConnectSkill,
 } from "./connect-skill-catalog.js";
 import { readConnectCloudMcp, writeConnectCloudMcp } from "./connect-state.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -84,25 +85,68 @@ async function serverConfig(): Promise<ServerConfig> {
 }
 
 describe("OpenWork Connect skill catalog", () => {
-  test("renders bounded discovery metadata and capability retrieval guidance", () => {
+  test("renders discovery metadata and capability retrieval guidance", () => {
     const instruction = renderOpenWorkConnectSkillInstruction([{
       name: "customer-briefing",
       type: "skill-md",
+      title: "Customer Briefing",
       description: "Use for accounts & renewals <before calls>",
+      marketplaceName: "Revenue & Success",
+      pluginName: "Customer <Ops>",
       url: "skill://customer-briefing/SKILL.md",
       capability: "skill:skill_customer_briefing",
     }]);
 
     expect(instruction).toContain("<available_skills>");
+    expect(instruction).toContain("<title>Customer Briefing</title>");
     expect(instruction).toContain("<name>customer-briefing</name>");
     expect(instruction).toContain("Use for accounts &amp; renewals &lt;before calls&gt;");
+    expect(instruction).toContain("<marketplace>Revenue &amp; Success</marketplace>");
+    expect(instruction).toContain("<plugin>Customer &lt;Ops&gt;</plugin>");
     expect(instruction).toContain("<location>skill://customer-briefing/SKILL.md</location>");
     expect(instruction).toContain("<capability>skill:skill_customer_briefing</capability>");
     expect(instruction).toContain("openwork-cloud_execute_capability");
     expect(instruction).toContain("NEVER use the native Load Skill tool");
     expect(instruction).toContain("exact value from that skill's <capability> field");
     expect(instruction).toContain("Do not call openwork-cloud_search_capabilities first");
+    expect(instruction).toContain("transient HTTP 502, 503, or 504");
+    expect(instruction).toContain("retry the same capability once");
     expect(instruction).not.toContain("# Customer Briefing");
+  });
+
+  test("renders every authorized skill beyond the former count and character limits", () => {
+    const skills: OpenWorkConnectSkill[] = Array.from({ length: 150 }, (_, index) => ({
+      name: `marketplace-skill-${index}`,
+      type: "skill-md",
+      title: `Marketplace Skill ${index}`,
+      description: `Use marketplace skill ${index} when requested. ${"Detailed discovery context. ".repeat(12)}`,
+      marketplaceName: "Enterprise Marketplace",
+      pluginName: `Plugin ${index}`,
+      url: `skill://marketplace-skill-${index}/SKILL.md`,
+      capability: `plugin:plg_${index}:cob_${index}`,
+    }));
+
+    const instruction = renderOpenWorkConnectSkillInstruction(skills);
+
+    expect(instruction.length).toBeGreaterThan(32_000);
+    expect(instruction.match(/  <skill>/g)).toHaveLength(150);
+    expect(instruction).toContain("<title>Marketplace Skill 149</title>");
+    expect(instruction).toContain("<capability>plugin:plg_149:cob_149</capability>");
+  });
+
+  test("keeps older skill indexes compatible by falling back from title to name", () => {
+    const instruction = renderOpenWorkConnectSkillInstruction([{
+      name: "legacy-skill",
+      type: "skill-md",
+      description: "",
+      url: "skill://legacy-skill/SKILL.md",
+      capability: "skill:skill_legacy",
+    }]);
+
+    expect(instruction).toContain("<title>legacy-skill</title>");
+    expect(instruction).toContain("<description>legacy-skill</description>");
+    expect(instruction).not.toContain("<marketplace>");
+    expect(instruction).not.toContain("<plugin>");
   });
 
   test("omits the prompt block when no authorized skills exist", () => {
@@ -132,7 +176,10 @@ describe("OpenWork Connect skill catalog", () => {
               skills: [{
                 name: "customer-briefing",
                 type: "skill-md",
+                title: "Customer Briefing",
                 description: "Prepare customer briefings.",
+                marketplaceName: "Go To Market",
+                pluginName: "Revenue Operations",
                 url: "skill://customer-briefing/SKILL.md",
                 capability: "skill:skill_customer_briefing",
               }],
@@ -151,6 +198,12 @@ describe("OpenWork Connect skill catalog", () => {
 
     expect(skills).toHaveLength(1);
     expect(skills?.[0]?.capability).toBe("skill:skill_customer_briefing");
+    expect(skills?.[0]).toMatchObject({
+      title: "Customer Briefing",
+      description: "Prepare customer briefings.",
+      marketplaceName: "Go To Market",
+      pluginName: "Revenue Operations",
+    });
     expect(requests.map((request) => request.body.method)).toEqual([
       "initialize",
       "notifications/initialized",

@@ -38,9 +38,21 @@ const AGENT_SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export type RemoteSkillDescriptor = {
   name: string
-  description: string | null
+  title: string
+  description: string
+  marketplaceName?: string
+  pluginName?: string
   capability: string
   location: string
+}
+
+export function normalizeRemoteSkillDescription(input: {
+  description: string | null
+  name: string
+  title: string
+}): string {
+  const description = input.description?.replace(/\s+/g, " ").trim()
+  return (description || input.title.trim() || input.name).slice(0, 1_024)
 }
 
 export function standardSkillName(title: string, stableId: string): string {
@@ -524,7 +536,14 @@ export async function listAccessibleMarketplaceSkillDescriptors(input: {
     const name = standardSkillName(row.configObject.title, uniqueSuffix)
     descriptors.set(capability, {
       name,
-      description: row.configObject.description,
+      title: row.configObject.title,
+      description: normalizeRemoteSkillDescription({
+        description: row.configObject.description,
+        name,
+        title: row.configObject.title,
+      }),
+      marketplaceName: row.marketplace.name,
+      pluginName: row.plugin.name,
       capability,
       location: `skill://${name}/SKILL.md`,
     })
