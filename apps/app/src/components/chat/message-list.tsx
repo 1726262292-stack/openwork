@@ -62,6 +62,7 @@ import {
   MessageContent,
 } from "@/components/ui/message"
 import { Tool } from "@/components/ui/tool"
+import { CapabilityCallLine } from "@/components/chat/capability-call-line"
 import {
   isApplyPatchToolPart,
   isBashToolPart,
@@ -73,6 +74,7 @@ import {
   isQuestionToolPart,
   isReadToolPart,
   isSkillToolPart,
+  isTaskToolPart,
   isTodoWriteToolPart,
   isWebFetchToolPart,
   isWebSearchToolPart,
@@ -198,6 +200,13 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (part.type === "dynamic-tool" && part.toolName === "openwork_session_create") {
     return <OpenWorkSessionCreateTool part={part} />
+  }
+
+  // Sub-agent runs keep the generic card until the dedicated two-line
+  // rendering lands; failed calls keep it for the reconnect/Retry flow.
+  const isFailed = part.state === "output-error"
+  if (part.type === "dynamic-tool" && !isTaskToolPart(part) && !isFailed) {
+    return <CapabilityCallLine part={part} />
   }
 
   return (

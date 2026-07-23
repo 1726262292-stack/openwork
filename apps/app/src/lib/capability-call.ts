@@ -1,0 +1,207 @@
+import type { DynamicToolUIPart } from "ai"
+
+import { isToolPartInFlight } from "@/lib/tool-activity"
+
+/**
+ * Paper rendering rules — "Capability calls → sentences":
+ * never render raw JSON. Map connection name → service ("Granola"),
+ * tool name → verb ("Asking about…"), body.query → quoted plain text.
+ * IDs and schema digests live under "Technical details", collapsed.
+ */
+
+export type CapabilityCallSentence = {
+  /** Human service name, e.g. "Granola" or "OpenWork Cloud". */
+  service: string | null
+  /** Present-tense line while the call runs. */
+  present: string
+  /** Past-tense line once the call completed. */
+  past: string
+}
+
+const PAST_TENSE: Record<string, string> = {
+  ask: "Asked",
+  search: "Searched",
+  find: "Found",
+  get: "Fetched",
+  fetch: "Fetched",
+  list: "Listed",
+  read: "Read",
+  check: "Checked",
+  create: "Created",
+  add: "Added",
+  send: "Sent",
+  update: "Updated",
+  delete: "Deleted",
+  remove: "Removed",
+  execute: "Ran",
+  run: "Ran",
+  open: "Opened",
+}
+
+const PRESENT_TENSE: Record<string, string> = {
+  ask: "Asking",
+  search: "Searching",
+  find: "Finding",
+  get: "Fetching",
+  fetch: "Fetching",
+  list: "Listing",
+  read: "Reading",
+  check: "Checking",
+  create: "Creating",
+  add: "Adding",
+  send: "Sending",
+  update: "Updating",
+  delete: "Deleting",
+  remove: "Removing",
+  execute: "Running",
+  run: "Running",
+  open: "Opening",
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function titleCase(slug: string): string {
+  return slug
+    .split(/[-_.\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+}
+
+function humanize(slug: string): string {
+  return slug.split(/[-_.\s]+/).filter(Boolean).join(" ")
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+/** Pull a short human query out of a capability call input, if one exists. */
+function extractQuery(input: unknown): string | null {
+  if (!isRecord(input)) return null
+  const direct = input.query ?? input.q ?? input.search ?? input.prompt
+  if (typeof direct === "string" && direct.trim()) return truncate(direct.trim(), 80)
+  const body = input.body
+  if (isRecord(body)) {
+    const nested = body.query ?? body.q ?? body.search ?? body.prompt ?? body.question
+    if (typeof nested === "string" && nested.trim()) return truncate(nested.trim(), 80)
+  }
+  return null
+}
+
+/** "granola.ask-about-meetings" or "granola/ask_about_meetings" → parts. */
+function splitCapabilityName(name: string): { service: string; action: string } | null {
+  const separator = name.includes(".") ? "." : name.includes("/") ? "/" : null
+  if (!separator) return null
+  const index = name.indexOf(separator)
+  const service = name.slice(0, index)
+  const action = name.slice(index + 1)
+  if (!service || !action) return null
+  return { service: titleCase(service), action }
+}
+
+function verbPhrase(action: string, tense: "present" | "past"): string {
+  const words = action.split(/[-_.\s]+/).filter(Boolean)
+  const first = words[0]?.toLowerCase()
+  const mapped = first ? (tense === "past" ? PAST_TENSE[first] : PRESENT_TENSE[first]) : undefined
+  if (mapped) {
+    return [mapped, ...words.slice(1)].join(" ")
+  }
+  const prefix = tense === "past" ? "Used" : "Using"
+  return `${prefix} ${humanize(action)}`
+}
+
+/**
+ * Build the human sentence for a dynamic (MCP / capability) tool call.
+ * Tool names follow "{connection}_{tool}", e.g.
+ * "openwork-cloud_search_capabilities".
+ */
+export function getCapabilityCallSentence(part: DynamicToolUIPart): CapabilityCallSentence {
+  const toolName = part.toolName
+  const query = extractQuery(part.input)
+  const quoted = query ? ` “${query}”` : ""
+
+  if (toolName.endsWith("search_capabilities")) {
+    return {
+      service: null,
+      present: `Searching your connections for${quoted || " capabilities"}`,
+      past: `Searched your connections for${quoted || " capabilities"}`,
+    }
+  }
+
+  if (toolName.endsWith("execute_capability")) {
+    const name = isRecord(part.input) && typeof part.input.name === "string" ? part.input.name : null
+    const split = name ? splitCapabilityName(name) : null
+    if (split) {
+      const suffix = quoted ? ` —${quoted}` : ""
+      return {
+        service: split.service,
+        present: `${verbPhrase(split.action, "present")} · ${split.service}${suffix}`,
+        past: `${verbPhrase(split.action, "past")} · ${split.service}${suffix}`,
+      }
+    }
+    return {
+      service: null,
+      present: `Running a capability${quoted ? ` for${quoted}` : ""}`,
+      past: `Ran a capability${quoted ? ` for${quoted}` : ""}`,
+    }
+  }
+
+  // Generic "{connection}_{tool}" MCP tools.
+  const underscore = toolName.indexOf("_")
+  if (underscore > 0) {
+    const service = titleCase(toolName.slice(0, underscore))
+    const action = toolName.slice(underscore + 1)
+    const suffix = quoted ? ` —${quoted}` : ""
+    return {
+      service,
+      present: `${verbPhrase(action, "present")} · ${service}${suffix}`,
+      past: `${verbPhrase(action, "past")} · ${service}${suffix}`,
+    }
+  }
+
+  const suffix = quoted ? ` —${quoted}` : ""
+  return {
+    service: null,
+    present: `${verbPhrase(toolName, "present")}${suffix}`,
+    past: `${verbPhrase(toolName, "past")}${suffix}`,
+  }
+}
+
+/**
+ * Client-side duration tracking. Tool parts carry no timing metadata, so
+ * we record when a call is first seen in flight and freeze the elapsed
+ * time on completion. Restored history (never seen running) gets no
+ * duration rather than a fabricated one.
+ */
+const startedAtByCallId = new Map<string, number>()
+const durationByCallId = new Map<string, number>()
+
+export function trackCapabilityCallDuration(part: DynamicToolUIPart): string | null {
+  const callId = part.toolCallId
+  const frozen = durationByCallId.get(callId)
+  if (frozen !== undefined) return formatDuration(frozen)
+
+  if (isToolPartInFlight(part)) {
+    if (!startedAtByCallId.has(callId)) startedAtByCallId.set(callId, Date.now())
+    return null
+  }
+
+  const startedAt = startedAtByCallId.get(callId)
+  if (startedAt === undefined) return null
+  const elapsed = Date.now() - startedAt
+  durationByCallId.set(callId, elapsed)
+  startedAtByCallId.delete(callId)
+  return formatDuration(elapsed)
+}
+
+function formatDuration(ms: number): string {
+  const seconds = ms / 1000
+  if (seconds < 10) return `${Math.max(0.1, Number(seconds.toFixed(1)))}s`
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+  return `${minutes}m ${rest}s`
+}
