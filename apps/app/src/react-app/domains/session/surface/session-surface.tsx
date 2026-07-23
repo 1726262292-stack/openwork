@@ -148,6 +148,92 @@ function createMarkdownPrimitiveEvalMessages(sessionId: string) {
   return { messages, assistantMessageId };
 }
 
+/**
+ * Dev-only deterministic transcript exercising the Paper chat rules:
+ * sentence-style capability calls, aggregated tool runs, collapsed
+ * thinking, linkified bare URLs with favicons, and the FILES strip.
+ */
+function createChatTranscriptEvalMessages(sessionId: string) {
+  const now = Date.now();
+  const messages: UIMessage[] = [
+    {
+      id: `${sessionId}:eval-transcript-user`,
+      role: "user",
+      parts: [{
+        type: "text",
+        text: "Plan tomorrow around my calendar and check https://linear.app for open issues.",
+      }],
+      metadata: { opencode: { created: now } },
+    },
+    {
+      id: `${sessionId}:eval-transcript-assistant`,
+      role: "assistant",
+      parts: [
+        {
+          type: "reasoning",
+          text: "**Planning approach**\n\nCalendar first, then open issues, then draft the plan.",
+          state: "done",
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "openwork-cloud_execute_capability",
+          toolCallId: "eval-transcript-capability",
+          state: "output-available",
+          input: { name: "getCapabilitiesGoogleWorkspaceCalendarEvents", body: {} },
+          output: JSON.stringify({ events: 3 }),
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "bash",
+          toolCallId: "eval-transcript-bash-1",
+          state: "output-available",
+          input: { command: "git status --short", description: "Check repo state" },
+          output: "",
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "bash",
+          toolCallId: "eval-transcript-bash-2",
+          state: "output-available",
+          input: { command: "pnpm typecheck", description: "Typecheck the app" },
+          output: "",
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "edit",
+          toolCallId: "eval-transcript-edit-1",
+          state: "output-available",
+          input: { filePath: "/tmp/openwork-eval/plan-tomorrow.md", oldString: "", newString: "" },
+          output: "",
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "read",
+          toolCallId: "eval-transcript-read-1",
+          state: "output-available",
+          input: { filePath: "/tmp/openwork-eval/meeting-notes.md" },
+          output: "",
+        },
+        {
+          type: "dynamic-tool",
+          toolName: "granola_ask_about_meetings",
+          toolCallId: "eval-transcript-failed",
+          state: "output-error",
+          input: { body: { query: "What did we decide about pricing?" } },
+          errorText: "unauthorized",
+        },
+        {
+          type: "text",
+          text: "Your plan is drafted — details in [OpenWork](https://openworklabs.com). Search token: chat-transcript-proof.",
+        },
+      ],
+      metadata: { opencode: { created: now + 1 } },
+    },
+  ];
+
+  return { messages };
+}
+
 export type SessionSurfaceProps = {
   client: OpenworkServerClient;
   environmentClient?: OpenworkServerClient | null;
@@ -723,6 +809,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId]);
   useControlAction(props.isControlTarget ? seedMarkdownPrimitiveControlAction : null);
+  const seedChatTranscriptControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.chat_transcript.seed",
+      label: "Seed chat transcript proof",
+      description: "Dev-only eval hook that renders a deterministic transcript with capability calls, aggregated tools, thinking, links, and file chips.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      execute: () => {
+        const seeded = createChatTranscriptEvalMessages(props.sessionId);
+        setEvalMarkdownMessages(seeded.messages);
+        return { ok: true, messageCount: seeded.messages.length };
+      },
+    };
+  }, [props.sessionId]);
+  useControlAction(props.isControlTarget ? seedChatTranscriptControlAction : null);
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
