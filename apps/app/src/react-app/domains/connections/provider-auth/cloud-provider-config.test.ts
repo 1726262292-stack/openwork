@@ -1,6 +1,9 @@
 declare const describe: (name: string, fn: () => void) => void;
 declare const test: (name: string, fn: () => void) => void;
-declare const expect: (value: unknown) => { toBe: (expected: unknown) => void };
+declare const expect: (value: unknown) => {
+  toBe: (expected: unknown) => void;
+  toEqual: (expected: unknown) => void;
+};
 
 import type {
   DenOrgLlmProvider,
