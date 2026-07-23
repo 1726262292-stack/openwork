@@ -93,6 +93,25 @@ export function getAggregateSummary(parts: AnyToolPart[], tense: "present" | "pa
   return joined.charAt(0).toUpperCase() + joined.slice(1)
 }
 
+export function fileName(path: string): string {
+  const segments = path.split(/[/\\]/)
+  return segments[segments.length - 1] || path
+}
+
+/**
+ * File-family rows render as "Edited <name>" with the name clickable
+ * (absolute path stays in the tooltip, opens in the artifact view).
+ */
+export function getAggregateRowFile(part: AnyToolPart): { verb: string; path: string } | null {
+  const running = isToolPartInFlight(part)
+  const path = filePathOf(part)
+  if (!path) return null
+  if (isEditToolPart(part)) return { verb: running ? "Editing" : "Edited", path }
+  if (isWriteToolPart(part)) return { verb: running ? "Writing" : "Wrote", path }
+  if (isReadToolPart(part)) return { verb: running ? "Reading" : "Read", path }
+  return null
+}
+
 /** Monospace action text for an expanded aggregate row. */
 export function getAggregateRowLabel(part: AnyToolPart): string {
   if (isBashToolPart(part)) {

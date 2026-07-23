@@ -4,8 +4,11 @@ import { useState } from "react"
 import { ChevronRight } from "lucide-react"
 
 import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
+import { useOpenArtifactPath } from "@/lib/artifacts"
 import {
+  fileName,
   getAggregateNowLabel,
+  getAggregateRowFile,
   getAggregateRowLabel,
   getAggregateSummary,
   type AnyToolPart,
@@ -45,6 +48,7 @@ function failureReason(part: AnyToolPart): string | null {
  */
 export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps) {
   const groupKey = parts[0]?.toolCallId ?? "aggregate"
+  const openArtifactPath = useOpenArtifactPath()
   const [expanded, setExpandedState] = useState(() => expandedByGroupKey.get(groupKey) ?? false)
   const [showAll, setShowAllState] = useState(() => showAllByGroupKey.get(groupKey) ?? false)
 
@@ -121,9 +125,29 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                       />
                     )}
                   </span>
-                  <span className="min-w-0 truncate font-mono text-[11px]">
-                    {getAggregateRowLabel(part)}
-                  </span>
+                  {(() => {
+                    const file = getAggregateRowFile(part)
+                    if (!file) {
+                      return (
+                        <span className="min-w-0 truncate font-mono text-[11px]">
+                          {getAggregateRowLabel(part)}
+                        </span>
+                      )
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => openArtifactPath(file.path)}
+                        title={file.path}
+                        className="flex min-w-0 cursor-pointer items-baseline gap-1.5 text-start transition-colors hover:text-foreground"
+                      >
+                        <span className="shrink-0">{file.verb}</span>
+                        <span className="min-w-0 truncate font-mono text-[11px] underline-offset-2 hover:underline">
+                          {fileName(file.path)}
+                        </span>
+                      </button>
+                    )
+                  })()}
                   {durations[index] ? (
                     <span className="shrink-0 tabular-nums text-muted-foreground/70">
                       {durations[index]}
