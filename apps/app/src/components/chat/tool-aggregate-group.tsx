@@ -112,19 +112,11 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
             return (
               <div key={part.toolCallId} className="flex min-w-0 flex-col gap-0.5">
                 <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                  <span className="flex size-3.5 shrink-0 items-center justify-center">
-                    {status === "running" ? (
+                  {status === "running" ? (
+                    <span className="flex size-3.5 shrink-0 items-center justify-center">
                       <DotMatrixLoader label="Running" className="size-3 text-muted-foreground" />
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "size-1.5 rounded-full bg-muted-foreground",
-                          status === "failed" ? "opacity-90" : "opacity-60",
-                        )}
-                      />
-                    )}
-                  </span>
+                    </span>
+                  ) : null}
                   {(() => {
                     const file = getAggregateRowFile(part)
                     if (!file) {
@@ -155,7 +147,7 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                   ) : null}
                 </div>
                 {reason ? (
-                  <div className="ps-5.5 text-[11px] text-muted-foreground">failed — {reason}</div>
+                  <div className="text-[11px] text-muted-foreground">failed — {reason}</div>
                 ) : null}
               </div>
             )
@@ -164,7 +156,7 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
             <button
               type="button"
               onClick={() => setShowAll(true)}
-              className="w-fit ps-5.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              className="w-fit text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
               Show {hiddenCount} more
             </button>
