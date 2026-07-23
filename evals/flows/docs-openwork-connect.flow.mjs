@@ -116,7 +116,7 @@ export default {
                 hasScopedAccessCopy: bodyText.includes("organization membership, role, policy, and exposure allowlists"),
                 hasNoOpaqueAccessTokenClaim: !bodyText.includes("opaque bearer tokens") && !bodyText.includes("Access tokens are opaque"),
                 hasNoJwksClaim: !/\\bJWKS\\b/.test(bodyText),
-                hasCursorDesktopUnsupported: bodyText.includes("cursor://anysphere.cursor-mcp/oauth/callback") && bodyText.includes("Cursor Desktop OAuth is not currently supported"),
+                hasCursorDesktopCallbackPolicy: bodyText.includes("cursor://anysphere.cursor-mcp/oauth/callback") && bodyText.includes("PKCE S256 enforced"),
                 hasChatGptSettings: bodyText.includes("Settings > MCP servers"),
                 hasNoCimdClaim: !bodyText.includes("CIMD"),
               };
@@ -153,7 +153,7 @@ export default {
                 && actual.hasScopedAccessCopy === true
                 && actual.hasNoOpaqueAccessTokenClaim === true
                 && actual.hasNoJwksClaim === true
-                && actual.hasCursorDesktopUnsupported === true
+                && actual.hasCursorDesktopCallbackPolicy === true
                 && actual.hasChatGptSettings === true
                 && actual.hasNoCimdClaim === true,
               actual,

@@ -53,7 +53,7 @@ active organization and refreshes that first-party access automatically. Use
 | --- | --- | --- | --- |
 | OpenCode | Verified | Native remote MCP OAuth passed end-to-end implementation testing. | [OpenWork MCP for OpenCode](/model-context-protocol/opencode) |
 | Codex | Setup only | Add/login/reconnect steps are below; native remote MCP OAuth must be rerun on this exact branch before Codex is marked verified. | [OpenWork MCP for Codex](/model-context-protocol/codex) |
-| Cursor | Setup only | Cursor Web/Agents can use an HTTPS OAuth callback. Cursor Desktop OAuth requires `cursor://anysphere.cursor-mcp/oauth/callback`, which OpenWork's MCP profile intentionally rejects, so Cursor Desktop OAuth is not currently supported. | [OpenWork MCP for Cursor](/model-context-protocol/cursor) |
+| Cursor | Setup only | Cursor Web/Agents use an HTTPS OAuth callback. Cursor Desktop OAuth uses `cursor://anysphere.cursor-mcp/oauth/callback`, which OpenWork accepts through an exact private-use allowlist with PKCE S256 enforced. Native proof is not complete. | [OpenWork MCP for Cursor](/model-context-protocol/cursor) |
 | ChatGPT Desktop | Setup only | Setup guide only; use ChatGPT `Settings > MCP servers`. Native proof is not complete. | [OpenWork MCP for ChatGPT](/model-context-protocol/chatgpt) |
 | Claude Code | Setup only | Setup guide only; native proof is not complete. | [OpenWork MCP for Claude Code](/model-context-protocol/claude-code) |
 | Claude Desktop | Setup only | Setup guide only; native proof is not complete. | [OpenWork MCP for Claude Desktop](/model-context-protocol/claude-desktop) |
@@ -118,15 +118,15 @@ codex mcp login openwork
 
 Full guide: [OpenWork MCP for Codex](/model-context-protocol/codex).
 
-## Cursor Web/Agents setup-only guide
+## Cursor setup-only guide
 
-Use this guide only for Cursor Web/Agents flows that provide an HTTPS OAuth callback. Paste the OpenWork Connect endpoint where Cursor Web/Agents asks for the remote MCP server URL:
+Paste the OpenWork Connect endpoint where Cursor asks for the remote MCP server URL, then start OAuth from Cursor's connection prompt:
 
 ```text
 https://api.openworklabs.com/mcp/agent
 ```
 
-Cursor Desktop OAuth is not currently supported. The official desktop OAuth callback is `cursor://anysphere.cursor-mcp/oauth/callback`, and OpenWork's MCP profile intentionally rejects private-use callback schemes for public OAuth clients.
+Cursor Web/Agents use an HTTPS OAuth callback. Cursor Desktop OAuth uses the private-use callback `cursor://anysphere.cursor-mcp/oauth/callback`, which OpenWork accepts through an exact allowlist with PKCE S256 enforced, so intercepted authorization codes cannot be redeemed without the code verifier.
 
 Full guide: [OpenWork MCP for Cursor](/model-context-protocol/cursor).
 
@@ -174,7 +174,7 @@ OpenWork Connect is a remote Streamable HTTP MCP server with OAuth:
 - OAuth authorize and token requests must include exactly one `resource` value: `https://api.openworklabs.com/mcp/agent`.
 - Clients that need registration use dynamic client registration as a fallback during discovery.
 - PKCE is required for public/dynamic clients, and only the `S256` code challenge method is supported.
-- Redirect URIs must be HTTPS callbacks or HTTP loopback callbacks such as `http://127.0.0.1:<port>/callback`. Private-use callback schemes are not accepted for public OAuth clients.
+- Redirect URIs must be HTTPS callbacks or HTTP loopback callbacks such as `http://127.0.0.1:<port>/callback`. Private-use callback schemes are not accepted for public OAuth clients, except exact allowlisted callbacks for known native clients — currently Cursor Desktop's `cursor://anysphere.cursor-mcp/oauth/callback` — with PKCE S256 enforced.
 
 ## Token lifetime and refresh
 

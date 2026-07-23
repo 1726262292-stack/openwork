@@ -91,7 +91,8 @@ assert.ok(docsInstaller.includes(chatGptSettingsMatch[1]), "Docs installer is us
 assert.ok(!landingConfig.includes("CURSOR_DEEPLINK") && !docsInstaller.includes("CURSOR_DEEPLINK"), "Cursor desktop install deeplinks must not be exposed");
 assert.ok(!landingConfig.includes("cursor.com/en/install-mcp") && !docsInstaller.includes("cursor.com/en/install-mcp"), "Cursor add-to-desktop install links must not be exposed");
 assert.ok(!landingConfig.includes("~/.cursor/mcp.json") && !docsInstaller.includes("~/.cursor/mcp.json") && !cloudDocs.includes("~/.cursor/mcp.json"), "Cursor desktop mcp.json must not be shown as a working path");
-assert.ok(cloudDocs.includes("cursor://anysphere.cursor-mcp/oauth/callback"), "Cloud MCP docs must explain why Cursor Desktop OAuth is not currently supported");
+assert.ok(cloudDocs.includes("cursor://anysphere.cursor-mcp/oauth/callback"), "Cloud MCP docs must name the Cursor Desktop OAuth callback");
+assert.ok(cloudDocs.includes("exact allowlist with PKCE S256 enforced") || cloudDocs.includes("exact private-use allowlist with PKCE S256 enforced"), "Cloud MCP docs must explain how Cursor Desktop's private-use callback is accepted");
 assert.ok(cloudDocs.includes("Settings > MCP servers"), "Cloud MCP docs must use current ChatGPT Settings > MCP servers wording");
 
 for (const name of sharedValueNames) {

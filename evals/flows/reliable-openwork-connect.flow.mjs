@@ -33,7 +33,7 @@ const CLIENT_EXPECTATIONS = [
   {
     label: "Cursor",
     status: "Setup only",
-    oauthNeedles: ["Cursor Web/Agents", "cursor://anysphere.cursor-mcp/oauth/callback"],
+    oauthNeedles: ["cursor://anysphere.cursor-mcp/oauth/callback", "PKCE S256"],
   },
   {
     label: "Codex",
