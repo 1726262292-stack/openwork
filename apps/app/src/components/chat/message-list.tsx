@@ -53,6 +53,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge"
 import { Image } from "@/components/ui/image"
 import {
   Message,
@@ -226,11 +227,10 @@ interface FileMessageProps {
   tone: "user" | "assistant"
 }
 
-// TODO: Add tone to the file message
-function FileMessage({ part }: FileMessageProps) {
+function FileMessage({ part, tone }: FileMessageProps) {
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
-  const isImage = part.mediaType.startsWith("image/") && part.url
+  const isImage = part.mediaType.startsWith("image/") && Boolean(part.url)
   const downloadUrl = getSafeFileDownloadUrl(part)
 
   const handleDownload = React.useCallback(() => {
@@ -244,6 +244,10 @@ function FileMessage({ part }: FileMessageProps) {
     anchor.remove()
   }, [downloadUrl, title])
 
+  if (isImage && tone === "user") {
+    return <ImageAttachmentBadge src={part.url} alt={title} />
+  }
+
   if (isImage) {
     return (
       <Image
@@ -251,20 +255,23 @@ function FileMessage({ part }: FileMessageProps) {
         alt={title}
         loading="lazy"
         decoding="async"
+        previewMaxWidth={280}
+        previewMaxHeight={160}
+        className="rounded-xl border border-border/70"
       />
     )
   }
 
   return (
-    <div className="flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border ps-2 pe-2 py-1 text-left text-sm font-medium whitespace-normal">
+    <div className="flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border/70 bg-background/40 ps-2 pe-2 py-1 text-left text-sm font-medium whitespace-normal">
       <div className="flex min-w-0 items-center gap-2 pe-2">
         <DescriptiveButtonIcon>
-          <FileIcon className="size-6 shrink-0" />
+          <FileIcon className="size-5 shrink-0" />
         </DescriptiveButtonIcon>
         <DescriptiveButtonContent className="gap-0">
-          <DescriptiveButtonTitle>{title}</DescriptiveButtonTitle>
+          <DescriptiveButtonTitle className="truncate text-xs">{title}</DescriptiveButtonTitle>
           {badge ? (
-            <DescriptiveButtonDescription className="text-xs">
+            <DescriptiveButtonDescription className="text-[10px]">
               {badge}
             </DescriptiveButtonDescription>
           ) : null}
@@ -376,7 +383,7 @@ const AssistantMessage = React.memo(
 
             if (group.kind === "file") {
               return (
-                <div key={`file-${index}`} className="w-full">
+                <div key={`file-${index}`} className="w-fit max-w-full">
                   <FileMessage part={group.part} tone="assistant" />
                 </div>
               )
@@ -462,6 +469,11 @@ const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage, highlightQuery } = useMessageList()
     const messageText = React.useMemo(() => getMessagesText([message]), [message])
+    const inlineParts = React.useMemo(
+      () => message.parts.filter((part) => (part.type === "text" && Boolean(part.text)) || isFileUIPart(part)),
+      [message.parts],
+    )
+    const hasContent = inlineParts.length > 0
 
     return (
       <Message
@@ -471,17 +483,38 @@ const UserMessage = React.memo(
       >
         <ContextMenu>
           <ContextMenuTrigger
+            // Override Trigger's select-none so user bubbles stay copyable.
+            className="!select-text"
             render={
-              <div className="group flex w-full flex-col items-end gap-1">
-                {message.parts.filter(isFileUIPart).map((part, index) => (
-                  <FileMessage key={`${part.url}-${index}`} part={part} tone="user" />
-                ))}
-                {message.parts.some((part) => part.type === "text" && part.text) ? (
+              <div
+                className="group flex w-full flex-col items-end gap-1 !select-text"
+                style={{ userSelect: "text" }}
+              >
+                {hasContent ? (
                   <MessageContent
-                    layoutId={message.id}
-                    className="bg-muted text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
+                    className="bg-muted text-foreground max-w-[85%] rounded-3xl px-4 py-2.5 leading-6 sm:max-w-[75%] !select-text not-prose"
+                    style={{ userSelect: "text" }}
                   >
-                    {renderUserTextWithSkillChips(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""), highlightQuery)}
+                    {inlineParts.map((part, index) => {
+                      if (part.type === "text") {
+                        return (
+                          <span key={`text-${index}`} className="whitespace-pre-wrap">
+                            {renderUserTextWithSkillChips(part.text, highlightQuery)}
+                          </span>
+                        )
+                      }
+                      if (isFileUIPart(part)) {
+                        return (
+                          <span
+                            key={`file-${part.url}-${index}`}
+                            className="mx-1 inline-flex align-middle not-prose"
+                          >
+                            <FileMessage part={part} tone="user" />
+                          </span>
+                        )
+                      }
+                      return null
+                    })}
                   </MessageContent>
                 ) : null}
                 {!isStreaming && (

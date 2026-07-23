@@ -208,6 +208,13 @@ function messageToReadableText(message: UIMessage) {
     .flatMap((part) => {
       if (part.type === "text") return [part.text];
       if (part.type === "reasoning") return [part.text];
+      if (part.type === "file") {
+        const name = part.filename?.trim() || "file";
+        const url = part.url.startsWith("data:")
+          ? `data:${part.mediaType || "application/octet-stream"};base64,…`
+          : part.url;
+        return [`[file:${name}] ${url}`];
+      }
       if (part.type === "dynamic-tool") {
         if (part.state === "output-error") return [`[tool:${part.toolName}] ${part.errorText}`];
         if (part.state === "output-available") return [`[tool:${part.toolName}] ${JSON.stringify(part.output)}`];
@@ -819,8 +826,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
-    const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
+    const parts: ComposerPart[] = text.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
+      const attachmentMatch = segment.match(/^\[attachment (.+)\]$/);
+      if (attachmentMatch) {
+        // Attachment chips are visual tokens only; bytes travel via draft.attachments.
+        return [] as ComposerDraft["parts"];
+      }
       const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
       if (pasteMatch) {
         const target = pasteParts.find((item) => item.label === pasteMatch[1]);
@@ -847,6 +859,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const part of pasteParts) {
       resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
     }
+    resolved = resolved.replace(/\[attachment [^\]]+\]/g, "");
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
     for (const value of Object.keys(mentions)) {
       resolved = resolved.replaceAll(`@${encodeComposerMentionValue(value)}`, `@${value}`);
@@ -864,7 +877,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const handleComposerDraftChange = useCallback((value: string) => {
     setComposerDraft(props.sessionId, value);
-  }, [props.sessionId, setComposerDraft]);
+    const idsInDraft = new Set(
+      [...value.matchAll(/\[attachment ([^\]]+)\]/g)].map((match) => match[1]).filter((id): id is string => Boolean(id)),
+    );
+    const retained = attachments.filter((attachment) => idsInDraft.has(attachment.id));
+    if (retained.length === attachments.length) return;
+    for (const attachment of attachments) {
+      if (!idsInDraft.has(attachment.id)) revokeAttachmentPreview(attachment);
+    }
+    setComposerAttachments(props.sessionId, retained);
+  }, [attachments, props.sessionId, setComposerAttachments, setComposerDraft]);
 
   const handleCopyTranscript = async () => {
     try {
@@ -1068,7 +1090,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     const next = accepted.map((file) => {
       const metadata = resolveAttachmentFileMetadata(file);
       return {
-        id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+        id: `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
         name: file.name,
         mimeType: metadata.mime,
         size: file.size,
@@ -1078,6 +1100,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     });
     setComposerAttachments(props.sessionId, [...attachments, ...next]);
+    // Inline attachment chips live in the draft as Lexical tokens (same
+    // pattern as pasted-text chips), so they sit in the text flow.
+    setComposerDraft(
+      props.sessionId,
+      `${draft}${next.map((attachment) => `[attachment ${attachment.id}]`).join("")}`,
+    );
   };
 
   const handleRemoveAttachment = (id: string) => {
@@ -1086,6 +1114,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       URL.revokeObjectURL(target.previewUrl);
     }
     setComposerAttachments(props.sessionId, attachments.filter((item) => item.id !== id));
+    setComposerDraft(props.sessionId, draft.replaceAll(`[attachment ${id}]`, ""));
   };
 
   const handleInsertMention = (kind: ComposerMentionKind, value: string) => {

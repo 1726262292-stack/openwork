@@ -12,9 +12,11 @@ export type ImageProps = GeneratedImageLike &
   Omit<React.ComponentProps<"img">, "src"> & {
     alt: string
     previewMaxHeight?: number
+    previewMaxWidth?: number
   }
 
-const DEFAULT_PREVIEW_MAX_HEIGHT = 100
+const DEFAULT_PREVIEW_MAX_HEIGHT = 160
+const DEFAULT_PREVIEW_MAX_WIDTH = 280
 
 function getImageSrc({
   base64,
@@ -34,7 +36,9 @@ export const Image = ({
   className,
   alt,
   previewMaxHeight = DEFAULT_PREVIEW_MAX_HEIGHT,
+  previewMaxWidth = DEFAULT_PREVIEW_MAX_WIDTH,
   onLoad,
+  style,
   ...props
 }: ImageProps) => {
   const [objectUrl, setObjectUrl] = React.useState<string | undefined>(undefined)
@@ -59,7 +63,7 @@ export const Image = ({
   const imageSrc = src ?? base64Src ?? objectUrl
 
   const updateCanExpand = React.useCallback((image: HTMLImageElement) => {
-    if (previewMaxHeight <= 0) {
+    if (previewMaxHeight <= 0 && previewMaxWidth <= 0) {
       setCanExpand(false)
       return
     }
@@ -69,13 +73,10 @@ export const Image = ({
       return
     }
 
-    const renderedWidth = image.clientWidth || image.getBoundingClientRect().width
-    const renderedHeight = renderedWidth > 0
-      ? (image.naturalHeight / image.naturalWidth) * renderedWidth
-      : image.naturalHeight
-
-    setCanExpand(renderedHeight > previewMaxHeight)
-  }, [previewMaxHeight])
+    const widerThanPreview = previewMaxWidth > 0 && image.naturalWidth > previewMaxWidth
+    const tallerThanPreview = previewMaxHeight > 0 && image.naturalHeight > previewMaxHeight
+    setCanExpand(widerThanPreview || tallerThanPreview)
+  }, [previewMaxHeight, previewMaxWidth])
 
   React.useEffect(() => {
     setExpanded(false)
@@ -100,7 +101,7 @@ export const Image = ({
         aria-label={alt}
         role="img"
         className={cn(
-          "h-auto max-w-full animate-pulse overflow-hidden rounded-md bg-gray-100 dark:bg-neutral-800",
+          "h-24 w-40 animate-pulse overflow-hidden rounded-md bg-gray-100 dark:bg-neutral-800",
           className
         )}
         {...props}
@@ -108,13 +109,27 @@ export const Image = ({
     )
   }
 
+  const constrained = previewMaxHeight > 0 || previewMaxWidth > 0
+  const previewStyle = !expanded && constrained
+    ? {
+        ...style,
+        ...(previewMaxHeight > 0 ? { maxHeight: previewMaxHeight } : {}),
+        ...(previewMaxWidth > 0 ? { maxWidth: previewMaxWidth } : {}),
+      }
+    : style
+
   const image = (
     <img
       ref={imageRef}
       src={imageSrc}
       alt={alt}
-      className={cn("h-auto max-w-full overflow-hidden rounded-md", className)}
+      className={cn(
+        "h-auto w-auto overflow-hidden rounded-md object-contain",
+        expanded || !constrained ? "max-w-full" : null,
+        className
+      )}
       role="img"
+      style={previewStyle}
       onLoad={(event) => {
         updateCanExpand(event.currentTarget)
         onLoad?.(event)
@@ -123,16 +138,13 @@ export const Image = ({
     />
   )
 
-  if (previewMaxHeight <= 0) {
+  if (!constrained) {
     return image
   }
 
   return (
     <div className="inline-flex max-w-full flex-col items-start gap-1">
-      <div
-        className="relative max-w-full overflow-hidden rounded-md"
-        style={expanded ? undefined : { maxHeight: previewMaxHeight }}
-      >
+      <div className="relative inline-block max-w-full overflow-hidden rounded-md">
         {image}
         {!expanded && canExpand ? (
           <div className="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-background via-background/90 to-transparent pb-2 pt-8">

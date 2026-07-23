@@ -35,7 +35,8 @@ type MarkdownProfile = {
   shikiTheme: ShikiThemeConfig;
 };
 
-const MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT = 100;
+const MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT = 160;
+const MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH = 280;
 const CODE_COPY_ICON = `<svg data-openwork-code-copy-icon="" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
 const CODE_COPIED_ICON = `<svg data-openwork-code-copy-check-icon="" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true" hidden><path d="M20 6 9 17l-5-5"/></svg>`;
 
@@ -132,13 +133,10 @@ export function hasFencedCodeBlock(text: string) {
   return /(^|\n)```/.test(text);
 }
 
-function estimatedRenderedImageHeight(image: HTMLImageElement) {
-  if (!image.naturalWidth || !image.naturalHeight) return 0;
-
-  const renderedWidth = image.clientWidth || image.getBoundingClientRect().width;
-  return renderedWidth > 0
-    ? (image.naturalHeight / image.naturalWidth) * renderedWidth
-    : image.naturalHeight;
+function imageExceedsMarkdownPreview(image: HTMLImageElement) {
+  if (!image.naturalWidth || !image.naturalHeight) return false;
+  return image.naturalWidth > MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH
+    || image.naturalHeight > MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT;
 }
 
 export function syncMarkdownImagePreviews(root: HTMLElement) {
@@ -151,16 +149,17 @@ export function syncMarkdownImagePreviews(root: HTMLElement) {
     const button = preview.querySelector("[data-openwork-image-toggle]");
     if (!(image instanceof HTMLImageElement) || !(button instanceof HTMLButtonElement)) continue;
 
-    const previewable = estimatedRenderedImageHeight(image) > MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT;
+    const previewable = imageExceedsMarkdownPreview(image);
     button.hidden = !previewable;
 
-    if (!previewable) {
-      preview.style.maxHeight = "";
-      continue;
-    }
-
     const expanded = preview.dataset.openworkImagePreview === "expanded";
-    preview.style.maxHeight = expanded ? "" : `${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px`;
+    if (!previewable || expanded) {
+      image.style.maxHeight = "";
+      image.style.maxWidth = "";
+    } else {
+      image.style.maxHeight = `${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px`;
+      image.style.maxWidth = `${MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH}px`;
+    }
 
     const label = button.querySelector("[data-openwork-image-toggle-label]");
     if (label) label.textContent = expanded ? "Show less" : "Show full image";
@@ -278,7 +277,7 @@ function renderImage(profile: MarkdownProfile, href: string, title: string | nul
   const titleAttr = title ? ` title="${escapeAttribute(title)}"` : "";
 
   if (profile.imagePresentation === "chat") {
-    return `<span data-openwork-image-preview="collapsed" class="relative my-4 inline-block max-w-full overflow-hidden rounded-lg border border-border/70 align-top" style="max-height: ${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px"><img src="${safe}" alt="${escapeAttribute(text)}"${titleAttr} loading="lazy" decoding="async" class="block h-auto max-w-full"><button type="button" data-openwork-image-toggle="" hidden class="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-background via-background/90 to-transparent pb-2 pt-8"><span data-openwork-image-toggle-label="" class="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-medium text-foreground shadow-sm">Show full image</span></button></span>`;
+    return `<span data-openwork-image-preview="collapsed" class="relative my-4 inline-block max-w-full align-top"><img src="${safe}" alt="${escapeAttribute(text)}"${titleAttr} loading="lazy" decoding="async" class="block h-auto w-auto rounded-lg border border-border/70 object-contain" style="max-height: ${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px; max-width: ${MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH}px"><button type="button" data-openwork-image-toggle="" hidden class="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-background via-background/90 to-transparent pb-2 pt-8"><span data-openwork-image-toggle-label="" class="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-medium text-foreground shadow-sm">Show full image</span></button></span>`;
   }
 
   return `<img src="${safe}" alt="${escapeAttribute(text)}"${titleAttr} loading="lazy" decoding="async" class="my-4 max-w-full rounded-[18px] border border-dls-border/70">`;
