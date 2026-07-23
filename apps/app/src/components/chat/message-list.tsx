@@ -63,6 +63,7 @@ import {
 } from "@/components/ui/message"
 import { Tool } from "@/components/ui/tool"
 import { CapabilityCallLine } from "@/components/chat/capability-call-line"
+import { ReasoningBlock } from "@/components/chat/reasoning-block"
 import { SubagentRunLine } from "@/components/chat/subagent-run-line"
 import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group"
 import {
@@ -393,13 +394,11 @@ const AssistantMessage = React.memo(
 
             if (group.kind === "reasoning") {
               return (
-                <MessageContent
+                <ReasoningBlock
                   key={`reasoning-${index}`}
-                  className="text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
-                  markdown
-                >
-                  {group.text}
-                </MessageContent>
+                  text={group.text}
+                  isStreaming={group.isStreaming}
+                />
               )
             }
 

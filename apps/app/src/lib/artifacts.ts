@@ -350,6 +350,22 @@ export function useArtifacts(messages: UIMessage[], options: GetArtifactsOptions
   );
 }
 
+/** Open any file path in the artifact preview panel (markdown, code, images…). */
+export function useOpenArtifactPath() {
+  const { openTargets, onOpenTarget } = useOpenTargets();
+
+  return React.useCallback((path: string) => {
+    const normalized = normalizeArtifactPath(path);
+    const target = openTargetFromArtifactPath(
+      normalized,
+      getArtifactName(normalized),
+      getArtifactType(normalized),
+      openTargets,
+    );
+    onOpenTarget?.(target);
+  }, [onOpenTarget, openTargets]);
+}
+
 export function usePreviewArtifact() {
   const { onOpenTarget } = useOpenTargets();
 
