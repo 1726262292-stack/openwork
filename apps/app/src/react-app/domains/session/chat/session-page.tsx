@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { ArrowLeft, ArrowRight, Cloud, Columns2, FileText, Globe, Mic2, Settings2, TextSearch, X, Zap } from "lucide-react";
+import { Cloud, Columns2, FileText, Globe, Mic2, Settings2, TextSearch, X, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
@@ -1021,6 +1021,11 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
+          conversationHistory={{
+            canGoBack: canGoBackInConversationHistory,
+            canGoForward: canGoForwardInConversationHistory,
+            onNavigate: navigateConversationHistory,
+          }}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         />
@@ -1157,46 +1162,6 @@ export function SessionPage(props: SessionPageProps) {
                 <div className="flex h-full min-h-0 flex-col">
                   {sessionTabs.length > 0 ? (
                     <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background/80 px-2 mac:backdrop-blur-xl">
-                      <div className="flex shrink-0 items-center gap-0.5 pr-1" role="group" aria-label="Conversation history controls">
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:opacity-40"
-                                aria-label="Back in conversation history"
-                                title="Back in conversation history"
-                                data-conversation-history-control="back"
-                                disabled={!canGoBackInConversationHistory}
-                                onClick={() => navigateConversationHistory("back")}
-                              >
-                                <ArrowLeft size={14} />
-                              </Button>
-                            }
-                          />
-                          <TooltipContent>Back in conversation history</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:opacity-40"
-                                aria-label="Forward in conversation history"
-                                title="Forward in conversation history"
-                                data-conversation-history-control="forward"
-                                disabled={!canGoForwardInConversationHistory}
-                                onClick={() => navigateConversationHistory("forward")}
-                              >
-                                <ArrowRight size={14} />
-                              </Button>
-                            }
-                          />
-                          <TooltipContent>Forward in conversation history</TooltipContent>
-                        </Tooltip>
-                      </div>
                       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
                         {sessionTabs.map((tab) => {
                           const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, tab.sessionId) || t("session.default_title");
