@@ -371,7 +371,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const params = useParams<{ workspaceId?: string }>();
   const routeWorkspaceId = props.workspaceId?.trim() || params.workspaceId?.trim() || "";
   const local = useLocal();
-  const { memoryEnabled, toggleMemory } = useFeatureFlagsPreferences();
+  const {
+    memoryEnabled,
+    toggleMemory,
+    uiArtifactsEnabled,
+    enabledUiArtifactIds,
+    toggleUiArtifacts,
+    toggleUiArtifact,
+  } = useFeatureFlagsPreferences();
   const platform = usePlatform();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
@@ -2243,6 +2250,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             memoryEnabled={memoryEnabled}
             onToggleMemory={toggleMemory}
+            uiArtifactsEnabled={uiArtifactsEnabled}
+            enabledUiArtifactIds={enabledUiArtifactIds}
+            onToggleUiArtifacts={toggleUiArtifacts}
+            onToggleUiArtifact={toggleUiArtifact}
           />
         );
       case "shell":

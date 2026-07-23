@@ -45,6 +45,11 @@ import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
+import {
+  UI_ARTIFACT_USE_CAPABILITY,
+  uiArtifactRenderResultSchema,
+  type UiArtifactRenderResult,
+} from "@openwork/types/ui-artifact";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { useReactRenderWatchdog } from "@/react-app/shell/react-render-watchdog";
 import { SessionDebugPanel } from "./debug-panel";
@@ -141,6 +146,37 @@ function createMarkdownPrimitiveEvalMessages(sessionId: string) {
       id: assistantMessageId,
       role: "assistant",
       parts: [{ type: "text", text: MARKDOWN_PRIMITIVE_EVAL_TEXT }],
+      metadata: { opencode: { created: Date.now() + 1 } },
+    },
+  ];
+
+  return { messages, assistantMessageId };
+}
+
+function createUiArtifactEvalMessages(
+  sessionId: string,
+  result: UiArtifactRenderResult,
+) {
+  const userMessageId = `${sessionId}:eval-ui-artifact-user`;
+  const assistantMessageId = `${sessionId}:eval-ui-artifact-assistant`;
+  const messages: UIMessage[] = [
+    {
+      id: userMessageId,
+      role: "user",
+      parts: [{ type: "text", text: `Show ${result.artifact.title} as a native UI artifact.` }],
+      metadata: { opencode: { created: Date.now() } },
+    },
+    {
+      id: assistantMessageId,
+      role: "assistant",
+      parts: [{
+        type: "dynamic-tool",
+        toolName: "openwork-cloud_execute_capability",
+        toolCallId: `${assistantMessageId}:render`,
+        state: "output-available",
+        input: { name: UI_ARTIFACT_USE_CAPABILITY },
+        output: result,
+      }],
       metadata: { opencode: { created: Date.now() + 1 } },
     },
   ];
@@ -723,6 +759,31 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId]);
   useControlAction(props.isControlTarget ? seedMarkdownPrimitiveControlAction : null);
+  const seedUiArtifactControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.ui_artifact.seed_chat",
+      label: "Seed UI artifact chat proof",
+      description: "Dev-only eval hook that renders a validated execute_capability artifact receipt.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      execute: (args) => {
+        const candidate = args && typeof args === "object" && "result" in args
+          ? (args as { result?: unknown }).result
+          : args;
+        const result = uiArtifactRenderResultSchema.parse(candidate);
+        const seeded = createUiArtifactEvalMessages(props.sessionId, result);
+        setEvalMarkdownMessages(seeded.messages);
+        return {
+          ok: true,
+          assistantMessageId: seeded.assistantMessageId,
+          artifactId: result.artifact.artifactId,
+        };
+      },
+    };
+  }, [props.sessionId]);
+  useControlAction(props.isControlTarget ? seedUiArtifactControlAction : null);
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),

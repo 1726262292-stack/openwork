@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { ArrowLeft, ArrowRight, Cloud, Columns2, FileText, Globe, Mic2, Settings2, TextSearch, X, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cloud, Columns2, FileText, Globe, LayoutDashboard, Mic2, Settings2, TextSearch, X, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
@@ -64,12 +64,14 @@ import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTa
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
+import { UiArtifactCatalogPanel } from "../ui-artifacts/ui-artifact-catalog-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
 import { cn } from "@/lib/utils";
+import { useFeatureFlagsPreferences } from "../../settings/state/feature-flags-preferences";
 import {
   canNavigateSelectedConversationHistory,
   createConversationTabHistory,
@@ -299,6 +301,7 @@ function controlStringArg(args: unknown, key: string) {
 
 export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
+  const { uiArtifactsEnabled } = useFeatureFlagsPreferences();
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
@@ -334,6 +337,7 @@ export function SessionPage(props: SessionPageProps) {
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
   const extensionsRailActive = activeSidePanel === "extensions";
+  const uiArtifactsRailActive = activeSidePanel === "ui-artifacts";
   const voiceRailActive = activeSidePanel === "voice";
   const voiceExtension = useMemo(
     () => OPENWORK_EXTENSION_CATALOG.find((entry) => getExtensionId(entry) === "openwork-voice") ?? null,
@@ -609,6 +613,9 @@ export function SessionPage(props: SessionPageProps) {
   const openExtensionsRailPane = useCallback(() => {
     toggleCurrentSidePanel("extensions");
   }, [toggleCurrentSidePanel]);
+  const openUiArtifactsRailPane = useCallback(() => {
+    toggleCurrentSidePanel("ui-artifacts");
+  }, [toggleCurrentSidePanel]);
   const openVoiceRailPane = useCallback(() => {
     toggleCurrentSidePanel("voice");
   }, [toggleCurrentSidePanel]);
@@ -660,6 +667,11 @@ export function SessionPage(props: SessionPageProps) {
       setCurrentSidePanel(null);
     }
   }, [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
+  useEffect(() => {
+    if (activeSidePanel === "ui-artifacts" && !uiArtifactsEnabled) {
+      setCurrentSidePanel(null);
+    }
+  }, [activeSidePanel, setCurrentSidePanel, uiArtifactsEnabled]);
 
   const openVoicePanelControlAction = useMemo<OpenworkControlAction | null>(() => (
     voiceExtensionEnabled ? {
@@ -1500,8 +1512,8 @@ export function SessionPage(props: SessionPageProps) {
                 <ResizableHandle withHandle className="hidden lg:flex" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
-                  defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
-                  minSize={activeSidePanel === "extensions" ? "420px" : "320px"}
+                  defaultSize={`${activeSidePanel === "extensions" || activeSidePanel === "ui-artifacts" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
+                  minSize={activeSidePanel === "extensions" || activeSidePanel === "ui-artifacts" ? "420px" : "320px"}
                   maxSize="70%"
                   className="min-h-0 overflow-hidden lg:flex lg:flex-col"
                 >
@@ -1509,6 +1521,8 @@ export function SessionPage(props: SessionPageProps) {
                     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
                       {props.settingsSlot}
                     </div>
+                  ) : activeSidePanel === "ui-artifacts" ? (
+                    <UiArtifactCatalogPanel onClose={closeRightPane} />
                   ) : activeSidePanel === "voice" ? (
                     <VoicePanel
                       client={props.openworkServerClient}
@@ -1597,6 +1611,24 @@ export function SessionPage(props: SessionPageProps) {
             >
               <Settings2 size={17} />
             </Button>
+            {uiArtifactsEnabled ? (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "rounded-xl border transition-colors hover:bg-muted hover:text-foreground",
+                  uiArtifactsRailActive
+                    ? "border-border bg-muted text-foreground shadow-sm ring-2 ring-muted/70"
+                    : "border-transparent",
+                )}
+                onClick={openUiArtifactsRailPane}
+                title="UI Artifacts"
+                aria-label="UI Artifacts"
+                aria-pressed={uiArtifactsRailActive}
+              >
+                <LayoutDashboard size={17} />
+              </Button>
+            ) : null}
           </aside>
           </div>
         </SidebarInset>
