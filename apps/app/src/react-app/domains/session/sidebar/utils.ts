@@ -18,14 +18,34 @@ export type SessionTreeState = {
 export const isSessionArchived = (session: SessionListItem): boolean =>
   typeof session.time?.archived === "number" && session.time.archived > 0;
 
-export const isStreamingSessionStatus = (status: string | undefined) =>
+/** Active agent work shown as the left-lane loader (never a completion / unread state). */
+export const isActiveWorkSessionStatus = (status: string | undefined) =>
   status === "running" ||
   status === "busy" ||
   status === "retry" ||
   status === "streaming" ||
   status === "thinking" ||
   status === "responding" ||
+  status === "compacting";
+
+/** Waiting is "needs you" on the right edge — not left-lane activity. */
+export const isStreamingSessionStatus = (status: string | undefined) =>
+  isActiveWorkSessionStatus(status) || status === "waiting";
+
+export const isNeedsAttentionSessionStatus = (status: string | undefined) =>
   status === "waiting";
+
+export function formatSessionRelativeTime(updatedAt: number | null | undefined): string | null {
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt) || updatedAt <= 0) return null;
+  const ms = updatedAt < 1_000_000_000_000 ? updatedAt * 1000 : updatedAt;
+  const seconds = Math.max(1, Math.round((Date.now() - ms) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
 
 const normalizeSessionParentID = (session: SessionListItem) => {
   const parentID = session.parentID?.trim();

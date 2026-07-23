@@ -731,6 +731,8 @@ export default {
   "welcome.title": "Добро пожаловать в OpenWork",
   "welcome.subtitle": "Ваш компьютер, но он работает для вас.",
   "welcome.get_started": "Начать",
+  "welcome.sign_in_cloud": "Войти в OpenWork Cloud",
+  "welcome.use_without_cloud": "Использовать без облака",
   "welcome.capability_spreadsheets": "Редактировать таблицы",
   "welcome.capability_spreadsheets_desc": "Создавайте, очищайте и преобразуйте CSV- и Excel-файлы.",
   "welcome.capability_browser": "Управлять браузером",
