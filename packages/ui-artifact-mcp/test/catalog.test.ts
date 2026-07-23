@@ -4,14 +4,16 @@ import {
   UI_ARTIFACT_KINDS,
   UI_ARTIFACT_USE_CAPABILITY,
   uiArtifactActionSchema,
-  uiArtifactCalendarDaySchema,
+  uiArtifactCalendarSchema,
   uiArtifactRenderInputSchema,
   uiArtifactRenderResultSchema,
+  uiArtifactWidgetsSchema,
 } from "@openwork/types/ui-artifact"
 import {
-  CALENDAR_DAY_EXAMPLE,
+  CALENDAR_EXAMPLE,
   COMMUNICATION_THREAD_EXAMPLE,
   UiArtifactMockStore,
+  WIDGETS_EXAMPLE,
   resolveRenderArtifactInput,
   searchArtifacts,
   searchArtifactsInputSchema,
@@ -30,12 +32,12 @@ test("calendar tool metadata ranks the calendar artifact first", () => {
 
   const result = searchArtifacts(input)
   assert.deepEqual(searchArtifacts(input), result)
-  assert.equal(result.matches[0]?.artifactId, "calendar.day")
+  assert.equal(result.matches[0]?.artifactId, "calendar.view")
   assert.equal(result.matches[0]?.toolDefinition.name, "use_artifact")
   assert.equal(result.matches[0]?.toolDefinition.artifactVersion, "1")
   assert.equal(
     result.matches[0]?.toolDefinition.schemaDigest,
-    "sha256:b042a7d37df336c833c096e44ae8919ae6e96861850fb1c28b5fdf9e7fc28c4c",
+    "sha256:f93d4c65c4352c6857d29bd8c9826b2ced7f4b8561e37ebfc05d2da50c33fe83",
   )
   assert.deepEqual(result.matches[0]?.toolDefinition.invocation, {
     toolName: "use_artifact",
@@ -74,15 +76,36 @@ test("capability transport returns an execute_capability use definition", () => 
 
 test("every catalog kind can be enabled without an unknown value", () => {
   assert.deepEqual([...UI_ARTIFACT_KINDS].sort(), [
-    "calendar.day",
+    "calendar.view",
     "communication.thread",
     "mail.inbox",
-    "metrics.glance",
+    "widgets.collection",
     "work.approvals",
     "work.attention",
-    "work.progress",
     "workspace.brief",
   ])
+})
+
+test("calendar is one artifact with day, agenda, and week variants", () => {
+  for (const variant of ["day", "agenda", "week"] as const) {
+    const artifact = {
+      ...CALENDAR_EXAMPLE,
+      data: {
+        ...CALENDAR_EXAMPLE.data,
+        variant,
+      },
+    }
+    assert.equal(uiArtifactCalendarSchema.safeParse(artifact).success, true)
+  }
+})
+
+test("widgets combine heterogeneous widget kinds in one collection", () => {
+  const parsed = uiArtifactWidgetsSchema.parse(WIDGETS_EXAMPLE)
+  assert.deepEqual(
+    [...new Set(parsed.data.widgets.map((widget) => widget.kind))].sort(),
+    ["balance", "date", "metric", "progress", "status"],
+  )
+  assert.equal(parsed.data.layout, "grid")
 })
 
 test("stateful approval decisions are revision-safe and update later actions", () => {
@@ -137,9 +160,9 @@ test("stateful approval decisions are revision-safe and update later actions", (
 })
 
 test("render result validates the shared contract and narrates visible data", () => {
-  const result = renderUiArtifact(CALENDAR_DAY_EXAMPLE)
+  const result = renderUiArtifact(CALENDAR_EXAMPLE)
   assert.equal(uiArtifactRenderResultSchema.safeParse(result).success, true)
-  assert.match(result.narration.summary, /4 calendar events/)
+  assert.match(result.narration.summary, /day calendar variant with 4 events/)
   assert.equal(result.artifact.instanceId, "demo-calendar-2026-07-23")
 })
 
@@ -185,7 +208,7 @@ test("render input is bound to the searched schema and mock alpha capabilities",
   assert.equal(digestResult.ok, false)
   if (!digestResult.ok) assert.equal(digestResult.code, "schema_digest_mismatch")
 
-  const artifact = uiArtifactCalendarDaySchema.parse(input.artifact)
+  const artifact = uiArtifactCalendarSchema.parse(input.artifact)
   const replaceResult = resolveRenderArtifactInput({
     ...input,
     artifact: { ...artifact, operation: "replace" },

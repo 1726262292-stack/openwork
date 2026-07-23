@@ -1,7 +1,7 @@
 import type { UiArtifactPayload } from "@openwork/types/ui-artifact"
 
-export const CALENDAR_DAY_EXAMPLE = {
-  artifactId: "calendar.day",
+export const CALENDAR_EXAMPLE = {
+  artifactId: "calendar.view",
   instanceId: "demo-calendar-2026-07-23",
   revision: 1,
   operation: "create",
@@ -16,7 +16,9 @@ export const CALENDAR_DAY_EXAMPLE = {
     observedAt: "2026-07-23T08:30:00+02:00",
   },
   data: {
-    date: "2026-07-23",
+    variant: "day",
+    startDate: "2026-07-23",
+    endDate: "2026-07-23",
     timezone: "Europe/Berlin",
     events: [
       {
@@ -66,6 +68,12 @@ export const CALENDAR_DAY_EXAMPLE = {
       start: "2026-07-23T16:00:00+02:00",
       end: "2026-07-23T18:30:00+02:00",
       label: "Best focus window",
+    },
+    action: {
+      id: "open-calendar",
+      label: "Open calendar",
+      type: "open_url",
+      url: "https://calendar.google.com/calendar/u/0/r/day",
     },
   },
 } satisfies UiArtifactPayload
@@ -242,48 +250,13 @@ export const ATTENTION_EXAMPLE = {
   },
 } satisfies UiArtifactPayload
 
-export const METRICS_GLANCE_EXAMPLE = {
-  artifactId: "metrics.glance",
-  instanceId: "demo-today-metrics",
-  revision: 1,
-  operation: "create",
-  title: "Your day at a glance",
-  subtitle: "A compact summary across connected work",
-  presentation: { placement: "inline", size: "standard" },
-  source: {
-    type: "mock",
-    label: "UI Artifacts demo",
-    provider: "OpenWork Connect",
-    observedAt: "2026-07-23T08:30:00+02:00",
-  },
-  data: {
-    metrics: [
-      { id: "meetings", label: "Meetings", value: "4", detail: "Today", tone: "info" },
-      { id: "replies", label: "Replies", value: "3", detail: "Need response", tone: "warning" },
-      { id: "tasks", label: "Tasks", value: "5", detail: "Due today", tone: "success" },
-      { id: "critical", label: "Critical", value: "1", detail: "P1 incident", tone: "critical" },
-    ],
-    focusWindow: {
-      start: "2026-07-23T16:00:00+02:00",
-      end: "2026-07-23T18:30:00+02:00",
-      label: "Best focus window",
-    },
-    action: {
-      id: "open-calendar",
-      label: "Open calendar",
-      type: "open_url",
-      url: "https://calendar.google.com/calendar/u/0/r/day",
-    },
-  },
-} satisfies UiArtifactPayload
-
-export const PROGRESS_EXAMPLE = {
-  artifactId: "work.progress",
-  instanceId: "demo-work-progress",
+export const WIDGETS_EXAMPLE = {
+  artifactId: "widgets.collection",
+  instanceId: "demo-work-widgets",
   revision: 1,
   operation: "create",
   title: "Your widgets",
-  subtitle: "Goals, learning, payroll, and leave",
+  subtitle: "A combined view across your connected work",
   presentation: { placement: "inline", size: "standard" },
   source: {
     type: "mock",
@@ -292,11 +265,62 @@ export const PROGRESS_EXAMPLE = {
     observedAt: "2026-07-23T10:15:00+02:00",
   },
   data: {
-    items: [
-      { id: "goals", label: "Q3 goals", value: "72%", detail: "On track", progress: 72, tone: "success" },
-      { id: "learning", label: "Learning", value: "2 of 5", detail: "Courses in progress", progress: 40, tone: "info" },
-      { id: "payroll", label: "Next payslip", value: "Jul 31", detail: "8 days", tone: "neutral" },
-      { id: "leave", label: "Leave balance", value: "14 days", detail: "Available", tone: "success" },
+    layout: "grid",
+    widgets: [
+      {
+        id: "meetings",
+        kind: "metric",
+        label: "Meetings",
+        value: "4",
+        detail: "Today",
+        tone: "info",
+        trend: { direction: "flat", label: "Same as yesterday" },
+      },
+      {
+        id: "goals",
+        kind: "progress",
+        label: "Q3 goals",
+        value: "72%",
+        detail: "On track",
+        progress: 72,
+        tone: "success",
+      },
+      {
+        id: "incident",
+        kind: "status",
+        label: "Payment service",
+        value: "Needs attention",
+        detail: "P1 latency incident",
+        status: "attention",
+        tone: "critical",
+      },
+      {
+        id: "leave",
+        kind: "balance",
+        label: "Leave balance",
+        value: "14",
+        unit: "days",
+        detail: "Available",
+        tone: "success",
+      },
+      {
+        id: "payroll",
+        kind: "date",
+        label: "Next payslip",
+        value: "Jul 31",
+        timestamp: "2026-07-31T09:00:00+02:00",
+        detail: "8 days",
+        tone: "neutral",
+      },
+      {
+        id: "learning",
+        kind: "progress",
+        label: "Learning",
+        value: "2 of 5",
+        detail: "Courses in progress",
+        progress: 40,
+        tone: "info",
+      },
     ],
   },
 } satisfies UiArtifactPayload
@@ -399,10 +423,20 @@ export const WORKSPACE_BRIEF_EXAMPLE = {
   },
   data: {
     summary: "You have four meetings, three messages likely needing a reply, one critical incident, and two approvals waiting.",
-    metrics: METRICS_GLANCE_EXAMPLE.data.metrics,
-    schedule: CALENDAR_DAY_EXAMPLE.data.events,
+    metrics: [
+      { id: "meetings", label: "Meetings", value: "4", detail: "Today", tone: "info" },
+      { id: "replies", label: "Replies", value: "3", detail: "Need response", tone: "warning" },
+      { id: "tasks", label: "Tasks", value: "5", detail: "Due today", tone: "success" },
+      { id: "critical", label: "Critical", value: "1", detail: "P1 incident", tone: "critical" },
+    ],
+    schedule: CALENDAR_EXAMPLE.data.events,
     attention: ATTENTION_EXAMPLE.data.items,
-    progress: PROGRESS_EXAMPLE.data.items,
+    progress: [
+      { id: "goals", label: "Q3 goals", value: "72%", detail: "On track", progress: 72, tone: "success" },
+      { id: "learning", label: "Learning", value: "2 of 5", detail: "Courses in progress", progress: 40, tone: "info" },
+      { id: "payroll", label: "Next payslip", value: "Jul 31", detail: "8 days", tone: "neutral" },
+      { id: "leave", label: "Leave balance", value: "14 days", detail: "Available", tone: "success" },
+    ],
     quickActions: [
       {
         id: "open-calendar",
@@ -428,11 +462,10 @@ export const WORKSPACE_BRIEF_EXAMPLE = {
 
 export const UI_ARTIFACT_EXAMPLES = [
   WORKSPACE_BRIEF_EXAMPLE,
-  CALENDAR_DAY_EXAMPLE,
+  CALENDAR_EXAMPLE,
+  WIDGETS_EXAMPLE,
   COMMUNICATION_THREAD_EXAMPLE,
   MAIL_INBOX_EXAMPLE,
   ATTENTION_EXAMPLE,
   APPROVALS_EXAMPLE,
-  PROGRESS_EXAMPLE,
-  METRICS_GLANCE_EXAMPLE,
 ] satisfies readonly UiArtifactPayload[]

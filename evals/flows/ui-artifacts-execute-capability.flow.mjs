@@ -13,13 +13,12 @@ import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 const FLOW_ID = "ui-artifacts-execute-capability";
 const ARTIFACT_IDS = [
   "workspace.brief",
-  "calendar.day",
+  "calendar.view",
+  "widgets.collection",
   "communication.thread",
   "mail.inbox",
   "work.attention",
   "work.approvals",
-  "work.progress",
-  "metrics.glance",
 ];
 const SEARCH_CAPABILITY = "openwork.ui_artifacts.search";
 const USE_CAPABILITY = "openwork.ui_artifacts.use";
@@ -31,7 +30,12 @@ const vo = await loadVoiceoverParagraphs(FLOW_ID);
 const state = {
   sessionToken: null,
   organizationId: null,
+  mcpToken: null,
   briefResult: null,
+  widgetsResult: null,
+  calendarDayResult: null,
+  calendarAgendaResult: null,
+  calendarWeekResult: null,
   approvalResult: null,
   approvalUpdatedResult: null,
 };
@@ -39,6 +43,19 @@ const state = {
 function parseToolText(result) {
   const text = result?.content?.find((entry) => entry?.type === "text")?.text;
   return typeof text === "string" ? JSON.parse(text) : null;
+}
+
+async function setUiArtifactPreferences(ctx, enabled) {
+  const preferences = await denApiFetch("/v1/me/ui-artifacts", {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${state.sessionToken}`,
+      "x-openwork-legacy-org-id": state.organizationId,
+    },
+    body: JSON.stringify({ enabled, enabledArtifactIds: ARTIFACT_IDS }),
+  });
+  ctx.assert(preferences.response.ok, `Could not ${enabled ? "enable" : "disable"} UI artifacts: ${preferences.response.status}`);
+  ctx.assert(preferences.body.enabled === enabled, `Den did not persist the ${enabled ? "enabled" : "disabled"} artifact preference.`);
 }
 
 async function prepareCloud(ctx) {
@@ -61,16 +78,7 @@ async function prepareCloud(ctx) {
     ctx.assert(active.response.ok, `Could not select the organization: ${active.response.status}`);
   }
 
-  const preferences = await denApiFetch("/v1/me/ui-artifacts", {
-    method: "PUT",
-    headers: {
-      authorization: `Bearer ${state.sessionToken}`,
-      "x-openwork-legacy-org-id": state.organizationId,
-    },
-    body: JSON.stringify({ enabled: true, enabledArtifactIds: ARTIFACT_IDS }),
-  });
-  ctx.assert(preferences.response.ok, `Could not enable UI artifacts: ${preferences.response.status}`);
-  ctx.assert(preferences.body.enabled === true, "Den did not persist the enabled artifact preference.");
+  await setUiArtifactPreferences(ctx, false);
 
   const minted = await denApiFetch("/v1/mcp/token", {
     method: "POST",
@@ -81,7 +89,8 @@ async function prepareCloud(ctx) {
     body: JSON.stringify({ scopes: ["mcp:read", "mcp:write"] }),
   });
   ctx.assert(minted.response.ok && minted.body.token, `Could not mint the MCP token: ${minted.response.status}`);
-  return minted.body.token;
+  state.mcpToken = minted.body.token;
+  return state.mcpToken;
 }
 
 async function ensureSession(ctx) {
@@ -139,13 +148,69 @@ async function ensureSession(ctx) {
 
 export default {
   id: FLOW_ID,
-  title: "execute_capability discovers, renders, and displays a native UI artifact",
+  title: "the opt-in execute_capability artifact lifecycle stays inert when off and renders when enabled",
   requiredEnv: ["OPENWORK_EVAL_DEN_API_URL", "OPENWORK_EVAL_DEN_WEB_URL"],
   steps: [
     {
-      name: "The cloud surface remains exactly two tools",
+      name: "The alpha flag leaves the agent MCP surface inert when disabled",
       run: async (ctx) => {
         const mcpToken = await prepareCloud(ctx);
+        const initializedOff = await mcpAgentCall(mcpToken, "initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: FLOW_ID, version: "1.0.0" },
+        }, ctx);
+        ctx.assert(
+          !initializedOff.instructions?.includes("uiArtifactSuggestions")
+            && !initializedOff.instructions?.includes("openwork.ui_artifacts"),
+          "Disabled UI artifact steering leaked into MCP initialization.",
+        );
+
+        const tools = await mcpAgentCall(mcpToken, "tools/list", {}, ctx);
+        const names = (tools.tools ?? []).map((tool) => tool.name).sort();
+        ctx.assert(
+          names.join(",") === "execute_capability,search_capabilities",
+          `Unexpected disabled agent tool surface: ${names.join(", ")}`,
+        );
+
+        const searched = await mcpAgentCall(mcpToken, "tools/call", {
+          name: "search_capabilities",
+          arguments: { query: "artifact widget visual card", limit: 10 },
+        }, ctx);
+        const disabledMatches = parseToolText(searched)?.matches ?? [];
+        ctx.assert(
+          disabledMatches.every((match) => !String(match.name).startsWith("openwork.ui_artifacts.")),
+          "Disabled UI artifact capabilities appeared in search results.",
+        );
+
+        const directUse = await mcpAgentCall(mcpToken, "tools/call", {
+          name: "execute_capability",
+          arguments: {
+            name: SEARCH_CAPABILITY,
+            body: { query: "calendar events today", limit: 1 },
+          },
+        }, ctx);
+        ctx.assert(directUse.isError === true, "A disabled artifact capability unexpectedly executed.");
+        ctx.assert(parseToolText(directUse)?.code === "artifact_disabled", "Disabled execution did not fail closed.");
+
+        await setUiArtifactPreferences(ctx, true);
+        const initializedOn = await mcpAgentCall(mcpToken, "initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: FLOW_ID, version: "1.0.0" },
+        }, ctx);
+        ctx.assert(
+          initializedOn.instructions?.includes("uiArtifactSuggestions")
+            && initializedOn.instructions?.includes(USE_CAPABILITY),
+          "Enabled UI artifact steering was not added to MCP initialization.",
+        );
+      },
+    },
+    {
+      name: "The cloud surface remains exactly two tools",
+      run: async (ctx) => {
+        const mcpToken = state.mcpToken;
+        ctx.assert(Boolean(mcpToken), "The MCP token was not prepared.");
         const tools = await mcpAgentCall(mcpToken, "tools/list", {}, ctx);
         const names = (tools.tools ?? []).map((tool) => tool.name).sort();
         ctx.assert(
@@ -184,6 +249,131 @@ export default {
         state.briefResult = parseToolText(briefRendered);
         ctx.assert(state.briefResult?.status === "rendered", "The brief receipt is missing its rendered status.");
         ctx.assert(state.briefResult?.artifact?.artifactId === "workspace.brief", "The render receipt is not a workspace brief.");
+
+        const widgetsSearch = await mcpAgentCall(mcpToken, "tools/call", {
+          name: "execute_capability",
+          arguments: {
+            name: SEARCH_CAPABILITY,
+            body: {
+              query: "combine meetings, goal progress, service health, leave balance, and payroll into widgets",
+              signal: { toolName: "openwork_cross_source_widget_summary" },
+              limit: 1,
+            },
+          },
+        }, ctx);
+        const widgetsMatch = parseToolText(widgetsSearch)?.matches?.[0];
+        ctx.assert(widgetsMatch?.artifactId === "widgets.collection", "Artifact search did not return the widget collection.");
+
+        const widgetsRendered = await mcpAgentCall(mcpToken, "tools/call", {
+          name: "execute_capability",
+          arguments: {
+            name: USE_CAPABILITY,
+            body: widgetsMatch.toolDefinition.exampleArguments,
+          },
+        }, ctx);
+        state.widgetsResult = parseToolText(widgetsRendered);
+        ctx.assert(state.widgetsResult?.artifact?.artifactId === "widgets.collection", "The widgets receipt has the wrong artifact ID.");
+        ctx.assert(
+          new Set(state.widgetsResult?.artifact?.data?.widgets?.map((widget) => widget.kind)).size === 5,
+          "The widget collection did not retain all five widget kinds.",
+        );
+
+        const calendarSearch = await mcpAgentCall(mcpToken, "tools/call", {
+          name: "execute_capability",
+          arguments: {
+            name: SEARCH_CAPABILITY,
+            body: {
+              query: "show calendar events as day, agenda, or week",
+              signal: { toolName: "google_calendar_list_events" },
+              limit: 1,
+            },
+          },
+        }, ctx);
+        const calendarMatch = parseToolText(calendarSearch)?.matches?.[0];
+        ctx.assert(calendarMatch?.artifactId === "calendar.view", "Artifact search did not return the calendar.");
+        const calendarArguments = calendarMatch.toolDefinition.exampleArguments;
+        const calendarArtifact = calendarArguments.artifact;
+        const fridayEvent = {
+          ...calendarArtifact.data.events[0],
+          id: "weekly-planning",
+          title: "Weekly planning",
+          start: "2026-07-24T09:00:00+02:00",
+          end: "2026-07-24T09:45:00+02:00",
+          location: "Focus room",
+          action: undefined,
+        };
+        const mondayEvent = {
+          ...calendarArtifact.data.events[0],
+          id: "design-review",
+          title: "Design review",
+          start: "2026-07-20T14:00:00+02:00",
+          end: "2026-07-20T15:00:00+02:00",
+          location: "Studio",
+          action: undefined,
+        };
+        const calendarVariants = [
+          {
+            key: "calendarDayResult",
+            instanceId: "demo-calendar-day",
+            title: "Today at a glance",
+            subtitle: "A focused daily timeline",
+            data: {
+              ...calendarArtifact.data,
+              variant: "day",
+            },
+          },
+          {
+            key: "calendarAgendaResult",
+            instanceId: "demo-calendar-agenda",
+            title: "Upcoming agenda",
+            subtitle: "Thursday and Friday",
+            data: {
+              ...calendarArtifact.data,
+              variant: "agenda",
+              endDate: "2026-07-24",
+              events: [...calendarArtifact.data.events, fridayEvent],
+              focusWindow: undefined,
+            },
+          },
+          {
+            key: "calendarWeekResult",
+            instanceId: "demo-calendar-week",
+            title: "This week",
+            subtitle: "Monday through Sunday",
+            data: {
+              ...calendarArtifact.data,
+              variant: "week",
+              startDate: "2026-07-20",
+              endDate: "2026-07-26",
+              events: [mondayEvent, ...calendarArtifact.data.events, fridayEvent],
+              focusWindow: undefined,
+            },
+          },
+        ];
+        for (const variant of calendarVariants) {
+          const rendered = await mcpAgentCall(mcpToken, "tools/call", {
+            name: "execute_capability",
+            arguments: {
+              name: USE_CAPABILITY,
+              body: {
+                ...calendarArguments,
+                artifact: {
+                  ...calendarArtifact,
+                  instanceId: variant.instanceId,
+                  title: variant.title,
+                  subtitle: variant.subtitle,
+                  data: variant.data,
+                },
+              },
+            },
+          }, ctx);
+          ctx.assert(rendered.isError !== true, `The ${variant.data.variant} calendar render failed.`);
+          state[variant.key] = parseToolText(rendered);
+          ctx.assert(
+            state[variant.key]?.artifact?.data?.variant === variant.data.variant,
+            `The ${variant.data.variant} calendar receipt lost its variant.`,
+          );
+        }
 
         const approvalSearch = await mcpAgentCall(mcpToken, "tools/call", {
           name: "execute_capability",
@@ -240,6 +430,7 @@ export default {
       name: "The desktop shows the synced tile catalog and native card",
       run: async (ctx) => {
         await ensureSession(ctx);
+        await setUiArtifactPreferences(ctx, false);
         const desktopBootstrap = {
           baseUrl: denWebUrl(),
           apiBaseUrl: denApiUrl(),
@@ -256,7 +447,7 @@ export default {
           const current = JSON.parse(localStorage.getItem("openwork.preferences") || "{}");
           localStorage.setItem("openwork.preferences", JSON.stringify({
             ...current,
-            featureFlags: { ...(current.featureFlags || {}), uiArtifacts: true },
+            featureFlags: { ...(current.featureFlags || {}), uiArtifacts: false },
             uiArtifacts: { enabledArtifactIds: ${JSON.stringify(ARTIFACT_IDS)} },
           }));
           window.location.reload();
@@ -268,9 +459,50 @@ export default {
           `!document.body.innerText.includes("OpenWork Cloud is temporarily unavailable.")`,
           { timeoutMs: 30_000, label: "desktop Den session available" },
         );
+        await ctx.waitFor(
+          `window.__openworkControl.listActions().some((action) => action.id === "eval.ui_artifact.seed_chat" && !action.disabled)`,
+          { timeoutMs: 20_000, label: "UI artifact eval action" },
+        );
 
-        await ctx.prove("The right rail offers eight member-controlled chat artifact tiles", {
+        await ctx.prove("The default-off flag preserves the ordinary chat experience", {
           voiceover: vo[0],
+          action: async () => {
+            await ctx.control("eval.ui_artifact.seed_chat", { result: state.widgetsResult });
+          },
+          assert: async () => {
+            const offState = await ctx.eval(`({
+              railVisible: Boolean(document.querySelector('button[aria-label="UI Artifacts"]')),
+              nativeArtifactVisible: Boolean(document.querySelector('[data-ui-artifact-id]')),
+            })`);
+            ctx.assert(offState.railVisible === false, "The UI Artifacts rail entry was visible while disabled.");
+            ctx.assert(offState.nativeArtifactVisible === false, "A native UI artifact rendered while disabled.");
+          },
+          screenshot: {
+            name: "ui-artifacts-disabled",
+            requireText: ["New session"],
+            rejectText: ["Something went wrong", "OpenWork Cloud is temporarily unavailable."],
+          },
+        });
+
+        await setUiArtifactPreferences(ctx, true);
+        await ctx.eval(`(() => {
+          const current = JSON.parse(localStorage.getItem("openwork.preferences") || "{}");
+          localStorage.setItem("openwork.preferences", JSON.stringify({
+            ...current,
+            featureFlags: { ...(current.featureFlags || {}), uiArtifacts: true },
+            uiArtifacts: { enabledArtifactIds: ${JSON.stringify(ARTIFACT_IDS)} },
+          }));
+          window.location.reload();
+          return true;
+        })()`);
+        await ensureSession(ctx);
+        await ctx.waitFor(
+          `Boolean(document.querySelector('button[aria-label="UI Artifacts"]'))`,
+          { timeoutMs: 30_000, label: "enabled UI Artifacts rail button" },
+        );
+
+        await ctx.prove("The right rail offers seven member-controlled chat artifact tiles", {
+          voiceover: vo[1],
           action: async () => {
             await ctx.waitFor(
               `Boolean(document.querySelector('button[aria-label="UI Artifacts"]'))`,
@@ -279,26 +511,131 @@ export default {
             await ctx.eval(`document.querySelector('button[aria-label="UI Artifacts"]')?.click()`);
           },
           assert: async () => {
-            await ctx.expectText("8 of 8 standard artifacts enabled", { timeoutMs: 20_000 });
+            await ctx.expectText("7 of 7 standard artifacts enabled", { timeoutMs: 20_000 });
             await ctx.expectText("Workspace brief");
-            await ctx.expectText("Day agenda");
+            await ctx.expectText("Calendar");
+            await ctx.expectText("Widgets");
             await ctx.expectText("Priority inbox");
             await ctx.expectText("Approval queue");
           },
           screenshot: {
             name: "ui-artifact-catalog",
-            requireText: ["8 of 8 standard artifacts enabled", "Workspace brief", "Approval queue"],
+            requireText: ["7 of 7 standard artifacts enabled", "Workspace brief", "Calendar", "Widgets", "Approval queue"],
             rejectText: ["Something went wrong", "OpenWork Cloud is temporarily unavailable."],
           },
         });
         await ctx.eval(`document.querySelector('button[aria-label="Close UI artifacts"]')?.click()`);
-
         await ctx.waitFor(
           `window.__openworkControl.listActions().some((action) => action.id === "eval.ui_artifact.seed_chat" && !action.disabled)`,
-          { timeoutMs: 20_000, label: "UI artifact eval action" },
+          { timeoutMs: 20_000, label: "enabled UI artifact eval action" },
         );
+
+        await ctx.prove("One widget artifact combines five independently typed widgets", {
+          voiceover: vo[2],
+          action: async () => {
+            await ctx.control("eval.ui_artifact.seed_chat", { result: state.widgetsResult });
+            await ctx.waitFor(
+              `Boolean(document.querySelector('[data-ui-artifact-id="widgets.collection"]'))`,
+              { timeoutMs: 20_000, label: "native widget collection artifact card" },
+            );
+            await ctx.eval(`document.querySelector('[data-ui-artifact-id="widgets.collection"]')?.scrollIntoView({ block: "center" })`);
+          },
+          assert: async () => {
+            await ctx.expectText("Your widgets");
+            await ctx.expectText("Meetings");
+            await ctx.expectText("Q3 goals");
+            await ctx.expectText("Payment service");
+            await ctx.expectText("Leave balance");
+            await ctx.expectText("Next payslip");
+            const widgetKinds = await ctx.eval(
+              `[...document.querySelectorAll('[data-ui-artifact-id="widgets.collection"] [class*="capitalize"]')]
+                .map((element) => element.textContent?.trim())
+                .filter(Boolean)`,
+            );
+            for (const kind of ["metric", "progress", "status", "balance", "date"]) {
+              ctx.assert(widgetKinds.includes(kind), `The combined widget artifact did not render the ${kind} widget.`);
+            }
+          },
+          screenshot: {
+            name: "composable-widget-collection",
+            requireText: ["Your widgets", "Meetings", "Q3 goals", "Payment service", "Leave balance", "Next payslip"],
+            rejectText: ["Something went wrong", "UI artifact renderer unavailable", "OpenWork Cloud is temporarily unavailable."],
+          },
+        });
+
+        await ctx.prove("The calendar day variant emphasizes one chronological timeline and focus window", {
+          voiceover: vo[3],
+          action: async () => {
+            await ctx.control("eval.ui_artifact.seed_chat", { result: state.calendarDayResult });
+            await ctx.waitFor(
+              `Boolean(document.querySelector('[data-ui-artifact-id="calendar.view"]'))`,
+              { timeoutMs: 20_000, label: "native day calendar artifact card" },
+            );
+            await ctx.eval(`document.querySelector('[data-ui-artifact-id="calendar.view"]')?.scrollIntoView({ block: "center" })`);
+          },
+          assert: async () => {
+            await ctx.expectText("Today at a glance");
+            await ctx.expectText("Day View");
+            await ctx.expectText("Architecture review");
+            await ctx.expectText("Best focus window");
+          },
+          screenshot: {
+            name: "calendar-day-variant",
+            requireText: ["Today at a glance", "Day View", "Architecture review", "Best focus window"],
+            rejectText: ["Something went wrong", "UI artifact renderer unavailable", "OpenWork Cloud is temporarily unavailable."],
+          },
+        });
+
+        await ctx.prove("The same calendar artifact switches to a grouped multi-day agenda", {
+          voiceover: vo[4],
+          action: async () => {
+            await ctx.control("eval.ui_artifact.seed_chat", { result: state.calendarAgendaResult });
+            await ctx.waitFor(
+              `document.querySelector('[data-ui-artifact-id="calendar.view"]')?.innerText?.includes("Agenda View")`,
+              { timeoutMs: 20_000, label: "native agenda calendar variant" },
+            );
+            await ctx.eval(`document.querySelector('[data-ui-artifact-id="calendar.view"]')?.scrollIntoView({ block: "center" })`);
+          },
+          assert: async () => {
+            await ctx.expectText("Upcoming agenda");
+            await ctx.expectText("Agenda View");
+            await ctx.expectText("Architecture review");
+            await ctx.expectText("Weekly planning");
+            await ctx.expectNoText("Best focus window");
+          },
+          screenshot: {
+            name: "calendar-agenda-variant",
+            requireText: ["Upcoming agenda", "Agenda View", "Architecture review", "Weekly planning"],
+            rejectText: ["Best focus window", "Something went wrong", "UI artifact renderer unavailable"],
+          },
+        });
+
+        await ctx.prove("The calendar week variant groups the same event contract by date", {
+          voiceover: vo[5],
+          action: async () => {
+            await ctx.control("eval.ui_artifact.seed_chat", { result: state.calendarWeekResult });
+            await ctx.waitFor(
+              `document.querySelector('[data-ui-artifact-id="calendar.view"]')?.innerText?.includes("Week View")`,
+              { timeoutMs: 20_000, label: "native week calendar variant" },
+            );
+            await ctx.eval(`document.querySelector('[data-ui-artifact-id="calendar.view"]')?.scrollIntoView({ block: "center" })`);
+          },
+          assert: async () => {
+            await ctx.expectText("This week");
+            await ctx.expectText("Week View");
+            await ctx.expectText("Design review");
+            await ctx.expectText("Architecture review");
+            await ctx.expectText("Weekly planning");
+          },
+          screenshot: {
+            name: "calendar-week-variant",
+            requireText: ["This week", "Week View", "Design review", "Architecture review", "Weekly planning"],
+            rejectText: ["Something went wrong", "UI artifact renderer unavailable", "OpenWork Cloud is temporarily unavailable."],
+          },
+        });
+
         await ctx.prove("A single workspace brief replaces the screenshot-style home dashboard inside chat", {
-          voiceover: vo[1],
+          voiceover: vo[6],
           action: async () => {
             await ctx.control("eval.ui_artifact.seed_chat", { result: state.briefResult });
             await ctx.waitFor(
@@ -323,7 +660,7 @@ export default {
         });
 
         await ctx.prove("The approval artifact starts at revision one without making a decision", {
-          voiceover: vo[2],
+          voiceover: vo[7],
           action: async () => {
             await ctx.control("eval.ui_artifact.seed_chat", { result: state.approvalResult });
             await ctx.waitFor(
@@ -346,7 +683,7 @@ export default {
         });
 
         await ctx.prove("Approval stays user-controlled by staging a minimal revision-bound prompt", {
-          voiceover: vo[3],
+          voiceover: vo[8],
           action: async () => {
             await ctx.clickText("Approve", { selector: "button", timeoutMs: 10_000 });
             await ctx.waitFor(
@@ -370,7 +707,7 @@ export default {
         });
 
         await ctx.prove("The successful execute response replaces the card with revision two while stale replay is rejected", {
-          voiceover: vo[4],
+          voiceover: vo[9],
           action: async () => {
             await ctx.control("eval.ui_artifact.seed_chat", {
               result: state.approvalUpdatedResult,

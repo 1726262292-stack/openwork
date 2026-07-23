@@ -9,13 +9,12 @@ export const UI_ARTIFACT_USE_CAPABILITY = "openwork.ui_artifacts.use"
 
 export const UI_ARTIFACT_KINDS = [
   "workspace.brief",
-  "calendar.day",
+  "calendar.view",
+  "widgets.collection",
   "communication.thread",
   "mail.inbox",
   "work.attention",
   "work.approvals",
-  "work.progress",
-  "metrics.glance",
 ] as const
 
 export const uiArtifactKindSchema = z.enum(UI_ARTIFACT_KINDS)
@@ -86,27 +85,38 @@ export const uiArtifactPresentationSchema = z.object({
 }).strict()
 export type UiArtifactPresentation = z.infer<typeof uiArtifactPresentationSchema>
 
-export const uiArtifactCalendarDayDataSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timezone: compactTextSchema,
-  events: z.array(z.object({
-    id: compactTextSchema,
-    title: compactTextSchema,
-    start: isoDateTimeSchema,
-    end: isoDateTimeSchema,
-    allDay: z.boolean().optional(),
-    location: compactTextSchema.optional(),
-    calendar: compactTextSchema.optional(),
-    status: z.enum(["confirmed", "tentative", "cancelled"]).optional(),
-    action: uiArtifactOpenUrlActionSchema.optional(),
-  }).strict()).max(50),
-  focusWindow: z.object({
-    start: isoDateTimeSchema,
-    end: isoDateTimeSchema,
-    label: compactTextSchema,
-  }).strict().optional(),
+const calendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const uiArtifactCalendarEventSchema = z.object({
+  id: compactTextSchema,
+  title: compactTextSchema,
+  start: isoDateTimeSchema,
+  end: isoDateTimeSchema,
+  allDay: z.boolean().optional(),
+  location: compactTextSchema.optional(),
+  calendar: compactTextSchema.optional(),
+  status: z.enum(["confirmed", "tentative", "cancelled"]).optional(),
+  action: uiArtifactOpenUrlActionSchema.optional(),
 }).strict()
-export type UiArtifactCalendarDayData = z.infer<typeof uiArtifactCalendarDayDataSchema>
+const uiArtifactFocusWindowSchema = z.object({
+  start: isoDateTimeSchema,
+  end: isoDateTimeSchema,
+  label: compactTextSchema,
+}).strict()
+
+export const uiArtifactCalendarVariantSchema = z.enum(["day", "agenda", "week"])
+export type UiArtifactCalendarVariant = z.infer<typeof uiArtifactCalendarVariantSchema>
+
+export const uiArtifactCalendarDataSchema = z.object({
+  variant: uiArtifactCalendarVariantSchema
+    .describe("Use day for a single-day timeline, agenda for a chronological range, or week for date-grouped events."),
+  startDate: calendarDateSchema,
+  endDate: calendarDateSchema,
+  timezone: compactTextSchema,
+  events: z.array(uiArtifactCalendarEventSchema).max(50),
+  focusWindow: uiArtifactFocusWindowSchema.optional(),
+  action: uiArtifactOpenUrlActionSchema.optional(),
+}).strict()
+export type UiArtifactCalendarData = z.infer<typeof uiArtifactCalendarDataSchema>
 
 export const uiArtifactCommunicationThreadDataSchema = z.object({
   workspace: compactTextSchema,
@@ -160,35 +170,85 @@ export const uiArtifactAttentionDataSchema = z.object({
 }).strict()
 export type UiArtifactAttentionData = z.infer<typeof uiArtifactAttentionDataSchema>
 
-export const uiArtifactMetricsGlanceDataSchema = z.object({
-  metrics: z.array(z.object({
-    id: compactTextSchema,
-    label: compactTextSchema,
-    value: compactTextSchema,
-    detail: compactTextSchema.optional(),
-    tone: z.enum(["neutral", "info", "success", "warning", "critical"]),
-  }).strict()).min(1).max(8),
-  focusWindow: z.object({
-    start: isoDateTimeSchema,
-    end: isoDateTimeSchema,
+export const uiArtifactWidgetToneSchema = z.enum(["neutral", "info", "success", "warning", "critical"])
+const uiArtifactWidgetBaseShape = {
+  id: compactTextSchema,
+  label: compactTextSchema,
+  detail: compactTextSchema.optional(),
+  tone: uiArtifactWidgetToneSchema,
+  action: uiArtifactOpenUrlActionSchema.optional(),
+}
+
+export const uiArtifactMetricWidgetSchema = z.object({
+  ...uiArtifactWidgetBaseShape,
+  kind: z.literal("metric"),
+  value: compactTextSchema,
+  trend: z.object({
+    direction: z.enum(["up", "down", "flat"]),
     label: compactTextSchema,
   }).strict().optional(),
+}).strict()
+
+export const uiArtifactProgressWidgetSchema = z.object({
+  ...uiArtifactWidgetBaseShape,
+  kind: z.literal("progress"),
+  value: compactTextSchema,
+  progress: z.number().min(0).max(100),
+}).strict()
+
+export const uiArtifactStatusWidgetSchema = z.object({
+  ...uiArtifactWidgetBaseShape,
+  kind: z.literal("status"),
+  value: compactTextSchema,
+  status: z.enum(["healthy", "attention", "blocked", "offline"]),
+}).strict()
+
+export const uiArtifactBalanceWidgetSchema = z.object({
+  ...uiArtifactWidgetBaseShape,
+  kind: z.literal("balance"),
+  value: compactTextSchema,
+  unit: compactTextSchema.optional(),
+}).strict()
+
+export const uiArtifactDateWidgetSchema = z.object({
+  ...uiArtifactWidgetBaseShape,
+  kind: z.literal("date"),
+  value: compactTextSchema,
+  timestamp: isoDateTimeSchema.optional(),
+}).strict()
+
+export const uiArtifactWidgetSchema = z.discriminatedUnion("kind", [
+  uiArtifactMetricWidgetSchema,
+  uiArtifactProgressWidgetSchema,
+  uiArtifactStatusWidgetSchema,
+  uiArtifactBalanceWidgetSchema,
+  uiArtifactDateWidgetSchema,
+])
+export type UiArtifactWidget = z.infer<typeof uiArtifactWidgetSchema>
+
+export const uiArtifactWidgetsDataSchema = z.object({
+  layout: z.enum(["grid", "strip", "stack"]),
+  widgets: z.array(uiArtifactWidgetSchema).min(1).max(12)
+    .describe("A composable list of independently typed widgets rendered together in one artifact."),
+}).strict()
+export type UiArtifactWidgetsData = z.infer<typeof uiArtifactWidgetsDataSchema>
+
+const uiArtifactSummaryMetricSchema = z.object({
+  id: compactTextSchema,
+  label: compactTextSchema,
+  value: compactTextSchema,
+  detail: compactTextSchema.optional(),
+  tone: uiArtifactWidgetToneSchema,
+}).strict()
+const uiArtifactProgressSummarySchema = z.object({
+  id: compactTextSchema,
+  label: compactTextSchema,
+  value: compactTextSchema,
+  detail: compactTextSchema.optional(),
+  progress: z.number().min(0).max(100).optional(),
+  tone: uiArtifactWidgetToneSchema,
   action: uiArtifactOpenUrlActionSchema.optional(),
 }).strict()
-export type UiArtifactMetricsGlanceData = z.infer<typeof uiArtifactMetricsGlanceDataSchema>
-
-export const uiArtifactProgressDataSchema = z.object({
-  items: z.array(z.object({
-    id: compactTextSchema,
-    label: compactTextSchema,
-    value: compactTextSchema,
-    detail: compactTextSchema.optional(),
-    progress: z.number().min(0).max(100).optional(),
-    tone: z.enum(["neutral", "info", "success", "warning", "critical"]),
-    action: uiArtifactOpenUrlActionSchema.optional(),
-  }).strict()).min(1).max(12),
-}).strict()
-export type UiArtifactProgressData = z.infer<typeof uiArtifactProgressDataSchema>
 
 export const uiArtifactApprovalsDataSchema = z.object({
   items: z.array(z.object({
@@ -210,10 +270,10 @@ export type UiArtifactApprovalsData = z.infer<typeof uiArtifactApprovalsDataSche
 
 export const uiArtifactWorkspaceBriefDataSchema = z.object({
   summary: detailTextSchema,
-  metrics: uiArtifactMetricsGlanceDataSchema.shape.metrics,
-  schedule: uiArtifactCalendarDayDataSchema.shape.events.max(8),
+  metrics: z.array(uiArtifactSummaryMetricSchema).min(1).max(8),
+  schedule: z.array(uiArtifactCalendarEventSchema).max(8),
   attention: uiArtifactAttentionDataSchema.shape.items.max(8),
-  progress: uiArtifactProgressDataSchema.shape.items.max(8),
+  progress: z.array(uiArtifactProgressSummarySchema).max(8),
   quickActions: z.array(uiArtifactOpenUrlActionSchema).max(6),
 }).strict()
 export type UiArtifactWorkspaceBriefData = z.infer<typeof uiArtifactWorkspaceBriefDataSchema>
@@ -228,10 +288,16 @@ const uiArtifactBaseShape = {
   source: uiArtifactSourceSchema,
 }
 
-export const uiArtifactCalendarDaySchema = z.object({
+export const uiArtifactCalendarSchema = z.object({
   ...uiArtifactBaseShape,
-  artifactId: z.literal("calendar.day"),
-  data: uiArtifactCalendarDayDataSchema,
+  artifactId: z.literal("calendar.view"),
+  data: uiArtifactCalendarDataSchema,
+}).strict()
+
+export const uiArtifactWidgetsSchema = z.object({
+  ...uiArtifactBaseShape,
+  artifactId: z.literal("widgets.collection"),
+  data: uiArtifactWidgetsDataSchema,
 }).strict()
 
 export const uiArtifactCommunicationThreadSchema = z.object({
@@ -252,18 +318,6 @@ export const uiArtifactAttentionSchema = z.object({
   data: uiArtifactAttentionDataSchema,
 }).strict()
 
-export const uiArtifactMetricsGlanceSchema = z.object({
-  ...uiArtifactBaseShape,
-  artifactId: z.literal("metrics.glance"),
-  data: uiArtifactMetricsGlanceDataSchema,
-}).strict()
-
-export const uiArtifactProgressSchema = z.object({
-  ...uiArtifactBaseShape,
-  artifactId: z.literal("work.progress"),
-  data: uiArtifactProgressDataSchema,
-}).strict()
-
 export const uiArtifactApprovalsSchema = z.object({
   ...uiArtifactBaseShape,
   artifactId: z.literal("work.approvals"),
@@ -278,13 +332,12 @@ export const uiArtifactWorkspaceBriefSchema = z.object({
 
 export const uiArtifactPayloadSchema = z.discriminatedUnion("artifactId", [
   uiArtifactWorkspaceBriefSchema,
-  uiArtifactCalendarDaySchema,
+  uiArtifactCalendarSchema,
+  uiArtifactWidgetsSchema,
   uiArtifactCommunicationThreadSchema,
   uiArtifactMailInboxSchema,
   uiArtifactAttentionSchema,
   uiArtifactApprovalsSchema,
-  uiArtifactProgressSchema,
-  uiArtifactMetricsGlanceSchema,
 ])
 export type UiArtifactPayload = z.infer<typeof uiArtifactPayloadSchema>
 

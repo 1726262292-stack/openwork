@@ -11,14 +11,15 @@ function compactFact(value: string) {
   return `${normalized.slice(0, 159).trimEnd()}…`
 }
 
-function calendarNarration(artifact: Extract<UiArtifactPayload, { artifactId: "calendar.day" }>) {
+function calendarNarration(artifact: Extract<UiArtifactPayload, { artifactId: "calendar.view" }>) {
   const count = artifact.data.events.length
-  const visibleFacts = artifact.data.events.slice(0, 5).map((event) => `${event.start}: ${event.title}`)
+  const visibleEventLimit = artifact.data.variant === "day" ? 5 : 8
+  const visibleFacts = artifact.data.events.slice(0, visibleEventLimit).map((event) => `${event.start}: ${event.title}`)
   if (artifact.data.focusWindow) {
     visibleFacts.push(`${artifact.data.focusWindow.label}: ${artifact.data.focusWindow.start} to ${artifact.data.focusWindow.end}`)
   }
   return {
-    summary: `Rendered ${artifact.title} with ${count} calendar ${count === 1 ? "event" : "events"} for ${artifact.data.date} in ${artifact.data.timezone}.`,
+    summary: `Rendered the ${artifact.data.variant} calendar variant with ${count} ${count === 1 ? "event" : "events"} from ${artifact.data.startDate} to ${artifact.data.endDate} in ${artifact.data.timezone}.`,
     visibleFacts,
   }
 }
@@ -52,21 +53,11 @@ function attentionNarration(artifact: Extract<UiArtifactPayload, { artifactId: "
   }
 }
 
-function metricsNarration(artifact: Extract<UiArtifactPayload, { artifactId: "metrics.glance" }>) {
-  const visibleFacts = artifact.data.metrics.map((metric) => `${metric.label}: ${metric.value}`)
-  if (artifact.data.focusWindow) {
-    visibleFacts.push(`${artifact.data.focusWindow.label}: ${artifact.data.focusWindow.start} to ${artifact.data.focusWindow.end}`)
-  }
+function widgetsNarration(artifact: Extract<UiArtifactPayload, { artifactId: "widgets.collection" }>) {
+  const kinds = [...new Set(artifact.data.widgets.map((widget) => widget.kind))]
   return {
-    summary: `Rendered ${artifact.title} with ${artifact.data.metrics.length} summary metrics.`,
-    visibleFacts,
-  }
-}
-
-function progressNarration(artifact: Extract<UiArtifactPayload, { artifactId: "work.progress" }>) {
-  return {
-    summary: `Rendered ${artifact.data.items.length} compact work progress widgets.`,
-    visibleFacts: artifact.data.items.map((item) => `${item.label}: ${item.value}${item.detail ? ` · ${item.detail}` : ""}`),
+    summary: `Rendered ${artifact.data.widgets.length} combinable widgets in a ${artifact.data.layout} layout: ${kinds.join(", ")}.`,
+    visibleFacts: artifact.data.widgets.map((widget) => `${widget.label}: ${widget.value}${widget.detail ? ` · ${widget.detail}` : ""}`),
   }
 }
 
@@ -94,8 +85,10 @@ export function renderUiArtifact(artifact: UiArtifactPayload): UiArtifactRenderR
     switch (artifact.artifactId) {
       case "workspace.brief":
         return workspaceBriefNarration(artifact)
-      case "calendar.day":
+      case "calendar.view":
         return calendarNarration(artifact)
+      case "widgets.collection":
+        return widgetsNarration(artifact)
       case "communication.thread":
         return threadNarration(artifact)
       case "mail.inbox":
@@ -104,10 +97,6 @@ export function renderUiArtifact(artifact: UiArtifactPayload): UiArtifactRenderR
         return attentionNarration(artifact)
       case "work.approvals":
         return approvalsNarration(artifact)
-      case "work.progress":
-        return progressNarration(artifact)
-      case "metrics.glance":
-        return metricsNarration(artifact)
     }
   })()
 

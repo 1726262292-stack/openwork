@@ -2,7 +2,6 @@ import {
   BellRing,
   CalendarDays,
   ClipboardCheck,
-  Gauge,
   LayoutDashboard,
   Mail,
   MessageSquareText,
@@ -24,9 +23,9 @@ function artifactIcon(artifactId: UiArtifactKind) {
   switch (artifactId) {
     case "workspace.brief":
       return LayoutDashboard
-    case "metrics.glance":
-      return Gauge
-    case "calendar.day":
+    case "widgets.collection":
+      return TrendingUp
+    case "calendar.view":
       return CalendarDays
     case "communication.thread":
       return MessageSquareText
@@ -36,8 +35,6 @@ function artifactIcon(artifactId: UiArtifactKind) {
       return BellRing
     case "work.approvals":
       return ClipboardCheck
-    case "work.progress":
-      return TrendingUp
   }
 }
 
@@ -45,9 +42,9 @@ function artifactTone(artifactId: UiArtifactKind) {
   switch (artifactId) {
     case "workspace.brief":
       return "bg-indigo-3 text-indigo-11"
-    case "metrics.glance":
-      return "bg-teal-3 text-teal-11"
-    case "calendar.day":
+    case "widgets.collection":
+      return "bg-purple-3 text-purple-11"
+    case "calendar.view":
       return "bg-blue-3 text-blue-11"
     case "communication.thread":
       return "bg-violet-3 text-violet-11"
@@ -57,8 +54,6 @@ function artifactTone(artifactId: UiArtifactKind) {
       return "bg-red-3 text-red-11"
     case "work.approvals":
       return "bg-green-3 text-green-11"
-    case "work.progress":
-      return "bg-purple-3 text-purple-11"
   }
 }
 

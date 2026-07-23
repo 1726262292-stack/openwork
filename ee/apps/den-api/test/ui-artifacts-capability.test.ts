@@ -36,6 +36,31 @@ describe("execute_capability UI artifact adapter", () => {
     })).toEqual([])
   })
 
+  test("does not enrich ordinary capability results when disabled", () => {
+    const disabledPreferences = {
+      ...ENABLED_PREFERENCES,
+      enabled: false,
+    }
+    const suggestion = suggestUiArtifactForCapability({
+      capability: "mcp:google-calendar:list_events",
+      title: "List calendar events",
+      body: { calendarId: "private-calendar-id" },
+      preferences: disabledPreferences,
+    })
+    const original = {
+      content: [{ type: "text" as const, text: "{\"events\":[]}" }],
+    }
+
+    expect(suggestion).toBeNull()
+    expect(appendUiArtifactSuggestion(original, suggestion)).toBe(original)
+    expect(executeUiArtifactCapability({
+      name: UI_ARTIFACT_SEARCH_CAPABILITY,
+      body: { query: "calendar events today" },
+      preferences: disabledPreferences,
+      stateScope: "member-disabled",
+    })?.structuredContent).toMatchObject({ code: "artifact_disabled" })
+  })
+
   test("searches and renders through virtual execute_capability names", () => {
     const searched = executeUiArtifactCapability({
       name: UI_ARTIFACT_SEARCH_CAPABILITY,
@@ -49,7 +74,7 @@ describe("execute_capability UI artifact adapter", () => {
     })
     expect(searched?.isError).not.toBe(true)
     const searchResult = uiArtifactSearchResultSchema.parse(searched?.structuredContent)
-    expect(searchResult.matches[0]?.artifactId).toBe("calendar.day")
+    expect(searchResult.matches[0]?.artifactId).toBe("calendar.view")
     expect(searchResult.matches[0]?.toolDefinition.invocation).toEqual({
       toolName: "execute_capability",
       capability: UI_ARTIFACT_USE_CAPABILITY,
@@ -64,7 +89,7 @@ describe("execute_capability UI artifact adapter", () => {
     })
     expect(rendered?.isError).not.toBe(true)
     const renderResult = uiArtifactRenderResultSchema.parse(rendered?.structuredContent)
-    expect(renderResult.artifact.artifactId).toBe("calendar.day")
+    expect(renderResult.artifact.artifactId).toBe("calendar.view")
     expect(renderResult.status).toBe("rendered")
   })
 
@@ -79,12 +104,12 @@ describe("execute_capability UI artifact adapter", () => {
       preferences: ENABLED_PREFERENCES,
     })
     const parsed = uiArtifactSuggestionEnvelopeSchema.parse(suggestion)
-    expect(parsed.suggestions[0]?.artifactId).toBe("calendar.day")
+    expect(parsed.suggestions[0]?.artifactId).toBe("calendar.view")
     expect(parsed.contextPolicy).toEqual({
       selection: "optional",
       maxRendersThisTurn: 1,
       expires: "end_of_turn",
-      dedupeKey: "mcp:google-calendar:list_events:calendar.day",
+      dedupeKey: "mcp:google-calendar:list_events:calendar.view",
       includesSourceValues: false,
     })
     const serialized = JSON.stringify(parsed)

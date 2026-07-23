@@ -20,7 +20,7 @@ const RESULT = {
   schemaVersion: UI_ARTIFACT_SCHEMA_VERSION,
   status: "rendered",
   artifact: {
-    artifactId: "metrics.glance",
+    artifactId: "widgets.collection",
     instanceId: "test-glance",
     revision: 1,
     operation: "create",
@@ -28,8 +28,9 @@ const RESULT = {
     presentation: { placement: "inline", size: "standard" },
     source: { type: "mock", label: "Test" },
     data: {
-      metrics: [
-        { id: "meetings", label: "Meetings", value: "2", tone: "info" },
+      layout: "grid",
+      widgets: [
+        { id: "meetings", kind: "metric", label: "Meetings", value: "2", tone: "info" },
       ],
     },
   },

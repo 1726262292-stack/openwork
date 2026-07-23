@@ -28,6 +28,18 @@ function normalizedUpdate(value: unknown): UiArtifactPreferencesUpdate {
   }
 }
 
+function normalizedStoredArtifactIds(value: unknown): UiArtifactPreferences["enabledArtifactIds"] {
+  const stored = Array.isArray(value) ? value : []
+  return UI_ARTIFACT_KINDS.filter((artifactId) => (
+    stored.includes(artifactId)
+    || (artifactId === "calendar.view" && stored.includes("calendar.day"))
+    || (
+      artifactId === "widgets.collection"
+      && (stored.includes("metrics.glance") || stored.includes("work.progress"))
+    )
+  ))
+}
+
 export async function readUiArtifactPreferences(memberId: string): Promise<UiArtifactPreferences> {
   const normalizedMemberId = normalizeDenTypeId("member", memberId)
   const rows = await db
@@ -42,9 +54,7 @@ export async function readUiArtifactPreferences(memberId: string): Promise<UiArt
   const row = rows[0]
   if (!row) return DEFAULT_UI_ARTIFACT_PREFERENCES
 
-  const enabledArtifactIds = UI_ARTIFACT_KINDS.filter((artifactId) => (
-    Array.isArray(row.enabledArtifactIds) && row.enabledArtifactIds.includes(artifactId)
-  ))
+  const enabledArtifactIds = normalizedStoredArtifactIds(row.enabledArtifactIds)
   return {
     protocol: "openwork.ui-artifact-preferences",
     schemaVersion: UI_ARTIFACT_SCHEMA_VERSION,

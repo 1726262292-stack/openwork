@@ -6,7 +6,6 @@ import {
   CircleAlert,
   Clock3,
   ExternalLink,
-  Gauge,
   GraduationCap,
   LayoutDashboard,
   Mail,
@@ -22,6 +21,7 @@ import type {
   UiArtifactAction,
   UiArtifactPayload,
   UiArtifactRenderResult,
+  UiArtifactWidget,
 } from "@openwork/types/ui-artifact"
 
 import { openDesktopUrl } from "@/app/lib/desktop"
@@ -124,8 +124,10 @@ function ArtifactActionButton({ action }: { action: UiArtifactAction }) {
 
 function artifactIcon(artifactId: UiArtifactPayload["artifactId"]) {
   switch (artifactId) {
-    case "calendar.day":
+    case "calendar.view":
       return CalendarDays
+    case "widgets.collection":
+      return TrendingUp
     case "workspace.brief":
       return LayoutDashboard
     case "communication.thread":
@@ -136,17 +138,15 @@ function artifactIcon(artifactId: UiArtifactPayload["artifactId"]) {
       return BellRing
     case "work.approvals":
       return PanelsTopLeft
-    case "work.progress":
-      return TrendingUp
-    case "metrics.glance":
-      return Gauge
   }
 }
 
 function artifactIconClass(artifactId: UiArtifactPayload["artifactId"]) {
   switch (artifactId) {
-    case "calendar.day":
+    case "calendar.view":
       return "bg-blue-3 text-blue-11"
+    case "widgets.collection":
+      return "bg-purple-3 text-purple-11"
     case "workspace.brief":
       return "bg-indigo-3 text-indigo-11"
     case "communication.thread":
@@ -157,10 +157,6 @@ function artifactIconClass(artifactId: UiArtifactPayload["artifactId"]) {
       return "bg-red-3 text-red-11"
     case "work.approvals":
       return "bg-green-3 text-green-11"
-    case "work.progress":
-      return "bg-purple-3 text-purple-11"
-    case "metrics.glance":
-      return "bg-teal-3 text-teal-11"
   }
 }
 
@@ -217,12 +213,84 @@ function RemainingRows({ count }: { count: number }) {
   return <p className="pt-2 text-xs font-medium text-muted-foreground">+ {count} more</p>
 }
 
-function CalendarDayArtifact({ artifact }: { artifact: Extract<UiArtifactPayload, { artifactId: "calendar.day" }> }) {
-  const events = artifact.data.events.slice(0, INLINE_ROW_LIMIT)
+type CalendarArtifactPayload = Extract<UiArtifactPayload, { artifactId: "calendar.view" }>
+type CalendarEvent = CalendarArtifactPayload["data"]["events"][number]
+
+function formatDateLabel(value: string, timezone: string, weekday: "short" | "long" = "short") {
+  const date = safeDate(value)
+  if (!date) return value
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      weekday,
+      month: "short",
+      day: "numeric",
+      timeZone: timezone,
+    }).format(date)
+  } catch {
+    return value.slice(0, 10)
+  }
+}
+
+function CalendarEventDetails(props: {
+  event: CalendarEvent
+  timezone: string
+  compact?: boolean
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cn(
+            "truncate font-medium",
+            props.compact ? "text-xs" : "text-sm",
+            props.event.status === "cancelled" && "line-through text-muted-foreground",
+          )}>
+            {props.event.title}
+          </span>
+          {props.event.status === "tentative" ? <Badge variant="outline">Tentative</Badge> : null}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+          <span>
+            {props.event.allDay
+              ? "All day"
+              : `${formatTime(props.event.start, props.timezone)}–${formatTime(props.event.end, props.timezone)}`}
+          </span>
+          {props.event.location ? (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <MapPin className="size-3" aria-hidden="true" />
+              <span className="truncate">{props.event.location}</span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+      {props.event.action ? <ArtifactActionButton action={props.event.action} /> : null}
+    </div>
+  )
+}
+
+function CalendarArtifact({ artifact }: { artifact: CalendarArtifactPayload }) {
+  const visibleEventLimit = artifact.data.variant === "day" ? INLINE_ROW_LIMIT : 8
+  const events = artifact.data.events.slice(0, visibleEventLimit)
+  const groupedDates = [...new Set(events.map((event) => event.start.slice(0, 10)))]
 
   return (
-    <ArtifactFrame artifact={artifact}>
-      {events.length > 0 ? (
+    <ArtifactFrame artifact={artifact} action={artifact.data.action}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <Badge variant="outline" className="capitalize">{artifact.data.variant} view</Badge>
+        <span className="text-[11px] text-muted-foreground">
+          {artifact.data.startDate === artifact.data.endDate
+            ? artifact.data.startDate
+            : `${artifact.data.startDate}–${artifact.data.endDate}`}
+        </span>
+      </div>
+
+      {events.length === 0 ? (
+        <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 text-green-10" />
+          No events scheduled.
+        </div>
+      ) : artifact.data.variant === "day" ? (
         <ol className="relative space-y-0" aria-label={`Events in ${artifact.data.timezone}`}>
           {events.map((event, index) => (
             <li key={event.id} className="relative grid grid-cols-[4.75rem_1rem_minmax(0,1fr)] gap-2 pb-3 last:pb-0">
@@ -236,41 +304,49 @@ function CalendarDayArtifact({ artifact }: { artifact: Extract<UiArtifactPayload
                   event.status === "tentative" ? "bg-amber-9" : event.status === "cancelled" ? "bg-red-9" : "bg-blue-9",
                 )} />
               </div>
-              <div className="flex min-w-0 items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className={cn("truncate text-sm font-medium", event.status === "cancelled" && "line-through text-muted-foreground")}>
-                      {event.title}
-                    </span>
-                    {event.status === "tentative" ? <Badge variant="outline">Tentative</Badge> : null}
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                    <span>
-                      {formatTime(event.start, artifact.data.timezone)}–{formatTime(event.end, artifact.data.timezone)}
-                    </span>
-                    {event.location ? (
-                      <span className="inline-flex min-w-0 items-center gap-1">
-                        <MapPin className="size-3" aria-hidden="true" />
-                        <span className="truncate">{event.location}</span>
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                {event.action ? <ArtifactActionButton action={event.action} /> : null}
-              </div>
+              <CalendarEventDetails event={event} timezone={artifact.data.timezone} />
             </li>
           ))}
         </ol>
+      ) : artifact.data.variant === "agenda" ? (
+        <div className="space-y-3" aria-label={`Agenda in ${artifact.data.timezone}`}>
+          {groupedDates.map((date) => (
+            <section key={date}>
+              <h4 className="mb-1.5 text-xs font-semibold text-foreground">
+                {formatDateLabel(`${date}T12:00:00Z`, artifact.data.timezone, "long")}
+              </h4>
+              <ol className="divide-y divide-border/70 rounded-xl border border-border/70 px-3">
+                {events.filter((event) => event.start.startsWith(date)).map((event) => (
+                  <li key={event.id} className="py-2.5">
+                    <CalendarEventDetails event={event} timezone={artifact.data.timezone} />
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
       ) : (
-        <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-green-10" />
-          No events scheduled.
+        <div className="grid grid-cols-1 gap-2 @md/message-list:grid-cols-2" aria-label={`Week in ${artifact.data.timezone}`}>
+          {groupedDates.map((date) => (
+            <section key={date} className="rounded-xl border border-border/70 bg-muted/20 p-2.5">
+              <h4 className="mb-2 text-xs font-semibold text-foreground">
+                {formatDateLabel(`${date}T12:00:00Z`, artifact.data.timezone)}
+              </h4>
+              <ol className="space-y-2">
+                {events.filter((event) => event.start.startsWith(date)).map((event) => (
+                  <li key={event.id}>
+                    <CalendarEventDetails event={event} timezone={artifact.data.timezone} compact />
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ))}
         </div>
       )}
 
       <RemainingRows count={artifact.data.events.length - events.length} />
 
-      {artifact.data.focusWindow ? (
+      {artifact.data.variant === "day" && artifact.data.focusWindow ? (
         <div className="mt-3 flex items-center gap-3 rounded-xl border border-teal-6/30 bg-teal-3/30 px-3 py-2">
           <Target className="size-4 shrink-0 text-teal-11" aria-hidden="true" />
           <div className="min-w-0 flex-1">
@@ -424,24 +500,56 @@ function AttentionArtifact({ artifact }: { artifact: Extract<UiArtifactPayload, 
   )
 }
 
-function ProgressArtifact({ artifact }: { artifact: Extract<UiArtifactPayload, { artifactId: "work.progress" }> }) {
+function WidgetsArtifact({ artifact }: { artifact: Extract<UiArtifactPayload, { artifactId: "widgets.collection" }> }) {
+  const layoutClass = artifact.data.layout === "stack"
+    ? "grid-cols-1"
+    : artifact.data.layout === "strip"
+      ? "grid-cols-2 @lg/message-list:grid-cols-4"
+      : "grid-cols-1 @md/message-list:grid-cols-2"
+
   return (
     <ArtifactFrame artifact={artifact}>
-      <div className="grid grid-cols-1 gap-2 @md/message-list:grid-cols-2">
-        {artifact.data.items.map((item) => (
-          <div key={item.id} className={cn("rounded-xl border px-3 py-2.5", metricToneClass(item.tone))}>
+      <div className={cn("grid gap-2", layoutClass)}>
+        {artifact.data.widgets.map((widget) => (
+          <div key={widget.id} className={cn("rounded-xl border px-3 py-2.5", metricToneClass(widget.tone))}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-                <p className="mt-0.5 truncate text-lg font-semibold text-foreground">{item.value}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">{widget.label}</p>
+                  <Badge variant="secondary" className="capitalize">{widget.kind}</Badge>
+                </div>
+                <p className="mt-0.5 truncate text-lg font-semibold text-foreground">
+                  {widget.value}
+                  {widget.kind === "balance" && widget.unit ? (
+                    <span className="ml-1 text-xs font-medium text-muted-foreground">{widget.unit}</span>
+                  ) : null}
+                </p>
               </div>
-              {item.action ? <ArtifactActionButton action={item.action} /> : null}
+              {widget.action ? <ArtifactActionButton action={widget.action} /> : null}
             </div>
-            {item.detail ? <p className="mt-0.5 text-[11px] text-muted-foreground">{item.detail}</p> : null}
-            {item.progress !== undefined ? (
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/80" aria-label={`${item.progress}%`}>
-                <div className="h-full rounded-full bg-current opacity-60" style={{ width: `${item.progress}%` }} />
+            {widget.detail ? <p className="mt-0.5 text-[11px] text-muted-foreground">{widget.detail}</p> : null}
+            {widget.kind === "progress" ? (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/80" aria-label={`${widget.progress}%`}>
+                <div className="h-full rounded-full bg-current opacity-60" style={{ width: `${widget.progress}%` }} />
               </div>
+            ) : null}
+            {widget.kind === "metric" && widget.trend ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {widget.trend.direction === "up" ? "↗" : widget.trend.direction === "down" ? "↘" : "→"} {widget.trend.label}
+              </p>
+            ) : null}
+            {widget.kind === "status" ? (
+              <Badge
+                variant={widget.status === "blocked" || widget.status === "offline" ? "destructive" : "outline"}
+                className="mt-2 capitalize"
+              >
+                {widget.status}
+              </Badge>
+            ) : null}
+            {widget.kind === "date" && widget.timestamp ? (
+              <time dateTime={widget.timestamp} className="mt-1 block text-[11px] text-muted-foreground">
+                {formatShortDateTime(widget.timestamp)}
+              </time>
             ) : null}
           </div>
         ))}
@@ -598,7 +706,7 @@ function WorkspaceBriefArtifact({ artifact }: { artifact: Extract<UiArtifactPayl
   )
 }
 
-function metricToneClass(tone: Extract<UiArtifactPayload, { artifactId: "metrics.glance" }>["data"]["metrics"][number]["tone"]) {
+function metricToneClass(tone: UiArtifactWidget["tone"]) {
   switch (tone) {
     case "info":
       return "border-blue-6/30 bg-blue-3/30"
@@ -613,33 +721,6 @@ function metricToneClass(tone: Extract<UiArtifactPayload, { artifactId: "metrics
   }
 }
 
-function MetricsGlanceArtifact({ artifact }: { artifact: Extract<UiArtifactPayload, { artifactId: "metrics.glance" }> }) {
-  return (
-    <ArtifactFrame artifact={artifact} action={artifact.data.action}>
-      <dl className="grid grid-cols-2 gap-2 @md/message-list:grid-cols-4">
-        {artifact.data.metrics.map((metric) => (
-          <div key={metric.id} className={cn("rounded-xl border px-3 py-2.5", metricToneClass(metric.tone))}>
-            <dd className="text-xl font-semibold tabular-nums text-foreground">{metric.value}</dd>
-            <dt className="mt-0.5 text-xs font-medium text-foreground">{metric.label}</dt>
-            {metric.detail ? <p className="mt-0.5 text-[11px] text-muted-foreground">{metric.detail}</p> : null}
-          </div>
-        ))}
-      </dl>
-      {artifact.data.focusWindow ? (
-        <div className="mt-3 flex items-center gap-3 rounded-xl border border-teal-6/30 bg-teal-3/30 px-3 py-2">
-          <Target className="size-4 shrink-0 text-teal-11" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-foreground">{artifact.data.focusWindow.label}</p>
-            <p className="text-xs tabular-nums text-muted-foreground">
-              {formatTime(artifact.data.focusWindow.start)}–{formatTime(artifact.data.focusWindow.end)}
-            </p>
-          </div>
-        </div>
-      ) : null}
-    </ArtifactFrame>
-  )
-}
-
 export function UiArtifactCard({
   result,
   onRequestDecision,
@@ -652,8 +733,10 @@ export function UiArtifactCard({
   switch (artifact.artifactId) {
     case "workspace.brief":
       return <WorkspaceBriefArtifact artifact={artifact} />
-    case "calendar.day":
-      return <CalendarDayArtifact artifact={artifact} />
+    case "calendar.view":
+      return <CalendarArtifact artifact={artifact} />
+    case "widgets.collection":
+      return <WidgetsArtifact artifact={artifact} />
     case "communication.thread":
       return <CommunicationThreadArtifact artifact={artifact} />
     case "mail.inbox":
@@ -662,10 +745,6 @@ export function UiArtifactCard({
       return <AttentionArtifact artifact={artifact} />
     case "work.approvals":
       return <ApprovalArtifact artifact={artifact} onRequestDecision={onRequestDecision} />
-    case "work.progress":
-      return <ProgressArtifact artifact={artifact} />
-    case "metrics.glance":
-      return <MetricsGlanceArtifact artifact={artifact} />
     default:
       return (
         <div className="flex items-center gap-2 rounded-xl border border-border p-3 text-sm text-muted-foreground">

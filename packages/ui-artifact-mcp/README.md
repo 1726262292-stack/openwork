@@ -14,15 +14,19 @@ It is a real stateful stdio MCP and exposes exactly two tools:
 The mock catalog currently includes:
 
 - `workspace.brief`
-- `calendar.day`
+- `calendar.view`
+- `widgets.collection`
 - `communication.thread`
 - `mail.inbox`
 - `work.attention`
 - `work.approvals`
-- `work.progress`
-- `metrics.glance`
 
 All examples are visibly marked as mock data.
+
+`calendar.view` is one stable artifact contract with `day`, `agenda`, and
+`week` presentation variants. `widgets.collection` accepts a list that can
+combine metric, progress, status, balance, and date widgets in grid, strip, or
+stack layouts.
 
 The production OpenWork Cloud surface still exposes only
 `search_capabilities` and `execute_capability`. The same catalog is available
