@@ -2,7 +2,7 @@
 
 First identify which independent skill path is failing.
 
-| | Local / hub-installed | OpenWork Connect remote |
+| | Local | OpenWork Connect remote |
 |---|---|---|
 | Source | A local `SKILL.md` | Account/org OpenWork MCP profile at `skill://index.json` |
 | Discovery owner | OpenCode native `Skill` service | OpenWork server Connect catalog |
@@ -28,17 +28,18 @@ Each current remote entry carries:
 - `capability`: the exact value passed to
   `openwork-cloud_execute_capability`.
 
-Current Den indexes also include safe top-level `openwork.totalSkills`,
-`openwork.truncated`, and an optional `openwork.truncationReason`. The producer
-stops at 100 entries or 240 KiB of serialized index JSON, whichever comes
-first. The byte budget leaves room for worst-case JSON string escaping and the
-MCP envelope beneath OpenWork's independent 512 KiB response cap.
+Current Den indexes publish every authorized descriptor. The former 100-entry
+producer limit and 32,000-character prompt limit are gone, so catalog order
+cannot silently hide an authorized skill. OpenWork still rejects a single MCP
+response above its independent 512 KiB transport-safety limit and reports that
+failure through the catalog diagnostics instead of partially injecting it.
 
 The prompt renders those as `<title>`, `<name>`, `<description>`, optional
 `<marketplace>` / `<plugin>`, `<location>`, and `<capability>`. Older Den
 deployments that omit the new display/provenance fields remain readable:
 OpenWork falls back from a missing title to the machine name and from a blank
-description to the resolved title.
+description to the resolved title. For transient HTTP 502, 503, or 504
+failures, the prompt directs the agent to retry the same exact capability once.
 
 ## Fast trace
 
@@ -174,8 +175,8 @@ In priority order:
    workspace engine uses a different/stale Cloud MCP registration.
 7. **UI versus prompt cache drift:** the marketplace UI and 30-second prompt
    catalog refresh independently.
-8. **Prompt safety caps:** more than 100 skills or 32,000 rendered characters are
-   deliberately truncated.
+8. **Transport envelope:** a catalog above the 512 KiB MCP response safety
+   limit is rejected as a whole and reported as `response-too-large`.
 9. **Transport differences:** server-side catalog fetch and engine-side MCP can
    see different TLS, proxy, or credential conditions.
 

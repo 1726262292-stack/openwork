@@ -22,13 +22,13 @@ const openworkAgentSkillCapabilityRuntimeSchema = z.string()
 
 export const openworkAgentSkillIndexEntryRuntimeSchema = z.object({
   name: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(64),
-  title: z.string().max(255).optional(),
+  title: z.string().max(1_024).optional(),
   type: z.literal("skill-md"),
   description: z.string().max(1_024),
   url: z.string().startsWith("skill://").max(2_048),
   capability: openworkAgentSkillCapabilityRuntimeSchema,
-  marketplaceName: z.string().max(255).optional(),
-  pluginName: z.string().max(255).optional(),
+  marketplaceName: z.string().max(1_024).optional(),
+  pluginName: z.string().max(1_024).optional(),
 }).passthrough() satisfies z.ZodType<OpenWorkAgentSkillIndexEntry>;
 
 const openworkAgentSkillIndexMetadataRuntimeSchema = z.object({

@@ -76,15 +76,15 @@ describe("OpenWork agent skill-index server-local schema parity", () => {
       },
       {
         ...validIndex,
-        skills: [{ ...validIndex.skills[0], title: "x".repeat(256) }],
+        skills: [{ ...validIndex.skills[0], title: "x".repeat(1_025) }],
       },
       {
         ...validIndex,
-        skills: [{ ...validIndex.skills[0], marketplaceName: "x".repeat(256) }],
+        skills: [{ ...validIndex.skills[0], marketplaceName: "x".repeat(1_025) }],
       },
       {
         ...validIndex,
-        skills: [{ ...validIndex.skills[0], pluginName: "x".repeat(256) }],
+        skills: [{ ...validIndex.skills[0], pluginName: "x".repeat(1_025) }],
       },
       {
         ...validIndex,
