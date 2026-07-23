@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   isApplyPatchToolPart,
   isEditToolPart,
+  isReadToolPart,
   isWriteToolPart,
 } from "@/lib/build-in-tools";
 import { useOpenTargets } from "@/lib/target-provider";
@@ -269,6 +270,12 @@ function getArtifactPathsFromMessage(message: UIMessage) {
       paths.push(part.input.filePath);
       continue;
     }
+
+    // Paper artifact strip covers every file "read, edited, or created".
+    if (isReadToolPart(part)) {
+      paths.push(part.input.filePath);
+      continue;
+    }
     if (isApplyPatchToolPart(part)) {
       paths.push(...parseApplyPatchPaths(part.input.patchText));
     }
@@ -354,7 +361,7 @@ export function useArtifacts(messages: UIMessage[], options: GetArtifactsOptions
 export function useOpenArtifactPath() {
   const { openTargets, onOpenTarget } = useOpenTargets();
 
-  return React.useCallback((path: string) => {
+  return React.useCallback((path: string, options?: { external?: boolean }) => {
     const normalized = normalizeArtifactPath(path);
     const target = openTargetFromArtifactPath(
       normalized,
@@ -362,7 +369,7 @@ export function useOpenArtifactPath() {
       getArtifactType(normalized),
       openTargets,
     );
-    onOpenTarget?.(target);
+    onOpenTarget?.(target, options);
   }, [onOpenTarget, openTargets]);
 }
 

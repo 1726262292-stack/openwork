@@ -830,10 +830,6 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
-function MessageArtifacts(props: { message: UIMessage }) {
-  return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
-}
-
 interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
@@ -890,7 +886,6 @@ function MessageGroup({
           isStreaming={isLastMessage && isStreaming}
           isLastStep={groupIndex === items.length - 1}
         />
-        <MessageArtifacts message={item.message} />
       </div>
     )
   }
@@ -900,7 +895,7 @@ function MessageGroup({
   // actions"); any prose, reasoning, or other tool breaks the run.
   const renderItems = (slice: UIMessageWithIndex[], offset: number) => {
     const nodes: React.ReactNode[] = []
-    let run: { parts: AnyToolPart[]; messages: UIMessage[]; key: string } | null = null
+    let run: { parts: AnyToolPart[]; key: string } | null = null
     const flush = () => {
       if (!run) return
       nodes.push(
@@ -908,7 +903,6 @@ function MessageGroup({
           <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
             <ToolAggregateGroup parts={run.parts} className="w-full" />
           </Message>
-          <ArtifactList messages={run.messages} includeTargetFallbacks={false} />
         </div>
       )
       run = null
@@ -919,9 +913,8 @@ function MessageGroup({
           ? getAggregateOnlyParts(item.message, showThinking)
           : null
       if (aggregateParts) {
-        if (!run) run = { parts: [], messages: [], key: item.message.id }
+        if (!run) run = { parts: [], key: item.message.id }
         run.parts.push(...aggregateParts)
-        run.messages.push(item.message)
         return
       }
       flush()
@@ -939,6 +932,11 @@ function MessageGroup({
         </div>
       ) : null}
       {renderItems(proseItems, stepItems.length)}
+      {/* Paper artifact strip: one FILES row per turn, at the end. */}
+      <ArtifactList
+        messages={items.map((item) => item.message)}
+        includeTargetFallbacks={false}
+      />
       {lastTextMessage && !isStreaming && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
           <MessageActions className="flex gap-0">
@@ -1019,7 +1017,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
             />
-            <MessageArtifacts message={item.message} />
+            <ArtifactList messages={[item.message]} includeTargetFallbacks={false} />
           </div>
         )
       })}

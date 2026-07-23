@@ -3,10 +3,9 @@
 import { useState } from "react"
 import { ChevronRight } from "lucide-react"
 
+import { FileChip } from "@/components/chat/file-chip"
 import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
-import { useOpenArtifactPath } from "@/lib/artifacts"
 import {
-  fileName,
   getAggregateNowLabel,
   getAggregateRowFile,
   getAggregateRowLabel,
@@ -48,7 +47,6 @@ function failureReason(part: AnyToolPart): string | null {
  */
 export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps) {
   const groupKey = parts[0]?.toolCallId ?? "aggregate"
-  const openArtifactPath = useOpenArtifactPath()
   const [expanded, setExpandedState] = useState(() => expandedByGroupKey.get(groupKey) ?? false)
   const [showAll, setShowAllState] = useState(() => showAllByGroupKey.get(groupKey) ?? false)
 
@@ -127,17 +125,10 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                       )
                     }
                     return (
-                      <button
-                        type="button"
-                        onClick={() => openArtifactPath(file.path)}
-                        title={file.path}
-                        className="flex min-w-0 cursor-pointer items-baseline gap-1.5 text-start transition-colors hover:text-foreground"
-                      >
+                      <span className="flex min-w-0 items-center gap-1.5">
                         <span className="shrink-0">{file.verb}</span>
-                        <span className="min-w-0 truncate font-mono text-[11px] underline-offset-2 hover:underline">
-                          {fileName(file.path)}
-                        </span>
-                      </button>
+                        <FileChip path={file.path} className="min-w-0" />
+                      </span>
                     )
                   })()}
                   {durations[index] ? (
