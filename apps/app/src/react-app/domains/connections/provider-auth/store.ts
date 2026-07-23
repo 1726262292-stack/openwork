@@ -1362,6 +1362,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
     assertProviderAllowedByDesktopPolicy(providerId);
 
+    setStateField("providerAuthBusy", true);
     try {
       if (providerId.trim().toLowerCase() === DESKTOP_RESTRICTION_OPENCODE_PROVIDER_ID) {
         await ensureProjectProviderDisabledState(providerId, false);
@@ -1373,6 +1374,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
       setStateField("providerAuthError", message);
       throw error instanceof Error ? error : new Error(message);
+    } finally {
+      setStateField("providerAuthBusy", false);
     }
   }
 
