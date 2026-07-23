@@ -4,6 +4,8 @@ import {
   AlertCircle,
   Archive,
   ArchiveRestore,
+  ArrowLeft,
+  ArrowRight,
   ChevronRight,
   FolderPlus,
   MoreHorizontal,
@@ -688,6 +690,12 @@ export type AppSidebarProps = {
   onOpenCreateWorkspace: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
+  /** Back/forward across recently viewed conversations, rendered at the top of the sidebar. */
+  conversationHistory?: {
+    canGoBack: boolean;
+    canGoForward: boolean;
+    onNavigate: (direction: "back" | "forward") => void;
+  };
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -895,6 +903,38 @@ export function AppSidebar(props: AppSidebarProps) {
               alt="Organization logo"
               className="max-h-9 w-auto max-w-[140px] object-contain object-left"
             />
+          </div>
+        ) : null}
+        {props.conversationHistory ? (
+          <div
+            className="flex shrink-0 items-center gap-0.5 px-3 pb-1"
+            role="group"
+            aria-label="Conversation history controls"
+          >
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="rounded-lg text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground disabled:opacity-40"
+              aria-label="Back in conversation history"
+              title="Back in conversation history"
+              data-conversation-history-control="back"
+              disabled={!props.conversationHistory.canGoBack}
+              onClick={() => props.conversationHistory?.onNavigate("back")}
+            >
+              <ArrowLeft size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="rounded-lg text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground disabled:opacity-40"
+              aria-label="Forward in conversation history"
+              title="Forward in conversation history"
+              data-conversation-history-control="forward"
+              disabled={!props.conversationHistory.canGoForward}
+              onClick={() => props.conversationHistory?.onNavigate("forward")}
+            >
+              <ArrowRight size={14} />
+            </Button>
           </div>
         ) : null}
         {props.onOpenSessionSearch ? (
