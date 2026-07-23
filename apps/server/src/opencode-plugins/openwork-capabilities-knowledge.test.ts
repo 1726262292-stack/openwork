@@ -40,6 +40,7 @@ describe("OpenWork capabilities knowledge plugin", () => {
     expect(knowledge).not.toContain("Access tokens are opaque");
     expect(knowledge).not.toContain("https://api.openworklabs.com/mcp`");
     expect(knowledge).not.toContain("openwork-ui-mcp");
+    expect(knowledge).not.toContain("openwork_extensions_export");
   });
 
   test("retrieves Slack connection guidance from bundled docs", async () => {
