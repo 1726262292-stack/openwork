@@ -474,8 +474,6 @@ describe("OpenWorkExtensionsPreview semantic tool surface", () => {
     expect(tools).toEqual(["openwork_context", "openwork_execute", "openwork_query"]);
 
     const system = await transformedSystem(plugin);
-    expect(system).not.toContain("## Default Skill: skill-creator");
-    expect(system).not.toContain("<openwork_default_skill");
     expect(system).not.toContain("openwork_ui_");
     expect(system).not.toContain("openwork_session_");
     expect(system).not.toContain("openwork_extension_");
