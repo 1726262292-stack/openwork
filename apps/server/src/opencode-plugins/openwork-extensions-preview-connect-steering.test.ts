@@ -112,7 +112,10 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
 
   test("steers ready Connect users to verified openwork-cloud capabilities first", () => {
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("verified ready for this exact workspace/model");
-    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("FIRST call openwork-cloud_search_capabilities");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("use openwork-cloud_search_capabilities");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("available_skills");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("Gmail");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("image generation");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("relay connectionStatus.action exactly");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("results are live, not cached");
     expect(composeOpenWorkExtensionDiscoveryInstruction(state(health()))).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);

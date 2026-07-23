@@ -3,6 +3,11 @@ import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { z } from "zod";
 import {
+  combineInstructionSections,
+  composeAgentInstructions,
+  createInstructionSection,
+} from "./agent-instruction-compose.js";
+import {
   OPENWORK_EXTENSION_DISCOVERY_INSTRUCTION,
   resolveOpenWorkConnectSkillInstruction,
   resolveOpenWorkExtensionDiscoveryInstruction,
@@ -743,12 +748,17 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
       }),
       resolveOpenWorkConnectSkillInstruction(mergedInput, fetch),
     ]);
-    output.system.push(extensionInstruction);
-    if (skillInstruction) output.system.push(skillInstruction);
-    output.system.push(OPENWORK_SESSION_CREATION_INSTRUCTION);
-    output.system.push(OPENWORK_SESSION_MEMORY_INSTRUCTION);
-    output.system.push(OPENWORK_BROWSER_INSTRUCTION);
-    if (uiControlEnabled) output.system.push(OPENWORK_UI_CONTROL_INSTRUCTION);
+    // One section id per concern — combine drops empties/duplicates so routing,
+    // remote skills, session, browser, and UI tools never overlap by accident.
+    const sections = combineInstructionSections(
+      createInstructionSection("routing", extensionInstruction),
+      createInstructionSection("connect-skills", skillInstruction),
+      createInstructionSection("session-create", OPENWORK_SESSION_CREATION_INSTRUCTION),
+      createInstructionSection("session-memory", OPENWORK_SESSION_MEMORY_INSTRUCTION),
+      createInstructionSection("browser", OPENWORK_BROWSER_INSTRUCTION),
+      uiControlEnabled ? createInstructionSection("ui-control", OPENWORK_UI_CONTROL_INSTRUCTION) : null,
+    );
+    output.system.push(...composeAgentInstructions(sections));
   },
   tool: {
     openwork_extension_list_actions: {
