@@ -402,6 +402,16 @@ async function ensureDesktopSignedIn(ctx: FlowContext): Promise<void> {
     await ctx.waitFor("location.hash.includes('/workspace/')", { timeoutMs: 30_000, label: "workspace route after creation" });
   }
 
+  // Cloud MCP auto-config only syncs once a workspace exists. Fresh sandboxes
+  // land on #/session with a "Create or connect a workspace" empty state.
+  const needsWorkspace = await ctx.eval("document.body.innerText.includes('Create or connect a workspace')");
+  if (needsWorkspace) {
+    const workspacePath = ctx.env.OPENWORK_EVAL_WORKSPACE_PATH?.trim() ?? "";
+    ctx.assert(Boolean(workspacePath), "No workspace exists; set OPENWORK_EVAL_WORKSPACE_PATH so the eval can create one.");
+    await ctx.control("workspace.create", { path: workspacePath });
+    await ctx.waitFor("location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "workspace route after control creation" });
+  }
+
   await ctx.waitFor(
     "Boolean(localStorage.getItem('openwork.den.mcp.sync'))",
     { timeoutMs: 180_000, label: "openwork.den.mcp.sync marker" },
