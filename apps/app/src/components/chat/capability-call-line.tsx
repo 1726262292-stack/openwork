@@ -16,7 +16,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
-import { getCapabilityCallSentence } from "@/lib/capability-call"
+import { getCapabilityCallSentence, parseRecord } from "@/lib/capability-call"
 import { trackToolCallDuration } from "@/lib/tool-call-duration"
 import { isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
@@ -40,12 +40,28 @@ function failureInstruction(part: DynamicToolUIPart, reconnectName: string | nul
   if (reconnectName) {
     return `${reconnectName} needs a fresh sign-in — reconnect it, then retry.`
   }
-  const attribution = part.state === "output-error" && part.errorText
-    ? attributeChatToolError(part.errorText)
-    : null
+  const errorText = part.state === "output-error" ? part.errorText : null
+  const attribution = errorText ? attributeChatToolError(errorText) : null
   if (attribution) return attribution.description
-  const firstLine = part.state === "output-error" ? part.errorText?.split("\n")[0]?.trim() : null
-  return firstLine || "The call failed. Full error is under Technical details."
+
+  // Structured provider errors ({ error, details: [{ message }] }) should
+  // read as a sentence, never as raw JSON.
+  const record = errorText ? parseRecord(errorText) : null
+  if (record) {
+    const code = typeof record.error === "string" ? record.error : null
+    const detailMessage = Array.isArray(record.details)
+      ? record.details
+        .map((detail) => (typeof detail === "object" && detail !== null && "message" in detail && typeof detail.message === "string" ? detail.message : null))
+        .find((message) => message)
+      : null
+    const message = detailMessage ?? (typeof record.message === "string" ? record.message : null)
+    const summary = [code?.replace(/_/g, " "), message].filter(Boolean).join(" — ")
+    if (summary) return `The provider rejected the call: ${summary}.`
+  }
+
+  const firstLine = errorText?.split("\n")[0]?.trim()
+  if (firstLine && !firstLine.startsWith("{") && !firstLine.startsWith("[")) return firstLine
+  return "The call failed. Full error is under Technical details."
 }
 
 /**

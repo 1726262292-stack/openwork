@@ -60,6 +60,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+/** Tool outputs arrive as objects or JSON strings depending on transport. */
+export function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (isRecord(value)) return value
+  if (typeof value !== "string") return null
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function titleCase(slug: string): string {
   return slug
     .split(/[-_.\s]+/)
@@ -140,6 +152,44 @@ export function getCapabilityCallSentence(part: DynamicToolUIPart): CapabilityCa
         past: `${verbPhrase(split.action, "past")} · ${split.service}${suffix}`,
       }
     }
+
+    // "plugin:plg_…:cob_…" refs are opaque; the human name only exists in
+    // the output ({ kind: "skill", plugin: "Plan My Day", … }).
+    if (name?.startsWith("plugin:")) {
+      const output = parseRecord("output" in part ? part.output : undefined)
+      const kind = typeof output?.kind === "string" ? output.kind : "plugin"
+      const pluginName = typeof output?.plugin === "string"
+        ? output.plugin
+        : typeof output?.name === "string"
+          ? humanize(output.name)
+          : null
+      const label = pluginName ? `${kind} “${pluginName}”` : `a ${kind} capability`
+      return {
+        service: pluginName,
+        present: `Using ${label}`,
+        past: `Used ${label}`,
+      }
+    }
+
+    // Native camelCase capabilities, e.g.
+    // "getCapabilitiesGoogleWorkspaceCalendarEvents".
+    if (name) {
+      const words = name.split(/(?=[A-Z])|[-_.\s]+/).filter(Boolean)
+      const first = words[0]?.toLowerCase()
+      const verbPast = first ? PAST_TENSE[first] : undefined
+      const verbPresent = first ? PRESENT_TENSE[first] : undefined
+      let rest = words.slice(1)
+      if (/^capabilit(y|ies)$/i.test(rest[0] ?? "")) rest = rest.slice(1)
+      if (verbPast && verbPresent && rest.length > 0) {
+        const phrase = rest.join(" ")
+        return {
+          service: null,
+          present: `${verbPresent} ${phrase}`,
+          past: `${verbPast} ${phrase}`,
+        }
+      }
+    }
+
     return {
       service: null,
       present: `Running a capability${quoted ? ` for${quoted}` : ""}`,
