@@ -51,19 +51,17 @@ export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
         aria-label={open ? `${title}. Hide details` : `${title}. Show details`}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span className="flex size-3.5 shrink-0 items-center justify-center">
-            {inFlight ? (
+          {inFlight ? (
+            <span className="flex size-3.5 shrink-0 items-center justify-center">
               <DotMatrixLoader label={`${title} — ${agent}`} className="text-muted-foreground" />
-            ) : (
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-muted-foreground/60" />
-            )}
-          </span>
+            </span>
+          ) : null}
           <span className="min-w-0 truncate">
             {title}
             <span className="text-muted-foreground/70"> · {agent} agent</span>
           </span>
         </span>
-        <span className="min-w-0 truncate ps-5.5 text-xs text-muted-foreground/70">
+        <span className={cn("min-w-0 truncate text-xs text-muted-foreground/70", inFlight && "ps-5.5")}>
           {isFailed ? `Failed — ${status}` : status}
           {!inFlight && !isFailed && duration ? ` · ${duration}` : ""}
         </span>

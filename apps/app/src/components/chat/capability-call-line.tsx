@@ -101,13 +101,11 @@ export function CapabilityCallLine({
           className="group flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-start text-sm text-muted-foreground transition-colors hover:text-foreground"
           aria-label={open ? `${line}. Hide technical details` : `${line}. Show technical details`}
         >
-          <span className="flex size-3.5 shrink-0 items-center justify-center">
-            {inFlight ? (
+          {inFlight ? (
+            <span className="flex size-3.5 shrink-0 items-center justify-center">
               <DotMatrixLoader label={line} className="text-muted-foreground" />
-            ) : (
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-muted-foreground/60" />
-            )}
-          </span>
+            </span>
+          ) : null}
           <span className="min-w-0 truncate">{line}</span>
           {isFailed ? <span className="shrink-0 text-xs text-muted-foreground">failed</span> : null}
           {duration ? (
