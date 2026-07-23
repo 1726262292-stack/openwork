@@ -2062,11 +2062,10 @@ function SessionMenuItem({
     depth > 0 && "ps-7",
   );
 
+  // Pinned/archived rows identify their workspace via the tooltip title
+  // only — no workspace color dot in these sections.
   const leading = (
-    <>
-      <SessionLoadingIndicator status={sessionActivityStatus} isActiveWork={resolvedActiveWork} />
-      {workspaceName ? <WorkspaceIcon workspaceId={workspaceId} sizeClass="size-3.5" /> : null}
-    </>
+    <SessionLoadingIndicator status={sessionActivityStatus} isActiveWork={resolvedActiveWork} />
   );
 
   const trailing = (
