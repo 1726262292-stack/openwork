@@ -89,16 +89,24 @@ function truncate(text: string, max: number): string {
 }
 
 /** Pull a short human query out of a capability call input, if one exists. */
-function extractQuery(input: unknown): string | null {
+function extractQuery(input: unknown, max = 80): string | null {
   if (!isRecord(input)) return null
   const direct = input.query ?? input.q ?? input.search ?? input.prompt
-  if (typeof direct === "string" && direct.trim()) return truncate(direct.trim(), 80)
+  if (typeof direct === "string" && direct.trim()) return truncate(direct.trim(), max)
   const body = input.body
   if (isRecord(body)) {
-    const nested = body.query ?? body.q ?? body.search ?? body.prompt ?? body.question
-    if (typeof nested === "string" && nested.trim()) return truncate(nested.trim(), 80)
+    const nested = body.query ?? body.q ?? body.search ?? body.prompt ?? body.question ?? body.message ?? body.text
+    if (typeof nested === "string" && nested.trim()) return truncate(nested.trim(), max)
   }
   return null
+}
+
+/**
+ * Full natural-language ask behind a capability call, for the failed-call
+ * card's quote block (Paper "Failed Call Card" · Query Quote).
+ */
+export function getCapabilityCallQuote(part: DynamicToolUIPart): string | null {
+  return extractQuery(part.input, 280)
 }
 
 /** "granola.ask-about-meetings" or "granola/ask_about_meetings" → parts. */
@@ -128,9 +136,12 @@ function verbPhrase(action: string, tense: "present" | "past"): string {
  * Tool names follow "{connection}_{tool}", e.g.
  * "openwork-cloud_search_capabilities".
  */
-export function getCapabilityCallSentence(part: DynamicToolUIPart): CapabilityCallSentence {
+export function getCapabilityCallSentence(
+  part: DynamicToolUIPart,
+  options?: { includeQuery?: boolean },
+): CapabilityCallSentence {
   const toolName = part.toolName
-  const query = extractQuery(part.input)
+  const query = options?.includeQuery === false ? null : extractQuery(part.input)
   const quoted = query ? ` “${query}”` : ""
 
   if (toolName.endsWith("search_capabilities")) {
