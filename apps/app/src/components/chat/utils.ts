@@ -203,7 +203,10 @@ export function getAssistantRenderGroups(
 
     const previous = groups.at(-1)
     if (previous?.kind === "reasoning") {
-      previous.text += part.text
+      // Each reasoning part is its own section (often opening with a bold
+      // "**Title**"); joining without a break glues that title onto the
+      // previous paragraph's last sentence.
+      previous.text += previous.text && part.text.trim() ? `\n\n${part.text}` : part.text
       previous.isStreaming = previous.isStreaming || part.state === "streaming"
       return
     }
