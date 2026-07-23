@@ -84,7 +84,7 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
         />
         <span className="min-w-0 truncate">{summary}</span>
         {failedCount > 0 ? (
-          <span className="shrink-0 text-xs text-red-11">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {failedCount} failed
           </span>
         ) : null}
@@ -115,8 +115,8 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "size-1.5 rounded-full",
-                          status === "failed" ? "bg-red-9" : "bg-green-9",
+                          "size-1.5 rounded-full bg-muted-foreground",
+                          status === "failed" ? "opacity-90" : "opacity-60",
                         )}
                       />
                     )}
@@ -131,7 +131,7 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                   ) : null}
                 </div>
                 {reason ? (
-                  <div className="ps-5.5 text-[11px] text-red-11">{reason}</div>
+                  <div className="ps-5.5 text-[11px] text-muted-foreground">failed — {reason}</div>
                 ) : null}
               </div>
             )
