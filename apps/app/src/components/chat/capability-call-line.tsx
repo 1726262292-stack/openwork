@@ -53,9 +53,9 @@ function failureInstruction(part: DynamicToolUIPart, reconnectName: string | nul
  * a plain muted text line — dot-matrix while running, small green dot
  * when done, past-tense verb with duration. IDs, schema digests, and
  * raw payloads live under a collapsed "Technical details" section.
- * Failures follow "Failures are instructions": red dot, one line saying
- * what to do next, and an inline Reconnect/Retry button when the error
- * maps to a known connection.
+ * Failures follow "Failures are instructions": same neutral dot, one
+ * line saying what to do next, and an inline Reconnect/Retry button
+ * when the error maps to a known connection. No traffic-light colors.
  */
 export function CapabilityCallLine({
   part,
@@ -89,14 +89,11 @@ export function CapabilityCallLine({
             {inFlight ? (
               <DotMatrixLoader label={line} className="text-muted-foreground" />
             ) : (
-              <span
-                aria-hidden="true"
-                className={cn("size-1.5 rounded-full", isFailed ? "bg-red-9" : "bg-green-9")}
-              />
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-muted-foreground/60" />
             )}
           </span>
           <span className="min-w-0 truncate">{line}</span>
-          {isFailed ? <span className="shrink-0 text-xs text-red-11">failed</span> : null}
+          {isFailed ? <span className="shrink-0 text-xs text-muted-foreground">failed</span> : null}
           {duration ? (
             <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">{duration}</span>
           ) : null}
@@ -156,7 +153,7 @@ export function CapabilityCallLine({
             </pre>
           ) : null}
           {isFailed && part.errorText ? (
-            <pre className="max-h-60 overflow-auto whitespace-pre-wrap wrap-break-word text-red-11">
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap wrap-break-word opacity-80">
               {part.errorText}
             </pre>
           ) : null}

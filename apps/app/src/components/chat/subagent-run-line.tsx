@@ -55,13 +55,7 @@ export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
             {inFlight ? (
               <DotMatrixLoader label={`${title} — ${agent}`} className="text-muted-foreground" />
             ) : (
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "size-1.5 rounded-full",
-                  isFailed ? "bg-red-9" : "bg-muted-foreground/60",
-                )}
-              />
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-muted-foreground/60" />
             )}
           </span>
           <span className="min-w-0 truncate">
@@ -69,13 +63,8 @@ export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
             <span className="text-muted-foreground/70"> · {agent} agent</span>
           </span>
         </span>
-        <span
-          className={cn(
-            "min-w-0 truncate ps-5.5 text-xs",
-            isFailed ? "text-red-11" : "text-muted-foreground/70",
-          )}
-        >
-          {status}
+        <span className="min-w-0 truncate ps-5.5 text-xs text-muted-foreground/70">
+          {isFailed ? `Failed — ${status}` : status}
           {!inFlight && !isFailed && duration ? ` · ${duration}` : ""}
         </span>
       </CollapsibleTrigger>
@@ -92,7 +81,7 @@ export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
             </pre>
           ) : null}
           {isFailed && part.errorText ? (
-            <pre className="max-h-60 overflow-auto whitespace-pre-wrap wrap-break-word text-red-11">
+            <pre className="max-h-60 overflow-auto whitespace-pre-wrap wrap-break-word opacity-80">
               {part.errorText}
             </pre>
           ) : null}
