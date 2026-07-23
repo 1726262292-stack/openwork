@@ -104,6 +104,7 @@ import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
+import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
@@ -266,52 +267,129 @@ async function draftToParts(
     return segments[segments.length - 1] ?? "file";
   };
 
-  for (const part of draft.parts) {
-    if (part.type === "text") {
-      parts.push({ type: "text", text: part.text });
-      continue;
-    }
-    if (part.type === "paste") {
-      parts.push({ type: "text", text: part.text });
-      continue;
-    }
-    if (part.type === "agent") {
-      parts.push({ type: "agent", name: part.name });
-      continue;
-    }
-    if (part.type === "skill") {
-      parts.push({ type: "text", text: `Load [skill ${part.name}] and follow its instructions.` });
-      continue;
-    }
-    if (part.type === "app") {
-      parts.push({ type: "text", text: appMentionInstruction(part.name) });
-      continue;
-    }
-    if (part.type === "file") {
-      const absolute = toAbsolutePath(part.path);
-      if (!absolute) continue;
-      parts.push({
-        type: "file",
-        mime: "text/plain",
-        url: toFileUrl(absolute),
-        filename: filenameFromPath(part.path),
-      });
-    }
-  }
-
-  parts.push(...firstLineLocalFileParts(draft.resolvedText ?? draft.text, root));
-
+  const attachmentFileById = new Map<string, FilePartInput>();
   if (draft.attachments.length > 0) {
     if (!endpoint) {
       throw new Error("Workspace endpoint is unavailable; attachments could not be copied for tool access.");
     }
-    parts.push(...(await composerAttachmentsToWorkspaceFileParts({
+    const uploaded = await composerAttachmentsToWorkspaceFileParts({
       attachments: draft.attachments,
       endpoint,
       sessionId,
       workspaceRoot: root,
-    })));
+    });
+    for (const part of uploaded) {
+      if (part.type === "text") {
+        parts.push(part);
+        continue;
+      }
+    }
+    const fileParts = uploaded.filter((part): part is FilePartInput => part.type === "file");
+    for (const [index, attachment] of draft.attachments.entries()) {
+      const filePart = fileParts[index];
+      if (filePart) attachmentFileById.set(attachment.id, filePart);
+    }
   }
+
+  // Prefer draft.text token order so attachment chips stay inline with surrounding text
+  // (same positions as the composer), instead of dumping every file part at the end.
+  const hasAttachmentTokens = /\[attachment [^\]]+\]/.test(draft.text);
+  if (hasAttachmentTokens || attachmentFileById.size > 0) {
+    const pasteByLabel = new Map(
+      draft.parts
+        .filter((part): part is Extract<ComposerPart, { type: "paste" }> => part.type === "paste")
+        .map((part) => [part.label, part.text] as const),
+    );
+    for (const segment of draft.text.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/)) {
+      if (!segment) continue;
+      const attachmentMatch = segment.match(/^\[attachment (.+)\]$/);
+      if (attachmentMatch?.[1]) {
+        const filePart = attachmentFileById.get(attachmentMatch[1]);
+        if (filePart) {
+          parts.push(filePart);
+          attachmentFileById.delete(attachmentMatch[1]);
+        }
+        continue;
+      }
+      const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
+      if (pasteMatch?.[1]) {
+        const pasted = pasteByLabel.get(pasteMatch[1]);
+        if (pasted) parts.push({ type: "text", text: pasted });
+        continue;
+      }
+      const skillMatch = segment.match(/^\[skill (.+)\]$/);
+      if (skillMatch?.[1]) {
+        parts.push({ type: "text", text: `Load [skill ${skillMatch[1]}] and follow its instructions.` });
+        continue;
+      }
+      if (segment.startsWith("@")) {
+        const value = decodeComposerMentionValue(segment.slice(1));
+        const mentionPart = draft.parts.find((part) =>
+          (part.type === "agent" && part.name === value)
+          || (part.type === "app" && part.name === value)
+          || (part.type === "file" && part.path === value),
+        );
+        if (mentionPart?.type === "agent") {
+          parts.push({ type: "agent", name: mentionPart.name });
+          continue;
+        }
+        if (mentionPart?.type === "app") {
+          parts.push({ type: "text", text: appMentionInstruction(mentionPart.name) });
+          continue;
+        }
+        if (mentionPart?.type === "file") {
+          const absolute = toAbsolutePath(mentionPart.path);
+          if (!absolute) continue;
+          parts.push({
+            type: "file",
+            mime: "text/plain",
+            url: toFileUrl(absolute),
+            filename: filenameFromPath(mentionPart.path),
+          });
+          continue;
+        }
+      }
+      parts.push({ type: "text", text: segment });
+    }
+    for (const filePart of attachmentFileById.values()) {
+      parts.push(filePart);
+    }
+  } else {
+    for (const part of draft.parts) {
+      if (part.type === "text") {
+        parts.push({ type: "text", text: part.text });
+        continue;
+      }
+      if (part.type === "paste") {
+        parts.push({ type: "text", text: part.text });
+        continue;
+      }
+      if (part.type === "agent") {
+        parts.push({ type: "agent", name: part.name });
+        continue;
+      }
+      if (part.type === "skill") {
+        parts.push({ type: "text", text: `Load [skill ${part.name}] and follow its instructions.` });
+        continue;
+      }
+      if (part.type === "app") {
+        parts.push({ type: "text", text: appMentionInstruction(part.name) });
+        continue;
+      }
+      if (part.type === "file") {
+        const absolute = toAbsolutePath(part.path);
+        if (!absolute) continue;
+        parts.push({
+          type: "file",
+          mime: "text/plain",
+          url: toFileUrl(absolute),
+          filename: filenameFromPath(part.path),
+        });
+      }
+    }
+  }
+
+  parts.push(...firstLineLocalFileParts(draft.resolvedText ?? draft.text, root));
 
   return parts;
 }
