@@ -174,15 +174,18 @@ test("built-in cloud skills are searchable and executable as skill capabilities"
     provenance: "Built into OpenWork Cloud.",
   })
   expect(createSkill?.content).toContain("name: create-skill")
-  expect(createSkill?.content).toContain("no `marketplaceId`")
+  expect(createSkill?.content).toContain("postPlugins")
+  expect(createSkill?.content).toContain("Do not send `marketplaceId` or `orgWide`")
   expect(createSkill?.content).not.toContain("Set organization-wide access or a marketplace")
 
   const addToMarketplace = executeBuiltinSkillCapability(BUILTIN_ADD_TO_MARKETPLACE_CAPABILITY)
   expect(addToMarketplace?.content).toContain("name: add-to-marketplace")
+  expect(addToMarketplace?.content).toContain("postMarketplacesPlugins")
   expect(addToMarketplace?.content).toContain("Do not create a new skill or plugin")
 
   const addUser = executeBuiltinSkillCapability(BUILTIN_ADD_USER_TO_MARKETPLACE_CAPABILITY)
   expect(addUser?.content).toContain("name: add-user-to-marketplace")
+  expect(addUser?.content).toContain("postMarketplacesAccess")
   expect(addUser?.content).toContain("orgMembershipId")
   expect(executeBuiltinSkillCapability("skill:missing")).toBeNull()
 })
