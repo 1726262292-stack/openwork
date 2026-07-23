@@ -133,12 +133,6 @@ export function hasFencedCodeBlock(text: string) {
   return /(^|\n)```/.test(text);
 }
 
-function imageExceedsMarkdownPreview(image: HTMLImageElement) {
-  if (!image.naturalWidth || !image.naturalHeight) return false;
-  return image.naturalWidth > MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH
-    || image.naturalHeight > MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT;
-}
-
 export function syncMarkdownImagePreviews(root: HTMLElement) {
   const previews = root.querySelectorAll("[data-openwork-image-preview]");
 
@@ -146,23 +140,10 @@ export function syncMarkdownImagePreviews(root: HTMLElement) {
     if (!(preview instanceof HTMLElement)) continue;
 
     const image = preview.querySelector("img");
-    const button = preview.querySelector("[data-openwork-image-toggle]");
-    if (!(image instanceof HTMLImageElement) || !(button instanceof HTMLButtonElement)) continue;
+    if (!(image instanceof HTMLImageElement)) continue;
 
-    const previewable = imageExceedsMarkdownPreview(image);
-    button.hidden = !previewable;
-
-    const expanded = preview.dataset.openworkImagePreview === "expanded";
-    if (!previewable || expanded) {
-      image.style.maxHeight = "";
-      image.style.maxWidth = "";
-    } else {
-      image.style.maxHeight = `${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px`;
-      image.style.maxWidth = `${MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH}px`;
-    }
-
-    const label = button.querySelector("[data-openwork-image-toggle-label]");
-    if (label) label.textContent = expanded ? "Show less" : "Show full image";
+    image.style.maxHeight = `${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px`;
+    image.style.maxWidth = `${MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH}px`;
   }
 }
 
@@ -191,9 +172,8 @@ function sanitizeMarkdownHtml(value: string) {
       "data-openwork-code-copy-check-icon",
       "data-openwork-code-copy-icon",
       "data-openwork-code-copy-label",
+      "aria-label",
       "data-openwork-image-preview",
-      "data-openwork-image-toggle",
-      "data-openwork-image-toggle-label",
       "data-openwork-link-href",
       "data-openwork-link-chevron",
       "data-openwork-shiki",
@@ -277,7 +257,7 @@ function renderImage(profile: MarkdownProfile, href: string, title: string | nul
   const titleAttr = title ? ` title="${escapeAttribute(title)}"` : "";
 
   if (profile.imagePresentation === "chat") {
-    return `<span data-openwork-image-preview="collapsed" class="relative my-4 inline-block max-w-full align-top"><img src="${safe}" alt="${escapeAttribute(text)}"${titleAttr} loading="lazy" decoding="async" class="block h-auto w-auto rounded-lg border border-border/70 object-contain" style="max-height: ${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px; max-width: ${MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH}px"><button type="button" data-openwork-image-toggle="" hidden class="absolute inset-x-0 bottom-0 flex justify-center bg-gradient-to-t from-background via-background/90 to-transparent pb-2 pt-8"><span data-openwork-image-toggle-label="" class="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-medium text-foreground shadow-sm">Show full image</span></button></span>`;
+    return `<button type="button" data-openwork-image-preview="" class="my-4 inline-block max-w-full cursor-zoom-in align-top text-left transition-opacity hover:opacity-90" aria-label="Expand ${escapeAttribute(text)}"><img src="${safe}" alt="${escapeAttribute(text)}"${titleAttr} loading="lazy" decoding="async" class="block h-auto w-auto rounded-lg border border-border/70 object-contain" style="max-height: ${MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT}px; max-width: ${MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH}px"></button>`;
   }
 
   return `<img src="${safe}" alt="${escapeAttribute(text)}"${titleAttr} loading="lazy" decoding="async" class="my-4 max-w-full rounded-[18px] border border-dls-border/70">`;

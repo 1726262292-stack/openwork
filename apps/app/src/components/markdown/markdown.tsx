@@ -2,6 +2,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useOpenTargets } from "@/lib/target-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
@@ -98,6 +103,7 @@ function MarkdownBlockInner({
   const codeCopyResetTimers = useRef(new Map<HTMLButtonElement, number>());
   const { openTargets, onOpenTarget } = useOpenTargets();
   const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; rect: DOMRect } | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ src: string; alt: string } | null>(null);
   const syncHtml = useMemo(() => {
     return renderMarkdownHtml(text);
   }, [text]);
@@ -229,16 +235,14 @@ function MarkdownBlockInner({
         }
       }
 
-      const button = event.target.closest("[data-openwork-image-toggle]");
-      if (!(button instanceof HTMLButtonElement)) return;
-
-      const preview = button.closest("[data-openwork-image-preview]");
+      const preview = event.target.closest("[data-openwork-image-preview]");
       if (!(preview instanceof HTMLElement)) return;
 
-      preview.dataset.openworkImagePreview = preview.dataset.openworkImagePreview === "expanded"
-        ? "collapsed"
-        : "expanded";
-      sync();
+      event.preventDefault();
+      event.stopPropagation();
+      const image = preview.querySelector("img");
+      if (!(image instanceof HTMLImageElement) || !image.src) return;
+      setImagePreview({ src: image.src, alt: image.alt || "Image" });
     };
 
     root.addEventListener("load", handleLoad, true);
@@ -281,6 +285,23 @@ function MarkdownBlockInner({
           onClose={() => setLinkMenu(null)}
         />
       ) : null}
+      <Dialog
+        open={imagePreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setImagePreview(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] w-auto max-w-[min(90vw,56rem)] overflow-hidden border-none bg-transparent p-0 shadow-none sm:max-w-[min(90vw,56rem)]">
+          <DialogTitle className="sr-only">{imagePreview?.alt ?? "Image"}</DialogTitle>
+          {imagePreview ? (
+            <img
+              src={imagePreview.src}
+              alt={imagePreview.alt}
+              className="max-h-[85vh] w-auto max-w-full rounded-xl object-contain"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
