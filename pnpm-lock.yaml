@@ -478,6 +478,9 @@ importers:
       '@openwork/types':
         specifier: workspace:*
         version: link:../../../packages/types
+      '@openwork/ui-artifact-mcp':
+        specifier: workspace:*
+        version: link:../../../packages/ui-artifact-mcp
       '@sentry/hono':
         specifier: 10.64.0
         version: 10.64.0(@hono/node-server@1.19.11(hono@4.12.8))(@sentry/node@10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.8)
@@ -1050,6 +1053,31 @@ importers:
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/ui-artifact-mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(patch_hash=2038e94bf511d9f917a4315c9f9376716a97f7f09cd830e99d9edd751e244bff)(zod@4.3.6)
+      '@openwork/types':
+        specifier: workspace:*
+        version: link:../types
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.3
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
+      tsx:
+        specifier: ^4.15.7
+        version: 4.21.0
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

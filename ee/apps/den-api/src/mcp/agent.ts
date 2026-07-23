@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ErrorCode, McpError, type ToolAnnotations } from "@modelcontextprotocol/sdk/types.js"
 import { StreamableHTTPTransport } from "@hono/mcp"
@@ -21,6 +22,21 @@ import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { env } from "../env.js"
 import { isPlatformAdminUserId } from "../middleware/admin.js"
 import { executeAvailableAdminCapability, parseAdminCapabilityName, searchAvailableAdminCapabilities } from "./admin-capabilities.js"
+import { readUiArtifactPreferences } from "../ui-artifact-preferences.js"
+import {
+  appendUiArtifactSuggestion,
+  executeUiArtifactCapability,
+  searchUiArtifactCapabilities,
+  suggestUiArtifactForCapability,
+} from "./ui-artifacts.js"
+import {
+  UI_ARTIFACT_KINDS,
+  UI_ARTIFACT_RENDER_CAPABILITY,
+  UI_ARTIFACT_SEARCH_CAPABILITY,
+  UI_ARTIFACT_SCHEMA_VERSION,
+  UI_ARTIFACT_USE_CAPABILITY,
+  type UiArtifactPreferences,
+} from "@openwork/types/ui-artifact"
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
@@ -117,6 +133,11 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "External MCP matches include the provider-advertised argumentsSchema, schemaDigest, and invocation.argumentsField. Put an object matching argumentsSchema in execute_capability.body and copy schemaDigest into execute_capability.schemaDigest.",
   "OpenWork always attempts the downstream provider call when local schema checks find a mismatch. schemaGuidance is advisory and appears alongside the provider result: if the provider succeeded, accept that result and do not retry solely because of the warning; if it failed, use the warning to correct the arguments or search again.",
   "If the provider returns invalid_capability_arguments, correct the listed issues and retry once with changed arguments; never retry the same arguments unchanged. If it returns unknown_capability, call search_capabilities again before retrying.",
+  `When UI Artifacts are enabled, a successful execute_capability result may include uiArtifactSuggestions. A suggestion is optional and expires at the end of the current turn. Render at most one suggested artifact per turn, skip duplicate dedupeKey values, and prefer an artifact only when it materially improves the answer.`,
+  `To render, follow only the returned invocation: call execute_capability with ${UI_ARTIFACT_SEARCH_CAPABILITY} once, then call execute_capability with ${UI_ARTIFACT_USE_CAPABILITY} using the exact searched schema digest and example body. The alpha examples are visibly marked mock data; never replace their payload with provider values or imply that the card contains live provider data.`,
+  "After a successful artifact use, say the native artifact is visible and use narration.summary plus only decision-relevant visibleFacts. Do not repeat every visible row, paste the structured payload, or feed artifact suggestions/results back into provider tools.",
+  `Approval and rejection are stateful mock actions through ${UI_ARTIFACT_USE_CAPABILITY}. Never infer a decision from conversation context or execute one merely because a button exists. Act only after the user explicitly chooses Approve or Reject, send only operation, artifactId, instanceId, itemId, decision, expectedRevision, and an optional short note, and refresh the artifact after a revision conflict.`,
+  `The legacy ${UI_ARTIFACT_RENDER_CAPABILITY} capability may be accepted for an older render receipt, but new artifact searches return ${UI_ARTIFACT_USE_CAPABILITY}.`,
   "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
@@ -161,6 +182,7 @@ const EXECUTE_CAPABILITY_TIMEOUT_MESSAGE = `The capability call exceeded ${EXECU
 export type ExecuteCapabilityToolResult = {
   isError?: boolean
   content: { text: string; type: "text" }[]
+  structuredContent?: Record<string, unknown>
 }
 
 function textContent(text: string): { text: string; type: "text" }[] {
@@ -372,6 +394,10 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
     if (principal instanceof Response) {
       return principal
     }
+    const uiArtifactStateSession = createHash("sha256")
+      .update(c.req.raw.headers.get("authorization") ?? "missing")
+      .digest("hex")
+      .slice(0, 32)
 
     const preflightResponse = await preflightMcpJsonRpcRequest(c.req.raw, requestId)
     if (preflightResponse) {
@@ -411,6 +437,15 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
     const server = createAgentMcpServer()
+    const uiArtifactPreferences = method === "tools/call" && memberIdentity
+      ? await readUiArtifactPreferences(memberIdentity.orgMembershipId)
+      : {
+          protocol: "openwork.ui-artifact-preferences" as const,
+          schemaVersion: UI_ARTIFACT_SCHEMA_VERSION,
+          enabled: false,
+          enabledArtifactIds: [...UI_ARTIFACT_KINDS],
+          updatedAt: null,
+        } satisfies UiArtifactPreferences
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       registerAgentSkillResources({
         server,
@@ -446,6 +481,9 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         const sourceFilter = searchCapabilitySourceFilter(type)
         const marketplaceObjectTypes = type === "skills" ? skillMarketplaceObjectTypes : undefined
         const restMatches = sourceFilter.api ? searchCapabilities(catalog, query, boundedLimit) : []
+        const uiArtifactMatches = sourceFilter.api
+          ? searchUiArtifactCapabilities(query, boundedLimit, uiArtifactPreferences)
+          : []
         const adminMatches = sourceFilter.admin
           ? await searchAvailableAdminCapabilities(await resolvePlatformAdmin(), query, boundedLimit)
           : []
@@ -476,7 +514,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
             enabled: externalMcpConnectionsEnabled,
           })
           : []
-        const matches = [...restMatches, ...adminMatches, ...externalMatches, ...marketplaceMatches]
+        const matches = [...restMatches, ...uiArtifactMatches, ...adminMatches, ...externalMatches, ...marketplaceMatches]
           .sort(compareCapabilityMatches)
           .slice(0, boundedLimit)
         return capabilitySearchToolResult(matches, externalCoverageHint)
@@ -504,9 +542,20 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         }),
       },
       async ({ name, schemaDigest, path, query, body }) => {
-        return executeCapabilityWithBudget({
+        const result = await executeCapabilityWithBudget({
           capability: name,
           invoke: async (): Promise<ExecuteCapabilityToolResult> => {
+            const uiArtifactResult = executeUiArtifactCapability({
+              name,
+              body: normalizeToolBody(body),
+              preferences: uiArtifactPreferences,
+              stateScope: [
+                memberIdentity?.orgMembershipId ?? `${principal.organizationId}:${principal.userId}`,
+                uiArtifactStateSession,
+              ].join(":"),
+            })
+            if (uiArtifactResult) return uiArtifactResult
+
             const adminResult = parseAdminCapabilityName(name)
               ? await executeAvailableAdminCapability(await resolvePlatformAdmin(), name, body)
               : null
@@ -583,6 +632,16 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
             })
           },
         })
+        const operation = catalog.find((candidate) => candidate.name === name)
+        return appendUiArtifactSuggestion(result, suggestUiArtifactForCapability({
+          capability: name,
+          ...(operation?.operation.summary ? { title: operation.operation.summary } : {}),
+          ...(operation?.operation.description ? { description: operation.operation.description } : {}),
+          path,
+          query,
+          body: normalizeToolBody(body),
+          preferences: uiArtifactPreferences,
+        }))
       },
     )
 

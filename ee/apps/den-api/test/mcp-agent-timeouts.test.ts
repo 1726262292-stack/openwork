@@ -118,6 +118,12 @@ test("agent MCP server exposes steering instructions during initialize", async (
   expect(client.getInstructions()).toContain("connectionStatus.connectionName")
   expect(client.getInstructions()).toContain("schemaGuidance is advisory")
   expect(client.getInstructions()).toContain("always attempts the downstream provider call")
+  expect(client.getInstructions()).toContain("suggestion is optional")
+  expect(client.getInstructions()).toContain("Render at most one suggested artifact per turn")
+  expect(client.getInstructions()).toContain("skip duplicate dedupeKey values")
+  expect(client.getInstructions()).toContain("never replace their payload with provider values")
+  expect(client.getInstructions()).toContain("Never infer a decision")
+  expect(client.getInstructions()).toContain("send only operation, artifactId, instanceId, itemId, decision, expectedRevision")
   expect(client.getInstructions()).toContain("invalid_capability_arguments")
   expect(client.getInstructions()).toContain("never retry the same arguments unchanged")
 

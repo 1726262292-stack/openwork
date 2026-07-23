@@ -69,6 +69,11 @@
       "development": "./src/desktop-ipc.ts",
       "default": "./src/desktop-ipc.ts"
     },
+    "./ui-artifact": {
+      "types": "./src/ui-artifact.ts",
+      "development": "./src/ui-artifact.ts",
+      "default": "./src/ui-artifact.ts"
+    },
     "./connect-link": {
       "types": "./src/connect-link.ts",
       "development": "./src/connect-link.ts",
