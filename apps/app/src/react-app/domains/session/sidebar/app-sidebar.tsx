@@ -907,7 +907,7 @@ export function AppSidebar(props: AppSidebarProps) {
         ) : null}
         {props.conversationHistory ? (
           <div
-            className="flex shrink-0 items-center gap-0.5 px-3 pb-1"
+            className="flex shrink-0 items-center justify-end gap-0.5 px-2 pb-1 mac:-mt-11 mac:pb-2"
             role="group"
             aria-label="Conversation history controls"
           >
