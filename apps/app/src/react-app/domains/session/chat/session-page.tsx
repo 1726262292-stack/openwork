@@ -148,7 +148,7 @@ export type SessionPageSidebarProps = {
 
 export type SessionPageSurfaceProps = Omit<
   SessionSurfaceProps,
-  "client" | "workspaceId" | "sessionId" | "opencodeBaseUrl" | "openworkToken"
+  "client" | "workspaceId" | "sessionId" | "opencodeBaseUrl" | "openworkToken" | "isControlTarget"
 >;
 
 export type SessionPageProps = {
@@ -696,6 +696,10 @@ export function SessionPage(props: SessionPageProps) {
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
     [props.selectedSessionId, props.sidebar.workspaceSessionGroups],
   );
+  const workspaceName =
+    props.selectedWorkspaceDisplay.displayName?.trim() ||
+    props.selectedWorkspaceDisplay.name?.trim() ||
+    t("session.workspace_fallback");
   useEffect(() => {
     if (pendingConversationHistoryNavigation) {
       if (
@@ -734,6 +738,7 @@ export function SessionPage(props: SessionPageProps) {
     );
     syncWorkbench({
       workspaceId: props.selectedWorkspaceId,
+      workspaceTitle: workspaceName,
       primarySessionId: props.selectedSessionId,
       sessionsKnown: workspaceGroup?.status === "ready",
       sessions: (workspaceGroup?.sessions ?? []).map((session) => ({
@@ -747,6 +752,7 @@ export function SessionPage(props: SessionPageProps) {
     props.selectedWorkspaceId,
     props.sidebar.workspaceSessionGroups,
     syncWorkbench,
+    workspaceName,
   ]);
   useEffect(() => {
     props.onSessionTabsChange?.(sessionTabs);
@@ -755,10 +761,6 @@ export function SessionPage(props: SessionPageProps) {
     () => sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionActionId),
     [props.sidebar.workspaceSessionGroups, sessionActionId],
   );
-  const workspaceName =
-    props.selectedWorkspaceDisplay.displayName?.trim() ||
-    props.selectedWorkspaceDisplay.name?.trim() ||
-    t("session.workspace_fallback");
   const providerCount = props.hasUsableModel ? 1 : props.providerConnectedIds.length;
   const messageCountVisible = props.selectedSessionId ? 1 : 0;
   const showWorkspaceSetupEmptyState = props.workspaces.length === 0 && !props.selectedSessionId;
@@ -832,8 +834,9 @@ export function SessionPage(props: SessionPageProps) {
       sessionId,
       title: sessionTitleForId(props.sidebar.workspaceSessionGroups, sessionId),
     });
+    focusWorkbenchPane("primary");
     props.sidebar.onOpenSession(workspaceId, sessionId);
-  }, [openWorkbenchTab, props.sidebar]);
+  }, [focusWorkbenchPane, openWorkbenchTab, props.sidebar]);
 
   const focusWorkbenchSessionControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "workbench.session.focus",
@@ -864,6 +867,7 @@ export function SessionPage(props: SessionPageProps) {
       }
       const tab = sessionTabs.find((entry) => entry.sessionId === sessionId);
       if (tab) {
+        focusWorkbenchPane("primary");
         props.sidebar.onOpenSession(tab.workspaceId, tab.sessionId);
         return { ok: true, sessionId, reused: "tab" };
       }
@@ -1214,7 +1218,7 @@ export function SessionPage(props: SessionPageProps) {
                               <button
                                 type="button"
                                 className="min-w-0 flex-1 truncate text-left"
-                                onClick={() => props.sidebar.onOpenSession(tab.workspaceId, tab.sessionId)}
+                                onClick={() => openSessionTab(tab.workspaceId, tab.sessionId)}
                                 title={title}
                               >
                                 {title}
@@ -1250,6 +1254,7 @@ export function SessionPage(props: SessionPageProps) {
                       data-workbench-pane="primary"
                       data-workbench-pane-focused={focusedWorkbenchPane === "primary" ? "true" : undefined}
                       onPointerDown={() => focusWorkbenchPane("primary")}
+                      onFocusCapture={() => focusWorkbenchPane("primary")}
                     >
                       <SessionSurface
                         // Spread `surface` first so the explicit per-workspace
@@ -1263,6 +1268,7 @@ export function SessionPage(props: SessionPageProps) {
                         environmentClient={props.environmentClient}
                         workspaceId={props.runtimeWorkspaceId!}
                         sessionId={props.selectedSessionId!}
+                        isControlTarget={focusedWorkbenchPane === "primary"}
                         opencodeBaseUrl={reactSessionBaseUrl}
                         openworkToken={reactSessionToken}
                         todos={props.todos}
@@ -1282,6 +1288,7 @@ export function SessionPage(props: SessionPageProps) {
                         data-workbench-pane="secondary"
                         data-workbench-pane-focused={focusedWorkbenchPane === "secondary" ? "true" : undefined}
                         onPointerDown={() => focusWorkbenchPane("secondary")}
+                        onFocusCapture={() => focusWorkbenchPane("secondary")}
                       >
                         <SessionSurface
                           {...props.surface!}
@@ -1289,6 +1296,7 @@ export function SessionPage(props: SessionPageProps) {
                           environmentClient={props.environmentClient}
                           workspaceId={props.runtimeWorkspaceId!}
                           sessionId={splitSessionId!}
+                          isControlTarget={focusedWorkbenchPane === "secondary"}
                           opencodeBaseUrl={reactSessionBaseUrl}
                           openworkToken={reactSessionToken}
                           todos={[]}

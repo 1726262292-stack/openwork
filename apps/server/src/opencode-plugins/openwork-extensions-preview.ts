@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { z } from "zod";
+import type { OpenworkAffordanceEffects } from "@openwork/types/openwork-affordance";
 import {
   combineInstructionSections,
   composeAgentInstructions,
@@ -216,6 +217,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const affordanceReadEffects: OpenworkAffordanceEffects = { data: "read", ui: "none", external: false };
+const affordanceWriteEffects: OpenworkAffordanceEffects = { data: "write", ui: "none", external: false };
+const affordanceExternalWriteEffects: OpenworkAffordanceEffects = { data: "write", ui: "none", external: true };
+
+function affordanceResult(
+  id: string,
+  result: unknown,
+  effects: OpenworkAffordanceEffects,
+) {
+  if (isRecord(result) && result.ok === false) {
+    return {
+      ok: false,
+      id,
+      error: typeof result.error === "string" ? result.error : `${id} failed`,
+      code: "failed",
+    };
+  }
+  return { ok: true, id, result, effects };
+}
+
+function unavailableAffordance(id: string, error: string) {
+  return { ok: false, id, error, code: "unavailable" };
+}
+
 function optionalStringProperty(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const property = value[key];
@@ -418,27 +443,41 @@ async function readOpenworkAgentContext(
 async function queryOpenworkAffordance(rawArgs: unknown): Promise<unknown> {
   const request = openworkAffordanceRequestSchema.parse(rawArgs);
   if (request.id === "session.search") {
-    return searchOpenWorkSessions(request.args ?? {});
+    return affordanceResult(
+      request.id,
+      await searchOpenWorkSessions(request.args ?? {}),
+      affordanceReadEffects,
+    );
   }
   if (request.id === "session.read") {
-    return readOpenWorkSession(request.args ?? {});
+    return affordanceResult(
+      request.id,
+      await readOpenWorkSession(request.args ?? {}),
+      affordanceReadEffects,
+    );
   }
   if (request.id === "extension.actions") {
     const args = listActionsArgsSchema.parse(request.args ?? {});
     const query = args.extensionId ? `?extensionId=${encodeURIComponent(args.extensionId)}` : "";
-    return serverGet(`/experimental/extensions/actions${query}`);
+    return affordanceResult(
+      request.id,
+      await serverGet(`/experimental/extensions/actions${query}`),
+      affordanceReadEffects,
+    );
   }
   if (request.id.startsWith("connect.")) {
-    return {
-      ok: false,
-      error: "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
-      code: "executor-required",
-    };
+    return unavailableAffordance(
+      request.id,
+      "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
+    );
   }
-  return uiBridgeRequest("/query", {
+  const result = await uiBridgeRequest("/query", {
     method: "POST",
     body: request,
   });
+  return isRecord(result) && typeof result.ok === "boolean"
+    ? result
+    : unavailableAffordance(request.id, "OpenWork UI query returned an invalid response.");
 }
 
 async function executeOpenworkAffordance(
@@ -447,28 +486,38 @@ async function executeOpenworkAffordance(
 ): Promise<unknown> {
   const request = openworkAffordanceRequestSchema.parse(rawArgs);
   if (request.id === "session.create") {
-    return createOpenWorkSessions(request.args ?? {}, context);
+    return affordanceResult(
+      request.id,
+      await createOpenWorkSessions(request.args ?? {}, context),
+      affordanceWriteEffects,
+    );
   }
   if (request.id === "extension.call") {
     const args = callArgsSchema.parse(request.args ?? {});
-    return postJson("/experimental/extensions/call", {
-      extensionId: args.extensionId,
-      action: args.action,
-      args: args.args ?? {},
-      context: contextPayload(context),
-    });
+    return affordanceResult(
+      request.id,
+      await postJson("/experimental/extensions/call", {
+        extensionId: args.extensionId,
+        action: args.action,
+        args: args.args ?? {},
+        context: contextPayload(context),
+      }),
+      affordanceExternalWriteEffects,
+    );
   }
   if (request.id.startsWith("connect.")) {
-    return {
-      ok: false,
-      error: "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
-      code: "executor-required",
-    };
+    return unavailableAffordance(
+      request.id,
+      "This affordance declares a dedicated Connect executor. Call the tool named in openwork_context.",
+    );
   }
-  return uiBridgeRequest("/command", {
+  const result = await uiBridgeRequest("/command", {
     method: "POST",
     body: request,
   });
+  return isRecord(result) && typeof result.ok === "boolean"
+    ? result
+    : unavailableAffordance(request.id, "OpenWork UI command returned an invalid response.");
 }
 
 function collapseWhitespace(value: string): string {

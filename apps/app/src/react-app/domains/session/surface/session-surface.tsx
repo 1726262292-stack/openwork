@@ -154,6 +154,7 @@ export type SessionSurfaceProps = {
   workspaceId: string;
   workspaceRoot: string;
   sessionId: string;
+  isControlTarget: boolean;
   opencodeBaseUrl: string;
   openworkToken: string;
   developerMode: boolean;
@@ -721,7 +722,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       },
     };
   }, [props.sessionId]);
-  useControlAction(seedMarkdownPrimitiveControlAction);
+  useControlAction(props.isControlTarget ? seedMarkdownPrimitiveControlAction : null);
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
@@ -1246,7 +1247,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return { draftLength: text.length };
     },
   }), [attachments, buildDraft, props.onDraftChange, typeComposerText]);
-  useControlAction(composerSetTextControlAction);
+  useControlAction(props.isControlTarget ? composerSetTextControlAction : null);
 
   const composerSendControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "composer.send",
@@ -1260,7 +1261,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return true;
     },
   }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
-  useControlAction(composerSendControlAction);
+  useControlAction(props.isControlTarget ? composerSendControlAction : null);
 
   const composerStopControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "composer.stop",
@@ -1274,7 +1275,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return true;
     },
   }), [chatStreaming, handleAbort]);
-  useControlAction(composerStopControlAction);
+  useControlAction(props.isControlTarget ? composerStopControlAction : null);
 
   const loadConnectCapabilityInventory = async (): Promise<ConnectCapabilityInventory> => {
     const settings = readDenSettings();
@@ -1604,7 +1605,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return { ok: true, position: "top" };
     },
   }), []);
-  useControlAction(sessionScrollTopControlAction);
+  useControlAction(props.isControlTarget ? sessionScrollTopControlAction : null);
 
   const sessionScrollBottomControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.scroll_bottom",
@@ -1617,7 +1618,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return { ok: true, position: "bottom" };
     },
   }), [sessionScroll.jumpToLatest]);
-  useControlAction(sessionScrollBottomControlAction);
+  useControlAction(props.isControlTarget ? sessionScrollBottomControlAction : null);
 
   const sessionLatestMessageControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.latest_message",
@@ -1638,7 +1639,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     },
   }), [props.sessionId, renderedMessages]);
-  useControlAction(sessionLatestMessageControlAction);
+  useControlAction(props.isControlTarget ? sessionLatestMessageControlAction : null);
 
   const sessionReadTranscriptControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.read_transcript",
@@ -1668,7 +1669,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       };
     },
   }), [props.sessionId, renderedMessages]);
-  useControlAction(sessionReadTranscriptControlAction);
+  useControlAction(props.isControlTarget ? sessionReadTranscriptControlAction : null);
 
   return (
     <DevProfiler id="SessionSurface">

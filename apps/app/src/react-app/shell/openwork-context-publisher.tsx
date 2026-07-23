@@ -12,6 +12,7 @@ export function OpenworkContextPublisher() {
   const location = useLocation();
   const revision = useWorkbenchStore((state) => state.revision);
   const workspaceId = useWorkbenchStore((state) => state.workspaceId);
+  const workspaceTitle = useWorkbenchStore((state) => state.workspaceTitle);
   const primarySessionId = useWorkbenchStore((state) => state.primarySessionId);
   const tabs = useWorkbenchStore((state) => state.tabs);
   const splitSessionId = useWorkbenchStore((state) => state.splitSessionId);
@@ -30,6 +31,7 @@ export function OpenworkContextPublisher() {
     workbench: {
       revision,
       workspaceId,
+      workspaceTitle,
       primarySessionId,
       tabs,
       splitSessionId,
@@ -55,6 +57,7 @@ export function OpenworkContextPublisher() {
     splitSessionId,
     tabs,
     workspaceId,
+    workspaceTitle,
     workspaceRightSidebarExpanded,
   ]);
 

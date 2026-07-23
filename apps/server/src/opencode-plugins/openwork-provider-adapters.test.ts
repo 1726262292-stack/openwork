@@ -53,6 +53,10 @@ describe("OpenWork provider adapters", () => {
         executor: { kind: "tool", tool: "openwork-cloud_execute_capability" },
       },
     ]);
+    expect(
+      connect?.affordances.find((affordance) => affordance.id === "connect.capability.execute")
+        ?.arguments.map((argument) => argument.name),
+    ).toEqual(["name", "schemaDigest", "path", "query", "body"]);
   });
 
   test("includes only MCP providers observed from the engine", () => {
@@ -65,10 +69,15 @@ describe("OpenWork provider adapters", () => {
       "sessions",
       "extensions",
       "mcp:notion",
+      "connect",
     ]);
     expect(contributions[2]).toMatchObject({
       provider: { id: "notion", kind: "mcp" },
       affordances: [],
     });
+    expect(contributions[3]?.affordances.map((affordance) => affordance.id)).toEqual([
+      "connect.capabilities.search",
+      "connect.capability.execute",
+    ]);
   });
 });

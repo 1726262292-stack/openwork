@@ -129,7 +129,7 @@ declare global {
   }
 }
 
-const CONTROL_API_VERSION = 1;
+const CONTROL_API_VERSION = 2;
 const OpenworkControlContext = createContext<OpenworkControlContextValue | null>(null);
 const SPOTLIGHT_TIMING_MS = Object.freeze({
   missingTarget: 80,

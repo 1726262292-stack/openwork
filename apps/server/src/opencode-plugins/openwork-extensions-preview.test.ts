@@ -268,10 +268,19 @@ describe("OpenWorkExtensionsPreview session tools", () => {
       id: "session.read",
       args: { sessionId: "ses_archive", count: 2 },
     });
-    const parsed = readResultSchema.parse(JSON.parse(output));
+    const parsed = z.object({
+      ok: z.literal(true),
+      id: z.literal("session.read"),
+      result: readResultSchema,
+      effects: z.object({
+        data: z.literal("read"),
+        ui: z.literal("none"),
+        external: z.literal(false),
+      }),
+    }).parse(JSON.parse(output));
 
-    expect(parsed.sessionId).toBe("ses_archive");
-    expect(parsed.messages.at(-1)?.text).toContain("archive importer");
+    expect(parsed.result.sessionId).toBe("ses_archive");
+    expect(parsed.result.messages.at(-1)?.text).toContain("archive importer");
   });
 
   test("searches past chat transcript text and prefers the user's matching message", async () => {

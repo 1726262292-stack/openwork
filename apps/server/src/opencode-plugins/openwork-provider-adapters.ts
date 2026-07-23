@@ -150,8 +150,11 @@ function extensionContribution(): OpenworkFeatureContribution {
   };
 }
 
-function connectContribution(skills: ConnectSkillDescriptor[]): OpenworkFeatureContribution | null {
-  if (skills.length === 0) return null;
+function connectContribution(
+  skills: ConnectSkillDescriptor[],
+  cloudMcp: EngineMcpDescriptor | undefined,
+): OpenworkFeatureContribution | null {
+  if (skills.length === 0 && !cloudMcp) return null;
   const provider: OpenworkProviderRef = { id: "openwork-cloud", kind: "connect" };
   const guidance: OpenworkGuidanceDescriptor[] = skills.map((skill) => ({
     ref: skill.capability,
@@ -170,7 +173,11 @@ function connectContribution(skills: ConnectSkillDescriptor[]): OpenworkFeatureC
         title: "Search Connect capabilities",
         description: "Discover a remote capability when no exact capability ref is already known.",
         provider,
-        arguments: [argument("query", "string", true, "Capability keywords.")],
+        arguments: [
+          argument("query", "string", true, "Capability keywords."),
+          argument("limit", "number", false, "Maximum capabilities to return."),
+          argument("type", "string", false, "Optional capability type filter."),
+        ],
         effects: { data: "read", ui: "none", external: true },
         tool: "openwork-cloud_search_capabilities",
       }),
@@ -181,8 +188,11 @@ function connectContribution(skills: ConnectSkillDescriptor[]): OpenworkFeatureC
         description: "Execute an exact remote capability ref or load a known remote skill.",
         provider,
         arguments: [
-          argument("name", "string", true, "Exact capability ref."),
-          argument("arguments", "object", false, "Capability arguments."),
+          argument("name", "string", false, "Exact capability ref returned by Connect search or remote skill guidance."),
+          argument("schemaDigest", "string", false, "Schema digest returned by Connect search when required."),
+          argument("path", "object", false, "Path parameters for the capability."),
+          argument("query", "object", false, "Query parameters for the capability."),
+          argument("body", "object", false, "Request body for the capability."),
         ],
         effects: { data: "write", ui: "none", external: true },
         tool: "openwork-cloud_execute_capability",
@@ -205,7 +215,8 @@ export function buildOpenworkProviderContributions(
   skills: ConnectSkillDescriptor[],
   mcps: EngineMcpDescriptor[] = [],
 ): OpenworkFeatureContribution[] {
-  const connect = connectContribution(skills);
+  const cloudMcp = mcps.find((mcp) => mcp.name === "openwork-cloud");
+  const connect = connectContribution(skills, cloudMcp);
   return [
     sessionContribution(),
     extensionContribution(),

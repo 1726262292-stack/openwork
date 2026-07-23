@@ -111,10 +111,19 @@ export function buildOpenworkContext(
       ? { kind: "single", sessionId: primarySessionId }
       : { kind: "empty" };
 
-  const sessionPanelKind = primarySessionId ? input.ui.sidePanelState[primarySessionId] ?? null : null;
+  const focusedSessionId = input.workbench.focusedPane === "secondary" && splitSessionId
+    ? splitSessionId
+    : primarySessionId;
+  const panelOwnerSessionId = focusedSessionId && input.ui.sidePanelState[focusedSessionId]
+    ? focusedSessionId
+    : primarySessionId;
+  const sessionPanelKind = panelOwnerSessionId
+    ? input.ui.sidePanelState[panelOwnerSessionId] ?? null
+    : null;
   const voiceOpen = Object.values(input.ui.sidePanelState).includes("voice");
   const sidePanelKind = voiceOpen ? "voice" : sessionPanelKind;
-  const sessionPanel = primarySessionId ? input.panelSessions[primarySessionId] : undefined;
+  const ownerSessionId = sidePanelKind === "voice" ? null : panelOwnerSessionId;
+  const sessionPanel = ownerSessionId ? input.panelSessions[ownerSessionId] : undefined;
   const screen = screenFromRoute(input.route);
   const provider: OpenworkProviderRef = { id: "openwork-ui", kind: "builtin" };
   const resources: OpenworkResourceDescriptor[] = [{
@@ -128,7 +137,7 @@ export function buildOpenworkContext(
     resources.push({
       ref: `workspace:${input.workbench.workspaceId}`,
       kind: "workspace",
-      title: input.workbench.workspaceId,
+      title: input.workbench.workspaceTitle ?? input.workbench.workspaceId,
       provider,
       state: { active: true },
     });
@@ -163,14 +172,14 @@ export function buildOpenworkContext(
   }
   if (sidePanelKind) {
     resources.push({
-      ref: `side-panel:${primarySessionId ?? "global"}`,
+      ref: `side-panel:${ownerSessionId ?? "global"}`,
       kind: "side-panel",
       title: sidePanelKind,
       provider,
       state: {
         open: true,
         kind: sidePanelKind,
-        ownerSessionId: primarySessionId,
+        ownerSessionId,
       },
     });
   }
@@ -197,10 +206,10 @@ export function buildOpenworkContext(
     },
     sidePanel: {
       open: sidePanelKind !== null,
-      ownerSessionId: primarySessionId,
+      ownerSessionId,
       kind: sidePanelKind,
-      tabs: (sessionPanel?.tabs ?? []).map(panelTab),
-      activeTabId: sessionPanel?.activeTabId ?? null,
+      tabs: sidePanelKind === "panel" ? (sessionPanel?.tabs ?? []).map(panelTab) : [],
+      activeTabId: sidePanelKind === "panel" ? sessionPanel?.activeTabId ?? null : null,
     },
     resources,
     availableAffordances: input.availableAffordances,

@@ -7,6 +7,7 @@ import { setSessionArchived } from "../../../../app/lib/opencode-session";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
+import { useWorkbenchStore } from "../chat/workbench-store";
 
 type SessionLike = {
   id?: string;
@@ -123,17 +124,34 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
   const openSessionControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.open",
     label: "Open a session by ID",
-    description: "Navigate to a specific session. Use list_sessions first to get the session ID.",
+    description: "Focus a visible session or reuse its existing tab. Use list_sessions first to get the session ID.",
+    effects: { data: "none", ui: "navigate", external: false },
     sideEffect: "navigation",
     requiresArgs: true,
     args: [{ name: "sessionId", type: "string", required: true, description: "Session ID from session.list_sessions." }],
     execute: (args) => {
       const sessionId = stringArg(args, "sessionId");
       if (!sessionId) return { ok: false, error: "sessionId is required" };
+      const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
+      const workbench = useWorkbenchStore.getState();
+      if (targetWorkspace?.id === workbench.workspaceId) {
+        if (sessionId === workbench.primarySessionId) {
+          workbench.focusPane("primary");
+          return { ok: true, sessionId, reused: "primary-pane" };
+        }
+        if (sessionId === workbench.splitSessionId) {
+          workbench.focusPane("secondary");
+          return { ok: true, sessionId, reused: "secondary-pane" };
+        }
+      }
       navigateToSession(sessionId);
-      return { ok: true, navigatedTo: sessionId };
+      return {
+        ok: true,
+        sessionId,
+        reused: workbench.tabs.some((tab) => tab.sessionId === sessionId) ? "tab" : "new-tab",
+      };
     },
-  }), [navigateToSession]);
+  }), [navigateToSession, sessionsByWorkspaceId, workspaces]);
   useControlAction(openSessionControlAction);
 
   const renameSessionControlAction = useMemo<OpenworkControlAction>(() => ({

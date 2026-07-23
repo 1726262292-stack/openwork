@@ -12,6 +12,7 @@ import {
 const emptyWorkbench: WorkbenchSnapshot = {
   revision: 0,
   workspaceId: null,
+  workspaceTitle: null,
   primarySessionId: null,
   tabs: [],
   splitSessionId: null,
@@ -22,6 +23,7 @@ describe("workbench store", () => {
   test("retains open tabs and represents two visible sessions", () => {
     let state = syncWorkbenchSnapshot(emptyWorkbench, {
       workspaceId: "workspace-a",
+      workspaceTitle: "Customer workspace",
       primarySessionId: "session-a",
       sessionsKnown: true,
       sessions: [
@@ -37,6 +39,7 @@ describe("workbench store", () => {
     state = setWorkbenchSplit(state, "session-b");
 
     expect(state.tabs.map((tab) => tab.sessionId)).toEqual(["session-a", "session-b"]);
+    expect(state.workspaceTitle).toBe("Customer workspace");
     expect(state.primarySessionId).toBe("session-a");
     expect(state.splitSessionId).toBe("session-b");
     expect(state.focusedPane).toBe("secondary");

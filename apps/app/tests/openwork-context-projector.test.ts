@@ -6,9 +6,79 @@ import {
 } from "../src/react-app/shell/openwork-context-projector";
 import type { WorkbenchSnapshot } from "../src/react-app/domains/session/chat/workbench-store";
 
+type ContextProjectorInput = Parameters<typeof buildOpenworkContext>[0];
+
+const baseInput: ContextProjectorInput = {
+  route: "/workspace/workspace-a/session/session-a",
+  revision: 4,
+  capturedAt: "2026-07-23T12:00:00.000Z",
+  workbench: {
+    revision: 4,
+    workspaceId: "workspace-a",
+    workspaceTitle: "Customer workspace",
+    primarySessionId: "session-a",
+    tabs: [
+      { workspaceId: "workspace-a", sessionId: "session-a", title: "Primary" },
+      { workspaceId: "workspace-a", sessionId: "session-b", title: "Secondary" },
+    ],
+    splitSessionId: "session-b",
+    focusedPane: "secondary",
+  },
+  ui: {
+    sidebarOpen: true,
+    sidePanelState: { "session-b": "panel" },
+    applicationMenuVisible: false,
+    workspaceRightSidebarExpanded: true,
+  },
+  panelSessions: {
+    "session-b": {
+      tabs: [{ id: "artifact-a", type: "artifact", label: "Report", preview: "markdown" }],
+      activeTabId: "artifact-a",
+    },
+  },
+  availableAffordances: [],
+};
+
+describe("OpenWork context projector", () => {
+  test("projects the focused split session and its panel state", () => {
+    const context = buildOpenworkContext(baseInput);
+
+    expect(context.conversations.layout).toEqual({
+      kind: "split",
+      primarySessionId: "session-a",
+      secondarySessionId: "session-b",
+      focused: "secondary",
+    });
+    expect(context.resources.find((resource) => resource.kind === "workspace")?.title)
+      .toBe("Customer workspace");
+    expect(context.sidePanel).toEqual({
+      open: true,
+      ownerSessionId: "session-b",
+      kind: "panel",
+      tabs: [{ id: "artifact-a", kind: "artifact", label: "Report" }],
+      activeTabId: "artifact-a",
+    });
+  });
+
+  test("does not leak artifact tabs into a non-panel surface", () => {
+    const context = buildOpenworkContext({
+      ...baseInput,
+      ui: {
+        ...baseInput.ui,
+        sidePanelState: { "session-b": "extensions" },
+      },
+    });
+
+    expect(context.sidePanel.kind).toBe("extensions");
+    expect(context.sidePanel.tabs).toEqual([]);
+    expect(context.sidePanel.activeTabId).toBeNull();
+  });
+});
+
 const splitWorkbench: WorkbenchSnapshot = {
   revision: 5,
   workspaceId: "workspace-a",
+  workspaceTitle: "Workspace A",
   primarySessionId: "session-a",
   tabs: [
     { workspaceId: "workspace-a", sessionId: "session-a", title: "Current plan" },

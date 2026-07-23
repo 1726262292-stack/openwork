@@ -7,6 +7,7 @@ export type WorkbenchSessionTab = OpenworkSessionRef;
 export type WorkbenchSnapshot = {
   revision: number;
   workspaceId: string | null;
+  workspaceTitle: string | null;
   primarySessionId: string | null;
   tabs: OpenworkSessionRef[];
   splitSessionId: string | null;
@@ -15,6 +16,7 @@ export type WorkbenchSnapshot = {
 
 export type SyncWorkbenchInput = {
   workspaceId: string;
+  workspaceTitle?: string;
   primarySessionId: string | null;
   sessions: OpenworkSessionRef[];
   sessionsKnown: boolean;
@@ -23,6 +25,7 @@ export type SyncWorkbenchInput = {
 const initialWorkbenchSnapshot: WorkbenchSnapshot = {
   revision: 0,
   workspaceId: null,
+  workspaceTitle: null,
   primarySessionId: null,
   tabs: [],
   splitSessionId: null,
@@ -41,6 +44,7 @@ function sameTabs(left: OpenworkSessionRef[], right: OpenworkSessionRef[]) {
 function withRevision(current: WorkbenchSnapshot, next: Omit<WorkbenchSnapshot, "revision">): WorkbenchSnapshot {
   if (
     current.workspaceId === next.workspaceId
+    && current.workspaceTitle === next.workspaceTitle
     && current.primarySessionId === next.primarySessionId
     && current.splitSessionId === next.splitSessionId
     && current.focusedPane === next.focusedPane
@@ -69,7 +73,8 @@ export function syncWorkbenchSnapshot(
     tabs.push(primary);
   }
 
-  const splitSessionId = current.workspaceId === input.workspaceId
+  const splitSessionId = input.primarySessionId
+    && current.workspaceId === input.workspaceId
     && current.splitSessionId !== input.primarySessionId
     && current.splitSessionId
     && tabs.some((tab) => tab.sessionId === current.splitSessionId)
@@ -78,6 +83,7 @@ export function syncWorkbenchSnapshot(
 
   return withRevision(current, {
     workspaceId: input.workspaceId,
+    workspaceTitle: input.workspaceTitle?.trim() || input.workspaceId,
     primarySessionId: input.primarySessionId,
     tabs,
     splitSessionId,
@@ -95,6 +101,7 @@ export function openWorkbenchTab(
   }
   return withRevision(current, {
     workspaceId: tab.workspaceId,
+    workspaceTitle: current.workspaceId === tab.workspaceId ? current.workspaceTitle : tab.workspaceId,
     primarySessionId: current.workspaceId === tab.workspaceId ? current.primarySessionId : null,
     tabs,
     splitSessionId: current.workspaceId === tab.workspaceId ? current.splitSessionId : null,
@@ -110,6 +117,7 @@ export function closeWorkbenchTab(
   const splitSessionId = current.splitSessionId === sessionId ? null : current.splitSessionId;
   return withRevision(current, {
     workspaceId: current.workspaceId,
+    workspaceTitle: current.workspaceTitle,
     primarySessionId: current.primarySessionId === sessionId ? null : current.primarySessionId,
     tabs,
     splitSessionId,
@@ -128,6 +136,7 @@ export function setWorkbenchSplit(
       : null;
   return withRevision(current, {
     workspaceId: current.workspaceId,
+    workspaceTitle: current.workspaceTitle,
     primarySessionId: current.primarySessionId,
     tabs: current.tabs,
     splitSessionId,
@@ -142,6 +151,7 @@ export function focusWorkbenchPane(
   const focusedPane = pane === "secondary" && !current.splitSessionId ? "primary" : pane;
   return withRevision(current, {
     workspaceId: current.workspaceId,
+    workspaceTitle: current.workspaceTitle,
     primarySessionId: current.primarySessionId,
     tabs: current.tabs,
     splitSessionId: current.splitSessionId,
