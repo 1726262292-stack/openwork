@@ -1454,7 +1454,7 @@ function WorkspaceSidebarGroup({
                           const full = [...ids, ...allRootIds.filter((id) => !visible.has(id))];
                           store.getState().reorderSessions(workspace.id, full);
                         }}
-                        className="flex flex-col"
+                        className="flex flex-col gap-1"
                       >
                         {sessionRows.map((row) => (
                           <SessionMenuItem
@@ -1919,7 +1919,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
                   const full = allRootIds.map((id) => ungroupedSet.has(id) ? fullUngrouped[ui++] : id);
                   store.getState().reorderSessions(workspaceId, full);
                 }}
-                className="flex flex-col"
+                className="flex flex-col gap-1"
               >
                 {visibleUngroupedRows.map((row) => (
                   <React.Fragment key={row.session.id}>
@@ -1997,7 +1997,7 @@ function SessionGroupSection({ group, rows, expanded, workspaceId, store, render
             workspaceId={workspaceId}
             onTitlePointerDown={(event) => dragControls.start(event)}
           />
-          <CollapsibleContent>
+          <CollapsibleContent className="flex flex-col gap-1">
             {visibleRows.length > 0
               ? (
                 <>
