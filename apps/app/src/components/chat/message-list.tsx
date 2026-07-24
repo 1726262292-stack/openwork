@@ -507,7 +507,7 @@ function renderPlainTextWithLinks(text: string, highlightQuery: string | undefin
         href={url}
         target="_blank"
         rel="noreferrer noopener"
-        className="text-indigo-10 underline underline-offset-2 transition-colors hover:text-indigo-8 break-all"
+        className="text-indigo-10 transition-colors hover:text-indigo-8 break-all"
       >
         {favicon ? (
           <img
