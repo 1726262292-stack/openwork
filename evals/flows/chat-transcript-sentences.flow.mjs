@@ -53,10 +53,15 @@ export default {
               const scope = anchor.closest("div");
               const favicon = anchor.querySelector("img[src*='favicons']")
                 || scope?.querySelector("img[src*='favicons']");
-              return { linkified: true, favicon: Boolean(favicon) };
+              return {
+                linkified: true,
+                favicon: Boolean(favicon),
+                decoration: getComputedStyle(anchor).textDecorationLine,
+              };
             })()`);
             ctx.assert(link?.linkified, "Bare https://linear.app in the user message is not a link.");
             ctx.assert(link?.favicon, "No favicon rendered next to the linear.app link.");
+            ctx.assert(link?.decoration === "none", `Chat links must not be underlined (got ${link?.decoration}).`);
             await ctx.expectText("Fetched Google Workspace Calendar Events");
             // Sentence line, not a JSON card: no raw braces in the visible line.
             const rawJson = await ctx.eval(`(() => {
@@ -88,6 +93,7 @@ export default {
               if (!group.textContent.includes("git status --short")) trigger.click();
               return group.textContent.includes("git status --short");
             })()`, { timeoutMs: 15_000, label: "expanded aggregate rows" });
+            await ctx.eval(`document.querySelector("[data-tool-aggregate]")?.scrollIntoView({ block: "center" })`);
           },
           assert: async () => {
             await ctx.expectText("Edited 1 file, ran 2 commands, read 1 file");
@@ -116,6 +122,9 @@ export default {
           },
           assert: async () => {
             await ctx.waitForText("Calendar first, then open issues", { timeoutMs: 10_000 });
+            await ctx.eval(`[...document.querySelectorAll("button")]
+              .find((b) => b.textContent.includes("Thought"))
+              ?.scrollIntoView({ block: "center" })`);
           },
           screenshot: {
             name: "thinking-expanded",
@@ -144,6 +153,7 @@ export default {
             await ctx.expectText("failed");
             await ctx.waitForText("What did we decide about pricing?", { timeoutMs: 10_000 });
             await ctx.expectText("Technical details");
+            await ctx.eval(`document.querySelector('[data-capability-call="granola_ask_about_meetings"]')?.scrollIntoView({ block: "center" })`);
           },
           screenshot: {
             name: "failed-call-card",
@@ -157,6 +167,19 @@ export default {
       run: async (ctx) => {
         await ctx.prove("A FILES strip lists every touched file as an openable chip", {
           voiceover: vo[4],
+          action: async () => {
+            // Collapse the failure card again so this frame is visually its own.
+            await ctx.eval(`(() => {
+              const line = document.querySelector('[data-capability-call="granola_ask_about_meetings"] button');
+              line?.click();
+              return true;
+            })()`);
+            await ctx.waitFor(
+              `!document.body.innerText.includes("What did we decide about pricing?")`,
+              { timeoutMs: 10_000, label: "failure card collapsed" },
+            );
+            await ctx.eval(`document.querySelector("[data-files-strip]")?.scrollIntoView({ block: "center" })`);
+          },
           assert: async () => {
             const strip = await ctx.eval(`(() => {
               const strip = document.querySelector("[data-files-strip]");
