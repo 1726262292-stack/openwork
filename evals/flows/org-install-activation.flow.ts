@@ -279,7 +279,7 @@ async function acceptInvitationAndOpenWelcome(ctx: FlowContext): Promise<void> {
 
 async function openInstallGuide(ctx: FlowContext): Promise<void> {
   await ctx.trustedClick("[data-testid=join-org-get-app]");
-  await ctx.waitForText("Download and install OpenWork", { timeoutMs: BROWSER_TIMEOUT_MS });
+  await ctx.waitForText("Download the OpenWork installer", { timeoutMs: BROWSER_TIMEOUT_MS });
   const href = await ctx.eval(`window.location.href`);
   state.installLink = requiredString(href, "install link");
 }
@@ -316,8 +316,11 @@ async function startDownloadWithoutFetchingAsset(ctx: FlowContext): Promise<void
 }
 
 async function showInstallerRecoveryLink(ctx: FlowContext): Promise<void> {
-  await ctx.trustedClick('[data-testid="install-connect-recovery"]');
-  await ctx.waitForText("Copy a fresh connection link", { timeoutMs: BROWSER_TIMEOUT_MS });
+  await ctx.waitFor("Boolean(document.querySelector('[data-testid=install-copy-link] input'))", {
+    timeoutMs: BROWSER_TIMEOUT_MS,
+    label: "organization install link",
+  });
+  await ctx.waitForText("Paste this same link in", { timeoutMs: BROWSER_TIMEOUT_MS });
 }
 
 function waitForInstallerUrl(child: ChildProcess, timeoutMs = 20_000): Promise<string> {
@@ -549,16 +552,16 @@ async function assertBrandedWelcome(ctx: FlowContext): Promise<void> {
 }
 
 async function assertInstallRecommendation(ctx: FlowContext): Promise<void> {
-  await ctx.expectText("Download and install OpenWork");
-  await ctx.expectText("recommended installer");
+  await ctx.expectText("Download the OpenWork installer");
+  await ctx.expectText("For your device");
   await ctx.expectText("Continue on your computer");
 }
 
 async function assertInstallerContinuation(ctx: FlowContext): Promise<void> {
   await ctx.expectText("Continue on your computer");
-  await ctx.expectText("Using the installer?");
-  await ctx.expectText("Paste this organization link");
-  await ctx.expectText("Copy a fresh connection link");
+  await ctx.expectText("already installed");
+  await ctx.expectText("Paste this same link in");
+  await ctx.expectText("Didn't open?");
 }
 
 async function assertInstallerApproval(ctx: FlowContext): Promise<void> {
@@ -654,7 +657,7 @@ const flow = defineFlow({
             assert: async () => assertInstallRecommendation(ctx),
             screenshot: {
               name: "platform-aware-install-recommendation",
-              requireText: ["Download and install OpenWork", "recommended installer", "Continue on your computer"],
+              requireText: ["Download the OpenWork installer", "For your device", "Continue on your computer"],
             },
           });
         });
@@ -670,7 +673,7 @@ const flow = defineFlow({
             assert: async () => assertInstallerContinuation(ctx),
             screenshot: {
               name: "installer-and-already-installed-paths",
-              requireText: ["Continue on your computer", "Using the installer?", "Copy a fresh connection link"],
+              requireText: ["Continue on your computer", "already installed", "Paste this same link in"],
             },
           });
         });
