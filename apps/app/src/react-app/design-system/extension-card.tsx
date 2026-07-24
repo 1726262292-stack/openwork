@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ExtensionKind } from "../../app/constants";
 import type { EnablementResult } from "../../app/extensions";
 import { t } from "../../i18n";
@@ -172,7 +173,10 @@ export function ExtensionCard(props: ExtensionCardProps) {
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
+          <Tooltip>
+            <TooltipTrigger render={<p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>} />
+            <TooltipContent>{description}</TooltipContent>
+          </Tooltip>
           {disabledReason ? (
             <div className="mt-2 text-[11px] font-medium text-amber-11">
               {disabledReason}
