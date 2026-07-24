@@ -105,6 +105,7 @@ import {
   listAssignedConnectCapabilities,
   type ConnectCapabilityInventory,
 } from "./connect-capability-inventory";
+import { consumeComposerAutoSend } from "./composer-auto-send";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
@@ -1098,6 +1099,20 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } catch {
     }
   }, [attachments, buildDraft, clearComposer, draft, props.sessionId, sendDraft]);
+
+  // One-step run from the empty-state hero: the route seeds this session's
+  // draft and marks it for auto-send. Fire the same send path as the send
+  // button once the composer is usable; if these conditions never hold
+  // (e.g. no usable model), the mark is never consumed and the seeded
+  // draft stays for manual sending.
+  useEffect(() => {
+    if (model.transitionState !== "idle") return;
+    if (chatStreaming) return;
+    if (props.modelUnavailable) return;
+    if (!draft.trim()) return;
+    if (!consumeComposerAutoSend(props.sessionId)) return;
+    void handleSend();
+  }, [chatStreaming, draft, handleSend, model.transitionState, props.modelUnavailable, props.sessionId]);
 
   const handleSteer = useCallback(async () => {
     setSteering(true);

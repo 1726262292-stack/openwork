@@ -111,6 +111,7 @@ import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
 import { connectSkillPrompt, parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
+import { markComposerAutoSend } from "@/react-app/domains/session/surface/composer-auto-send";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
@@ -2021,6 +2022,8 @@ export function SessionRoute() {
             // The composer reads its draft from the composer state store, not
             // the persisted draft store — seed both so the prompt shows up.
             useComposerStateStore.getState().setDraft(session.id, firstTaskPrompt);
+            // One-step run: the session surface sends the seeded draft itself.
+            markComposerAutoSend(session.id);
           }
           writeLastSessionFor(targetWorkspaceId, session.id);
           rememberPendingCreatedSession(targetWorkspaceId, session.id);
@@ -2341,6 +2344,8 @@ export function SessionRoute() {
               // The composer reads its draft from the composer state store,
               // not the persisted draft store — seed both.
               useComposerStateStore.getState().setDraft(session.id, prompt);
+              // One-step run: the session surface sends the seeded draft itself.
+              markComposerAutoSend(session.id);
               writeActiveWorkspaceId(workspaceId || null);
               writeLastSessionFor(workspaceId, session.id);
               rememberPendingCreatedSession(workspaceId, session.id);
