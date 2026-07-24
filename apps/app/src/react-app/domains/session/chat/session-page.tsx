@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Cloud, Columns2, FileText, Globe, Mic2, Settings2, TextSearch, X, Zap } from "lucide-react";
+import { Cloud, FileText, Globe, Mic2, Settings2, TextSearch, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
@@ -52,6 +52,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { ShareWorkspaceModal } from "../../workspace/share-workspace-modal";
+import { SessionEmptyHero } from "./session-empty-hero";
 import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
@@ -74,7 +75,6 @@ import {
   canNavigateSelectedConversationHistory,
   createConversationTabHistory,
   navigateConversationTabHistory,
-  removeConversationHistoryEntry,
   syncConversationTabHistory,
   type ConversationTabHistory,
   type ConversationHistoryDirection,
@@ -97,6 +97,7 @@ type PendingConversationHistoryNavigation = {
   fromWorkspaceId: string;
   fromSessionId: string | null;
   targetSessionId: string;
+  targetSplitSessionId: string | null;
 };
 
 type StatusBarOverrides = Pick<
@@ -202,6 +203,9 @@ export type SessionPageProps = {
   statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   onOpenProviderAuth?: () => void;
+  /** Chat-first: create a default workspace and start a task from the empty-state composer. */
+  onChatFirstTask?: (prompt: string) => void;
+  chatFirstBusy?: boolean;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
@@ -368,7 +372,6 @@ export function SessionPage(props: SessionPageProps) {
   const focusedWorkbenchPane = useWorkbenchStore((state) => state.focusedPane);
   const syncWorkbench = useWorkbenchStore((state) => state.sync);
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
-  const closeWorkbenchTab = useWorkbenchStore((state) => state.closeTab);
   const setWorkbenchSplit = useWorkbenchStore((state) => state.setSplit);
   const focusWorkbenchPane = useWorkbenchStore((state) => state.focusPane);
   const sessionTabs = workbenchWorkspaceId === props.selectedWorkspaceId ? workbenchTabs : EMPTY_SESSION_TABS;
@@ -707,6 +710,16 @@ export function SessionPage(props: SessionPageProps) {
         pendingConversationHistoryNavigation.targetSessionId === props.selectedSessionId
       ) {
         setConversationHistory(pendingConversationHistoryNavigation.history);
+        // Restore the split layout recorded at this history step.
+        const targetSplit = pendingConversationHistoryNavigation.targetSplitSessionId;
+        if (targetSplit) {
+          openWorkbenchTab({
+            workspaceId: props.selectedWorkspaceId,
+            sessionId: targetSplit,
+            title: sessionTitleForId(props.sidebar.workspaceSessionGroups, targetSplit),
+          });
+        }
+        setWorkbenchSplit(targetSplit);
         setPendingConversationHistoryNavigation(null);
         return;
       }
@@ -723,8 +736,17 @@ export function SessionPage(props: SessionPageProps) {
       current,
       props.selectedWorkspaceId,
       props.selectedSessionId,
+      splitSessionId,
     ));
-  }, [pendingConversationHistoryNavigation, props.selectedSessionId, props.selectedWorkspaceId]);
+  }, [
+    openWorkbenchTab,
+    pendingConversationHistoryNavigation,
+    props.selectedSessionId,
+    props.selectedWorkspaceId,
+    props.sidebar.workspaceSessionGroups,
+    setWorkbenchSplit,
+    splitSessionId,
+  ]);
   useEffect(() => {
     if (!pendingConversationHistoryNavigation) return undefined;
     const id = window.setTimeout(() => {
@@ -888,20 +910,6 @@ export function SessionPage(props: SessionPageProps) {
   ]);
   useControlAction(focusWorkbenchSessionControlAction);
 
-  const closeSessionTab = useCallback((sessionId: string) => {
-    const nextTab = sessionTabs.find((tab) => tab.sessionId !== sessionId && tab.workspaceId === props.selectedWorkspaceId);
-    closeWorkbenchTab(sessionId);
-    setPendingConversationHistoryNavigation(null);
-    setConversationHistory((current) => removeConversationHistoryEntry(current, props.selectedWorkspaceId, sessionId));
-    if (sessionId !== props.selectedSessionId) return;
-
-    if (nextTab) {
-      props.sidebar.onOpenSession(nextTab.workspaceId, nextTab.sessionId);
-      return;
-    }
-    props.sidebar.onSelectWorkspace(props.selectedWorkspaceId);
-  }, [closeWorkbenchTab, props.selectedSessionId, props.selectedWorkspaceId, props.sidebar, sessionTabs]);
-
   const navigateConversationHistory = useCallback((direction: ConversationHistoryDirection) => {
     if (!canNavigateSelectedConversationHistory(
       conversationHistory,
@@ -910,14 +918,15 @@ export function SessionPage(props: SessionPageProps) {
       direction,
     )) return;
     const next = navigateConversationTabHistory(conversationHistory, direction);
-    if (!next.sessionId) return;
+    if (!next.entry) return;
     setPendingConversationHistoryNavigation({
       history: next.history,
       fromWorkspaceId: props.selectedWorkspaceId,
       fromSessionId: props.selectedSessionId,
-      targetSessionId: next.sessionId,
+      targetSessionId: next.entry.sessionId,
+      targetSplitSessionId: next.entry.splitSessionId,
     });
-    props.sidebar.onOpenSession(next.history.workspaceId, next.sessionId);
+    props.sidebar.onOpenSession(next.history.workspaceId, next.entry.sessionId);
   }, [conversationHistory, props.selectedSessionId, props.selectedWorkspaceId, props.sidebar]);
 
   useEffect(() => {
@@ -1046,9 +1055,6 @@ export function SessionPage(props: SessionPageProps) {
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
-              <span className="hidden truncate text-[13px] text-dls-secondary lg:inline">
-                {workspaceName}
-              </span>
               {props.developerMode ? (
                 <span className="hidden text-[12px] text-dls-secondary lg:inline">
                   {props.headerStatus}
@@ -1160,62 +1166,14 @@ export function SessionPage(props: SessionPageProps) {
 
               {!showDelayedSessionLoadingState && canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
-                  {sessionTabs.length > 0 ? (
-                    <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background/80 px-2 mac:backdrop-blur-xl">
-                      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-                        {sessionTabs.map((tab) => {
-                          const title = sessionTitleForId(props.sidebar.workspaceSessionGroups, tab.sessionId) || t("session.default_title");
-                          const active = tab.sessionId === props.selectedSessionId;
-                          const split = tab.sessionId === splitSessionId;
-                          return (
-                            <div
-                              key={tab.sessionId}
-                              data-session-tab-id={tab.sessionId}
-                              data-session-tab-active={active ? "true" : undefined}
-                              className={cn(
-                                "group flex max-w-56 shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors",
-                                active
-                                  ? "border-border bg-dls-surface text-dls-text"
-                                  : "border-transparent text-dls-secondary hover:bg-dls-hover hover:text-dls-text",
-                                split && "border-primary/30 bg-primary/10 text-primary",
-                              )}
-                            >
-                              <button
-                                type="button"
-                                className="min-w-0 flex-1 truncate text-left"
-                                onClick={() => openSessionTab(tab.workspaceId, tab.sessionId)}
-                                title={title}
-                              >
-                                {title}
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded p-0.5 text-dls-secondary hover:bg-dls-hover hover:text-dls-text disabled:pointer-events-none disabled:opacity-40"
-                                onClick={() => setWorkbenchSplit(split ? null : tab.sessionId)}
-                                disabled={active}
-                                title={split ? "Close split" : "Open in split view"}
-                                aria-label={split ? "Close split" : "Open in split view"}
-                              >
-                                <Columns2 size={13} />
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded p-0.5 text-dls-secondary opacity-80 hover:bg-dls-hover hover:text-dls-text group-hover:opacity-100"
-                                onClick={() => closeSessionTab(tab.sessionId)}
-                                title="Close tab"
-                                aria-label="Close tab"
-                              >
-                                <X size={13} />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-                    <div
-                      className={cn("min-h-0 min-w-0 flex-1", canRenderSplitSurface && "lg:border-r lg:border-border")}
+                  <ResizablePanelGroup
+                    key={canRenderSplitSurface ? "workbench-split" : "workbench-single"}
+                    orientation="horizontal"
+                    className="min-h-0 flex-1"
+                  >
+                    <ResizablePanel
+                      minSize="320px"
+                      className="min-h-0 min-w-0"
                       data-workbench-pane="primary"
                       data-workbench-pane-focused={focusedWorkbenchPane === "primary" ? "true" : undefined}
                       onPointerDown={() => focusWorkbenchPane("primary")}
@@ -1246,30 +1204,34 @@ export function SessionPage(props: SessionPageProps) {
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
                       />
-                    </div>
+                    </ResizablePanel>
                     {canRenderSplitSurface ? (
-                      <div
-                        className="min-h-0 min-w-0 flex-1 border-t border-border lg:border-t-0"
-                        data-workbench-pane="secondary"
-                        data-workbench-pane-focused={focusedWorkbenchPane === "secondary" ? "true" : undefined}
-                        onPointerDown={() => focusWorkbenchPane("secondary")}
-                        onFocusCapture={() => focusWorkbenchPane("secondary")}
-                      >
-                        <SessionSurface
-                          {...props.surface!}
-                          client={props.openworkServerClient!}
-                          environmentClient={props.environmentClient}
-                          workspaceId={props.runtimeWorkspaceId!}
-                          sessionId={splitSessionId!}
-                          isControlTarget={focusedWorkbenchPane === "secondary"}
-                          opencodeBaseUrl={reactSessionBaseUrl}
-                          openworkToken={reactSessionToken}
-                          todos={[]}
-                          onOpenTarget={openTarget}
-                        />
-                      </div>
+                      <>
+                        <ResizableHandle withHandle />
+                        <ResizablePanel
+                          minSize="320px"
+                          className="min-h-0 min-w-0"
+                          data-workbench-pane="secondary"
+                          data-workbench-pane-focused={focusedWorkbenchPane === "secondary" ? "true" : undefined}
+                          onPointerDown={() => focusWorkbenchPane("secondary")}
+                          onFocusCapture={() => focusWorkbenchPane("secondary")}
+                        >
+                          <SessionSurface
+                            {...props.surface!}
+                            client={props.openworkServerClient!}
+                            environmentClient={props.environmentClient}
+                            workspaceId={props.runtimeWorkspaceId!}
+                            sessionId={splitSessionId!}
+                            isControlTarget={focusedWorkbenchPane === "secondary"}
+                            opencodeBaseUrl={reactSessionBaseUrl}
+                            openworkToken={reactSessionToken}
+                            todos={[]}
+                            onOpenTarget={openTarget}
+                          />
+                        </ResizablePanel>
+                      </>
                     ) : null}
-                  </div>
+                  </ResizablePanelGroup>
                 </div>
               ) : null}
 
@@ -1283,20 +1245,14 @@ export function SessionPage(props: SessionPageProps) {
                       </div>
                     </div>
                   ) : showWorkspaceSetupEmptyState ? (
-                    <div className="space-y-6 px-6 text-center">
-                      <div className="mx-auto flex size-16 items-center justify-center rounded-3xl border border-dls-border bg-dls-hover">
-                        <Zap className="text-dls-secondary" />
-                      </div>
-                      <div className="space-y-2">
-                        <h3 className="text-xl font-medium">{t("session.create_or_connect_workspace")}</h3>
-                        <p className="mx-auto max-w-sm text-sm text-dls-secondary">
-                          {t("workspace.empty_state_body")}
-                        </p>
-                      </div>
-                      <div className="flex justify-center">
-                        <Button onClick={props.sidebar.onOpenCreateWorkspace}>{t("workspace.create_workspace")}</Button>
-                      </div>
-                    </div>
+                    // Chat-first: no workspace yet — the composer creates a
+                    // default chat workspace instead of asking where to put it.
+                    <SessionEmptyHero
+                      providerCount={providerCount}
+                      busy={props.chatFirstBusy}
+                      onRunTask={(prompt) => props.onChatFirstTask?.(prompt)}
+                      onOpenProviderAuth={props.onOpenProviderAuth}
+                    />
                   ) : showSelectedWorkspaceError ? (
                     <div className="px-6 py-16">
                       <div className="mx-auto max-w-lg rounded-2xl border border-red-7/35 bg-red-1/40 p-5 text-left shadow-[var(--dls-card-shadow)]">
@@ -1343,83 +1299,14 @@ export function SessionPage(props: SessionPageProps) {
                       {t("session.loading_detail")}
                     </div>
                   ) : (
-                    <div className="flex flex-1 items-center justify-center px-6 py-16">
-                      <div className="w-full max-w-md space-y-6">
-                        <div className="space-y-1 text-center">
-                          <h2 className="text-lg font-semibold text-dls-text">
-                            {providerCount === 0
-                              ? t("session.connect_model_to_start")
-                              : t("session.select_or_create_session")}
-                          </h2>
-                          <p className="text-xs text-dls-secondary">
-                            {providerCount === 0
-                              ? "Add an AI model provider so your tasks can run."
-                              : "Try one of these to get started:"}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          {providerCount === 0 ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-start gap-3 rounded-xl border border-blue-7/50 bg-blue-2/40 p-3.5 text-left transition-colors hover:bg-blue-3/50"
-                              onClick={() => props.onOpenProviderAuth?.()}
-                            >
-                              <Zap className="mt-0.5 size-5 shrink-0 text-blue-10" />
-                              <div>
-                                <div className="text-[13px] font-medium text-dls-text">Connect a model provider</div>
-                                <div className="mt-0.5 text-[11px] text-dls-secondary">
-                                  Add an API key for Anthropic, OpenAI, Google, or other providers
-                                </div>
-                              </div>
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Create a sample CSV file with 20 rows of fake customer data (name, email, company, revenue). Then show me a summary of the data.",
-                              );
-                            }}
-                          >
-                            <img src="https://cdn.simpleicons.org/googlesheets" alt="" width={20} height={20} className="mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Edit a CSV</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Create a sample spreadsheet with customer data</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.sidebar.onCreateTaskWithPrompt?.(
-                                props.selectedWorkspaceId,
-                                "Open craigslist.org in the browser and search for couches for sale. Show me the top 5 results with prices.",
-                              );
-                            }}
-                          >
-                            <img src={resolveExtensionIconSrc("/openwork-mark.svg")} alt="" width={20} height={20} className="mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Browse the web</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Search Craigslist for couches and list the results</div>
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 rounded-xl border border-dls-border bg-dls-surface p-3.5 text-left transition-colors hover:bg-dls-hover"
-                            onClick={() => {
-                              props.onOpenSettings?.();
-                            }}
-                          >
-                            <img src="https://cdn.simpleicons.org/hackthebox" alt="" width={20} height={20} className="mt-0.5 shrink-0" />
-                            <div>
-                              <div className="text-[13px] font-medium text-dls-text">Connect an extension</div>
-                              <div className="mt-0.5 text-[11px] text-dls-secondary">Add MCP servers, plugins, and integrations</div>
-                            </div>
-                          </button>
-                        </div>
-                      </div>
+                    <div className="flex flex-1 items-center justify-center py-16">
+                      <SessionEmptyHero
+                        providerCount={providerCount}
+                        onRunTask={(prompt) =>
+                          props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)
+                        }
+                        onOpenProviderAuth={props.onOpenProviderAuth}
+                      />
                     </div>
                   )}
                 </div>
