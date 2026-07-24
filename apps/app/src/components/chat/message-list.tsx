@@ -926,8 +926,11 @@ function MessageGroup({
 
   return (
       <div className="flex flex-col gap-2 group/message-group">
+      {/* The scroll area keeps the same 8px rhythm the parts inside a single
+          message use, so a step row is spaced identically whether or not a
+          message boundary happens to fall between it and the previous row. */}
       {stepItems.length > 0 ? (
-        <div ref={stepsRef} className="max-h-[520px] overflow-y-auto">
+        <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
           {renderItems(stepItems, 0)}
         </div>
       ) : null}
