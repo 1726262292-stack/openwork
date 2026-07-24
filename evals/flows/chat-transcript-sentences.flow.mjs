@@ -36,6 +36,14 @@ export default {
     {
       name: "Seeded turn renders capability sentences and linkified user URL",
       run: async (ctx) => {
+        // Idempotency: a previous run may have left panels expanded in this
+        // renderer; a reload resets all component state before we seed.
+        await ctx.eval("location.reload()");
+        await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after reload" });
+        await ctx.waitFor(
+          `window.__openworkControl.listActions().some((a) => a.id === "session.create_task" && !a.disabled)`,
+          { timeoutMs: 30_000, label: "task creation ready" },
+        );
         await ctx.control("session.create_task");
         await ctx.waitFor(
           `window.__openworkControl.listActions().some((a) => a.id === "eval.chat_transcript.seed" && !a.disabled)`,
@@ -94,6 +102,13 @@ export default {
               return group.textContent.includes("git status --short");
             })()`, { timeoutMs: 15_000, label: "expanded aggregate rows" });
             await ctx.eval(`document.querySelector("[data-tool-aggregate]")?.scrollIntoView({ block: "center" })`);
+            // The rows reveal with a height transition; wait until the command
+            // row is actually laid out, or the frame can double the previous.
+            await ctx.waitFor(`(() => {
+              const leaf = [...document.querySelectorAll("[data-tool-aggregate] *")]
+                .find((node) => node.childElementCount === 0 && node.textContent.includes("git status --short"));
+              return Boolean(leaf && leaf.getClientRects().length > 0);
+            })()`, { timeoutMs: 10_000, label: "aggregate rows painted" });
           },
           assert: async () => {
             await ctx.expectText("Edited 1 file, ran 2 commands, read 1 file");
