@@ -9,6 +9,9 @@ export function externalUrlCommand(url: string, platform: NodeJS.Platform = proc
 }
 
 export async function openExternalUrl(url: string): Promise<boolean> {
+  if (process.env.OPENWORK_INSTALLER_DISABLE_BROWSER_OPEN === "1") {
+    return false
+  }
   try {
     const child = Bun.spawn(externalUrlCommand(url), {
       stdin: "ignore",

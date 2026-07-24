@@ -41,6 +41,7 @@ export function startInstallerServer(
   openBrowser: (url: string) => Promise<boolean> = openExternalUrl,
 ): InstallerServer {
   const token = randomBytes(16).toString("hex")
+  const dryRun = process.env.OPENWORK_INSTALLER_DRY_RUN === "1"
   let resolution = initialResolution
   // Warm the OS trust-store CA cache now so the first resolve-link fetch does
   // not spend its 10s abort budget waiting on PowerShell/security exports.
@@ -112,7 +113,7 @@ export function startInstallerServer(
           if (!resolution) {
             return Response.json({ error: "missing_config" }, { status: 409 })
           }
-          void runInstall(resolution.config)
+          void runInstall(resolution.config, { dryRun })
           return Response.json({ ok: true })
         }
         if (request.method === "POST" && url.pathname === "/api/launch") {
