@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   AlertTriangle,
   Check,
+  ChevronRight,
   Copy,
   Download,
   FileIcon,
@@ -53,6 +54,11 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge"
 import { Image } from "@/components/ui/image"
 import {
@@ -84,6 +90,7 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
+import { formatToolCallDuration } from "@/lib/tool-call-duration"
 import {
   collectToolParts,
   getActiveToolLabel,
@@ -830,6 +837,39 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
+/**
+ * A finished turn's steps collapse to a single "Worked for 1m 19s" line
+ * that expands back into the full run. Only live turns show their steps
+ * unprompted; once the answer is in, the reasoning is available but out
+ * of the way.
+ */
+function CompletedStepRun({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col gap-2">
+      <div className="mx-auto flex w-full max-w-3xl px-2 md:px-10">
+        <CollapsibleTrigger
+          className="group flex cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={open ? `${label}. Hide steps` : `${label}. Show steps`}
+        >
+          <span>{label}</span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 text-muted-foreground/70 transition-transform duration-150",
+              open && "rotate-90"
+            )}
+          />
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
@@ -874,6 +914,16 @@ function MessageGroup({
   }
   const stepItems = items.slice(0, stepCount)
   const proseItems = items.slice(stepCount)
+  // How long the turn spent working, from the first step to the message
+  // carrying the answer. Server timestamps, so this survives a reload.
+  const stepsStartedAt = stepItems.length > 0 ? getMessageCreated(stepItems[0].message) : null
+  const stepsEndedAt = getMessageCreated(lastItem.message)
+  const stepRunLabel =
+    stepsStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > stepsStartedAt
+      ? `Worked for ${formatToolCallDuration(stepsEndedAt - stepsStartedAt)}`
+      : stepItems.length === 1
+        ? "1 step"
+        : `${stepItems.length} steps`
 
   const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
     const isLastMessage = item.index === messages.length - 1
@@ -930,9 +980,17 @@ function MessageGroup({
           message use, so a step row is spaced identically whether or not a
           message boundary happens to fall between it and the previous row. */}
       {stepItems.length > 0 ? (
-        <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
-          {renderItems(stepItems, 0)}
-        </div>
+        isLiveGroup ? (
+          <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+            {renderItems(stepItems, 0)}
+          </div>
+        ) : (
+          <CompletedStepRun label={stepRunLabel}>
+            <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+              {renderItems(stepItems, 0)}
+            </div>
+          </CompletedStepRun>
+        )
       ) : null}
       {renderItems(proseItems, stepItems.length)}
       {/* Paper artifact strip: one FILES row per turn, at the end. */}
