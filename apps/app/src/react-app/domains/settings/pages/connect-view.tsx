@@ -4,7 +4,7 @@ import { ArrowUpRight, ChevronDown, ChevronRight } from "lucide-react";
 
 import type { DenExternalMcpConnection, DenOrgPlugin } from "@/app/lib/den";
 import { mintCloudControlMcpToken, readDenSettings } from "@/app/lib/den";
-import { openDesktopUrl } from "@/app/lib/desktop";
+import { normalizeBrowserOpenFailureMessage, openDesktopUrl } from "@/app/lib/desktop";
 import type {
   OpenworkCloudMcpEngineRefresh,
   OpenworkCloudMcpHealth,
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import { DenSignInSurface } from "@/react-app/domains/cloud/den-signin-surface";
 import { useDenAuth, type DenAuthStatus } from "@/react-app/domains/cloud/den-auth-provider";
@@ -115,13 +116,21 @@ function denManageConnectionsUrl() {
   return new URL("/dashboard/mcp-connections", readDenSettings().baseUrl).toString();
 }
 
+async function openDenManageConnections() {
+  try {
+    await openDesktopUrl(denManageConnectionsUrl());
+  } catch (error) {
+    toast.error(normalizeBrowserOpenFailureMessage(error));
+  }
+}
+
 function ManageInDenButton() {
   return (
     <Button
       variant="outline"
       size="sm"
       className="w-fit"
-      onClick={() => void openDesktopUrl(denManageConnectionsUrl())}
+      onClick={() => void openDenManageConnections()}
     >
       {t("connect.manage_in_den_web")}
       <ArrowUpRight size={13} />
@@ -761,7 +770,7 @@ function ConnectOrganizationRow(props: {
             {t("connect.group_needs_admin_setup")}
           </span>
         ) : (
-          <Button size="sm" variant="outline" onClick={() => void openDesktopUrl(denManageConnectionsUrl())} title={setupNames.join(t("connect.row_meta_list_separator"))}>
+          <Button size="sm" variant="outline" onClick={() => void openDenManageConnections()} title={setupNames.join(t("connect.row_meta_list_separator"))}>
             {t("connect.row_action_set_up_connection")}
           </Button>
         )

@@ -1,7 +1,9 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useReducer, type ReactNode } from "react";
 
+import { normalizeBrowserOpenFailureMessage, openDesktopUrl } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
+import { toast } from "@/components/ui/sonner";
 import { useBootState } from "./boot-state";
 
 type ArchitectureInfo = {
@@ -83,16 +85,24 @@ export function ArchitectureMismatchGate({ children }: ArchitectureMismatchGateP
     if (info?.mismatch) markRouteReady();
   }, [info?.mismatch, markRouteReady]);
 
+  const openUrl = useCallback(async (url: string) => {
+    try {
+      await openDesktopUrl(url);
+    } catch (error) {
+      toast.error(normalizeBrowserOpenFailureMessage(error));
+    }
+  }, []);
+
   const openDownload = useCallback(() => {
     const url = info?.downloadUrl || info?.releaseUrl;
     if (!url) return;
-    void window.__OPENWORK_ELECTRON__?.shell?.openExternal?.(url);
-  }, [info?.downloadUrl, info?.releaseUrl]);
+    void openUrl(url);
+  }, [info?.downloadUrl, info?.releaseUrl, openUrl]);
 
   const openRelease = useCallback(() => {
     if (!info?.releaseUrl) return;
-    void window.__OPENWORK_ELECTRON__?.shell?.openExternal?.(info.releaseUrl);
-  }, [info?.releaseUrl]);
+    void openUrl(info.releaseUrl);
+  }, [info?.releaseUrl, openUrl]);
 
   if (!checked) return null;
   if (!info?.mismatch) return <>{children}</>;

@@ -1,4 +1,5 @@
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
+import { t } from "../../i18n";
 
 export type * from "./desktop-types";
 export type {
@@ -363,12 +364,32 @@ export async function desktopFetchAgentContextDiagnostics(
 // Convenience wrappers
 // ---------------------------------------------------------------------------
 
+const BROWSER_OPEN_NO_HANDLER_PATTERN = /\b0x800401f5\b/i;
+const BROWSER_OPEN_TIMEOUT_PATTERN = /\btimed out after \d+ms\b/i;
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "";
+}
+
+export function normalizeBrowserOpenFailureMessage(error: unknown, forceBrowserOpenFailure = false): string {
+  const detail = errorMessage(error).trim();
+  const message = t("app.error_browser_open_failed_action");
+  if (detail.startsWith(message)) return detail;
+  if (forceBrowserOpenFailure || BROWSER_OPEN_NO_HANDLER_PATTERN.test(detail) || BROWSER_OPEN_TIMEOUT_PATTERN.test(detail)) {
+    if (!detail || detail === "Failed to open browser") return message;
+    return `${message} (${detail})`;
+  }
+  return detail || t("app.unknown_error");
+}
+
 export async function openDesktopUrl(url: string): Promise<void> {
   const openExternal = window.__OPENWORK_ELECTRON__?.shell?.openExternal;
   if (openExternal) {
     const result = await openExternal(url);
     if (result && result.ok === false) {
-      throw new Error(result.error ?? "Failed to open browser");
+      throw new Error(normalizeBrowserOpenFailureMessage(result.error, true));
     }
     return;
   }

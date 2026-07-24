@@ -7,6 +7,7 @@ export default {
   "app.compact_command_desc": "Summarize this session to reduce context size.",
   "app.error_audit_load": "Failed to load audit log.",
   "app.error_auth_failed": "Authentication failed",
+  "app.error_browser_open_failed_action": "Your operating system couldn't open a browser. Copy the link and open it in any browser instead.",
   "app.error_command_not_resolved": "Command was not resolved.",
   "app.error_compact_empty": "Nothing to compact yet.",
   "app.error_compact_no_session": "Select a session with messages before running /compact.",

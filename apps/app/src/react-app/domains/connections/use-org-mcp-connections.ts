@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { createDenClient, readDenSettings, type DenExternalMcpConnection } from "@/app/lib/den";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
-import { openDesktopUrl } from "@/app/lib/desktop";
+import { normalizeBrowserOpenFailureMessage, openDesktopUrl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { connectionNeedsReconnect, isNativeProviderConnectionId } from "./native-provider-connections";
 
@@ -237,7 +237,7 @@ export function useOrgMcpConnections() {
       }, CONNECT_POLL_INTERVAL_MS);
     } catch (connectError) {
       if (!isActionScopeCurrent(pollScope)) return;
-      setError(connectError instanceof Error ? connectError.message : "Failed to start the connection.");
+      setError(connectError instanceof Error ? normalizeBrowserOpenFailureMessage(connectError) : "Failed to start the connection.");
       setConnectingId(null);
     }
   }, [isActionScopeCurrent, refresh, stopPolling]);

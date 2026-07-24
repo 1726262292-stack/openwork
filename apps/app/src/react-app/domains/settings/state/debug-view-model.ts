@@ -9,6 +9,7 @@ import {
   debugDesktopBootstrapConfig,
   nukeOpenworkAndOpencodeConfigPreview,
   nukeOpenworkAndOpencodeConfigAndExit,
+  normalizeBrowserOpenFailureMessage,
   openDesktopUrl,
   openworkServerInfo as openworkServerInfoCmd,
   openworkServerRestart as openworkServerRestartCmd,
@@ -539,7 +540,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       await openDesktopUrl(ELECTRON_ALPHA_RELEASE_PAGE_URL);
       setElectronMigrationStatus("Opened the rolling Electron alpha release. Download links live there after dev builds finish.");
     } catch (error) {
-      setElectronMigrationStatus(error instanceof Error ? error.message : safeStringify(error));
+      setElectronMigrationStatus(error instanceof Error ? normalizeBrowserOpenFailureMessage(error) : safeStringify(error));
     }
   }, []);
 

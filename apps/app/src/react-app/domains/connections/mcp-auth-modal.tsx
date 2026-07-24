@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { McpDirectoryInfo } from "@/app/constants";
-import { openDesktopUrl, opencodeMcpAuth } from "@/app/lib/desktop";
+import { normalizeBrowserOpenFailureMessage, openDesktopUrl, opencodeMcpAuth } from "@/app/lib/desktop";
 import { unwrap } from "@/app/lib/opencode";
 import { validateMcpServerName } from "@/app/mcp";
 import type { Client } from "@/app/types";
@@ -293,7 +293,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
       await openAuthorizationUrl(auth.authorizationUrl);
       startStatusPolling(slug);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t("mcp.auth.failed_to_start_oauth");
+      const message = err instanceof Error ? normalizeBrowserOpenFailureMessage(err) : t("mcp.auth.failed_to_start_oauth");
 
       if (isSlackMcpEntry(props.entry, slug) && isDynamicClientRegistrationError(message)) {
         setNeedsReload(false);
