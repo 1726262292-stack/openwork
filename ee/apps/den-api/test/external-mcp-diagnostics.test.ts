@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { EnterpriseMcpOAuthContractError } from "@openwork/enterprise-mcp-client"
+import {
+  EnterpriseMcpClientError,
+  EnterpriseMcpLifecycleDeadlineError,
+  EnterpriseMcpOAuthContractError,
+} from "@openwork/enterprise-mcp-client"
 import {
   ExternalMcpDiagnosticTracker,
   catalogDiagnosticError,
@@ -645,6 +649,41 @@ describe("external MCP diagnostics", () => {
       jsonRpcCode: -32001,
       providerErrorMessage: "MCP error -32001: synthetic provider detail",
       providerErrorData: '{"provider_detail":"must-not-surface"}',
+    })
+  })
+
+  test("attributes our own lifecycle deadline to OpenWork rather than the provider", () => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_own_deadline")
+    tracker.begin("MCP_TOOL_EXECUTION")
+    const error = tracker.error(new EnterpriseMcpLifecycleDeadlineError("tool-execution"))
+
+    expect(error.diagnostic).toMatchObject({
+      phase: "MCP_TOOL_EXECUTION",
+      category: "lifecycle_deadline",
+      code: "MCP_LIFECYCLE_DEADLINE",
+      retryable: true,
+    })
+    expect(error.diagnostic.message).toBe(
+      "The capability did not finish within the time OpenWork allows a single tool call.",
+    )
+    expect(error.diagnostic.operatorAction).not.toContain("JSON-RPC error code")
+  })
+
+  test("attributes a wrapped lifecycle deadline to OpenWork through its cause chain", () => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_wrapped_deadline")
+    tracker.begin("MCP_TOOL_EXECUTION")
+    const error = tracker.error(
+      new EnterpriseMcpClientError({
+        operationPhase: "tool-execution",
+        requestPhase: "mcp-tool-execution",
+        cause: new EnterpriseMcpLifecycleDeadlineError("tool-execution"),
+      }),
+    )
+
+    expect(error.diagnostic).toMatchObject({
+      category: "lifecycle_deadline",
+      code: "MCP_LIFECYCLE_DEADLINE",
+      retryable: true,
     })
   })
 

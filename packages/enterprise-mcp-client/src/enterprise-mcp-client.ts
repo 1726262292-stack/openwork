@@ -20,7 +20,7 @@ import type {
   EnterpriseMcpOperationPhase,
   EnterpriseMcpRequestPhase,
 } from "./contracts.js"
-import { EnterpriseMcpClientError, EnterpriseMcpToolResultError } from "./errors.js"
+import { EnterpriseMcpClientError, EnterpriseMcpLifecycleDeadlineError, EnterpriseMcpToolResultError } from "./errors.js"
 import { EnterpriseMcpOAuthProvider } from "./oauth-provider.js"
 import { createEnterpriseMcpRequestObserver, type EnterpriseMcpRequestObserver } from "./request-observer.js"
 import { collectEnterpriseMcpTools } from "./tool-catalog.js"
@@ -208,7 +208,7 @@ export function createEnterpriseMcpClient(options: EnterpriseMcpClientOptions): 
     const configuredExpiresAt = options.lifecycle?.expiresAt ?? (clock.now() + operationTimeoutMs)
     const remaining = Math.max(1, Math.min(operationTimeoutMs, configuredExpiresAt - clock.now()))
     const timeout = setTimeout(() => {
-      controller.abort(new Error(`Enterprise MCP ${input.operationPhase} exceeded its lifecycle deadline.`))
+      controller.abort(new EnterpriseMcpLifecycleDeadlineError(input.operationPhase))
     }, remaining)
     controller.signal.addEventListener("abort", () => clearTimeout(timeout), { once: true })
 
