@@ -27,6 +27,26 @@ a DMG containing the generic `OpenWork Installer.app`; Windows ships as the bare
 generic `OpenWork-Installer-win-x64.exe`. A generic UI build gates on the paste
 screen until the user provides their OpenWork install link.
 
+## Networks that inspect TLS
+
+Bun's `fetch` trusts only its bundled roots, so on a network that re-signs HTTPS the
+installer additionally trusts the OS stores (Windows `Root`/`CA` for both machine and
+user, macOS `System.keychain` and `SystemRootCertificates.keychain`) plus whatever the
+runtime reports. The user-writable macOS login keychain is deliberately excluded, since
+`security find-certificate` ignores trust settings.
+
+When a corporate root lives somewhere the installer cannot enumerate, IT can point it at
+a PEM bundle — the same variable the desktop shell honors:
+
+```bash
+NODE_EXTRA_CA_CERTS=/path/to/corporate-root.pem
+```
+
+On startup the installer logs what each source contributed
+(`OS trust store: runtime=0 windows-cert-stores=214 NODE_EXTRA_CA_CERTS=1`), and a TLS
+rejection repeats that summary in `trustSources` so support can tell an untrusted
+certificate apart from a trust store that could not be read.
+
 ## Local development
 
 ```bash
