@@ -219,6 +219,7 @@ describe("resolveInstallerConfig", () => {
       webUrl: "https://openwork.acme.com",
       apiUrl: "https://openwork-api.acme.com",
       logoUrl: null,
+      iconUrl: null,
       requireSignin: true,
     })
   })
@@ -270,6 +271,7 @@ describe("resolveInstallerConfig", () => {
         webUrl: "https://build.example.com/",
         apiUrl: "https://build-api.example.com/",
         logoUrl: "https://build.example.com/logo.svg",
+        iconUrl: "https://build.example.com/icon.png",
         requireSignin: true,
       },
       installLink: "https://app.example.com/install?token=abcDEF12",
@@ -285,6 +287,7 @@ describe("resolveInstallerConfig", () => {
       webUrl: "https://build.example.com",
       apiUrl: "https://build-api.example.com",
       logoUrl: "https://build.example.com/logo.svg",
+      iconUrl: "https://build.example.com/icon.png",
       requireSignin: true,
     })
   })
@@ -296,6 +299,7 @@ describe("resolveInstallerConfig", () => {
       webUrl: "",
       apiUrl: "",
       logoUrl: "",
+      iconUrl: "",
       requireSignin: false,
     })).toBeNull()
   })
@@ -326,7 +330,33 @@ describe("resolveInstallerConfig", () => {
         apiUrl: "https://linked-api.example.com",
         requireSignin: true,
         logoUrl: null,
+        iconUrl: null,
       })
+    } finally {
+      configServer.stop(true)
+    }
+  })
+
+  test("carries the deployment app icon from the install link", async () => {
+    const configServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({
+        clientName: "Linked Corp",
+        webUrl: "https://linked.example.com/",
+        apiUrl: "https://linked-api.example.com/",
+        requireSignin: true,
+        logoUrl: null,
+        iconUrl: "https://linked.example.com/icon.png",
+      }),
+    })
+    try {
+      const resolution = await resolveInstallerConfig({
+        env: {},
+        installLink: `http://127.0.0.1:${configServer.port}/install?token=abcDEF12`,
+      })
+
+      expect(resolution.config.iconUrl).toBe("https://linked.example.com/icon.png")
     } finally {
       configServer.stop(true)
     }
@@ -384,6 +414,7 @@ describe("system CA fetch", () => {
           apiUrl: "https://tls-api.example.com",
           requireSignin: true,
           logoUrl: null,
+          iconUrl: null,
         },
       })
     } finally {
@@ -621,6 +652,7 @@ describe("writeBootstrapConfig", () => {
         apiUrl: "https://api.openworklabs.com/",
         requireSignin: false,
         logoUrl: null,
+        iconUrl: null,
       }
 
       writeBootstrapConfig(hostedConfig, env, "win32")
@@ -661,6 +693,7 @@ describe("writeBootstrapConfig", () => {
           apiUrl: "https://api.custom.internal.example",
           requireSignin: true,
           logoUrl: "https://openwork.custom.internal.example/assets/wordmark.svg",
+          iconUrl: "https://openwork.custom.internal.example/assets/icon.png",
         },
         env,
         "win32",
@@ -674,6 +707,63 @@ describe("writeBootstrapConfig", () => {
       expect(parsed.brandLogoUrl).toBe("https://openwork.custom.internal.example/assets/wordmark.svg")
       expect(parsed.prepared).toEqual({ orgId: "org_example" })
       expect(parsed.claimLinks).toEqual([{ id: "claim_example" }])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("hands the organization app icon to the desktop shell as brandIconUrl", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-test-"))
+    const env = {
+      LOCALAPPDATA: path.join(dir, "LocalAppData"),
+      USERPROFILE: path.join(dir, "profile"),
+    }
+    const target = desktopBootstrapPath(env, "win32")
+    try {
+      writeBootstrapConfig(
+        {
+          appName: "Example Org Work",
+          clientName: "Example Org",
+          webUrl: "https://openwork.custom.internal.example",
+          apiUrl: "https://api.custom.internal.example",
+          requireSignin: true,
+          logoUrl: "https://openwork.custom.internal.example/assets/wordmark.svg",
+          iconUrl: "https://openwork.custom.internal.example/assets/icon.png",
+        },
+        env,
+        "win32",
+      )
+
+      const parsed = JSON.parse(readFileSync(target, "utf8"))
+      expect(parsed.brandIconUrl).toBe("https://openwork.custom.internal.example/assets/icon.png")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("omits brandIconUrl when the deployment has no app icon", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-test-"))
+    const env = {
+      LOCALAPPDATA: path.join(dir, "LocalAppData"),
+      USERPROFILE: path.join(dir, "profile"),
+    }
+    const target = desktopBootstrapPath(env, "win32")
+    try {
+      writeBootstrapConfig(
+        {
+          appName: "Example Org Work",
+          clientName: "Example Org",
+          webUrl: "https://openwork.custom.internal.example",
+          apiUrl: "https://api.custom.internal.example",
+          requireSignin: true,
+          logoUrl: null,
+          iconUrl: null,
+        },
+        env,
+        "win32",
+      )
+
+      expect(JSON.parse(readFileSync(target, "utf8")).brandIconUrl).toBeUndefined()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

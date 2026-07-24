@@ -1,5 +1,5 @@
 import { installConfigSchema, installConfigUrlFor, type InstallConfig } from "@openwork/install-config"
-import { BUILD_API_URL, BUILD_APP_NAME, BUILD_CLIENT_NAME, BUILD_LOGO_URL, BUILD_REQUIRE_SIGNIN, BUILD_WEB_URL } from "./generated/build-config"
+import { BUILD_API_URL, BUILD_APP_NAME, BUILD_CLIENT_NAME, BUILD_ICON_URL, BUILD_LOGO_URL, BUILD_REQUIRE_SIGNIN, BUILD_WEB_URL } from "./generated/build-config"
 import type { InstallerConfig } from "./config"
 import { fetchWithSystemCa } from "./system-ca"
 
@@ -36,6 +36,7 @@ export type BuildConstants = {
   webUrl: string
   apiUrl: string
   logoUrl: string
+  iconUrl: string
   requireSignin: boolean
 }
 
@@ -45,6 +46,7 @@ const DEFAULT_BUILD_CONSTANTS: BuildConstants = {
   webUrl: BUILD_WEB_URL,
   apiUrl: BUILD_API_URL,
   logoUrl: BUILD_LOGO_URL,
+  iconUrl: BUILD_ICON_URL,
   requireSignin: BUILD_REQUIRE_SIGNIN,
 }
 
@@ -77,6 +79,7 @@ function toInstallerConfig(config: InstallConfig): InstallerConfig {
     webUrl: normalizeUrl(config.webUrl, "web URL"),
     apiUrl: normalizeUrl(config.apiUrl, "API URL"),
     logoUrl: config.logoUrl ? normalizeUrl(config.logoUrl, "logo URL") : null,
+    iconUrl: config.iconUrl ? normalizeUrl(config.iconUrl, "icon URL") : null,
     requireSignin: config.requireSignin,
   }
 }
@@ -108,7 +111,8 @@ export function envOverrides(env: NodeJS.ProcessEnv = process.env): InstallerCon
   const webUrl = env.OPENWORK_INSTALLER_WEB_URL?.trim() ?? ""
   const apiUrl = env.OPENWORK_INSTALLER_API_URL?.trim() ?? ""
   const logoUrl = env.OPENWORK_INSTALLER_LOGO_URL?.trim() ?? ""
-  const hasEnvOverride = Boolean(clientName || webUrl || apiUrl || logoUrl || env.OPENWORK_INSTALLER_REQUIRE_SIGNIN !== undefined)
+  const iconUrl = env.OPENWORK_INSTALLER_ICON_URL?.trim() ?? ""
+  const hasEnvOverride = Boolean(clientName || webUrl || apiUrl || logoUrl || iconUrl || env.OPENWORK_INSTALLER_REQUIRE_SIGNIN !== undefined)
 
   if (!hasEnvOverride) {
     return null
@@ -123,6 +127,7 @@ export function envOverrides(env: NodeJS.ProcessEnv = process.env): InstallerCon
     webUrl: normalizeUrl(webUrl, "web URL"),
     apiUrl: normalizeUrl(apiUrl, "API URL"),
     logoUrl: logoUrl ? normalizeUrl(logoUrl, "logo URL") : null,
+    iconUrl: iconUrl ? normalizeUrl(iconUrl, "icon URL") : null,
     requireSignin: parseRequireSignin(env.OPENWORK_INSTALLER_REQUIRE_SIGNIN, BUILD_REQUIRE_SIGNIN),
   }
 }
@@ -241,6 +246,7 @@ export function buildConstantsConfig(constants: BuildConstants = DEFAULT_BUILD_C
   const webUrl = constants.webUrl.trim()
   const apiUrl = constants.apiUrl.trim()
   const logoUrl = constants.logoUrl.trim()
+  const iconUrl = constants.iconUrl.trim()
   if (!clientName || !webUrl || !apiUrl) {
     return null
   }
@@ -251,6 +257,7 @@ export function buildConstantsConfig(constants: BuildConstants = DEFAULT_BUILD_C
     webUrl: normalizeUrl(webUrl, "web URL"),
     apiUrl: normalizeUrl(apiUrl, "API URL"),
     logoUrl: logoUrl ? normalizeUrl(logoUrl, "logo URL") : null,
+    iconUrl: iconUrl ? normalizeUrl(iconUrl, "icon URL") : null,
     requireSignin: constants.requireSignin,
   }
 }

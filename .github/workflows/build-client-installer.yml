@@ -34,6 +34,11 @@ on:
         required: false
         type: string
         default: ""
+      client_icon_url:
+        description: "Optional square client app icon URL (png) applied to the installed app's dock/taskbar icon"
+        required: false
+        type: string
+        default: ""
       require_signin:
         description: "Force cloud sign-in in the desktop app (requireSignin)"
         required: false
@@ -150,6 +155,7 @@ jobs:
           WEB_URL: ${{ github.event.inputs.web_url }}
           API_URL: ${{ github.event.inputs.api_url }}
           LOGO_URL: ${{ github.event.inputs.client_logo_url }}
+          ICON_URL: ${{ github.event.inputs.client_icon_url }}
           REQUIRE_SIGNIN: ${{ github.event.inputs.require_signin }}
         run: |
           bun -e '
@@ -160,6 +166,7 @@ jobs:
               `export const BUILD_WEB_URL = ${JSON.stringify(process.env.WEB_URL ?? "")}`,
               `export const BUILD_API_URL = ${JSON.stringify(process.env.API_URL ?? "")}`,
               `export const BUILD_LOGO_URL = ${JSON.stringify(process.env.LOGO_URL ?? "")}`,
+              `export const BUILD_ICON_URL = ${JSON.stringify(process.env.ICON_URL ?? "")}`,
               `export const BUILD_REQUIRE_SIGNIN = ${process.env.REQUIRE_SIGNIN === "true"}`,
               "",
             ].join("\n")

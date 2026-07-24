@@ -8,6 +8,8 @@ export type InstallerConfig = {
   apiUrl: string
   /** Optional client logo (png/svg URL) shown in the installer UI. */
   logoUrl: string | null
+  /** Optional square app icon (png URL) the desktop shell applies to the dock/taskbar. */
+  iconUrl: string | null
   requireSignin: boolean
 }
 

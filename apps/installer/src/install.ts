@@ -128,6 +128,7 @@ export function writeBootstrapConfig(
           requireSignin: config.requireSignin,
           brandAppName: config.appName,
           ...(config.logoUrl ? { brandLogoUrl: config.logoUrl } : {}),
+          ...(config.iconUrl ? { brandIconUrl: config.iconUrl } : {}),
         }
       : {}),
     ...(prepared !== undefined ? { prepared } : {}),
