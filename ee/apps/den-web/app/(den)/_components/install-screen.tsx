@@ -4,11 +4,9 @@ import { DownloadPlatformGrid, type DownloadPlatformGroup, type DownloadPlatform
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { requestJson } from "../_lib/den-flow";
-import { LAST_DESKTOP_HANDOFF_GRANT_STORAGE_KEY, readLastDesktopHandoffGrant } from "../_lib/desktop-handoff";
 import { getInstallConfigErrorMessage } from "../_lib/install-errors";
 import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
-import { useDesktopHandoffStatus } from "../_lib/use-desktop-handoff-status";
 import { OnboardingShell } from "./onboarding-shell";
 import { OrganizationBrandIdentity } from "./organization-brand-identity";
 
@@ -22,7 +20,12 @@ type InstallConfig = {
   iconUrl: string | null;
   connectUrl: string | null;
   connectExpiresAt: string | null;
+  activationUrl: string;
+  activationExpiresAt: string;
 };
+
+const CONNECT_CODE_PATTERN = /^[A-Za-z0-9_-]{24,128}$/;
+const RETURN_TO_OPENWORK_URL = "openwork://open";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -52,6 +55,23 @@ function isConnectUrl(value: string) {
   }
 }
 
+function activationCodeFromUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const code = url.searchParams.get("code")?.trim() ?? "";
+    return CONNECT_CODE_PATTERN.test(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+function exchangeConnectUrl(code: string, apiBaseUrl: string) {
+  const url = new URL("openwork://connect");
+  url.searchParams.set("code", code);
+  url.searchParams.set("apiBaseUrl", apiBaseUrl);
+  return url.toString();
+}
+
 function parseInstallConfig(value: unknown): InstallConfig | null {
   if (!isRecord(value)) {
     return null;
@@ -66,6 +86,8 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
   const iconUrl = value.iconUrl ?? null;
   const connectUrl = value.connectUrl ?? null;
   const connectExpiresAt = value.connectExpiresAt ?? null;
+  const activationUrl = typeof value.activationUrl === "string" ? value.activationUrl.trim() : "";
+  const activationExpiresAt = typeof value.activationExpiresAt === "string" ? value.activationExpiresAt : "";
 
   if (!clientName || !isUrl(webUrl) || !isUrl(apiUrl) || typeof requireSignin !== "boolean") {
     return null;
@@ -82,6 +104,9 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
   if (connectExpiresAt !== null && (typeof connectExpiresAt !== "string" || Number.isNaN(Date.parse(connectExpiresAt)))) {
     return null;
   }
+  if (!isUrl(activationUrl) || Number.isNaN(Date.parse(activationExpiresAt))) {
+    return null;
+  }
 
   return {
     appName,
@@ -93,6 +118,8 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
     iconUrl,
     connectUrl,
     connectExpiresAt,
+    activationUrl,
+    activationExpiresAt,
   };
 }
 
@@ -128,30 +155,23 @@ export function InstallScreen() {
   const [downloadLabel, setDownloadLabel] = useState("");
   const [downloadHref, setDownloadHref] = useState("");
   const [currentLink, setCurrentLink] = useState("");
-  const [handoffGrant, setHandoffGrant] = useState<string | null>(null);
+  const requestedStep = searchParams.get("step");
+  const initialStep = requestedStep === "3" ? 3 : requestedStep === "2" ? 2 : 1;
+  const [guideStep, setGuideStep] = useState<1 | 2 | 3>(initialStep);
+  const [expandedStep, setExpandedStep] = useState<1 | 2 | 3>(initialStep);
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectRecoveryVisible, setConnectRecoveryVisible] = useState(false);
+  const [activationCode, setActivationCode] = useState<string | null>(null);
+  const [activationStatus, setActivationStatus] = useState<"idle" | "pending" | "connected" | "expired">("idle");
+  const [connectLink, setConnectLink] = useState("");
+  const [connectCopied, setConnectCopied] = useState(false);
+  const [returnCopied, setReturnCopied] = useState(false);
   const downloadStartedTimer = useRef<number | null>(null);
-  const handoffStatus = useDesktopHandoffStatus(handoffGrant);
 
   useEffect(() => {
     setIsMobile(isMobileUserAgent());
     setCurrentLink(window.location.href);
-  }, []);
-
-  useEffect(() => {
-    function refreshLastHandoffGrant() {
-      setHandoffGrant(readLastDesktopHandoffGrant());
-    }
-
-    refreshLastHandoffGrant();
-
-    function handleStorage(event: StorageEvent) {
-      if (event.key === LAST_DESKTOP_HANDOFF_GRANT_STORAGE_KEY) {
-        refreshLastHandoffGrant();
-      }
-    }
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   useEffect(() => {
@@ -189,6 +209,45 @@ export function InstallScreen() {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!activationCode) {
+      setActivationStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+    setActivationStatus("pending");
+
+    async function poll() {
+      try {
+        const { response, payload } = await requestJson(
+          "/v1/install-connect/status",
+          { method: "POST", body: JSON.stringify({ code: activationCode }) },
+          12000,
+        );
+        if (cancelled) return;
+        if (response.status === 410) {
+          setActivationStatus("expired");
+          return;
+        }
+        if (response.ok && isRecord(payload) && payload.status === "connected") {
+          setActivationStatus("connected");
+          return;
+        }
+      } catch {
+        // Keep waiting through temporary network failures.
+      }
+      if (!cancelled) timer = window.setTimeout(() => void poll(), 2500);
+    }
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [activationCode]);
 
   useEffect(() => () => {
     if (downloadStartedTimer.current !== null) {
@@ -229,15 +288,28 @@ export function InstallScreen() {
   }, [config, token]);
 
   async function copyCurrentLink() {
-    await navigator.clipboard.writeText(currentLink || window.location.href);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(currentLink || window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setConnectError("Could not copy automatically. Select the install link and copy it manually.");
+    }
+  }
+
+  function advanceGuide(nextStep: 2 | 3) {
+    setGuideStep(nextStep);
+    setExpandedStep(nextStep);
+    const url = new URL(window.location.href);
+    url.searchParams.set("step", String(nextStep));
+    window.history.replaceState(null, "", url);
   }
 
   function beginDownload(label: string, href: string) {
     setDownloadLabel(label);
     setDownloadHref(href);
     setDownloadState("preparing");
+    advanceGuide(2);
     if (downloadStartedTimer.current !== null) {
       window.clearTimeout(downloadStartedTimer.current);
     }
@@ -245,6 +317,67 @@ export function InstallScreen() {
       setDownloadState("started");
       downloadStartedTimer.current = null;
     }, 5000);
+  }
+
+  async function beginConnect() {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const freshConfig = await fetchInstallConfig(token);
+      const code = activationCodeFromUrl(freshConfig.activationUrl);
+      if (!code) throw new Error("This setup could not create a one-time activation link.");
+      const nextConnectLink = exchangeConnectUrl(code, freshConfig.apiUrl);
+      setConfig(freshConfig);
+      setActivationCode(code);
+      setConnectLink(nextConnectLink);
+      advanceGuide(3);
+      window.location.assign(nextConnectLink);
+    } catch (connectFailure) {
+      setConnectError(connectFailure instanceof Error ? connectFailure.message : "Could not open OpenWork. Try again.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function copyConnectionLink() {
+    try {
+      await navigator.clipboard.writeText(connectLink);
+      setConnectCopied(true);
+      window.setTimeout(() => setConnectCopied(false), 1800);
+    } catch {
+      setConnectError("Could not copy automatically. Select the OpenWork link and copy it manually.");
+    }
+  }
+
+  async function prepareAndCopyConnectionLink() {
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const freshConfig = await fetchInstallConfig(token);
+      const code = activationCodeFromUrl(freshConfig.activationUrl);
+      if (!code) throw new Error("This setup could not create a one-time activation link.");
+      const nextConnectLink = exchangeConnectUrl(code, freshConfig.apiUrl);
+      setConfig(freshConfig);
+      setActivationCode(code);
+      setConnectLink(nextConnectLink);
+      await navigator.clipboard.writeText(nextConnectLink);
+      setConnectCopied(true);
+      window.setTimeout(() => setConnectCopied(false), 1800);
+    } catch (copyFailure) {
+      setConnectError(copyFailure instanceof Error ? copyFailure.message : "Could not copy a fresh OpenWork link.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  async function copyReturnLink() {
+    try {
+      await navigator.clipboard.writeText(RETURN_TO_OPENWORK_URL);
+      setReturnCopied(true);
+      window.setTimeout(() => setReturnCopied(false), 1800);
+    } catch {
+      setConnectError("Could not copy automatically. Select the OpenWork link and copy it manually.");
+    }
   }
 
   if (busy) {
@@ -272,10 +405,6 @@ export function InstallScreen() {
       </OnboardingShell>
     );
   }
-
-  const showInstallTroubleshoot = handoffGrant !== null
-    && handoffStatus.status !== "consumed"
-    && (handoffStatus.timedOut || handoffStatus.status === "unknown");
 
   return (
     <OnboardingShell state="install" width="full">
@@ -308,23 +437,39 @@ export function InstallScreen() {
         ) : (
           <ol className="grid gap-3 text-left" data-testid="install-guide">
             <li
-              className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-slate-50 p-4 sm:p-5"
+              className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-50"
+              data-state={guideStep > 1 ? "complete" : "active"}
               data-testid="install-guide-step-download"
             >
-              <span className="grid size-8 place-items-center rounded-full bg-[var(--dls-accent)] font-semibold text-white" aria-hidden="true">
-                1
-              </span>
-              <div className="grid gap-3">
-                <div>
-                  <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Download the OpenWork installer</p>
-                  <p className="den-copy">It&apos;s a small setup app. When the download finishes, open it and keep this page open.</p>
-                </div>
-                <div className="grid gap-3">
+              <button
+                type="button"
+                className="grid w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 p-4 text-left sm:p-5"
+                aria-expanded={expandedStep === 1}
+                onClick={() => setExpandedStep(1)}
+              >
+                <span className="grid size-8 place-items-center rounded-full bg-[var(--dls-accent)] font-semibold text-white" aria-hidden="true">
+                  {guideStep > 1 ? "✓" : "1"}
+                </span>
+                <span>
+                  <span className="block font-semibold text-[var(--dls-text-primary)]">Download and install OpenWork</span>
+                  <span className="den-copy block">The recommended installer is highlighted for this computer.</span>
+                </span>
+              </button>
+              {expandedStep === 1 ? (
+                <div className="grid gap-3 border-t border-slate-200 bg-white p-4 sm:p-5">
                   <DownloadPlatformGrid
                     groups={downloadGroups}
                     recommendedTestId="install-download-primary"
                     onDownload={(option: DownloadPlatformOption) => beginDownload(option.label, option.href)}
                   />
+                  <button
+                    type="button"
+                    className="w-fit text-sm font-medium text-slate-600 underline-offset-4 hover:text-slate-950 hover:underline"
+                    onClick={() => advanceGuide(2)}
+                    data-testid="install-skip-download"
+                  >
+                    I already have {config.appName}
+                  </button>
                   {downloadState !== "idle" ? (
                     <div className="den-frame-inset grid gap-2 rounded-[1.25rem] p-4" aria-live="polite" data-testid="install-download-status">
                       {downloadState === "preparing" ? (
@@ -345,50 +490,142 @@ export function InstallScreen() {
                     </div>
                   ) : null}
                 </div>
-              </div>
+              ) : null}
             </li>
 
             <li
-              className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-slate-50 p-4 sm:p-5"
+              className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-50"
+              data-state={guideStep === 2 ? "active" : guideStep > 2 ? "complete" : "pending"}
               data-testid="install-guide-step-open"
             >
-              <span className="grid size-8 place-items-center rounded-full border border-[var(--dls-border-strong)] font-semibold text-[var(--dls-text-primary)]" aria-hidden="true">
-                2
-              </span>
-              <div className="grid gap-3">
-                <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Open the installer and paste this link:</p>
-                <div className="grid gap-2" data-testid="install-copy-link">
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input className="den-input min-w-0 flex-1 text-xs" value={currentLink} readOnly onFocus={(event) => event.currentTarget.select()} />
-                    <button type="button" className="den-button-secondary sm:w-auto" onClick={() => void copyCurrentLink()}>
-                      {copied ? "Copied" : "Copy link"}
+              <button
+                type="button"
+                className="grid w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 p-4 text-left disabled:cursor-default sm:p-5"
+                aria-expanded={expandedStep === 2}
+                disabled={guideStep < 2}
+                onClick={() => setExpandedStep(2)}
+              >
+                <span className={`grid size-8 place-items-center rounded-full font-semibold ${guideStep >= 2 ? "bg-[var(--dls-accent)] text-white" : "border border-[var(--dls-border-strong)] text-slate-500"}`} aria-hidden="true">
+                  {guideStep > 2 ? "✓" : "2"}
+                </span>
+                <span>
+                  <span className="block font-semibold text-[var(--dls-text-primary)]">Continue on your computer</span>
+                  <span className="den-copy block">
+                    {guideStep < 2 ? `Only continue once ${config.appName} is installed and running on this computer.` : `Open ${config.appName} or run the installer to connect this computer to ${config.clientName}.`}
+                  </span>
+                </span>
+              </button>
+              {expandedStep === 2 && guideStep >= 2 ? (
+                <div className="grid gap-4 border-t border-slate-200 bg-white p-4 sm:p-5">
+                  <div className="grid gap-3 rounded-2xl bg-slate-50 p-4">
+                    <div>
+                      <p className="m-0 font-medium text-slate-950">Already installed?</p>
+                      <p className="den-copy">Open the app and confirm that you want to connect it to {config.clientName}.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="den-button-primary w-full justify-center sm:w-fit"
+                      data-testid="install-connect-open"
+                      disabled={connecting}
+                      onClick={() => void beginConnect()}
+                    >
+                      {connecting ? "Preparing connection…" : `Open ${config.appName}`}
                     </button>
+                    <button
+                      type="button"
+                      className="w-fit text-sm text-slate-500 underline-offset-4 hover:text-slate-950 hover:underline"
+                      data-testid="install-connect-recovery"
+                      onClick={() => setConnectRecoveryVisible(true)}
+                    >
+                      Didn&apos;t open?
+                    </button>
+                    {connectRecoveryVisible ? (
+                      <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <p className="den-copy text-sm">Copy a fresh connection link and open it anywhere links work. The same confirmation will appear.</p>
+                        <button
+                          type="button"
+                          className="den-button-secondary w-fit"
+                          data-testid="install-connect-copy"
+                          disabled={connecting}
+                          onClick={() => void prepareAndCopyConnectionLink()}
+                        >
+                          {connectCopied ? "Copied" : "Copy connection link"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
+
+                  <div className="grid gap-3">
+                    <div>
+                      <p className="m-0 font-medium text-slate-950">Using the installer?</p>
+                      <p className="den-copy">Paste this organization link when asked. After installing, it opens a secure approval page in your browser.</p>
+                    </div>
+                    <div className="grid gap-2" data-testid="install-copy-link">
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input className="den-input min-w-0 flex-1 text-xs" value={currentLink} readOnly onFocus={(event) => event.currentTarget.select()} />
+                        <button type="button" className="den-button-secondary sm:w-auto" onClick={() => void copyCurrentLink()}>
+                          {copied ? "Copied" : "Copy install link"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {connectError ? <p className="m-0 text-sm text-red-600" role="alert">{connectError}</p> : null}
                 </div>
-                <p className="den-copy">The installer only continues with a valid link — that&apos;s what connects this computer to {config.clientName}.</p>
-              </div>
+              ) : null}
             </li>
 
             <li
-              className="grid grid-cols-[2rem_minmax(0,1fr)] gap-3 rounded-[1.25rem] bg-slate-50 p-4 sm:p-5"
+              className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-50"
+              data-state={guideStep === 3 ? "active" : "pending"}
               data-testid="install-guide-step-signin"
             >
-              <span className="grid size-8 place-items-center rounded-full border border-[var(--dls-border-strong)] font-semibold text-[var(--dls-text-primary)]" aria-hidden="true">3</span>
-              <div className="grid gap-3">
-                <p className="m-0 font-semibold text-[var(--dls-text-primary)]">Sign in — this page will confirm when you&apos;re connected.</p>
-                <div className="den-frame-inset grid gap-2 rounded-[1rem] p-3" aria-live="polite">
-                  {handoffStatus.status === "consumed" ? (
-                    <p className="m-0 text-sm font-medium text-emerald-700" data-testid="install-connected">✓ Connected — OpenWork is set up for {config.clientName}</p>
+              <button
+                type="button"
+                className="grid w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 p-4 text-left disabled:cursor-default sm:p-5"
+                aria-expanded={expandedStep === 3}
+                disabled={guideStep < 3}
+                onClick={() => setExpandedStep(3)}
+              >
+                <span className={`grid size-8 place-items-center rounded-full font-semibold ${guideStep === 3 ? "bg-[var(--dls-accent)] text-white" : "border border-[var(--dls-border-strong)] text-slate-500"}`} aria-hidden="true">3</span>
+                <span>
+                  <span className="block font-semibold text-[var(--dls-text-primary)]">Finish in your browser</span>
+                  <span className="den-copy block">Confirm the connection, then Sign in. This page reports when OpenWork accepts the organization setup.</span>
+                </span>
+              </button>
+              {expandedStep === 3 && guideStep === 3 ? (
+                <div className="grid gap-3 border-t border-slate-200 bg-white p-4 sm:p-5" aria-live="polite">
+                  {activationStatus === "connected" ? (
+                    <>
+                      <p className="m-0 text-sm font-medium text-emerald-700" data-testid="install-connected">✓ Connected to {config.clientName}</p>
+                      <p className="den-copy">{config.clientName}&apos;s setup and branding are ready in {config.appName}.</p>
+                      <a className="den-button-primary w-fit" href={RETURN_TO_OPENWORK_URL}>Return to OpenWork</a>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input className="den-input min-w-0 flex-1 text-xs" value={RETURN_TO_OPENWORK_URL} readOnly onFocus={(event) => event.currentTarget.select()} />
+                        <button type="button" className="den-button-secondary sm:w-auto" onClick={() => void copyReturnLink()}>
+                          {returnCopied ? "Copied" : "Copy OpenWork link"}
+                        </button>
+                      </div>
+                    </>
+                  ) : activationStatus === "expired" ? (
+                    <p className="m-0 text-sm text-amber-700">This one-time link expired. Return to step 2 and open OpenWork again.</p>
                   ) : (
-                    <p className="m-0 text-sm text-[var(--dls-text-secondary)]">Waiting for sign-in…</p>
+                    <>
+                      <p className="m-0 text-sm text-[var(--dls-text-secondary)]">Waiting for OpenWork to accept this setup…</p>
+                      {connectLink ? (
+                        <div className="grid gap-2 rounded-xl bg-slate-50 p-3">
+                          <p className="den-copy text-sm">Nothing opened? Copy this OpenWork link and open it anywhere links work.</p>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <input className="den-input min-w-0 flex-1 text-xs" value={connectLink} readOnly onFocus={(event) => event.currentTarget.select()} />
+                            <button type="button" className="den-button-secondary sm:w-auto" onClick={() => void copyConnectionLink()}>
+                              {connectCopied ? "Copied" : "Copy link"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
                   )}
-                  {showInstallTroubleshoot ? (
-                    <p className="m-0 text-sm text-[var(--dls-text-secondary)]">
-                      Still not connected? If the app is not installed, start with step 1. If nothing opened, try the sign-in tab again.
-                    </p>
-                  ) : null}
                 </div>
-              </div>
+              ) : null}
             </li>
           </ol>
         )}
