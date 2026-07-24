@@ -22,6 +22,7 @@ import {
   Settings,
   FolderOpen,
   Tag,
+  UserRound,
   X,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
@@ -51,6 +52,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarFooter,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
@@ -100,6 +102,9 @@ import {
 } from "@/components/ui/select";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
+import { useDenAuth } from "../../cloud/den-auth-provider";
+import { buildDenAuthUrl, readDenBootstrapConfig } from "../../../../app/lib/den";
+import { usePlatform } from "../../../kernel/platform";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
   MAX_SESSIONS_PREVIEW,
@@ -835,6 +840,7 @@ export type AppSidebarProps = {
   };
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
+  onOpenAccountSettings?: () => void;
 };
 
 function useSessionTree(
@@ -849,6 +855,63 @@ function useSessionTree(
 
 function isSessionActivityStatus(status: string | undefined): status is SessionActivityStatus {
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
+}
+
+function accountInitials(name: string | null, email: string) {
+  const source = name?.trim() || email;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function SidebarAccountChip(props: { onOpenAccountSettings?: () => void }) {
+  const denAuth = useDenAuth();
+  const platform = usePlatform();
+
+  if (denAuth.status === "checking") return null;
+
+  const user = denAuth.user;
+  if (!denAuth.isSignedIn || !user) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
+        onClick={() => {
+          platform.openLink(buildDenAuthUrl(readDenBootstrapConfig().baseUrl, "sign-up"));
+        }}
+      >
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground">
+          <UserRound size={13} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12px] font-medium text-sidebar-foreground">Sign in</span>
+          <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">Sync with OpenWork Cloud</span>
+        </span>
+      </button>
+    );
+  }
+
+  const label = user.name?.trim() || user.email;
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
+      onClick={props.onOpenAccountSettings}
+      title={user.email}
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+        {accountInitials(user.name, user.email)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] font-medium text-sidebar-foreground">{label}</span>
+        {user.name ? (
+          <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">{user.email}</span>
+        ) : null}
+      </span>
+      <MoreHorizontal size={14} className="shrink-0 text-muted-foreground" />
+    </button>
+  );
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -1147,6 +1210,10 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
           </m.div>
         </LazyMotion>
+
+        <SidebarFooter className="border-t border-sidebar-border/60 p-1.5">
+          <SidebarAccountChip onOpenAccountSettings={props.onOpenAccountSettings} />
+        </SidebarFooter>
 
         <SidebarRail
           className="before:pointer-events-none before:absolute before:inset-y-0 before:left-[calc(50%+1px)] before:right-0 before:content-[''] group-data-[state=expanded]:before:bg-sidebar"

@@ -1037,6 +1037,7 @@ export function SessionPage(props: SessionPageProps) {
           }}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
+          onOpenAccountSettings={props.onOpenSettings}
         />
         <SidebarInset className="min-h-0 overflow-hidden bg-sidebar mac:bg-transparent mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
           <div className="flex min-h-0 flex-1 py-2 pl-2">
@@ -1047,10 +1048,10 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+          <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
-              <h1 className="truncate text-[15px] font-semibold text-dls-text">
+              <h1 className="truncate text-[13px] font-medium text-dls-text">
                 {showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
@@ -1080,7 +1081,7 @@ export function SessionPage(props: SessionPageProps) {
                         aria-label="Find in conversation"
                         onClick={() => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId })}
                       >
-                        <TextSearch size={17} />
+                        <TextSearch size={16} />
                       </Button>
                     }
                   />
@@ -1108,7 +1109,7 @@ export function SessionPage(props: SessionPageProps) {
                         }
                       }}
                     >
-                      <PanelRight size={17} />
+                      <PanelRight size={16} />
                     </Button>
                   }
                 />
@@ -1233,7 +1234,7 @@ export function SessionPage(props: SessionPageProps) {
                     </ResizablePanel>
                     {canRenderSplitSurface ? (
                       <>
-                        <ResizableHandle withHandle />
+                        <ResizableHandle />
                         <ResizablePanel
                           minSize="320px"
                           className="min-h-0 min-w-0"
@@ -1341,7 +1342,7 @@ export function SessionPage(props: SessionPageProps) {
             </ResizablePanel>
             {props.terminalOpen ? (
               <>
-                <ResizableHandle withHandle />
+                <ResizableHandle />
                 <ResizablePanel defaultSize="280px" minSize="160px" maxSize="55%" className="min-h-0">
                   <TerminalDock
                     workspaceRoot={props.selectedWorkspaceRoot}
@@ -1375,7 +1376,7 @@ export function SessionPage(props: SessionPageProps) {
             </ResizablePanel>
               {sidePanelOpen ? (
               <>
-                <ResizableHandle withHandle className="hidden bg-transparent lg:flex" />
+                <ResizableHandle className="hidden bg-transparent lg:flex" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
                   defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
@@ -1410,7 +1411,7 @@ export function SessionPage(props: SessionPageProps) {
               </>
             ) : null}
           </ResizablePanelGroup>
-          <aside className="flex w-11 shrink-0 flex-col items-center gap-1.5 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
+          <aside className="flex w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"
@@ -1424,7 +1425,7 @@ export function SessionPage(props: SessionPageProps) {
                 aria-label="Browser"
                 aria-pressed={panelRailActive}
               >
-                <Globe size={17} />
+                <Globe size={15} />
               </Button>
             ) : null}
             {voiceExtensionEnabled ? (
@@ -1440,7 +1441,7 @@ export function SessionPage(props: SessionPageProps) {
                 aria-label="Voice Mode"
                 aria-pressed={voiceRailActive}
               >
-                <Mic2 size={17} />
+                <Mic2 size={15} />
               </Button>
             ) : null}
             <Button
@@ -1456,7 +1457,7 @@ export function SessionPage(props: SessionPageProps) {
               aria-pressed={panelRailActive}
               disabled={!hasArtifactTargets}
             >
-              <FileText size={17} />
+              <FileText size={15} />
               {artifactTargetCount > 0 ? (
                 <span className="absolute right-0 top-0 flex min-w-3.5 translate-x-1 -translate-y-1 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-3 text-primary-foreground">
                   {artifactTargetCount > 9 ? "9+" : artifactTargetCount}
@@ -1475,7 +1476,7 @@ export function SessionPage(props: SessionPageProps) {
               aria-label="Extensions"
               aria-pressed={extensionsRailActive}
             >
-              <Settings2 size={17} />
+              <Settings2 size={15} />
             </Button>
           </aside>
           </div>
