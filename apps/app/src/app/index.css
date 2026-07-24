@@ -437,6 +437,33 @@ select:disabled {
   animation: progress-shimmer 2s infinite linear;
 }
 
+/* Quiet text shimmer for lightweight loading hints (e.g. cloud worker
+   sessions catching up): a soft highlight sweeps across muted text. */
+@keyframes ow-text-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+@utility ow-text-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--dls-secondary-rgb) / 0.7) 0%,
+    rgb(var(--dls-secondary-rgb) / 0.7) 42%,
+    var(--dls-text-primary) 50%,
+    rgb(var(--dls-secondary-rgb) / 0.7) 58%,
+    rgb(var(--dls-secondary-rgb) / 0.7) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: ow-text-shimmer 2.4s linear infinite;
+}
+
 /* Quiet, small dot ticker (`:: :: ::`). Each dot pulses briefly in sequence,
    illuminating left-to-right like a subtle running light. Used for boot,
    "awaiting first token", and any idle-but-alive hint. */

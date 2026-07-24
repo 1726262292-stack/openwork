@@ -78,6 +78,30 @@ type ModernRouteSessionResolution =
   | { key: string; status: "loading" }
   | { key: string; status: "not-found" | "error"; message: string };
 
+/** Hard ceiling for each blocking await of a route refresh. A hung desktop
+ * bridge or unresponsive server otherwise leaves `loading` true forever,
+ * which the session pane renders as an indefinite loading state. */
+const ROUTE_REFRESH_STEP_TIMEOUT_MS = 15_000;
+
+function withRouteRefreshTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error(`${label} did not respond within ${ROUTE_REFRESH_STEP_TIMEOUT_MS / 1000}s`)),
+      ROUTE_REFRESH_STEP_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const { developerMode, onServerSettingsChanged, onHostInfo } = input;
   const navigate = useNavigate();
@@ -354,7 +378,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     try {
       if (isDesktopRuntime()) {
         try {
-          desktopList = await workspaceBootstrap() as WorkspaceList;
+          desktopList = await withRouteRefreshTimeout(workspaceBootstrap(), "Desktop workspace bootstrap") as WorkspaceList;
           desktopWorkspaces = (desktopList.workspaces ?? []).map(mapDesktopWorkspace);
         } catch (error) {
           const message = describeRouteError(error);
@@ -368,7 +392,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         }
       }
 
-      const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await resolveOpenworkConnection();
+      const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await withRouteRefreshTimeout(
+        resolveOpenworkConnection(),
+        "OpenWork server connection",
+      );
       onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
         // Keep the workspace endpoint resolver in lockstep with the disconnected state.
@@ -402,7 +429,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         token: resolvedToken,
         hostToken: resolvedHostToken || undefined,
       });
-      const list = await openworkClient.listWorkspaces();
+      const list = await withRouteRefreshTimeout(openworkClient.listWorkspaces(), "Workspace list");
       const nextWorkspaces = orderRouteWorkspaces(
         mergeRouteWorkspaces(list.items, desktopWorkspaces),
         workspaceOrderIdsRef.current,
