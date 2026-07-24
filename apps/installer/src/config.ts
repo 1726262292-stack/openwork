@@ -23,6 +23,7 @@ export {
   resolveOptionalInstallerConfig,
   type BuildConstants,
   type InstallLinkConfigResult,
+  type InstallerActivation,
   type InstallerConfigResolution,
   type InstallerConfigSource,
 } from "./config-sources"

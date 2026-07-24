@@ -1,4 +1,9 @@
-import { installConfigSchema, installConfigUrlFor, type InstallConfig } from "@openwork/install-config"
+import {
+  installConfigSchema,
+  installConfigUrlFor,
+  installExperienceConfigSchema,
+  type InstallConfig,
+} from "@openwork/install-config"
 import { BUILD_API_URL, BUILD_APP_NAME, BUILD_CLIENT_NAME, BUILD_LOGO_URL, BUILD_REQUIRE_SIGNIN, BUILD_WEB_URL } from "./generated/build-config"
 import type { InstallerConfig } from "./config"
 import { fetchWithSystemCa } from "./system-ca"
@@ -8,10 +13,17 @@ export type InstallerConfigSource = "env" | "build" | "install-link"
 export type InstallerConfigResolution = {
   config: InstallerConfig
   source: InstallerConfigSource
+  activation: InstallerActivation | null
+  installLink: string | null
+}
+
+export type InstallerActivation = {
+  url: string
+  expiresAt: string
 }
 
 export type InstallLinkConfigResult =
-  | { status: "resolved"; config: InstallerConfig }
+  | { status: "resolved"; config: InstallerConfig; activation: InstallerActivation | null }
   | { status: "invalid-input" }
   | { status: "not-found" }
   | { status: "unreachable"; reason: "tls" | "network" }
@@ -81,14 +93,27 @@ function toInstallerConfig(config: InstallConfig): InstallerConfig {
   }
 }
 
-function parseConfigPayload(payload: unknown, label: string, options?: ConfigSourceOptions): InstallerConfig | null {
+function parseConfigPayload(
+  payload: unknown,
+  label: string,
+  options?: ConfigSourceOptions,
+): { config: InstallerConfig; activation: InstallerActivation | null } | null {
   const parsed = installConfigSchema.safeParse(payload)
   if (!parsed.success) {
     warn(options, `${label} did not contain a valid OpenWork install config.`)
     return null
   }
   try {
-    return toInstallerConfig(parsed.data)
+    const experience = installExperienceConfigSchema.safeParse(payload)
+    return {
+      config: toInstallerConfig(parsed.data),
+      activation: experience.success
+        ? {
+            url: experience.data.activationUrl,
+            expiresAt: experience.data.activationExpiresAt,
+          }
+        : null,
+    }
   } catch {
     warn(options, `${label} did not contain a valid OpenWork install config.`)
     return null
@@ -204,8 +229,8 @@ async function fetchInstallConfig(configUrl: string, options?: ConfigSourceOptio
     warn(options, `${configUrl} did not contain a valid OpenWork install config.`)
     return { status: "unresolved" }
   }
-  const config = parseConfigPayload(payload, configUrl, options)
-  return config ? { status: "resolved", config } : { status: "unresolved" }
+  const resolved = parseConfigPayload(payload, configUrl, options)
+  return resolved ? { status: "resolved", ...resolved } : { status: "unresolved" }
 }
 
 function isTlsError(error: unknown): boolean {
@@ -269,18 +294,23 @@ export function installerConfigSourceLabel(source: InstallerConfigSource) {
 export async function resolveInstallerConfig(options: ResolveOptions = {}): Promise<InstallerConfigResolution> {
   const envConfig = envOverrides(options.env ?? process.env)
   if (envConfig) {
-    return { config: envConfig, source: "env" }
+    return { config: envConfig, source: "env", activation: null, installLink: null }
   }
 
   const buildConfig = buildConstantsConfig(options.buildConstants)
   if (buildConfig) {
-    return { config: buildConfig, source: "build" }
+    return { config: buildConfig, source: "build", activation: null, installLink: null }
   }
 
   if (options.installLink) {
-    const linkConfig = await installLinkConfig(options.installLink, options)
-    if (linkConfig) {
-      return { config: linkConfig, source: "install-link" }
+    const result = await resolveInstallLinkConfig(options.installLink, options)
+    if (result.status === "resolved") {
+      return {
+        config: result.config,
+        source: "install-link",
+        activation: result.activation,
+        installLink: options.installLink,
+      }
     }
   }
 

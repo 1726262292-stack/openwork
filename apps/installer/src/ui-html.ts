@@ -38,6 +38,16 @@ export function renderInstallerHtml(resolution: InstallerConfigResolution | null
     <button class="primary" id="action">Install</button>
     <button id="exit">Exit</button>
   </div>
+  <div class="activation" id="activation" hidden>
+    <div class="activation-title">Browser didn&apos;t open?</div>
+    <div class="activation-copy">Try again, or copy this one-time activation link into a browser on this computer.</div>
+    <div class="link-row">
+      <input id="activation-link" type="url" readonly aria-label="Activation link" />
+      <button id="copy-activation" type="button">Copy link</button>
+    </div>
+    <button id="retry-activation" type="button">Try opening browser again</button>
+    <div class="activation-expiry" id="activation-expiry"></div>
+  </div>
   <div class="status" id="status"></div>`
     : `
   <div class="logo">${OPENWORK_LOGO_SVG}</div>
@@ -93,6 +103,12 @@ export function renderInstallerHtml(resolution: InstallerConfigResolution | null
   .link-row input { flex: 1; min-width: 0; }
   .paste-button { padding-left: 16px; padding-right: 16px; }
   input { box-sizing: border-box; width: 100%; border: 1px solid rgba(24,24,27,.16); border-radius: 8px; padding: 9px 10px; font: inherit; font-size: 13px; }
+  .activation { display: grid; gap: 8px; width: 100%; margin-top: 10px; padding: 12px; box-sizing: border-box; border: 1px solid rgba(24,24,27,.12); border-radius: 10px; background: #f7f7f8; text-align: left; }
+  .activation[hidden] { display: none; }
+  .activation-title { font-size: 13px; font-weight: 600; }
+  .activation-copy, .activation-expiry { color: #71717a; font-size: 11px; line-height: 1.4; }
+  #activation-link { background: #ffffff; color: #52525b; font-size: 10px; }
+  #copy-activation, #retry-activation { padding-left: 12px; padding-right: 12px; }
 </style>
 </head>
 <body>
@@ -102,6 +118,7 @@ ${configuredContent}
 <script>
   const TOKEN = ${JSON.stringify(token)};
   const CONFIGURED = ${config ? "true" : "false"};
+  const HAS_ACTIVATION = ${resolution?.activation ? "true" : "false"};
   const statusEl = document.getElementById("status");
   const barEl = document.getElementById("bar");
   const barFillEl = document.getElementById("bar-fill");
@@ -111,6 +128,11 @@ ${configuredContent}
   const installLinkInput = document.getElementById("install-link");
   const pasteBtn = document.getElementById("paste-button");
   const continueBtn = document.getElementById("continue");
+  const activationEl = document.getElementById("activation");
+  const activationLinkInput = document.getElementById("activation-link");
+  const activationExpiryEl = document.getElementById("activation-expiry");
+  const copyActivationBtn = document.getElementById("copy-activation");
+  const retryActivationBtn = document.getElementById("retry-activation");
   let polling = null;
   let installed = false;
 
@@ -118,6 +140,13 @@ ${configuredContent}
     const response = await fetch(path, { method: "POST", headers: { "x-installer-token": TOKEN } });
     if (!response.ok) throw new Error("request failed: " + response.status);
     return response.json();
+  }
+
+  async function postJson(path) {
+    const response = await fetch(path, { method: "POST", headers: { "x-installer-token": TOKEN } });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message || "request failed: " + response.status);
+    return payload;
   }
 
   function editableInput() {
@@ -230,6 +259,50 @@ ${configuredContent}
     showClipboardError();
   }
 
+  function showActivation(payload) {
+    activationLinkInput.value = payload.activationUrl;
+    activationEl.hidden = false;
+    const expiry = new Date(payload.expiresAt);
+    activationExpiryEl.textContent = Number.isNaN(expiry.getTime())
+      ? "This link is one-time and short-lived."
+      : "One-time link · expires " + expiry.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  async function copyFreshActivation() {
+    const payload = await postJson("/api/activation");
+    showActivation(payload);
+    activationLinkInput.focus();
+    activationLinkInput.select();
+    const wrote = await writeClipboardText(payload.activationUrl).catch(() => false);
+    if (!wrote && !tryExecCommand("copy")) {
+      throw new Error("Could not copy automatically. Select the link and copy it manually.");
+    }
+    copyActivationBtn.textContent = "Copied";
+    setTimeout(() => { copyActivationBtn.textContent = "Copy link"; }, 1800);
+  }
+
+  async function openActivation() {
+    actionBtn.disabled = true;
+    retryActivationBtn.disabled = true;
+    statusEl.classList.remove("error");
+    statusEl.textContent = "Opening the secure approval step in your browser...";
+    try {
+      const payload = await postJson("/api/open-activation");
+      showActivation(payload);
+      statusEl.textContent = payload.opened
+        ? "Browser requested. Keep this installer open until OpenWork is connected."
+        : "The browser did not open. Try again or copy the activation link below.";
+      statusEl.classList.toggle("error", !payload.opened);
+      actionBtn.textContent = "Try opening browser again";
+    } catch (error) {
+      statusEl.textContent = error.message || "Could not open the browser.";
+      statusEl.classList.add("error");
+    } finally {
+      actionBtn.disabled = false;
+      retryActivationBtn.disabled = false;
+    }
+  }
+
   function closeWindow() {
     if (window.openworkInstallerExit) {
       // Native webview: the bound function terminates the window run loop.
@@ -257,7 +330,7 @@ ${configuredContent}
     if (status.state === "done") {
       installed = true;
       statusEl.textContent = "Successfully Installed";
-      actionBtn.textContent = "Launch";
+      actionBtn.textContent = HAS_ACTIVATION ? "Open this in your browser" : "Launch";
       actionBtn.disabled = false;
       return;
     }
@@ -329,6 +402,10 @@ ${configuredContent}
 
   if (actionBtn) actionBtn.addEventListener("click", async () => {
     if (installed) {
+      if (HAS_ACTIVATION) {
+        await openActivation();
+        return;
+      }
       try { await api("/api/launch"); } catch {}
       closeWindow();
       return;
@@ -348,6 +425,20 @@ ${configuredContent}
       actionBtn.disabled = false;
     }
   });
+
+  if (copyActivationBtn) copyActivationBtn.addEventListener("click", async () => {
+    copyActivationBtn.disabled = true;
+    try {
+      await copyFreshActivation();
+    } catch (error) {
+      statusEl.textContent = error.message || "Could not copy the activation link.";
+      statusEl.classList.add("error");
+    } finally {
+      copyActivationBtn.disabled = false;
+    }
+  });
+
+  if (retryActivationBtn) retryActivationBtn.addEventListener("click", openActivation);
 
   exitBtn.addEventListener("click", closeWindow);
 </script>

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto"
 
 import { installerConfigSourceLabel, parseInstallLinkInput, resolveInstallLinkConfig, type InstallerConfigResolution } from "./config"
 import { installStatus, launchInstalledApp, runInstall } from "./install"
+import { openExternalUrl } from "./open-external-url"
 import { loadSystemCaCertificates } from "./system-ca"
 import { renderInstallerHtml } from "./ui-html"
 
@@ -34,12 +35,31 @@ function tlsUntrustedMessage(installLink: string): string {
   return `Reached your workspace, but the secure connection isn't trusted on this computer yet. This usually means your company inspects secure traffic. Try again — if it keeps failing, ask IT to check ${certificateTarget}.`
 }
 
-export function startInstallerServer(initialResolution: InstallerConfigResolution | null, onExit: () => void): InstallerServer {
+export function startInstallerServer(
+  initialResolution: InstallerConfigResolution | null,
+  onExit: () => void,
+  openBrowser: (url: string) => Promise<boolean> = openExternalUrl,
+): InstallerServer {
   const token = randomBytes(16).toString("hex")
   let resolution = initialResolution
   // Warm the OS trust-store CA cache now so the first resolve-link fetch does
   // not spend its 10s abort budget waiting on PowerShell/security exports.
   void loadSystemCaCertificates()
+
+  async function refreshActivation() {
+    if (!resolution) return null
+    if (!resolution.installLink) return resolution.activation
+
+    const result = await resolveInstallLinkConfig(resolution.installLink)
+    if (result.status !== "resolved") return null
+    resolution = {
+      config: result.config,
+      source: "install-link",
+      activation: result.activation,
+      installLink: resolution.installLink,
+    }
+    return resolution.activation
+  }
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -80,7 +100,12 @@ export function startInstallerServer(initialResolution: InstallerConfigResolutio
             }
             return Response.json({ error: "install_link_invalid", message: "Install link could not be resolved." }, { status: 400 })
           }
-          resolution = { config: result.config, source: "install-link" }
+          resolution = {
+            config: result.config,
+            source: "install-link",
+            activation: result.activation,
+            installLink,
+          }
           return Response.json({ ok: true, source: installerConfigSourceLabel(resolution.source) })
         }
         if (request.method === "POST" && url.pathname === "/api/install") {
@@ -95,6 +120,33 @@ export function startInstallerServer(initialResolution: InstallerConfigResolutio
           if (!installedPath) return Response.json({ error: "not_installed" }, { status: 409 })
           launchInstalledApp(installedPath)
           return Response.json({ ok: true })
+        }
+        if (request.method === "POST" && url.pathname === "/api/activation") {
+          const activation = await refreshActivation()
+          if (!activation) {
+            return Response.json({
+              error: "activation_unavailable",
+              message: "Could not create a browser activation link. Paste the organization install link again.",
+            }, { status: 409 })
+          }
+          return Response.json({
+            activationUrl: activation.url,
+            expiresAt: activation.expiresAt,
+          })
+        }
+        if (request.method === "POST" && url.pathname === "/api/open-activation") {
+          const activation = await refreshActivation()
+          if (!activation) {
+            return Response.json({
+              error: "activation_unavailable",
+              message: "Could not create a browser activation link. Paste the organization install link again.",
+            }, { status: 409 })
+          }
+          return Response.json({
+            opened: await openBrowser(activation.url),
+            activationUrl: activation.url,
+            expiresAt: activation.expiresAt,
+          })
         }
         if (request.method === "POST" && url.pathname === "/api/exit") {
           setTimeout(onExit, 50)
