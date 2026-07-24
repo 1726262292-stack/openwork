@@ -99,7 +99,7 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
           }}
           rows={2}
           placeholder="Ask anything, or describe a task..."
-          className="w-full resize-none bg-transparent text-[14px] leading-[21px] text-foreground outline-none placeholder:text-muted-foreground"
+          className="w-full resize-none bg-transparent text-[13px] leading-[20px] text-foreground outline-none placeholder:text-muted-foreground"
         />
         <div className="mt-2">
           <Button size="sm" onClick={submit} disabled={!trimmedPrompt || props.busy}>

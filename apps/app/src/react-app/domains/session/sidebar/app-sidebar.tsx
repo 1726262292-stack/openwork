@@ -748,7 +748,7 @@ function SidebarSplitPill({ workspaceSessionGroups, selectedWorkspaceId, selecte
 
   return (
     <div className="px-2 pb-1">
-      <div className="mb-1 flex items-center gap-1 px-1 text-[10px] font-medium uppercase tracking-wide text-sidebar-foreground/50">
+      <div className="mb-1 flex items-center gap-1 px-1 text-[12px] font-medium uppercase tracking-wide text-sidebar-foreground/50">
         <Columns2 className="size-3" />
         {t("session_management.split_view")}
       </div>
@@ -1174,7 +1174,7 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
             {/* pl-4 (16px): aligns with workspace titles now that the color dot is gone. */}
             <div className="group/workspaces-header flex items-center pb-1 pl-4 pr-3 pt-2">
-              <span className="text-[11px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
+              <span className="text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
                 {t("workspace_list.title")}
               </span>
               <button
@@ -1239,7 +1239,7 @@ function GlobalPinnedSessions({ entries }: { entries: GlobalPinnedSessionEntry[]
     <SidebarGroup data-global-pinned-sessions className="pb-1 pt-2">
       <SidebarGroupContent>
         {/* pl-2 (8px) + group p-2 = 16px: aligns with the WORKSPACES header lane. */}
-        <div className="pb-1 pl-2 pr-3 text-[11px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
+        <div className="pb-1 pl-2 pr-3 text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
           {t("session_management.pinned")}
         </div>
         <SidebarMenu>
@@ -1279,7 +1279,7 @@ function GlobalArchivedSessions({ entries }: { entries: GlobalArchivedSessionEnt
                 className="group/separator flex w-full cursor-pointer items-center gap-3 px-3 pb-1 pt-2.5 rounded transition-colors hover:bg-sidebar-accent/50"
               >
                 <Archive className="size-3 shrink-0 text-muted-foreground" />
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t("session_management.archived_label")}
                 </span>
                 <span className="text-[10px] tabular-nums text-muted-foreground/70">{entries.length}</span>
@@ -1924,7 +1924,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
     >
       <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
       <span
-        className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
+        className="min-w-0 flex-1 cursor-grab touch-none truncate text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
         onPointerDown={onTitlePointerDown}
       >
         {label}
