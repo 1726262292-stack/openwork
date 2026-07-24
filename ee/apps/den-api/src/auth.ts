@@ -1,7 +1,12 @@
+import * as crypto from "node:crypto";
 import { getInitialActiveOrganizationIdForUser } from "./active-organization.js";
 import { db } from "./db.js";
 import { env } from "./env.js";
 import { appLogger } from "./observability/logger.js";
+import {
+  deleteMcpOAuthGrantFamilyForSession,
+  getMcpSessionLiveness,
+} from "./mcp/session-liveness.js";
 import { deriveDenMcpAgentResource, deriveDenMcpResource, mcpEndpointResource } from "./mcp/resource.js";
 import { getDenAuthIssuer, getDenJwtOptions } from "./mcp/jwt-policy.js";
 import {
@@ -155,6 +160,8 @@ export const DEN_MCP_TOKEN_USE_CLAIM = `${env.mcpClaimNamespace}/token_use`;
 export const DEN_MCP_ORG_ID_CLAIM = `${env.mcpClaimNamespace}/org_id`;
 export const DEN_MCP_RESOURCE_CLAIM = `${env.mcpClaimNamespace}/resource`;
 export const DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX = "ow_mcp_at_";
+const DEN_MCP_REFRESH_TOKEN_PREFIX = "ow_mcp_rt_";
+const INVALID_MCP_SESSION_GRANT_DESCRIPTION = "The session backing this grant has been signed out or expired. Re-authorize the connection.";
 export { DEN_MCP_SCOPES } from "./mcp/scopes.js";
 
 export function normalizeMcpOAuthResource(resource: string): string | null {
@@ -364,6 +371,54 @@ function readBooleanProperty(value: unknown, propertyName: string) {
   return Object.getOwnPropertyDescriptor(value, propertyName)?.value === true;
 }
 
+function hashOAuthProviderToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("base64url");
+}
+
+function stripMcpRefreshTokenPrefix(refreshToken: string) {
+  return refreshToken.startsWith(DEN_MCP_REFRESH_TOKEN_PREFIX)
+    ? refreshToken.slice(DEN_MCP_REFRESH_TOKEN_PREFIX.length)
+    : null;
+}
+
+async function assertLiveMcpSessionForRefreshGrant(ctx: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]) {
+  if (ctx.path !== "/oauth2/token" || readStringProperty(ctx.body, "grant_type") !== "refresh_token") {
+    return;
+  }
+
+  const refreshToken = readStringProperty(ctx.body, "refresh_token");
+  if (!refreshToken) {
+    return;
+  }
+
+  const tokenSecret = stripMcpRefreshTokenPrefix(refreshToken);
+  if (!tokenSecret) {
+    return;
+  }
+
+  const grant = await ctx.context.adapter.findOne<{ sessionId?: string | null }>({
+    model: "oauthRefreshToken",
+    where: [{ field: "token", value: hashOAuthProviderToken(tokenSecret) }],
+  });
+  const sessionId = typeof grant?.sessionId === "string" && grant.sessionId.trim()
+    ? grant.sessionId.trim()
+    : null;
+  if (!sessionId) {
+    return;
+  }
+
+  const sessionLiveness = await getMcpSessionLiveness(sessionId);
+  if (sessionLiveness === "alive" || sessionLiveness === "check_failed") {
+    return;
+  }
+
+  await deleteMcpOAuthGrantFamilyForSession(sessionId);
+  throw new APIError("BAD_REQUEST", {
+    error: "invalid_grant",
+    error_description: INVALID_MCP_SESSION_GRANT_DESCRIPTION,
+  });
+}
+
 async function assertBetterAuthInvitationRoleAssignment(input: {
   organizationId: string;
   userId: string;
@@ -541,6 +596,8 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      await assertLiveMcpSessionForRefreshGrant(ctx);
+
       if (ctx.path === "/oauth2/authorize") {
         const clientId = maybeString(ctx.query?.client_id);
         const requestedScopes = maybeString(ctx.query?.scope)?.split(/\s+/).filter(Boolean) ?? [];
@@ -943,6 +1000,7 @@ export const auth = betterAuth({
       accessTokenExpiresIn: DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
       m2mAccessTokenExpiresIn: DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS,
       refreshTokenExpiresIn: DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS,
+      storeTokens: { hash: hashOAuthProviderToken },
       clientRegistrationDefaultScopes: [...DEN_MCP_DEFAULT_CLIENT_SCOPES],
       clientRegistrationAllowedScopes: [...DEN_MCP_SCOPES],
       advertisedMetadata: {
@@ -993,7 +1051,7 @@ export const auth = betterAuth({
       },
       prefix: {
         opaqueAccessToken: DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX,
-        refreshToken: "ow_mcp_rt_",
+        refreshToken: DEN_MCP_REFRESH_TOKEN_PREFIX,
         clientSecret: "ow_mcp_cs_",
       },
     }),
