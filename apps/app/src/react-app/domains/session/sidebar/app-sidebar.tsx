@@ -280,7 +280,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
           <DropdownMenuSubContent className="w-52">
             {groups.length === 0 ? (
               <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspaceId)}>
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                <span className="min-w-0 flex-1 ow-fade-truncate text-muted-foreground">
                   {t("session_management.no_groups_yet")}
                 </span>
                 <span className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-foreground">
@@ -365,7 +365,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
         <ContextMenuSubContent>
           {groups.length === 0 ? (
             <ContextMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspaceId)}>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              <span className="min-w-0 flex-1 ow-fade-truncate text-muted-foreground">
                 {t("session_management.no_groups_yet")}
               </span>
               <span className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-foreground">
@@ -773,7 +773,7 @@ function SidebarSplitPill({ workspaceSessionGroups, selectedWorkspaceId, selecte
             >
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left"
+                className="min-w-0 flex-1 ow-fade-truncate text-left"
                 title={title}
                 onClick={() => useWorkbenchStore.getState().focusPane(pane)}
               >
@@ -1489,7 +1489,7 @@ function WorkspaceHeader({
         className="min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-16 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-16 group-has-data-popup-open/workspace-header:pr-11 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-16 pr-2"
         onPointerDown={onTitlePointerDown}
       >
-        <span className="block truncate">{workspaceLabel(workspace)}</span>
+        <span className="block ow-fade-truncate">{workspaceLabel(workspace)}</span>
         {statusLabel ? (
           <span className={cn("block text-xs", isError ? "text-destructive" : "text-muted-foreground")}>
             {statusLabel}
@@ -1954,7 +1954,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
     >
       <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
       <span
-        className="min-w-0 flex-1 cursor-grab touch-none truncate text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
+        className="min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
         onPointerDown={onTitlePointerDown}
       >
         {label}
@@ -2370,7 +2370,7 @@ function SessionMenuItem({
                 aria-label={accessibleState}
               >
                 {leading}
-                <span className="min-w-0 flex-1 truncate" title={itemTitle}>
+                <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>
                   {displayTitle}
                 </span>
                 <span className="flex size-6 shrink-0 items-center justify-center">
@@ -2397,7 +2397,7 @@ function SessionMenuItem({
           className={rowButtonClass}
         >
           {leading}
-          <span className="min-w-0 flex-1 truncate" title={itemTitle}>{displayTitle}</span>
+          <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>{displayTitle}</span>
         </SidebarMenuSubButton>
       </SessionContextMenu>
       {trailing}

@@ -227,6 +227,14 @@ body {
   box-shadow: var(--dls-shell-shadow);
 }
 
+/* Arc-style overflow: long labels fade out instead of showing an ellipsis. */
+.ow-fade-truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  mask-image: linear-gradient(to right, black calc(100% - 18px), transparent);
+}
+
 .ow-soft-card {
   border: 1px solid var(--dls-border);
   background: var(--dls-surface);
