@@ -369,14 +369,19 @@ type AssistantMessageProps = {
   isLastMessage: boolean
   isStreaming: boolean
   isLastStep: boolean
+  /** Set when the turn's collapsed step run shows this reasoning instead. */
+  hideReasoning?: boolean
 }
 
 const AssistantMessage = React.memo(
-  ({ message }: AssistantMessageProps) => {
+  ({ message, hideReasoning }: AssistantMessageProps) => {
     const { showThinking, highlightQuery } = useMessageList()
     const assistantRenderGroups = React.useMemo(
-      () => getAssistantRenderGroups(message.parts, showThinking),
-      [message.parts, showThinking]
+      () => {
+        const groups = getAssistantRenderGroups(message.parts, showThinking)
+        return hideReasoning ? groups.filter((group) => group.kind !== "reasoning") : groups
+      },
+      [hideReasoning, message.parts, showThinking]
     )
 
     return (
@@ -686,10 +691,11 @@ type MessageComponentProps = {
   isLastMessage: boolean
   isStreaming: boolean
   isLastStep: boolean
+  hideReasoning?: boolean
 }
 
 const MessageComponent = React.memo(
-  ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
+  ({ message, isLastMessage, isStreaming, isLastStep, hideReasoning }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
       return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
     }
@@ -705,6 +711,7 @@ const MessageComponent = React.memo(
           isLastMessage={isLastMessage}
           isStreaming={isStreaming}
           isLastStep={isLastStep}
+          hideReasoning={hideReasoning}
         />
       )
     }
@@ -925,7 +932,29 @@ function MessageGroup({
         ? "1 step"
         : `${stepItems.length} steps`
 
-  const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
+  // The answer message's own thinking belongs to the work, not the answer, so
+  // a collapsed run shows it and the message below renders text only.
+  const foldedReasoning =
+    isLiveGroup || stepItems.length === 0
+      ? []
+      : proseItems.flatMap((item) =>
+        item.message.role === "assistant" && !isSessionErrorMessage(item.message)
+          ? getAssistantRenderGroups(item.message.parts, showThinking).flatMap((group, groupIndex) =>
+            group.kind === "reasoning"
+              ? [
+                <Message
+                  key={`folded-reasoning-${item.message.id}-${groupIndex}`}
+                  className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
+                >
+                  <ReasoningBlock text={group.text} isStreaming={group.isStreaming} />
+                </Message>,
+              ]
+              : []
+          )
+          : []
+      )
+
+  const renderItem = (item: UIMessageWithIndex, groupIndex: number, hideReasoning?: boolean) => {
     const isLastMessage = item.index === messages.length - 1
 
     return (
@@ -935,6 +964,7 @@ function MessageGroup({
           isLastMessage={isLastMessage}
           isStreaming={isLastMessage && isStreaming}
           isLastStep={groupIndex === items.length - 1}
+          hideReasoning={hideReasoning}
         />
       </div>
     )
@@ -943,7 +973,7 @@ function MessageGroup({
   // Consecutive step messages that contain nothing but command/edit/read/
   // search tool calls merge into one aggregate line (Paper "Recurring
   // actions"); any prose, reasoning, or other tool breaks the run.
-  const renderItems = (slice: UIMessageWithIndex[], offset: number) => {
+  const renderItems = (slice: UIMessageWithIndex[], offset: number, hideReasoning?: boolean) => {
     const nodes: React.ReactNode[] = []
     let run: { parts: AnyToolPart[]; key: string } | null = null
     const flush = () => {
@@ -968,7 +998,7 @@ function MessageGroup({
         return
       }
       flush()
-      nodes.push(renderItem(item, offset + sliceIndex))
+      nodes.push(renderItem(item, offset + sliceIndex, hideReasoning))
     })
     flush()
     return nodes
@@ -988,11 +1018,12 @@ function MessageGroup({
           <CompletedStepRun label={stepRunLabel}>
             <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
               {renderItems(stepItems, 0)}
+              {foldedReasoning}
             </div>
           </CompletedStepRun>
         )
       ) : null}
-      {renderItems(proseItems, stepItems.length)}
+      {renderItems(proseItems, stepItems.length, foldedReasoning.length > 0)}
       {/* Paper artifact strip: one FILES row per turn, at the end. */}
       <ArtifactList
         messages={items.map((item) => item.message)}
