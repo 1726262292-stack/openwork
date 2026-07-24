@@ -45,6 +45,7 @@ import type { ProviderCatalog } from "./use-model-behavior";
 import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./composer/mention-encoding";
 import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
+import { connectSkillPrompt, parseConnectSkillToken } from "./composer/connect-skill-token";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
 import { useShellConfig } from "@/react-app/shell/shell-config";
@@ -104,6 +105,7 @@ import {
   listAssignedConnectCapabilities,
   type ConnectCapabilityInventory,
 } from "./connect-capability-inventory";
+import { consumeComposerAutoSend } from "./composer-auto-send";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
@@ -964,7 +966,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   });
 
   const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[]): ComposerDraft => {
-    const parts: ComposerPart[] = text.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
+    const parts: ComposerPart[] = text.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[connect-skill [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
       if (!segment) return [] as ComposerDraft["parts"];
       const attachmentMatch = segment.match(/^\[attachment (.+)\]$/);
       if (attachmentMatch) {
@@ -977,6 +979,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         if (target) {
           return [{ type: "paste", id: target.id, label: target.label, text: target.text, lines: target.lines }];
         }
+      }
+      const connectSkill = parseConnectSkillToken(segment);
+      if (connectSkill) {
+        return [{ type: "text", text: connectSkillPrompt(connectSkill) } satisfies ComposerDraft["parts"][number]];
       }
       const skillMatch = segment.match(/^\[skill (.+)\]$/);
       if (skillMatch?.[1]) {
@@ -998,6 +1004,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
       resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
     }
     resolved = resolved.replace(/\[attachment [^\]]+\]/g, "");
+    resolved = resolved.replace(/\[connect-skill [^\]]+\]/g, (match) => {
+      const token = parseConnectSkillToken(match);
+      return token ? connectSkillPrompt(token) : match;
+    });
     resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
     for (const value of Object.keys(mentions)) {
       resolved = resolved.replaceAll(`@${encodeComposerMentionValue(value)}`, `@${value}`);
@@ -1089,6 +1099,20 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } catch {
     }
   }, [attachments, buildDraft, clearComposer, draft, props.sessionId, sendDraft]);
+
+  // One-step run from the empty-state hero: the route seeds this session's
+  // draft and marks it for auto-send. Fire the same send path as the send
+  // button once the composer is usable; if these conditions never hold
+  // (e.g. no usable model), the mark is never consumed and the seeded
+  // draft stays for manual sending.
+  useEffect(() => {
+    if (model.transitionState !== "idle") return;
+    if (chatStreaming) return;
+    if (props.modelUnavailable) return;
+    if (!draft.trim()) return;
+    if (!consumeComposerAutoSend(props.sessionId)) return;
+    void handleSend();
+  }, [chatStreaming, draft, handleSend, model.transitionState, props.modelUnavailable, props.sessionId]);
 
   const handleSteer = useCallback(async () => {
     setSteering(true);

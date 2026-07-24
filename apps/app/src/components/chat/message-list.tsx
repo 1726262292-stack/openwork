@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   AlertTriangle,
   Check,
+  ChevronRight,
   Copy,
   Download,
   FileIcon,
@@ -53,6 +54,11 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge"
 import { Image } from "@/components/ui/image"
 import {
@@ -84,6 +90,7 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
+import { formatToolCallDuration } from "@/lib/tool-call-duration"
 import {
   collectToolParts,
   getActiveToolLabel,
@@ -94,6 +101,9 @@ import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, 
 import type { AnyToolPart } from "@/lib/tool-aggregate"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
+
+/** Above this many step rows a finished turn folds into one summary line. */
+const COLLAPSED_STEP_RUN_MIN_ROWS = 4
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
@@ -362,14 +372,19 @@ type AssistantMessageProps = {
   isLastMessage: boolean
   isStreaming: boolean
   isLastStep: boolean
+  /** Set when the turn's collapsed step run shows this reasoning instead. */
+  hideReasoning?: boolean
 }
 
 const AssistantMessage = React.memo(
-  ({ message }: AssistantMessageProps) => {
+  ({ message, hideReasoning }: AssistantMessageProps) => {
     const { showThinking, highlightQuery } = useMessageList()
     const assistantRenderGroups = React.useMemo(
-      () => getAssistantRenderGroups(message.parts, showThinking),
-      [message.parts, showThinking]
+      () => {
+        const groups = getAssistantRenderGroups(message.parts, showThinking)
+        return hideReasoning ? groups.filter((group) => group.kind !== "reasoning") : groups
+      },
+      [hideReasoning, message.parts, showThinking]
     )
 
     return (
@@ -679,10 +694,11 @@ type MessageComponentProps = {
   isLastMessage: boolean
   isStreaming: boolean
   isLastStep: boolean
+  hideReasoning?: boolean
 }
 
 const MessageComponent = React.memo(
-  ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
+  ({ message, isLastMessage, isStreaming, isLastStep, hideReasoning }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
       return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
     }
@@ -698,6 +714,7 @@ const MessageComponent = React.memo(
           isLastMessage={isLastMessage}
           isStreaming={isStreaming}
           isLastStep={isLastStep}
+          hideReasoning={hideReasoning}
         />
       )
     }
@@ -830,6 +847,39 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
+/**
+ * A finished turn's steps collapse to a single "Worked for 1m 19s" line
+ * that expands back into the full run. Only live turns show their steps
+ * unprompted; once the answer is in, the reasoning is available but out
+ * of the way.
+ */
+function CompletedStepRun({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col gap-2">
+      <div className="mx-auto flex w-full max-w-3xl px-2 md:px-10">
+        <CollapsibleTrigger
+          className="group flex cursor-pointer items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={open ? `${label}. Hide steps` : `${label}. Show steps`}
+        >
+          <span>{label}</span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 text-muted-foreground/70 transition-transform duration-150",
+              open && "rotate-90"
+            )}
+          />
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
@@ -874,8 +924,52 @@ function MessageGroup({
   }
   const stepItems = items.slice(0, stepCount)
   const proseItems = items.slice(stepCount)
+  // How long the turn spent working, from the first step to the message
+  // carrying the answer. Server timestamps, so this survives a reload.
+  const stepsStartedAt = stepItems.length > 0 ? getMessageCreated(stepItems[0].message) : null
+  const stepsEndedAt = getMessageCreated(lastItem.message)
+  const stepRunLabel =
+    stepsStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > stepsStartedAt
+      ? `Worked for ${formatToolCallDuration(stepsEndedAt - stepsStartedAt)}`
+      : stepItems.length === 1
+        ? "1 step"
+        : `${stepItems.length} steps`
 
-  const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
+  // The answer message's own thinking belongs to the work, not the answer, so
+  // a collapsed run shows it and the message below renders text only.
+  const proseReasoning = proseItems.flatMap((item) =>
+    item.message.role === "assistant" && !isSessionErrorMessage(item.message)
+      ? getAssistantRenderGroups(item.message.parts, showThinking).flatMap((group, groupIndex) =>
+        group.kind === "reasoning"
+          ? [{ key: `${item.message.id}-${groupIndex}`, text: group.text, isStreaming: group.isStreaming }]
+          : []
+      )
+      : []
+  )
+  const stepRowCount =
+    stepItems.reduce(
+      (total, item) =>
+        total +
+        (item.message.role === "assistant" && !isSessionErrorMessage(item.message)
+          ? getAssistantRenderGroups(item.message.parts, showThinking).length
+          : 1),
+      0
+    ) + proseReasoning.length
+  // A short finished run reads fine as a list, so only long ones fold away.
+  const collapseSteps =
+    !isLiveGroup && stepItems.length > 0 && stepRowCount > COLLAPSED_STEP_RUN_MIN_ROWS
+  const foldedReasoning = collapseSteps
+    ? proseReasoning.map((reasoning) => (
+      <Message
+        key={`folded-reasoning-${reasoning.key}`}
+        className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
+      >
+        <ReasoningBlock text={reasoning.text} isStreaming={reasoning.isStreaming} />
+      </Message>
+    ))
+    : []
+
+  const renderItem = (item: UIMessageWithIndex, groupIndex: number, hideReasoning?: boolean) => {
     const isLastMessage = item.index === messages.length - 1
 
     return (
@@ -885,6 +979,7 @@ function MessageGroup({
           isLastMessage={isLastMessage}
           isStreaming={isLastMessage && isStreaming}
           isLastStep={groupIndex === items.length - 1}
+          hideReasoning={hideReasoning}
         />
       </div>
     )
@@ -893,7 +988,7 @@ function MessageGroup({
   // Consecutive step messages that contain nothing but command/edit/read/
   // search tool calls merge into one aggregate line (Paper "Recurring
   // actions"); any prose, reasoning, or other tool breaks the run.
-  const renderItems = (slice: UIMessageWithIndex[], offset: number) => {
+  const renderItems = (slice: UIMessageWithIndex[], offset: number, hideReasoning?: boolean) => {
     const nodes: React.ReactNode[] = []
     let run: { parts: AnyToolPart[]; key: string } | null = null
     const flush = () => {
@@ -918,7 +1013,7 @@ function MessageGroup({
         return
       }
       flush()
-      nodes.push(renderItem(item, offset + sliceIndex))
+      nodes.push(renderItem(item, offset + sliceIndex, hideReasoning))
     })
     flush()
     return nodes
@@ -926,12 +1021,24 @@ function MessageGroup({
 
   return (
       <div className="flex flex-col gap-2 group/message-group">
+      {/* The scroll area keeps the same 8px rhythm the parts inside a single
+          message use, so a step row is spaced identically whether or not a
+          message boundary happens to fall between it and the previous row. */}
       {stepItems.length > 0 ? (
-        <div ref={stepsRef} className="max-h-[520px] overflow-y-auto">
-          {renderItems(stepItems, 0)}
-        </div>
+        collapseSteps ? (
+          <CompletedStepRun label={stepRunLabel}>
+            <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+              {renderItems(stepItems, 0)}
+              {foldedReasoning}
+            </div>
+          </CompletedStepRun>
+        ) : (
+          <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+            {renderItems(stepItems, 0)}
+          </div>
+        )
       ) : null}
-      {renderItems(proseItems, stepItems.length)}
+      {renderItems(proseItems, stepItems.length, collapseSteps)}
       {/* Paper artifact strip: one FILES row per turn, at the end. */}
       <ArtifactList
         messages={items.map((item) => item.message)}

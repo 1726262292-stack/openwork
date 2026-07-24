@@ -1,7 +1,7 @@
 // The session route's data + navigation core: workspace/session loading
 // (refreshRouteState + background session fetch), endpoint and opencode
 // client resolution, URL-derived selection, redirects (fallback workspace,
-// last-session restore, welcome), desktop local-server reconnect, remote
+// welcome), desktop local-server reconnect, remote
 // connection checks, and the route inspector slice. Extracted verbatim from
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
@@ -54,7 +54,6 @@ import {
 } from "./route-workspaces";
 import {
   readActiveWorkspaceId,
-  readLastSessionFor,
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
 } from "./session-memory";
@@ -78,6 +77,30 @@ export type UseWorkspaceRouteStateInput = {
 type ModernRouteSessionResolution =
   | { key: string; status: "loading" }
   | { key: string; status: "not-found" | "error"; message: string };
+
+/** Hard ceiling for each blocking await of a route refresh. A hung desktop
+ * bridge or unresponsive server otherwise leaves `loading` true forever,
+ * which the session pane renders as an indefinite loading state. */
+const ROUTE_REFRESH_STEP_TIMEOUT_MS = 15_000;
+
+function withRouteRefreshTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error(`${label} did not respond within ${ROUTE_REFRESH_STEP_TIMEOUT_MS / 1000}s`)),
+      ROUTE_REFRESH_STEP_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const { developerMode, onServerSettingsChanged, onHostInfo } = input;
@@ -355,7 +378,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     try {
       if (isDesktopRuntime()) {
         try {
-          desktopList = await workspaceBootstrap() as WorkspaceList;
+          desktopList = await withRouteRefreshTimeout(workspaceBootstrap(), "Desktop workspace bootstrap") as WorkspaceList;
           desktopWorkspaces = (desktopList.workspaces ?? []).map(mapDesktopWorkspace);
         } catch (error) {
           const message = describeRouteError(error);
@@ -369,7 +392,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         }
       }
 
-      const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await resolveOpenworkConnection();
+      const { normalizedBaseUrl, resolvedToken, resolvedHostToken, hostInfo } = await withRouteRefreshTimeout(
+        resolveOpenworkConnection(),
+        "OpenWork server connection",
+      );
       onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
         // Keep the workspace endpoint resolver in lockstep with the disconnected state.
@@ -403,7 +429,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         token: resolvedToken,
         hostToken: resolvedHostToken || undefined,
       });
-      const list = await openworkClient.listWorkspaces();
+      const list = await withRouteRefreshTimeout(openworkClient.listWorkspaces(), "Workspace list");
       const nextWorkspaces = orderRouteWorkspaces(
         mergeRouteWorkspaces(list.items, desktopWorkspaces),
         workspaceOrderIdsRef.current,
@@ -703,8 +729,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     workspaces,
   ]);
 
-  // Once workspaces + sessions are loaded and the URL has no sessionId, try to
-  // restore the last session the user opened in the active workspace.
+  // Once workspaces are loaded, normalize the URL onto the active workspace.
+  // Deliberately no last-session restore here: a fresh app load with no
+  // session in the URL lands on the empty "new task" state instead of
+  // jumping back into the previously opened session.
   useEffect(() => {
     if (loading) return;
     if (routeWorkspaceId && workspaces.length > 0 && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
@@ -718,15 +746,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
     if (!routeWorkspaceId && selectedWorkspaceId) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
-      return;
     }
-    if (selectedSessionId) return;
-    if (!selectedWorkspaceId) return;
-    const remembered = readLastSessionFor(selectedWorkspaceId);
-    if (!remembered) return;
-    const sessions = sessionsByWorkspaceId[selectedWorkspaceId] ?? [];
-    if (!sessions.some((session) => session?.id === remembered)) return;
-    navigateToWorkspaceSession(selectedWorkspaceId, remembered, { replace: true });
   }, [
     loading,
     legacySelectedWorkspaceId,
@@ -734,7 +754,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     routeWorkspaceId,
     selectedSessionId,
     selectedWorkspaceId,
-    sessionsByWorkspaceId,
     workspaces,
   ]);
 
