@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Settings,
   FolderOpen,
+  LogOut,
   Tag,
   UserRound,
   X,
@@ -103,7 +104,7 @@ import {
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import { useDenAuth } from "../../cloud/den-auth-provider";
-import { buildDenAuthUrl, readDenBootstrapConfig } from "../../../../app/lib/den";
+import { buildDenAuthUrl, clearDenSession, createDenClient, readDenBootstrapConfig, readDenSettings } from "../../../../app/lib/den";
 import { usePlatform } from "../../../kernel/platform";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
@@ -872,45 +873,74 @@ function SidebarAccountChip(props: { onOpenAccountSettings?: () => void }) {
   if (denAuth.status === "checking") return null;
 
   const user = denAuth.user;
-  if (!denAuth.isSignedIn || !user) {
-    return (
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
-        onClick={() => {
-          platform.openLink(buildDenAuthUrl(readDenBootstrapConfig().baseUrl, "sign-up"));
-        }}
-      >
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground">
-          <UserRound size={13} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12px] font-medium text-sidebar-foreground">Sign in</span>
-          <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">Sync with OpenWork Cloud</span>
-        </span>
-      </button>
-    );
-  }
+  const signedIn = denAuth.isSignedIn && user !== null;
 
-  const label = user.name?.trim() || user.email;
+  const openSignIn = () => {
+    platform.openLink(buildDenAuthUrl(readDenBootstrapConfig().baseUrl, "sign-up"));
+  };
+
+  const logOut = () => {
+    const settings = readDenSettings();
+    if (settings.authToken) {
+      void createDenClient({ baseUrl: settings.baseUrl, token: settings.authToken })
+        .signOut()
+        .catch(() => undefined);
+    }
+    clearDenSession();
+    void denAuth.refresh();
+  };
+
   return (
-    <button
-      type="button"
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
-      onClick={props.onOpenAccountSettings}
-      title={user.email}
-    >
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
-        {accountInitials(user.name, user.email)}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] font-medium text-sidebar-foreground">{label}</span>
-        {user.name ? (
-          <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">{user.email}</span>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
+            title={signedIn ? user.email : undefined}
+          >
+            {signedIn ? (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                {accountInitials(user.name, user.email)}
+              </span>
+            ) : (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground">
+                <UserRound size={13} />
+              </span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12px] font-medium text-sidebar-foreground">
+                {signedIn ? user.name?.trim() || user.email : "Sign in"}
+              </span>
+              <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">
+                {signedIn ? (user.name ? user.email : "OpenWork Cloud") : "Sync with OpenWork Cloud"}
+              </span>
+            </span>
+            <MoreHorizontal size={14} className="shrink-0 text-muted-foreground" />
+          </button>
+        }
+      />
+      <DropdownMenuContent side="top" align="start" className="w-56">
+        {signedIn ? (
+          <div className="px-2 py-1.5 text-[11px] text-muted-foreground">{user.email}</div>
         ) : null}
-      </span>
-      <MoreHorizontal size={14} className="shrink-0 text-muted-foreground" />
-    </button>
+        <DropdownMenuItem onClick={props.onOpenAccountSettings}>
+          <Settings className="size-3.5" />
+          Settings
+        </DropdownMenuItem>
+        {signedIn ? (
+          <DropdownMenuItem onClick={logOut}>
+            <LogOut className="size-3.5" />
+            Log out
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onClick={openSignIn}>
+            <UserRound className="size-3.5" />
+            Sign in
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1090,7 +1120,7 @@ export function AppSidebar(props: AppSidebarProps) {
     <SidebarContext.Provider value={contextValue}>
       <Sidebar
         collapsible="offcanvas"
-        className="border-e-0 mac:**:data-[sidebar=sidebar]:bg-transparent"
+        className="border-e-0 group-data-[side=left]:border-e-0 mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-14 mac:block mac:titlebar-drag"/>
         {brandLogoUrl ? (
