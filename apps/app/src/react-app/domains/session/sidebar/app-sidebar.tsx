@@ -21,7 +21,9 @@ import {
   RotateCcw,
   Settings,
   FolderOpen,
+  LogOut,
   Tag,
+  UserRound,
   X,
 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
@@ -51,6 +53,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarFooter,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
@@ -100,6 +103,9 @@ import {
 } from "@/components/ui/select";
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
+import { useDenAuth } from "../../cloud/den-auth-provider";
+import { buildDenAuthUrl, clearDenSession, createDenClient, readDenBootstrapConfig, readDenSettings } from "../../../../app/lib/den";
+import { usePlatform } from "../../../kernel/platform";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
   MAX_SESSIONS_PREVIEW,
@@ -274,7 +280,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
           <DropdownMenuSubContent className="w-52">
             {groups.length === 0 ? (
               <DropdownMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspaceId)}>
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                <span className="min-w-0 flex-1 ow-fade-truncate text-muted-foreground">
                   {t("session_management.no_groups_yet")}
                 </span>
                 <span className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-foreground">
@@ -359,7 +365,7 @@ function SessionMenuContent({ variant, sessionId, workspaceId, isPinned, isArchi
         <ContextMenuSubContent>
           {groups.length === 0 ? (
             <ContextMenuItem onClick={() => ctx.onOpenCreateGroupModal?.(workspaceId)}>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              <span className="min-w-0 flex-1 ow-fade-truncate text-muted-foreground">
                 {t("session_management.no_groups_yet")}
               </span>
               <span className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-foreground">
@@ -743,7 +749,7 @@ function SidebarSplitPill({ workspaceSessionGroups, selectedWorkspaceId, selecte
 
   return (
     <div className="px-2 pb-1">
-      <div className="mb-1 flex items-center gap-1 px-1 text-[10px] font-medium uppercase tracking-wide text-sidebar-foreground/50">
+      <div className="mb-1 flex items-center gap-1 px-1 text-[12px] font-medium uppercase tracking-wide text-sidebar-foreground/50">
         <Columns2 className="size-3" />
         {t("session_management.split_view")}
       </div>
@@ -767,7 +773,7 @@ function SidebarSplitPill({ workspaceSessionGroups, selectedWorkspaceId, selecte
             >
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left"
+                className="min-w-0 flex-1 ow-fade-truncate text-left"
                 title={title}
                 onClick={() => useWorkbenchStore.getState().focusPane(pane)}
               >
@@ -835,6 +841,7 @@ export type AppSidebarProps = {
   };
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
+  onOpenAccountSettings?: () => void;
 };
 
 function useSessionTree(
@@ -849,6 +856,92 @@ function useSessionTree(
 
 function isSessionActivityStatus(status: string | undefined): status is SessionActivityStatus {
   return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
+}
+
+function accountInitials(name: string | null, email: string) {
+  const source = name?.trim() || email;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function SidebarAccountChip(props: { onOpenAccountSettings?: () => void }) {
+  const denAuth = useDenAuth();
+  const platform = usePlatform();
+
+  if (denAuth.status === "checking") return null;
+
+  const user = denAuth.user;
+  const signedIn = denAuth.isSignedIn && user !== null;
+
+  const openSignIn = () => {
+    platform.openLink(buildDenAuthUrl(readDenBootstrapConfig().baseUrl, "sign-up"));
+  };
+
+  const logOut = () => {
+    const settings = readDenSettings();
+    if (settings.authToken) {
+      void createDenClient({ baseUrl: settings.baseUrl, token: settings.authToken })
+        .signOut()
+        .catch(() => undefined);
+    }
+    clearDenSession();
+    void denAuth.refresh();
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
+            title={signedIn ? user.email : undefined}
+          >
+            {signedIn ? (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
+                {accountInitials(user.name, user.email)}
+              </span>
+            ) : (
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground">
+                <UserRound size={13} />
+              </span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12px] font-medium text-sidebar-foreground">
+                {signedIn ? user.name?.trim() || user.email : "Sign in"}
+              </span>
+              <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">
+                {signedIn ? (user.name ? user.email : "OpenWork Cloud") : "Sync with OpenWork Cloud"}
+              </span>
+            </span>
+            <MoreHorizontal size={14} className="shrink-0 text-muted-foreground" />
+          </button>
+        }
+      />
+      <DropdownMenuContent side="top" align="start" className="w-56">
+        {signedIn ? (
+          <div className="px-2 py-1.5 text-[11px] text-muted-foreground">{user.email}</div>
+        ) : null}
+        <DropdownMenuItem onClick={props.onOpenAccountSettings}>
+          <Settings className="size-3.5" />
+          Settings
+        </DropdownMenuItem>
+        {signedIn ? (
+          <DropdownMenuItem onClick={logOut}>
+            <LogOut className="size-3.5" />
+            Log out
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onClick={openSignIn}>
+            <UserRound className="size-3.5" />
+            Sign in
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -1027,7 +1120,7 @@ export function AppSidebar(props: AppSidebarProps) {
     <SidebarContext.Provider value={contextValue}>
       <Sidebar
         collapsible="offcanvas"
-        className="mac:**:data-[sidebar=sidebar]:bg-transparent"
+        className="border-e-0 group-data-[side=left]:border-e-0 mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-14 mac:block mac:titlebar-drag"/>
         {brandLogoUrl ? (
@@ -1111,7 +1204,7 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
             {/* pl-4 (16px): aligns with workspace titles now that the color dot is gone. */}
             <div className="group/workspaces-header flex items-center pb-1 pl-4 pr-3 pt-2">
-              <span className="text-[11px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
+              <span className="text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
                 {t("workspace_list.title")}
               </span>
               <button
@@ -1148,8 +1241,11 @@ export function AppSidebar(props: AppSidebarProps) {
           </m.div>
         </LazyMotion>
 
+        <SidebarFooter className="border-t border-sidebar-border/60 p-1.5">
+          <SidebarAccountChip onOpenAccountSettings={props.onOpenAccountSettings} />
+        </SidebarFooter>
+
         <SidebarRail
-          className="before:pointer-events-none before:absolute before:inset-y-0 before:left-[calc(50%+1px)] before:right-0 before:content-[''] group-data-[state=expanded]:before:bg-sidebar"
           style={{ cursor: "col-resize" }}
           aria-label={props.onStartResize ? t("session.resize_workspace_column") : undefined}
           title={props.onStartResize ? t("session.resize_workspace_column") : undefined}
@@ -1173,7 +1269,7 @@ function GlobalPinnedSessions({ entries }: { entries: GlobalPinnedSessionEntry[]
     <SidebarGroup data-global-pinned-sessions className="pb-1 pt-2">
       <SidebarGroupContent>
         {/* pl-2 (8px) + group p-2 = 16px: aligns with the WORKSPACES header lane. */}
-        <div className="pb-1 pl-2 pr-3 text-[11px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
+        <div className="pb-1 pl-2 pr-3 text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
           {t("session_management.pinned")}
         </div>
         <SidebarMenu>
@@ -1213,7 +1309,7 @@ function GlobalArchivedSessions({ entries }: { entries: GlobalArchivedSessionEnt
                 className="group/separator flex w-full cursor-pointer items-center gap-3 px-3 pb-1 pt-2.5 rounded transition-colors hover:bg-sidebar-accent/50"
               >
                 <Archive className="size-3 shrink-0 text-muted-foreground" />
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
                   {t("session_management.archived_label")}
                 </span>
                 <span className="text-[10px] tabular-nums text-muted-foreground/70">{entries.length}</span>
@@ -1393,7 +1489,7 @@ function WorkspaceHeader({
         className="min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-16 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-16 group-has-data-popup-open/workspace-header:pr-11 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-16 pr-2"
         onPointerDown={onTitlePointerDown}
       >
-        <span className="block truncate">{workspaceLabel(workspace)}</span>
+        <span className="block ow-fade-truncate">{workspaceLabel(workspace)}</span>
         {statusLabel ? (
           <span className={cn("block text-xs", isError ? "text-destructive" : "text-muted-foreground")}>
             {statusLabel}
@@ -1853,12 +1949,12 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
         event.preventDefault();
         onToggle();
       }}
-      className="group/separator flex w-full items-center gap-3.5 rounded px-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50"
+      className="group/separator flex w-full items-center gap-1.5 rounded px-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50"
       aria-expanded={expanded}
     >
       <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
       <span
-        className="min-w-0 flex-1 cursor-grab touch-none truncate text-[11px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
+        className="min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
         onPointerDown={onTitlePointerDown}
       >
         {label}
@@ -2226,8 +2322,8 @@ function SessionMenuItem({
     // (light: --ow-light-hover ≈ black/5, dark: #FFFFFF17 ≈ white/9).
     // The left activity slot is the indent — dot-matrix sits in the chevron
     // lane and the title starts in the group-label lane without shifting.
-    "relative rounded-[11px] transition-[padding,background-color] duration-75 ps-3 pe-7 group-hover/menu-sub-item:pe-20 group-has-data-popup-open/menu-sub-item:pe-20 group-hover/menu-sub-item:bg-black/[0.05] dark:group-hover/menu-sub-item:bg-white/[0.09] data-active:bg-black/[0.07] dark:data-active:bg-white/[0.12] text-sidebar-foreground/80 data-active:text-sidebar-foreground",
-    depth > 0 && "ps-7",
+    "relative rounded-[11px] transition-[padding,background-color] duration-75 ps-1 pe-7 group-hover/menu-sub-item:pe-20 group-has-data-popup-open/menu-sub-item:pe-20 group-hover/menu-sub-item:bg-black/[0.05] dark:group-hover/menu-sub-item:bg-white/[0.09] data-active:bg-black/[0.07] dark:data-active:bg-white/[0.12] text-sidebar-foreground/80 data-active:text-sidebar-foreground",
+    depth > 0 && "ps-5",
   );
 
   // Pinned/archived rows identify their workspace via the tooltip title
@@ -2274,7 +2370,7 @@ function SessionMenuItem({
                 aria-label={accessibleState}
               >
                 {leading}
-                <span className="min-w-0 flex-1 truncate" title={itemTitle}>
+                <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>
                   {displayTitle}
                 </span>
                 <span className="flex size-6 shrink-0 items-center justify-center">
@@ -2301,7 +2397,7 @@ function SessionMenuItem({
           className={rowButtonClass}
         >
           {leading}
-          <span className="min-w-0 flex-1 truncate" title={itemTitle}>{displayTitle}</span>
+          <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>{displayTitle}</span>
         </SidebarMenuSubButton>
       </SessionContextMenu>
       {trailing}
