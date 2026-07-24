@@ -1382,7 +1382,7 @@ export function SessionPage(props: SessionPageProps) {
                   defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
                   minSize={activeSidePanel === "extensions" ? "420px" : "320px"}
                   maxSize="70%"
-                  className="min-h-0 overflow-hidden pl-1 lg:flex lg:flex-col"
+                  className="min-h-0 overflow-hidden pl-2 lg:flex lg:flex-col"
                 >
                   <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                   {activeSidePanel === "extensions" && props.settingsSlot ? (
