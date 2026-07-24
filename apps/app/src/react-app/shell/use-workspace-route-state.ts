@@ -1,7 +1,7 @@
 // The session route's data + navigation core: workspace/session loading
 // (refreshRouteState + background session fetch), endpoint and opencode
 // client resolution, URL-derived selection, redirects (fallback workspace,
-// last-session restore, welcome), desktop local-server reconnect, remote
+// welcome), desktop local-server reconnect, remote
 // connection checks, and the route inspector slice. Extracted verbatim from
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
@@ -54,7 +54,6 @@ import {
 } from "./route-workspaces";
 import {
   readActiveWorkspaceId,
-  readLastSessionFor,
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
 } from "./session-memory";
@@ -703,8 +702,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     workspaces,
   ]);
 
-  // Once workspaces + sessions are loaded and the URL has no sessionId, try to
-  // restore the last session the user opened in the active workspace.
+  // Once workspaces are loaded, normalize the URL onto the active workspace.
+  // Deliberately no last-session restore here: a fresh app load with no
+  // session in the URL lands on the empty "new task" state instead of
+  // jumping back into the previously opened session.
   useEffect(() => {
     if (loading) return;
     if (routeWorkspaceId && workspaces.length > 0 && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
@@ -718,15 +719,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
     if (!routeWorkspaceId && selectedWorkspaceId) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
-      return;
     }
-    if (selectedSessionId) return;
-    if (!selectedWorkspaceId) return;
-    const remembered = readLastSessionFor(selectedWorkspaceId);
-    if (!remembered) return;
-    const sessions = sessionsByWorkspaceId[selectedWorkspaceId] ?? [];
-    if (!sessions.some((session) => session?.id === remembered)) return;
-    navigateToWorkspaceSession(selectedWorkspaceId, remembered, { replace: true });
   }, [
     loading,
     legacySelectedWorkspaceId,
@@ -734,7 +727,6 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     routeWorkspaceId,
     selectedSessionId,
     selectedWorkspaceId,
-    sessionsByWorkspaceId,
     workspaces,
   ]);
 

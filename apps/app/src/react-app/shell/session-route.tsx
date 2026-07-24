@@ -109,6 +109,7 @@ import { getSessionModelSelection, useSessionModelStore } from "@/react-app/doma
 import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
+import { connectSkillPrompt, parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
@@ -305,7 +306,7 @@ async function draftToParts(
         .filter((part): part is Extract<ComposerPart, { type: "paste" }> => part.type === "paste")
         .map((part) => [part.label, part.text] as const),
     );
-    for (const segment of draft.text.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/)) {
+    for (const segment of draft.text.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[connect-skill [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/)) {
       if (!segment) continue;
       const attachmentMatch = segment.match(/^\[attachment (.+)\]$/);
       if (attachmentMatch?.[1]) {
@@ -320,6 +321,11 @@ async function draftToParts(
       if (pasteMatch?.[1]) {
         const pasted = pasteByLabel.get(pasteMatch[1]);
         if (pasted) parts.push({ type: "text", text: pasted });
+        continue;
+      }
+      const connectSkill = parseConnectSkillToken(segment);
+      if (connectSkill) {
+        parts.push({ type: "text", text: connectSkillPrompt(connectSkill) });
         continue;
       }
       const skillMatch = segment.match(/^\[skill (.+)\]$/);

@@ -25,6 +25,7 @@ import {
   skillSlashCommandName,
   type ComposerSlashCommandOption,
 } from "./slash-command";
+import { encodeConnectSkillToken } from "./connect-skill-token";
 import { FILE_URL_RE, HTTP_URL_RE } from "./pasted-text";
 
 type MentionItem = {
@@ -820,16 +821,23 @@ export function ReactSessionComposer(props: ComposerProps) {
       ? { name: input, path: "", origin: "local" as const }
       : input;
     if (skill.origin === "openwork-connect") {
-      const prompt = t("composer.connect_skill_prompt", {
+      const slug = skillSlashCommandName(skill);
+      const token = encodeConnectSkillToken({
+        slug,
         name: skill.name,
         marketplace: skill.marketplaceName ?? "assigned",
         capability: skill.connectCapabilityName ?? skill.name,
       });
       if (options?.replaceSkillDraft) {
-        props.onDraftChange(prompt);
+        props.onDraftChange(`${token} `);
       } else {
-        const separator = props.draft.length > 0 && !/\s$/.test(props.draft) ? " " : "";
-        props.onDraftChange(`${props.draft}${separator}${prompt}`);
+        const editor = editorRef.current;
+        if (editor) {
+          editor.insertSkillAtSelection(slug, token);
+        } else {
+          const separator = props.draft.length > 0 && !/\s$/.test(props.draft) ? " " : "";
+          props.onDraftChange(`${props.draft}${separator}${token} `);
+        }
       }
       setSlashOpen(false);
       setToolMenuOpen(false);
