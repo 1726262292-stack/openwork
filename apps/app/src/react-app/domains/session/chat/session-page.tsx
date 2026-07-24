@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Cloud, FileText, Globe, Mic2, Settings2, TextSearch, Zap } from "lucide-react";
+import { Cloud, FileText, Globe, Mic2, PanelRight, Settings2, TextSearch, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
@@ -1038,15 +1038,15 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         />
-        <SidebarInset className="min-h-0 overflow-hidden bg-background mac:bg-background/80 mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
-          <div className="flex min-h-0 flex-1">
+        <SidebarInset className="min-h-0 overflow-hidden bg-sidebar mac:bg-transparent mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
+          <div className="flex min-h-0 flex-1 py-2 pl-2">
           <ResizablePanelGroup
             orientation="horizontal"
             onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}
             className="min-h-0 flex-1"
           >
             <ResizablePanel minSize="360px" className="min-w-0">
-              <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
+              <main className="flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
           <header className="z-10 flex h-10 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
@@ -1088,6 +1088,32 @@ export function SessionPage(props: SessionPageProps) {
                 </Tooltip>
               ) : null}
               <NotificationBell />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground",
+                        sidePanelOpen && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                      )}
+                      aria-label={sidePanelOpen ? "Close side panel" : "Open side panel"}
+                      aria-pressed={sidePanelOpen}
+                      onClick={() => {
+                        if (sidePanelOpen) {
+                          closeRightPane();
+                        } else {
+                          openBrowserRailPane();
+                        }
+                      }}
+                    >
+                      <PanelRight size={17} />
+                    </Button>
+                  }
+                />
+                <TooltipContent>{sidePanelOpen ? "Close side panel" : "Open side panel"}</TooltipContent>
+              </Tooltip>
               {showCloudSignIn ? (
                 <Button
                   variant="secondary"
@@ -1349,14 +1375,15 @@ export function SessionPage(props: SessionPageProps) {
             </ResizablePanel>
               {sidePanelOpen ? (
               <>
-                <ResizableHandle withHandle className="hidden lg:flex" />
+                <ResizableHandle withHandle className="hidden bg-transparent lg:flex" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
                   defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}
                   minSize={activeSidePanel === "extensions" ? "420px" : "320px"}
                   maxSize="70%"
-                  className="min-h-0 overflow-hidden lg:flex lg:flex-col"
+                  className="min-h-0 overflow-hidden pl-1 lg:flex lg:flex-col"
                 >
+                  <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
                   {activeSidePanel === "extensions" && props.settingsSlot ? (
                     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
                       {props.settingsSlot}
@@ -1378,11 +1405,12 @@ export function SessionPage(props: SessionPageProps) {
                       onClose={closeRightPane}
                     />
                   ) : null}
+                  </div>
                 </ResizablePanel>
               </>
             ) : null}
           </ResizablePanelGroup>
-          <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-l border-border bg-background/95 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
+          <aside className="flex w-11 shrink-0 flex-col items-center gap-1.5 px-1 py-2 text-muted-foreground mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"

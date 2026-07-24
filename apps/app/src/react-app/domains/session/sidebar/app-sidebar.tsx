@@ -1027,7 +1027,7 @@ export function AppSidebar(props: AppSidebarProps) {
     <SidebarContext.Provider value={contextValue}>
       <Sidebar
         collapsible="offcanvas"
-        className="mac:**:data-[sidebar=sidebar]:bg-transparent"
+        className="border-e-0 mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="hidden h-14 mac:block mac:titlebar-drag"/>
         {brandLogoUrl ? (
