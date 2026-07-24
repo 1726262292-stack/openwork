@@ -19,6 +19,7 @@ import {
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { buildConstantsConfig, parseInstallLinkInput, resolveInstallLinkConfig, resolveInstallerConfig } from "../src/config"
 import { removableInstallerBundlePath, windowsInstalledExePath, writeBootstrapConfig } from "../src/install"
+import { externalUrlCommand } from "../src/open-external-url"
 import { releaseAssetFor } from "../src/release-asset"
 import { startInstallerServer } from "../src/server"
 import {
@@ -198,6 +199,14 @@ describe("releaseAssetFor", () => {
   })
 })
 
+test("browser activation uses each platform's standard URL opener", () => {
+  const url = "https://den.example.test/activate?code=one-time-code"
+  expect(externalUrlCommand(url, "darwin")).toEqual(["open", url])
+  expect(externalUrlCommand(url, "win32")).toEqual(["cmd", "/c", "start", "", url])
+  expect(externalUrlCommand(url, "linux")).toEqual(["xdg-open", url])
+  expect(() => externalUrlCommand("openwork://connect", "darwin")).toThrow()
+})
+
 describe("windowsInstalledExePath", () => {
   test("reports the installed electron-builder package directory", () => {
     const temp = mkdtempSync(path.join(os.tmpdir(), "openwork-installed-path-"))
@@ -319,6 +328,11 @@ describe("resolveInstallerConfig", () => {
         apiUrl: "https://linked-api.example.com/",
         requireSignin: true,
         logoUrl: null,
+        iconUrl: null,
+        connectUrl: "openwork://connect?code=abcdefghijklmnopqrstuvwxyz123456&apiBaseUrl=https%3A%2F%2Flinked-api.example.com",
+        connectExpiresAt: "2030-01-01T00:00:00.000Z",
+        activationUrl: "https://linked.example.com/activate?code=abcdefghijklmnopqrstuvwxyz123456",
+        activationExpiresAt: "2030-01-01T00:00:00.000Z",
       }),
     })
     try {
@@ -328,6 +342,11 @@ describe("resolveInstallerConfig", () => {
       })
 
       expect(resolution.source).toBe("install-link")
+      expect(resolution.activation).toEqual({
+        url: "https://linked.example.com/activate?code=abcdefghijklmnopqrstuvwxyz123456",
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      })
+      expect(resolution.installLink).toBe(`http://127.0.0.1:${configServer.port}/install?token=abcDEF12`)
       expect(resolution.config).toEqual({
         appName: "OpenWork",
         clientName: "Linked Corp",
@@ -386,6 +405,7 @@ describe("system CA fetch", () => {
 
       expect(result).toEqual({
         status: "resolved",
+        activation: null,
         config: {
           appName: "OpenWork",
           clientName: "TLS Corp",
@@ -671,6 +691,58 @@ describe("resolve-link API", () => {
     } finally {
       installerServer.stop()
       configServer.stop(true)
+    }
+  })
+})
+
+describe("browser activation API", () => {
+  test("keeps a copyable link when the operating system cannot open the browser", async () => {
+    const openedUrls: string[] = []
+    const activationUrl = "https://den.example.test/activate?code=abcdefghijklmnopqrstuvwxyz123456"
+    const installerServer = startInstallerServer({
+      config: {
+        appName: "OpenWork",
+        clientName: "Acme Robotics",
+        webUrl: "https://den.example.test",
+        apiUrl: "https://api.den.example.test",
+        logoUrl: null,
+        requireSignin: true,
+      },
+      source: "install-link",
+      activation: {
+        url: activationUrl,
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      },
+      installLink: null,
+    }, () => undefined, (url) => {
+      openedUrls.push(url)
+      return Promise.resolve(false)
+    })
+
+    try {
+      const response = await fetch(`${installerServer.url}api/open-activation`, {
+        method: "POST",
+        headers: { "x-installer-token": installerServer.token },
+      })
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({
+        opened: false,
+        activationUrl,
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      })
+      expect(openedUrls).toEqual([activationUrl])
+
+      const fallback = await fetch(`${installerServer.url}api/activation`, {
+        method: "POST",
+        headers: { "x-installer-token": installerServer.token },
+      })
+      expect(fallback.status).toBe(200)
+      await expect(fallback.json()).resolves.toEqual({
+        activationUrl,
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      })
+    } finally {
+      installerServer.stop()
     }
   })
 })

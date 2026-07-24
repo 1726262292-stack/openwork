@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 
 import { installerConfigSourceLabel, resolveInstallerConfig, resolveOptionalInstallerConfig } from "./config"
 import { runInstall, scheduleInstallerSelfCleanup } from "./install"
+import { openExternalUrl } from "./open-external-url"
 import { startInstallerServer } from "./server"
 import { loadSystemCaCertificates } from "./system-ca"
 
@@ -225,11 +226,6 @@ async function exitWhenInstallSettles(): Promise<never> {
   process.exit(0)
 }
 
-function openInBrowser(url: string) {
-  const command = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url]
-  Bun.spawn(command, { stdio: ["ignore", "ignore", "ignore"] })
-}
-
 if (process.env.OPENWORK_INSTALLER_UI === "manual") {
   // Manual UI mode: serve the installer UI without opening any window or
   // browser (headless CI, remote debugging, UI evals). The URL is printed so
@@ -271,7 +267,7 @@ try {
     process.exit(3)
   }
   console.warn(`[openwork-installer] native window unavailable (${error instanceof Error ? error.message : String(error)}); opening browser UI`)
-  openInBrowser(ready.url)
+  void openExternalUrl(ready.url)
   uiServer.onExit(() => void exitWhenInstallSettles())
 }
 }

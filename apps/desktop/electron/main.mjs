@@ -2407,7 +2407,12 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("open-url", async (event, url) => {
     event.preventDefault();
-    await createMainWindow();
+    const win = await createMainWindow();
+    if (win.isMinimized()) {
+      win.restore();
+    }
+    win.show();
+    win.focus();
     queueDeepLinks([url]);
   });
 

@@ -178,7 +178,7 @@ afterAll(() => {
 function createApp(options: {
   configuredArtifact?: { filePath: string; size: number }
   artifactFileNames?: string[]
-  grantOverrides?: Partial<Pick<InstallExperienceDependencies, "mintConnectGrant" | "previewConnectGrant" | "consumeConnectGrant">>
+  grantOverrides?: Partial<Pick<InstallExperienceDependencies, "mintConnectGrant" | "previewConnectGrant" | "inspectConnectGrant" | "consumeConnectGrant">>
 } = {}) {
   const app = new Hono()
   app.use("*", async (c, next) => {
@@ -630,11 +630,14 @@ test("zero-config install config mints a short-lived exchange without storing th
   expect(response.status).toBe(200)
   const body = await response.json()
   expect(body.connectUrl).toStartWith("openwork://connect?code=")
+  expect(body.activationUrl).toStartWith("http://127.0.0.1:8790/activate?code=")
   expect(body.requireSignin).toBe(true)
   expect(Date.parse(body.connectExpiresAt)).toBeGreaterThan(Date.now())
+  expect(body.activationExpiresAt).toBe(body.connectExpiresAt)
 
   const url = new URL(body.connectUrl)
   const code = url.searchParams.get("code") ?? ""
+  expect(new URL(body.activationUrl).searchParams.get("code")).toBe(code)
   expect(code.length).toBeGreaterThanOrEqual(24)
   expect(url.searchParams.get("apiBaseUrl")).toBe("http://127.0.0.1:8790")
 
@@ -682,6 +685,12 @@ test("keyless preview is read-only and exchange consumes the grant once", async 
         consumed = true
         return Promise.resolve({ ok: true, claims })
       },
+      inspectConnectGrant: () => Promise.resolve({
+        ok: true,
+        status: consumed ? "connected" : "pending",
+        claims,
+        expiresAt: new Date((claims.exp + 1) * 1000),
+      }),
     },
   })
   const request = (mode: "preview" | "exchange") => app.request(`http://den.local/v1/install-connect/${mode}`, {
@@ -693,9 +702,23 @@ test("keyless preview is read-only and exchange consumes the grant once", async 
   const firstPreview = await request("preview")
   expect(firstPreview.status).toBe(200)
   expect(consumed).toBe(false)
+  const pending = await app.request("http://den.local/v1/install-connect/status", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code }),
+  })
+  expect(pending.status).toBe(200)
+  await expect(pending.json()).resolves.toMatchObject({ status: "pending", claims })
   const exchange = await request("exchange")
   expect(exchange.status).toBe(200)
   expect(consumed).toBe(true)
+  const connected = await app.request("http://den.local/v1/install-connect/status", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code }),
+  })
+  expect(connected.status).toBe(200)
+  await expect(connected.json()).resolves.toMatchObject({ status: "connected", claims })
   const replay = await request("exchange")
   expect(replay.status).toBe(409)
   await expect(replay.json()).resolves.toEqual({ error: "connect_grant_replayed" })
@@ -719,6 +742,7 @@ test("install config includes a fresh signed organization handoff while preservi
   expect(response.status).toBe(200)
   const body = await response.json()
   expect(body.connectUrl).toStartWith("openwork://connect?token=")
+  expect(body.activationUrl).toStartWith("http://127.0.0.1:8790/activate?code=")
   expect(body.requireSignin).toBe(true)
 
   const token = new URL(body.connectUrl).searchParams.get("token") ?? ""
