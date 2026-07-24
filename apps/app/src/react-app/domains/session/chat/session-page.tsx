@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/resizable";
 import { ShareWorkspaceModal } from "../../workspace/share-workspace-modal";
 import { SessionEmptyHero } from "./session-empty-hero";
+import type { NewTaskComposerContext } from "./new-task-composer";
 import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
@@ -206,6 +207,8 @@ export type SessionPageProps = {
   /** Chat-first: create a default workspace and start a task from the empty-state composer. */
   onChatFirstTask?: (prompt: string) => void;
   chatFirstBusy?: boolean;
+  /** Workspace-scoped wiring for the empty-state hero's full composer. */
+  newTaskComposer?: NewTaskComposerContext | null;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
@@ -1279,6 +1282,7 @@ export function SessionPage(props: SessionPageProps) {
                       busy={props.chatFirstBusy}
                       onRunTask={(prompt) => props.onChatFirstTask?.(prompt)}
                       onOpenProviderAuth={props.onOpenProviderAuth}
+                      composer={props.newTaskComposer}
                     />
                   ) : showSelectedWorkspaceError ? (
                     <div className="px-6 py-16">
@@ -1333,6 +1337,7 @@ export function SessionPage(props: SessionPageProps) {
                           props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)
                         }
                         onOpenProviderAuth={props.onOpenProviderAuth}
+                        composer={props.newTaskComposer}
                       />
                     </div>
                   )}

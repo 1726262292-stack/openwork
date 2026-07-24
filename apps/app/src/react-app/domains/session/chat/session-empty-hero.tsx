@@ -1,10 +1,10 @@
 /** @jsxImportSource react */
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Zap } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { resolveOrganizationPromptCardContent } from "@/components/chat/task-suggestions";
 import { useOrgRestrictions } from "@/react-app/domains/cloud/desktop-config-provider";
+import { NewTaskComposer, type NewTaskComposerContext } from "./new-task-composer";
 
 type HeroSuggestion = {
   title: string;
@@ -42,17 +42,18 @@ export type SessionEmptyHeroProps = {
   /** Called with the task prompt; the caller creates the session (and workspace if needed). */
   onRunTask: (prompt: string) => void;
   onOpenProviderAuth?: () => void;
+  /** Workspace-scoped wiring for the full composer (skills, agents, models). */
+  composer?: NewTaskComposerContext | null;
 };
 
 /**
- * Paper "first chat" empty state: a plain-language composer front and
+ * Paper "first chat" empty state: the real session composer front and
  * center with suggestion cards below. Suggestions come from desktop
  * policies (organization onboarding prompts) when configured, with
  * built-in defaults otherwise.
  */
 export function SessionEmptyHero(props: SessionEmptyHeroProps) {
   const [prompt, setPrompt] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const orgRestrictions = useOrgRestrictions();
 
   const organizationPrompts = orgRestrictions.onboardingPrompts;
@@ -67,19 +68,19 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
     })
     : DEFAULT_SUGGESTIONS;
 
-  const trimmedPrompt = prompt.trim();
   const submit = () => {
+    const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt || props.busy) return;
     props.onRunTask(trimmedPrompt);
   };
 
   const fillPrompt = (value: string) => {
     setPrompt(value);
-    textareaRef.current?.focus();
+    window.dispatchEvent(new Event("openwork:focusPrompt"));
   };
 
   return (
-    <div className="mx-auto w-full max-w-[560px] space-y-6 px-6">
+    <div className="mx-auto w-full max-w-[640px] space-y-6 px-6">
       <div className="space-y-1.5 text-center">
         <h2 className="text-[24px] font-semibold leading-[30px] tracking-[-0.02em] text-foreground">
           What do you need done?
@@ -87,26 +88,13 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
         <p className="text-[13px] text-muted-foreground">Describe it in plain language</p>
       </div>
 
-      <div className="rounded-2xl border border-border bg-background p-4 shadow-[var(--dls-card-shadow)] focus-within:border-foreground/25">
-        <textarea
-          ref={textareaRef}
-          value={prompt}
-          onChange={(event) => setPrompt(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.shiftKey) return;
-            event.preventDefault();
-            submit();
-          }}
-          rows={2}
-          placeholder="Ask anything, or describe a task..."
-          className="w-full resize-none bg-transparent text-[13px] leading-[20px] text-foreground outline-none placeholder:text-muted-foreground"
-        />
-        <div className="mt-2">
-          <Button size="sm" onClick={submit} disabled={!trimmedPrompt || props.busy}>
-            {props.busy ? "Preparing workspace..." : "Run task"}
-          </Button>
-        </div>
-      </div>
+      <NewTaskComposer
+        draft={prompt}
+        onDraftChange={setPrompt}
+        onRunTask={submit}
+        busy={props.busy ?? false}
+        context={props.composer ?? null}
+      />
 
       {props.providerCount === 0 && props.onOpenProviderAuth ? (
         <button

@@ -90,6 +90,7 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
+import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { useRestrictionNotice } from "@/react-app/domains/cloud/restriction-notice-provider";
@@ -1220,6 +1221,85 @@ export function SessionRoute() {
     token,
   ]);
 
+  // Workspace-scoped wiring for the empty-state hero's full composer. Unlike
+  // `surfaceProps` this exists without a selected session, so the hero offers
+  // the same skills/commands/agent/model controls before the session is
+  // created. Model and agent choices land in the same route-level state the
+  // session composer reads, so they carry into the created session.
+  const newTaskComposerContext = useMemo<NewTaskComposerContext | null>(() => {
+    if (!client) return null;
+    return {
+      client,
+      workspaceId: selectedWorkspaceId || null,
+      selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
+      modelPickerOpen: modelPicker.compactOpen,
+      onModelPickerOpenChange: (open: boolean) => {
+        modelPicker.setCompactOpen(open);
+        if (open) {
+          void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+        }
+      },
+      onModelChange: (model: ModelRef) => {
+        local.setPrefs((previous) => ({
+          ...previous,
+          defaultModel: model,
+          modelVariant: previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
+            ? previous.modelVariant
+            : null,
+        }));
+        modelPicker.setCompactOpen(false);
+      },
+      openWorkModelsEntitled,
+      modelVariantLabel,
+      modelVariant: modelVariantValue,
+      modelBehaviorOptions,
+      onModelVariantChange: (value: string | null) => {
+        local.setPrefs((previous) => ({ ...previous, modelVariant: value }));
+      },
+      agentLabel: selectedAgent ? selectedAgent.charAt(0).toUpperCase() + selectedAgent.slice(1) : t("session.default_agent"),
+      selectedAgent,
+      listAgents,
+      onSelectAgent: (agent: string | null) => setSelectedAgent(agent),
+      listCommands: listSlashCommands,
+      searchFiles: async (query: string) => {
+        const trimmed = query.trim();
+        if (!trimmed || !opencodeClient) return [];
+        const result = unwrap(
+          await opencodeClient.find.files({
+            query: trimmed,
+            dirs: "true",
+            limit: 50,
+            directory: selectedWorkspaceRoot || undefined,
+          }),
+        );
+        return result;
+      },
+      isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
+      isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins") => {
+        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : "/settings/general");
+      },
+    };
+  }, [
+    client,
+    handleOpenSettings,
+    listAgents,
+    listSlashCommands,
+    local,
+    modelBehaviorOptions,
+    modelPicker,
+    modelVariantLabel,
+    modelVariantValue,
+    opencodeClient,
+    openWorkModelsEntitled,
+    selectedAgent,
+    selectedWorkspace,
+    selectedWorkspaceId,
+    selectedWorkspaceRoot,
+    sessionProviderAuthStore,
+    setSelectedAgent,
+  ]);
+
   const handleOpenCreateWorkspace = useCallback(() => {
     // Respect the org-level `allowMultipleWorkspaces` restriction (dev
     // #1505). If the checker returns true, the admin has disabled
@@ -2116,6 +2196,7 @@ export function SessionRoute() {
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
       onChatFirstTask={handleChatFirstTask}
       chatFirstBusy={createWorkspaceBusy}
+      newTaskComposer={newTaskComposerContext}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
         loading: false,
