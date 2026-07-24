@@ -34,6 +34,7 @@ const PAST_TENSE: Record<string, string> = {
   execute: "Ran",
   run: "Ran",
   open: "Opened",
+  query: "Queried",
 }
 
 const PRESENT_TENSE: Record<string, string> = {
@@ -54,6 +55,7 @@ const PRESENT_TENSE: Record<string, string> = {
   execute: "Running",
   run: "Running",
   open: "Opening",
+  query: "Querying",
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -93,8 +95,10 @@ function extractQuery(input: unknown, max = 80): string | null {
   if (!isRecord(input)) return null
   const direct = input.query ?? input.q ?? input.search ?? input.prompt
   if (typeof direct === "string" && direct.trim()) return truncate(direct.trim(), max)
-  const body = input.body
-  if (isRecord(body)) {
+  // Bodies arrive as objects or as a JSON string, depending on how the
+  // capability was invoked.
+  const body = parseRecord(input.body)
+  if (body) {
     const nested = body.query ?? body.q ?? body.search ?? body.prompt ?? body.question ?? body.message ?? body.text
     if (typeof nested === "string" && nested.trim()) return truncate(nested.trim(), max)
   }
@@ -161,6 +165,21 @@ export function getCapabilityCallSentence(
         service: split.service,
         present: `${verbPhrase(split.action, "present")} · ${split.service}${suffix}`,
         past: `${verbPhrase(split.action, "past")} · ${split.service}${suffix}`,
+      }
+    }
+
+    // Org MCP capabilities arrive as "mcp:<connection-id>:<tool_name>". The
+    // connection id is opaque, so the trailing tool name carries the meaning
+    // ("query_granola_meetings" → "Queried granola meetings").
+    if (name?.startsWith("mcp:")) {
+      const action = name.split(":").filter(Boolean).at(-1)
+      if (action) {
+        const suffix = quoted ? ` —${quoted}` : ""
+        return {
+          service: null,
+          present: `${verbPhrase(action, "present")}${suffix}`,
+          past: `${verbPhrase(action, "past")}${suffix}`,
+        }
       }
     }
 

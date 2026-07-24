@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { readFileSync } from "node:fs"
 import tls from "node:tls"
 
 // Enterprise TLS interception can be trusted by the browser/OS while Bun fetch
@@ -18,7 +19,7 @@ const WINDOWS_CERT_END = "-----END-OPENWORK-CERTIFICATE-----"
 const PEM_CERT_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g
 const TLS_SYSTEM_MODULE: SystemCaTlsModule = tls
 
-let systemCaCertificatesPromise: Promise<string[]> | null = null
+let systemCaCertificatesPromise: Promise<SystemCaBundle> | null = null
 
 function dedupeCertificates(certs: Iterable<string>): string[] {
   const seen = new Set<string>()
@@ -127,27 +128,92 @@ foreach ($store in $stores) {
   return output ? parseWindowsPowerShellCertificates(output) : []
 }
 
+// Admin-controlled keychains only. `find-certificate` ignores trust settings, so
+// including the user-writable login keychain would let any local process widen
+// what the installer trusts; user-domain roots go through NODE_EXTRA_CA_CERTS.
+export const DARWIN_KEYCHAINS = [
+  "/Library/Keychains/System.keychain",
+  "/System/Library/Keychains/SystemRootCertificates.keychain",
+]
+
 async function loadDarwinSystemCertificates(): Promise<string[]> {
-  const output = await runCommand("security", ["find-certificate", "-a", "-p", "/Library/Keychains/System.keychain"], false)
+  const output = await runCommand("security", ["find-certificate", "-a", "-p", ...DARWIN_KEYCHAINS], false)
   return output ? parseDarwinSecurityCertificates(output) : []
 }
 
-async function resolveSystemCaCertificates(): Promise<string[]> {
-  const nodeCerts = loadNodeSystemCertificates()
-  if (nodeCerts.length > 0) return nodeCerts
-
+/**
+ * The documented escape hatch. IT can always point the installer at a PEM
+ * bundle, matching what the desktop shell already honors and giving locked-down
+ * fleets a deterministic override when store enumeration comes up short.
+ */
+export function loadExtraCaCertificates(
+  filePath: string | undefined = process.env.NODE_EXTRA_CA_CERTS,
+): string[] {
+  const trimmed = filePath?.trim()
+  if (!trimmed) return []
   try {
-    if (process.platform === "win32") return await loadWindowsSystemCertificates()
-    if (process.platform === "darwin") return await loadDarwinSystemCertificates()
-    return []
+    return dedupeCertificates(readFileSync(trimmed, "utf8").match(PEM_CERT_PATTERN) ?? [])
   } catch {
     return []
   }
 }
 
-export async function loadSystemCaCertificates(): Promise<string[]> {
-  systemCaCertificatesPromise ??= resolveSystemCaCertificates()
+export type SystemCaSource = { name: string; count: number }
+
+export type SystemCaBundle = {
+  certificates: string[]
+  sources: SystemCaSource[]
+}
+
+export function summarizeSystemCaSources(sources: SystemCaSource[]): string {
+  if (sources.length === 0) return "no OS trust sources returned certificates"
+  return sources.map((source) => `${source.name}=${source.count}`).join(" ")
+}
+
+function platformCertificateLoader(): { name: string; load: () => Promise<string[]> } {
+  if (process.platform === "win32") return { name: "windows-cert-stores", load: loadWindowsSystemCertificates }
+  if (process.platform === "darwin") return { name: "macos-keychains", load: loadDarwinSystemCertificates }
+  return { name: "platform-stores", load: async () => [] }
+}
+
+export type SystemCaLoaders = {
+  runtime: () => string[]
+  platform: { name: string; load: () => Promise<string[]> }
+  extra: () => string[]
+}
+
+/**
+ * Every source is additive. Returning the runtime list as soon as it was
+ * non-empty skipped the thorough platform enumeration, so a runtime that
+ * reports a partial set of roots — the case on an inspected network — never
+ * got the corporate CA it was missing.
+ */
+export async function resolveSystemCaBundle(loaders: SystemCaLoaders): Promise<SystemCaBundle> {
+  const runtimeCerts = loaders.runtime()
+  const platformCerts = await loaders.platform.load().catch(() => [])
+  const extraCerts = loaders.extra()
+
+  return {
+    certificates: dedupeCertificates([...runtimeCerts, ...platformCerts, ...extraCerts]),
+    sources: [
+      { name: "runtime", count: runtimeCerts.length },
+      { name: loaders.platform.name, count: platformCerts.length },
+      { name: "NODE_EXTRA_CA_CERTS", count: extraCerts.length },
+    ],
+  }
+}
+
+export async function loadSystemCaBundle(): Promise<SystemCaBundle> {
+  systemCaCertificatesPromise ??= resolveSystemCaBundle({
+    runtime: loadNodeSystemCertificates,
+    platform: platformCertificateLoader(),
+    extra: loadExtraCaCertificates,
+  })
   return await systemCaCertificatesPromise
+}
+
+export async function loadSystemCaCertificates(): Promise<string[]> {
+  return (await loadSystemCaBundle()).certificates
 }
 
 function mergeFetchInitWithCa(init: TlsFetchInit | undefined, ca: string[]): TlsFetchInit {

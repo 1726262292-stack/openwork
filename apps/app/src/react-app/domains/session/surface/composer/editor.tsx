@@ -35,6 +35,7 @@ import {
 } from "lexical";
 import type { InitialConfigType } from "@lexical/react/LexicalComposer.js";
 import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
+import { parseConnectSkillToken } from "./connect-skill-token";
 import { shouldCollapsePastedText } from "./pasted-text";
 import { insertStyledPastedText } from "./pasted-text-insertion";
 
@@ -66,7 +67,7 @@ type EditorProps = {
 };
 
 export type LexicalPromptEditorHandle = {
-  insertSkillAtSelection: (skillName: string) => void;
+  insertSkillAtSelection: (skillName: string, skillToken?: string) => void;
 };
 
 type SerializedComposerMentionNode = Spread<
@@ -91,6 +92,7 @@ type SerializedComposerSlashCommandNode = Spread<
 type SerializedComposerSkillNode = Spread<
   {
     skillName: string;
+    skillToken?: string;
     type: "composer-skill";
     version: 1;
   },
@@ -249,28 +251,31 @@ function $createComposerSlashCommandNode(commandName: string) {
 
 class ComposerSkillNode extends TextNode {
   __skillName: string;
+  __skillToken: string;
 
   static override getType() {
     return "composer-skill";
   }
 
   static override clone(node: ComposerSkillNode) {
-    return new ComposerSkillNode(node.__skillName, node.__key);
+    return new ComposerSkillNode(node.__skillName, node.__skillToken, node.__key);
   }
 
   static override importJSON(serializedNode: SerializedComposerSkillNode) {
-    return $createComposerSkillNode(serializedNode.skillName);
+    return $createComposerSkillNode(serializedNode.skillName, serializedNode.skillToken);
   }
 
-  constructor(skillName = "", key?: NodeKey) {
-    super(`[skill ${skillName}]`, key);
+  constructor(skillName = "", skillToken?: string, key?: NodeKey) {
+    super(skillToken ?? `[skill ${skillName}]`, key);
     this.__skillName = skillName;
+    this.__skillToken = skillToken ?? `[skill ${skillName}]`;
   }
 
   override exportJSON(): SerializedComposerSkillNode {
     return {
       ...super.exportJSON(),
       skillName: this.__skillName,
+      skillToken: this.__skillToken,
       type: "composer-skill",
       version: 1,
     };
@@ -279,7 +284,7 @@ class ComposerSkillNode extends TextNode {
   override createDOM(_config: EditorConfig) {
     const dom = document.createElement("span");
     dom.className = "inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11";
-    dom.textContent = this.__skillName;
+    dom.textContent = `/${this.__skillName}`;
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
     dom.title = `Skill: ${this.__skillName}`;
@@ -288,7 +293,7 @@ class ComposerSkillNode extends TextNode {
 
   override updateDOM(prevNode: ComposerSkillNode, dom: HTMLElement) {
     if (prevNode.__skillName !== this.__skillName) {
-      dom.textContent = this.__skillName;
+      dom.textContent = `/${this.__skillName}`;
       dom.title = `Skill: ${this.__skillName}`;
     }
     return false;
@@ -311,8 +316,8 @@ class ComposerSkillNode extends TextNode {
   }
 }
 
-function $createComposerSkillNode(skillName: string) {
-  return $applyNodeReplacement(new ComposerSkillNode(skillName));
+function $createComposerSkillNode(skillName: string, skillToken?: string) {
+  return $applyNodeReplacement(new ComposerSkillNode(skillName, skillToken));
 }
 
 function pastedTextChipLabel(lines: number) {
@@ -691,7 +696,7 @@ function setPrompt(
     value = slashMatch[2] ?? "";
   }
 
-  const segments = value.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/);
+  const segments = value.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[connect-skill [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/);
   const pastedTextByLabel = new Map((pastedText ?? []).map((item) => [item.label, item]));
   const attachmentsById = new Map((attachments ?? []).map((item) => [item.id, item]));
   for (const segment of segments) {
@@ -712,6 +717,11 @@ function setPrompt(
         continue;
       }
     }
+    const connectSkill = parseConnectSkillToken(segment);
+    if (connectSkill) {
+      paragraph.append($createComposerSkillNode(connectSkill.slug, segment));
+      continue;
+    }
     const skillMatch = segment.match(/^\[skill (.+)\]$/);
     if (skillMatch?.[1]) {
       paragraph.append($createComposerSkillNode(skillMatch[1]));
@@ -729,24 +739,24 @@ function setPrompt(
   }
 }
 
-function appendSkillAtEnd(skillName: string) {
+function appendSkillAtEnd(skillName: string, skillToken?: string) {
   const root = $getRoot();
   const lastChild = root.getLastChild();
   const paragraph = $isElementNode(lastChild) ? lastChild : $createParagraphNode();
   if (!$isElementNode(lastChild)) root.append(paragraph);
-  const skillNode = $createComposerSkillNode(skillName);
+  const skillNode = $createComposerSkillNode(skillName, skillToken);
   const spaceNode = $createTextNode(" ");
   paragraph.append(skillNode, spaceNode);
   setSelectionAfterNode(spaceNode);
 }
 
-function insertSkillAtSelection(skillName: string) {
+function insertSkillAtSelection(skillName: string, skillToken?: string) {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) {
-    appendSkillAtEnd(skillName);
+    appendSkillAtEnd(skillName, skillToken);
     return;
   }
-  const skillNode = $createComposerSkillNode(skillName);
+  const skillNode = $createComposerSkillNode(skillName, skillToken);
   const spaceNode = $createTextNode(" ");
   selection.insertNodes([skillNode, spaceNode]);
   setSelectionAfterNode(spaceNode);
@@ -1079,8 +1089,8 @@ function ImperativeHandlePlugin(props: { editorRef: ForwardedRef<LexicalPromptEd
   const [editor] = useLexicalComposerContext();
 
   useImperativeHandle(props.editorRef, () => ({
-    insertSkillAtSelection(skillName: string) {
-      editor.update(() => insertSkillAtSelection(skillName));
+    insertSkillAtSelection(skillName: string, skillToken?: string) {
+      editor.update(() => insertSkillAtSelection(skillName, skillToken));
       editor.focus();
     },
   }), [editor]);

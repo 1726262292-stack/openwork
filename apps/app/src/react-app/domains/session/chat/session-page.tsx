@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/resizable";
 import { ShareWorkspaceModal } from "../../workspace/share-workspace-modal";
 import { SessionEmptyHero } from "./session-empty-hero";
+import type { NewTaskComposerContext } from "./new-task-composer";
 import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
@@ -206,6 +207,8 @@ export type SessionPageProps = {
   /** Chat-first: create a default workspace and start a task from the empty-state composer. */
   onChatFirstTask?: (prompt: string) => void;
   chatFirstBusy?: boolean;
+  /** Workspace-scoped wiring for the empty-state hero's full composer. */
+  newTaskComposer?: NewTaskComposerContext | null;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionId: string) => Promise<void> | void;
   onArchiveSession?: (sessionId: string, archived: boolean) => Promise<void> | void;
@@ -792,8 +795,6 @@ export function SessionPage(props: SessionPageProps) {
     props.startupPhase !== "sessionIndexReady" &&
     props.startupPhase !== "firstSessionReady" &&
     props.startupPhase !== "ready";
-  const showSessionLoadingState =
-    Boolean(props.selectedSessionId) && props.sessionLoadingById(props.selectedSessionId) && !showWorkspaceSetupEmptyState;
   const sidebarInitialLoading = useMemo(() => getSidebarInitialLoading(props.sidebar), [props.sidebar]);
   // Derive the main-pane error from the same data the sidebar uses so the two
   // panes can never disagree. We check (in priority order):
@@ -836,6 +837,18 @@ export function SessionPage(props: SessionPageProps) {
       props.surface,
   );
   const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
+  // Route-level refreshes must only gate the very first paint of a session.
+  // Once the surface can mount it owns its own data stream, so replacing a
+  // rendered chat with a loading pane (and leaving it there when a refresh
+  // hangs) is never correct.
+  const showSessionLoadingState =
+    Boolean(props.selectedSessionId) &&
+    props.sessionLoadingById(props.selectedSessionId) &&
+    !showWorkspaceSetupEmptyState &&
+    !canRenderReactSurface;
+  const selectedWorkspaceIsRemote = props.workspaces.some(
+    (workspace) => workspace.id === props.selectedWorkspaceId && workspace.workspaceType === "remote",
+  );
   const findButtonSessionId = props.selectedSessionId;
   const canGoBackInConversationHistory = !pendingConversationHistoryNavigation && canNavigateSelectedConversationHistory(
     conversationHistory,
@@ -1177,18 +1190,29 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
 
               {showDelayedSessionLoadingState ? (
-                <div className="px-6 py-16">
-                  <div
-                    className="mx-auto flex max-w-[320px] flex-col items-center gap-3 text-center"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <OwDotTicker size="md" />
-                    <div className="text-[12px] leading-5 text-dls-secondary">
+                selectedWorkspaceIsRemote ? (
+                  // Cloud workers sync over the network all the time; the full
+                  // loading pane reads as "something is wrong". Keep it to a
+                  // quiet text shimmer.
+                  <div className="px-6 py-16 text-center" role="status" aria-live="polite">
+                    <span className="ow-text-shimmer text-[12px] leading-5">
                       {t("session.loading_detail")}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="px-6 py-16">
+                    <div
+                      className="mx-auto flex max-w-[320px] flex-col items-center gap-3 text-center"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <OwDotTicker size="md" />
+                      <div className="text-[12px] leading-5 text-dls-secondary">
+                        {t("session.loading_detail")}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )
               ) : null}
 
               {!showDelayedSessionLoadingState && canRenderReactSurface ? (
@@ -1279,6 +1303,7 @@ export function SessionPage(props: SessionPageProps) {
                       busy={props.chatFirstBusy}
                       onRunTask={(prompt) => props.onChatFirstTask?.(prompt)}
                       onOpenProviderAuth={props.onOpenProviderAuth}
+                      composer={props.newTaskComposer}
                     />
                   ) : showSelectedWorkspaceError ? (
                     <div className="px-6 py-16">
@@ -1333,6 +1358,7 @@ export function SessionPage(props: SessionPageProps) {
                           props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)
                         }
                         onOpenProviderAuth={props.onOpenProviderAuth}
+                        composer={props.newTaskComposer}
                       />
                     </div>
                   )}

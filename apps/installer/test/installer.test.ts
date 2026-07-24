@@ -22,7 +22,16 @@ import { removableInstallerBundlePath, windowsInstalledExePath, writeBootstrapCo
 import { externalUrlCommand } from "../src/open-external-url"
 import { releaseAssetFor } from "../src/release-asset"
 import { startInstallerServer } from "../src/server"
-import { createSystemCaFetch, parseDarwinSecurityCertificates, parseWindowsPowerShellCertificates } from "../src/system-ca"
+import {
+  DARWIN_KEYCHAINS,
+  createSystemCaFetch,
+  loadExtraCaCertificates,
+  parseDarwinSecurityCertificates,
+  parseWindowsPowerShellCertificates,
+  resolveSystemCaBundle,
+  summarizeSystemCaSources,
+  type SystemCaLoaders,
+} from "../src/system-ca"
 
 type SelfSignedCertificate = {
   cert: string
@@ -455,6 +464,114 @@ describe("system CA fetch", () => {
   })
 })
 
+describe("OS trust store sources", () => {
+  const CORPORATE_ROOT = "-----BEGIN CERTIFICATE-----\ncorporate-root\n-----END CERTIFICATE-----"
+  const PUBLIC_ROOT = "-----BEGIN CERTIFICATE-----\npublic-root\n-----END CERTIFICATE-----"
+
+  function loaders(overrides: Partial<SystemCaLoaders> = {}): SystemCaLoaders {
+    return {
+      runtime: () => [],
+      platform: { name: "windows-cert-stores", load: async () => [] },
+      extra: () => [],
+      ...overrides,
+    }
+  }
+
+  test("keeps enumerating the platform stores when the runtime already returned roots", async () => {
+    // The shape of the failure on an inspected network: the runtime knows the
+    // public roots, and only the platform store holds the corporate one.
+    const bundle = await resolveSystemCaBundle(
+      loaders({
+        runtime: () => [PUBLIC_ROOT],
+        platform: { name: "windows-cert-stores", load: async () => [CORPORATE_ROOT] },
+      }),
+    )
+
+    expect(bundle.certificates).toEqual([PUBLIC_ROOT, CORPORATE_ROOT])
+  })
+
+  test("dedupes roots reported by more than one source", async () => {
+    const bundle = await resolveSystemCaBundle(
+      loaders({
+        runtime: () => [PUBLIC_ROOT],
+        platform: { name: "macos-keychains", load: async () => [PUBLIC_ROOT, CORPORATE_ROOT] },
+        extra: () => [CORPORATE_ROOT],
+      }),
+    )
+
+    expect(bundle.certificates).toEqual([PUBLIC_ROOT, CORPORATE_ROOT])
+  })
+
+  test("still contributes the other sources when platform enumeration fails", async () => {
+    const bundle = await resolveSystemCaBundle(
+      loaders({
+        runtime: () => [PUBLIC_ROOT],
+        platform: {
+          name: "windows-cert-stores",
+          load: async () => {
+            throw new Error("powershell blocked by policy")
+          },
+        },
+        extra: () => [CORPORATE_ROOT],
+      }),
+    )
+
+    expect(bundle.certificates).toEqual([PUBLIC_ROOT, CORPORATE_ROOT])
+  })
+
+  test("reports what every source contributed so an empty bundle is explainable", async () => {
+    const bundle = await resolveSystemCaBundle(
+      loaders({ platform: { name: "windows-cert-stores", load: async () => [PUBLIC_ROOT] } }),
+    )
+
+    expect(summarizeSystemCaSources(bundle.sources)).toBe("runtime=0 windows-cert-stores=1 NODE_EXTRA_CA_CERTS=0")
+  })
+
+  test("reads every certificate out of a NODE_EXTRA_CA_CERTS bundle", () => {
+    const bundlePath = path.join(mkdtempSync(path.join(os.tmpdir(), "ow-ca-")), "corporate.pem")
+    writeFileSync(bundlePath, `# corporate bundle\n${CORPORATE_ROOT}\n${PUBLIC_ROOT}\n`)
+
+    expect(loadExtraCaCertificates(bundlePath)).toEqual([CORPORATE_ROOT, PUBLIC_ROOT])
+  })
+
+  test("ignores an unset or unreadable NODE_EXTRA_CA_CERTS instead of failing the install", () => {
+    const previous = process.env.NODE_EXTRA_CA_CERTS
+    delete process.env.NODE_EXTRA_CA_CERTS
+    try {
+      expect(loadExtraCaCertificates()).toEqual([])
+      expect(loadExtraCaCertificates("   ")).toEqual([])
+      expect(loadExtraCaCertificates(path.join(os.tmpdir(), "ow-ca-does-not-exist.pem"))).toEqual([])
+    } finally {
+      if (previous !== undefined) process.env.NODE_EXTRA_CA_CERTS = previous
+    }
+  })
+
+  test("leaves the user-writable login keychain out of the trusted set", () => {
+    // `security find-certificate` ignores trust settings, so enumerating a
+    // keychain any local process can write to would widen what we trust.
+    expect(DARWIN_KEYCHAINS.some((keychain) => keychain.includes("login.keychain"))).toBe(false)
+    expect(DARWIN_KEYCHAINS).toContain("/Library/Keychains/System.keychain")
+  })
+
+  test("a corporate root supplied only through NODE_EXTRA_CA_CERTS resolves a real TLS install link", async () => {
+    const certificate = createSelfSignedCertificate()
+    const configServer = startTlsInstallConfigServer(certificate)
+    const bundlePath = path.join(mkdtempSync(path.join(os.tmpdir(), "ow-ca-")), "corporate.pem")
+    writeFileSync(bundlePath, certificate.cert)
+    try {
+      const bundle = await resolveSystemCaBundle(loaders({ extra: () => loadExtraCaCertificates(bundlePath) }))
+      const result = await resolveInstallLinkConfig(`https://127.0.0.1:${configServer.port}/install?token=abcDEF12`, {
+        fetcher: createSystemCaFetch(async () => bundle.certificates),
+      })
+
+      expect(result.status).toBe("resolved")
+    } finally {
+      configServer.stop(true)
+      certificate.cleanup()
+    }
+  })
+})
+
 describe("resolve-link API", () => {
   test("explains pasted GitHub artifact URLs are not install links", async () => {
     const installerServer = startInstallerServer(null, () => undefined)
@@ -513,8 +630,11 @@ describe("resolve-link API", () => {
       })
 
       expect(response.status).toBe(400)
-      expect(await response.json()).toEqual({
+      expect(await response.json()).toMatchObject({
         error: "install_link_tls_untrusted",
+        // Carried alongside the user-facing copy so a support screenshot shows
+        // whether the trust stores were even readable.
+        trustSources: expect.stringContaining("runtime="),
         message: `Reached your workspace, but the secure connection isn't trusted on this computer yet. This usually means your company inspects secure traffic. Try again — if it keeps failing, ask IT to check the certificate for 127.0.0.1:${configServer.port}.`,
       })
     } finally {

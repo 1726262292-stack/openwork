@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { installerConfigSourceLabel, parseInstallLinkInput, resolveInstallLinkConfig, type InstallerConfigResolution } from "./config"
 import { installStatus, launchInstalledApp, runInstall } from "./install"
 import { openExternalUrl } from "./open-external-url"
-import { loadSystemCaCertificates } from "./system-ca"
+import { loadSystemCaBundle, summarizeSystemCaSources } from "./system-ca"
 import { renderInstallerHtml } from "./ui-html"
 
 export type InstallerServer = {
@@ -45,7 +45,11 @@ export function startInstallerServer(
   let resolution = initialResolution
   // Warm the OS trust-store CA cache now so the first resolve-link fetch does
   // not spend its 10s abort budget waiting on PowerShell/security exports.
-  void loadSystemCaCertificates()
+  // Record what each source produced: a TLS failure is otherwise indistinguishable
+  // from silent enumeration failure when supporting a locked-down fleet.
+  void loadSystemCaBundle().then((bundle) => {
+    console.log(`[openwork-installer] OS trust store: ${summarizeSystemCaSources(bundle.sources)}`)
+  })
 
   async function refreshActivation() {
     if (!resolution) return null
@@ -95,7 +99,12 @@ export function startInstallerServer(
             }
             if (result.status === "unreachable") {
               if (result.reason === "tls") {
-                return Response.json({ error: "install_link_tls_untrusted", message: tlsUntrustedMessage(installLink) }, { status: 400 })
+                const bundle = await loadSystemCaBundle()
+                return Response.json({
+                  error: "install_link_tls_untrusted",
+                  message: tlsUntrustedMessage(installLink),
+                  trustSources: summarizeSystemCaSources(bundle.sources),
+                }, { status: 400 })
               }
               return Response.json({ error: "install_link_unreachable", message: "Could not reach your workspace. Check your internet or VPN connection and try again." }, { status: 400 })
             }

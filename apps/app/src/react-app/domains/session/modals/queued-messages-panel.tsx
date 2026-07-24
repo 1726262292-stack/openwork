@@ -5,6 +5,7 @@ import { Fragment, type ReactNode } from "react";
 import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge";
 import { t } from "@/i18n";
 import type { ComposerAttachment, ComposerDraft, ComposerPart } from "@/app/types";
+import { parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
 
 export type QueuedMessagesPanelProps = {
   drafts: ComposerDraft[];
@@ -13,7 +14,7 @@ export type QueuedMessagesPanelProps = {
   sending?: boolean;
 };
 
-const TOKEN_RE = /(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\])/;
+const TOKEN_RE = /(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[connect-skill [^\]]+\]|\[skill [^\]]+\])/;
 
 function isImageAttachment(attachment: ComposerAttachment) {
   return attachment.kind === "image" || attachment.mimeType.startsWith("image/");
@@ -70,15 +71,17 @@ function QueuedDraftContent(props: { draft: ComposerDraft }) {
       continue;
     }
 
+    const connectSkill = parseConnectSkillToken(segment);
     const skillMatch = segment.match(/^\[skill (.+)\]$/);
-    if (skillMatch?.[1]) {
+    const skillName = connectSkill?.slug ?? skillMatch?.[1];
+    if (skillName) {
       nodes.push(
         <span
           key={key}
           className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle"
-          title={`Skill: ${skillMatch[1]}`}
+          title={`Skill: ${connectSkill?.name ?? skillName}`}
         >
-          {skillMatch[1]}
+          {`/${skillName}`}
         </span>,
       );
       continue;
