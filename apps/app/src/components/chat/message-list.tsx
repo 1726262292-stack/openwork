@@ -102,6 +102,9 @@ import type { AnyToolPart } from "@/lib/tool-aggregate"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
 
+/** Above this many step rows a finished turn folds into one summary line. */
+const COLLAPSED_STEP_RUN_MIN_ROWS = 4
+
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
   if (created === null) return null
@@ -934,25 +937,37 @@ function MessageGroup({
 
   // The answer message's own thinking belongs to the work, not the answer, so
   // a collapsed run shows it and the message below renders text only.
-  const foldedReasoning =
-    isLiveGroup || stepItems.length === 0
-      ? []
-      : proseItems.flatMap((item) =>
-        item.message.role === "assistant" && !isSessionErrorMessage(item.message)
-          ? getAssistantRenderGroups(item.message.parts, showThinking).flatMap((group, groupIndex) =>
-            group.kind === "reasoning"
-              ? [
-                <Message
-                  key={`folded-reasoning-${item.message.id}-${groupIndex}`}
-                  className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
-                >
-                  <ReasoningBlock text={group.text} isStreaming={group.isStreaming} />
-                </Message>,
-              ]
-              : []
-          )
+  const proseReasoning = proseItems.flatMap((item) =>
+    item.message.role === "assistant" && !isSessionErrorMessage(item.message)
+      ? getAssistantRenderGroups(item.message.parts, showThinking).flatMap((group, groupIndex) =>
+        group.kind === "reasoning"
+          ? [{ key: `${item.message.id}-${groupIndex}`, text: group.text, isStreaming: group.isStreaming }]
           : []
       )
+      : []
+  )
+  const stepRowCount =
+    stepItems.reduce(
+      (total, item) =>
+        total +
+        (item.message.role === "assistant" && !isSessionErrorMessage(item.message)
+          ? getAssistantRenderGroups(item.message.parts, showThinking).length
+          : 1),
+      0
+    ) + proseReasoning.length
+  // A short finished run reads fine as a list, so only long ones fold away.
+  const collapseSteps =
+    !isLiveGroup && stepItems.length > 0 && stepRowCount > COLLAPSED_STEP_RUN_MIN_ROWS
+  const foldedReasoning = collapseSteps
+    ? proseReasoning.map((reasoning) => (
+      <Message
+        key={`folded-reasoning-${reasoning.key}`}
+        className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
+      >
+        <ReasoningBlock text={reasoning.text} isStreaming={reasoning.isStreaming} />
+      </Message>
+    ))
+    : []
 
   const renderItem = (item: UIMessageWithIndex, groupIndex: number, hideReasoning?: boolean) => {
     const isLastMessage = item.index === messages.length - 1
@@ -1010,20 +1025,20 @@ function MessageGroup({
           message use, so a step row is spaced identically whether or not a
           message boundary happens to fall between it and the previous row. */}
       {stepItems.length > 0 ? (
-        isLiveGroup ? (
-          <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
-            {renderItems(stepItems, 0)}
-          </div>
-        ) : (
+        collapseSteps ? (
           <CompletedStepRun label={stepRunLabel}>
             <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
               {renderItems(stepItems, 0)}
               {foldedReasoning}
             </div>
           </CompletedStepRun>
+        ) : (
+          <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+            {renderItems(stepItems, 0)}
+          </div>
         )
       ) : null}
-      {renderItems(proseItems, stepItems.length, foldedReasoning.length > 0)}
+      {renderItems(proseItems, stepItems.length, collapseSteps)}
       {/* Paper artifact strip: one FILES row per turn, at the end. */}
       <ArtifactList
         messages={items.map((item) => item.message)}
