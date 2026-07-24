@@ -1,4 +1,4 @@
-import { installConfigSchema } from "@openwork/install-config"
+import { installConfigSchema, installExperienceConfigSchema } from "@openwork/install-config"
 import { connectLinkClaimsSchema } from "@openwork/connect-link"
 import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable, OrganizationTable } from "@openwork-ee/den-db/schema"
@@ -15,6 +15,7 @@ import { db } from "../../db.js"
 import { mintDesktopConnectLink } from "../../desktop-connect-link.js"
 import {
   consumeDesktopConnectGrant,
+  inspectDesktopConnectGrant,
   mintDesktopConnectGrant,
   previewDesktopConnectGrant,
 } from "../../desktop-connect-grants.js"
@@ -40,6 +41,7 @@ const INSTALL_LINK_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 60
 const INSTALL_LINK_MINT_RATE_LIMIT_MAX = 30
 const INSTALL_CONFIG_RATE_LIMIT_MAX = 60
 const INSTALL_ARTIFACT_RATE_LIMIT_MAX = 20
+const INSTALL_CONNECT_STATUS_RATE_LIMIT_MAX = 300
 const INSTALL_LINK_TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,}$/
 const CONNECT_GRANT_CODE_PATTERN = /^[A-Za-z0-9_-]{24,128}$/
 
@@ -64,6 +66,12 @@ const connectGrantResponseSchema = z.object({
   claims: connectLinkClaimsSchema,
 }).meta({ ref: "DesktopConnectGrantResponse" })
 
+const connectGrantStatusResponseSchema = z.object({
+  status: z.enum(["pending", "connected"]),
+  claims: connectLinkClaimsSchema,
+  expiresAt: z.string().datetime(),
+}).meta({ ref: "DesktopConnectGrantStatusResponse" })
+
 const connectGrantFailureSchema = z.object({
   error: z.enum(["connect_grant_invalid", "connect_grant_expired", "connect_grant_replayed"]),
 }).meta({ ref: "DesktopConnectGrantFailure" })
@@ -77,11 +85,6 @@ const installPlatformParamSchema = z.object({
 const installLinkNotFoundSchema = z.object({
   error: z.literal("install_link_not_found"),
 }).meta({ ref: "InstallLinkNotFoundError" })
-
-const installExperienceConfigSchema = installConfigSchema.extend({
-  connectUrl: z.string(),
-  connectExpiresAt: z.string().datetime(),
-}).meta({ ref: "InstallExperienceConfig" })
 
 const capabilityDisabledSchema = z.object({
   error: z.literal("capability_disabled"),
@@ -99,6 +102,7 @@ export type InstallExperienceDependencies = {
   resolveConfiguredArtifact: typeof resolveConfiguredInstallerArtifact
   mintConnectGrant: typeof mintDesktopConnectGrant
   previewConnectGrant: typeof previewDesktopConnectGrant
+  inspectConnectGrant: typeof inspectDesktopConnectGrant
   consumeConnectGrant: typeof consumeDesktopConnectGrant
 }
 
@@ -106,6 +110,7 @@ const defaultInstallerDependencies: InstallExperienceDependencies = {
   resolveConfiguredArtifact: resolveConfiguredInstallerArtifact,
   mintConnectGrant: mintDesktopConnectGrant,
   previewConnectGrant: previewDesktopConnectGrant,
+  inspectConnectGrant: inspectDesktopConnectGrant,
   consumeConnectGrant: consumeDesktopConnectGrant,
 }
 
@@ -446,15 +451,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         return c.json({ error: "install_link_not_found" }, 404)
       }
 
-      const connectLink = mintDesktopConnectLink({
-        organizationName: resolved.config.clientName,
-        appName: resolved.config.appName,
-        logoUrl: resolved.config.logoUrl,
-        iconUrl: resolved.config.iconUrl,
-        webUrl: resolved.config.webUrl,
-        apiUrl: resolved.config.apiUrl,
-      })
-      const handoff = connectLink ?? await installer.mintConnectGrant({
+      const connectInput = {
         installLinkId: resolved.installLinkId,
         organizationName: resolved.config.clientName,
         appName: resolved.config.appName,
@@ -462,13 +459,55 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         iconUrl: resolved.config.iconUrl,
         webUrl: resolved.config.webUrl,
         apiUrl: resolved.config.apiUrl,
-      })
+      }
+      const exchangeHandoff = await installer.mintConnectGrant(connectInput)
+      const handoff = mintDesktopConnectLink(connectInput) ?? exchangeHandoff
 
       return c.json({
         ...resolved.config,
         connectUrl: handoff.connectUrl,
         connectExpiresAt: handoff.connectExpiresAt,
+        activationUrl: exchangeHandoff.activationUrl,
+        activationExpiresAt: exchangeHandoff.connectExpiresAt,
       })
+    },
+  )
+
+  app.post(
+    "/v1/install-connect/status",
+    describeRoute({
+      tags: ["Organizations"],
+      summary: "Inspect desktop connection status",
+      description: "Reports whether a short-lived organization connection code is still pending or has been accepted by a desktop.",
+      responses: {
+        200: jsonResponse("Desktop connection status resolved successfully.", connectGrantStatusResponseSchema),
+        400: jsonResponse("The connection code body was invalid.", invalidRequestSchema),
+        404: jsonResponse("The connection code was not found.", connectGrantFailureSchema),
+        410: jsonResponse("The connection code expired.", connectGrantFailureSchema),
+        429: jsonResponse("Too many connection attempts.", rateLimitedSchema),
+      },
+    }),
+    publicRoute,
+    jsonValidator(connectGrantBodySchema),
+    async (c) => {
+      const retryAfter = await enforceRateLimit(c.req.raw.headers, "install:connect-status", INSTALL_CONNECT_STATUS_RATE_LIMIT_MAX, INSTALL_LINK_RATE_LIMIT_WINDOW_MS)
+      if (retryAfter !== null) {
+        c.header("Retry-After", String(retryAfter))
+        return c.json({ error: "rate_limited", message: "Too many connection attempts. Try again later." }, 429)
+      }
+
+      const result = await installer.inspectConnectGrant(c.req.valid("json").code)
+      if (result.ok) {
+        return c.json({
+          status: result.status,
+          claims: result.claims,
+          expiresAt: result.expiresAt.toISOString(),
+        })
+      }
+      if (result.code === "expired") {
+        return c.json({ error: "connect_grant_expired" }, 410)
+      }
+      return c.json({ error: "connect_grant_invalid" }, 404)
     },
   )
 

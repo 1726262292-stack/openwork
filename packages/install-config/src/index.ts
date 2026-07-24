@@ -15,6 +15,15 @@ export const installConfigSchema = z.object({
 
 export type InstallConfig = z.infer<typeof installConfigSchema>
 
+export const installExperienceConfigSchema = installConfigSchema.extend({
+  connectUrl: z.string().trim().min(1),
+  connectExpiresAt: z.string().datetime(),
+  activationUrl: z.string().trim().url(),
+  activationExpiresAt: z.string().datetime(),
+}).meta({ ref: "InstallExperienceConfig" })
+
+export type InstallExperienceConfig = z.infer<typeof installExperienceConfigSchema>
+
 export const desktopBootstrapConfigSchema = z.object({
   baseUrl: z.string().trim().url(),
   apiBaseUrl: z.string().trim().url().optional(),
