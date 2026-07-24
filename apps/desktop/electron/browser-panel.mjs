@@ -480,6 +480,9 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
         partition: BROWSER_SESSION_PARTITION,
       },
     });
+    // Match the renderer's rounded panel card so the native view's square
+    // corners don't poke out past the card's border radius.
+    view.setBorderRadius?.(14);
     const tab = { tabId, view, favicon: null };
     browserTabs.set(tabId, tab);
     browserTabOrder.push(tabId);
