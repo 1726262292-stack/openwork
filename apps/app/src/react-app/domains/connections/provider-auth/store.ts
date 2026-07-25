@@ -99,6 +99,29 @@ type CloudProviderSyncReason =
   | "settings_cloud_opened";
 
 let lastGlobalProviderDisposeRefreshAt = 0;
+const globalCloudProviderSyncByContext = new Map<string, Promise<void>>();
+
+function enqueueGlobalCloudProviderSync(
+  contextKey: string,
+  sync: () => Promise<void>,
+) {
+  const previous = globalCloudProviderSyncByContext.get(contextKey) ?? Promise.resolve();
+  const request = previous.catch(() => undefined).then(sync);
+  globalCloudProviderSyncByContext.set(contextKey, request);
+  request.then(
+    () => {
+      if (globalCloudProviderSyncByContext.get(contextKey) === request) {
+        globalCloudProviderSyncByContext.delete(contextKey);
+      }
+    },
+    () => {
+      if (globalCloudProviderSyncByContext.get(contextKey) === request) {
+        globalCloudProviderSyncByContext.delete(contextKey);
+      }
+    },
+  );
+  return request;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -1805,7 +1828,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return cloudProviderSyncInFlight;
     }
 
-    const request = performCloudProviderSync(reason)
+    const request = enqueueGlobalCloudProviderSync(
+      getCloudProviderSyncContextKey(),
+      () => performCloudProviderSync(reason),
+    )
       .catch((error) => {
         const message = logCloudProviderSyncError(reason, error);
         if (reason === "settings_cloud_opened") {
