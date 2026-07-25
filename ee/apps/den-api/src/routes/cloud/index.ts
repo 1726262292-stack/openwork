@@ -10,6 +10,8 @@ import { env, type DenOrgMode } from "../../env.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { getDaytonaSandboxRecord, refreshDaytonaSignedPreview } from "../../workers/daytona.js"
+import { CLOUD_INSTANCE_BACKEND, CLOUD_INSTANCE_NAME } from "../../workers/cloud-constants.js"
+import { wakeCloudWorker as defaultWakeCloudWorker } from "../../workers/cloud-lifecycle.js"
 import type { OrgRouteVariables } from "../org/shared.js"
 import { continueCloudProvisioning, token } from "../workers/shared.js"
 
@@ -20,21 +22,29 @@ type CloudRouteOptions = {
   daytonaApiKey?: string
   continueProvisioning?: typeof continueCloudProvisioning
   refreshSignedPreview?: typeof refreshDaytonaSignedPreview
+  ensureCloudWorker?: EnsureCloudWorker
+  getSandboxRecord?: GetSandboxRecord
+  wakeCloudWorker?: WakeCloudWorker
 }
 
 type CloudWorker = Pick<typeof WorkerTable.$inferSelect, "id" | "status">
+type CloudSandboxRecord = Pick<NonNullable<Awaited<ReturnType<typeof getDaytonaSandboxRecord>>>, "signed_preview_url" | "signed_preview_url_expires_at">
 type OrgId = typeof WorkerTable.$inferSelect.org_id
 type UserId = typeof WorkerTable.$inferSelect.created_by_user_id
 type CloudInstanceResponse = {
-  status: "provisioning" | "ready" | "failed"
+  status: "provisioning" | "waking" | "ready" | "failed"
   url: string | null
 }
-
-const CLOUD_INSTANCE_NAME = "Cloud"
-const CLOUD_INSTANCE_BACKEND = "cloud-instance"
+type EnsureCloudWorker = (input: {
+  orgId: OrgId
+  createdByUserId: UserId
+  continueProvisioning: typeof continueCloudProvisioning
+}) => Promise<CloudWorker>
+type GetSandboxRecord = (workerId: CloudWorker["id"]) => Promise<CloudSandboxRecord | null>
+type WakeCloudWorker = (workerId: CloudWorker["id"]) => Promise<void>
 
 const cloudInstanceResponseSchema = z.object({
-  status: z.enum(["provisioning", "ready", "failed"]),
+  status: z.enum(["provisioning", "waking", "ready", "failed"]),
   url: z.string().url().nullable(),
 }).meta({ ref: "CloudInstanceResponse" })
 
@@ -131,12 +141,23 @@ async function ensureCloudWorker(input: {
 async function resolveCloudInstance(input: {
   worker: CloudWorker
   refreshSignedPreview: typeof refreshDaytonaSignedPreview
+  getSandboxRecord: GetSandboxRecord
+  startWake: (workerId: CloudWorker["id"]) => void
 }): Promise<CloudInstanceResponse> {
   if (input.worker.status === "failed") {
     return { status: "failed", url: null }
   }
 
-  const sandbox = await getDaytonaSandboxRecord(input.worker.id)
+  if (input.worker.status === "stopped") {
+    input.startWake(input.worker.id)
+    return { status: "waking", url: null }
+  }
+
+  const sandbox = await input.getSandboxRecord(input.worker.id)
+  if (input.worker.status === "provisioning" && sandbox) {
+    return { status: "waking", url: null }
+  }
+
   if (!sandbox) {
     return { status: "provisioning", url: null }
   }
@@ -163,6 +184,23 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
   const orgMemberRouteMiddleware = options.memberRoute ?? orgMemberRoute()
   const continueProvisioning = options.continueProvisioning ?? continueCloudProvisioning
   const refreshSignedPreview = options.refreshSignedPreview ?? refreshDaytonaSignedPreview
+  const ensureWorker = options.ensureCloudWorker ?? ensureCloudWorker
+  const getSandboxRecord = options.getSandboxRecord ?? getDaytonaSandboxRecord
+  const wakeCloudWorker = options.wakeCloudWorker ?? defaultWakeCloudWorker
+  const wakingWorkers = new Set<CloudWorker["id"]>()
+
+  function startWake(workerId: CloudWorker["id"]) {
+    if (wakingWorkers.has(workerId)) {
+      return
+    }
+
+    wakingWorkers.add(workerId)
+    void wakeCloudWorker(workerId)
+      .catch(() => undefined)
+      .finally(() => {
+        wakingWorkers.delete(workerId)
+      })
+  }
 
   app.get(
     "/v1/cloud/instance",
@@ -192,12 +230,12 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
         return c.json({ error: "unauthorized" }, 401)
       }
 
-      const worker = await ensureCloudWorker({
+      const worker = await ensureWorker({
         orgId: payload.organization.id,
         createdByUserId: user.id,
         continueProvisioning,
       })
-      const instance = await resolveCloudInstance({ worker, refreshSignedPreview })
+      const instance = await resolveCloudInstance({ worker, refreshSignedPreview, getSandboxRecord, startWake })
 
       return c.json(instance)
     },

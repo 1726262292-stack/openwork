@@ -23,6 +23,10 @@ type ProvisionedInstance = {
   region?: string
 }
 
+export type StopWorkerOnDaytonaResult =
+  | { status: "no_sandbox" }
+  | { status: "stopped" }
+
 type DaytonaSandboxListPage = {
   items: Array<{ id?: unknown }>
   nextCursor?: string | null
@@ -592,6 +596,73 @@ export async function provisionWorkerOnDaytona(
       await sandbox.delete(env.daytona.deleteTimeoutSeconds).catch(() => {})
     }
     throw error
+  }
+}
+
+// This preserves customer data: deprovisionWorkerOnDaytona erases workers/<id>/,
+// while stopWorkerOnDaytona must not delete the sandbox, cleanup data, or touch volumes.
+export async function stopWorkerOnDaytona(workerId: WorkerId): Promise<StopWorkerOnDaytonaResult> {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return { status: "no_sandbox" }
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  if (sandbox.state === "stopped") {
+    return { status: "stopped" }
+  }
+
+  await sandbox.stop(env.daytona.stopTimeoutSeconds ?? env.daytona.deleteTimeoutSeconds)
+
+  return { status: "stopped" }
+}
+
+export async function wakeWorkerOnDaytona(
+  input: ProvisionInput,
+): Promise<ProvisionedInstance> {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(input.workerId)
+  if (!record) {
+    throw new Error(`Daytona sandbox record missing for worker ${input.workerId}`)
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  await sandbox.start(env.daytona.createTimeoutSeconds)
+
+  const sessionId = `openwork-wake-${workerHint(input.workerId)}-${Date.now()}`
+  await sandbox.process.createSession(sessionId)
+  const command = await sandbox.process.executeSessionCommand(
+    sessionId,
+    {
+      command: buildOpenWorkStartCommand(input),
+      runAsync: true,
+    },
+    0,
+  )
+
+  const expiresInSeconds = normalizedSignedPreviewExpirySeconds()
+  const preview = await sandbox.getSignedPreviewUrl(env.daytona.openworkPort, expiresInSeconds)
+  await waitForHealth(preview.url, env.daytona.healthcheckTimeoutMs, sandbox, sessionId, command.cmdId)
+  await upsertDaytonaSandbox({
+    workerId: input.workerId,
+    sandboxId: sandbox.id,
+    workspaceVolumeId: record.workspace_volume_id,
+    dataVolumeId: record.data_volume_id,
+    signedPreviewUrl: preview.url,
+    signedPreviewUrlExpiresAt: signedPreviewRefreshAt(expiresInSeconds),
+    region: sandbox.target ?? null,
+  })
+
+  return {
+    provider: "daytona",
+    url: workerProxyUrl(input.workerId),
+    status: "healthy",
+    region: sandbox.target,
   }
 }
 

@@ -7,7 +7,7 @@ import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-templ
 import { getErrorMessage, requestJson } from "../../_lib/den-flow";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 
-type CloudInstanceStatus = "provisioning" | "ready" | "failed";
+type CloudInstanceStatus = "provisioning" | "waking" | "ready" | "failed";
 
 type CloudInstance = {
   status: CloudInstanceStatus;
@@ -26,7 +26,7 @@ function parseCloudInstance(payload: unknown): CloudInstance | null {
   }
 
   const status = payload.status;
-  if (status !== "provisioning" && status !== "ready" && status !== "failed") {
+  if (status !== "provisioning" && status !== "waking" && status !== "ready" && status !== "failed") {
     return null;
   }
 
@@ -92,7 +92,7 @@ export function CloudScreen() {
         }
 
         setInstance(parsed);
-        if (parsed.status === "provisioning") {
+        if (parsed.status === "provisioning" || parsed.status === "waking") {
           pollTimer = setTimeout(() => void loadInstance(), CLOUD_POLL_MS);
         }
       } catch (loadError) {
@@ -143,7 +143,8 @@ export function CloudScreen() {
 
   const readyUrl = instance?.status === "ready" ? instance.url : null;
   const failed = instance?.status === "failed";
-  const starting = !readyUrl && !failed && !error && !unavailable && (loading || instance?.status === "provisioning");
+  const waking = instance?.status === "waking";
+  const starting = !readyUrl && !failed && !error && !unavailable && (loading || instance?.status === "provisioning" || waking);
 
   return (
     <DashboardPageTemplate
@@ -165,9 +166,11 @@ export function CloudScreen() {
 
             {starting ? (
               <>
-                <p className="mt-2 text-[15px] font-medium text-gray-950">Starting Cloud</p>
+                <p className="mt-2 text-[15px] font-medium text-gray-950">{waking ? "Waking your workspace…" : "Starting Cloud"}</p>
                 <p className="mt-2 text-[13px] leading-6 text-gray-500">
-                  We’re bringing up a full OpenWork instance for this organization. This usually takes a few seconds.
+                  {waking
+                    ? "We’re turning your existing Cloud workspace back on. This usually takes a few seconds."
+                    : "We’re bringing up a full OpenWork instance for this organization. This usually takes a few seconds."}
                 </p>
                 <p className="mt-2 text-[13px] leading-6 text-gray-500">
                   Keep this page open. Cloud opens in a new tab as soon as it is ready.
