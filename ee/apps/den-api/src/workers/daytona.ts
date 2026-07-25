@@ -196,18 +196,24 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
 
 function buildOpenWorkStartCommand(input: ProvisionInput) {
   const verifyRuntimeStep = [
-    "if ! command -v openwork >/dev/null 2>&1; then echo 'openwork binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
+    "if ! command -v openwork-server >/dev/null 2>&1; then echo 'openwork-server binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
     "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
   ].join("; ")
   const openworkServe = [
     "OPENWORK_DATA_DIR=",
     shellQuote(env.daytona.runtimeDataPath),
-    " OPENWORK_SIDECAR_DIR=",
-    shellQuote(env.daytona.sidecarDir),
+    " OPENWORK_SERVER_CONFIG=",
+    shellQuote(`${env.daytona.runtimeDataPath}/server.json`),
     " OPENWORK_TOKEN=",
     shellQuote(input.clientToken),
     " OPENWORK_HOST_TOKEN=",
     shellQuote(input.hostToken),
+    " OPENWORK_MANAGE_OPENCODE=",
+    shellQuote("1"),
+    " OPENWORK_OPENCODE_BIN=",
+    shellQuote("/usr/local/bin/opencode"),
+    " OPENWORK_WEB_ROOT=",
+    shellQuote("/opt/openwork/web"),
     " DEN_RUNTIME_PROVIDER=",
     shellQuote("daytona"),
     " DEN_WORKER_ID=",
@@ -218,18 +224,12 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote(workerActivityHeartbeatUrl(input.workerId)),
     " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
     shellQuote(input.activityToken),
-    " openwork serve",
+    " openwork-server",
     ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
-    ` --remote-access`,
-    ` --openwork-port ${env.daytona.openworkPort}`,
-    ` --opencode-host 127.0.0.1`,
-    ` --opencode-port ${env.daytona.opencodePort}`,
-    ` --connect-host 127.0.0.1`,
+    ` --host 0.0.0.0`,
+    ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
     ` --cors '*'`,
     ` --approval manual`,
-    ` --allow-external`,
-    ` --opencode-source external`,
-    ` --opencode-bin $(command -v opencode)`,
     ` --verbose`,
   ].join("")
 
@@ -246,7 +246,7 @@ while [ "$attempt" -lt 3 ]; do
     exit 0
   fi
   status=$?
-  echo "openwork serve failed (attempt $attempt, exit $status); retrying in 3s"
+  echo "openwork-server failed (attempt $attempt, exit $status); rebuild and republish the Daytona snapshot if this persists; retrying in 3s"
   sleep 3
 done
 exit 1
