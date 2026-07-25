@@ -426,6 +426,7 @@ function ProviderAccordion({
               {totalModels} model{totalModels === 1 ? "" : "s"}
             </span>
           </div>
+          {" "}
           <span className="flex shrink-0 items-center gap-1.5">
             {group.isNew ? (
               <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">New</span>
