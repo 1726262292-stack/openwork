@@ -98,6 +98,8 @@ type CloudProviderSyncReason =
   | "new_chat"
   | "settings_cloud_opened";
 
+let lastGlobalProviderDisposeRefreshAt = 0;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -233,7 +235,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudProviderSyncInFlight: Promise<void> | null = null;
   let cloudProviderSyncQueuedReason: CloudProviderSyncReason | null = null;
   let cloudProviderSyncContextKey = "";
-  let lastProviderDisposeRefreshAt = 0;
 
   const emitChange = () => {
     for (const listener of listeners) listener();
@@ -1286,14 +1287,14 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     if (optionsArg?.dispose) {
       const now = Date.now();
-      const shouldDispose = now - lastProviderDisposeRefreshAt >= 10_000;
+      const shouldDispose = now - lastGlobalProviderDisposeRefreshAt >= 10_000;
       // Prefer the OpenWork server engine reload: it disposes the engine AND
       // re-registers runtime-DB MCPs, so non-primary workspaces and pending
       // changes are picked up instead of silently dropping (toggles "turn
       // off").
       let reloaded = false;
       if (shouldDispose) {
-        lastProviderDisposeRefreshAt = now;
+        lastGlobalProviderDisposeRefreshAt = now;
         try {
           const openworkSnapshot = options.openworkServer.getSnapshot();
           const openworkClient = openworkSnapshot.openworkServerClient;
