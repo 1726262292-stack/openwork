@@ -23,6 +23,7 @@ import {
   type DenDesktopPolicy,
   type DesktopPolicyPayload,
 } from "./desktop-policy-data";
+import { resolveOrganizationPromptPreviewCardContent } from "./desktop-policy-onboarding-preview";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
 
 type PolicyDraft = {
@@ -164,6 +165,69 @@ function getPromptDescriptionErrorId(index: number) {
   return `desktop-policy-onboarding-prompt-${index}-description-error`;
 }
 
+function getOnboardingPromptPreviewCards(draft: PolicyDraft) {
+  const prompts = draft.onboardingPromptTexts.map((prompt) => prompt.trim());
+  const descriptions = draft.onboardingPromptDescriptions.map((description) => description.trim());
+
+  return ONBOARDING_PROMPT_LABELS.flatMap((_, index) => {
+    const prompt = prompts[index] ?? "";
+    if (index === 2 && prompt.length === 0) return [];
+
+    return [resolveOrganizationPromptPreviewCardContent({
+      prompt,
+      description: descriptions[index],
+      index,
+    })];
+  });
+}
+
+function DesktopPromptSparklesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-6 text-purple-600" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M9 4.5a.75.75 0 0 1 .721.544l.813 2.846a3.75 3.75 0 0 0 2.576 2.576l2.846.813a.75.75 0 0 1 0 1.442l-2.846.813a3.75 3.75 0 0 0-2.576 2.576l-.813 2.846a.75.75 0 0 1-1.442 0l-.813-2.846a3.75 3.75 0 0 0-2.576-2.576l-2.846-.813a.75.75 0 0 1 0-1.442l2.846-.813A3.75 3.75 0 0 0 7.466 7.89l.813-2.846A.75.75 0 0 1 9 4.5Zm9-3a.75.75 0 0 1 .728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 0 1 0 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 0 1-1.456 0l-.258-1.036a2.625 2.625 0 0 0-1.91-1.91l-1.036-.258a.75.75 0 0 1 0-1.456l1.036-.258a2.625 2.625 0 0 0 1.91-1.91l.258-1.036A.75.75 0 0 1 18 1.5ZM16.5 15a.75.75 0 0 1 .712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 0 1 0 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 0 1-1.422 0l-.395-1.183a1.5 1.5 0 0 0-.948-.948l-1.183-.395a.75.75 0 0 1 0-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0 1 16.5 15Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function OnboardingPromptPreviewCard({ card }: { card: ReturnType<typeof resolveOrganizationPromptPreviewCardContent> }) {
+  return (
+    <button
+      type="button"
+      disabled
+      className="flex h-auto w-full min-w-0 max-w-full shrink cursor-default flex-col items-start justify-start gap-3 whitespace-normal rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-gray-900"
+    >
+      <div className="flex size-8 shrink-0 items-center justify-center">
+        <DesktopPromptSparklesIcon />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-[14px] font-medium text-gray-900">{card.title}</span>
+        <span className="block min-w-0 break-words text-sm font-normal text-gray-500">{card.description}</span>
+      </div>
+    </button>
+  );
+}
+
+function OnboardingPromptPreview({ cards }: { cards: ReturnType<typeof getOnboardingPromptPreviewCards> }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">Preview</p>
+      <div className="mt-5 grid gap-4">
+        <p className="select-none text-[13px] font-medium text-gray-500">Try one of your organization's prompts:</p>
+        <div className="grid min-w-0 gap-2">
+          {cards.map((card, index) => (
+            <OnboardingPromptPreviewCard key={`${index}-${card.selectionPrompt}`} card={card} />
+          ))}
+        </div>
+        <p className="text-[12px] leading-5 text-gray-500">Clicking a card fills the composer draft; it does not send the prompt.</p>
+      </div>
+    </div>
+  );
+}
+
 function getDisabledPromptCopy(isDefault: boolean) {
   return isDefault
     ? "When organization prompts are off, OpenWork defaults are used."
@@ -231,6 +295,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
   const priorityError = getPriorityError(draft, isDefault);
   const disabledPromptCopy = getDisabledPromptCopy(isDefault);
   const formDisabled = saving || togglingEnabled || !canManage;
+  const onboardingPromptPreviewCards = getOnboardingPromptPreviewCards(draft);
 
   const handleSave = async () => {
     if (!canManage) {
@@ -393,7 +458,9 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
                   }}
                   disabled={formDisabled}
                 />
-                <span id={PRIORITY_HELP_ID} className="text-[12px] text-gray-500">Higher wins when multiple targeted policies match.</span>
+                <span id={PRIORITY_HELP_ID} className="text-[12px] text-gray-500">
+                  Organization prompts are winner-takes-all: highest priority supplies all prompt cards; ties use oldest policy, then ID. Checkbox policies still combine.
+                </span>
                 {priorityError ? (
                   <span id={PRIORITY_ERROR_ID} className="text-[12px] text-red-600">{priorityError}</span>
                 ) : null}
@@ -456,63 +523,67 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
             </label>
 
             {draft.onboardingPromptsEnabled ? (
-              <div className="grid gap-3">
-                {ONBOARDING_PROMPT_LABELS.map((label, index) => {
-                  const promptError = getPromptError(draft, index);
-                  const promptDescriptionError = getPromptDescriptionError(draft, index);
-                  const promptHelpId = getPromptHelpId(index);
-                  const promptErrorId = getPromptErrorId(index);
-                  const promptDescriptionHelpId = getPromptDescriptionHelpId(index);
-                  const promptDescriptionErrorId = getPromptDescriptionErrorId(index);
-                  return (
-                    <div key={label} className="grid gap-3 rounded-[18px] border border-gray-200 bg-white px-4 py-3">
-                      <p className="text-[13px] font-medium text-gray-700">{label}</p>
-                      <label className="grid gap-2">
-                        <span className="text-[12px] font-medium text-gray-600">Description</span>
-                        <DenInput
-                          maxLength={ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH}
-                          value={draft.onboardingPromptDescriptions[index] ?? ""}
-                          aria-invalid={promptDescriptionError ? true : undefined}
-                          aria-describedby={promptDescriptionError ? `${promptDescriptionHelpId} ${promptDescriptionErrorId}` : promptDescriptionHelpId}
-                          onChange={(event) => setDraft({
-                            ...draft,
-                            onboardingPromptDescriptions: updateOnboardingPromptDescription(draft.onboardingPromptDescriptions, index, event.target.value),
-                          })}
-                          disabled={formDisabled}
-                          placeholder="Card title shown in the desktop app"
-                        />
-                        <span id={promptDescriptionHelpId} className="text-[12px] text-gray-500">
-                          {(draft.onboardingPromptDescriptions[index] ?? "").trim().length}/{ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH} characters
-                        </span>
-                        {promptDescriptionError ? (
-                          <span id={promptDescriptionErrorId} className="text-[12px] text-red-600">{promptDescriptionError}</span>
-                        ) : null}
-                      </label>
-                      <label className="grid gap-2">
-                        <span className="text-[12px] font-medium text-gray-600">Prompt</span>
-                        <DenTextarea
-                          rows={2}
-                          maxLength={500}
-                          value={draft.onboardingPromptTexts[index] ?? ""}
-                          aria-invalid={promptError ? true : undefined}
-                          aria-describedby={promptError ? `${promptHelpId} ${promptErrorId}` : promptHelpId}
-                          onChange={(event) => setDraft({
-                            ...draft,
-                            onboardingPromptTexts: updateOnboardingPromptText(draft.onboardingPromptTexts, index, event.target.value),
-                          })}
-                          disabled={formDisabled}
-                          placeholder={index === 2 ? "Optional" : "Enter a suggested prompt"}
-                        />
-                        <span id={promptHelpId} className="text-[12px] text-gray-500">
-                          {(draft.onboardingPromptTexts[index] ?? "").trim().length}/500 characters
-                        </span>
-                        {promptError ? (
-                          <span id={promptErrorId} className="text-[12px] text-red-600">{promptError}</span>
-                        ) : null}
-                      </label>
-                    </div>
-                  );
-                })}
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="grid gap-3">
+                  {ONBOARDING_PROMPT_LABELS.map((label, index) => {
+                    const promptError = getPromptError(draft, index);
+                    const promptDescriptionError = getPromptDescriptionError(draft, index);
+                    const promptHelpId = getPromptHelpId(index);
+                    const promptErrorId = getPromptErrorId(index);
+                    const promptDescriptionHelpId = getPromptDescriptionHelpId(index);
+                    const promptDescriptionErrorId = getPromptDescriptionErrorId(index);
+                    return (
+                      <div key={label} className="grid gap-3 rounded-[18px] border border-gray-200 bg-white px-4 py-3">
+                        <p className="text-[13px] font-medium text-gray-700">{label}</p>
+                        <label className="grid gap-2">
+                          <span className="text-[12px] font-medium text-gray-600">Card title (Description field)</span>
+                          <DenInput
+                            maxLength={ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH}
+                            value={draft.onboardingPromptDescriptions[index] ?? ""}
+                            aria-invalid={promptDescriptionError ? true : undefined}
+                            aria-describedby={promptDescriptionError ? `${promptDescriptionHelpId} ${promptDescriptionErrorId}` : promptDescriptionHelpId}
+                            onChange={(event) => setDraft({
+                              ...draft,
+                              onboardingPromptDescriptions: updateOnboardingPromptDescription(draft.onboardingPromptDescriptions, index, event.target.value),
+                            })}
+                            disabled={formDisabled}
+                            placeholder="Card title shown in the desktop app"
+                          />
+                          <span id={promptDescriptionHelpId} className="text-[12px] text-gray-500">
+                            {(draft.onboardingPromptDescriptions[index] ?? "").trim().length}/{ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH} characters
+                          </span>
+                          {promptDescriptionError ? (
+                            <span id={promptDescriptionErrorId} className="text-[12px] text-red-600">{promptDescriptionError}</span>
+                          ) : null}
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="text-[12px] font-medium text-gray-600">Card body and composer draft (Prompt field)</span>
+                          <DenTextarea
+                            rows={2}
+                            maxLength={500}
+                            value={draft.onboardingPromptTexts[index] ?? ""}
+                            aria-invalid={promptError ? true : undefined}
+                            aria-describedby={promptError ? `${promptHelpId} ${promptErrorId}` : promptHelpId}
+                            onChange={(event) => setDraft({
+                              ...draft,
+                              onboardingPromptTexts: updateOnboardingPromptText(draft.onboardingPromptTexts, index, event.target.value),
+                            })}
+                            disabled={formDisabled}
+                            placeholder={index === 2 ? "Optional" : "Enter a suggested prompt"}
+                          />
+                          <span id={promptHelpId} className="text-[12px] text-gray-500">
+                            {(draft.onboardingPromptTexts[index] ?? "").trim().length}/500 characters
+                          </span>
+                          {promptError ? (
+                            <span id={promptErrorId} className="text-[12px] text-red-600">{promptError}</span>
+                          ) : null}
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <OnboardingPromptPreview cards={onboardingPromptPreviewCards} />
               </div>
             ) : (
               <p className="text-[13px] leading-6 text-gray-500">{disabledPromptCopy}</p>
