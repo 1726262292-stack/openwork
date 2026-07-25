@@ -629,6 +629,7 @@ export default {
   "extensions.update_available": "Update available",
   "extensions.update_button": "Update",
   "extensions.updating": "Updating...",
+  "extensions.view_in_extensions": "View in Extensions",
   "mcp.disable_app": "Disable",
   "mcp.enable_app": "Enable",
   "mcp.reloading_status": "Reloading MCP servers…",
