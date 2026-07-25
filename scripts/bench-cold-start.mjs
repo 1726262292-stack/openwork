@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
  * Cold-start benchmark harness for Electron OpenWork.
+ * Use --home shared for a relaunch-style reused HOME/XDG profile, or
+ * --home fresh for first-launch-ever isolated HOME/XDG directories per run.
  *
  * Workspace profile creates an isolated userData + server config + local
  * workspace per run, loads the built renderer via file://, waits until startup
@@ -40,6 +42,7 @@ function parseArgs(argv) {
     label: "baseline",
     out: "",
     profile: "workspace",
+    home: "shared",
     mcp: 3,
     mcpLatency: 150,
     compare: "",
@@ -60,6 +63,7 @@ function parseArgs(argv) {
     else if (arg === "--label") flags.label = next;
     else if (arg === "--out") flags.out = next;
     else if (arg === "--profile") flags.profile = next;
+    else if (arg === "--home") flags.home = next;
     else if (arg === "--mcp") flags.mcp = Number.parseInt(next, 10);
     else if (arg === "--mcp-latency") flags.mcpLatency = Number.parseInt(next, 10);
     else if (arg === "--compare") flags.compare = next;
@@ -74,6 +78,7 @@ function parseArgs(argv) {
   if (flags.profile !== "firstrun" && flags.profile !== "workspace" && flags.profile !== "seeded") {
     throw new Error("--profile must be firstrun, workspace, or seeded");
   }
+  if (flags.home !== "fresh" && flags.home !== "shared") throw new Error("--home must be fresh or shared");
   if (!flags.out) flags.out = path.join(repoRoot, ".bench", `${flags.label}.json`);
   return flags;
 }
@@ -267,8 +272,9 @@ async function rewriteTokenStoreWorkspace(tokenPath, workspaceDir) {
   }
 }
 
-function launchElectron({ electronBinary, tracePath, userDataDir, serverConfigPath, runDir }) {
+function launchElectron({ electronBinary, tracePath, userDataDir, serverConfigPath, runDir, homeRootDir }) {
   const linuxArgs = process.platform === "linux" ? linuxChromiumArgs() : [];
+  const profileRoot = homeRootDir ?? runDir;
   const env = {
     ...process.env,
     OPENWORK_STARTUP_TRACE: tracePath,
@@ -282,12 +288,12 @@ function launchElectron({ electronBinary, tracePath, userDataDir, serverConfigPa
     OPENWORK_SERVER_CONFIG: serverConfigPath,
     OPENWORK_RUNTIME_DB: path.join(path.dirname(serverConfigPath), "runtime.sqlite"),
     OPENWORK_DATA_DIR: path.join(runDir, "openwork-data"),
-    HOME: path.join(runDir, "home"),
-    USERPROFILE: path.join(runDir, "home"),
-    XDG_CONFIG_HOME: path.join(runDir, "xdg", "config"),
-    XDG_DATA_HOME: path.join(runDir, "xdg", "data"),
-    XDG_CACHE_HOME: path.join(runDir, "xdg", "cache"),
-    XDG_STATE_HOME: path.join(runDir, "xdg", "state"),
+    HOME: path.join(profileRoot, "home"),
+    USERPROFILE: path.join(profileRoot, "home"),
+    XDG_CONFIG_HOME: path.join(profileRoot, "xdg", "config"),
+    XDG_DATA_HOME: path.join(profileRoot, "xdg", "data"),
+    XDG_CACHE_HOME: path.join(profileRoot, "xdg", "cache"),
+    XDG_STATE_HOME: path.join(profileRoot, "xdg", "state"),
   };
   delete env.OPENWORK_DEV_MODE;
   delete env.OPENCODE_MODELS_URL;
@@ -496,7 +502,7 @@ function formatMs(value) {
 }
 
 function printAggregateTable(summary) {
-  console.log(`Cold start benchmark: ${summary.flags.label} (${summary.flags.profile})`);
+  console.log(`Cold start benchmark: ${summary.flags.label} (${summary.flags.profile}, home: ${summary.flags.home})`);
   for (const note of summary.profileNotes ?? []) console.log(`Note: ${note}`);
   console.log(`Runs: ${summary.runs.length} total, ${summary.aggregateInputCount} aggregated, ${summary.excludedTimeouts} timeout excluded, ${summary.excludedFailures} failed excluded, ${summary.flags.warmup} warmup excluded`);
   console.log("metric             min      median   p95      max");
@@ -515,7 +521,14 @@ function printAggregateTable(summary) {
 }
 
 function printCompare(current, baseline) {
-  console.log(`Compare median: ${baseline.flags?.label ?? "baseline"} -> ${current.flags.label}`);
+  const baselineHome = baseline.flags?.home ?? "fresh";
+  if (baseline.flags?.profile !== current.flags.profile) {
+    throw new Error(`Refusing to compare different profiles: baseline=${baseline.flags?.profile ?? "unknown"}, current=${current.flags.profile}`);
+  }
+  if (baselineHome !== current.flags.home) {
+    throw new Error(`Refusing to compare different home modes: baseline=${baselineHome}, current=${current.flags.home}`);
+  }
+  console.log(`Compare median: ${baseline.flags?.label ?? "baseline"} -> ${current.flags.label} (${current.flags.profile}, home: ${current.flags.home})`);
   console.log("metric             before   after    delta    delta%");
   for (const metric of Object.keys(current.aggregate)) {
     const before = baseline.aggregate?.[metric]?.median;
@@ -686,7 +699,7 @@ async function prepareSeedTemplate({ flags, electronBinary, rootDir }) {
   }
 }
 
-async function runOne({ index, flags, electronBinary, rootDir, seedUserDataDir }) {
+async function runOne({ index, flags, electronBinary, rootDir, seedUserDataDir, homeRootDir }) {
   const runDir = path.join(rootDir, String(index));
   await rm(runDir, { recursive: true, force: true });
   await mkdir(runDir, { recursive: true });
@@ -705,6 +718,7 @@ async function runOne({ index, flags, electronBinary, rootDir, seedUserDataDir }
     userDataDir: prepared.userDataDir,
     serverConfigPath: prepared.serverConfigPath,
     runDir,
+    homeRootDir,
   });
   const waited = await waitForTrace(
     tracePath,
@@ -742,6 +756,8 @@ async function main() {
   const electronBinary = await preflight();
   const rootDir = path.join(repoRoot, ".bench", safeLabel(flags.label));
   await mkdir(rootDir, { recursive: true });
+  const sharedHomeDir = flags.home === "shared" ? path.join(rootDir, "shared-home") : null;
+  if (sharedHomeDir) await prepareProfileDirs(sharedHomeDir);
 
   let seed = null;
   if (flags.profile === "seeded") {
@@ -764,6 +780,7 @@ async function main() {
         electronBinary,
         rootDir,
         seedUserDataDir: seed?.userDataDir ?? null,
+        homeRootDir: sharedHomeDir,
       }));
     }
   } finally {
