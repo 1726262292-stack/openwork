@@ -1,6 +1,6 @@
 {
   "name": "openwork-server",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "Filesystem-backed API for OpenWork remote clients",
   "type": "module",
   "bin": {
@@ -46,6 +46,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@openwork/paths": "workspace:*",
     "@opencode-ai/sdk": "^1.17.11",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.1",

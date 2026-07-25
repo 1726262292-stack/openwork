@@ -19,6 +19,7 @@ import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import { sweepLegacyOpenCodeConfig } from "./legacy-config-sweep.js";
 import { traceMark, traceWrap } from "./startup-trace.js";
+import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -49,9 +50,6 @@ export type EmbeddedServerHandle = {
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await traceWrap("server.resolveConfig", () => resolveServerConfig(options));
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
-  const opencodeModelsUrl = process.env.OPENWORK_DEV_MODE === "1"
-    ? "http://localhost:8791/models"
-    : "https://models.openworklabs.com/";
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
@@ -74,6 +72,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         || workspace.path;
       await mkdir(cwd, { recursive: true });
       await traceWrap("server.legacySweep", () => sweepLegacyOpenCodeConfig(config).catch(() => undefined));
+      const opencodeModelsUrl = await resolveOpencodeModelsUrl();
 
       managedOpencode = await traceWrap("server.spawnOpencode", () => createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.OPENWORK_OPENCODE_BIN,

@@ -228,6 +228,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11
+      '@openwork/paths':
+        specifier: workspace:*
+        version: link:../../packages/paths
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0
@@ -271,6 +274,9 @@ importers:
       '@openwork/install-config':
         specifier: workspace:*
         version: link:../../packages/install-config
+      '@openwork/paths':
+        specifier: workspace:*
+        version: link:../../packages/paths
       webview-bun:
         specifier: 2.4.0
         version: 2.4.0
@@ -287,7 +293,7 @@ importers:
         specifier: 0.1.77
         version: 0.1.77(solid-js@1.9.9)(stage-js@1.0.0-alpha.17)(typescript@5.9.3)(web-tree-sitter@0.25.10)
       openwork-server:
-        specifier: 0.18.0
+        specifier: 0.18.1
         version: link:../server
       solid-js:
         specifier: 1.9.9
@@ -326,6 +332,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11
+      '@openwork/paths':
+        specifier: workspace:*
+        version: link:../../packages/paths
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0
@@ -1024,6 +1033,15 @@ importers:
       zod:
         specifier: ^3.25.76
         version: 3.25.76
+
+  packages/paths:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.7
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
 
   packages/types:
     dependencies:

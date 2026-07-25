@@ -1,12 +1,12 @@
 "use client";
 
-import { DownloadPlatformGrid, type DownloadPlatformGroup, type DownloadPlatformOption } from "@openwork/ui/react";
-import { ChevronDown } from "lucide-react";
+import { detectPlatform, DownloadPlatformGrid, type DetectedPlatform, type DownloadPlatformGroup, type DownloadPlatformOption } from "@openwork/ui/react";
+import { ChevronDown, Download, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { requestJson } from "../_lib/den-flow";
 import { getInstallConfigErrorMessage } from "../_lib/install-errors";
-import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
+import { buildInstallDownloadHref, installerFileName, type InstallPlatform } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
 import { InstallerPreview } from "./installer-preview";
 import { OnboardingShell } from "./onboarding-shell";
@@ -28,6 +28,72 @@ type InstallConfig = {
 
 const CONNECT_CODE_PATTERN = /^[A-Za-z0-9_-]{24,128}$/;
 const RETURN_TO_OPENWORK_URL = "openwork://open";
+const INSTALL_PLATFORMS: InstallPlatform[] = ["mac-arm64", "mac-x64", "win-x64", "linux-x64", "linux-arm64"];
+
+type InstallerOs = "macos" | "windows" | "linux";
+
+type OpenGuidance = {
+  actions: [string, string];
+  trust: { title: string; body: string } | null;
+};
+
+function detectedInstallPlatform(detected: DetectedPlatform | null): InstallPlatform | null {
+  if (!detected) return null;
+  if (detected.os === "windows") return "win-x64";
+  if (detected.os === "macos" && detected.arch === "arm64") return "mac-arm64";
+  if (detected.os === "macos" && detected.arch === "x64") return "mac-x64";
+  return null;
+}
+
+function installerOsFor(platform: InstallPlatform | null, detected: DetectedPlatform | null): InstallerOs | null {
+  if (platform) {
+    if (platform.startsWith("mac-")) return "macos";
+    return platform === "win-x64" ? "windows" : "linux";
+  }
+  return detected?.os ?? null;
+}
+
+/** Copy for opening the downloaded installer, per operating system. */
+function openGuidance(os: InstallerOs | null, appName: string, fileName: string | null): OpenGuidance {
+  const openFile = fileName
+    ? `Double-click ${fileName} in Downloads.`
+    : `Open the ${appName} installer in your Downloads folder.`;
+
+  if (os === "macos") {
+    return {
+      actions: [openFile, `Drag ${appName} into Applications, then open it.`],
+      trust: {
+        title: `macOS may ask before it opens ${appName}`,
+        body: "If you see “unidentified developer”, choose Open. This is normal for a new app.",
+      },
+    };
+  }
+  if (os === "windows") {
+    return {
+      actions: [openFile, `Follow the setup prompts, then open ${appName}.`],
+      trust: {
+        title: `Windows may warn before it opens ${appName}`,
+        body: "If you see “Windows protected your PC”, choose More info, then Run anyway.",
+      },
+    };
+  }
+  if (os === "linux") {
+    return {
+      actions: [
+        "Run the setup script from your Downloads folder in a terminal.",
+        `It prints where to get the ${appName} AppImage — download that, then open it.`,
+      ],
+      trust: null,
+    };
+  }
+  return {
+    actions: [openFile, `Follow the setup prompts, then open ${appName}.`],
+    trust: {
+      title: `Your computer may ask before it opens ${appName}`,
+      body: "If you see a warning about an app from the internet, choose to open it anyway. This is normal for a new app.",
+    },
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -238,6 +304,8 @@ export function InstallScreen() {
   const [downloadState, setDownloadState] = useState<"idle" | "preparing" | "started">("idle");
   const [downloadLabel, setDownloadLabel] = useState("");
   const [downloadHref, setDownloadHref] = useState("");
+  const [downloadPlatform, setDownloadPlatform] = useState<InstallPlatform | null>(null);
+  const [detected, setDetected] = useState<DetectedPlatform | null>(null);
   const [currentLink, setCurrentLink] = useState("");
   const requestedStep = searchParams.get("step");
   const initialStep = requestedStep === "3" ? 3 : requestedStep === "2" ? 2 : 1;
@@ -255,6 +323,13 @@ export function InstallScreen() {
   useEffect(() => {
     setIsMobile(isMobileUserAgent());
     setCurrentLink(window.location.href);
+    let cancelled = false;
+    void detectPlatform().then((platform) => {
+      if (!cancelled) setDetected(platform);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -370,6 +445,13 @@ export function InstallScreen() {
     ];
   }, [config, token]);
 
+  const platformByHref = useMemo<Record<string, InstallPlatform>>(() => {
+    if (!config) {
+      return {};
+    }
+    return Object.fromEntries(INSTALL_PLATFORMS.map((platform) => [installHref(config, platform, token), platform]));
+  }, [config, token]);
+
   async function copyCurrentLink() {
     try {
       await navigator.clipboard.writeText(currentLink || window.location.href);
@@ -391,6 +473,7 @@ export function InstallScreen() {
   function beginDownload(label: string, href: string) {
     setDownloadLabel(label);
     setDownloadHref(href);
+    setDownloadPlatform(platformByHref[href] ?? null);
     setDownloadState("preparing");
     advanceGuide(2);
     if (downloadStartedTimer.current !== null) {
@@ -489,6 +572,9 @@ export function InstallScreen() {
     );
   }
 
+  const installerFile = installerFileName(downloadPlatform ?? detectedInstallPlatform(detected));
+  const guidance = openGuidance(installerOsFor(downloadPlatform, detected), config.appName, installerFile);
+
   return (
     <OnboardingShell state="install" width="full">
       <section data-testid="install-page">
@@ -566,46 +652,100 @@ export function InstallScreen() {
               title="Continue on your computer"
               description={guideStep < 2
                 ? `Only continue once ${config.appName} is installed and running on this computer.`
-                : `Already installed? Open ${config.appName} directly. First install? Verify the link, then finish activation in your browser.`}
+                : `Your download is done. Open the file on this computer — ${config.appName} takes it from there.`}
               expanded={expandedStep === 2 && guideStep >= 2}
               onExpand={() => setExpandedStep(2)}
               testId="install-guide-step-open"
             >
                   <div className="grid gap-5 lg:grid-cols-2">
-                    <div className="grid content-start gap-3 rounded-[14px] border border-[#e1e4e8] bg-white p-4">
-                      <p className="m-0 text-xs font-semibold uppercase tracking-[0.04em] text-[#667085]">{config.appName} already installed</p>
-                      <p className="m-0 text-sm font-semibold text-[#101828]">Connect this computer to {config.clientName}</p>
-                      <p className="m-0 text-xs leading-[1.5] text-[#60646c]">Your browser may ask permission to open {config.appName}.</p>
-                      <button
-                        type="button"
-                        className="grid h-11 w-full place-items-center rounded-[11px] bg-[#101828] text-[13px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
-                        data-testid="install-connect-open"
-                        disabled={connecting}
-                        onClick={() => void beginConnect()}
-                      >
-                        {connecting ? "Preparing connection…" : `Open ${config.appName}`}
-                      </button>
-                      <div className="flex items-center gap-2.5">
+                    <div className="grid content-start gap-3 rounded-[14px] border border-[#e1e4e8] bg-white p-[18px]">
+                      <p className="m-0 text-xs font-semibold uppercase tracking-[0.04em] text-[#667085]">Next, on your computer</p>
+                      <p className="m-0 text-base font-semibold text-[#101828]">Open the file you just downloaded</p>
+
+                      {installerFile ? (
+                        <div className="flex items-center gap-2.5 rounded-[10px] border border-[#e1e4e8] bg-[#fafbfc] px-3 py-2.5" data-testid="install-file-chip">
+                          <span className="grid size-[30px] shrink-0 place-items-center rounded-lg border border-[#e1e4e8] bg-white" aria-hidden="true">
+                            <Download className="size-[15px] text-[#344054]" />
+                          </span>
+                          <span className="grid min-w-0 gap-0.5">
+                            <span className="truncate text-[13px] font-semibold text-[#101828]">{installerFile}</span>
+                            <span className="text-xs text-[#60646c]">Saved in your Downloads folder</span>
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <ol className="m-0 grid list-none gap-2.5 p-0">
+                        {guidance.actions.map((action, index) => (
+                          <li key={action} className="flex items-start gap-2.5">
+                            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#eef1f5] text-xs font-semibold text-[#344054]" aria-hidden="true">
+                              {index + 1}
+                            </span>
+                            <span className="text-[13px] leading-5 text-[#344054]">{action}</span>
+                          </li>
+                        ))}
+                      </ol>
+
+                      {guidance.trust ? (
+                        <div className="flex items-start gap-2.5" data-testid="install-os-trust-note">
+                          <ShieldCheck className="mt-px size-[15px] shrink-0 text-[#8a6420]" aria-hidden="true" />
+                          <span className="grid gap-0.5">
+                            <span className="text-[13px] font-semibold leading-[17px] text-[#7a5714]">{guidance.trust.title}</span>
+                            <span className="text-[13px] leading-[17px] text-[#7a5714]">{guidance.trust.body}</span>
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="flex items-start gap-2.5 rounded-[10px] border border-[#d3e0fb] bg-[#eef4ff] px-3 py-2.5" data-testid="install-handoff-note">
+                        <span className="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-full bg-[#3e63dd]/20" aria-hidden="true">
+                          <span className="size-1.5 rounded-full bg-[#3e63dd]" />
+                        </span>
+                        <span className="grid gap-0.5">
+                          <span className="text-[13px] font-semibold leading-[17px] text-[#1f3d8f]">{config.appName} continues from here</span>
+                          <span className="text-[13px] leading-[17px] text-[#3a4e80]">The moment it opens, it brings up a sign-in page in your browser so you can approve this computer.</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 py-1">
                         <span className="h-px grow bg-[#e1e4e8]" />
-                        <span className="text-[11px] text-[#7a808a]">Didn&apos;t open?</span>
+                        <span className="text-xs text-[#7a808a]">OR</span>
                         <span className="h-px grow bg-[#e1e4e8]" />
                       </div>
-                      <CopyLinkRow
-                        value={currentLink}
-                        copied={copied}
-                        onCopy={() => void copyCurrentLink()}
-                        testId="install-copy-link"
-                      />
-                      <p className="m-0 text-[11px] text-[#7a808a]">Paste this same link in {config.appName} or the installer.</p>
-                      <button
-                        type="button"
-                        className="w-fit text-[11px] font-medium text-[#667085] underline-offset-4 hover:text-[#101828] hover:underline"
-                        data-testid="install-connect-copy"
-                        disabled={connecting}
-                        onClick={() => void prepareAndCopyConnectionLink()}
-                      >
-                        {connectCopied ? "Copied a fresh connection link" : "Or copy a fresh connection link"}
-                      </button>
+
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="m-0 text-[13px] leading-[17px] text-[#344054]">Already have {config.appName} on this computer?</p>
+                        <button
+                          type="button"
+                          className="grid h-9 shrink-0 place-items-center rounded-[9px] bg-[#101828] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-black disabled:opacity-60"
+                          data-testid="install-connect-open"
+                          disabled={connecting}
+                          onClick={() => void beginConnect()}
+                        >
+                          {connecting ? "Preparing…" : `Open ${config.appName}`}
+                        </button>
+                      </div>
+
+                      <details className="grid gap-2 border-t border-[#e1e4e8] pt-3 [&[open]_svg]:rotate-180">
+                        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-semibold text-[#344054] [&::-webkit-details-marker]:hidden">
+                          <ChevronDown className="size-3 shrink-0 text-[#7a808a] transition-transform" aria-hidden="true" />
+                          Nothing happening on your computer?
+                        </summary>
+                        <p className="m-0 text-[13px] leading-[17px] text-[#60646c]">Paste this link into {config.appName} on your computer to connect it by hand.</p>
+                        <CopyLinkRow
+                          value={currentLink}
+                          copied={copied}
+                          onCopy={() => void copyCurrentLink()}
+                          testId="install-copy-link"
+                        />
+                        <button
+                          type="button"
+                          className="w-fit text-[11px] font-medium text-[#667085] underline-offset-4 hover:text-[#101828] hover:underline"
+                          data-testid="install-connect-copy"
+                          disabled={connecting}
+                          onClick={() => void prepareAndCopyConnectionLink()}
+                        >
+                          {connectCopied ? "Copied a fresh connection link" : "Or copy a fresh connection link"}
+                        </button>
+                      </details>
                     </div>
                     <InstallerPreview
                       appName={config.appName}
