@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,9 +10,10 @@ const FLOW_ID = "generic-installer-release-contract";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const REPO = process.env.OPENWORK_EVAL_RELEASE_REPO?.trim() || "different-ai/openwork";
 const UNIQUE_TAG = process.env.OPENWORK_EVAL_RELEASE_TAG?.trim() || "";
-const RECOVERY_TAG = process.env.OPENWORK_EVAL_RECOVERY_TAG?.trim() || "v0.17.19";
-const MAC_ARM_ASSET = "openwork-installer-mac-arm64.zip";
-const APP_NAME = "OpenWork Installer.app";
+const MAC_ARM_ASSET = "OpenWork-Installer-mac-arm64.dmg";
+const MAC_X64_ASSET = "OpenWork-Installer-mac-x64.dmg";
+const WIN_ASSET = "OpenWork-Installer-win-x64.exe";
+const APP_NAME = "Install OpenWork.app";
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
 
 function witness(ctx, condition, assertion, actual = "") {
@@ -40,11 +41,50 @@ function assetUrl(tag, asset = MAC_ARM_ASSET) {
   return `https://github.com/${REPO}/releases/download/${encodeURIComponent(tag)}/${asset}`;
 }
 
-async function downloadAndValidateMacInstaller(ctx, tag, label) {
+// The URL den-api redirects to when an organization has no pinned installer release.
+function latestAssetUrl(asset = MAC_ARM_ASSET) {
+  return `https://github.com/${REPO}/releases/latest/download/${asset}`;
+}
+
+// A UDIF disk image ends with a 512-byte "koly" trailer. Checking it proves the
+// download is a real disk image on runners without hdiutil.
+function hasDiskImageTrailer(bytes) {
+  return bytes.length > 512 && bytes.subarray(bytes.length - 512, bytes.length - 508).toString("latin1") === "koly";
+}
+
+function validateMountedApp(ctx, appPath, label, { expectStampedVersion }) {
+  const plist = run("plutil", ["-p", path.join(appPath, "Contents", "Info.plist")]);
+  witness(ctx, plist.status === 0, `${label} carries a readable Info.plist`, plist.output);
+  // The installer shipped a hardcoded 1.0.0 up to and including v0.18.1; the release
+  // workflow now stamps the tag. Only artifacts built after that fix can be held to it,
+  // so releases published earlier are not asserted against.
+  if (expectStampedVersion) {
+    witness(ctx, !plist.output.includes('"CFBundleShortVersionString" => "1.0.0"'), `${label} reports a real version rather than the 1.0.0 placeholder`, plist.output);
+  }
+
+  const codesign = run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]);
+  const gatekeeper = run("spctl", ["--assess", "--type", "execute", "--verbose=2", appPath]);
+  const stapler = run("xcrun", ["stapler", "validate", appPath]);
+  witness(ctx, codesign.status === 0, `${label} has a valid deep code signature`, codesign.output);
+  witness(ctx, gatekeeper.status === 0 && gatekeeper.output.includes("accepted"), `${label} is accepted by Gatekeeper`, gatekeeper.output);
+  witness(ctx, stapler.status === 0, `${label} carries a valid notarization ticket`, stapler.output);
+
+  return [
+    `$ plutil -p "${appPath}/Contents/Info.plist"`,
+    plist.output,
+    `$ codesign --verify --deep --strict --verbose=2 "${appPath}"`,
+    codesign.output,
+    `$ spctl --assess --type execute --verbose=2 "${appPath}"`,
+    gatekeeper.output,
+    `$ xcrun stapler validate "${appPath}"`,
+    stapler.output,
+  ].join("\n");
+}
+
+async function downloadAndValidateMacInstaller(ctx, url, label, { expectStampedVersion = false } = {}) {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "ow-installer-release-contract-"));
-  const zipPath = path.join(tempDir, MAC_ARM_ASSET);
-  const extractedPath = path.join(tempDir, "extracted");
-  const url = assetUrl(tag);
+  const dmgPath = path.join(tempDir, MAC_ARM_ASSET);
+  const mountPoint = path.join(tempDir, "mnt");
 
   try {
     const response = await fetch(url, {
@@ -54,36 +94,24 @@ async function downloadAndValidateMacInstaller(ctx, tag, label) {
     const bytes = Buffer.from(await response.arrayBuffer());
     witness(ctx, response.status === 200, `${label} returns HTTP 200 anonymously`, String(response.status));
     witness(ctx, bytes.length > 1_000_000, `${label} returns a real installer rather than an error body`, `${bytes.length} bytes`);
-    writeFileSync(zipPath, bytes);
+    writeFileSync(dmgPath, bytes);
+    witness(ctx, hasDiskImageTrailer(bytes), `${label} is a UDIF disk image`);
 
-    const zipTest = run("unzip", ["-t", zipPath]);
-    witness(ctx, zipTest.status === 0, `${label} passes zip integrity`, zipTest.output.split("\n").slice(-2).join("\n"));
-    const zipList = run("unzip", ["-Z1", zipPath]);
-    witness(ctx, zipList.status === 0, `${label} zip entries can be listed`, String(zipList.status));
-    const entries = zipList.output.split("\n").filter(Boolean);
-    witness(ctx, entries.some((entry) => entry.startsWith(`${APP_NAME}/`)), `${APP_NAME} is at the zip root`);
-    witness(ctx, !entries.includes("openwork-installer.json"), "The generic artifact has no organization sidecar");
-
-    const unzip = run("unzip", ["-q", zipPath, "-d", extractedPath]);
-    witness(ctx, unzip.status === 0, `${label} extracts successfully`, unzip.output);
-    const appPath = path.join(extractedPath, APP_NAME);
-
-    let trustEvidence = "Gatekeeper validation requires macOS; archive validation completed cross-platform.";
+    let trustEvidence = "Gatekeeper validation requires macOS; disk image validation completed cross-platform.";
     if (process.platform === "darwin") {
-      const codesign = run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", appPath]);
-      const gatekeeper = run("spctl", ["--assess", "--type", "execute", "--verbose=2", appPath]);
-      const stapler = run("xcrun", ["stapler", "validate", appPath]);
-      witness(ctx, codesign.status === 0, `${label} has a valid deep code signature`, codesign.output);
-      witness(ctx, gatekeeper.status === 0 && gatekeeper.output.includes("accepted"), `${label} is accepted by Gatekeeper`, gatekeeper.output);
-      witness(ctx, stapler.status === 0, `${label} carries a valid notarization ticket`, stapler.output);
-      trustEvidence = [
-        `$ codesign --verify --deep --strict --verbose=2 "${appPath}"`,
-        codesign.output,
-        `$ spctl --assess --type execute --verbose=2 "${appPath}"`,
-        gatekeeper.output,
-        `$ xcrun stapler validate "${appPath}"`,
-        stapler.output,
-      ].join("\n");
+      const verify = run("hdiutil", ["verify", dmgPath]);
+      witness(ctx, verify.status === 0, `${label} passes disk image integrity`, verify.output.split("\n").slice(-2).join("\n"));
+
+      const attach = run("hdiutil", ["attach", dmgPath, "-nobrowse", "-readonly", "-mountpoint", mountPoint]);
+      witness(ctx, attach.status === 0, `${label} mounts successfully`, attach.output);
+      try {
+        const appPath = path.join(mountPoint, APP_NAME);
+        witness(ctx, existsSync(appPath), `${APP_NAME} is at the disk image root`);
+        witness(ctx, !existsSync(path.join(mountPoint, "openwork-installer.json")), "The generic artifact has no organization sidecar");
+        trustEvidence = validateMountedApp(ctx, appPath, label, { expectStampedVersion });
+      } finally {
+        run("hdiutil", ["detach", mountPoint, "-force"]);
+      }
     }
 
     const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -93,7 +121,7 @@ async function downloadAndValidateMacInstaller(ctx, tag, label) {
         `requested=${url}`,
         `resolved=${response.url}`,
         `status=${response.status}`,
-        `bytes=${statSync(zipPath).size}`,
+        `bytes=${statSync(dmgPath).size}`,
         `sha256=${sha256}`,
         "",
         trustEvidence,
@@ -125,45 +153,49 @@ export default {
             witness(ctx, releaseResponse.status === 200, "The unique proof release exists", String(releaseResponse.status));
             const release = await releaseResponse.json();
             witness(ctx, release.prerelease === true, "The unique proof release is marked prerelease", String(release.prerelease));
-            await downloadAndValidateMacInstaller(ctx, UNIQUE_TAG, "unique release asset");
+            await downloadAndValidateMacInstaller(ctx, assetUrl(UNIQUE_TAG), "unique release asset", { expectStampedVersion: true });
           },
         });
       },
     },
     {
-      name: "The originally broken production URL is recovered",
+      name: "The published stable installer is downloadable at the URL den-api hands out",
       run: async (ctx) => {
-        await ctx.prove("The reported v0.17.19 URL now downloads and passes integrity and trust checks", {
+        await ctx.prove("The releases/latest URL den-api redirects to downloads a trusted installer", {
           voiceover: vo[1],
           assert: async () => {
-            await downloadAndValidateMacInstaller(ctx, RECOVERY_TAG, "recovered v0.17.19 asset");
+            await downloadAndValidateMacInstaller(ctx, latestAssetUrl(), "latest stable asset");
           },
         });
       },
     },
     {
-      name: "The stable release pipeline and runtime fallback both fail safely",
+      name: "The stable release pipeline and the download route agree on the asset names",
       run: async (ctx) => {
-        await ctx.prove("Stable publication is gated on generic assets and legacy fallback URLs are verified", {
+        await ctx.prove("Stable publication builds every generic asset and den-api redirects to those exact names", {
           voiceover: vo[2],
           assert: async () => {
             const genericWorkflow = readFileSync(path.join(ROOT, ".github", "workflows", "release-generic-installer.yml"), "utf8");
             const releaseWorkflow = readFileSync(path.join(ROOT, ".github", "workflows", "release-macos-aarch64.yml"), "utf8");
             const e2eWorkflow = readFileSync(path.join(ROOT, ".github", "workflows", "eval-generic-installer-release.yml"), "utf8");
             const resolver = readFileSync(path.join(ROOT, "ee", "apps", "den-api", "src", "utils", "installer-artifacts.ts"), "utf8");
-            const constants = readFileSync(path.join(ROOT, "ee", "apps", "den-api", "src", "CONSTS.ts"), "utf8");
+            const downloadRoute = readFileSync(path.join(ROOT, "ee", "apps", "den-api", "src", "routes", "org", "install-links.ts"), "utf8");
 
             witness(ctx, genericWorkflow.includes("workflow_call:"), "The generic installer workflow is reusable by the release workflow");
-            witness(ctx, genericWorkflow.includes("github.event_name != 'release'"), "A reusable call runs even though it retains the caller's push event");
-            witness(ctx, releaseWorkflow.includes("publish-generic-installer:"), "The stable release workflow calls the generic installer workflow");
+            witness(ctx, genericWorkflow.includes("inputs.release_tag"), "A reusable call publishes against the caller's release tag");
+            witness(ctx, releaseWorkflow.includes("publish-installers:"), "The stable release workflow calls the generic installer workflow");
             witness(ctx, releaseWorkflow.includes("--draft $PRERELEASE_FLAG"), "Every newly created release begins as a draft");
-            witness(ctx, releaseWorkflow.includes("openwork-installer-mac-arm64.zip"), "Stable publication asserts the ARM64 generic asset");
-            witness(ctx, releaseWorkflow.includes("openwork-installer-mac-x64.zip"), "Stable publication asserts the x64 generic asset");
-            witness(ctx, releaseWorkflow.includes("openwork-installer-win-x64.exe"), "Stable publication asserts the Windows generic asset");
+            witness(ctx, genericWorkflow.includes(MAC_ARM_ASSET), "Stable publication builds the ARM64 generic asset", MAC_ARM_ASSET);
+            witness(ctx, genericWorkflow.includes(MAC_X64_ASSET), "Stable publication builds the x64 generic asset", MAC_X64_ASSET);
+            witness(ctx, genericWorkflow.includes(WIN_ASSET), "Stable publication builds the Windows generic asset", WIN_ASSET);
+            // The installer version is stamped from the tag, and the smoke test fails the
+            // build on a mismatch, so an unversioned artifact cannot be published.
+            witness(ctx, genericWorkflow.includes("INSTALLER_VERSION"), "Publication stamps the release version into every artifact");
             witness(ctx, e2eWorkflow.includes('branches:\n      - "installer-release-e2e/**"'), "A collision-proof push caller exercises the reusable workflow end to end");
             witness(ctx, e2eWorkflow.includes("--cleanup-tag --yes"), "The isolated E2E release and tag are always cleaned up");
-            witness(ctx, resolver.includes('method: "HEAD"'), "Legacy fallback probes the normal release asset before redirecting");
-            witness(ctx, constants.includes("https://openworklabs.com/download"), "A missing normal asset falls back to the stable download page");
+            witness(ctx, resolver.includes("releases/latest/download"), "The resolver can address an unpinned release by its latest asset URL");
+            witness(ctx, downloadRoute.includes("installerLatestReleaseAssetUrl"), "The download route redirects to the latest asset when no release is pinned");
+            witness(ctx, downloadRoute.includes("installerReleaseAssetUrl"), "The download route honours an organization's pinned installer release");
 
             const tests = run("pnpm", [
               "exec",

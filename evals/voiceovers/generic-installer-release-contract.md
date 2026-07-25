@@ -1,7 +1,7 @@
 # generic-installer-release-contract — A release link is proven by downloading it
 
-1. A collision-proof prerelease built from the exact pull-request commit exposes its generic Mac installer anonymously, and the downloaded zip contains the signed, notarized app at its root.
+1. A collision-proof prerelease built from the exact pull-request commit exposes its generic Mac installer anonymously, and the downloaded disk image mounts to reveal the signed, notarized installer app at its root.
 
-2. The exact v0.17.19 ARM64 URL that returned Not Found now downloads real bytes, passes zip integrity, and contains a Gatekeeper-accepted installer.
+2. The releases/latest URL that den-api hands to an organization without a pinned installer release downloads real bytes, passes disk image integrity, and contains a Gatekeeper-accepted installer at the disk image root.
 
-3. Future stable releases cannot become public until the reusable installer job has uploaded every required generic asset; older releases without one safely redirect only to a verified normal download.
+3. Stable publication builds every required generic asset and stamps the release version into each one, and the download route resolves both a pinned release and the latest release by those exact asset names.
