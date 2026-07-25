@@ -116,6 +116,10 @@ import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
 import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
+import {
+  resolveEntitledOrgDefaultModel,
+  type ModelEntitlementOption,
+} from "@/react-app/domains/connections/provider-auth/provider-policy";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import {
   disabledProvidersFromConfig,
@@ -181,6 +185,7 @@ import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } fro
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { SettingsSurface } from "./settings-route";
+import { writeStoredDefaultModel } from "@/react-app/kernel/model-config";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
@@ -224,6 +229,17 @@ function describeTaskCreateError(error: unknown) {
     return "OpenCode is unavailable for this workspace. Retry once it restarts, or restart OpenWork if the problem continues.";
   }
   return message;
+}
+
+function providerListModelEntitlementOptions(
+  providerList: ProviderListResponse | null | undefined,
+): ModelEntitlementOption[] {
+  return getConnectedProviderItems(providerList).flatMap((provider) =>
+    Object.keys(provider.models ?? {}).map((modelID) => ({
+      providerID: provider.id,
+      modelID,
+    })),
+  );
 }
 
 function taskCreateUnavailableToastId(workspaceId: string) {
@@ -783,6 +799,19 @@ export function SessionRoute() {
   const selectedModelProviderList = selectedModelUsesCloudProvider
     ? cloudProviderList
     : providerListQuery.data;
+  const entitledOrgDefaultModel = useMemo(() =>
+    resolveEntitledOrgDefaultModel(
+      providerListModelEntitlementOptions(cloudProviderList ?? providerListQuery.data),
+      {
+        currentDefault: local.prefs.defaultModel,
+        restrictToCloud: checkDesktopRestriction({ restriction: "allowCustomProviders" }),
+        checkRestriction: checkDesktopRestriction,
+      },
+    ),
+  [checkDesktopRestriction, cloudProviderList, local.prefs.defaultModel, providerListQuery.data]);
+  useEffect(() => {
+    if (entitledOrgDefaultModel) writeStoredDefaultModel(entitledOrgDefaultModel);
+  }, [entitledOrgDefaultModel]);
   const selectedModelUnavailable = Boolean(
     selectedWorkspaceId &&
       opencodeClient &&
@@ -817,6 +846,11 @@ export function SessionRoute() {
       autoOpenedUnavailableModelRef.current = null;
       return;
     }
+    if (denAuth.isSignedIn && !cloudProviderSyncReady) return;
+    if (entitledOrgDefaultModel) {
+      writeStoredDefaultModel(entitledOrgDefaultModel);
+      return;
+    }
     if (autoOpenedUnavailableModelRef.current === selectedModelUnavailableKey) return;
 
     autoOpenedUnavailableModelRef.current = selectedModelUnavailableKey;
@@ -824,7 +858,7 @@ export function SessionRoute() {
     modelPicker.setRecentProviderIds(new Set());
     modelPicker.setCompactOpen(false);
     modelPicker.setOpen(true);
-  }, [modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, selectedModelUnavailableKey]);
+  }, [cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, selectedModelUnavailableKey]);
 
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   const canCreateTask = Boolean(

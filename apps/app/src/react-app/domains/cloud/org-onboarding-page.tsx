@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
@@ -341,6 +341,9 @@ export function OrgOnboardingPage() {
   const { markRouteReady } = useBootState();
   const prepared = usePreparedBootstrap();
   const [hasSelectedOrganization, setHasSelectedOrganization] = useState(false);
+  const [autoContinueResources, setAutoContinueResources] = useState(false);
+  const [autoSelectFailedOrgId, setAutoSelectFailedOrgId] = useState<string | null>(null);
+  const autoSelectingOrgIdRef = useRef<string | null>(null);
   
   useEffect(() => {
     window.dispatchEvent(new CustomEvent(orgOnboardingVisibilityEvent, { detail: { visible: true } }));
@@ -377,6 +380,43 @@ export function OrgOnboardingPage() {
     enabled: Boolean(authToken),
     queryFn: () => denClient.listOrgs(),
   });
+  const orgs = data?.orgs ?? [];
+  const singleOrg = orgs.length === 1 ? orgs[0] : null;
+
+  useEffect(() => {
+    if (!authToken || hasSelectedOrganization || !singleOrg) return;
+    if (autoSelectFailedOrgId === singleOrg.id) return;
+    if (autoSelectingOrgIdRef.current === singleOrg.id) return;
+
+    let cancelled = false;
+    autoSelectingOrgIdRef.current = singleOrg.id;
+    void denClient
+      .setActiveOrganization({ organizationId: singleOrg.id })
+      .then(() => {
+        if (cancelled) return;
+        writeDenSettings({
+          ...settings,
+          authToken: authToken || null,
+          activeOrgId: singleOrg.id,
+          activeOrgSlug: singleOrg.slug,
+          activeOrgName: singleOrg.name,
+        });
+        setAutoContinueResources(true);
+        setHasSelectedOrganization(true);
+      })
+      .catch(() => {
+        if (!cancelled) setAutoSelectFailedOrgId(singleOrg.id);
+      })
+      .finally(() => {
+        if (autoSelectingOrgIdRef.current === singleOrg.id) {
+          autoSelectingOrgIdRef.current = null;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, autoSelectFailedOrgId, denClient, hasSelectedOrganization, settings, singleOrg]);
 
   if (!authToken) {
     return prepared ? <PreparedWorkspacePage prepared={prepared} /> : null;
@@ -422,23 +462,46 @@ export function OrgOnboardingPage() {
     );
   }
 
-  if ((data?.orgs.length ?? 0) > 0 && !hasSelectedOrganization) {
+  if (orgs.length > 0 && !hasSelectedOrganization) {
+    if (singleOrg && autoSelectFailedOrgId !== singleOrg.id) {
+      return (
+        <Page>
+          <PageBackground />
+          <PageTitlebarRegion />
+          <PageContainer>
+            <PageHeader>
+              <PageTitle>Your organization</PageTitle>
+            </PageHeader>
+            <PageContent>
+              <PageLoading>
+                <PageLoadingSpinner />
+                <PageLoadingDescription>Loading organizations...</PageLoadingDescription>
+              </PageLoading>
+            </PageContent>
+          </PageContainer>
+        </Page>
+      );
+    }
+
     return (
       <OrganizationSelectionPage
-        orgs={data.orgs}
+        orgs={orgs}
         defaultOrganization={
-          data.orgs.find((org) => org.id === orgId) ??
-          data.orgs[0]
+          orgs.find((org) => org.id === orgId) ??
+          orgs[0]
         }
-        onContinue={() => setHasSelectedOrganization(true)}
+        onContinue={() => {
+          setAutoContinueResources(false);
+          setHasSelectedOrganization(true);
+        }}
       />
     );
   }
 
-  return <ResourceSelectionPage />;
+  return <ResourceSelectionPage autoContinue={autoContinueResources} />;
 }
 
-export function ResourceSelectionPage() {
+export function ResourceSelectionPage({ autoContinue = false }: { autoContinue?: boolean }) {
   const navigate = useNavigate();
   const platform = usePlatform();
   const { markRouteReady } = useBootState();
@@ -454,6 +517,7 @@ export function ResourceSelectionPage() {
   } | null>(null);
   const [preparingBranding, setPreparingBranding] = useState(false);
   const [brandingRestart, setBrandingRestart] = useState<BrandingRestartState | null>(null);
+  const autoContinueAttemptedRef = useRef(false);
 
   // Redirect if no auth or no org — can't show onboarding without them
   useEffect(() => {
@@ -487,7 +551,7 @@ export function ResourceSelectionPage() {
     }),
   });
 
-  const finishOnboarding = useCallback(() => {
+  const finishOnboarding = useCallback((optionsArg?: { requestReload?: boolean }) => {
     // If user picked a default model, write it
     if (selectedDefault) {
       writeStoredDefaultModel({
@@ -498,7 +562,7 @@ export function ResourceSelectionPage() {
     // Mark all providers shown on this page as "seen" so the global
     // toast doesn't re-fire for them on the next sync interval.
     markProvidersSeen(providers);
-    if (providers.length > 0) {
+    if (providers.length > 0 && optionsArg?.requestReload !== false) {
       try {
         window.localStorage.setItem(RELOAD_AFTER_ONBOARDING_KEY, "1");
       } catch {}
@@ -506,9 +570,9 @@ export function ResourceSelectionPage() {
     navigate("/session", { replace: true });
   }, [navigate, providers, selectedDefault]);
 
-  const handleContinue = useCallback(async () => {
+  const handleContinue = useCallback(async (optionsArg?: { requestReload?: boolean }) => {
     if (!window.__OPENWORK_ELECTRON__?.shell?.relaunch) {
-      finishOnboarding();
+      finishOnboarding({ requestReload: optionsArg?.requestReload });
       return;
     }
 
@@ -516,13 +580,13 @@ export function ResourceSelectionPage() {
     try {
       const desktopConfig = await refreshFresh();
       if (!hasWorkspaceBranding(desktopConfig)) {
-        finishOnboarding();
+        finishOnboarding({ requestReload: optionsArg?.requestReload });
         return;
       }
 
       const fingerprint = workspaceBrandingFingerprint(orgId, desktopConfig);
       if (window.localStorage.getItem(APPLIED_BRANDING_FINGERPRINT_KEY) === fingerprint) {
-        finishOnboarding();
+        finishOnboarding({ requestReload: optionsArg?.requestReload });
         return;
       }
 
@@ -559,6 +623,14 @@ export function ResourceSelectionPage() {
     }
   }, [finishOnboarding, orgId, refreshFresh]);
 
+  useEffect(() => {
+    if (!autoContinue || autoContinueAttemptedRef.current) return;
+    if (loading || error || preparingBranding || brandingRestart) return;
+
+    autoContinueAttemptedRef.current = true;
+    void handleContinue({ requestReload: false });
+  }, [autoContinue, brandingRestart, error, handleContinue, loading, preparingBranding]);
+
   const restartWithBranding = useCallback(async () => {
     if (!brandingRestart) return;
     window.localStorage.setItem(APPLIED_BRANDING_FINGERPRINT_KEY, brandingRestart.fingerprint);
@@ -579,6 +651,8 @@ export function ResourceSelectionPage() {
 
   const totalModels = providers.reduce((sum, provider) => sum + provider.models.length, 0);
   const hasResources = providers.length > 0 || marketplaces.length > 0;
+  const autoContinuePending =
+    autoContinue && !autoContinueAttemptedRef.current && !loading && !error && !brandingRestart;
 
   if (preparingBranding) {
     return (
@@ -646,6 +720,26 @@ export function ResourceSelectionPage() {
               <ArrowRight data-icon="inline-end" />
             </Button>
           </PageFooter>
+        </PageContainer>
+      </Page>
+    );
+  }
+
+  if (autoContinuePending) {
+    return (
+      <Page>
+        <PageBackground />
+        <PageTitlebarRegion />
+        <PageContainer>
+          <PageHeader>
+            <PageTitle>{orgName || "Your organization"}</PageTitle>
+          </PageHeader>
+          <PageContent>
+            <PageLoading>
+              <PageLoadingSpinner />
+              <PageLoadingDescription>Loading available resources...</PageLoadingDescription>
+            </PageLoading>
+          </PageContent>
         </PageContainer>
       </Page>
     );

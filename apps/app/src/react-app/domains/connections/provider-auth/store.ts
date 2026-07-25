@@ -33,7 +33,10 @@ import {
   filterProviderList,
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
-import { ensureProviderListQuery } from "../../../infra/provider-list-query";
+import {
+  ensureProviderListQuery,
+  getConnectedProviderItems,
+} from "../../../infra/provider-list-query";
 import type { OpenworkServerStoreSnapshot } from "../openwork-server-store";
 
 /**
@@ -78,7 +81,13 @@ import {
 import {
   isProviderAddRestrictedByDesktopPolicy,
   isProviderAllowedByDesktopPolicy,
+  resolveEntitledOrgDefaultModel,
+  type ModelEntitlementOption,
 } from "./provider-policy";
+import {
+  readStoredDefaultModel,
+  writeStoredDefaultModel,
+} from "../../../kernel/model-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 type CloudProviderSyncReason =
@@ -184,6 +193,17 @@ type MutableState = {
   cloudOrgProviders: DenOrgLlmProvider[];
   importedCloudProviders: Record<string, CloudImportedProvider>;
 };
+
+function providerListModelEntitlementOptions(
+  providerList: ProviderListResponse | null | undefined,
+): ModelEntitlementOption[] {
+  return getConnectedProviderItems(providerList).flatMap((provider) =>
+    Object.keys(provider.models ?? {}).map((modelID) => ({
+      providerID: provider.id,
+      modelID,
+    })),
+  );
+}
 
 export type ProviderAuthStore = ReturnType<typeof createProviderAuthStore>;
 
@@ -1627,6 +1647,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     );
   };
 
+  const preselectEntitledOrgDefaultModel = (
+    providerList: ProviderListResponse | null | undefined,
+  ) => {
+    const replacement = resolveEntitledOrgDefaultModel(
+      providerListModelEntitlementOptions(providerList),
+      {
+        currentDefault: readStoredDefaultModel(),
+        restrictToCloud: options.checkDesktopAppRestriction({ restriction: "allowCustomProviders" }),
+        checkRestriction: options.checkDesktopAppRestriction,
+      },
+    );
+    if (replacement) writeStoredDefaultModel(replacement);
+  };
+
   async function performCloudProviderSync(reason: CloudProviderSyncReason) {
     if (!hasCloudProviderSyncPrerequisites()) {
       return;
@@ -1713,9 +1747,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
     }
 
-    if (configChanged) {
-      await refreshProviders({ dispose: true }).catch(() => null);
-    }
+    const syncedProviderList = configChanged
+      ? await refreshProviders({ dispose: true }).catch(() => null)
+      : await refreshProviders({ force: true }).catch(() => null);
+    preselectEntitledOrgDefaultModel(syncedProviderList);
 
     // Notify the UI about newly imported providers so the global toast
     // can be shown regardless of which route is active.
