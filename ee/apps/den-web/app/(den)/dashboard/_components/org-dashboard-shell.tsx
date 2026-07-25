@@ -49,6 +49,7 @@ import {
 import { useOrgListWindow } from "../../_lib/use-org-list-window";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { buildDenFeedbackUrl } from "../../_lib/feedback";
+import { useMemberOnboarding } from "./member-onboarding-card";
 import { OrgSelectionScreen } from "./org-selection-screen";
 import { UserProfileDialog } from "./user-profile-dialog";
 
@@ -295,6 +296,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
   const { user, signOut, updateUserProfile, runtimeConfig, runtimeConfigLoaded } = useDenFlow();
   const {
     activeOrg,
+    orgId,
     orgDirectory,
     orgContext,
     orgSelectionRequired,
@@ -317,6 +319,10 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     showMore: showMoreOrgDirectory,
     showSearch: showSwitcherSearch,
   } = useOrgListWindow(orgDirectory, 20);
+  const {
+    ready: memberOnboardingReady,
+    dismissed: memberOnboardingDismissed,
+  } = useMemberOnboarding(orgId);
 
   if (orgSelectionRequired) {
     return (
@@ -335,11 +341,13 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     orgContext?.currentMember.isOwner ?? false,
     orgContext?.roles,
   );
+  const memberOnboardingActive = !access.isAdmin && memberOnboardingReady && !memberOnboardingDismissed;
 
   const pageTitle = getDashboardPageTitle(pathname, activeOrg?.slug ?? null);
   const shouldShowProfilePrompt = Boolean(
     user &&
       !profilePromptDismissed &&
+      !memberOnboardingActive &&
       user.name?.trim() === DEFAULT_AUTH_NAME,
   );
   const feedbackHref = buildDenFeedbackUrl({
