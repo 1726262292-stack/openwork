@@ -32,6 +32,7 @@ import {
   openWorkModelsPromoChangedEvent,
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
+import { filterEntitledModelOptions } from "@/react-app/domains/connections/provider-auth/provider-policy";
 import {
   Command,
   CommandCollection,
@@ -43,7 +44,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
 import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
 import { newProvidersEvent } from "@/app/lib/provider-events";
 
@@ -83,8 +83,7 @@ function useModelOptions(open: boolean) {
   // Apply org-level restrictions (dev #1505) on top of the raw model list
   // so the picker never surfaces blocked options:
   //   - `allowZenModel` hides the built-in OpenCode provider entries when false
-  //   - `allowCustomProviders` hides providers that OpenCode does not report
-  //     as connected through the provider list endpoint.
+  //   - `allowCustomProviders` keeps org-managed providers, plus Zen when allowed.
   return React.useMemo(() => {
     const restrictToCloud = checkDesktopRestriction({
       restriction: "allowCustomProviders",
@@ -102,25 +101,12 @@ function useModelOptions(open: boolean) {
           behaviorDescription: "",
           behaviorValue: null,
           isFree: false,
-          isConnected: true,
         })),
       );
 
-    return options.filter((option) => {
-      if (
-        isDesktopProviderBlocked({
-          providerId: option.providerID,
-          checkRestriction: checkDesktopRestriction,
-        })
-      ) {
-        return false;
-      }
-
-      if (restrictToCloud && !option.isConnected) {
-        return false;
-      }
-
-      return true;
+    return filterEntitledModelOptions(options, {
+      restrictToCloud,
+      checkRestriction: checkDesktopRestriction,
     });
   }, [checkDesktopRestriction, data]);
 }

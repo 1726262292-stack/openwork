@@ -39,6 +39,7 @@ export const DesktopPolicyMemberTable = mysqlTable(
     desktopPolicyId: denTypeIdColumn("desktopPolicy", "desktop_policy_id").notNull(),
     orgMemberId: denTypeIdColumn("member", "org_member_id"),
     teamId: denTypeIdColumn("team", "team_id"),
+    role: varchar("role", { length: 64 }),
     createdAt: timestamp("created_at", { fsp: 3 }).notNull().defaultNow(),
   },
   (table) => [

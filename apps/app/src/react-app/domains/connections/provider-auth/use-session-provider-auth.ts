@@ -11,6 +11,7 @@ import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-co
 import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
 import { useReloadCoordinator } from "@/react-app/shell/reload-coordinator";
 import { type RouteWorkspace, workspaceLabel } from "@/react-app/shell/route-workspaces";
+import { reconcilePolicyDisabledProviders } from "@/react-app/domains/connections/policy-provider-reconcile";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "./store";
 
 const emptyWorkspaceDisplay: WorkspaceDisplay = {
@@ -59,6 +60,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
   const reloadCoordinator = useReloadCoordinator();
   const { markReloadRequired } = reloadCoordinator;
   const onboardingProviderAuthPendingRef = useRef(false);
+  const policyProviderReconcileInFlightRef = useRef(false);
 
   const stateRef = useRef({
     opencodeClient,
@@ -150,15 +152,44 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
 
   useEffect(() => {
     if (!opencodeClient || !selectedWorkspaceId) return;
-    // Org policy may force Zen off. Never force it back on — that races user Disconnect.
-    if (!checkDesktopRestriction({ restriction: "allowZenModel" })) return;
+    if (policyProviderReconcileInFlightRef.current) return;
 
-    void store
-      .ensureProjectProviderDisabledState("opencode", true)
-      .catch((error) => {
-        console.warn("[desktop-app-restrictions] failed to sync Zen restriction", error);
-      });
-  }, [checkDesktopRestriction, opencodeClient, selectedWorkspaceId, selectedWorkspaceRoot, store]);
+    policyProviderReconcileInFlightRef.current = true;
+    void reconcilePolicyDisabledProviders({
+      opencodeClient,
+      openworkClient: selectedWorkspaceEndpoint?.client ?? null,
+      workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
+      workspaceType: selectedWorkspace?.workspaceType ?? null,
+      allProviders: providers,
+      connectedProviderIds: providerConnectedIds,
+      disabledProviderIds,
+      checkRestriction: checkDesktopRestriction,
+      setDisabledProviders: setDisabledProviderIds,
+      markReloadRequired: () => {
+        markReloadRequired("config", {
+          type: "config",
+          name: "opencode.json",
+          action: "updated",
+        });
+      },
+    }).catch((error) => {
+      console.warn("[desktop-app-restrictions] failed to sync provider restrictions", error);
+    }).finally(() => {
+      policyProviderReconcileInFlightRef.current = false;
+    });
+  }, [
+    checkDesktopRestriction,
+    disabledProviderIds,
+    markReloadRequired,
+    opencodeClient,
+    providerConnectedIds,
+    providers,
+    selectedWorkspace?.workspaceType,
+    selectedWorkspaceEndpoint?.client,
+    selectedWorkspaceEndpoint?.workspaceId,
+    selectedWorkspaceId,
+    setDisabledProviderIds,
+  ]);
 
   useEffect(() => {
     store.syncFromOptions();
@@ -201,7 +232,8 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
     if (!onboardingProviderAuthPendingRef.current) return;
     if (!selectedWorkspaceEndpoint) return;
     onboardingProviderAuthPendingRef.current = false;
-    store.openProviderAuthModal({ returnFocusTarget: "composer" });
+    if (store.isProviderAddRestricted()) return;
+    void store.openProviderAuthModal({ returnFocusTarget: "composer" });
   }, [selectedWorkspaceEndpoint, store]);
 
   // Session is where forced sign-in lands. Keep org-managed cloud providers in

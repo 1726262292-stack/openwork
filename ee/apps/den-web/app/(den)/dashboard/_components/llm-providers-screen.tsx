@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CodeXml, Cpu, KeyRound, Plus, Search } from "lucide-react";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
-import { buttonVariants } from "../../_components/ui/button";
+import { DenButton, buttonVariants } from "../../_components/ui/button";
+import { DenCard } from "../../_components/ui/card";
 import { DenInput } from "../../_components/ui/input";
 import {
   getLlmProviderRoute,
@@ -12,12 +13,25 @@ import {
 } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import {
+  DESKTOP_POLICY_ENTERPRISE_PLAN_ERROR,
+  createDesktopPolicy,
+  updateDesktopPolicy,
+  useOrgDesktopPolicies,
+  type DenDesktopPolicy,
+  type DenDesktopPolicyRole,
+} from "./desktop-policy-data";
+import {
   type DenLlmProviderSource,
   formatProviderTimestamp,
   getProviderDocUrl,
   getProviderEnvNames,
   useOrgLlmProviders,
 } from "./llm-provider-data";
+
+type ModelAccessMode = "open" | "managed";
+
+const ADMIN_EXCEPTION_POLICY_NAME = "Admins may add providers";
+const ADMIN_EXCEPTION_ROLES: DenDesktopPolicyRole[] = ["owner", "admin"];
 
 function getProviderSourceLabel(source: DenLlmProviderSource) {
   if (source === "openwork") return "OpenWork";
@@ -28,10 +42,53 @@ function getProviderSourceIcon(source: DenLlmProviderSource) {
   return source === "custom" ? CodeXml : Cpu;
 }
 
+function getPolicyMemberIds(policy: DenDesktopPolicy) {
+  return policy.assignments.flatMap((assignment) => (assignment.orgMemberId ? [assignment.orgMemberId] : []));
+}
+
+function getPolicyTeamIds(policy: DenDesktopPolicy) {
+  return policy.assignments.flatMap((assignment) => (assignment.teamId ? [assignment.teamId] : []));
+}
+
+function getPolicyRoles(policy: DenDesktopPolicy) {
+  return policy.roles.length > 0
+    ? policy.roles
+    : policy.assignments.flatMap((assignment) => (assignment.role ? [assignment.role] : []));
+}
+
 export function LlmProvidersScreen() {
-  const { orgId, orgSlug } = useOrgDashboard();
-  const { llmProviders, busy, error } = useOrgLlmProviders(orgId);
+  const { orgId, orgSlug, runReauthableAction } = useOrgDashboard();
+  const { llmProviders, busy: providersBusy, error: providersError } = useOrgLlmProviders(orgId);
+  const {
+    desktopPolicies,
+    busy: policiesBusy,
+    error: policiesError,
+    reloadPolicies,
+  } = useOrgDesktopPolicies(orgId);
   const [query, setQuery] = useState("");
+  const [accessMode, setAccessMode] = useState<ModelAccessMode>("open");
+  const [adminExceptionChecked, setAdminExceptionChecked] = useState(true);
+  const [zenAllowed, setZenAllowed] = useState(true);
+  const [accessSaving, setAccessSaving] = useState(false);
+  const [accessError, setAccessError] = useState<string | null>(null);
+  const [accessSaved, setAccessSaved] = useState<string | null>(null);
+
+  const defaultPolicy = useMemo(
+    () => desktopPolicies.find((policy) => policy.isDefault) ?? null,
+    [desktopPolicies],
+  );
+
+  const adminExceptionPolicies = useMemo(
+    () => desktopPolicies.filter((policy) => !policy.isDefault && policy.policyName === ADMIN_EXCEPTION_POLICY_NAME),
+    [desktopPolicies],
+  );
+
+  useEffect(() => {
+    const defaultAllowsCustomProviders = defaultPolicy?.policy.allowCustomProviders !== false;
+    setAccessMode(defaultAllowsCustomProviders ? "open" : "managed");
+    setAdminExceptionChecked(defaultAllowsCustomProviders ? true : adminExceptionPolicies.some((policy) => policy.isEnabled));
+    setZenAllowed(defaultPolicy?.policy.allowZenModel !== false);
+  }, [defaultPolicy, adminExceptionPolicies]);
 
   const openWorkProviders = useMemo(
     () => llmProviders.filter((provider) => provider.source === "openwork"),
@@ -75,6 +132,129 @@ export function LlmProvidersScreen() {
     return rows;
   }, [openWorkProviders]);
 
+  const modelNames = useMemo(() => {
+    const names = llmProviders.flatMap((provider) =>
+      provider.models.flatMap((model) => {
+        const name = model.name.trim();
+        return name ? [name] : [];
+      }),
+    );
+    return [...new Set(names)];
+  }, [llmProviders]);
+
+  const managedOutcome = modelNames.length > 0
+    ? `Members see exactly: ${modelNames.join(", ")}`
+    : "Members see no models yet — add a provider below";
+  const openOutcome = modelNames.length > 0
+    ? `Members may add their own providers; org models below include: ${modelNames.join(", ")}`
+    : "Members may add their own providers. No org models are defined yet.";
+  const accessOutcome = accessMode === "managed" ? managedOutcome : openOutcome;
+  const accessFormDisabled = policiesBusy || accessSaving || !defaultPolicy;
+
+  const updateDefaultPolicy = async (allowCustomProviders: boolean, allowZenModel: boolean) => {
+    if (!defaultPolicy) throw new Error("Default desktop policy not found.");
+    await updateDesktopPolicy(defaultPolicy.id, {
+      policyName: defaultPolicy.policyName,
+      policy: {
+        ...defaultPolicy.policy,
+        allowCustomProviders,
+        allowZenModel,
+      },
+      priority: 0,
+      isEnabled: true,
+      memberIds: [],
+      teamIds: [],
+      roles: [],
+    });
+  };
+
+  const updateAdminExceptionPolicy = async (policy: DenDesktopPolicy, isEnabled: boolean) => {
+    await updateDesktopPolicy(policy.id, {
+      policyName: ADMIN_EXCEPTION_POLICY_NAME,
+      policy: {
+        ...policy.policy,
+        allowCustomProviders: true,
+      },
+      priority: policy.priority,
+      isEnabled,
+      memberIds: [],
+      teamIds: [],
+      roles: ADMIN_EXCEPTION_ROLES,
+    });
+  };
+
+  const disablePolicy = async (policy: DenDesktopPolicy) => {
+    if (!policy.isEnabled) return;
+    await updateDesktopPolicy(policy.id, {
+      policyName: policy.policyName,
+      policy: policy.policy,
+      priority: policy.priority,
+      isEnabled: false,
+      memberIds: getPolicyMemberIds(policy),
+      teamIds: getPolicyTeamIds(policy),
+      roles: getPolicyRoles(policy),
+    });
+  };
+
+  const ensureAdminExceptionPolicy = async () => {
+    const primaryPolicy = adminExceptionPolicies[0] ?? null;
+    if (primaryPolicy) {
+      await updateAdminExceptionPolicy(primaryPolicy, true);
+    } else {
+      await createDesktopPolicy({
+        policyName: ADMIN_EXCEPTION_POLICY_NAME,
+        policy: { allowCustomProviders: true },
+        priority: 0,
+        isEnabled: true,
+        memberIds: [],
+        teamIds: [],
+        roles: ADMIN_EXCEPTION_ROLES,
+      });
+    }
+
+    for (const policy of adminExceptionPolicies.slice(1)) {
+      await disablePolicy(policy);
+    }
+  };
+
+  const disableAdminExceptionPolicies = async () => {
+    for (const policy of adminExceptionPolicies) {
+      await disablePolicy(policy);
+    }
+  };
+
+  const saveModelAccess = async () => {
+    setAccessError(null);
+    setAccessSaved(null);
+    if (!defaultPolicy) {
+      setAccessError("Default desktop policy not found.");
+      return;
+    }
+
+    try {
+      setAccessSaving(true);
+      await runReauthableAction("save-model-access", async () => {
+        if (accessMode === "managed") {
+          await updateDefaultPolicy(false, zenAllowed);
+          if (adminExceptionChecked) {
+            await ensureAdminExceptionPolicy();
+          } else {
+            await disableAdminExceptionPolicies();
+          }
+        } else {
+          await updateDefaultPolicy(true, true);
+          await disableAdminExceptionPolicies();
+        }
+        await reloadPolicies();
+      });
+      setAccessSaved("Model access saved.");
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : "Failed to save model access.");
+    } finally {
+      setAccessSaving(false);
+    }
+  };
+
   return (
     <DashboardPageTemplate
       icon={Cpu}
@@ -83,6 +263,128 @@ export function LlmProvidersScreen() {
       description="Configure catalog-backed or custom providers, choose the exact models each one exposes, and grant access to the right people and teams."
       colors={["#F3FFF9", "#0F766E", "#34D399", "#7DD3FC"]}
     >
+      <DenCard data-testid="models-access-card" className="mb-8 grid gap-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-[16px] font-medium tracking-[-0.02em] text-gray-950">Who can use models</h2>
+            <p className="mt-1 text-[13px] leading-6 text-gray-500">
+              Choose whether members bring their own providers or use only the models managed here.
+            </p>
+          </div>
+          <DenButton
+            type="button"
+            data-testid="models-access-save"
+            onClick={() => void saveModelAccess()}
+            loading={accessSaving}
+            disabled={accessFormDisabled}
+          >
+            Save
+          </DenButton>
+        </div>
+
+        {policiesError ? (
+          <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            {policiesError}
+          </div>
+        ) : null}
+        {accessError ? (
+          <div className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            {accessError === DESKTOP_POLICY_ENTERPRISE_PLAN_ERROR ? DESKTOP_POLICY_ENTERPRISE_PLAN_ERROR : accessError}
+          </div>
+        ) : null}
+        {accessSaved ? (
+          <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-700">
+            {accessSaved}
+          </div>
+        ) : null}
+        {!policiesBusy && !defaultPolicy ? (
+          <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
+            Default desktop policy not found.
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <label className="flex cursor-pointer items-start gap-3 rounded-[22px] border border-gray-200 bg-gray-50 px-4 py-3">
+            <input
+              type="radio"
+              name="models-access-mode"
+              data-testid="models-access-open"
+              className="mt-1 h-4 w-4"
+              checked={accessMode === "open"}
+              onChange={() => {
+                setAccessMode("open");
+                setAccessSaved(null);
+                setAccessError(null);
+              }}
+              disabled={accessFormDisabled}
+            />
+            <span>
+              <span className="block text-[14px] font-medium text-gray-950">Open</span>
+              <span className="mt-1 block text-[13px] leading-6 text-gray-500">Members may add their own providers.</span>
+            </span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-[22px] border border-gray-200 bg-gray-50 px-4 py-3">
+            <input
+              type="radio"
+              name="models-access-mode"
+              data-testid="models-access-managed"
+              className="mt-1 h-4 w-4"
+              checked={accessMode === "managed"}
+              onChange={() => {
+                setAccessMode("managed");
+                setAccessSaved(null);
+                setAccessError(null);
+              }}
+              disabled={accessFormDisabled}
+            />
+            <span>
+              <span className="block text-[14px] font-medium text-gray-950">Managed</span>
+              <span className="mt-1 block text-[13px] leading-6 text-gray-500">Members use exactly the models below.</span>
+            </span>
+          </label>
+        </div>
+
+        {accessMode === "managed" ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex items-start gap-3 rounded-[20px] border border-gray-200 px-4 py-3 text-[13px] text-gray-700">
+              <input
+                type="checkbox"
+                data-testid="models-access-admin-exception"
+                className="mt-1 h-4 w-4"
+                checked={adminExceptionChecked}
+                onChange={(event) => {
+                  setAdminExceptionChecked(event.target.checked);
+                  setAccessSaved(null);
+                  setAccessError(null);
+                }}
+                disabled={accessFormDisabled}
+              />
+              <span>Admins may add their own providers</span>
+            </label>
+            <label className="flex items-start gap-3 rounded-[20px] border border-gray-200 px-4 py-3 text-[13px] text-gray-700">
+              <input
+                type="checkbox"
+                data-testid="models-access-zen"
+                className="mt-1 h-4 w-4"
+                checked={zenAllowed}
+                onChange={(event) => {
+                  setZenAllowed(event.target.checked);
+                  setAccessSaved(null);
+                  setAccessError(null);
+                }}
+                disabled={accessFormDisabled}
+              />
+              <span>Allow OpenCode Zen models</span>
+            </label>
+          </div>
+        ) : null}
+
+        <p data-testid="models-access-outcome" className="rounded-[20px] bg-gray-50 px-4 py-3 text-[13px] leading-6 text-gray-600">
+          {accessOutcome}
+        </p>
+      </DenCard>
+
       <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <DenInput
           type="search"
@@ -98,13 +400,13 @@ export function LlmProvidersScreen() {
         </Link>
       </div>
 
-      {error ? (
+      {providersError ? (
         <div className="mb-6 rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-700">
-          {error}
+          {providersError}
         </div>
       ) : null}
 
-      {busy ? (
+      {providersBusy ? (
         <div className="rounded-[28px] border border-gray-200 bg-white px-6 py-10 text-[15px] text-gray-500">
           Loading your provider library...
         </div>

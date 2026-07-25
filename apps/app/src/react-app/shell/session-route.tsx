@@ -1680,20 +1680,32 @@ export function SessionRoute() {
       { name: "providerId", type: "string" as const, required: false, description: "Provider id to pre-select, e.g. 'anthropic', 'openai', 'google'." },
     ],
     execute: async (rawArgs: unknown) => {
-      if (checkDesktopRestriction({ restriction: "allowCustomProviders" })) {
-        return { ok: false, error: "Custom providers are disabled by your organization." };
-      }
       const providerId = typeof rawArgs === "object" && rawArgs !== null
         ? (rawArgs as Record<string, unknown>).providerId
         : undefined;
       const preferred = typeof providerId === "string" ? providerId.trim() : undefined;
+      if (sessionProviderAuthStore.isProviderAddRestricted(preferred)) {
+        return { ok: false, error: t("providers.custom_providers_disabled") };
+      }
       await sessionProviderAuthStore.openProviderAuthModal(
         preferred ? { preferredProviderId: preferred } : undefined,
       );
       return { ok: true, opened: "provider_auth_modal", preferredProviderId: preferred ?? null };
     },
-  }), [checkDesktopRestriction, sessionProviderAuthStore]);
+  }), [sessionProviderAuthStore]);
   useControlAction(addProviderControlAction);
+
+  const handleOpenProviderAuth = useCallback(() => {
+    if (sessionProviderAuthStore.isProviderAddRestricted()) {
+      restrictionNotice.show({
+        title: t("restrictions.add_custom_providers_disabled_title"),
+        message: t("restrictions.add_custom_providers_disabled_message"),
+      });
+      return;
+    }
+
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
+  }, [restrictionNotice, sessionProviderAuthStore]);
 
   const paletteSessionOptions = useMemo(
     () => buildCommandPaletteSessions(workspaces, sessionsByWorkspaceId, selectedWorkspaceId),
@@ -2196,7 +2208,7 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
-      onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+      onOpenProviderAuth={handleOpenProviderAuth}
       onChatFirstTask={handleChatFirstTask}
       chatFirstBusy={createWorkspaceBusy}
       newTaskComposer={newTaskComposerContext}

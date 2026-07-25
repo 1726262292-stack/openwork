@@ -19,6 +19,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
+import { readDenSettings } from "@/app/lib/den";
 import { modelEquals, resolveProviderDisplayName } from "../../../../app/utils";
 import type { ModelOption, ModelRef } from "../../../../app/types";
 import { isRecommendedModel } from "../../../../app/defaults";
@@ -81,6 +83,10 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   const navigate = useNavigate();
   const platform = usePlatform();
   const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const organizationProviderLabel = useMemo(
+    () => readDenSettings().activeOrgName?.trim() || t("settings.provider_source_organization"),
+    [denAuth.status],
+  );
 
   const disabledSet = useMemo(
     () => new Set(props.disabledProviders ?? []),
@@ -351,6 +357,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
                   onToggleExpand={() => toggleProvider(group.id)}
                   onToggleProvider={props.onToggleProvider}
                   onSelect={handleSelect}
+                  organizationProviderLabel={organizationProviderLabel}
                 />
               ))
             )}
@@ -380,6 +387,7 @@ function ProviderAccordion({
   onToggleExpand,
   onToggleProvider,
   onSelect,
+  organizationProviderLabel,
 }: {
   group: ProviderGroup;
   expanded: boolean;
@@ -388,6 +396,7 @@ function ProviderAccordion({
   onToggleExpand: () => void;
   onToggleProvider?: (providerId: string, enabled: boolean) => void;
   onSelect: (opt: ModelOption) => void;
+  organizationProviderLabel: string;
 }) {
   const totalModels = group.recommended.length + group.other.length;
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -414,7 +423,7 @@ function ProviderAccordion({
               <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">New</span>
             ) : null}
             {group.isCloud ? (
-              <span className="rounded-md bg-blue-3/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-11/70">Cloud</span>
+              <span className="rounded-md bg-blue-3/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-11/70">{organizationProviderLabel}</span>
             ) : null}
             {group.hasCurrent ? (
               <span className="rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">Current</span>

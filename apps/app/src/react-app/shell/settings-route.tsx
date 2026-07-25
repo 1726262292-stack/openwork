@@ -825,16 +825,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [providerAuthStore]);
 
   const handleOpenProviderAuth = useCallback(() => {
-    if (checkDesktopRestriction({ restriction: "allowCustomProviders" })) {
+    if (providerAuthStore.isProviderAddRestricted()) {
       restrictionNotice.show({
-        title: "Adding custom providers is disabled",
-        message: "Your organization administrator has disabled adding custom providers.",
+        title: t("restrictions.add_custom_providers_disabled_title"),
+        message: t("restrictions.add_custom_providers_disabled_message"),
       });
       return;
     }
 
     void providerAuthStore.openProviderAuthModal();
-  }, [checkDesktopRestriction, providerAuthStore, restrictionNotice]);
+  }, [providerAuthStore, restrictionNotice]);
 
   useEffect(() => {
     if (!activeClient || !selectedWorkspaceId) return;
@@ -2197,6 +2197,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             canDisconnectProvider={(provider) =>
               provider.id.trim().toLowerCase() === "opencode" || provider.source !== "env"
             }
+            canAddProviders={!providerAuthStore.isProviderAddRestricted()}
+            organizationName={cloudSession.activeOrgName}
             cloudProviderIds={new Set([
               ...Object.values(providerAuthSnapshot.importedCloudProviders ?? {}).map((p) => p.providerId),
               ...(openWorkModelsEntitled || openWorkModelsAvailable ? ["openwork"] : []),
