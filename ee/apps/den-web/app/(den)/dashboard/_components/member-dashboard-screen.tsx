@@ -1,22 +1,10 @@
 "use client";
 
-import {
-  CheckCircle2,
-  ChevronRight,
-  Cpu,
-  Puzzle,
-  Sparkles,
-  Store,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { formatRoleLabel } from "../../_lib/den-org";
 import { useDenFlow } from "../../_providers/den-flow-provider";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
-import {
-  formatProviderTimestamp,
-  useOrgLlmProviders,
-} from "./llm-provider-data";
+import { useOrgLlmProviders } from "./llm-provider-data";
 import { useMarketplaces } from "./marketplace-data";
 import { MemberOnboardingCard, useMemberOnboarding } from "./member-onboarding-card";
 import { getPluginPartsSummary, usePlugins } from "./plugin-data";
@@ -25,44 +13,13 @@ function getErrorText(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
-function SummaryCard({
-  icon: Icon,
-  title,
-  value,
-  detail,
-  tone,
-}: {
-  icon: LucideIcon;
-  title: string;
-  value: string;
-  detail: string;
-  tone: "blue" | "emerald" | "violet" | "amber";
-}) {
-  const toneClass = {
-    blue: "bg-blue-50 text-blue-700",
-    emerald: "bg-emerald-50 text-emerald-700",
-    violet: "bg-violet-50 text-violet-700",
-    amber: "bg-amber-50 text-amber-700",
-  }[tone];
+function cleanDescription(description: string): string {
+  const firstParagraph = description.split(/\n\s*\n/)[0].trim();
+  return firstParagraph.length > 0 ? firstParagraph : description.trim();
+}
 
-  return (
-    <section
-      className="rounded-2xl border border-gray-100 bg-white px-4 py-3.5"
-      data-resource={title}
-      data-testid="member-resource-card"
-    >
-      <div className="flex items-start gap-3">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] ${toneClass}`}>
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[13px] font-medium text-gray-500">{title}</p>
-          <p className="mt-0.5 text-[20px] font-semibold tracking-[-0.03em] text-gray-950">{value}</p>
-          <p className="mt-0.5 text-[12px] leading-5 text-gray-500">{detail}</p>
-        </div>
-      </div>
-    </section>
-  );
+function getRoleArticle(roleLabel: string): "a" | "an" {
+  return /^[aeiou]/i.test(roleLabel) ? "an" : "a";
 }
 
 function ErrorNotice({ children }: { children: React.ReactNode }) {
@@ -85,23 +42,25 @@ export function MemberDashboardScreen() {
 
   const customProviders = llmProviders.filter((provider) => provider.source !== "openwork");
   const openWorkProviders = llmProviders.filter((provider) => provider.source === "openwork");
-  const visiblePluginParts = plugins.reduce(
-    (count, plugin) => count + plugin.skills.length + plugin.hooks.length + plugin.mcps.length + plugin.agents.length + plugin.commands.length,
-    0,
-  );
 
   const currentMember = orgContext?.currentMember;
   const teamNames = orgContext?.currentMemberTeams.map((team) => team.name).sort((a, b) => a.localeCompare(b)) ?? [];
   const roleLabel = currentMember ? formatRoleLabel(currentMember.role) : "Member";
+  const roleWord = roleLabel.toLowerCase();
   const organizationName = activeOrg?.name ?? orgContext?.organization.name ?? "your workspace";
   const installLinksEnabled = orgContext?.capabilities.installLinks === true;
   const hasOpenWorkModels = openWorkProviders.length > 0;
   const hasCustomProviders = customProviders.length > 0;
+  const hasModelResources = hasOpenWorkModels || hasCustomProviders;
   const hasMarketplaces = marketplaces.length > 0;
   const hasPlugins = plugins.length > 0;
-  const hasResources = hasOpenWorkModels || hasCustomProviders || hasMarketplaces || hasPlugins;
+  const hasResources = hasModelResources || hasMarketplaces || hasPlugins;
   const hasAnyResourceLoading = providersBusy || marketplacesLoading || pluginsLoading;
   const hasResourceErrors = Boolean(providersError || marketplacesError || pluginsError);
+  const modelSummaryParts = [
+    hasOpenWorkModels ? "OpenWork Models" : null,
+    hasCustomProviders ? `${customProviders.length} custom provider${customProviders.length === 1 ? "" : "s"}` : null,
+  ].filter((part): part is string => part !== null);
 
   return (
     <div className="mx-auto max-w-[1100px] px-4 pb-10 pt-4 sm:px-6 md:px-8" data-testid="member-dashboard">
@@ -145,24 +104,15 @@ export function MemberDashboardScreen() {
             </div>
           ) : null}
 
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div>
-              <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-[#07192C]">Your workspace</h1>
-              <p className="mt-1 max-w-[680px] text-[14px] leading-6 text-[#5A6886]">
-                The models, marketplaces, and plugins available to you in OpenWork.
-              </p>
-            </div>
-            <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-gray-50 text-gray-500">
-                <Users className="h-4 w-4" aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[12px] text-gray-500">Signed in as {roleLabel}</p>
-                <p className="max-w-[320px] truncate text-[13px] font-medium text-gray-900">
-                  {teamNames.length > 0 ? teamNames.join(", ") : "No team assignment"}
-                </p>
-              </div>
-            </div>
+          <div className="mt-4">
+            <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-[#07192C]">Your workspace</h1>
+            <p className="mt-1 max-w-[680px] text-[14px] leading-6 text-[#5A6886]">
+              Everything your team set up for you — ready when you open the OpenWork desktop app.
+            </p>
+            <p className="mt-1 text-[13px] leading-5 text-[#5A6886]">
+              You&apos;re {getRoleArticle(roleWord)} {roleWord} of {organizationName}
+              {teamNames.length > 0 ? ` · ${teamNames.join(", ")}` : ""}
+            </p>
           </div>
 
           {hasResourceErrors ? (
@@ -171,53 +121,6 @@ export function MemberDashboardScreen() {
               {marketplacesError ? <ErrorNotice>{getErrorText(marketplacesError)}</ErrorNotice> : null}
               {pluginsError ? <ErrorNotice>{getErrorText(pluginsError)}</ErrorNotice> : null}
             </div>
-          ) : null}
-
-          {hasResources ? (
-            <section className="mt-5" aria-labelledby="member-resources-heading" data-testid="member-resource-overview">
-              <div className="mb-3">
-                <h2 id="member-resources-heading" className="text-[16px] font-semibold tracking-[-0.02em] text-gray-950">Available resources</h2>
-                <p className="mt-0.5 text-[13px] text-gray-500">Assigned directly to you, your teams, or everyone in the workspace.</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {hasOpenWorkModels ? (
-                  <SummaryCard
-                    icon={Sparkles}
-                    title="OpenWork Models"
-                    value={`${openWorkProviders.length}`}
-                    detail="Model key groups your workspace provides."
-                    tone="emerald"
-                  />
-                ) : null}
-                {hasCustomProviders ? (
-                  <SummaryCard
-                    icon={Cpu}
-                    title="Custom LLM Providers"
-                    value={`${customProviders.length}`}
-                    detail="Provider credentials and models your role or teams can use."
-                    tone="blue"
-                  />
-                ) : null}
-                {hasMarketplaces ? (
-                  <SummaryCard
-                    icon={Store}
-                    title="Marketplaces"
-                    value={`${marketplaces.length}`}
-                    detail="Plugin collections assigned to you or everyone in your org."
-                    tone="amber"
-                  />
-                ) : null}
-                {hasPlugins ? (
-                  <SummaryCard
-                    icon={Puzzle}
-                    title="Plugins"
-                    value={`${plugins.length}`}
-                    detail={`${visiblePluginParts} skill, hook, MCP, agent, or command parts available.`}
-                    tone="violet"
-                  />
-                ) : null}
-              </div>
-            </section>
           ) : null}
 
           {hasAnyResourceLoading && !hasResources ? (
@@ -230,118 +133,49 @@ export function MemberDashboardScreen() {
           ) : null}
 
           {hasResources ? (
-            <div className="mt-5 grid gap-5 lg:grid-cols-2">
-              {hasCustomProviders ? (
-                <section className="rounded-2xl border border-gray-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-[18px] font-semibold tracking-[-0.03em] text-gray-950">LLM providers</h2>
-                      <p className="mt-1 text-[13px] text-gray-500">Custom providers you can use from OpenWork.</p>
+            <div className="mt-5 space-y-5" data-testid="member-resource-overview">
+              {hasModelResources ? (
+                <section
+                  className="flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-white px-4 py-3"
+                  data-testid="member-models-summary"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#f4f7fb] text-[#07192C]">
+                      <Sparkles className="h-4 w-4" aria-hidden="true" />
                     </div>
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-[12px] font-medium text-gray-600">
-                      {customProviders.length} available
-                    </span>
+                    <p className="text-[14px] font-semibold text-[#07192C]">AI models</p>
                   </div>
-
-                  <div className="mt-5 grid gap-3">
-                    {customProviders.slice(0, 5).map((provider) => (
-                      <div key={provider.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-[14px] font-semibold text-gray-950">{provider.name}</p>
-                            <p className="mt-1 text-[12px] text-gray-500">{provider.models.length} model{provider.models.length === 1 ? "" : "s"}</p>
-                          </div>
-                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] text-gray-500">
-                            {provider.source === "custom" ? "Custom" : "Catalog"}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-[12px] text-gray-500">Updated {formatProviderTimestamp(provider.updatedAt)}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="shrink-0 text-right text-[12px] leading-5 text-[#5A6886]">{modelSummaryParts.join(" · ")}</p>
                 </section>
               ) : null}
 
-              {hasOpenWorkModels ? (
-                <section className="rounded-2xl border border-gray-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-[18px] font-semibold tracking-[-0.03em] text-gray-950">OpenWork Models</h2>
-                      <p className="mt-1 text-[13px] text-gray-500">Org-provided models you can use from OpenWork.</p>
-                    </div>
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-[12px] font-medium text-emerald-700">
-                      Available
-                    </span>
+              {hasPlugins ? (
+                <section>
+                  <div className="mb-3 flex items-center justify-between gap-4">
+                    <h2 className="text-[18px] font-semibold tracking-[-0.03em] text-[#07192C]">Skills and tools</h2>
+                    <p className="text-[12px] text-[#5A6886]">{plugins.length} available</p>
                   </div>
-
-                  <div className="mt-5 grid gap-3">
-                    <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-600" aria-hidden="true" />
-                        <div>
-                          <p className="text-[14px] font-semibold text-gray-950">Available in this workspace</p>
-                          <p className="mt-1 text-[12px] text-gray-500">
-                            {openWorkProviders.length} model key group{openWorkProviders.length === 1 ? "" : "s"} you can use.
-                          </p>
-                        </div>
+                  <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white divide-y divide-gray-100" data-testid="member-plugin-list">
+                    {plugins.slice(0, 8).map((plugin) => (
+                      <div key={plugin.id} className="px-4 py-3.5">
+                        <p className="truncate text-[14px] font-semibold text-gray-950">{plugin.name}</p>
+                        <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-gray-500">{cleanDescription(plugin.description)}</p>
+                        <p className="mt-2 text-[12px] text-gray-400">{getPluginPartsSummary(plugin)}</p>
                       </div>
-                    </div>
+                    ))}
+                    {plugins.length > 8 ? (
+                      <p className="px-4 py-3 text-[12px] leading-5 text-gray-400">
+                        Showing 8 of {plugins.length} — all of them sync into the desktop app.
+                      </p>
+                    ) : null}
                   </div>
                 </section>
               ) : null}
 
               {hasMarketplaces ? (
-                <section className="rounded-2xl border border-gray-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-[18px] font-semibold tracking-[-0.03em] text-gray-950">Marketplaces</h2>
-                      <p className="mt-1 text-[13px] text-gray-500">Marketplaces contain plugins and sync into the app after sign-in.</p>
-                    </div>
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-[12px] font-medium text-gray-600">
-                      {marketplaces.length} visible
-                    </span>
-                  </div>
-
-                  <div className="mt-5 grid gap-3">
-                    {marketplaces.slice(0, 5).map((marketplace) => (
-                      <div key={marketplace.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-[14px] font-semibold text-gray-950">{marketplace.name}</p>
-                            {marketplace.description ? <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-gray-500">{marketplace.description}</p> : null}
-                          </div>
-                          <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] text-gray-500">
-                            {marketplace.pluginCount} plugin{marketplace.pluginCount === 1 ? "" : "s"}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {hasPlugins ? (
-                <section className="rounded-2xl border border-gray-100 bg-white p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-[18px] font-semibold tracking-[-0.03em] text-gray-950">Plugins</h2>
-                      <p className="mt-1 text-[13px] text-gray-500">Skills, hooks, MCPs, agents, and commands you can use.</p>
-                    </div>
-                    <span className="rounded-full bg-gray-100 px-3 py-1 text-[12px] font-medium text-gray-600">
-                      {plugins.length} visible
-                    </span>
-                  </div>
-
-                  <div className="mt-5 grid gap-3">
-                    {plugins.slice(0, 5).map((plugin) => (
-                      <div key={plugin.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
-                        <p className="truncate text-[14px] font-semibold text-gray-950">{plugin.name}</p>
-                        <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-gray-500">{plugin.description}</p>
-                        <p className="mt-3 text-[12px] text-gray-500">{getPluginPartsSummary(plugin)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                <p className="text-[12px] leading-5 text-gray-400" data-testid="member-marketplace-note">
+                  Delivered from {marketplaces.length} marketplace{marketplaces.length === 1 ? "" : "s"}: {marketplaces.map((marketplace) => marketplace.name).join(", ")}
+                </p>
               ) : null}
             </div>
           ) : null}

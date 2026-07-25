@@ -299,7 +299,7 @@ export default {
       name: "Frame 6 — Details match shared resources",
       run: async (ctx) => {
         await withClient(ctx, INVITEE_CDP_URL, async () => {
-          await ctx.prove("Finishing setup collapses onboarding and renders only member-visible resource panels", {
+          await ctx.prove("Finishing setup collapses onboarding and renders only member-visible resource details", {
             voiceover: vo[5],
             action: async () => {
               await clickTestId(ctx, "member-onboarding-finish");
@@ -316,27 +316,26 @@ export default {
               witness(ctx, observed.stepsPresent === false, "Detailed onboarding steps are hidden after finishing setup", observed);
               witness(ctx, observed.workspaceHeadingPresent === true, "Your workspace heading is present", observed);
               witness(ctx, observed.bodyText.includes("are available to you yet") === false, "No old empty-resource placeholder copy is rendered", observed);
+              witness(ctx, observed.bodyText.includes("Source: https://") === false, "Plugin descriptions do not leak source URLs", observed);
+              witness(ctx, observed.bodyText.includes("No team assignment") === false, "Finished details view does not render the old missing-team chip copy", observed);
 
-              witness(ctx, observed.headings["LLM providers"] === summary.expectations.expectCustomProviders, "LLM providers heading visibility matches usable custom providers", {
-                expected: summary.expectations.expectCustomProviders,
-                observed: observed.headings["LLM providers"],
-                providerSources: summary.providerSources,
-              });
-              witness(ctx, observed.headings["OpenWork Models"] === summary.expectations.expectOpenWorkModels, "OpenWork Models heading visibility matches usable OpenWork providers", {
-                expected: summary.expectations.expectOpenWorkModels,
-                observed: observed.headings["OpenWork Models"],
+              const expectModelsSummary = summary.expectations.expectOpenWorkModels || summary.expectations.expectCustomProviders;
+              witness(ctx, observed.modelsSummaryPresent === expectModelsSummary, "AI models summary visibility matches usable model providers", {
+                expected: expectModelsSummary,
+                observed: observed.modelsSummaryPresent,
                 openWorkProviderCount: summary.counts.openWorkProviders,
+                customProviderCount: summary.counts.customProviders,
                 providerSources: summary.providerSources,
               });
-              witness(ctx, observed.headings.Marketplaces === summary.expectations.expectMarketplaces, "Marketplaces heading visibility matches assigned marketplaces", {
-                expected: summary.expectations.expectMarketplaces,
-                observed: observed.headings.Marketplaces,
-                marketplaceCount: summary.counts.marketplaces,
-              });
-              witness(ctx, observed.headings.Plugins === summary.expectations.expectPlugins, "Plugins heading visibility matches assigned plugins", {
+              witness(ctx, observed.pluginListPresent === summary.expectations.expectPlugins, "Skills and tools list visibility matches assigned plugins", {
                 expected: summary.expectations.expectPlugins,
-                observed: observed.headings.Plugins,
+                observed: observed.pluginListPresent,
                 pluginCount: summary.counts.plugins,
+              });
+              witness(ctx, observed.marketplaceNotePresent === summary.expectations.expectMarketplaces, "Marketplace delivery note visibility matches assigned marketplaces", {
+                expected: summary.expectations.expectMarketplaces,
+                observed: observed.marketplaceNotePresent,
+                marketplaceCount: summary.counts.marketplaces,
               });
               witness(ctx, observed.resourceOverviewPresent === summary.expectations.hasAnyResources, "Resource overview presence matches whether any resource is shared", {
                 expected: summary.expectations.hasAnyResources,
@@ -352,7 +351,7 @@ export default {
             screenshot: {
               name: "details-only-what-was-shared",
               requireText: ["You're set up for", "Your workspace"],
-              rejectText: ["are available to you yet", "Step 1 of 2", "Ask an admin to enable org-provided models", "User Profile"],
+              rejectText: ["are available to you yet", "Step 1 of 2", "Ask an admin to enable org-provided models", "User Profile", "Source: https://", "No team assignment", "Available resources"],
             },
           });
         });
@@ -995,20 +994,22 @@ async function waitForResourceDomToMatch(ctx, expectations) {
     const expected = ${JSON.stringify(expectations)};
     const bodyText = document.body.innerText;
     const headings = [...document.querySelectorAll('h1,h2,h3,[role="heading"]')].map((heading) => (heading.textContent ?? '').trim());
-    const hasHeading = (label) => headings.includes(label);
+    const expectModelsSummary = expected.expectOpenWorkModels || expected.expectCustomProviders;
     const overviewPresent = Boolean(document.querySelector('[data-testid="member-resource-overview"]'));
     const emptyPresent = Boolean(document.querySelector('[data-testid="member-resources-empty"]'));
+    const modelsSummaryPresent = Boolean(document.querySelector('[data-testid="member-models-summary"]'));
+    const pluginListPresent = Boolean(document.querySelector('[data-testid="member-plugin-list"]'));
+    const marketplaceNotePresent = Boolean(document.querySelector('[data-testid="member-marketplace-note"]'));
     const loading = bodyText.includes('Loading your resources...');
     return !loading
       && Boolean(document.querySelector('[data-testid="member-onboarding-complete"]'))
       && headings.includes('Your workspace')
       && overviewPresent === expected.hasAnyResources
       && emptyPresent === !expected.hasAnyResources
-      && hasHeading('LLM providers') === expected.expectCustomProviders
-      && hasHeading('OpenWork Models') === expected.expectOpenWorkModels
-      && hasHeading('Marketplaces') === expected.expectMarketplaces
-      && hasHeading('Plugins') === expected.expectPlugins;
-  })()`, { timeoutMs: 45_000, label: "member resource panels match API truth" });
+      && modelsSummaryPresent === expectModelsSummary
+      && pluginListPresent === expected.expectPlugins
+      && marketplaceNotePresent === expected.expectMarketplaces;
+  })()`, { timeoutMs: 45_000, label: "member resource details match API truth" });
 }
 
 async function resourceDomState(ctx) {
@@ -1024,12 +1025,9 @@ async function resourceDomState(ctx) {
       workspaceHeadingPresent: hasHeading('Your workspace'),
       resourceOverviewPresent: Boolean(document.querySelector('[data-testid="member-resource-overview"]')),
       resourcesEmptyPresent: Boolean(document.querySelector('[data-testid="member-resources-empty"]')),
-      headings: {
-        'LLM providers': hasHeading('LLM providers'),
-        'OpenWork Models': hasHeading('OpenWork Models'),
-        Marketplaces: hasHeading('Marketplaces'),
-        Plugins: hasHeading('Plugins'),
-      },
+      modelsSummaryPresent: Boolean(document.querySelector('[data-testid="member-models-summary"]')),
+      pluginListPresent: Boolean(document.querySelector('[data-testid="member-plugin-list"]')),
+      marketplaceNotePresent: Boolean(document.querySelector('[data-testid="member-marketplace-note"]')),
       headingTexts,
     };
   })()`);
