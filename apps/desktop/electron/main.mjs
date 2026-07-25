@@ -50,6 +50,7 @@ import {
 } from "./connect-link-branding.mjs";
 import { resolveConnectLinkPublicKeys } from "./connect-link-keys.mjs";
 import { openExternalUrl } from "./open-external.mjs";
+import { resolveAppIdentifier, resolveUserDataPath } from "./dev-profile.mjs";
 import { fetchAgentContextDiagnosticsResponse } from "./agent-context-diagnostics-fetch.mjs";
 import {
   applyWindowsTaskbarIcon,
@@ -63,6 +64,7 @@ import {
 } from "./brand-icon-windows.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const APP_ROOT = path.resolve(__dirname, "../../..");
 const require = createRequire(import.meta.url);
 // Electron 35 eagerly resolves every export in a named ESM import, including
 // safeStorage. Loading through CommonJS keeps safeStorage lazy so isolated demo
@@ -90,9 +92,16 @@ const APP_NAME =
   process.env.OPENWORK_ELECTRON_APP_NAME?.trim() ||
   (isDevMode ? "OpenWork - Dev" : "OpenWork");
 let currentDisplayAppName = APP_NAME;
-const APP_IDENTIFIER =
-  process.env.OPENWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
-  (isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER);
+const BASE_APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
+const APP_IDENTIFIER = resolveAppIdentifier({
+  appIdentifierOverride: process.env.OPENWORK_ELECTRON_APP_IDENTIFIER,
+  appRootPath: APP_ROOT,
+  baseAppIdentifier: BASE_APP_IDENTIFIER,
+  devAppIdentifier: DEV_APP_IDENTIFIER,
+  devProfile: process.env.OPENWORK_DEV_PROFILE,
+  isDevMode,
+  isPackaged: app.isPackaged,
+});
 if (process.env.OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN === "1") {
   // Fresh, isolated development profiles otherwise trigger macOS's native
   // "Login" keychain prompt as soon as Chromium persists an authenticated
@@ -155,22 +164,20 @@ function killTerminalsForWebContents(webContentsId) {
 // so in-place migration is a no-op for almost every file. Dev mode uses the
 // separate dev identifier so it can run beside the production app.
 //
-// Override via OPENWORK_ELECTRON_USERDATA so dogfooders can isolate their
-// Electron install from the real Tauri app.
+// Dev profile precedence: OPENWORK_ELECTRON_USERDATA (explicit profile path)
+// wins over everything; then OPENWORK_ELECTRON_APP_IDENTIFIER; then
+// OPENWORK_DEV_PROFILE in unpackaged dev; then the legacy identifier default.
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_IDENTIFIER);
 if (app.isPackaged && process.env.OPENWORK_ELECTRON_DISABLE_PROTOCOL_REGISTRATION !== "1") {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
 }
-const userDataOverride = process.env.OPENWORK_ELECTRON_USERDATA?.trim();
-if (userDataOverride) {
-  app.setPath("userData", userDataOverride);
-} else {
-  app.setPath(
-    "userData",
-    path.join(app.getPath("appData"), APP_IDENTIFIER),
-  );
-}
+const userDataPath = resolveUserDataPath({
+  appDataPath: app.getPath("appData"),
+  appIdentifier: APP_IDENTIFIER,
+  userDataOverride: process.env.OPENWORK_ELECTRON_USERDATA,
+});
+app.setPath("userData", userDataPath);
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
@@ -848,6 +855,10 @@ if (remoteDebugPort > 0) {
 // Make the resolved port available to the embedded server so it flows into
 // agent instructions via ensureOpenworkAgent → resolveAgentTemplate.
 process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT = String(remoteDebugPort);
+if (isDevMode && !app.isPackaged) {
+  const cdpAddress = remoteDebugPort > 0 ? `http://127.0.0.1:${remoteDebugPort}` : "disabled";
+  console.log(`[openwork] dev profile=${app.getPath("userData")} cdp=${cdpAddress}`);
+}
 
 // Apply extra Chromium flags from ELECTRON_EXTRA_LAUNCH_ARGS.
 // Used in headless/Daytona environments to pass e.g. --disable-gpu.
@@ -2387,7 +2398,17 @@ registerMigrationIpc({ app, ipcMain });
 const { ensureAutoUpdater } = registerUpdaterIpc({ app, ipcMain, getMainWindow: () => mainWindow });
 
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  if (isDevMode && !app.isPackaged) {
+    console.error(`[openwork] Another OpenWork dev instance already holds this profile directory:
+  ${app.getPath("userData")}
+The second process is exiting so its CDP port is released.
+Run this worktree with an isolated profile: OPENWORK_DEV_PROFILE=auto pnpm dev
+or use: pnpm dev:worktree`);
+    app.exit(1);
+    setImmediate(() => process.exit(1));
+  } else {
+    app.quit();
+  }
 } else {
   app.on("before-quit", (event) => {
     if (runtimeDisposedForQuit) return;
