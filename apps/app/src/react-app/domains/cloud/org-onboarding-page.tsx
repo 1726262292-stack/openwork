@@ -500,7 +500,7 @@ export function OrgOnboardingPage() {
 
   return (
     <ResourceSelectionPage
-      autoContinue={autoContinueResources || (Boolean(orgId) && orgs.length <= 1)}
+      autoContinue={autoContinueResources || orgs.length <= 1}
     />
   );
 }
