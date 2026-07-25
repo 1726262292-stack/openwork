@@ -5,7 +5,8 @@
   "type": "module",
   "description": "OpenWork desktop installer: resolves an install-link config, writes desktop bootstrap config, then downloads and installs the newest supported desktop app.",
   "workspaces": [
-    "../../packages/install-config"
+    "../../packages/install-config",
+    "../../packages/paths"
   ],
   "scripts": {
     "dev": "bun run src/index.ts",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@openwork/install-config": "workspace:*",
+    "@openwork/paths": "workspace:*",
     "webview-bun": "2.4.0"
   }
 }
