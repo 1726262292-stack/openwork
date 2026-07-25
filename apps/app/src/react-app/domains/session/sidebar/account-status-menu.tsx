@@ -296,6 +296,7 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
           <button
             ref={triggerRef}
             type="button"
+            data-testid="account-status-menu"
             className="flex w-full flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
             aria-label={signedIn ? `${user.email} — account and status` : "Account and status"}
           >
