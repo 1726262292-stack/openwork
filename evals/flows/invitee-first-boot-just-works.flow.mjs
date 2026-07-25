@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { connect, debuggerUrlFor, listTargets } from "../runner/cdp.mjs";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
-import { denApiFetch, denWebUrl, signInViaBrowser } from "./lib/den-web.mjs";
+import { denApiFetch, denApiUrl, denWebUrl, signInViaBrowser } from "./lib/den-web.mjs";
 import {
   createDesktopHandoff,
   deliverDesktopDeepLink,
@@ -296,7 +296,7 @@ export default {
               name: "maya-first-desktop-boot-ready",
               requireText: ["Run task"],
               rejectText: ["Choose your organization", "You have access to the following resources.", "Continue to workspace", "Restart OpenWork", RELOAD_TEXT],
-              hashIncludes: "/session/",
+              hashIncludes: "/session",
             },
           });
         } finally {
@@ -389,7 +389,7 @@ export default {
             name: "quiet-boot-no-reload-churn",
             requireText: ["Run task"],
             rejectText: [RELOAD_TEXT, "Restart OpenWork"],
-            hashIncludes: "/session/",
+            hashIncludes: "/session",
           },
         });
       },
@@ -426,7 +426,7 @@ export default {
             name: "maya-first-message-acme-ok",
             requireText: [TARGET_REPLY],
             rejectText: ["model_not_found", "no longer available", "Authorization required"],
-            hashIncludes: "/session/",
+            hashIncludes: "/session",
           },
         });
         ctx.recordEvidence({
@@ -480,6 +480,25 @@ async function apiRequest(ctx, path, options = {}, allowedStatuses = []) {
     ctx.assert(false, `${options.method ?? "GET"} ${path} failed with ${result.response.status}: ${safeBody(result.body)}`);
   }
   return result;
+}
+
+async function denApiAuthRequest(path, options = {}) {
+  const response = await fetch(`${denApiUrl()}${path}`, {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      origin: denWebUrl(),
+      ...(options.headers ?? {}),
+    },
+  });
+  const text = await response.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = text;
+  }
+  return { response, body };
 }
 
 async function adminRequest(ctx, path, options = {}, allowedStatuses = []) {
@@ -939,7 +958,7 @@ async function assertJoinInvitationDetails(ctx) {
 }
 
 async function inviteeCanSignIn(ctx) {
-  const result = await denApiFetch("/api/auth/sign-in/email", {
+  const result = await denApiAuthRequest("/api/auth/sign-in/email", {
     method: "POST",
     body: JSON.stringify({ email: MAYA_EMAIL, password: MAYA_PASSWORD }),
   });
@@ -1076,10 +1095,11 @@ async function setDesktopViewport(ctx) {
 async function setInputCheckedByTestId(ctx, testId, checked) {
   const result = await ctx.waitFor(`(() => {
     const input = document.querySelector('[data-testid="${testId}"]');
-    if (!(input instanceof HTMLInputElement)) return null;
-    input.scrollIntoView({ block: 'center', inline: 'center' });
-    if (input.checked !== ${JSON.stringify(checked)}) input.click();
-    return { checked: input.checked, disabled: input.disabled };
+    if (!(input instanceof HTMLInputElement)) return false;
+    const target = input.closest('label') ?? input;
+    target.scrollIntoView({ block: 'center', inline: 'center' });
+    if (input.checked !== ${JSON.stringify(checked)}) target.click();
+    return input.checked === ${JSON.stringify(checked)} ? { checked: input.checked, disabled: input.disabled } : false;
   })()`, { timeoutMs: 20_000, label: `${testId} ${checked ? "checked" : "unchecked"}` });
   ctx.assert(result?.checked === checked, `${testId} should be ${checked ? "checked" : "unchecked"}; got ${JSON.stringify(result)}.`);
 }
@@ -1155,7 +1175,7 @@ async function openInstallGuideFromJoinSuccess(ctx) {
 }
 
 async function signInMayaByEmail(ctx) {
-  const result = await denApiFetch("/api/auth/sign-in/email", {
+  const result = await denApiAuthRequest("/api/auth/sign-in/email", {
     method: "POST",
     body: JSON.stringify({ email: MAYA_EMAIL, password: MAYA_PASSWORD }),
   });
@@ -1187,19 +1207,29 @@ async function openworkRequest(ctx, path, options = {}) {
     ...(options.host === true && info.hostToken ? { "x-openwork-host-token": info.hostToken } : {}),
     ...(options.headers ?? {}),
   };
-  const response = await fetch(`${info.baseUrl}${path}`, {
+  const request = {
+    url: `${info.baseUrl}${path}`,
     method: options.method ?? "GET",
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
-  const text = await response.text();
-  let body = null;
-  try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    body = text;
-  }
-  return { response, text, body, url: `${info.baseUrl}${path}` };
+  };
+  const result = await ctx.eval(`(async () => {
+    const request = ${JSON.stringify(request)};
+    const response = await fetch(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+    });
+    const text = await response.text();
+    let body = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    return { ok: response.ok, status: response.status, statusText: response.statusText, text, body, url: request.url };
+  })()`, { awaitPromise: true });
+  return { response: { ok: result.ok, status: result.status, statusText: result.statusText }, text: result.text, body: result.body, url: result.url };
 }
 
 async function expectOpenworkJson(ctx, path, options = {}) {
@@ -1268,7 +1298,13 @@ function runtimeProviderDeletes(opencode) {
 
 async function resetDesktopToColdFirstBoot(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API before cold reset" });
-  const { workspaceId } = await ensureEvalWorkspace(ctx);
+  await ctx.eval(`window.__OPENWORK_ELECTRON__?.invokeDesktop?.('setDesktopBootstrapConfig', {
+    baseUrl: ${JSON.stringify(denWebUrl())},
+    apiBaseUrl: ${JSON.stringify(denApiUrl())},
+    requireSignin: false,
+    handoff: null,
+  })`, { awaitPromise: true });
+  const { workspaceId, workspacePath } = await ensureEvalWorkspace(ctx);
   const current = await workspaceConfigRequest(ctx, "GET");
   const providerDeletes = runtimeProviderDeletes(current?.opencode);
   const cloudImports = current?.openwork?.cloudImports && typeof current.openwork.cloudImports === "object"
@@ -1284,13 +1320,16 @@ async function resetDesktopToColdFirstBoot(ctx) {
       cloudImports: { ...cloudImports, providers: {} },
     },
   });
+  await startDesktopEngine(ctx, workspacePath);
 
   await ctx.eval(`(() => {
     for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('openwork.den.')) localStorage.removeItem(key);
+      if (key.startsWith('openwork.den.') && key !== 'openwork.den.baseUrl' && key !== 'openwork.den.apiBaseUrl') localStorage.removeItem(key);
       if (key.startsWith('openwork.sessionModels.')) localStorage.removeItem(key);
       if (key.startsWith('openwork.modelVariant.')) localStorage.removeItem(key);
     }
+    localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(denWebUrl())});
+    localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(denApiUrl())});
     localStorage.removeItem('openwork.preferences');
     localStorage.removeItem('openwork.defaultModel');
     localStorage.removeItem('openwork.policy.disabledProviders');
@@ -1314,6 +1353,25 @@ async function resetDesktopToColdFirstBoot(ctx) {
   });
 }
 
+async function startDesktopEngine(ctx, workspacePath) {
+  const result = await ctx.eval(`window.__OPENWORK_ELECTRON__?.invokeDesktop?.('engineStart', ${JSON.stringify(workspacePath)}, {
+    runtime: 'direct',
+    workspacePaths: [${JSON.stringify(workspacePath)}],
+    openworkRemoteAccess: false,
+  })`, { awaitPromise: true });
+  ctx.output("frame-5-engine-start", JSON.stringify({ baseUrlSet: Boolean(result?.baseUrl), error: result?.error ?? null }, null, 2));
+  let last = null;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    last = await openworkRequest(ctx, `/workspace/${encodeURIComponent(state.desktopWorkspaceId)}/opencode/global/health`).catch((error) => ({
+      response: { ok: false, status: 0 },
+      body: error instanceof Error ? error.message : String(error),
+    }));
+    if (last?.response?.ok) return;
+    await sleep(500);
+  }
+  ctx.assert(false, `OpenCode health did not become ready before first-boot handoff: ${last?.response?.status ?? "no response"} ${safeBody(last?.body)}`);
+}
+
 async function armFirstBootProbe(ctx) {
   await ctx.eval(`(() => {
     const armedKey = '__owFirstBootArmed';
@@ -1335,7 +1393,7 @@ async function armFirstBootProbe(ctx) {
     };
     const titleFor = (element) => {
       const title = element.querySelector('[data-slot="dialog-title"], [role="heading"], h1, h2, h3');
-      return (title?.innerText || title?.textContent || '').replace(/\s+/g, ' ').trim();
+      return (title?.innerText || title?.textContent || '').replace(/\\s+/g, ' ').trim();
     };
     const scan = (root) => {
       const nodes = [];
@@ -1343,7 +1401,7 @@ async function armFirstBootProbe(ctx) {
       nodes.push(...(root?.querySelectorAll?.('[role="dialog"], [data-slot="dialog"], [data-testid*="dialog"]') ?? []));
       for (const element of nodes) {
         const rect = element.getBoundingClientRect?.();
-        const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+        const text = (element.innerText || element.textContent || '').replace(/\\s+/g, ' ').trim();
         if (!text || rect?.width === 0 || rect?.height === 0) continue;
         const entry = {
           atMs: Math.round(performance.now() - startedAt),
@@ -1368,7 +1426,7 @@ async function armFirstBootProbe(ctx) {
           : args[0]?.url ?? '';
       const method = String(args[1]?.method ?? (args[0] instanceof Request ? args[0].method : 'GET')).toUpperCase();
       if (requestUrl.includes('/engine/reload') || requestUrl.includes('/engine/restart')) counters.engineReloads += 1;
-      if (method === 'PATCH' && /\/workspace\/[^/]+\/config/.test(requestUrl)) counters.configWrites += 1;
+      if (method === 'PATCH' && requestUrl.includes('/workspace/') && requestUrl.endsWith('/config')) counters.configWrites += 1;
       if (requestUrl.includes('/runtime-config/')) counters.runtimeConfigWrites += 1;
       if (requestUrl.includes('/desktop-cloud-sync')) counters.cloudSyncCalls += 1;
       persist();
@@ -1433,7 +1491,7 @@ async function freezeFirstBootDialogRecorder(ctx) {
 async function readDesktopSessionState(ctx) {
   const desktop = await ctx.eval(`(() => {
     const hash = window.location.hash;
-    const match = hash.match(/^#\/workspace\/([^/?#]+)\/session\/(ses_[^/?#]+)/);
+    const match = new RegExp('^#/workspace/([^/?#]+)/session(?:/(ses_[^/?#]+))?').exec(hash);
     const editor = document.querySelector(${JSON.stringify(EDITOR_SELECTOR)});
     return {
       authTokenSet: Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim()),
@@ -1454,7 +1512,7 @@ async function readDesktopSessionState(ctx) {
 
 async function clickFirstBootOnboardingIfVisible(ctx) {
   return ctx.eval(`(() => {
-    const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
+    const normalize = (value) => (value ?? '').replace(/\\s+/g, ' ').trim();
     const body = document.body.innerText || '';
     const visibleEnabled = (element) => {
       if (!element) return false;
@@ -1510,7 +1568,7 @@ async function ensureSessionReady(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 90_000, label: "control API" });
   await ctx.waitFor(`(() => {
     const hash = window.location.hash;
-    return /^#\/workspace\/[^/?#]+\/session\/ses_[^/?#]+/.test(hash)
+    return new RegExp('^#/workspace/[^/?#]+/session(?:/ses_[^/?#]+)?').test(hash)
       && Boolean(document.querySelector(${JSON.stringify(EDITOR_SELECTOR)}))
       && document.body.innerText.includes('Run task');
   })()`, { timeoutMs: 90_000, label: "usable workspace session" });
@@ -1585,11 +1643,11 @@ async function readModelPickerOptions(ctx) {
       const outer = header.parentElement?.parentElement;
       const rows = [...(outer?.querySelectorAll('div.ml-9 button') ?? [])];
       for (const row of rows) {
-        const spans = [...row.querySelectorAll('span')].map((span) => (span.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+        const spans = [...row.querySelectorAll('span')].map((span) => (span.textContent ?? '').replace(/\\s+/g, ' ').trim()).filter(Boolean);
         const modelId = spans.at(-1) ?? '';
         const title = spans[0] ?? modelId;
         if (!modelId) continue;
-        groups.push({ providerLabel: (header.textContent ?? '').replace(/\s+/g, ' ').trim(), title, modelId });
+        groups.push({ providerLabel: (header.textContent ?? '').replace(/\\s+/g, ' ').trim(), title, modelId });
       }
     }
     return groups;
