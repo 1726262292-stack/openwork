@@ -320,7 +320,12 @@ async function showInstallerRecoveryLink(ctx: FlowContext): Promise<void> {
     timeoutMs: BROWSER_TIMEOUT_MS,
     label: "organization install link",
   });
-  await ctx.waitForText("Paste this same link in", { timeoutMs: BROWSER_TIMEOUT_MS });
+  await ctx.eval(`(() => {
+    const disclosure = document.querySelector('[data-testid=install-copy-link]')?.closest('details');
+    if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
+    return true;
+  })()`);
+  await ctx.waitForText("Paste this link into", { timeoutMs: BROWSER_TIMEOUT_MS });
 }
 
 function waitForInstallerUrl(child: ChildProcess, timeoutMs = 20_000): Promise<string> {
@@ -559,9 +564,9 @@ async function assertInstallRecommendation(ctx: FlowContext): Promise<void> {
 
 async function assertInstallerContinuation(ctx: FlowContext): Promise<void> {
   await ctx.expectText("Continue on your computer");
-  await ctx.expectText("already installed");
-  await ctx.expectText("Paste this same link in");
-  await ctx.expectText("Didn't open?");
+  await ctx.expectText("Open the file you just downloaded");
+  await ctx.expectText("Already have");
+  await ctx.expectText("Paste this link into");
 }
 
 async function assertInstallerApproval(ctx: FlowContext): Promise<void> {
@@ -673,7 +678,7 @@ const flow = defineFlow({
             assert: async () => assertInstallerContinuation(ctx),
             screenshot: {
               name: "installer-and-already-installed-paths",
-              requireText: ["Continue on your computer", "already installed", "Paste this same link in"],
+              requireText: ["Continue on your computer", "Open the file you just downloaded", "Paste this link into"],
             },
           });
         });
