@@ -325,7 +325,7 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
               <MoreHorizontal size={14} className="shrink-0 text-muted-foreground" />
             </span>
             {showStatus ? (
-              <span className="flex w-full flex-col gap-1 rounded-md bg-sidebar-accent/50 px-1.5 py-1 group-data-[collapsible=icon]:hidden">
+              <span className="flex w-full flex-col gap-1 pl-0.5 group-data-[collapsible=icon]:hidden">
                 {runtimeStatus ? (
                   <TriggerStatusRow
                     variant={runtimeStatus.variant}
