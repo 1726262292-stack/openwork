@@ -88,6 +88,8 @@ export type SkillItem = {
 
 const getSkillHiddenId = (skill: SkillItem) => `skill:${skill.name}`;
 
+export type ExtensionInventoryFilter = "all" | "mcp" | "skill";
+
 export type McpViewProps = {
   busy: boolean;
   selectedWorkspaceRoot: string;
@@ -138,6 +140,8 @@ export type McpViewProps = {
   installedOrgMcpItems?: ExtensionItem[];
   orgMcpDisconnectingId?: string | null;
   disconnectOrgMcp?: (connectionId: string) => void;
+  initialFilter?: ExtensionInventoryFilter;
+  onFilterChange?: (filter: ExtensionInventoryFilter) => void;
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
@@ -247,7 +251,9 @@ function isToggleOnlyExtension(entry: McpDirectoryInfo) {
   ) === true;
 }
 
-type ExtensionFilter = "all" | "mcp" | "skill" | "plugin";
+type ExtensionFilter = ExtensionInventoryFilter | "plugin";
+
+const extensionInventoryFilters: ExtensionInventoryFilter[] = ["all", "mcp", "skill"];
 
 export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
@@ -262,7 +268,7 @@ export function McpView(props: McpViewProps) {
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<ExtensionFilter>("all");
+  const [filter, setFilter] = useState<ExtensionFilter>(props.initialFilter ?? "all");
   const [showHidden, setShowHidden] = useState(false);
   const [claudeImportOpen, setClaudeImportOpen] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
@@ -305,6 +311,15 @@ export function McpView(props: McpViewProps) {
 
   const quickConnectList = props.quickConnect;
   const manageExtensionsDisabledReason = props.manageExtensionsDisabledReason ?? null;
+
+  const setInventoryFilter = (nextFilter: ExtensionInventoryFilter) => {
+    setFilter(nextFilter);
+    props.onFilterChange?.(nextFilter);
+  };
+
+  useEffect(() => {
+    setFilter(props.initialFilter ?? "all");
+  }, [props.initialFilter]);
 
   useEffect(() => {
     const refresh = () => setExtensionStateVersion((value) => value + 1);
@@ -572,12 +587,12 @@ export function McpView(props: McpViewProps) {
           />
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {(["all", "mcp", "skill"] as const).map((f) => (
+          {extensionInventoryFilters.map((f) => (
             <Button
               key={f}
               variant={filter === f ? "secondary" : "outline"}
               size="xs"
-              onClick={() => setFilter(f)}
+              onClick={() => setInventoryFilter(f)}
             >
               {f === "all" ? "All" : f === "mcp" ? "MCPs" : "Skills"}
             </Button>

@@ -85,14 +85,14 @@ export function InstallerPreview({
       aria-hidden="true"
       data-testid="installer-preview"
       data-preview-os={os}
-      className="relative grid min-h-[27rem] place-items-center overflow-hidden rounded-[14px] border border-[#8a93a6] px-3.5 pb-20 pt-14"
+      className="relative grid h-full min-h-[27rem] place-items-center overflow-hidden rounded-[14px] border border-[#8a93a6] px-3.5 pb-20 pt-14"
       style={{ backgroundImage: BACKDROP[os] }}
     >
       {os === "macos" ? <MacMenuBar appName={appName} /> : null}
 
-      <span className="absolute left-3 top-9 flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-white/90 px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] text-[#344054] shadow-[0_2px_8px_rgba(16,24,40,0.16)]">
-        <span className="size-1.5 rounded-full bg-[#3e63dd]" />
-        ON YOUR COMPUTER
+      <span className={`absolute left-3 flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-white/90 px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] text-[#344054] shadow-[0_2px_8px_rgba(16,24,40,0.16)] ${os === "macos" ? "top-9" : "top-3"}`}>
+        <span className="size-1.5 rounded-full bg-[#667085]" />
+        PREVIEW · WHAT YOU&apos;LL SEE ON YOUR COMPUTER
       </span>
 
       <div className="w-[21rem] max-w-full overflow-hidden rounded-xl border border-[#c7ced8] bg-white shadow-[0_11px_26px_rgba(16,24,40,0.2)]">
@@ -132,7 +132,7 @@ export function InstallerPreview({
             Let&apos;s connect this computer to your organization. We&apos;ll open a secure browser window so you can
             sign in and approve access.
           </p>
-          <span className="grid h-9 place-items-center rounded-[9px] bg-[#101828] text-[11px] font-semibold text-white shadow-[0_5px_11px_rgba(16,24,40,0.16)]">
+          <span className="grid h-9 place-items-center rounded-[9px] border border-[#101828]/25 text-[11px] font-medium text-[#667085]">
             Open this in your browser
           </span>
           <div className="grid gap-1.5 rounded-lg border border-[#dce1e8] bg-[#f5f7fa] px-2 py-1.5">

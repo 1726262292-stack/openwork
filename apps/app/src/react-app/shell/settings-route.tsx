@@ -93,7 +93,7 @@ import { MemoryView } from "@/react-app/domains/settings/pages/memory-view";
 import { useFeatureFlagsPreferences } from "@/react-app/domains/settings/state/feature-flags-preferences";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
-import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
+import { ExtensionsView, type ExtensionsSection } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
@@ -269,7 +269,7 @@ const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "openwork.react.settings.update-auto-d
 export function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
-  extensionsSection?: "all" | "mcp" | "plugins";
+  extensionsSection?: ExtensionsSection;
 } {
   const trimmed = pathname
     .replace(/^\/workspace\/[^/]+\/settings\/?/, "")
@@ -299,7 +299,7 @@ export function parseSettingsPath(pathname: string): {
     case "memory":
       return { tab: head, redirectPath: null };
     case "skills":
-      return { tab: "extensions", redirectPath: "extensions/skills", extensionsSection: "all" };
+      return { tab: "extensions", redirectPath: "extensions/skills", extensionsSection: "skills" };
     case "cloud-marketplaces":
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "den":
@@ -307,7 +307,7 @@ export function parseSettingsPath(pathname: string): {
       return { tab: "cloud-account", redirectPath: "cloud-account" };
     case "extensions":
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
-      if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
+      if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
       return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
     default:
@@ -2271,7 +2271,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
             setSectionRoute={(section) => {
-              const path = `extensions/${section}`;
+              const path = section === "all" ? "extensions" : `extensions/${section}`;
               navigateSettingsPath(path);
             }}
             onRefresh={() => {
@@ -2286,7 +2286,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void orgMcpConnections.refresh();
               void refreshConnectCapabilities();
             }}
-            mcpView={
+            mcpView={({ initialFilter, onFilterChange }) => (
               <McpView
                 busy={busy}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2351,9 +2351,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
                 installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
+                initialFilter={initialFilter}
+                onFilterChange={onFilterChange}
                 showHeader={false}
               />
-            }
+            )}
 
           />
         );
@@ -2374,6 +2376,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             currentModel={currentCloudMcpModel}
             onCloudMcpHealthChange={setCloudMcpHealth}
             orgMcpConnections={orgMcpConnections}
+            marketplaceItems={extensionItems.cloudPluginItems}
           />
         );
       case "memory":

@@ -596,7 +596,7 @@ function ConnectSignInPanel(props: ConnectViewProps) {
   );
 }
 
-function isCloudMarketplaceItem(item: ExtensionItem): item is CloudMarketplaceItem {
+export function isCloudMarketplaceItem(item: ExtensionItem): item is CloudMarketplaceItem {
   return Boolean(item.plugin);
 }
 

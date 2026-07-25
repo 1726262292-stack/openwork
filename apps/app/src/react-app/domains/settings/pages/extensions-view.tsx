@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 
 export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
+export type ExtensionsInventoryFilter = "all" | "mcp" | "skill";
 
 type SuggestedPlugin = {
   name: string;
@@ -38,10 +39,13 @@ export type ExtensionsViewProps = {
   manageExtensionsDisabledReason?: string | null;
   mcpConnectedAppsCount: number;
   /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
-  mcpView: ReactNode;
+  mcpView: (routing: {
+    initialFilter: ExtensionsInventoryFilter;
+    onFilterChange: (filter: ExtensionsInventoryFilter) => void;
+  }) => ReactNode;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
-  setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
+  setSectionRoute?: (tab: ExtensionsSection) => void;
   showHeader?: boolean;
 };
 
@@ -50,6 +54,14 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     () => props.extensions.pluginList().length,
     [props.extensions],
   );
+  const initialFilter = props.initialSection === "mcp"
+    ? "mcp"
+    : props.initialSection === "skills"
+      ? "skill"
+      : "all";
+  const setFilterRoute = (filter: ExtensionsInventoryFilter) => {
+    props.setSectionRoute?.(filter === "skill" ? "skills" : filter);
+  };
 
   return (
     <section className="space-y-6 max-w-3xl w-full animate-in fade-in duration-300">
@@ -73,11 +85,11 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       </div>
 
       {/* Runtime extensions and organization-assigned capabilities share one inventory. */}
-      {props.mcpView}
+      {props.mcpView({ initialFilter, onFilterChange: setFilterRoute })}
 
       {/* OpenCode plugins -- advanced, collapsed */}
       {pluginCount > 0 ? (
-        <details className="group">
+        <details className="group" open={props.initialSection === "plugins"}>
           <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-2 text-sm font-medium text-dls-secondary transition-colors hover:text-dls-text">
             <Cpu size={14} />
             <span>OpenCode Plugins</span>

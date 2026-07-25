@@ -128,10 +128,14 @@ import {
 import { cn } from "@/lib/utils";
 import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../status/session-activity-store";
 import { SessionDotMatrixLoader } from "./session-dot-matrix-loader";
+import {
+  SIDEBAR_ROW_LANE,
+  SIDEBAR_ROW_LANE_NESTED,
+  SIDEBAR_SECTION_LABEL,
+  SIDEBAR_SECTION_LANE,
+  SidebarGlyphSlot,
+} from "./sidebar-lanes";
 import { useWorkbenchStore } from "../chat/workbench-store";
-
-/** Fixed left lane from Paper — activity/chevron slot; never shifts the title. */
-const LEFT_ACTIVITY_SLOT = "flex size-4 shrink-0 items-center justify-center";
 
 /** Paper Desktop: unread #2FBE54, needs-action #E8933A (14px artboard → ~8px app). */
 const OUTCOME_DOT_UNREAD = "#2FBE54";
@@ -142,20 +146,18 @@ interface SessionLoadingIndicatorProps {
   isActiveWork: boolean;
 }
 
-/** Left-lane activity only — never used for unread / completion. */
+/** Glyph-lane activity only — never used for unread / completion. */
 function SessionLoadingIndicator({ status, isActiveWork }: SessionLoadingIndicatorProps) {
-  if (!isActiveWork) {
-    return <span aria-hidden="true" className={LEFT_ACTIVITY_SLOT} />;
-  }
+  if (!isActiveWork) return <SidebarGlyphSlot />;
 
   const title = isSessionActivityStatus(status) && status !== "idle"
     ? getSessionActivityStatusLabel(status)
     : t("workspace_list.session_streaming");
 
   return (
-    <span className={LEFT_ACTIVITY_SLOT}>
+    <SidebarGlyphSlot>
       <SessionDotMatrixLoader label={title} />
-    </span>
+    </SidebarGlyphSlot>
   );
 }
 
@@ -1114,9 +1116,8 @@ export function AppSidebar(props: AppSidebarProps) {
             {pinnedSessions.length > 0 ? (
               <GlobalPinnedSessions entries={pinnedSessions} />
             ) : null}
-            {/* pl-4 (16px): aligns with workspace titles now that the color dot is gone. */}
-            <div className="group/workspaces-header flex items-center pb-1 pl-4 pr-3 pt-2">
-              <span className="text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
+            <div className={cn("group/workspaces-header flex items-center pb-1 pr-3 pt-2", SIDEBAR_SECTION_LANE)}>
+              <span className={SIDEBAR_SECTION_LABEL}>
                 {t("workspace_list.title")}
               </span>
               <button
@@ -1180,9 +1181,11 @@ function GlobalPinnedSessions({ entries }: { entries: GlobalPinnedSessionEntry[]
   return (
     <SidebarGroup data-global-pinned-sessions className="pb-1 pt-2">
       <SidebarGroupContent>
-        {/* pl-2 (8px) + group p-2 = 16px: aligns with the WORKSPACES header lane. */}
-        <div className="pb-1 pl-2 pr-3 text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground">
-          {t("session_management.pinned")}
+        <div className={cn("flex items-center gap-2 pb-1 pr-3", SIDEBAR_ROW_LANE)}>
+          <SidebarGlyphSlot>
+            <Pin className="size-3 text-muted-foreground" />
+          </SidebarGlyphSlot>
+          <span className={SIDEBAR_SECTION_LABEL}>{t("session_management.pinned")}</span>
         </div>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -1218,10 +1221,12 @@ function GlobalArchivedSessions({ entries }: { entries: GlobalArchivedSessionEnt
             render={
               <button
                 type="button"
-                className="group/separator flex w-full cursor-pointer items-center gap-3 px-3 pb-1 pt-2.5 rounded transition-colors hover:bg-sidebar-accent/50"
+                className={cn("group/separator flex w-full cursor-pointer items-center gap-2 pe-3 pb-1 pt-2.5 rounded transition-colors hover:bg-sidebar-accent/50", SIDEBAR_ROW_LANE)}
               >
-                <Archive className="size-3 shrink-0 text-muted-foreground" />
-                <span className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+                <SidebarGlyphSlot>
+                  <Archive className="size-3 text-muted-foreground" />
+                </SidebarGlyphSlot>
+                <span className={SIDEBAR_SECTION_LABEL}>
                   {t("session_management.archived_label")}
                 </span>
                 <span className="text-[10px] tabular-nums text-muted-foreground/70">{entries.length}</span>
@@ -1394,9 +1399,9 @@ function WorkspaceHeader({
         handleSelectWorkspace();
       }}
     >
-      {isLoading ? (
-        <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
-      ) : null}
+      <SidebarGlyphSlot>
+        {isLoading ? <SessionDotMatrixLoader label={t("workspace.loading_tasks")} /> : null}
+      </SidebarGlyphSlot>
       <div
         className="min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-16 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-16 group-has-data-popup-open/workspace-header:pr-11 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-16 pr-2"
         onPointerDown={onTitlePointerDown}
@@ -1581,8 +1586,10 @@ function WorkspaceSidebarGroup({
                   />
                 ) : showInitialLoading || (group.status === "loading" && group.sessions.length === 0) ? (
                   <SidebarMenuSubItem>
-                    <SidebarMenuSubButton aria-disabled className="text-muted-foreground text-xs truncate">
-                      <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
+                    <SidebarMenuSubButton aria-disabled className={cn("text-muted-foreground text-xs truncate", SIDEBAR_ROW_LANE)}>
+                      <SidebarGlyphSlot>
+                        <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
+                      </SidebarGlyphSlot>
                       <span className="truncate">{t("workspace.loading_tasks")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>
@@ -1861,12 +1868,14 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
         event.preventDefault();
         onToggle();
       }}
-      className="group/separator flex w-full items-center gap-1.5 rounded px-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50"
+      className={cn("group/separator flex w-full items-center gap-2 rounded pe-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50", SIDEBAR_ROW_LANE)}
       aria-expanded={expanded}
     >
-      <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
+      <SidebarGlyphSlot>
+        <ChevronRight className={cn("size-3.5 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
+      </SidebarGlyphSlot>
       <span
-        className="min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate text-[12px] font-normal uppercase tracking-[0.04em] text-muted-foreground active:cursor-grabbing"
+        className={cn("min-w-0 flex-1 cursor-grab touch-none ow-fade-truncate active:cursor-grabbing", SIDEBAR_SECTION_LABEL)}
         onPointerDown={onTitlePointerDown}
       >
         {label}
@@ -2232,10 +2241,8 @@ function SessionMenuItem({
   const rowButtonClass = cn(
     // Soft pill @ 11px radius from Paper; overlay tint adapts to theme
     // (light: --ow-light-hover ≈ black/5, dark: #FFFFFF17 ≈ white/9).
-    // The left activity slot is the indent — dot-matrix sits in the chevron
-    // lane and the title starts in the group-label lane without shifting.
-    "relative rounded-[11px] transition-[padding,background-color] duration-75 ps-1 pe-7 group-hover/menu-sub-item:pe-20 group-has-data-popup-open/menu-sub-item:pe-20 group-hover/menu-sub-item:bg-black/[0.05] dark:group-hover/menu-sub-item:bg-white/[0.09] data-active:bg-black/[0.07] dark:data-active:bg-white/[0.12] text-sidebar-foreground/80 data-active:text-sidebar-foreground",
-    depth > 0 && "ps-5",
+    "relative rounded-[11px] transition-[padding,background-color] duration-75 pe-7 group-hover/menu-sub-item:pe-20 group-has-data-popup-open/menu-sub-item:pe-20 group-hover/menu-sub-item:bg-black/[0.05] dark:group-hover/menu-sub-item:bg-white/[0.09] data-active:bg-black/[0.07] dark:data-active:bg-white/[0.12] text-sidebar-foreground/80 data-active:text-sidebar-foreground",
+    depth > 0 ? SIDEBAR_ROW_LANE_NESTED : SIDEBAR_ROW_LANE,
   );
 
   // Pinned/archived rows identify their workspace via the tooltip title

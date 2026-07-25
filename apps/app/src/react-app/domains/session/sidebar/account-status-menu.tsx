@@ -286,7 +286,8 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
             data-testid="account-status-menu"
             data-runtime-state={runtimeStatus?.variant}
             data-connect-state={connectStatus?.state}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
+            /* ps-1.5 puts the 24px avatar 12px from the edge, so the name lands on the sidebar label lane. */
+            className="flex w-full items-center gap-2 rounded-lg ps-1.5 pe-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
             aria-label={signedIn ? `${user.email} — account and status` : "Account and status"}
             title={connectNeedsAttention
               ? openWorkConnectAttentionTitle(connectStatus.description)

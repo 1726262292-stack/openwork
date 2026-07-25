@@ -273,6 +273,11 @@ export default {
               await withWeb(ctx, async () => {
                 await navigateToAbsolute(ctx, `${requireStateValue(state.installPageUrl, "install page URL")}&step=2`);
                 await ctx.waitFor("Boolean(document.querySelector('[data-testid=install-connect-copy]'))", { timeoutMs: 30_000, label: "connection recovery button" });
+                await ctx.eval(`(() => {
+                  const disclosure = document.querySelector('[data-testid=install-connect-copy]')?.closest('details');
+                  if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
+                  return true;
+                })()`);
                 await ctx.waitForText("Or copy a fresh connection link", { timeoutMs: 20_000 });
                 await stubConnectionClipboardCapture(ctx);
                 await clickSelector(ctx, "[data-testid=install-connect-copy]", "copy connection link button");

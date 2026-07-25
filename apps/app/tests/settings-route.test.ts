@@ -10,4 +10,10 @@ describe("settings route parsing", () => {
       redirectPath: null,
     });
   });
+
+  test("preserves extension section deep links", () => {
+    expect(parseSettingsPath("/settings/extensions/mcp")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "mcp" });
+    expect(parseSettingsPath("/settings/extensions/skills")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "skills" });
+    expect(parseSettingsPath("/settings/extensions/plugins")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "plugins" });
+  });
 });
