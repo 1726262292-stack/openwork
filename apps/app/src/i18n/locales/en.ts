@@ -4,6 +4,10 @@
  */
 
 export default {
+  "account.mcp_connected_one": "{count} MCP server",
+  "account.mcp_connected_other": "{count} MCP servers",
+  "account.providers_connected_one": "{count} model provider",
+  "account.providers_connected_other": "{count} model providers",
   "app.compact_command_desc": "Summarize this session to reduce context size.",
   "app.error_audit_load": "Failed to load audit log.",
   "app.error_auth_failed": "Authentication failed",
