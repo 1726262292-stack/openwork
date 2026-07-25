@@ -156,6 +156,10 @@ function workspaceState(workspaceDir) {
   };
 }
 
+function serverConfig(workspaceDir) {
+  return { workspaces: workspaceState(workspaceDir).workspaces };
+}
+
 async function prepareFirstrunUserData(runDir) {
   const userDataDir = path.join(runDir, "userdata");
   await prepareProfileDirs(runDir);
@@ -166,17 +170,19 @@ async function prepareFirstrunUserData(runDir) {
 async function prepareWorkspaceUserData(runDir, options = {}) {
   const userDataDir = path.join(runDir, "userdata");
   const workspaceDir = path.join(runDir, "workspace");
-  await prepareProfileDirs(runDir);
-  await mkdir(userDataDir, { recursive: true });
-  await mkdir(workspaceDir, { recursive: true });
-  await writeFile(
-    path.join(userDataDir, "openwork-workspaces.json"),
-    `${JSON.stringify(workspaceState(workspaceDir), null, 2)}\n`,
-    "utf8",
-  );
   const serverConfigPath = options.serverConfigInUserData
     ? path.join(userDataDir, "server.json")
     : path.join(runDir, "server.json");
+  await prepareProfileDirs(runDir);
+  await mkdir(userDataDir, { recursive: true });
+  await mkdir(workspaceDir, { recursive: true });
+  const state = workspaceState(workspaceDir);
+  await writeFile(
+    path.join(userDataDir, "openwork-workspaces.json"),
+    `${JSON.stringify(state, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(serverConfigPath, `${JSON.stringify(serverConfig(workspaceDir), null, 2)}\n`, "utf8");
   return { userDataDir, workspaceDir, serverConfigPath };
 }
 
