@@ -41,9 +41,9 @@ const highPriorityMemberAssignmentId = createDenTypeId("desktopPolicyMember")
 const highPriorityTeamAssignmentId = createDenTypeId("desktopPolicyMember")
 const flatConnectMetadata = {
   connectEnabled: true,
-  brandAppName: "Acme Work",
-  brandLogoUrl: "https://den.example-corp.internal/assets/wordmark.svg",
-  brandIconUrl: "https://den.example-corp.internal/assets/icon.png",
+  brandAppName: "Team Work",
+  brandLogoUrl: "https://desktop-config.test/assets/wordmark.svg",
+  brandIconUrl: "https://desktop-config.test/assets/icon.png",
 }
 const capabilityMetadata = { capabilities: { mcpConnections: true } }
 const disabledMetadata = { capabilities: { mcpConnections: false } }
@@ -52,6 +52,10 @@ const highPriorityOnboardingPrompts = ["High priority task", "High priority foll
 const defaultOnboardingPromptDescriptions = ["Default onboarding", "Default follow-up"]
 const highPriorityOnboardingPromptDescriptions = ["High priority onboarding", "High priority follow-up", "High priority optional"]
 let crudDesktopPolicyId: string | null = null
+
+function promptObjects(prompts: string[]) {
+  return prompts.map((prompt) => ({ prompt }))
+}
 
 beforeAll(async () => {
   seedRequiredEnv()
@@ -323,7 +327,7 @@ test("GET /v1/me/desktop-config exposes the effective connectEnabled org flag", 
 
 test("GET /v1/me/desktop-config returns the effective onboarding prompts", async () => {
   const body = await requestDesktopConfig(onboardingOrganizationId)
-  expect(body.onboardingPrompts).toEqual(highPriorityOnboardingPrompts)
+  expect(body.onboardingPrompts).toEqual(promptObjects(highPriorityOnboardingPrompts))
   expect(body.onboardingPromptDescriptions).toEqual(highPriorityOnboardingPromptDescriptions)
 })
 
@@ -350,7 +354,7 @@ test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and
   crudDesktopPolicyId = expectString(created.id, "Created desktop policy was missing id")
   expect(created.priority).toBe(3)
   expect(expectRecord(created.policy, "Created desktop policy was missing policy").allowAlphaUpdates).toBe(false)
-  expect(expectRecord(created.policy, "Created desktop policy was missing policy").onboardingPrompts).toEqual(["CRUD prompt one", "CRUD prompt two"])
+  expect(expectRecord(created.policy, "Created desktop policy was missing policy").onboardingPrompts).toEqual(promptObjects(["CRUD prompt one", "CRUD prompt two"]))
   expect(expectRecord(created.policy, "Created desktop policy was missing policy").onboardingPromptDescriptions).toEqual(["CRUD card one", "CRUD card two"])
 
   const listPayload = await requestDesktopPolicyAdmin({
@@ -363,7 +367,7 @@ test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and
   expect(definitions.some((definition) => isRecord(definition) && definition.id === "allowAlphaUpdates")).toBe(true)
   const listed = findListedDesktopPolicy(listPayload, crudDesktopPolicyId)
   expect(listed.priority).toBe(3)
-  expect(expectRecord(listed.policy, "Listed desktop policy was missing policy").onboardingPrompts).toEqual(["CRUD prompt one", "CRUD prompt two"])
+  expect(expectRecord(listed.policy, "Listed desktop policy was missing policy").onboardingPrompts).toEqual(promptObjects(["CRUD prompt one", "CRUD prompt two"]))
   expect(expectRecord(listed.policy, "Listed desktop policy was missing policy").onboardingPromptDescriptions).toEqual(["CRUD card one", "CRUD card two"])
 
   const preservedPayload = await requestDesktopPolicyAdmin({
@@ -381,7 +385,7 @@ test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and
   if (!preservedPayload) throw new Error("Preserve response was empty")
   const preserved = expectDesktopPolicy(preservedPayload)
   expect(preserved.priority).toBe(4)
-  expect(expectRecord(preserved.policy, "Preserved desktop policy was missing policy").onboardingPrompts).toEqual(["CRUD prompt one", "CRUD prompt two"])
+  expect(expectRecord(preserved.policy, "Preserved desktop policy was missing policy").onboardingPrompts).toEqual(promptObjects(["CRUD prompt one", "CRUD prompt two"]))
   expect(expectRecord(preserved.policy, "Preserved desktop policy was missing policy").onboardingPromptDescriptions).toEqual(["CRUD card one", "CRUD card two"])
 
   const replacedPayload = await requestDesktopPolicyAdmin({
@@ -403,8 +407,47 @@ test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and
   if (!replacedPayload) throw new Error("Replace response was empty")
   const replaced = expectDesktopPolicy(replacedPayload)
   expect(replaced.priority).toBe(5)
-  expect(expectRecord(replaced.policy, "Replaced desktop policy was missing policy").onboardingPrompts).toEqual(["Replacement prompt one", "Replacement prompt two"])
+  expect(expectRecord(replaced.policy, "Replaced desktop policy was missing policy").onboardingPrompts).toEqual(promptObjects(["Replacement prompt one", "Replacement prompt two"]))
   expect(expectRecord(replaced.policy, "Replaced desktop policy was missing policy").onboardingPromptDescriptions).toEqual(["Replacement card one", "Replacement card two"])
+
+  const boundPrompts = [
+    {
+      prompt: "Find what needs attention.",
+      skill: {
+        source: "connect",
+        slug: "attention-review",
+        name: "Attention Review",
+        marketplaceId: "marketplace_attention",
+        marketplaceName: "Workflow Library",
+        pluginId: "plugin_attention",
+        pluginName: "Attention Workflows",
+        configObjectId: "skill_attention_review",
+        capabilityName: "plugin:plugin_attention:skill_attention_review",
+      },
+    },
+    { prompt: "Summarize today's notes." },
+  ]
+  const boundPayload = await requestDesktopPolicyAdmin({
+    method: "PATCH",
+    path: `/v1/desktop-policies/${encodeURIComponent(crudDesktopPolicyId)}`,
+    expectedStatus: 200,
+    body: {
+      policyName: "CRUD onboarding policy bound",
+      priority: 6,
+      policy: {
+        allowZenModel: false,
+        onboardingPrompts: boundPrompts,
+        onboardingPromptDescriptions: ["Attention", "Notes"],
+      },
+      memberIds: [],
+      teamIds: [],
+    },
+  })
+  if (!boundPayload) throw new Error("Bound response was empty")
+  const bound = expectDesktopPolicy(boundPayload)
+  expect(bound.priority).toBe(6)
+  expect(expectRecord(bound.policy, "Bound desktop policy was missing policy").onboardingPrompts).toEqual(boundPrompts)
+  expect(expectRecord(bound.policy, "Bound desktop policy was missing policy").onboardingPromptDescriptions).toEqual(["Attention", "Notes"])
 
   const clearedPayload = await requestDesktopPolicyAdmin({
     method: "PATCH",
@@ -412,7 +455,7 @@ test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and
     expectedStatus: 200,
     body: {
       policyName: "CRUD onboarding policy cleared",
-      priority: 6,
+      priority: 7,
       policy: { allowZenModel: false, onboardingPrompts: null },
       memberIds: [],
       teamIds: [],
@@ -420,7 +463,7 @@ test("desktop policy CRUD preserves, replaces, and clears onboarding prompts and
   })
   if (!clearedPayload) throw new Error("Clear response was empty")
   const cleared = expectDesktopPolicy(clearedPayload)
-  expect(cleared.priority).toBe(6)
+  expect(cleared.priority).toBe(7)
   expect(expectRecord(cleared.policy, "Cleared desktop policy was missing policy").onboardingPrompts).toBeUndefined()
   expect(expectRecord(cleared.policy, "Cleared desktop policy was missing policy").onboardingPromptDescriptions).toBeUndefined()
 

@@ -111,18 +111,73 @@ export const desktopPolicyValueSchema = z
 
 export type DesktopPolicyValue = z.infer<typeof desktopPolicyValueSchema>;
 
-export const onboardingPromptsSchema = z
-  .array(z.string().trim().min(1).max(500))
-  .min(2)
-  .max(3);
+const onboardingPromptTextSchema = z.string().trim().min(1).max(500);
+
+const onboardingPromptSkillSlugSchema = z.string().trim().min(1).max(120);
+const onboardingPromptIdentifierSchema = z.string().trim().min(1).max(255);
+const onboardingPromptDisplayNameSchema = z.string().trim().min(1).max(200);
+
+export const onboardingPromptLocalSkillReferenceSchema = z.object({
+  source: z.literal("local"),
+  slug: onboardingPromptSkillSlugSchema,
+});
+
+export const onboardingPromptConnectSkillReferenceSchema = z.object({
+  source: z.literal("connect"),
+  slug: onboardingPromptSkillSlugSchema,
+  name: onboardingPromptDisplayNameSchema,
+  marketplaceId: onboardingPromptIdentifierSchema,
+  marketplaceName: onboardingPromptDisplayNameSchema,
+  pluginId: onboardingPromptIdentifierSchema,
+  pluginName: onboardingPromptDisplayNameSchema.optional(),
+  configObjectId: onboardingPromptIdentifierSchema,
+  capabilityName: onboardingPromptIdentifierSchema,
+});
+
+export const onboardingPromptSkillReferenceSchema = z.discriminatedUnion(
+  "source",
+  [
+    onboardingPromptLocalSkillReferenceSchema,
+    onboardingPromptConnectSkillReferenceSchema,
+  ],
+);
+
+export const onboardingPromptSchema = z.object({
+  prompt: onboardingPromptTextSchema,
+  skill: onboardingPromptSkillReferenceSchema.optional(),
+});
+
+function coerceOnboardingPromptEntry(value: unknown) {
+  return typeof value === "string" ? { prompt: value } : value;
+}
+
+function coerceOnboardingPrompts(value: unknown) {
+  return Array.isArray(value) ? value.map(coerceOnboardingPromptEntry) : value;
+}
+
+export const onboardingPromptsSchema = z.preprocess(
+  coerceOnboardingPrompts,
+  z.array(onboardingPromptSchema).min(2).max(3),
+);
 
 export const onboardingPromptDescriptionsSchema = z
   .array(z.string().trim().max(120))
   .min(2)
   .max(3);
 
+export type OnboardingPromptLocalSkillReference = z.infer<
+  typeof onboardingPromptLocalSkillReferenceSchema
+>;
+export type OnboardingPromptConnectSkillReference = z.infer<
+  typeof onboardingPromptConnectSkillReferenceSchema
+>;
+export type OnboardingPromptSkillReference = z.infer<
+  typeof onboardingPromptSkillReferenceSchema
+>;
+export type OnboardingPrompt = z.infer<typeof onboardingPromptSchema>;
+
 export type OnboardingPromptConfig = {
-  onboardingPrompts: string[];
+  onboardingPrompts: OnboardingPrompt[];
   onboardingPromptDescriptions?: string[];
 };
 
@@ -147,7 +202,7 @@ export type DesktopPolicyDocumentWrite = z.infer<
   typeof desktopPolicyDocumentWriteSchema
 >;
 export type DefaultDesktopPolicyDocument = Required<DesktopPolicyValue> & {
-  onboardingPrompts?: string[];
+  onboardingPrompts?: OnboardingPrompt[];
   onboardingPromptDescriptions?: string[];
 };
 
@@ -250,7 +305,9 @@ function coerceJsonRecord(value: unknown): unknown {
   }
 }
 
-export function normalizeOnboardingPrompts(value: unknown): string[] | undefined {
+export function normalizeOnboardingPrompts(
+  value: unknown,
+): OnboardingPrompt[] | undefined {
   const parsed = onboardingPromptsSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
@@ -486,7 +543,9 @@ export function selectEffectiveOnboardingPrompts(input: {
   defaultPolicy?: unknown;
   assignedPolicies: DesktopPolicyPromptCandidate[];
 }): string[] | undefined {
-  return selectEffectiveOnboardingPromptConfig(input)?.onboardingPrompts;
+  return selectEffectiveOnboardingPromptConfig(input)?.onboardingPrompts.map(
+    (prompt) => prompt.prompt,
+  );
 }
 
 export function selectEffectiveOnboardingPromptConfig(input: {

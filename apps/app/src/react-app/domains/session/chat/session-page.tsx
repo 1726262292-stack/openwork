@@ -203,6 +203,7 @@ export type SessionPageProps = {
   statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   onOpenProviderAuth?: () => void;
+  onOpenConnect?: () => void;
   /** Chat-first: create a default workspace and start a task from the empty-state composer. */
   onChatFirstTask?: (prompt: string) => void;
   chatFirstBusy?: boolean;
@@ -1316,6 +1317,7 @@ export function SessionPage(props: SessionPageProps) {
                       busy={props.chatFirstBusy}
                       onRunTask={(prompt) => props.onChatFirstTask?.(prompt)}
                       onOpenProviderAuth={props.onOpenProviderAuth}
+                      onOpenConnect={props.onOpenConnect}
                       composer={props.newTaskComposer}
                     />
                   ) : showSelectedWorkspaceError ? (
@@ -1371,6 +1373,7 @@ export function SessionPage(props: SessionPageProps) {
                           props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)
                         }
                         onOpenProviderAuth={props.onOpenProviderAuth}
+                        onOpenConnect={props.onOpenConnect}
                         composer={props.newTaskComposer}
                       />
                     </div>

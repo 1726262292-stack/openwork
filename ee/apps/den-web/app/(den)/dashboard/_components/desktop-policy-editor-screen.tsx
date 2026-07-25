@@ -7,12 +7,16 @@ import { ArrowLeft, Laptop } from "lucide-react";
 import {
   desktopPolicyDefaults,
   desktopPolicyKeys,
+  type OnboardingPrompt,
+  type OnboardingPromptConnectSkillReference,
+  type OnboardingPromptSkillReference,
   type DesktopPolicyDocumentWrite,
   type DesktopPolicyValue,
 } from "@openwork/types/den/desktop-policies";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
+import { DenSelect } from "../../_components/ui/select";
 import { DenTextarea } from "../../_components/ui/textarea";
 import { getDesktopPoliciesRoute, getMembersRoute, getOrgAccessFlags } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -25,6 +29,7 @@ import {
 } from "./desktop-policy-data";
 import { resolveOrganizationPromptPreviewCardContent } from "./desktop-policy-onboarding-preview";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
+import { usePlugins, type DenPlugin, type PluginMarketplaceRef, type PluginSkill } from "./plugin-data";
 
 type PolicyDraft = {
   policyName: string;
@@ -33,6 +38,7 @@ type PolicyDraft = {
   onboardingPromptsEnabled: boolean;
   onboardingPromptTexts: string[];
   onboardingPromptDescriptions: string[];
+  onboardingPromptSkills: Array<OnboardingPromptSkillReference | null>;
   memberIds: string[];
   teamIds: string[];
 };
@@ -44,6 +50,7 @@ const EMPTY_DRAFT: PolicyDraft = {
   onboardingPromptsEnabled: false,
   onboardingPromptTexts: ["", "", ""],
   onboardingPromptDescriptions: ["", "", ""],
+  onboardingPromptSkills: [null, null, null],
   memberIds: [],
   teamIds: [],
 };
@@ -53,6 +60,73 @@ const ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH = 120;
 const MAX_POLICY_PRIORITY = 1_000_000;
 const PRIORITY_HELP_ID = "desktop-policy-priority-help";
 const PRIORITY_ERROR_ID = "desktop-policy-priority-error";
+
+type OrganizationSkillOption = {
+  value: string;
+  label: string;
+  description: string;
+  binding: OnboardingPromptConnectSkillReference;
+};
+
+function skillTriggerSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "skill";
+}
+
+function connectCapabilityName(pluginId: string, configObjectId: string) {
+  return `plugin:${pluginId}:${configObjectId}`;
+}
+
+function organizationSkillOptionValue(input: { marketplaceId: string; pluginId: string; configObjectId: string }) {
+  return `${input.marketplaceId}:${input.pluginId}:${input.configObjectId}`;
+}
+
+function createOrganizationSkillOption(input: {
+  marketplace: PluginMarketplaceRef;
+  plugin: DenPlugin;
+  skill: PluginSkill;
+}): OrganizationSkillOption {
+  const binding: OnboardingPromptConnectSkillReference = {
+    source: "connect",
+    slug: skillTriggerSlug(input.skill.name),
+    name: input.skill.name,
+    marketplaceId: input.marketplace.id,
+    marketplaceName: input.marketplace.name,
+    pluginId: input.plugin.id,
+    pluginName: input.plugin.name,
+    configObjectId: input.skill.id,
+    capabilityName: connectCapabilityName(input.plugin.id, input.skill.id),
+  };
+  return {
+    value: organizationSkillOptionValue(binding),
+    label: `${input.skill.name} · ${input.marketplace.name}`,
+    description: input.skill.description,
+    binding,
+  };
+}
+
+function getOrganizationSkillOptions(plugins: DenPlugin[]) {
+  return plugins
+    .flatMap((plugin) => (plugin.marketplaces ?? []).flatMap((marketplace) =>
+      plugin.skills.map((skill) => createOrganizationSkillOption({ marketplace, plugin, skill }))
+    ))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function promptSkillSelectValue(skill: OnboardingPromptSkillReference | null) {
+  if (!skill) return "";
+  if (skill.source === "local") return `local:${skill.slug}`;
+  return organizationSkillOptionValue(skill);
+}
+
+function promptSkillDisplayName(skill: OnboardingPromptSkillReference) {
+  return skill.source === "local"
+    ? `Local skill /${skill.slug}`
+    : `${skill.name} · ${skill.marketplaceName}`;
+}
 
 function requiredPolicyValue(value: DesktopPolicyValue): Required<DesktopPolicyValue> {
   return Object.fromEntries(
@@ -69,14 +143,19 @@ function draftFromPolicy(policy: DenDesktopPolicy): PolicyDraft {
     priority: policy.priority,
     onboardingPromptsEnabled: onboardingPrompts.length > 0,
     onboardingPromptTexts: [
-      onboardingPrompts[0] ?? "",
-      onboardingPrompts[1] ?? "",
-      onboardingPrompts[2] ?? "",
+      onboardingPrompts[0]?.prompt ?? "",
+      onboardingPrompts[1]?.prompt ?? "",
+      onboardingPrompts[2]?.prompt ?? "",
     ],
     onboardingPromptDescriptions: [
       onboardingPromptDescriptions[0] ?? "",
       onboardingPromptDescriptions[1] ?? "",
       onboardingPromptDescriptions[2] ?? "",
+    ],
+    onboardingPromptSkills: [
+      onboardingPrompts[0]?.skill ?? null,
+      onboardingPrompts[1]?.skill ?? null,
+      onboardingPrompts[2]?.skill ?? null,
     ],
     memberIds: policy.assignments.flatMap((assignment) => (assignment.orgMemberId ? [assignment.orgMemberId] : [])),
     teamIds: policy.assignments.flatMap((assignment) => (assignment.teamId ? [assignment.teamId] : [])),
@@ -102,7 +181,15 @@ function updateOnboardingPromptDescription(values: string[], index: number, next
   return values.map((value, valueIndex) => (valueIndex === index ? nextValue : value));
 }
 
-function getOnboardingPrompts(draft: PolicyDraft): string[] | undefined {
+function updateOnboardingPromptSkill(
+  values: Array<OnboardingPromptSkillReference | null>,
+  index: number,
+  nextValue: OnboardingPromptSkillReference | null,
+) {
+  return values.map((value, valueIndex) => (valueIndex === index ? nextValue : value));
+}
+
+function getOnboardingPrompts(draft: PolicyDraft): OnboardingPrompt[] | undefined {
   if (!draft.onboardingPromptsEnabled) return undefined;
 
   const prompts = draft.onboardingPromptTexts.map((prompt) => prompt.trim());
@@ -110,7 +197,14 @@ function getOnboardingPrompts(draft: PolicyDraft): string[] | undefined {
   if (requiredPrompts.some((prompt) => prompt.length === 0)) return undefined;
   if (prompts.some((prompt) => prompt.length > 500)) return undefined;
 
-  return prompts[2] ? [...requiredPrompts, prompts[2]] : requiredPrompts;
+  const promptCount = prompts[2] ? 3 : 2;
+  return prompts.slice(0, promptCount).map((prompt, index) => {
+    const skill = draft.onboardingPromptSkills[index] ?? null;
+    return {
+      prompt,
+      ...(skill ? { skill } : {}),
+    };
+  });
 }
 
 function getOnboardingPromptDescriptions(draft: PolicyDraft, promptCount: number): string[] | undefined {
@@ -172,9 +266,13 @@ function getOnboardingPromptPreviewCards(draft: PolicyDraft) {
   return ONBOARDING_PROMPT_LABELS.flatMap((_, index) => {
     const prompt = prompts[index] ?? "";
     if (index === 2 && prompt.length === 0) return [];
+    const skill = draft.onboardingPromptSkills[index] ?? null;
 
     return [resolveOrganizationPromptPreviewCardContent({
-      prompt,
+      prompt: {
+        prompt,
+        ...(skill ? { skill } : {}),
+      },
       description: descriptions[index],
       index,
     })];
@@ -205,6 +303,9 @@ function OnboardingPromptPreviewCard({ card }: { card: ReturnType<typeof resolve
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-[14px] font-medium text-gray-900">{card.title}</span>
+        {card.skillLabel ? (
+          <span className="text-[11px] font-medium text-purple-700">{card.skillLabel}</span>
+        ) : null}
         <span className="block min-w-0 break-words text-sm font-normal text-gray-500">{card.description}</span>
       </div>
     </button>
@@ -258,6 +359,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
   const router = useRouter();
   const { orgId, orgSlug, orgContext, runReauthableAction } = useOrgDashboard();
   const { definitions, desktopPolicies, busy, error, reloadPolicies } = useOrgDesktopPolicies(orgId);
+  const { data: plugins = [], isLoading: pluginsLoading, error: pluginsError } = usePlugins();
 
   const policy = useMemo(() => {
     if (!desktopPolicyId) return null;
@@ -296,6 +398,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
   const disabledPromptCopy = getDisabledPromptCopy(isDefault);
   const formDisabled = saving || togglingEnabled || !canManage;
   const onboardingPromptPreviewCards = getOnboardingPromptPreviewCards(draft);
+  const organizationSkillOptions = useMemo(() => getOrganizationSkillOptions(plugins), [plugins]);
 
   const handleSave = async () => {
     if (!canManage) {
@@ -380,6 +483,20 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
     }
   };
 
+  const handlePromptSkillChange = (index: number, value: string) => {
+    const option = organizationSkillOptions.find((entry) => entry.value === value);
+    if (!value || option) {
+      setDraft({
+        ...draft,
+        onboardingPromptSkills: updateOnboardingPromptSkill(
+          draft.onboardingPromptSkills,
+          index,
+          option?.binding ?? null,
+        ),
+      });
+    }
+  };
+
   return (
     <DashboardPageTemplate
       icon={Laptop}
@@ -403,6 +520,11 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
       ) : null}
       {error ? (
         <div role="alert" className="mb-6 rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-700">{error}</div>
+      ) : null}
+      {pluginsError ? (
+        <div role="alert" className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-[14px] text-amber-800">
+          Marketplace skills could not be loaded. Existing prompt bindings are preserved, but new skill attachments are unavailable.
+        </div>
       ) : null}
 
       {initialLoad ? (
@@ -532,6 +654,9 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
                     const promptErrorId = getPromptErrorId(index);
                     const promptDescriptionHelpId = getPromptDescriptionHelpId(index);
                     const promptDescriptionErrorId = getPromptDescriptionErrorId(index);
+                    const selectedSkill = draft.onboardingPromptSkills[index] ?? null;
+                    const selectedSkillValue = promptSkillSelectValue(selectedSkill);
+                    const selectedSkillOption = organizationSkillOptions.find((option) => option.value === selectedSkillValue);
                     return (
                       <div key={label} className="grid gap-3 rounded-[18px] border border-gray-200 bg-white px-4 py-3">
                         <p className="text-[13px] font-medium text-gray-700">{label}</p>
@@ -577,6 +702,29 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
                           {promptError ? (
                             <span id={promptErrorId} className="text-[12px] text-red-600">{promptError}</span>
                           ) : null}
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="text-[12px] font-medium text-gray-600">Attached skill (optional)</span>
+                          <DenSelect
+                            value={selectedSkillValue}
+                            onChange={(event) => handlePromptSkillChange(index, event.target.value)}
+                            disabled={formDisabled || pluginsLoading}
+                          >
+                            <option value="">No skill attached</option>
+                            {selectedSkill && !selectedSkillOption ? (
+                              <option value={selectedSkillValue}>{promptSkillDisplayName(selectedSkill)}</option>
+                            ) : null}
+                            {organizationSkillOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </DenSelect>
+                          <span className="text-[12px] text-gray-500">
+                            {pluginsLoading
+                              ? "Loading marketplace skills..."
+                              : organizationSkillOptions.length === 0
+                                ? "No marketplace skills are available to attach."
+                                : selectedSkillOption?.description || "The selected skill is loaded when the member sends the prompt."}
+                          </span>
                         </label>
                       </div>
                     );

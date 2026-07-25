@@ -7,6 +7,10 @@ import {
   resolveDesktopPolicyDocumentWrite,
 } from "@openwork/types/den/desktop-policies"
 
+function promptObjects(prompts: string[]) {
+  return prompts.map((prompt) => ({ prompt }))
+}
+
 describe("desktop policy JSON column strings", () => {
   test("normalizes policy value JSON strings", () => {
     expect(normalizeDesktopPolicyValue(JSON.stringify({ allowCustomProviders: false }))).toEqual({
@@ -22,7 +26,10 @@ describe("desktop policy JSON column strings", () => {
       onboardingPromptDescriptions: ["Policy review", "Tool connection"],
     }
 
-    expect(normalizeDesktopPolicyDocument(JSON.stringify(document))).toEqual(document)
+    expect(normalizeDesktopPolicyDocument(JSON.stringify(document))).toEqual({
+      ...document,
+      onboardingPrompts: promptObjects(document.onboardingPrompts),
+    })
   })
 
   test("preserves onboarding prompts from string existing policies", () => {
@@ -40,9 +47,33 @@ describe("desktop policy JSON column strings", () => {
     })).toEqual({
       ...desktopPolicyDefaults,
       allowCustomProviders: false,
-      onboardingPrompts: existingPolicy.onboardingPrompts,
+      onboardingPrompts: promptObjects(existingPolicy.onboardingPrompts),
       onboardingPromptDescriptions: existingPolicy.onboardingPromptDescriptions,
     })
+  })
+
+  test("normalizes bound onboarding prompt documents from JSON strings", () => {
+    const document = {
+      onboardingPrompts: [
+        {
+          prompt: "Find what needs attention.",
+          skill: {
+            source: "connect",
+            slug: "attention-review",
+            name: "Attention Review",
+            marketplaceId: "marketplace_attention",
+            marketplaceName: "Workflow Library",
+            pluginId: "plugin_attention",
+            pluginName: "Attention Workflows",
+            configObjectId: "skill_attention_review",
+            capabilityName: "plugin:plugin_attention:skill_attention_review",
+          },
+        },
+        { prompt: "Summarize today's notes." },
+      ],
+    }
+
+    expect(normalizeDesktopPolicyDocument(JSON.stringify(document)).onboardingPrompts).toEqual(document.onboardingPrompts)
   })
 
   test("calculates effective policy the same for object and string policy documents", () => {
