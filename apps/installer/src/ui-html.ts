@@ -1,5 +1,6 @@
 import { installerConfigSourceLabel, type InstallerConfigResolution } from "./config"
 import { OPENWORK_LOGO_SVG } from "./openwork-logo"
+import { INSTALLER_VERSION } from "./version"
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => {
@@ -109,12 +110,15 @@ export function renderInstallerHtml(resolution: InstallerConfigResolution | null
   .activation-copy, .activation-expiry { color: #71717a; font-size: 11px; line-height: 1.4; }
   #activation-link { background: #ffffff; color: #52525b; font-size: 10px; }
   #copy-activation, #retry-activation { padding-left: 12px; padding-right: 12px; }
+  /* Pinned to the window edge so identifying the build never shifts the primary action. */
+  .version { position: fixed; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 10px; color: #c8c8cc; }
 </style>
 </head>
 <body>
 <main>
 ${configuredContent}
 </main>
+<div class="version">Installer ${escapeHtml(INSTALLER_VERSION)}</div>
 <script>
   const TOKEN = ${JSON.stringify(token)};
   const CONFIGURED = ${config ? "true" : "false"};

@@ -12,7 +12,9 @@ import {
   buildTiffutilArgs,
   dmgBackgroundPaths,
   dmgLayout,
+  dmgVolumeName,
 } from "./dmg-layout.mjs"
+import { installerVersionFromEnvironment } from "./installer-version.mjs"
 
 const appName = "Install OpenWork.app"
 const executableName = "openwork-installer"
@@ -46,7 +48,7 @@ function defaultInputPath() {
   return path.resolve("dist", executableName)
 }
 
-function writeInfoPlist(appPath) {
+function writeInfoPlist(appPath, version) {
   writeFileSync(path.join(appPath, "Contents", "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -57,8 +59,8 @@ function writeInfoPlist(appPath) {
   <key>CFBundleExecutable</key><string>${executableName}</string>
   <key>CFBundleIconFile</key><string>icon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${version}</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>
@@ -75,7 +77,7 @@ function copyAppIcon(appPath) {
   cpSync(iconAssetPath, iconPath)
 }
 
-function stageInput(inputPath, stagedAppPath) {
+function stageInput(inputPath, stagedAppPath, version) {
   if (!existsSync(inputPath)) fail(`Input not found: ${inputPath}`)
   const inputStat = statSync(inputPath)
   if (inputStat.isDirectory()) {
@@ -83,7 +85,9 @@ function stageInput(inputPath, stagedAppPath) {
     execFileSync("ditto", [inputPath, stagedAppPath], { stdio: "inherit" })
     const stagedBinary = path.join(stagedAppPath, "Contents", "MacOS", executableName)
     if (!existsSync(stagedBinary)) fail(`App bundle is missing Contents/MacOS/${executableName}`)
-    if (!existsSync(path.join(stagedAppPath, "Contents", "Info.plist"))) writeInfoPlist(stagedAppPath)
+    // A staged .app arrives from CI already signed; rewriting its Info.plist
+    // would invalidate that signature, so only fill in a missing one.
+    if (!existsSync(path.join(stagedAppPath, "Contents", "Info.plist"))) writeInfoPlist(stagedAppPath, version)
     copyAppIcon(stagedAppPath)
     return
   }
@@ -93,7 +97,7 @@ function stageInput(inputPath, stagedAppPath) {
   mkdirSync(macOsDir, { recursive: true })
   cpSync(inputPath, path.join(macOsDir, executableName))
   chmodSync(path.join(macOsDir, executableName), 0o755)
-  writeInfoPlist(stagedAppPath)
+  writeInfoPlist(stagedAppPath, version)
   copyAppIcon(stagedAppPath)
 }
 
@@ -158,17 +162,20 @@ async function main() {
   const inputPath = path.resolve(argValue("--input") || defaultInputPath())
   const outDir = path.resolve(argValue("--out-dir") || "dist")
   const outputPath = path.resolve(argValue("--output") || path.join(outDir, `OpenWork-Installer-${arch}.dmg`))
+  const version = installerVersionFromEnvironment()
+  if (!version) fail("Could not resolve an installer version. Pass --version 0.18.1.")
+  const volumeName = dmgVolumeName(version)
   const stagingRoot = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-dmg-root-"))
   const imageRoot = mkdtempSync(path.join(os.tmpdir(), "openwork-installer-dmg-image-"))
   const rwImagePath = path.join(imageRoot, "OpenWork-Installer.readwrite.dmg")
-  const mountPoint = path.join(imageRoot, dmgLayout.volumeName)
+  const mountPoint = path.join(imageRoot, volumeName)
   let attached = false
 
   try {
     mkdirSync(path.dirname(outputPath), { recursive: true })
-    stageInput(inputPath, path.join(stagingRoot, appName))
+    stageInput(inputPath, path.join(stagingRoot, appName), version)
     stageDmgBackground(stagingRoot)
-    execFileSync("hdiutil", buildReadWriteDmgArgs({ sourceFolder: stagingRoot, outputPath: rwImagePath }), { stdio: "inherit" })
+    execFileSync("hdiutil", buildReadWriteDmgArgs({ sourceFolder: stagingRoot, outputPath: rwImagePath, volumeName }), { stdio: "inherit" })
     attachReadWriteDmg(rwImagePath, mountPoint)
     attached = true
     applyFinderLayout(mountPoint)
@@ -176,7 +183,7 @@ async function main() {
     detachDmg(mountPoint)
     attached = false
     execFileSync("hdiutil", buildCompressedDmgArgs({ inputPath: rwImagePath, outputPath }), { stdio: "inherit" })
-    console.log(`[package-mac-dmg] Wrote ${outputPath}`)
+    console.log(`[package-mac-dmg] Wrote ${outputPath} (version ${version})`)
   } finally {
     if (attached) detachDmg(mountPoint)
     rmSync(stagingRoot, { recursive: true, force: true })

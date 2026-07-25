@@ -7,6 +7,12 @@ export const dmgLayout = {
   window: { left: 100, top: 100, width: 660, height: 400 },
 }
 
+// The mounted volume is where a user reads which build they are installing.
+export function dmgVolumeName(version) {
+  const trimmed = (version ?? "").trim()
+  return trimmed ? `${dmgLayout.volumeName} ${trimmed}` : dmgLayout.volumeName
+}
+
 export function dmgWindowBounds(window) {
   return [window.left, window.top, window.left + window.width, window.top + window.height]
 }
@@ -23,8 +29,8 @@ export function buildTiffutilArgs(assetDir, outputPath) {
   return ["-cathidpicheck", `${assetDir}/bg.png`, `${assetDir}/bg@2x.png`, "-out", outputPath]
 }
 
-export function buildReadWriteDmgArgs({ sourceFolder, outputPath }) {
-  return ["create", "-format", "UDRW", "-volname", dmgLayout.volumeName, "-srcfolder", sourceFolder, "-ov", outputPath]
+export function buildReadWriteDmgArgs({ sourceFolder, outputPath, volumeName = dmgLayout.volumeName }) {
+  return ["create", "-format", "UDRW", "-volname", volumeName, "-srcfolder", sourceFolder, "-ov", outputPath]
 }
 
 export function buildCompressedDmgArgs({ inputPath, outputPath }) {

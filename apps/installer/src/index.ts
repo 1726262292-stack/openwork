@@ -5,9 +5,15 @@ import { runInstall, scheduleInstallerSelfCleanup } from "./install"
 import { openExternalUrl } from "./open-external-url"
 import { startInstallerServer } from "./server"
 import { loadSystemCaCertificates } from "./system-ca"
+import { INSTALLER_VERSION } from "./version"
 
 const rawArgs = Bun.argv.slice(2)
 const args = new Set(rawArgs)
+
+if (args.has("--version")) {
+  console.log(`openwork-installer ${INSTALLER_VERSION}`)
+  process.exit(0)
+}
 const headless = args.has("--headless") || process.env.OPENWORK_INSTALLER_HEADLESS === "1"
 const dryRun = args.has("--dry-run") || process.env.OPENWORK_INSTALLER_DRY_RUN === "1"
 const smokeExitMs = Number.parseInt(process.env.OPENWORK_INSTALLER_SMOKE_EXIT_MS ?? "", 10)
