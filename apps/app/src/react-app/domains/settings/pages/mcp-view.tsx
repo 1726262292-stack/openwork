@@ -304,6 +304,12 @@ export function McpView(props: McpViewProps) {
   const quickConnectList = props.quickConnect;
 
   useEffect(() => {
+    if (detailEntry && !quickConnectList.includes(detailEntry)) {
+      setDetailEntry(null);
+    }
+  }, [detailEntry, quickConnectList]);
+
+  useEffect(() => {
     const refresh = () => setExtensionStateVersion((value) => value + 1);
     window.addEventListener(OPENWORK_EXTENSION_STATE_CHANGED, refresh);
     window.addEventListener("storage", refresh);

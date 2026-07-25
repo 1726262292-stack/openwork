@@ -428,6 +428,7 @@ export default {
   "context_panel.folder_already_authorized": "Folder is already authorized.",
   "context_panel.folders_updated": "Authorized folders updated.",
   "context_panel.input_placeholder": "Type a folder path to authorize...",
+  "context_panel.manage_folders_from_workspace": "Folders are managed from the workspace. You can still review and remove folders here.",
   "context_panel.no_external_folders": "No external folders authorized",
   "context_panel.no_mcp": "No MCP servers loaded.",
   "context_panel.no_server_workspace": "No active server workspace is selected.",

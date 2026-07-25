@@ -407,6 +407,14 @@ async function draftToParts(
   return parts;
 }
 
+function singlePickedDirectory(selection: string | string[] | null) {
+  return typeof selection === "string"
+    ? selection
+    : Array.isArray(selection)
+      ? selection[0] ?? null
+      : null;
+}
+
 export function SessionRoute() {
   const navigate = useNavigate();
   const platform = usePlatform();
@@ -630,6 +638,7 @@ export function SessionRoute() {
 
   const remoteWorkspaceConnectionEditor = useRemoteWorkspaceConnectionEditor({
     workspaces,
+    client,
     onSaved: handleRemoteWorkspaceConnectionSaved,
   });
 
@@ -1766,7 +1775,7 @@ export function SessionRoute() {
     };
   }, [selectedSessionId]);
 
-  const terminalPaletteItems = useMemo<PaletteItem[]>(() => [
+  const terminalPaletteItems = useMemo<PaletteItem[]>(() => platform.capabilities.terminal ? [
     {
       id: "terminal.toggle",
       title: terminalOpen ? "Hide terminal" : "Show terminal",
@@ -1778,7 +1787,7 @@ export function SessionRoute() {
         setTerminalOpen((value) => !value);
       },
     },
-  ], [terminalOpen]);
+  ] : [], [platform.capabilities.terminal, terminalOpen]);
 
   const developerModePaletteItem = useMemo<PaletteItem>(() => ({
     id: "developer-mode.toggle",
@@ -2472,9 +2481,15 @@ export function SessionRoute() {
       }}
       onConfirm={handleCreateWorkspace}
       onConfirmRemote={handleCreateRemoteWorkspace}
-      onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
+      onPickFolder={async () => singlePickedDirectory(await pickDirectory({ title: t("onboarding.authorize_folder") }))}
       submitting={createWorkspaceBusy}
       localError={createWorkspaceError}
+      localDisabled={!platform.capabilities.nativeFilePicker}
+      localDisabledReason={
+        platform.capabilities.nativeFilePicker
+          ? undefined
+          : t("app.local_disabled_reason")
+      }
       remoteSubmitting={createWorkspaceRemoteBusy}
       remoteError={createWorkspaceRemoteError}
     />

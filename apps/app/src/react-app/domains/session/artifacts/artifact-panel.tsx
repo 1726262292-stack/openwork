@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
+import { usePlatform } from "@/react-app/kernel/platform";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
@@ -91,16 +92,18 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 }
 
 function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+  const platform = usePlatform();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const isDirectTextEdit = isTextContent(target) && target.preview === "markdown" && !isMarkdownPrimitiveEvalArtifact(target);
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
+  const canUseDesktopFileActions = target.kind === "file" && !isRemoteWorkspace && platform.capabilities.revealInFileManager;
 
   const { data: fileIcon } = useQuery<string | null>({
     queryKey: ["desktop-file-icon", externalPath] as const,
     queryFn: async () => getDesktopFileIcon(externalPath, "small"),
-    enabled: target.kind === "file" && !isRemoteWorkspace && isElectronRuntime(),
+    enabled: canUseDesktopFileActions && isElectronRuntime(),
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
   });
@@ -325,7 +328,7 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
               <TooltipContent>Download artifact</TooltipContent>
             </Tooltip>
           ) : null}
-          {target.kind === "file" && !isRemoteWorkspace ? (
+          {canUseDesktopFileActions ? (
             <Tooltip>
               <TooltipTrigger
                 render={(
@@ -337,16 +340,18 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
               <TooltipContent>Show in folder</TooltipContent>
             </Tooltip>
           ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={(
-                <Button variant="ghost" size="icon-sm" onClick={() => void openExternal()} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
-                  <ExternalLink />
-                </Button>
-              )}
-            />
-            <TooltipContent>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</TooltipContent>
-          </Tooltip>
+          {target.kind === "url" || isRemoteWorkspace || canUseDesktopFileActions ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={(
+                  <Button variant="ghost" size="icon-sm" onClick={() => void openExternal()} aria-label={isRemoteWorkspace ? "Download artifact" : "Open externally"}>
+                    <ExternalLink />
+                  </Button>
+                )}
+              />
+              <TooltipContent>{isRemoteWorkspace ? "Download artifact" : "Open externally"}</TooltipContent>
+            </Tooltip>
+          ) : null}
           <Tooltip>
             <TooltipTrigger
               render={(

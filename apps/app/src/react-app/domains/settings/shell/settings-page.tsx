@@ -42,8 +42,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { t } from "../../../../i18n";
+import type { PlatformCapabilities } from "../../../../app/lib/platform-capabilities";
 import type { SettingsTab } from "../../../../app/types";
 import { cn } from "@/lib/utils";
+import { usePlatform } from "../../../kernel/platform";
 import { useOrgRestrictions } from "../../cloud/desktop-config-provider";
 import {
   SettingsContent,
@@ -190,8 +192,13 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
   return ["preferences", "permissions", "extensions", "advanced"];
 }
 
-export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  const tabs: SettingsTab[] = ["ai", "shell", "appearance", "environment", "updates", "recovery"];
+export function getGlobalSettingsTabs(
+  developerMode: boolean,
+  capabilities: Pick<PlatformCapabilities, "autoUpdate" | "localRuntimeControl">,
+): SettingsTab[] {
+  const tabs: SettingsTab[] = ["ai", "shell", "appearance", "environment"];
+  if (capabilities.autoUpdate) tabs.push("updates");
+  if (capabilities.localRuntimeControl) tabs.push("recovery");
   if (developerMode) tabs.push("debug");
   return tabs;
 }
@@ -262,9 +269,10 @@ type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" 
 };
 
 export function SettingsSidebar(props: SettingsSidebarProps) {
+  const platform = usePlatform();
   const { memoryEnabled } = useFeatureFlagsPreferences();
   const workspaceTabs = getWorkspaceSettingsTabs();
-  const globalTabs = getGlobalSettingsTabs(props.developerMode);
+  const globalTabs = getGlobalSettingsTabs(props.developerMode, platform.capabilities);
   const cloudTabs = getCloudSettingsTabs(memoryEnabled);
 
   return (

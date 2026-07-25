@@ -3,7 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 
-import { SUGGESTED_PLUGINS } from "@/app/constants";
+import {
+  SUGGESTED_PLUGINS,
+  filterOpenWorkExtensionCatalogForPlatform,
+  resolveOpenWorkExtensionCatalogPlatform,
+} from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import {
@@ -328,6 +332,14 @@ function writeStoredBoolean(key: string, value: boolean) {
   } catch {
     // ignore persistence failures
   }
+}
+
+function singlePickedDirectory(selection: string | string[] | null) {
+  return typeof selection === "string"
+    ? selection
+    : Array.isArray(selection)
+      ? selection[0] ?? null
+      : null;
 }
 
 function readNavigationWorkspaceId(state: unknown): string | null {
@@ -1454,6 +1466,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
   const remoteWorkspaceConnectionEditor = useRemoteWorkspaceConnectionEditor({
     workspaces,
+    client: openworkClient,
     onSaved: handleRemoteWorkspaceConnectionSaved,
   });
 
@@ -1801,9 +1814,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       onInstall: installLocalProvider,
     },
   });
+  const extensionCatalogPlatform = resolveOpenWorkExtensionCatalogPlatform(platform.platform, platform.os);
+  const quickConnectCatalog = useMemo(
+    () => filterOpenWorkExtensionCatalogForPlatform(connectionsStore.quickConnect, extensionCatalogPlatform),
+    [connectionsStore.quickConnect, extensionCatalogPlatform],
+  );
   const extensionItems = useMemo(
     () => buildExtensionItems({
-      quickConnect: connectionsStore.quickConnect,
+      quickConnect: quickConnectCatalog,
       mcpServers: connectionsSnapshot.mcpServers,
       installedSkills: extensionsStore.skills(),
       importedCloudPlugins: extensionsSnapshot.importedCloudPlugins,
@@ -1813,7 +1831,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       enablementContext,
       isBuiltInConnected: extensionController.isConnected,
     }),
-    [connectionsSnapshot.mcpServers, connectionsStore.quickConnect, enablementContext, extensionController, extensionsSnapshot, extensionsStore, orgMcpConnections.connections],
+    [connectionsSnapshot.mcpServers, enablementContext, extensionController, extensionsSnapshot, extensionsStore, orgMcpConnections.connections, quickConnectCatalog],
   );
   const installedOrgMcpConnectionItems = useMemo(
     () => extensionItems.orgMcpConnectionItems.filter((item) => item.installState === "installed"),
@@ -2581,9 +2599,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }}
         onConfirm={handleCreateWorkspace}
         onConfirmRemote={handleCreateRemoteWorkspace}
-        onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
+        onPickFolder={async () => singlePickedDirectory(await pickDirectory({ title: t("onboarding.authorize_folder") }))}
         submitting={createWorkspaceBusy}
         localError={createWorkspaceError}
+        localDisabled={!platform.capabilities.nativeFilePicker}
+        localDisabledReason={
+          platform.capabilities.nativeFilePicker
+            ? undefined
+            : t("app.local_disabled_reason")
+        }
         showProjectLabel={false}
         remoteSubmitting={createWorkspaceRemoteBusy}
         remoteError={createWorkspaceRemoteError}
