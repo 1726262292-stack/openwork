@@ -89,6 +89,7 @@ import {
 } from "./openwork-workspace-config-store.js";
 import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath } from "./openwork-runtime-config.js";
 import { readLegacyConfigSweepState } from "./legacy-config-sweep.js";
+import { traceSpan, traceWrap } from "./startup-trace.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -3267,7 +3268,7 @@ async function reloadOpencodeEngine(
     logRuntimeMcpSyncError({ config, workspace, trigger: "engine_reload", error });
   }
   try {
-    const health = await reconcilePersistedOpenworkCloudMcp({
+    const health = await traceWrap("mcp.cloudReconcile", () => reconcilePersistedOpenworkCloudMcp({
       config,
       workspace,
       directory,
@@ -3283,7 +3284,7 @@ async function reloadOpencodeEngine(
           activeState ?? null,
         ),
       trigger: "engine_reload",
-    });
+    }), { workspaceId: workspace.id, trigger: "engine_reload" });
     logPersistedCloudMcpReconcileResult({ config, workspace, trigger: "engine_reload", health });
   } catch (error) {
     logPersistedCloudMcpReconcileError({ config, workspace, trigger: "engine_reload", error });
@@ -3302,6 +3303,9 @@ async function syncRuntimeMcpToOpencodeEngine(
   options?: { throwOnFailure?: boolean; deferred?: boolean },
   serverState?: EngineMcpServerState | null,
 ): Promise<EngineMcpSyncResult> {
+  let entryCount = 0;
+  const endRegisterAll = traceSpan("mcp.registerAll", { workspaceId: workspace.id });
+  try {
   const activeState = activeEngineMcpServerState(config, serverState);
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
@@ -3317,6 +3321,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
     ([name]) => !onlyNames || onlyNames.includes(name),
   );
+  entryCount = entries.length;
   if (entries.length === 0) {
     if (!onlyNames) {
       recordEngineMcpSyncResult(
@@ -3349,9 +3354,16 @@ async function syncRuntimeMcpToOpencodeEngine(
   const failures: EngineMcpSyncFailure[] = [];
   const registrations: EngineMcpRegistrationResult[] = [];
   for (const [name, mcpConfig] of entries) {
-    const registration = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+    let ok = false;
+    const endPost = traceSpan("mcp.post", { name });
+    try {
+      const registration = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+      ok = !registration.failure;
     registrations.push(registration);
     if (registration.failure) failures.push(registration.failure);
+    } finally {
+      endPost({ ok });
+    }
   }
 
   recordEngineMcpSyncResult(
@@ -3397,6 +3409,9 @@ async function syncRuntimeMcpToOpencodeEngine(
     syncedNames: entries.map(([name]) => name),
     failures,
   };
+  } finally {
+    endRegisterAll({ entryCount });
+  }
 }
 
 // POST one MCP entry to the engine, retrying once on 5xx/network errors
@@ -4173,8 +4188,10 @@ function logPersistedCloudMcpReconcileError(input: {
 // only, so other workspaces' runtime MCPs are invisible to the engine until
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
+  return traceWrap("mcp.syncAll", async () => {
   const serverState = activeEngineMcpServerState(config) ?? null;
   for (const workspace of config.workspaces) {
+    await traceWrap("mcp.syncWorkspace", async () => {
     try {
       await syncRuntimeMcpToOpencodeEngine(
         config,
@@ -4187,7 +4204,7 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
       logRuntimeMcpSyncError({ config, workspace, trigger: "startup", error });
     }
     try {
-      const health = await reconcilePersistedOpenworkCloudMcp({
+      const health = await traceWrap("mcp.cloudReconcile", () => reconcilePersistedOpenworkCloudMcp({
         config,
         workspace,
         directory: resolveOpencodeDirectory(workspace),
@@ -4203,12 +4220,14 @@ export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig):
             serverState,
           ),
         trigger: "startup",
-      });
+      }), { workspaceId: workspace.id, trigger: "startup" });
       logPersistedCloudMcpReconcileResult({ config, workspace, trigger: "startup", health });
     } catch (error) {
       logPersistedCloudMcpReconcileError({ config, workspace, trigger: "startup", error });
     }
+    }, { workspaceId: workspace.id });
   }
+  }, { workspaceCount: config.workspaces.length });
 }
 
 // Counterpart of syncRuntimeMcpToOpencodeEngine for removals: tell the engine

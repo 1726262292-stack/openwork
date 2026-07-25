@@ -50,6 +50,7 @@ import {
 import { resolveConnectLinkPublicKeys } from "./connect-link-keys.mjs";
 import { openExternalUrl } from "./open-external.mjs";
 import { fetchAgentContextDiagnosticsResponse } from "./agent-context-diagnostics-fetch.mjs";
+import { traceMark, traceSpan, traceWrap } from "./startup-trace.mjs";
 import {
   applyWindowsTaskbarIcon,
   windowsBrandAppUserModelId,
@@ -837,9 +838,16 @@ const explicitCdpPort = Number.parseInt(
   process.env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
   10,
 );
-const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
-  ? explicitCdpPort
-  : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
+const hasExplicitCdpPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0;
+let remoteDebugPort = 0;
+const endCdpPortProbe = traceSpan("cdp.port.probe", { explicit: hasExplicitCdpPort });
+try {
+  remoteDebugPort = hasExplicitCdpPort
+    ? explicitCdpPort
+    : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
+} finally {
+  endCdpPortProbe({ port: remoteDebugPort });
+}
 if (remoteDebugPort > 0) {
   app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
@@ -1163,66 +1171,69 @@ function assertOpenworkServerReady(info) {
 }
 
 async function bootRuntimeForSelectedWorkspace() {
-  const list = await workspaceStore.readWorkspaceState();
-  const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
-  const workspace = selectedId
-    ? list.workspaces.find((entry) => entry?.id === selectedId)
-    : list.workspaces[0];
-  const workspaceRoot = String(workspace?.path ?? "").trim();
-  if (!workspaceRoot || workspace?.workspaceType === "remote") {
-    return { ok: true, skipped: true, reason: "no-local-workspace" };
-  }
+  return traceWrap("runtime.bootWorkspace", async () => {
+    const list = await workspaceStore.readWorkspaceState();
+    const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
+    const workspace = selectedId
+      ? list.workspaces.find((entry) => entry?.id === selectedId)
+      : list.workspaces[0];
+    const workspaceRoot = String(workspace?.path ?? "").trim();
+    if (!workspaceRoot || workspace?.workspaceType === "remote") {
+      return { ok: true, skipped: true, reason: "no-local-workspace" };
+    }
 
-  const workspacePaths = [];
-  for (const entry of list.workspaces) {
-    if (entry?.workspaceType === "remote") continue;
-    const workspacePath = String(entry?.path ?? "").trim();
-    if (workspacePath && !workspacePaths.includes(workspacePath)) workspacePaths.push(workspacePath);
-  }
-  if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
+    const workspacePaths = [];
+    for (const entry of list.workspaces) {
+      if (entry?.workspaceType === "remote") continue;
+      const workspacePath = String(entry?.path ?? "").trim();
+      if (workspacePath && !workspacePaths.includes(workspacePath)) workspacePaths.push(workspacePath);
+    }
+    if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
 
-  let bootWorkspace = workspace;
-  let bootWorkspaceRoot = workspaceRoot;
-  let engine;
-  try {
-    engine = await runtimeManager.engineStart(workspaceRoot, {
-      runtime: "direct",
-      workspacePaths,
-    });
-  } catch (error) {
-    const fallback = list.workspaces.find((entry) => {
-      const candidatePath = String(entry?.path ?? "").trim();
-      return entry?.workspaceType !== "remote" && candidatePath && candidatePath !== workspaceRoot;
-    });
-    const fallbackRoot = String(fallback?.path ?? "").trim();
-    if (!fallback || !fallbackRoot) throw error;
-    console.warn("[runtime] selected workspace failed during boot; trying fallback workspace", {
-      selectedWorkspaceId: workspace?.id ?? null,
-      fallbackWorkspaceId: fallback.id ?? null,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    const fallbackWorkspacePaths = [
-      fallbackRoot,
-      ...workspacePaths.filter((entry) => entry !== fallbackRoot && entry !== workspaceRoot),
-    ];
-    engine = await runtimeManager.engineStart(fallbackRoot, {
-      runtime: "direct",
-      workspacePaths: fallbackWorkspacePaths,
-    });
-    bootWorkspace = fallback;
-    bootWorkspaceRoot = fallbackRoot;
-    await workspaceStore.writeWorkspaceState({
-      ...list,
-      selectedId: String(fallback.id ?? ""),
-      watchedId: String(fallback.id ?? ""),
+    let bootWorkspace = workspace;
+    let bootWorkspaceRoot = workspaceRoot;
+    let engine;
+    try {
+      engine = await runtimeManager.engineStart(workspaceRoot, {
+        runtime: "direct",
+        workspacePaths,
+      });
+    } catch (error) {
+      const fallback = list.workspaces.find((entry) => {
+        const candidatePath = String(entry?.path ?? "").trim();
+        return entry?.workspaceType !== "remote" && candidatePath && candidatePath !== workspaceRoot;
+      });
+      const fallbackRoot = String(fallback?.path ?? "").trim();
+      if (!fallback || !fallbackRoot) throw error;
+      console.warn("[runtime] selected workspace failed during boot; trying fallback workspace", {
+        selectedWorkspaceId: workspace?.id ?? null,
+        fallbackWorkspaceId: fallback.id ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const fallbackWorkspacePaths = [
+        fallbackRoot,
+        ...workspacePaths.filter((entry) => entry !== fallbackRoot && entry !== workspaceRoot),
+      ];
+      engine = await runtimeManager.engineStart(fallbackRoot, {
+        runtime: "direct",
+        workspacePaths: fallbackWorkspacePaths,
+      });
+      bootWorkspace = fallback;
+      bootWorkspaceRoot = fallbackRoot;
+      await workspaceStore.writeWorkspaceState({
+        ...list,
+        selectedId: String(fallback.id ?? ""),
+        watchedId: String(fallback.id ?? ""),
+      }).catch(() => undefined);
+    }
+
+    await runtimeManager.orchestratorWorkspaceActivate({
+      workspacePath: bootWorkspaceRoot,
+      name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
     }).catch(() => undefined);
-  }
-  await runtimeManager.orchestratorWorkspaceActivate({
-    workspacePath: bootWorkspaceRoot,
-    name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
-  }).catch(() => undefined);
-  const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
-  return { ok: true, skipped: false, engine, openworkServer, workspaceId: bootWorkspace.id ?? null };
+    const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
+    return { ok: true, skipped: false, engine, openworkServer, workspaceId: bootWorkspace.id ?? null };
+  });
 }
 
 function ensureRuntimeBootstrap() {
@@ -2235,6 +2246,7 @@ async function createMainWindow() {
   mainWindow.setTitle(currentDisplayAppName);
 
   mainWindow.once("ready-to-show", () => {
+    traceMark("window.readyToShow");
     mainWindow?.setTitle(currentDisplayAppName);
     if (process.platform === "win32") mainWindow?.setSkipTaskbar(false);
     mainWindow?.show();
@@ -2417,17 +2429,18 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    traceMark("app.whenReady");
     installMediaPermissionHandlers(session, () => mainWindow);
-    await runPendingNukeCleanup({
+    await traceWrap("boot.nukeCleanup", () => runPendingNukeCleanup({
       env: process.env,
       homedir: os.homedir(),
       platform: process.platform,
       userDataPath: app.getPath("userData"),
     }).catch((error) => {
       console.warn("[nuke] pending cleanup failed", error);
-    });
-    await workspaceStore.importBundledDesktopBootstrapConfigIfPreferred();
-    const bootstrapConfig = await workspaceStore.getDesktopBootstrapConfig();
+    }));
+    await traceWrap("boot.bootstrapImport", () => workspaceStore.importBundledDesktopBootstrapConfigIfPreferred());
+    const bootstrapConfig = await traceWrap("boot.bootstrapRead", () => workspaceStore.getDesktopBootstrapConfig());
     currentDisplayAppName = applyBrandAppName(bootstrapConfig.brandAppName, {
       fallbackName: APP_NAME,
       platform: process.platform,
@@ -2437,30 +2450,30 @@ if (!app.requestSingleInstanceLock()) {
       applicationMenu,
     });
     if (process.platform === "win32") {
-      await registerWindowsDisplayShortcut();
+      await traceWrap("boot.winShortcut", () => registerWindowsDisplayShortcut());
     }
     if (process.platform !== "linux") {
-      await applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl);
+      await traceWrap("boot.brandIcon", () => applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl), { platform: process.platform, phase: "pre-window" });
     }
     applicationMenu.install();
-    await runtimeManager.prepareFreshRuntime().catch(() => undefined);
+    await traceWrap("boot.prepareFreshRuntime", () => runtimeManager.prepareFreshRuntime().catch(() => undefined), { source: "whenReady" });
 
     // Use Tauri's existing workspace state file as canonical so rollback and
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
-    await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
-    await uiControlServer.start().catch((error) => {
+    await traceWrap("boot.workspaceMigrate", () => workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded());
+    await traceWrap("boot.uiControlStart", () => uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
-    });
+    }));
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }));
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
-    const win = await createMainWindow();
+    const win = await traceWrap("boot.createWindow", () => createMainWindow());
     if (process.platform === "linux") {
-      await applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl);
+      await traceWrap("boot.brandIcon", () => applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl), { platform: process.platform, phase: "post-window" });
     }
     win.webContents.on("did-finish-load", () => {
       flushPendingDeepLinks();
