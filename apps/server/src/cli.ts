@@ -16,6 +16,7 @@ import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import { sweepLegacyOpenCodeConfig } from "./legacy-config-sweep.js";
 import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
+import { startWorkerActivityHeartbeat } from "./worker-activity-heartbeat.js";
 import pkg from "../package.json" with { type: "json" };
 
 const args = parseCliArgs(process.argv.slice(2));
@@ -89,6 +90,7 @@ if (!config.opencodeBaseUrl && process.env.OPENWORK_MANAGE_OPENCODE === "1") {
 }
 
 const server = await startServer(config);
+const workerActivityHeartbeat = startWorkerActivityHeartbeat(config, logger);
 
 // The runtime config file above only covers workspaces[0]. Push every
 // workspace's runtime-DB MCPs into the engine so they aren't invisible
@@ -125,6 +127,7 @@ if (args.verbose) {
 }
 
 const shutdown = () => {
+  workerActivityHeartbeat?.stop();
   if (managedOpencodeIdentity) {
     clearTrustedOpencodeProcess(config, managedOpencodeIdentity);
   }
