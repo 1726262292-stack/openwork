@@ -8,6 +8,6 @@ user actually sees and measures the edges.
 
 1. OpenWork opens on the new-task screen: "What do you need done?", the real composer with its agent, model and effort controls, and the starter cards sitting underneath it.
 
-2. Now look down the column. The composer card begins and ends on exactly the same lines as the cards below it, so the whole screen reads as one aligned column instead of a narrow box floating above wider cards.
+2. Picking a starter card drops its prompt straight into the composer, and the column holds true: the composer card begins and ends on exactly the same lines as the cards below it, instead of sitting as a narrow box above wider cards.
 
 3. Starting a task hands the same composer to the chat, where it still docks to the bottom with its centred, cushioned chat look. Only the new-task screen changed.
