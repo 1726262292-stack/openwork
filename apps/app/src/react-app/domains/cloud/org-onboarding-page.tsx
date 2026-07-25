@@ -498,7 +498,11 @@ export function OrgOnboardingPage() {
     );
   }
 
-  return <ResourceSelectionPage autoContinue={autoContinueResources} />;
+  return (
+    <ResourceSelectionPage
+      autoContinue={autoContinueResources || (Boolean(orgId) && orgs.length <= 1)}
+    />
+  );
 }
 
 export function ResourceSelectionPage({ autoContinue = false }: { autoContinue?: boolean }) {
