@@ -35,6 +35,7 @@ export type ExtensionsViewProps = {
   accessHint?: string | null;
   suggestedPlugins: SuggestedPlugin[];
   extensions: PluginsExtensionsStore;
+  manageExtensionsDisabledReason?: string | null;
   mcpConnectedAppsCount: number;
   /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
   mcpView: ReactNode;
@@ -91,6 +92,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
               canUseGlobalScope={props.canUseGlobalScope}
               accessHint={props.accessHint}
               suggestedPlugins={props.suggestedPlugins}
+              manageExtensionsDisabledReason={props.manageExtensionsDisabledReason}
             />
           </div>
         </details>
