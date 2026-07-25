@@ -233,6 +233,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudProviderSyncInFlight: Promise<void> | null = null;
   let cloudProviderSyncQueuedReason: CloudProviderSyncReason | null = null;
   let cloudProviderSyncContextKey = "";
+  let lastProviderDisposeRefreshAt = 0;
 
   const emitChange = () => {
     for (const listener of listeners) listener();
@@ -1284,42 +1285,47 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!c) return null;
 
     if (optionsArg?.dispose) {
+      const now = Date.now();
+      const shouldDispose = now - lastProviderDisposeRefreshAt >= 10_000;
       // Prefer the OpenWork server engine reload: it disposes the engine AND
       // re-registers runtime-DB MCPs, so non-primary workspaces and pending
       // changes are picked up instead of silently dropping (toggles "turn
       // off").
       let reloaded = false;
-      try {
-        const openworkSnapshot = options.openworkServer.getSnapshot();
-        const openworkClient = openworkSnapshot.openworkServerClient;
-        if (openworkSnapshot.openworkServerStatus === "connected" && openworkClient) {
-          const workspaceId =
-            options.runtimeWorkspaceId()?.trim() ||
-            (await options.ensureRuntimeWorkspaceId?.())?.trim() ||
-            "";
-          if (workspaceId) {
-            try {
-              await openworkClient.reloadEngine(workspaceId);
-            } catch (error) {
-              const unreachable =
-                error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
-              if (!unreachable || !isDesktopRuntime()) {
-                throw error;
-              }
-              await engineRestart({});
-            }
-            reloaded = true;
-          }
-        }
-      } catch {
-        // fall back to a direct engine dispose below
-      }
-
-      if (!reloaded) {
+      if (shouldDispose) {
+        lastProviderDisposeRefreshAt = now;
         try {
-          unwrap(await c.instance.dispose());
+          const openworkSnapshot = options.openworkServer.getSnapshot();
+          const openworkClient = openworkSnapshot.openworkServerClient;
+          if (openworkSnapshot.openworkServerStatus === "connected" && openworkClient) {
+            const workspaceId =
+              options.runtimeWorkspaceId()?.trim() ||
+              (await options.ensureRuntimeWorkspaceId?.())?.trim() ||
+              "";
+            if (workspaceId) {
+              try {
+                await openworkClient.reloadEngine(workspaceId);
+              } catch (error) {
+                const unreachable =
+                  error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
+                if (!unreachable || !isDesktopRuntime()) {
+                  throw error;
+                }
+                await engineRestart({});
+              }
+              reloaded = true;
+            }
+          }
         } catch {
-          // ignore dispose failures and try reading current state anyway
+          // fall back to a direct engine dispose below
+        }
+
+        if (!reloaded) {
+          try {
+            unwrap(await c.instance.dispose());
+          } catch {
+            // ignore dispose failures and try reading current state anyway
+          }
         }
       }
 
