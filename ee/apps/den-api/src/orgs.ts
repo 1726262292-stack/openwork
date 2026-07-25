@@ -49,6 +49,7 @@ type MemberRow = typeof MemberTable.$inferSelect
 type MemberId = MemberRow["id"]
 type InvitationRow = typeof InvitationTable.$inferSelect
 export type AllowedEmailDomains = string[] | null
+type OrganizationMetadataInput = Record<string, unknown> | string | null | undefined
 
 type MemberLifecycleValidationFailure = Extract<MemberLifecycleValidation, { ok: false }>
 
@@ -319,6 +320,50 @@ export function isEmailAllowedForOrganization(allowedEmailDomains: readonly stri
 function normalizeStoredAllowedEmailDomains(value: unknown): AllowedEmailDomains {
   const values = Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : null
   return normalizeAllowedEmailDomains(values).domains
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function parseMetadataRecord(input: OrganizationMetadataInput): Record<string, unknown> {
+  if (!input) {
+    return {}
+  }
+
+  if (typeof input === "string") {
+    try {
+      const parsed: unknown = JSON.parse(input)
+      return isRecord(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  return isRecord(input) ? input : {}
+}
+
+function serializeMetadataRecord(metadata: Record<string, unknown>) {
+  return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null
+}
+
+export function serializeMemberFacingOrganizationMetadata(input: OrganizationMetadataInput) {
+  const metadata = parseMetadataRecord(input)
+  const capabilities = isRecord(metadata.capabilities) ? metadata.capabilities : null
+  if (!capabilities || !("cloud" in capabilities)) {
+    return serializeOrganizationMetadata(input)
+  }
+
+  const nextCapabilities = { ...capabilities }
+  delete nextCapabilities.cloud
+  const nextMetadata = { ...metadata }
+  if (Object.keys(nextCapabilities).length > 0) {
+    nextMetadata.capabilities = nextCapabilities
+  } else {
+    delete nextMetadata.capabilities
+  }
+
+  return serializeMetadataRecord(nextMetadata)
 }
 
 export function parsePermissionRecord(value: string | null) {
@@ -1191,7 +1236,7 @@ export async function listUserOrgs(userId: UserId) {
     slug: row.organization.slug,
     logo: row.organization.logo,
     allowedEmailDomains: normalizeStoredAllowedEmailDomains(row.organization.allowedEmailDomains),
-    metadata: serializeOrganizationMetadata(row.organization.metadata),
+    metadata: serializeMemberFacingOrganizationMetadata(row.organization.metadata),
     role: row.role,
     orgMemberId: row.membershipId,
     membershipId: row.membershipId,
