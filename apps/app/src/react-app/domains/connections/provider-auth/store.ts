@@ -722,9 +722,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         markReloadRequired: () => options.markOpencodeConfigReloadRequired(),
       });
       options.setDisabledProviders(result.disabledProviders);
-      if (!result.managedRuntime) {
-        options.markOpencodeConfigReloadRequired();
-      }
+      options.markOpencodeConfigReloadRequired();
       refreshSnapshot();
       emitChange();
       return true;

@@ -174,7 +174,6 @@ export async function reconcilePolicyDisabledProviders(
       markReloadRequired: input.markReloadRequired,
     });
     disabledProviderIds = result.disabledProviders;
-    if (!result.managedRuntime) input.markReloadRequired?.();
     input.setDisabledProviders?.(disabledProviderIds);
     markedDisabledProviderIds = addProviderId(markedDisabledProviderIds, providerId);
     writePolicyDisabledProviderIds(markedDisabledProviderIds, storage);
@@ -197,7 +196,6 @@ export async function reconcilePolicyDisabledProviders(
       markReloadRequired: input.markReloadRequired,
     });
     disabledProviderIds = result.disabledProviders;
-    if (!result.managedRuntime) input.markReloadRequired?.();
     input.setDisabledProviders?.(disabledProviderIds);
     writePolicyDisabledProviderIds(markedDisabledProviderIds, storage);
     writes += 1;
