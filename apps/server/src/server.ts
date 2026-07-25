@@ -646,6 +646,7 @@ const reloadBaselineRefreshers = new WeakMap<
   ServerConfig,
   (workspaceId: string, reasons?: ReloadReason[]) => Promise<void>
 >();
+const reloadEventStores = new WeakMap<ServerConfig, ReloadEventStore>();
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -799,6 +800,7 @@ function isSessionCommandProxyRequest(method: string, proxyPath: string) {
 export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const approvals = new ApprovalService(config.approval);
   const reloadEvents = new ReloadEventStore();
+  reloadEventStores.set(config, reloadEvents);
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
@@ -984,6 +986,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     });
   } catch (error) {
     invalidateEngineMcpServerState(config, engineMcpServerState);
+    reloadEventStores.delete(config);
     throw error;
   }
 
@@ -993,6 +996,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       invalidateEngineMcpServerState(config, engineMcpServerState);
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
+      reloadEventStores.delete(config);
       await server.stop();
     },
   };
@@ -1335,6 +1339,18 @@ function buildConfigTrigger(path: string): ReloadTrigger {
     action: "updated",
     path,
   };
+}
+
+function buildBootstrapReloadTrigger(reason: ReloadReason, workspaceRoot: string): ReloadTrigger | undefined {
+  if (reason === "commands") {
+    return { type: "command", action: "updated", path: projectCommandsDir(workspaceRoot) };
+  }
+  if (reason === "config") return buildConfigTrigger(opencodeConfigPath(workspaceRoot));
+  return undefined;
+}
+
+function engineMcpSyncNeedsReload(result: EngineMcpSyncResult | undefined): boolean {
+  return !result || result.status !== "ok" || result.failures.length > 0;
 }
 
 export type AuthorizedFoldersResponse = {
@@ -2450,11 +2466,11 @@ function createRoutes(
     const result = await addMcp(config, workspace.id, name, configPayload);
     // Hot-add into the running engine so connect/auth works immediately,
     // without waiting for an engine instance rebuild.
-    await syncRuntimeMcpToOpencodeEngine(
+    const syncResult = await syncRuntimeMcpToOpencodeEngine(
       config,
       workspace,
       [name],
-      undefined,
+      { throwOnFailure: false },
       engineMcpServerState,
     ).catch(() => undefined);
     await recordAudit(workspace.path, {
@@ -2466,11 +2482,13 @@ function createRoutes(
       summary: `Added MCP ${name}`,
       timestamp: Date.now(),
     });
-    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
-      type: "mcp",
-      name,
-      action: result.action,
-    });
+    if (engineMcpSyncNeedsReload(syncResult)) {
+      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+        type: "mcp",
+        name,
+        action: result.action,
+      });
+    }
     const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
   });
@@ -2498,12 +2516,19 @@ function createRoutes(
     });
     if (removed) {
       deleteEngineMcpRegistration(config, engineMcpServerState, workspace, name);
-      await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
-      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
-        type: "mcp",
+      const disconnectResult = await disconnectMcpFromOpencodeEngine(
+        config,
+        workspace,
         name,
-        action: "removed",
-      });
+        { throwOnFailure: false },
+      ).catch(() => undefined);
+      if (engineMcpSyncNeedsReload(disconnectResult)) {
+        emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+          type: "mcp",
+          name,
+          action: "removed",
+        });
+      }
     }
     const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
@@ -2533,11 +2558,11 @@ function createRoutes(
     if (!updated) {
       throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
     }
-    await syncRuntimeMcpToOpencodeEngine(
+    const syncResult = await syncRuntimeMcpToOpencodeEngine(
       config,
       workspace,
       [name],
-      undefined,
+      { throwOnFailure: false },
       engineMcpServerState,
     ).catch(() => undefined);
     await recordAudit(workspace.path, {
@@ -2549,12 +2574,14 @@ function createRoutes(
       summary: `${enabled ? "Enabled" : "Disabled"} MCP ${name}`,
       timestamp: Date.now(),
     });
-    // ReloadTrigger.action only allows added/removed/updated, so toggle => "updated".
-    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
-      type: "mcp",
-      name,
-      action: "updated",
-    });
+    if (engineMcpSyncNeedsReload(syncResult)) {
+      // ReloadTrigger.action only allows added/removed/updated, so toggle => "updated".
+      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+        type: "mcp",
+        name,
+        action: "updated",
+      });
+    }
     const items = await listMcp(config, workspace.id, workspace.path);
     return jsonResponse({ items });
   });
@@ -2850,16 +2877,15 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     }
     if (bootstrapReloadReasons.size > 0) {
       await reloadBaselineRefreshers.get(config)?.(workspace.id, Array.from(bootstrapReloadReasons));
-      reloadOpencodeEngineAfterInternalBootstrap(config, { ...workspace, path: resolvedWorkspace });
+      const reloadEvents = reloadEventStores.get(config);
+      if (reloadEvents) {
+        for (const reason of bootstrapReloadReasons) {
+          emitReloadEvent(reloadEvents, workspace, reason, buildBootstrapReloadTrigger(reason, resolvedWorkspace));
+        }
+      }
     }
   }
   return workspace;
-}
-
-function reloadOpencodeEngineAfterInternalBootstrap(config: ServerConfig, workspace: WorkspaceInfo): void {
-  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
-  if (!connection.baseUrl?.trim()) return;
-  void reloadOpencodeEngine(config, workspace).catch(() => undefined);
 }
 
 async function isAuthorizedRoot(workspacePath: string, roots: string[]): Promise<boolean> {
@@ -4237,10 +4263,11 @@ async function disconnectMcpFromOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   name: string,
-): Promise<void> {
+  options?: { throwOnFailure?: boolean },
+): Promise<EngineMcpSyncResult> {
   const connection = resolveWorkspaceOpencodeConnection(config, workspace);
   const baseUrl = connection.baseUrl?.trim() ?? "";
-  if (!baseUrl) return;
+  if (!baseUrl) return { status: "skipped", syncedNames: [], failures: [] };
 
   const url = new URL(baseUrl);
   url.pathname = `/mcp/${encodeURIComponent(name)}/disconnect`;
@@ -4251,14 +4278,40 @@ async function disconnectMcpFromOpencodeEngine(
   if (connection.authHeader) headers.Authorization = connection.authHeader;
 
   // MCP disconnect targets the managed loopback engine.
-  const response = await loopbackFetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
+  let response: Response;
+  try {
+    response = await loopbackFetch(url, { method: "POST", headers, signal: AbortSignal.timeout(15_000) });
+  } catch (error) {
+    if (options?.throwOnFailure === false) {
+      return {
+        status: "failed",
+        syncedNames: [],
+        failures: [{
+          name,
+          registrationStatus: "failed",
+          message: error instanceof Error ? error.message : String(error),
+        }],
+      };
+    }
+    throw error;
+  }
   if (!response.ok) {
     const body = parseOpencodeErrorBody(await response.text());
+    const failure: EngineMcpSyncFailure = {
+      name,
+      status: response.status,
+      registrationStatus: "failed",
+      message: "OpenCode rejected the MCP disconnect request",
+    };
+    if (options?.throwOnFailure === false) {
+      return { status: "failed", syncedNames: [], failures: [failure] };
+    }
     throw new ApiError(502, "opencode_mcp_disconnect_failed", `Failed to disconnect MCP ${name} from the engine`, {
       status: response.status,
       body,
     });
   }
+  return { status: "ok", syncedNames: [name], failures: [] };
 }
 
 async function requireApproval(

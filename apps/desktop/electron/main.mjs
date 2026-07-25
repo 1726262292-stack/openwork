@@ -290,8 +290,9 @@ function selectDownloadFile(files, arch) {
 async function resolveCorrectArchitectureDownloadUrl(arch) {
   const manifestUrl = `${RELEASE_DOWNLOAD_BASE_URL}/${updaterManifestName(arch)}`;
   try {
-    const response = await fetch(manifestUrl, {
+    const response = await electronNet.fetch(manifestUrl, {
       headers: { Accept: "text/yaml, text/plain, */*" },
+      signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
