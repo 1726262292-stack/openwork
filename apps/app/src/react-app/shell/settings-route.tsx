@@ -192,6 +192,13 @@ const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   config: { read: true, write: true },
 };
 
+function canRestartDesktopForReloadError(error: unknown) {
+  return (
+    error instanceof OpenworkServerError &&
+    (error.code === "opencode_engine_unreachable" || error.code === "opencode_unconfigured")
+  );
+}
+
 async function reloadEngineOrRestartDesktop(
   client: Pick<OpenworkServerClient, "reloadEngine">,
   workspaceId: string,
@@ -200,9 +207,7 @@ async function reloadEngineOrRestartDesktop(
   try {
     await client.reloadEngine(workspaceId);
   } catch (error) {
-    const unreachable =
-      error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
-    if (!unreachable || !isDesktopRuntime()) {
+    if (!canRestartDesktopForReloadError(error) || !isDesktopRuntime()) {
       throw error;
     }
     await engineRestart({});
