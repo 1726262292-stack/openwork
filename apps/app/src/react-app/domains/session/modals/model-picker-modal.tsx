@@ -421,6 +421,7 @@ function ProviderAccordion({
           <ProviderIcon providerId={group.id} size={18} className="shrink-0 text-dls-text" />
           <div className="min-w-0 flex-1">
             <span className="text-[13px] font-medium text-dls-text">{group.name}</span>
+            {" "}
             <span className="ml-2 text-[11px] text-dls-secondary">
               {totalModels} model{totalModels === 1 ? "" : "s"}
             </span>
