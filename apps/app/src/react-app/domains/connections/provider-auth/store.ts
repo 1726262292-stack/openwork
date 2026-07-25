@@ -555,6 +555,28 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     });
   };
 
+  const patchRuntimeProviderAndImportedCloudProviders = async (
+    providerUpdate: Record<string, unknown>,
+    nextProviders: Record<string, CloudImportedProvider>,
+  ) => {
+    const { openworkClient, openworkWorkspaceId, canUseOpenworkServer } =
+      await resolveOpenworkConfigTarget("write");
+    if (!canUseOpenworkServer || !openworkClient || !openworkWorkspaceId) {
+      throw new Error("OpenWork server unavailable. Connect to manage cloud providers.");
+    }
+    const config = await readWorkspaceOpenworkConfigRecord();
+    const cloudImports = readWorkspaceCloudImports(config);
+    const nextConfig = withWorkspaceCloudImports(config, {
+      ...cloudImports,
+      providers: nextProviders,
+    });
+    await openworkClient.patchConfig(openworkWorkspaceId, {
+      opencode: { provider: providerUpdate },
+      openwork: nextConfig,
+    });
+    setStateField("importedCloudProviders", nextProviders);
+  };
+
   /**
    * Best-effort migration: pre-runtime builds wrote cloud provider blocks
    * into the project opencode.jsonc. Strip them so the runtime entry is the
@@ -1517,14 +1539,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           }
         }
       }
-      // Cloud providers are runtime-managed: upsert (and delete a renamed
-      // predecessor) via the server's per-key provider merge instead of
-      // editing the user's opencode.jsonc.
-      await patchRuntimeProviders(
-        buildRuntimeProviderPatch(provider, localProviderId, existingImported?.providerId ?? null),
-      );
-      await stripLegacyCloudProviderBlocks([localProviderId, existingImported?.providerId]);
-
       const nextImportedProviders = {
         ...state.importedCloudProviders,
         [provider.id]: {
@@ -1541,14 +1555,23 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           importedAt: Date.now(),
         },
       };
-      await persistImportedCloudProviders(nextImportedProviders);
+      // Cloud providers are runtime-managed: upsert (and delete a renamed
+      // predecessor) via one server config write, together with the import
+      // baseline, instead of editing the user's opencode.jsonc.
+      await patchRuntimeProviderAndImportedCloudProviders(
+        buildRuntimeProviderPatch(provider, localProviderId, existingImported?.providerId ?? null),
+        nextImportedProviders,
+      );
+      await stripLegacyCloudProviderBlocks([localProviderId, existingImported?.providerId]);
 
       const nextDisabledProviders = options
         .disabledProviders()
         .filter((id) => id !== localProviderId && id !== existingImported?.providerId);
       options.setDisabledProviders(nextDisabledProviders);
-      options.markOpencodeConfigReloadRequired();
-      await refreshProviders({ dispose: true });
+      if (!optionsArg?.silent) {
+        options.markOpencodeConfigReloadRequired();
+        await refreshProviders({ dispose: true });
+      }
       refreshSnapshot();
       emitChange();
       return `${t("status.connected")} ${provider.name}`;
