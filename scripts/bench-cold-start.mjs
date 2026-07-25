@@ -2,9 +2,13 @@
 /**
  * Cold-start benchmark harness for Electron OpenWork.
  *
- * Fresh profile creates an isolated userData + server config + local workspace
- * per run, loads the built renderer via file://, waits until startup tracing
- * records the mcp.syncAll span, then reports metrics from trace.ndjson.
+ * Workspace profile creates an isolated userData + server config + local
+ * workspace per run, loads the built renderer via file://, waits until startup
+ * tracing records server.listening, server.opencodeListening, and mcp.syncAll,
+ * then reports metrics from trace.ndjson.
+ *
+ * Firstrun profile intentionally creates no workspace. It only measures the
+ * window path; server, opencode, and MCP metrics are N/A by construction.
  *
  * Seeded profile first launches once against a seed userData, waits for
  * runtime.serverReady, reads openwork-server-tokens.json, registers N local
@@ -35,7 +39,7 @@ function parseArgs(argv) {
     warmup: 0,
     label: "baseline",
     out: "",
-    profile: "fresh",
+    profile: "workspace",
     mcp: 3,
     mcpLatency: 150,
     compare: "",
@@ -67,7 +71,9 @@ function parseArgs(argv) {
   if (!Number.isInteger(flags.mcp) || flags.mcp < 0) throw new Error("--mcp must be zero or greater");
   if (!Number.isFinite(flags.mcpLatency) || flags.mcpLatency < 0) throw new Error("--mcp-latency must be zero or greater");
   if (!Number.isFinite(flags.timeoutMs) || flags.timeoutMs <= 0) throw new Error("--timeout-ms must be positive");
-  if (flags.profile !== "fresh" && flags.profile !== "seeded") throw new Error("--profile must be fresh or seeded");
+  if (flags.profile !== "firstrun" && flags.profile !== "workspace" && flags.profile !== "seeded") {
+    throw new Error("--profile must be firstrun, workspace, or seeded");
+  }
   if (!flags.out) flags.out = path.join(repoRoot, ".bench", `${flags.label}.json`);
   return flags;
 }
@@ -97,7 +103,7 @@ async function preflight() {
     missing.push(`Missing ${path.relative(repoRoot, rendererIndexPath)}. Run: pnpm build:ui`);
   }
   if (!(await exists(embeddedServerPath))) {
-    missing.push(`Missing ${path.relative(repoRoot, embeddedServerPath)}. Run: pnpm --filter @openwork/server build`);
+    missing.push(`Missing ${path.relative(repoRoot, embeddedServerPath)}. Run: pnpm --filter openwork-server build`);
   }
   if (!(await exists(sidecarOpencodePath))) {
     missing.push(`Missing ${path.relative(repoRoot, sidecarOpencodePath)}. Run: pnpm --filter @openwork/desktop prepare:sidecar`);
@@ -118,25 +124,46 @@ function safeLabel(label) {
 }
 
 function workspaceState(workspaceDir) {
+  const workspaceId = "bench-workspace";
   return {
-    selectedId: "bench-workspace",
-    selectedWorkspaceId: "bench-workspace",
-    watchedId: "bench-workspace",
-    watchedWorkspaceId: "bench-workspace",
-    activeId: "bench-workspace",
+    selectedId: workspaceId,
+    selectedWorkspaceId: workspaceId,
+    watchedId: workspaceId,
+    watchedWorkspaceId: workspaceId,
+    activeId: workspaceId,
     workspaces: [
       {
-        id: "bench-workspace",
+        id: workspaceId,
         name: "Bench Workspace",
         displayName: "Bench Workspace",
         path: workspaceDir,
+        preset: "starter",
         workspaceType: "local",
+        remoteType: null,
+        baseUrl: null,
+        directory: null,
+        openworkHostUrl: null,
+        openworkToken: null,
+        openworkClientToken: null,
+        openworkHostToken: null,
+        openworkWorkspaceId: null,
+        openworkWorkspaceName: null,
+        sandboxBackend: null,
+        sandboxRunId: null,
+        sandboxContainerName: null,
       },
     ],
   };
 }
 
-async function prepareFreshUserData(runDir) {
+async function prepareFirstrunUserData(runDir) {
+  const userDataDir = path.join(runDir, "userdata");
+  await prepareProfileDirs(runDir);
+  await mkdir(userDataDir, { recursive: true });
+  return { userDataDir, workspaceDir: null, serverConfigPath: path.join(runDir, "server.json") };
+}
+
+async function prepareWorkspaceUserData(runDir, options = {}) {
   const userDataDir = path.join(runDir, "userdata");
   const workspaceDir = path.join(runDir, "workspace");
   await prepareProfileDirs(runDir);
@@ -147,7 +174,10 @@ async function prepareFreshUserData(runDir) {
     `${JSON.stringify(workspaceState(workspaceDir), null, 2)}\n`,
     "utf8",
   );
-  return { userDataDir, workspaceDir, serverConfigPath: path.join(runDir, "server.json") };
+  const serverConfigPath = options.serverConfigInUserData
+    ? path.join(userDataDir, "server.json")
+    : path.join(runDir, "server.json");
+  return { userDataDir, workspaceDir, serverConfigPath };
 }
 
 async function prepareProfileDirs(runDir) {
@@ -165,6 +195,18 @@ function normalizeWorkspaceKey(value) {
   const workspacePath = String(value ?? "").trim();
   if (!workspacePath) return "";
   return path.resolve(workspacePath).replace(/\\/g, "/").toLowerCase();
+}
+
+function linuxChromiumArgs() {
+  return ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--enable-unsafe-swiftshader"];
+}
+
+function mergeLaunchArgs(existing, extras) {
+  const args = String(existing ?? "").trim().split(/\s+/).filter(Boolean);
+  for (const extra of extras) {
+    if (!args.includes(extra)) args.push(extra);
+  }
+  return args.join(" ");
 }
 
 async function prepareSeededUserData(runDir, seedUserDataDir) {
@@ -220,6 +262,7 @@ async function rewriteTokenStoreWorkspace(tokenPath, workspaceDir) {
 }
 
 function launchElectron({ electronBinary, tracePath, userDataDir, serverConfigPath, runDir }) {
+  const linuxArgs = process.platform === "linux" ? linuxChromiumArgs() : [];
   const env = {
     ...process.env,
     OPENWORK_STARTUP_TRACE: tracePath,
@@ -241,8 +284,15 @@ function launchElectron({ electronBinary, tracePath, userDataDir, serverConfigPa
     XDG_STATE_HOME: path.join(runDir, "xdg", "state"),
   };
   delete env.OPENWORK_DEV_MODE;
+  delete env.OPENCODE_MODELS_URL;
+  delete env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT;
+  if (process.platform === "linux") {
+    if (!String(env.DISPLAY ?? "").trim()) env.DISPLAY = ":99";
+    env.ELECTRON_DISABLE_SANDBOX = "1";
+    env.ELECTRON_EXTRA_LAUNCH_ARGS = mergeLaunchArgs(env.ELECTRON_EXTRA_LAUNCH_ARGS, linuxArgs);
+  }
 
-  const child = spawn(electronBinary, [desktopRoot], {
+  const child = spawn(electronBinary, [...linuxArgs, desktopRoot], {
     cwd: repoRoot,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -325,6 +375,30 @@ async function readTrace(tracePath) {
 
 function hasEvent(events, name, kind) {
   return events.some((event) => event?.name === name && (!kind || event.kind === kind));
+}
+
+function requiredEvents(profile) {
+  if (profile === "firstrun") return [{ name: "window.readyToShow", kind: "mark" }];
+  return [
+    { name: "server.listening", kind: "mark" },
+    { name: "server.opencodeListening", kind: "mark" },
+    { name: "mcp.syncAll", kind: "span" },
+  ];
+}
+
+function missingRequiredEvents(events, profile) {
+  return requiredEvents(profile).filter((event) => !hasEvent(events, event.name, event.kind));
+}
+
+function hasRequiredEvents(events, profile) {
+  return missingRequiredEvents(events, profile).length === 0;
+}
+
+function profileNotes(profile) {
+  if (profile !== "firstrun") return [];
+  return [
+    "firstrun uses an empty userData with no selected local workspace; server, opencode, MCP sync, and cloud metrics are N/A by construction.",
+  ];
 }
 
 async function waitForTrace(tracePath, timeoutMs, predicate, child) {
@@ -417,6 +491,7 @@ function formatMs(value) {
 
 function printAggregateTable(summary) {
   console.log(`Cold start benchmark: ${summary.flags.label} (${summary.flags.profile})`);
+  for (const note of summary.profileNotes ?? []) console.log(`Note: ${note}`);
   console.log(`Runs: ${summary.runs.length} total, ${summary.aggregateInputCount} aggregated, ${summary.excludedTimeouts} timeout excluded, ${summary.excludedFailures} failed excluded, ${summary.flags.warmup} warmup excluded`);
   console.log("metric             min      median   p95      max");
   for (const [metric, values] of Object.entries(summary.aggregate)) {
@@ -553,8 +628,7 @@ async function prepareSeedTemplate({ flags, electronBinary, rootDir }) {
   const seedRunDir = path.join(rootDir, "seed-setup");
   await rm(seedRunDir, { recursive: true, force: true });
   await mkdir(seedRunDir, { recursive: true });
-  const seed = await prepareFreshUserData(seedRunDir);
-  seed.serverConfigPath = path.join(seed.userDataDir, "server.json");
+  const seed = await prepareWorkspaceUserData(seedRunDir, { serverConfigInUserData: true });
   const tracePath = path.join(seedRunDir, "trace.ndjson");
   const launched = launchElectron({
     electronBinary,
@@ -567,11 +641,12 @@ async function prepareSeedTemplate({ flags, electronBinary, rootDir }) {
     const ready = await waitForTrace(
       tracePath,
       flags.timeoutMs,
-      (events) => hasEvent(events, "runtime.serverReady", "mark"),
+      (events) => hasEvent(events, "runtime.serverReady", "mark") && hasRequiredEvents(events, "workspace"),
       launched.child,
     );
     if (ready.timedOut || ready.exitedEarly) {
-      throw new Error(`Seed setup did not reach runtime.serverReady. Last logs:\n${launched.logs.join("\n")}`);
+      const missing = missingRequiredEvents(ready.events, "workspace").map((event) => event.name).join(", ");
+      throw new Error(`Seed setup did not reach runtime.serverReady with required workspace events${missing ? ` (${missing})` : ""}. Last logs:\n${launched.logs.join("\n")}`);
     }
     const readyEvent = ready.events.find((event) => event?.name === "runtime.serverReady");
     const baseUrl = eventMeta(readyEvent).baseUrl;
@@ -609,9 +684,14 @@ async function runOne({ index, flags, electronBinary, rootDir, seedUserDataDir }
   const runDir = path.join(rootDir, String(index));
   await rm(runDir, { recursive: true, force: true });
   await mkdir(runDir, { recursive: true });
-  const prepared = flags.profile === "seeded" && seedUserDataDir
-    ? await prepareSeededUserData(runDir, seedUserDataDir)
-    : await prepareFreshUserData(runDir);
+  let prepared;
+  if (flags.profile === "seeded" && seedUserDataDir) {
+    prepared = await prepareSeededUserData(runDir, seedUserDataDir);
+  } else if (flags.profile === "firstrun") {
+    prepared = await prepareFirstrunUserData(runDir);
+  } else {
+    prepared = await prepareWorkspaceUserData(runDir);
+  }
   const tracePath = path.join(runDir, "trace.ndjson");
   const launched = launchElectron({
     electronBinary,
@@ -623,13 +703,14 @@ async function runOne({ index, flags, electronBinary, rootDir, seedUserDataDir }
   const waited = await waitForTrace(
     tracePath,
     flags.timeoutMs,
-    (events) => hasEvent(events, "mcp.syncAll", "span"),
+    (events) => hasRequiredEvents(events, flags.profile),
     launched.child,
   );
   await terminate(launched.child);
   const events = waited.events.length > 0 ? waited.events : await readTrace(tracePath);
   const derived = deriveRun(events);
-  const failed = waited.exitedEarly || (!waited.timedOut && !hasEvent(events, "mcp.syncAll", "span"));
+  const missingRequired = missingRequiredEvents(events, flags.profile).map((event) => event.name);
+  const failed = waited.exitedEarly || (!waited.timedOut && missingRequired.length > 0);
   const result = {
     index,
     warmup: index <= flags.warmup,
@@ -640,6 +721,7 @@ async function runOne({ index, flags, electronBinary, rootDir, seedUserDataDir }
     eventCount: events.length,
     exitCode: launched.child.exitCode,
     signalCode: launched.child.signalCode,
+    missingRequired,
     logs: launched.logs,
     derived,
   };
@@ -687,6 +769,7 @@ async function main() {
     timestamp: new Date().toISOString(),
     gitSha: await gitSha(),
     flags,
+    profileNotes: profileNotes(flags.profile),
     runs,
     aggregateInputCount: aggregateRuns.length,
     excludedTimeouts: runs.filter((run) => !run.warmup && run.timedOut).length,

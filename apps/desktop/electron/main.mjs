@@ -1171,69 +1171,67 @@ function assertOpenworkServerReady(info) {
 }
 
 async function bootRuntimeForSelectedWorkspace() {
-  return traceWrap("runtime.bootWorkspace", async () => {
-    const list = await workspaceStore.readWorkspaceState();
-    const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
-    const workspace = selectedId
-      ? list.workspaces.find((entry) => entry?.id === selectedId)
-      : list.workspaces[0];
-    const workspaceRoot = String(workspace?.path ?? "").trim();
-    if (!workspaceRoot || workspace?.workspaceType === "remote") {
-      return { ok: true, skipped: true, reason: "no-local-workspace" };
-    }
+  const list = await workspaceStore.readWorkspaceState();
+  const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
+  const workspace = selectedId
+    ? list.workspaces.find((entry) => entry?.id === selectedId)
+    : list.workspaces[0];
+  const workspaceRoot = String(workspace?.path ?? "").trim();
+  if (!workspaceRoot || workspace?.workspaceType === "remote") {
+    return { ok: true, skipped: true, reason: "no-local-workspace" };
+  }
 
-    const workspacePaths = [];
-    for (const entry of list.workspaces) {
-      if (entry?.workspaceType === "remote") continue;
-      const workspacePath = String(entry?.path ?? "").trim();
-      if (workspacePath && !workspacePaths.includes(workspacePath)) workspacePaths.push(workspacePath);
-    }
-    if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
+  const workspacePaths = [];
+  for (const entry of list.workspaces) {
+    if (entry?.workspaceType === "remote") continue;
+    const workspacePath = String(entry?.path ?? "").trim();
+    if (workspacePath && !workspacePaths.includes(workspacePath)) workspacePaths.push(workspacePath);
+  }
+  if (!workspacePaths.includes(workspaceRoot)) workspacePaths.unshift(workspaceRoot);
 
-    let bootWorkspace = workspace;
-    let bootWorkspaceRoot = workspaceRoot;
-    let engine;
-    try {
-      engine = await runtimeManager.engineStart(workspaceRoot, {
-        runtime: "direct",
-        workspacePaths,
-      });
-    } catch (error) {
-      const fallback = list.workspaces.find((entry) => {
-        const candidatePath = String(entry?.path ?? "").trim();
-        return entry?.workspaceType !== "remote" && candidatePath && candidatePath !== workspaceRoot;
-      });
-      const fallbackRoot = String(fallback?.path ?? "").trim();
-      if (!fallback || !fallbackRoot) throw error;
-      console.warn("[runtime] selected workspace failed during boot; trying fallback workspace", {
-        selectedWorkspaceId: workspace?.id ?? null,
-        fallbackWorkspaceId: fallback.id ?? null,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      const fallbackWorkspacePaths = [
-        fallbackRoot,
-        ...workspacePaths.filter((entry) => entry !== fallbackRoot && entry !== workspaceRoot),
-      ];
-      engine = await runtimeManager.engineStart(fallbackRoot, {
-        runtime: "direct",
-        workspacePaths: fallbackWorkspacePaths,
-      });
-      bootWorkspace = fallback;
-      bootWorkspaceRoot = fallbackRoot;
-      await workspaceStore.writeWorkspaceState({
-        ...list,
-        selectedId: String(fallback.id ?? ""),
-        watchedId: String(fallback.id ?? ""),
-      }).catch(() => undefined);
-    }
-
-    await runtimeManager.orchestratorWorkspaceActivate({
-      workspacePath: bootWorkspaceRoot,
-      name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
+  let bootWorkspace = workspace;
+  let bootWorkspaceRoot = workspaceRoot;
+  let engine;
+  try {
+    engine = await runtimeManager.engineStart(workspaceRoot, {
+      runtime: "direct",
+      workspacePaths,
+    });
+  } catch (error) {
+    const fallback = list.workspaces.find((entry) => {
+      const candidatePath = String(entry?.path ?? "").trim();
+      return entry?.workspaceType !== "remote" && candidatePath && candidatePath !== workspaceRoot;
+    });
+    const fallbackRoot = String(fallback?.path ?? "").trim();
+    if (!fallback || !fallbackRoot) throw error;
+    console.warn("[runtime] selected workspace failed during boot; trying fallback workspace", {
+      selectedWorkspaceId: workspace?.id ?? null,
+      fallbackWorkspaceId: fallback.id ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    const fallbackWorkspacePaths = [
+      fallbackRoot,
+      ...workspacePaths.filter((entry) => entry !== fallbackRoot && entry !== workspaceRoot),
+    ];
+    engine = await runtimeManager.engineStart(fallbackRoot, {
+      runtime: "direct",
+      workspacePaths: fallbackWorkspacePaths,
+    });
+    bootWorkspace = fallback;
+    bootWorkspaceRoot = fallbackRoot;
+    await workspaceStore.writeWorkspaceState({
+      ...list,
+      selectedId: String(fallback.id ?? ""),
+      watchedId: String(fallback.id ?? ""),
     }).catch(() => undefined);
-    const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
-    return { ok: true, skipped: false, engine, openworkServer, workspaceId: bootWorkspace.id ?? null };
-  });
+  }
+
+  await runtimeManager.orchestratorWorkspaceActivate({
+    workspacePath: bootWorkspaceRoot,
+    name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
+  }).catch(() => undefined);
+  const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
+  return { ok: true, skipped: false, engine, openworkServer, workspaceId: bootWorkspace.id ?? null };
 }
 
 function ensureRuntimeBootstrap() {
@@ -2465,7 +2463,7 @@ if (!app.requestSingleInstanceLock()) {
     await traceWrap("boot.uiControlStart", () => uiControlServer.start().catch((error) => {
       console.warn("[ui-control] failed to start", error);
     }));
-    runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch((error) => ({
+    runtimeBootstrapPromise = traceWrap("runtime.bootWorkspace", () => bootRuntimeForSelectedWorkspace()).catch((error) => ({
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     }));
