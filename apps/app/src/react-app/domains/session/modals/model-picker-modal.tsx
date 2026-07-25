@@ -173,7 +173,8 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     }
   }, [props.query, providerGroups]);
 
-  // Expand current + OpenWork groups once they appear (options often load async).
+  // Expand current, organization-provided, and OpenWork groups once they appear
+  // (options often load async).
   const autoExpandedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!props.open) {
@@ -181,10 +182,16 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
       return;
     }
     const toExpand: string[] = [];
+    const queueExpand = (id: string) => {
+      if (!autoExpandedRef.current.has(id) && !toExpand.includes(id)) toExpand.push(id);
+    };
     const current = providerGroups.find((group) => group.hasCurrent);
-    if (current && !autoExpandedRef.current.has(current.id)) toExpand.push(current.id);
+    if (current) queueExpand(current.id);
+    for (const group of providerGroups) {
+      if (group.isCloud) queueExpand(group.id);
+    }
     const openwork = providerGroups.find((group) => group.id === OPENWORK_MODELS_PROVIDER_ID);
-    if (openwork && !autoExpandedRef.current.has(openwork.id)) toExpand.push(openwork.id);
+    if (openwork) queueExpand(openwork.id);
     if (toExpand.length === 0) return;
     for (const id of toExpand) autoExpandedRef.current.add(id);
     setExpandedProviders((prev) => {
