@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { isWebDeployment } from "@/app/lib/openwork-deployment";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
+import type { DenAuthStatus } from "@/react-app/domains/cloud/den-auth-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
@@ -27,6 +29,27 @@ export type UseOpenWorkModelsStartupPromoInput = {
   /** Org member already has OpenWork Models on Den — never upsell Subscribe. */
   openWorkModelsEntitled?: boolean;
 };
+
+export type OpenWorkModelsStartupPromoScheduleInput = {
+  openWorkModelsPromoEligible: boolean;
+  webDeployment: boolean;
+  cloudSignin: boolean;
+  promoHidden: boolean;
+  hasOpenWorkModels: boolean;
+  openWorkModelsEntitled: boolean;
+  denAuthStatus: DenAuthStatus;
+  clientReady: boolean;
+  workspaceId: string;
+  startupPromoShown: () => boolean;
+  startupPromoScheduled: boolean;
+};
+
+export function shouldScheduleOpenWorkModelsStartupPromo(input: OpenWorkModelsStartupPromoScheduleInput) {
+  if (!input.openWorkModelsPromoEligible || input.webDeployment) return false;
+  if (!input.cloudSignin || input.promoHidden || input.hasOpenWorkModels || input.openWorkModelsEntitled) return false;
+  if (input.denAuthStatus === "checking" || !input.clientReady || !input.workspaceId) return false;
+  return !input.startupPromoShown() && !input.startupPromoScheduled;
+}
 
 export function useOpenWorkModelsStartupPromo(input: UseOpenWorkModelsStartupPromoInput) {
   const { clientReady, workspaceId, providerConnectedIds, openWorkModelsEntitled = false } = input;
@@ -52,13 +75,24 @@ export function useOpenWorkModelsStartupPromo(input: UseOpenWorkModelsStartupPro
   );
 
   useEffect(() => {
-    if (!openWorkModelsPromoEligible) {
+    const webDeployment = isWebDeployment();
+    if (!shouldScheduleOpenWorkModelsStartupPromo({
+      openWorkModelsPromoEligible,
+      webDeployment,
+      cloudSignin: shellConfig.cloudSignin,
+      promoHidden,
+      hasOpenWorkModels,
+      openWorkModelsEntitled,
+      denAuthStatus: denAuth.status,
+      clientReady,
+      workspaceId,
+      startupPromoShown: wasOpenWorkModelsStartupPromoShown,
+      startupPromoScheduled: scheduledRef.current,
+    })) {
+      if (openWorkModelsPromoEligible && !webDeployment) return;
       setOpen(false);
       return;
     }
-    if (!shellConfig.cloudSignin || promoHidden || hasOpenWorkModels || openWorkModelsEntitled) return;
-    if (denAuth.status === "checking" || !clientReady || !workspaceId) return;
-    if (wasOpenWorkModelsStartupPromoShown() || scheduledRef.current) return;
 
     scheduledRef.current = true;
     const timeout = window.setTimeout(() => {

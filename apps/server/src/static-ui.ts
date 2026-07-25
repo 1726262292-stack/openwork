@@ -6,6 +6,7 @@ import { cssResponse, htmlResponse, jsResponse, svgResponse } from "./toy-ui.js"
 import type { ServerConfig } from "./types.js";
 
 const WEB_ROOT_ENV = "OPENWORK_WEB_ROOT";
+const WEB_BOOTSTRAP_TOKEN_ENV = "OPENWORK_WEB_BOOTSTRAP_TOKEN";
 const ASSET_CACHE = "public, max-age=31536000, immutable";
 const INDEX_CACHE = "no-cache";
 
@@ -120,6 +121,8 @@ function contentType(extension: string): string {
 }
 
 function injectBootstrap(html: string, token: string): string {
+  if (!shouldInjectBootstrapToken()) return html;
+
   const clientToken = token.trim();
   if (!clientToken) return html;
 
@@ -128,6 +131,11 @@ function injectBootstrap(html: string, token: string): string {
   const headCloseIndex = html.toLowerCase().indexOf("</head>");
   if (headCloseIndex < 0) return `${script}${html}`;
   return `${html.slice(0, headCloseIndex)}${script}${html.slice(headCloseIndex)}`;
+}
+
+function shouldInjectBootstrapToken(): boolean {
+  const configured = process.env[WEB_BOOTSTRAP_TOKEN_ENV]?.trim().toLowerCase();
+  return configured !== "0" && configured !== "false";
 }
 
 function escapeScriptJson(json: string): string {

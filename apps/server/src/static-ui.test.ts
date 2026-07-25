@@ -7,6 +7,7 @@ import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
 const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
+const WEB_BOOTSTRAP_TOKEN_ENV = "OPENWORK_WEB_BOOTSTRAP_TOKEN";
 
 async function createWebRoot() {
   const root = join(tmpdir(), `openwork-static-ui-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -35,6 +36,25 @@ async function withWebRoot(root: string | null, run: () => Promise<void>) {
       delete process.env.OPENWORK_WEB_ROOT;
     } else {
       process.env.OPENWORK_WEB_ROOT = previous;
+    }
+  }
+}
+
+async function withBootstrapTokenEnv(value: string | null, run: () => Promise<void>) {
+  const previous = process.env[WEB_BOOTSTRAP_TOKEN_ENV];
+  if (value === null) {
+    delete process.env[WEB_BOOTSTRAP_TOKEN_ENV];
+  } else {
+    process.env[WEB_BOOTSTRAP_TOKEN_ENV] = value;
+  }
+
+  try {
+    await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env[WEB_BOOTSTRAP_TOKEN_ENV];
+    } else {
+      process.env[WEB_BOOTSTRAP_TOKEN_ENV] = previous;
     }
   }
 }
@@ -159,13 +179,30 @@ describe("serveStaticUi", () => {
 
   test("injects escaped bootstrap JSON into index.html", async () => {
     const root = await createWebRoot();
-    await withWebRoot(root, async () => {
-      const response = await serveStaticUi(new Request("http://openwork.test/"), staticConfig("tok<\u2028>\u2029&"));
-      if (!response) throw new Error("expected index response");
-      const body = await response.text();
-      expect(body).toContain("<script>window.__OPENWORK_BOOTSTRAP__ = {\"token\":\"tok\\u003c\\u2028\\u003e\\u2029\\u0026\"}</script></head>");
-      expect(body).not.toContain("tok<");
+    await withBootstrapTokenEnv(null, async () => {
+      await withWebRoot(root, async () => {
+        const response = await serveStaticUi(new Request("http://openwork.test/"), staticConfig("tok<\u2028>\u2029&"));
+        if (!response) throw new Error("expected index response");
+        const body = await response.text();
+        expect(body).toContain("<script>window.__OPENWORK_BOOTSTRAP__ = {\"token\":\"tok\\u003c\\u2028\\u003e\\u2029\\u0026\"}</script></head>");
+        expect(body).not.toContain("tok<");
+      });
     });
+  });
+
+  test("can disable bootstrap token injection", async () => {
+    const root = await createWebRoot();
+    for (const value of ["0", "false"]) {
+      await withBootstrapTokenEnv(value, async () => {
+        await withWebRoot(root, async () => {
+          const response = await serveStaticUi(new Request("http://openwork.test/"), staticConfig("client-token"));
+          if (!response) throw new Error("expected index response");
+          const body = await response.text();
+          expect(body).toContain("App shell");
+          expect(body).not.toContain("__OPENWORK_BOOTSTRAP__");
+        });
+      });
+    }
   });
 
   test("leaves non-GET route misses on the existing JSON 404 path", async () => {
