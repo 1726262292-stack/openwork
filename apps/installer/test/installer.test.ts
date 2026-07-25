@@ -14,8 +14,10 @@ import {
   buildTiffutilArgs,
   dmgBackgroundPaths,
   dmgLayout,
+  dmgVolumeName,
   dmgWindowBounds,
 } from "../scripts/dmg-layout.mjs"
+import { resolveInstallerVersion, versionFromReleaseTag, windowsFileVersion } from "../scripts/installer-version.mjs"
 import { desktopBootstrapPath, legacyDesktopBootstrapPath } from "../src/bootstrap-path"
 import { buildConstantsConfig, parseInstallLinkInput, resolveInstallLinkConfig, resolveInstallerConfig } from "../src/config"
 import { removableInstallerBundlePath, windowsInstalledExePath, writeBootstrapConfig } from "../src/install"
@@ -32,6 +34,8 @@ import {
   summarizeSystemCaSources,
   type SystemCaLoaders,
 } from "../src/system-ca"
+import { renderInstallerHtml } from "../src/ui-html"
+import { INSTALLER_VERSION } from "../src/version"
 
 type SelfSignedCertificate = {
   cert: string
@@ -148,6 +152,49 @@ describe("mac DMG layout helpers", () => {
 
   test("escapes AppleScript strings", () => {
     expect(appleScriptString('/tmp/Install "OpenWork"/back\\ground.tiff')).toBe('/tmp/Install \\"OpenWork\\"/back\\\\ground.tiff')
+  })
+
+  test("names the mounted volume after the build being installed", () => {
+    expect(dmgVolumeName("0.18.1")).toBe("Install OpenWork 0.18.1")
+    expect(dmgVolumeName("")).toBe("Install OpenWork")
+    expect(buildReadWriteDmgArgs({ sourceFolder: "/tmp/root", outputPath: "/tmp/openwork.rw.dmg", volumeName: "Install OpenWork 0.18.1" })).toContain(
+      "Install OpenWork 0.18.1",
+    )
+  })
+})
+
+describe("installer version resolution", () => {
+  test("reads the version out of a release tag", () => {
+    expect(versionFromReleaseTag("v0.18.1")).toBe("0.18.1")
+    expect(versionFromReleaseTag("0.18.1")).toBe("0.18.1")
+    expect(versionFromReleaseTag(" v1.2.3-rc.1 ")).toBe("1.2.3-rc.1")
+  })
+
+  test("ignores tags that are not releases", () => {
+    expect(versionFromReleaseTag("installer-release-e2e-abc123")).toBe("")
+    expect(versionFromReleaseTag("v0.18")).toBe("")
+    expect(versionFromReleaseTag("")).toBe("")
+    expect(versionFromReleaseTag(undefined)).toBe("")
+  })
+
+  test("prefers an explicit version, then the release tag, then package.json", () => {
+    expect(resolveInstallerVersion({ explicit: "9.9.9", releaseTag: "v0.18.1", packageVersion: "0.1.0" })).toBe("9.9.9")
+    expect(resolveInstallerVersion({ releaseTag: "v0.18.1", packageVersion: "0.1.0" })).toBe("0.18.1")
+    expect(resolveInstallerVersion({ releaseTag: "not-a-release", packageVersion: "0.1.0" })).toBe("0.1.0")
+    expect(resolveInstallerVersion({})).toBe("")
+  })
+
+  test("reduces a version to a four-field Windows resource", () => {
+    expect(windowsFileVersion("0.18.1")).toBe("0.18.1.0")
+    expect(windowsFileVersion("1.2.3-rc.1")).toBe("1.2.3.0")
+    expect(windowsFileVersion("nightly")).toBe("")
+  })
+
+  test("shows the build in the installer window without competing with the primary action", () => {
+    const html = renderInstallerHtml(null, "token")
+    expect(html).toContain(`<div class="version">Installer ${INSTALLER_VERSION}</div>`)
+    expect(html).toContain(".version { position: fixed;")
+    expect(INSTALLER_VERSION).toMatch(/^\d+\.\d+\.\d+/)
   })
 })
 
