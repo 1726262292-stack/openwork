@@ -61,18 +61,20 @@ function openGuidance(os: InstallerOs | null, appName: string, fileName: string 
 
   if (os === "macos") {
     return {
-      actions: [openFile, `Drag ${appName} into Applications, then open it.`],
+      // The disk image holds only "Install OpenWork" — there is no Applications
+      // shortcut to drag onto. That app is the installer, and it installs the app.
+      actions: [openFile, `In the window that opens, double-click Install OpenWork, then choose Install.`],
       trust: {
-        title: `macOS may ask before it opens ${appName}`,
+        title: "macOS may ask before it opens the installer",
         body: "If you see “unidentified developer”, choose Open. This is normal for a new app.",
       },
     };
   }
   if (os === "windows") {
     return {
-      actions: [openFile, `Follow the setup prompts, then open ${appName}.`],
+      actions: [openFile, `Choose Install in the installer window.`],
       trust: {
-        title: `Windows may warn before it opens ${appName}`,
+        title: "Windows may warn before it opens the installer",
         body: "If you see “Windows protected your PC”, choose More info, then Run anyway.",
       },
     };
@@ -87,9 +89,9 @@ function openGuidance(os: InstallerOs | null, appName: string, fileName: string 
     };
   }
   return {
-    actions: [openFile, `Follow the setup prompts, then open ${appName}.`],
+    actions: [openFile, `Choose Install in the installer window.`],
     trust: {
-      title: `Your computer may ask before it opens ${appName}`,
+      title: "Your computer may ask before it opens the installer",
       body: "If you see a warning about an app from the internet, choose to open it anyway. This is normal for a new app.",
     },
   };
@@ -652,7 +654,7 @@ export function InstallScreen() {
               title="Continue on your computer"
               description={guideStep < 2
                 ? `Only continue once ${config.appName} is installed and running on this computer.`
-                : `Your download is done. Open the file on this computer — ${config.appName} takes it from there.`}
+                : `Your download is done. Open the file on this computer — the installer takes it from there.`}
               expanded={expandedStep === 2 && guideStep >= 2}
               onExpand={() => setExpandedStep(2)}
               testId="install-guide-step-open"
@@ -700,8 +702,8 @@ export function InstallScreen() {
                           <span className="size-1.5 rounded-full bg-[#3e63dd]" />
                         </span>
                         <span className="grid gap-0.5">
-                          <span className="text-[13px] font-semibold leading-[17px] text-[#1f3d8f]">{config.appName} continues from here</span>
-                          <span className="text-[13px] leading-[17px] text-[#3a4e80]">The moment it opens, it brings up a sign-in page in your browser so you can approve this computer.</span>
+                          <span className="text-[13px] font-semibold leading-[17px] text-[#1f3d8f]">The installer continues from here</span>
+                          <span className="text-[13px] leading-[17px] text-[#3a4e80]">It installs {config.appName} and opens a sign-in page in your browser so you can approve this computer.</span>
                         </span>
                       </div>
 
