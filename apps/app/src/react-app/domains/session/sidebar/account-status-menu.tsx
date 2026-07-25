@@ -147,25 +147,6 @@ function useOpenWorkModelsPromoVisible(hasOpenWorkModels: boolean) {
   return eligible && config.cloudSignin && !hasOpenWorkModels && !hidden;
 }
 
-/** Status row inside the trigger: one dot plus one truncating label. */
-function TriggerStatusRow(props: {
-  variant: StatusDotVariant;
-  label: string;
-  title: string;
-  testId?: string;
-}) {
-  return (
-    <span
-      data-testid={props.testId}
-      title={props.title}
-      className="flex min-w-0 items-center gap-1.5 text-[10.5px] leading-tight text-muted-foreground"
-    >
-      <StatusDot variant={props.variant} />
-      <span className="truncate">{props.label}</span>
-    </span>
-  );
-}
-
 export type AccountStatusMenuProps = {
   clientConnected: boolean;
   openworkServerStatus: OpenworkServerStatus;
@@ -297,10 +278,16 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
             ref={triggerRef}
             type="button"
             data-testid="account-status-menu"
-            className="flex w-full flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
+            data-runtime-state={runtimeStatus?.variant}
+            data-connect-state={connectStatus?.state}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-sidebar-accent"
             aria-label={signedIn ? `${user.email} — account and status` : "Account and status"}
+            title={connectNeedsAttention
+              ? openWorkConnectAttentionTitle(connectStatus.description)
+              : connectStatus
+                ? `${runtimeStatus ? `${runtimeStatus.label} · ` : ""}OpenWork Connect: ${connectStatus.label}`
+                : runtimeStatus?.label}
           >
-            <span className="flex w-full items-center gap-2">
               {signedIn ? (
                 <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary">
                   {accountInitials(user.name, user.email)}
@@ -324,28 +311,6 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
                 </span>
               ) : null}
               <MoreHorizontal size={14} className="shrink-0 text-muted-foreground" />
-            </span>
-            {showStatus ? (
-              <span className="flex w-full flex-col gap-1 pl-0.5 group-data-[collapsible=icon]:hidden">
-                {runtimeStatus ? (
-                  <TriggerStatusRow
-                    variant={runtimeStatus.variant}
-                    label={runtimeStatus.label}
-                    title={runtimeStatus.detail ?? runtimeStatus.label}
-                  />
-                ) : null}
-                {connectStatus ? (
-                  <TriggerStatusRow
-                    testId="openwork-connect-status"
-                    variant={connectDotVariant(connectStatus)}
-                    label={`OpenWork Connect: ${connectStatus.label}`}
-                    title={connectNeedsAttention
-                      ? openWorkConnectAttentionTitle(connectStatus.description)
-                      : connectStatus.description}
-                  />
-                ) : null}
-              </span>
-            ) : null}
           </button>
         }
       />
@@ -372,15 +337,13 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
               </div>
             ) : null}
             {connectStatus ? (
-              <div className="flex items-start gap-2">
+              <div data-testid="openwork-connect-status" className="flex items-start gap-2">
                 <span className="mt-1">
                   <StatusDot variant={connectDotVariant(connectStatus)} />
                 </span>
                 <div className="min-w-0">
                   <div className="text-[11.5px] font-medium text-foreground">
-                    {connectNeedsAttention
-                      ? "OpenWork Connect needs attention"
-                      : `OpenWork Connect: ${connectStatus.label}`}
+                    {`OpenWork Connect: ${connectStatus.label}`}
                   </div>
                   <div className="text-[10.5px] leading-tight text-muted-foreground">
                     {connectStatus.description}
