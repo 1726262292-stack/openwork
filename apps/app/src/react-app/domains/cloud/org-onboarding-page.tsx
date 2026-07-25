@@ -331,10 +331,9 @@ function markProvidersSeen(providers: DenOrgLlmProvider[]) {
   } catch {}
 }
 
-function consumeHandoffAutoContinueFlag() {
+function readHandoffAutoContinueFlag() {
   if (typeof window === "undefined") return false;
   const raw = window.sessionStorage.getItem(DEN_HANDOFF_AUTO_CONTINUE_KEY);
-  window.sessionStorage.removeItem(DEN_HANDOFF_AUTO_CONTINUE_KEY);
   const timestamp = Number(raw);
   return Number.isFinite(timestamp) && Date.now() - timestamp < 5 * 60_000;
 }
@@ -353,7 +352,7 @@ export function OrgOnboardingPage() {
   const prepared = usePreparedBootstrap();
   const handoffAutoContinueRef = useRef<boolean | null>(null);
   if (handoffAutoContinueRef.current === null) {
-    handoffAutoContinueRef.current = consumeHandoffAutoContinueFlag();
+    handoffAutoContinueRef.current = readHandoffAutoContinueFlag();
   }
   const handoffAutoContinue = handoffAutoContinueRef.current === true;
   const [hasSelectedOrganization, setHasSelectedOrganization] = useState(handoffAutoContinue);
@@ -582,6 +581,9 @@ export function ResourceSelectionPage({ autoContinue = false }: { autoContinue?:
     // Mark all providers shown on this page as "seen" so the global
     // toast doesn't re-fire for them on the next sync interval.
     markProvidersSeen(providers);
+    try {
+      window.sessionStorage.removeItem(DEN_HANDOFF_AUTO_CONTINUE_KEY);
+    } catch {}
     if (providers.length > 0 && optionsArg?.requestReload !== false) {
       try {
         window.localStorage.setItem(RELOAD_AFTER_ONBOARDING_KEY, "1");
