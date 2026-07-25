@@ -56,7 +56,7 @@ interface MessageListProviderProps {
 export interface DispatchAction {
   target: "settings"
   action: "open"
-  section: "commands" | "skills" | "mcps" | "plugins" | "providers"
+  section: "commands" | "skills" | "mcps" | "plugins" | "providers" | "connect"
 }
 
 export function MessageListProvider({

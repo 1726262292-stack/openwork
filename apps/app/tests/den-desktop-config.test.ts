@@ -10,6 +10,19 @@ import { createDenClient, normalizeDenDesktopConfig } from "../src/app/lib/den";
 
 const originalFetch = globalThis.fetch;
 
+function promptObjects(prompts: string[]) {
+  return prompts.map((prompt) => ({ prompt }));
+}
+
+function oldShapeOnboardingPrompts(payload: unknown): string[] | undefined {
+  if (!payload || typeof payload !== "object" || !("onboardingPrompts" in payload)) {
+    return undefined;
+  }
+  const prompts = payload.onboardingPrompts;
+  if (!Array.isArray(prompts)) return undefined;
+  return prompts.every((prompt) => typeof prompt === "string") ? prompts : undefined;
+}
+
 describe("Den desktop config client", () => {
   afterEach(() => {
     Object.defineProperty(globalThis, "fetch", {
@@ -65,7 +78,7 @@ describe("Den desktop config client", () => {
     expect(normalizeDenDesktopConfig({
       onboardingPrompts: [" First task ", "Second task", "Third task"],
       onboardingPromptDescriptions: [" First card ", "Second card", ""],
-    }).onboardingPrompts).toEqual(["First task", "Second task", "Third task"]);
+    }).onboardingPrompts).toEqual(promptObjects(["First task", "Second task", "Third task"]));
     expect(normalizeDenDesktopConfig({
       onboardingPrompts: [" First task ", "Second task", "Third task"],
       onboardingPromptDescriptions: [" First card ", "Second card", ""],
@@ -78,6 +91,51 @@ describe("Den desktop config client", () => {
       onboardingPrompts: ["First task", "Second task", "Third task"],
       onboardingPromptDescriptions: ["Mismatched", "Descriptions"],
     }).onboardingPromptDescriptions).toBeUndefined();
+
+    expect(normalizeDenDesktopConfig({
+      onboardingPrompts: [
+        {
+          prompt: "Find what needs attention.",
+          skill: {
+            source: "connect",
+            slug: "attention-review",
+            name: "Attention Review",
+            marketplaceId: "marketplace_attention",
+            marketplaceName: "Workflow Library",
+            pluginId: "plugin_attention",
+            pluginName: "Attention Workflows",
+            configObjectId: "skill_attention_review",
+            capabilityName: "plugin:plugin_attention:skill_attention_review",
+          },
+        },
+        { prompt: "Summarize today's notes." },
+      ],
+    }).onboardingPrompts).toEqual([
+      {
+        prompt: "Find what needs attention.",
+        skill: {
+          source: "connect",
+          slug: "attention-review",
+          name: "Attention Review",
+          marketplaceId: "marketplace_attention",
+          marketplaceName: "Workflow Library",
+          pluginId: "plugin_attention",
+          pluginName: "Attention Workflows",
+          configObjectId: "skill_attention_review",
+          capabilityName: "plugin:plugin_attention:skill_attention_review",
+        },
+      },
+      { prompt: "Summarize today's notes." },
+    ]);
+  });
+
+  test("old-shape onboarding prompt readers degrade safely on bound prompt payloads", () => {
+    expect(oldShapeOnboardingPrompts({
+      onboardingPrompts: [
+        { prompt: "Find what needs attention." },
+        { prompt: "Summarize today's notes." },
+      ],
+    })).toBeUndefined();
   });
 
   test("normalizes the alpha update desktop policy", () => {
@@ -164,7 +222,7 @@ describe("Den desktop config client", () => {
         },
       }],
     })).toEqual({
-      onboardingPrompts: ["Targeted task", "Targeted follow-up"],
+      onboardingPrompts: promptObjects(["Targeted task", "Targeted follow-up"]),
       onboardingPromptDescriptions: ["Targeted card", "Targeted follow-up card"],
     });
   });
@@ -182,7 +240,7 @@ describe("Den desktop config client", () => {
       preserveExistingOnboardingPrompts: true,
     })).toEqual({
       allowZenModel: false,
-      onboardingPrompts: ["Existing prompt", "Existing follow-up"],
+      onboardingPrompts: promptObjects(["Existing prompt", "Existing follow-up"]),
       onboardingPromptDescriptions: ["Existing card", "Existing follow-up card"],
     });
 
@@ -196,7 +254,7 @@ describe("Den desktop config client", () => {
       value: { onboardingPrompts: [" Replacement ", "Replacement follow-up"] },
       existingPolicy,
       preserveExistingOnboardingPrompts: true,
-    })).toEqual({ onboardingPrompts: ["Replacement", "Replacement follow-up"] });
+    })).toEqual({ onboardingPrompts: promptObjects(["Replacement", "Replacement follow-up"]) });
 
     expect(resolveDesktopPolicyDocumentWrite({
       value: {
@@ -206,7 +264,7 @@ describe("Den desktop config client", () => {
       existingPolicy,
       preserveExistingOnboardingPrompts: true,
     })).toEqual({
-      onboardingPrompts: ["Replacement", "Replacement follow-up"],
+      onboardingPrompts: promptObjects(["Replacement", "Replacement follow-up"]),
       onboardingPromptDescriptions: ["Replacement card", ""],
     });
 

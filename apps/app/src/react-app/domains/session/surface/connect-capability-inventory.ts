@@ -27,8 +27,12 @@ export type ConnectCapabilityInventory = {
   mcpStatuses: McpStatusMap;
 };
 
+export type ConnectCapabilityReadiness = "ready" | "needs_signin" | "needs_admin_setup";
+
 export type ConnectSkillCard = SkillCard & {
   content?: string;
+  connectReadiness: ConnectCapabilityReadiness;
+  connectableConnectionId?: string;
 };
 
 export const EMPTY_CONNECT_CAPABILITY_INVENTORY: ConnectCapabilityInventory = {
@@ -86,7 +90,7 @@ function matchingConnection(
   ) ?? (spec.url ? connections.find((connection) => connection.url === spec.url) : undefined);
 }
 
-function remoteMcpStatus(
+export function remoteMcpStatus(
   plugin: DenOrgPlugin,
   connection: DenPluginCloudReadinessConnection | undefined,
 ): McpStatus {
@@ -106,11 +110,42 @@ function remoteMcpStatus(
   };
 }
 
+function remoteMcpReadiness(status: McpStatus): ConnectCapabilityReadiness {
+  switch (status.status) {
+    case "connected":
+    case "disabled":
+      return "ready";
+    case "needs_auth":
+      return "needs_signin";
+    case "failed":
+    case "needs_client_registration":
+      return "needs_admin_setup";
+  }
+}
+
+function connectableConnectionId(plugin: DenOrgPlugin) {
+  return plugin.cloudReadiness?.connections.find((connection) =>
+    connection.id && connection.credentialMode === "per_member" && connection.connectedForMe === false
+  )?.id ?? undefined;
+}
+
+function remoteSkillReadiness(
+  plugin: DenOrgPlugin,
+  object: DenPluginConfigObject,
+): ConnectCapabilityReadiness {
+  if (!plugin.cloudReadiness) return "ready";
+  const connection = plugin.cloudReadiness.connections.find((entry) =>
+    entry.configObjectId === object.id
+  );
+  return remoteMcpReadiness(remoteMcpStatus(plugin, connection));
+}
+
 function toSkill(
   marketplace: DenOrgMarketplace,
   plugin: DenOrgPlugin,
   object: DenPluginConfigObject,
 ): ConnectSkillCard {
+  const connectionId = connectableConnectionId(plugin);
   return {
     name: object.title,
     path: `openwork-connect://${marketplace.id}/${plugin.id}/${object.id}`,
@@ -121,6 +156,8 @@ function toSkill(
     marketplaceName: marketplace.name,
     pluginName: plugin.name,
     connectCapabilityName: marketplaceCapabilityName(plugin.id, object.id),
+    connectReadiness: remoteSkillReadiness(plugin, object),
+    ...(connectionId ? { connectableConnectionId: connectionId } : {}),
   };
 }
 
@@ -176,7 +213,7 @@ export async function listAssignedConnectCapabilities(input: {
     })),
   );
 
-  const skills: SkillCard[] = [];
+  const skills: ConnectSkillCard[] = [];
   const mcpServers: McpServerEntry[] = [];
   const mcpStatuses: McpStatusMap = {};
   for (const { marketplace, resolved } of resolvedPlugins) {

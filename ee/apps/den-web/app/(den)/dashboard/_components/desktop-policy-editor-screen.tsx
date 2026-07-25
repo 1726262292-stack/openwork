@@ -7,12 +7,16 @@ import { ArrowLeft, Laptop } from "lucide-react";
 import {
   desktopPolicyDefaults,
   desktopPolicyKeys,
+  type OnboardingPrompt,
+  type OnboardingPromptConnectSkillReference,
+  type OnboardingPromptSkillReference,
   type DesktopPolicyDocumentWrite,
   type DesktopPolicyValue,
 } from "@openwork/types/den/desktop-policies";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
+import { DenSelect } from "../../_components/ui/select";
 import { DenTextarea } from "../../_components/ui/textarea";
 import { getDesktopPoliciesRoute, getMembersRoute, getOrgAccessFlags } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -23,7 +27,9 @@ import {
   type DenDesktopPolicy,
   type DesktopPolicyPayload,
 } from "./desktop-policy-data";
+import { resolveOrganizationPromptPreviewCardContent } from "./desktop-policy-onboarding-preview";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
+import { usePlugins, type DenPlugin, type PluginMarketplaceRef, type PluginSkill } from "./plugin-data";
 
 type PolicyDraft = {
   policyName: string;
@@ -32,6 +38,7 @@ type PolicyDraft = {
   onboardingPromptsEnabled: boolean;
   onboardingPromptTexts: string[];
   onboardingPromptDescriptions: string[];
+  onboardingPromptSkills: Array<OnboardingPromptSkillReference | null>;
   memberIds: string[];
   teamIds: string[];
 };
@@ -43,6 +50,7 @@ const EMPTY_DRAFT: PolicyDraft = {
   onboardingPromptsEnabled: false,
   onboardingPromptTexts: ["", "", ""],
   onboardingPromptDescriptions: ["", "", ""],
+  onboardingPromptSkills: [null, null, null],
   memberIds: [],
   teamIds: [],
 };
@@ -52,6 +60,73 @@ const ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH = 120;
 const MAX_POLICY_PRIORITY = 1_000_000;
 const PRIORITY_HELP_ID = "desktop-policy-priority-help";
 const PRIORITY_ERROR_ID = "desktop-policy-priority-error";
+
+type OrganizationSkillOption = {
+  value: string;
+  label: string;
+  description: string;
+  binding: OnboardingPromptConnectSkillReference;
+};
+
+function skillTriggerSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "skill";
+}
+
+function connectCapabilityName(pluginId: string, configObjectId: string) {
+  return `plugin:${pluginId}:${configObjectId}`;
+}
+
+function organizationSkillOptionValue(input: { marketplaceId: string; pluginId: string; configObjectId: string }) {
+  return `${input.marketplaceId}:${input.pluginId}:${input.configObjectId}`;
+}
+
+function createOrganizationSkillOption(input: {
+  marketplace: PluginMarketplaceRef;
+  plugin: DenPlugin;
+  skill: PluginSkill;
+}): OrganizationSkillOption {
+  const binding: OnboardingPromptConnectSkillReference = {
+    source: "connect",
+    slug: skillTriggerSlug(input.skill.name),
+    name: input.skill.name,
+    marketplaceId: input.marketplace.id,
+    marketplaceName: input.marketplace.name,
+    pluginId: input.plugin.id,
+    pluginName: input.plugin.name,
+    configObjectId: input.skill.id,
+    capabilityName: connectCapabilityName(input.plugin.id, input.skill.id),
+  };
+  return {
+    value: organizationSkillOptionValue(binding),
+    label: `${input.skill.name} · ${input.marketplace.name}`,
+    description: input.skill.description,
+    binding,
+  };
+}
+
+function getOrganizationSkillOptions(plugins: DenPlugin[]) {
+  return plugins
+    .flatMap((plugin) => (plugin.marketplaces ?? []).flatMap((marketplace) =>
+      plugin.skills.map((skill) => createOrganizationSkillOption({ marketplace, plugin, skill }))
+    ))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function promptSkillSelectValue(skill: OnboardingPromptSkillReference | null) {
+  if (!skill) return "";
+  if (skill.source === "local") return `local:${skill.slug}`;
+  return organizationSkillOptionValue(skill);
+}
+
+function promptSkillDisplayName(skill: OnboardingPromptSkillReference) {
+  return skill.source === "local"
+    ? `Local skill /${skill.slug}`
+    : `${skill.name} · ${skill.marketplaceName}`;
+}
 
 function requiredPolicyValue(value: DesktopPolicyValue): Required<DesktopPolicyValue> {
   return Object.fromEntries(
@@ -68,14 +143,19 @@ function draftFromPolicy(policy: DenDesktopPolicy): PolicyDraft {
     priority: policy.priority,
     onboardingPromptsEnabled: onboardingPrompts.length > 0,
     onboardingPromptTexts: [
-      onboardingPrompts[0] ?? "",
-      onboardingPrompts[1] ?? "",
-      onboardingPrompts[2] ?? "",
+      onboardingPrompts[0]?.prompt ?? "",
+      onboardingPrompts[1]?.prompt ?? "",
+      onboardingPrompts[2]?.prompt ?? "",
     ],
     onboardingPromptDescriptions: [
       onboardingPromptDescriptions[0] ?? "",
       onboardingPromptDescriptions[1] ?? "",
       onboardingPromptDescriptions[2] ?? "",
+    ],
+    onboardingPromptSkills: [
+      onboardingPrompts[0]?.skill ?? null,
+      onboardingPrompts[1]?.skill ?? null,
+      onboardingPrompts[2]?.skill ?? null,
     ],
     memberIds: policy.assignments.flatMap((assignment) => (assignment.orgMemberId ? [assignment.orgMemberId] : [])),
     teamIds: policy.assignments.flatMap((assignment) => (assignment.teamId ? [assignment.teamId] : [])),
@@ -101,7 +181,15 @@ function updateOnboardingPromptDescription(values: string[], index: number, next
   return values.map((value, valueIndex) => (valueIndex === index ? nextValue : value));
 }
 
-function getOnboardingPrompts(draft: PolicyDraft): string[] | undefined {
+function updateOnboardingPromptSkill(
+  values: Array<OnboardingPromptSkillReference | null>,
+  index: number,
+  nextValue: OnboardingPromptSkillReference | null,
+) {
+  return values.map((value, valueIndex) => (valueIndex === index ? nextValue : value));
+}
+
+function getOnboardingPrompts(draft: PolicyDraft): OnboardingPrompt[] | undefined {
   if (!draft.onboardingPromptsEnabled) return undefined;
 
   const prompts = draft.onboardingPromptTexts.map((prompt) => prompt.trim());
@@ -109,7 +197,14 @@ function getOnboardingPrompts(draft: PolicyDraft): string[] | undefined {
   if (requiredPrompts.some((prompt) => prompt.length === 0)) return undefined;
   if (prompts.some((prompt) => prompt.length > 500)) return undefined;
 
-  return prompts[2] ? [...requiredPrompts, prompts[2]] : requiredPrompts;
+  const promptCount = prompts[2] ? 3 : 2;
+  return prompts.slice(0, promptCount).map((prompt, index) => {
+    const skill = draft.onboardingPromptSkills[index] ?? null;
+    return {
+      prompt,
+      ...(skill ? { skill } : {}),
+    };
+  });
 }
 
 function getOnboardingPromptDescriptions(draft: PolicyDraft, promptCount: number): string[] | undefined {
@@ -164,6 +259,76 @@ function getPromptDescriptionErrorId(index: number) {
   return `desktop-policy-onboarding-prompt-${index}-description-error`;
 }
 
+function getOnboardingPromptPreviewCards(draft: PolicyDraft) {
+  const prompts = draft.onboardingPromptTexts.map((prompt) => prompt.trim());
+  const descriptions = draft.onboardingPromptDescriptions.map((description) => description.trim());
+
+  return ONBOARDING_PROMPT_LABELS.flatMap((_, index) => {
+    const prompt = prompts[index] ?? "";
+    if (index === 2 && prompt.length === 0) return [];
+    const skill = draft.onboardingPromptSkills[index] ?? null;
+
+    return [resolveOrganizationPromptPreviewCardContent({
+      prompt: {
+        prompt,
+        ...(skill ? { skill } : {}),
+      },
+      description: descriptions[index],
+      index,
+    })];
+  });
+}
+
+function DesktopPromptSparklesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="size-6 text-purple-600" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M9 4.5a.75.75 0 0 1 .721.544l.813 2.846a3.75 3.75 0 0 0 2.576 2.576l2.846.813a.75.75 0 0 1 0 1.442l-2.846.813a3.75 3.75 0 0 0-2.576 2.576l-.813 2.846a.75.75 0 0 1-1.442 0l-.813-2.846a3.75 3.75 0 0 0-2.576-2.576l-2.846-.813a.75.75 0 0 1 0-1.442l2.846-.813A3.75 3.75 0 0 0 7.466 7.89l.813-2.846A.75.75 0 0 1 9 4.5Zm9-3a.75.75 0 0 1 .728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 0 1 0 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 0 1-1.456 0l-.258-1.036a2.625 2.625 0 0 0-1.91-1.91l-1.036-.258a.75.75 0 0 1 0-1.456l1.036-.258a2.625 2.625 0 0 0 1.91-1.91l.258-1.036A.75.75 0 0 1 18 1.5ZM16.5 15a.75.75 0 0 1 .712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 0 1 0 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 0 1-1.422 0l-.395-1.183a1.5 1.5 0 0 0-.948-.948l-1.183-.395a.75.75 0 0 1 0-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0 1 16.5 15Z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function OnboardingPromptPreviewCard({ card }: { card: ReturnType<typeof resolveOrganizationPromptPreviewCardContent> }) {
+  return (
+    <button
+      type="button"
+      disabled
+      className="flex h-auto w-full min-w-0 max-w-full shrink cursor-default flex-col items-start justify-start gap-3 whitespace-normal rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-gray-900"
+    >
+      <div className="flex size-8 shrink-0 items-center justify-center">
+        <DesktopPromptSparklesIcon />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-[14px] font-medium text-gray-900">{card.title}</span>
+        {card.skillLabel ? (
+          <span className="text-[11px] font-medium text-purple-700">{card.skillLabel}</span>
+        ) : null}
+        <span className="block min-w-0 break-words text-sm font-normal text-gray-500">{card.description}</span>
+      </div>
+    </button>
+  );
+}
+
+function OnboardingPromptPreview({ cards }: { cards: ReturnType<typeof getOnboardingPromptPreviewCards> }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">Preview</p>
+      <div className="mt-5 grid gap-4">
+        <p className="select-none text-[13px] font-medium text-gray-500">Try one of your organization's prompts:</p>
+        <div className="grid min-w-0 gap-2">
+          {cards.map((card, index) => (
+            <OnboardingPromptPreviewCard key={`${index}-${card.selectionPrompt}`} card={card} />
+          ))}
+        </div>
+        <p className="text-[12px] leading-5 text-gray-500">Clicking a card fills the composer draft; it does not send the prompt.</p>
+      </div>
+    </div>
+  );
+}
+
 function getDisabledPromptCopy(isDefault: boolean) {
   return isDefault
     ? "When organization prompts are off, OpenWork defaults are used."
@@ -194,6 +359,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
   const router = useRouter();
   const { orgId, orgSlug, orgContext, runReauthableAction } = useOrgDashboard();
   const { definitions, desktopPolicies, busy, error, reloadPolicies } = useOrgDesktopPolicies(orgId);
+  const { data: plugins = [], isLoading: pluginsLoading, error: pluginsError } = usePlugins();
 
   const policy = useMemo(() => {
     if (!desktopPolicyId) return null;
@@ -231,6 +397,8 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
   const priorityError = getPriorityError(draft, isDefault);
   const disabledPromptCopy = getDisabledPromptCopy(isDefault);
   const formDisabled = saving || togglingEnabled || !canManage;
+  const onboardingPromptPreviewCards = getOnboardingPromptPreviewCards(draft);
+  const organizationSkillOptions = useMemo(() => getOrganizationSkillOptions(plugins), [plugins]);
 
   const handleSave = async () => {
     if (!canManage) {
@@ -315,6 +483,20 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
     }
   };
 
+  const handlePromptSkillChange = (index: number, value: string) => {
+    const option = organizationSkillOptions.find((entry) => entry.value === value);
+    if (!value || option) {
+      setDraft({
+        ...draft,
+        onboardingPromptSkills: updateOnboardingPromptSkill(
+          draft.onboardingPromptSkills,
+          index,
+          option?.binding ?? null,
+        ),
+      });
+    }
+  };
+
   return (
     <DashboardPageTemplate
       icon={Laptop}
@@ -338,6 +520,11 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
       ) : null}
       {error ? (
         <div role="alert" className="mb-6 rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-[14px] text-red-700">{error}</div>
+      ) : null}
+      {pluginsError ? (
+        <div role="alert" className="mb-6 rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-[14px] text-amber-800">
+          Marketplace skills could not be loaded. Existing prompt bindings are preserved, but new skill attachments are unavailable.
+        </div>
       ) : null}
 
       {initialLoad ? (
@@ -393,7 +580,9 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
                   }}
                   disabled={formDisabled}
                 />
-                <span id={PRIORITY_HELP_ID} className="text-[12px] text-gray-500">Higher wins when multiple targeted policies match.</span>
+                <span id={PRIORITY_HELP_ID} className="text-[12px] text-gray-500">
+                  Organization prompts are winner-takes-all: highest priority supplies all prompt cards; ties use oldest policy, then ID. Checkbox policies still combine.
+                </span>
                 {priorityError ? (
                   <span id={PRIORITY_ERROR_ID} className="text-[12px] text-red-600">{priorityError}</span>
                 ) : null}
@@ -456,63 +645,93 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
             </label>
 
             {draft.onboardingPromptsEnabled ? (
-              <div className="grid gap-3">
-                {ONBOARDING_PROMPT_LABELS.map((label, index) => {
-                  const promptError = getPromptError(draft, index);
-                  const promptDescriptionError = getPromptDescriptionError(draft, index);
-                  const promptHelpId = getPromptHelpId(index);
-                  const promptErrorId = getPromptErrorId(index);
-                  const promptDescriptionHelpId = getPromptDescriptionHelpId(index);
-                  const promptDescriptionErrorId = getPromptDescriptionErrorId(index);
-                  return (
-                    <div key={label} className="grid gap-3 rounded-[18px] border border-gray-200 bg-white px-4 py-3">
-                      <p className="text-[13px] font-medium text-gray-700">{label}</p>
-                      <label className="grid gap-2">
-                        <span className="text-[12px] font-medium text-gray-600">Description</span>
-                        <DenInput
-                          maxLength={ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH}
-                          value={draft.onboardingPromptDescriptions[index] ?? ""}
-                          aria-invalid={promptDescriptionError ? true : undefined}
-                          aria-describedby={promptDescriptionError ? `${promptDescriptionHelpId} ${promptDescriptionErrorId}` : promptDescriptionHelpId}
-                          onChange={(event) => setDraft({
-                            ...draft,
-                            onboardingPromptDescriptions: updateOnboardingPromptDescription(draft.onboardingPromptDescriptions, index, event.target.value),
-                          })}
-                          disabled={formDisabled}
-                          placeholder="Card title shown in the desktop app"
-                        />
-                        <span id={promptDescriptionHelpId} className="text-[12px] text-gray-500">
-                          {(draft.onboardingPromptDescriptions[index] ?? "").trim().length}/{ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH} characters
-                        </span>
-                        {promptDescriptionError ? (
-                          <span id={promptDescriptionErrorId} className="text-[12px] text-red-600">{promptDescriptionError}</span>
-                        ) : null}
-                      </label>
-                      <label className="grid gap-2">
-                        <span className="text-[12px] font-medium text-gray-600">Prompt</span>
-                        <DenTextarea
-                          rows={2}
-                          maxLength={500}
-                          value={draft.onboardingPromptTexts[index] ?? ""}
-                          aria-invalid={promptError ? true : undefined}
-                          aria-describedby={promptError ? `${promptHelpId} ${promptErrorId}` : promptHelpId}
-                          onChange={(event) => setDraft({
-                            ...draft,
-                            onboardingPromptTexts: updateOnboardingPromptText(draft.onboardingPromptTexts, index, event.target.value),
-                          })}
-                          disabled={formDisabled}
-                          placeholder={index === 2 ? "Optional" : "Enter a suggested prompt"}
-                        />
-                        <span id={promptHelpId} className="text-[12px] text-gray-500">
-                          {(draft.onboardingPromptTexts[index] ?? "").trim().length}/500 characters
-                        </span>
-                        {promptError ? (
-                          <span id={promptErrorId} className="text-[12px] text-red-600">{promptError}</span>
-                        ) : null}
-                      </label>
-                    </div>
-                  );
-                })}
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="grid gap-3">
+                  {ONBOARDING_PROMPT_LABELS.map((label, index) => {
+                    const promptError = getPromptError(draft, index);
+                    const promptDescriptionError = getPromptDescriptionError(draft, index);
+                    const promptHelpId = getPromptHelpId(index);
+                    const promptErrorId = getPromptErrorId(index);
+                    const promptDescriptionHelpId = getPromptDescriptionHelpId(index);
+                    const promptDescriptionErrorId = getPromptDescriptionErrorId(index);
+                    const selectedSkill = draft.onboardingPromptSkills[index] ?? null;
+                    const selectedSkillValue = promptSkillSelectValue(selectedSkill);
+                    const selectedSkillOption = organizationSkillOptions.find((option) => option.value === selectedSkillValue);
+                    return (
+                      <div key={label} className="grid gap-3 rounded-[18px] border border-gray-200 bg-white px-4 py-3">
+                        <p className="text-[13px] font-medium text-gray-700">{label}</p>
+                        <label className="grid gap-2">
+                          <span className="text-[12px] font-medium text-gray-600">Card title (Description field)</span>
+                          <DenInput
+                            maxLength={ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH}
+                            value={draft.onboardingPromptDescriptions[index] ?? ""}
+                            aria-invalid={promptDescriptionError ? true : undefined}
+                            aria-describedby={promptDescriptionError ? `${promptDescriptionHelpId} ${promptDescriptionErrorId}` : promptDescriptionHelpId}
+                            onChange={(event) => setDraft({
+                              ...draft,
+                              onboardingPromptDescriptions: updateOnboardingPromptDescription(draft.onboardingPromptDescriptions, index, event.target.value),
+                            })}
+                            disabled={formDisabled}
+                            placeholder="Card title shown in the desktop app"
+                          />
+                          <span id={promptDescriptionHelpId} className="text-[12px] text-gray-500">
+                            {(draft.onboardingPromptDescriptions[index] ?? "").trim().length}/{ONBOARDING_PROMPT_DESCRIPTION_MAX_LENGTH} characters
+                          </span>
+                          {promptDescriptionError ? (
+                            <span id={promptDescriptionErrorId} className="text-[12px] text-red-600">{promptDescriptionError}</span>
+                          ) : null}
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="text-[12px] font-medium text-gray-600">Card body and composer draft (Prompt field)</span>
+                          <DenTextarea
+                            rows={2}
+                            maxLength={500}
+                            value={draft.onboardingPromptTexts[index] ?? ""}
+                            aria-invalid={promptError ? true : undefined}
+                            aria-describedby={promptError ? `${promptHelpId} ${promptErrorId}` : promptHelpId}
+                            onChange={(event) => setDraft({
+                              ...draft,
+                              onboardingPromptTexts: updateOnboardingPromptText(draft.onboardingPromptTexts, index, event.target.value),
+                            })}
+                            disabled={formDisabled}
+                            placeholder={index === 2 ? "Optional" : "Enter a suggested prompt"}
+                          />
+                          <span id={promptHelpId} className="text-[12px] text-gray-500">
+                            {(draft.onboardingPromptTexts[index] ?? "").trim().length}/500 characters
+                          </span>
+                          {promptError ? (
+                            <span id={promptErrorId} className="text-[12px] text-red-600">{promptError}</span>
+                          ) : null}
+                        </label>
+                        <label className="grid gap-2">
+                          <span className="text-[12px] font-medium text-gray-600">Attached skill (optional)</span>
+                          <DenSelect
+                            value={selectedSkillValue}
+                            onChange={(event) => handlePromptSkillChange(index, event.target.value)}
+                            disabled={formDisabled || pluginsLoading}
+                          >
+                            <option value="">No skill attached</option>
+                            {selectedSkill && !selectedSkillOption ? (
+                              <option value={selectedSkillValue}>{promptSkillDisplayName(selectedSkill)}</option>
+                            ) : null}
+                            {organizationSkillOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </DenSelect>
+                          <span className="text-[12px] text-gray-500">
+                            {pluginsLoading
+                              ? "Loading marketplace skills..."
+                              : organizationSkillOptions.length === 0
+                                ? "No marketplace skills are available to attach."
+                                : selectedSkillOption?.description || "The selected skill is loaded when the member sends the prompt."}
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <OnboardingPromptPreview cards={onboardingPromptPreviewCards} />
               </div>
             ) : (
               <p className="text-[13px] leading-6 text-gray-500">{disabledPromptCopy}</p>
