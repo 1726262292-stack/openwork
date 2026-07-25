@@ -10,7 +10,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core"
-import { denTypeIdColumn, encryptedColumn, encryptedTextColumn } from "../../columns"
+import { denTypeIdColumn, encryptedColumn, encryptedMediumTextColumn } from "../../columns"
 import { MemberTable, OrganizationTable } from "../org"
 import { TeamTable } from "../teams"
 
@@ -32,6 +32,7 @@ export const connectorSyncStatusValues = ["pending", "queued", "running", "compl
 
 function encryptedJsonColumn<TData extends Record<string, unknown> | Array<unknown> | null>(columnName: string) {
   return encryptedColumn<TData>(columnName, {
+    dataType: "mediumtext",
     deserialize: (value) => JSON.parse(value) as TData,
     serialize: (value) => JSON.stringify(value),
   })
@@ -75,7 +76,7 @@ export const ConfigObjectVersionTable = mysqlTable(
     organizationId: denTypeIdColumn("organization", "organization_id").notNull(),
     configObjectId: denTypeIdColumn("configObject", "config_object_id").notNull(),
     normalizedPayloadJson: encryptedJsonColumn<Record<string, unknown> | null>("normalized_payload_json"),
-    rawSourceText: encryptedTextColumn("raw_source_text"),
+    rawSourceText: encryptedMediumTextColumn("raw_source_text"),
     schemaVersion: varchar("schema_version", { length: 100 }),
     createdVia: mysqlEnum("created_via", configObjectCreatedViaValues).notNull(),
     createdByOrgMembershipId: denTypeIdColumn("member", "created_by_org_membership_id"),
