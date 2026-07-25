@@ -674,7 +674,7 @@ export function ResourceSelectionPage({ autoContinue = false }: { autoContinue?:
   const totalModels = providers.reduce((sum, provider) => sum + provider.models.length, 0);
   const hasResources = providers.length > 0 || marketplaces.length > 0;
   const autoContinuePending =
-    autoContinue && !autoContinueAttemptedRef.current && !loading && !error && !brandingRestart;
+    autoContinue && !loading && !error && !brandingRestart;
 
   if (preparingBranding) {
     return (
