@@ -1590,7 +1590,7 @@ async function expandModelPickerGroups(ctx) {
     const dialog = document.querySelector('[role="dialog"], [data-slot="dialog"]');
     if (!dialog) return false;
     const headers = [...dialog.querySelectorAll('button')]
-      .filter((button) => /\b\d+ models?\b/.test(button.textContent ?? ''));
+      .filter((button) => /\\b\\d+ models?\\b/.test(button.textContent ?? ''));
     for (const header of headers) {
       const outer = header.parentElement?.parentElement;
       const hasRows = Boolean(outer?.querySelector('div.ml-9 button'));
@@ -1638,7 +1638,7 @@ async function readModelPickerOptions(ctx) {
     const groups = [];
     if (!dialog) return groups;
     const headers = [...dialog.querySelectorAll('button')]
-      .filter((button) => /\b\d+ models?\b/.test(button.textContent ?? ''));
+      .filter((button) => /\\b\\d+ models?\\b/.test(button.textContent ?? ''));
     for (const header of headers) {
       const outer = header.parentElement?.parentElement;
       const rows = [...(outer?.querySelectorAll('div.ml-9 button') ?? [])];
