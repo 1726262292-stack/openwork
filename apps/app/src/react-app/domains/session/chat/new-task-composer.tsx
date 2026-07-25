@@ -220,6 +220,8 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
       isRemoteWorkspace={context?.isRemoteWorkspace ?? false}
       isSandboxWorkspace={context?.isSandboxWorkspace ?? false}
       onUploadInboxFiles={null}
+      // The hero owns its own page padding, so the composer must fill the hero column and line up with the suggestion cards.
+      flush
       draftScopeKey={`new-task:${workspaceId ?? "chat-first"}`}
     />
   );
