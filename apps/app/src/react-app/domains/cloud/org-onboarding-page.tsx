@@ -33,7 +33,10 @@ import {
   isAlphaUpdateAllowed,
   resolveFreshStableDesktopUpdate,
 } from "@/app/lib/version-gate";
-import { exchangeHandoffAndSignIn } from "@/app/lib/den-handoff";
+import {
+  DEN_HANDOFF_AUTO_CONTINUE_KEY,
+  exchangeHandoffAndSignIn,
+} from "@/app/lib/den-handoff";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import { usePlatform } from "../../kernel/platform";
 import { useBootState } from "../../shell/boot-state";
@@ -328,6 +331,14 @@ function markProvidersSeen(providers: DenOrgLlmProvider[]) {
   } catch {}
 }
 
+function consumeHandoffAutoContinueFlag() {
+  if (typeof window === "undefined") return false;
+  const raw = window.sessionStorage.getItem(DEN_HANDOFF_AUTO_CONTINUE_KEY);
+  window.sessionStorage.removeItem(DEN_HANDOFF_AUTO_CONTINUE_KEY);
+  const timestamp = Number(raw);
+  return Number.isFinite(timestamp) && Date.now() - timestamp < 5 * 60_000;
+}
+
 /**
  * Full-screen onboarding page shown after sign-in + org selection.
  * Fetches all org resources (providers, marketplaces, skills)
@@ -340,8 +351,13 @@ export function OrgOnboardingPage() {
   const { authToken, denClient, orgId, settings } = useDenClient();
   const { markRouteReady } = useBootState();
   const prepared = usePreparedBootstrap();
-  const [hasSelectedOrganization, setHasSelectedOrganization] = useState(false);
-  const [autoContinueResources, setAutoContinueResources] = useState(false);
+  const handoffAutoContinueRef = useRef<boolean | null>(null);
+  if (handoffAutoContinueRef.current === null) {
+    handoffAutoContinueRef.current = consumeHandoffAutoContinueFlag();
+  }
+  const handoffAutoContinue = handoffAutoContinueRef.current === true;
+  const [hasSelectedOrganization, setHasSelectedOrganization] = useState(handoffAutoContinue);
+  const [autoContinueResources, setAutoContinueResources] = useState(handoffAutoContinue);
   const [autoSelectFailedOrgId, setAutoSelectFailedOrgId] = useState<string | null>(null);
   const autoSelectingOrgIdRef = useRef<string | null>(null);
   

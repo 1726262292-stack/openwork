@@ -6,6 +6,7 @@ import {
 import { dispatchDenSessionUpdated } from "./den-session-events";
 
 type DenClient = ReturnType<typeof createDenClient>;
+export const DEN_HANDOFF_AUTO_CONTINUE_KEY = "openwork.den.handoffAutoContinueAt";
 
 export type HandoffActiveOrg = {
   id: string;
@@ -57,6 +58,11 @@ export async function exchangeHandoffAndSignIn(
       activeOrgSlug: options.activeOrg?.slug ?? null,
       activeOrgName: options.activeOrg?.name ?? null,
     });
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.setItem(DEN_HANDOFF_AUTO_CONTINUE_KEY, String(Date.now()));
+      } catch {}
+    }
 
     dispatchDenSessionUpdated({
       status: "success",
