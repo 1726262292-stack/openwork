@@ -86,6 +86,25 @@ registerAppErrorHandler(app, (error, c, requestId) => {
   return operationalErrorResponse(error, c, requestId)
 })
 
+// The handoff exchange is called from Cloud instance pages, whose Daytona
+// preview origins rotate on every re-sign and can never be statically
+// allowlisted. Reflecting the origin here is safe because this route is
+// authenticated solely by the one-time, 5-minute grant in the request body
+// and never consults cookies or sessions - a hostile page gains nothing
+// without a valid grant. Registered before the global CORS middleware so it
+// answers the preflight for exactly this path; every other route keeps the
+// strict allowlist below.
+app.use(
+  "/v1/auth/desktop-handoff/exchange",
+  cors({
+    origin: (origin) => origin,
+    credentials: true,
+    allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+    allowMethods: ["POST", "OPTIONS"],
+    maxAge: 600,
+  }),
+)
+
 if (env.corsOrigins.length > 0) {
   app.use(
     "*",
