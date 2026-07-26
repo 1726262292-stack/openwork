@@ -41,6 +41,19 @@ describe("desktop handoff public URL", () => {
     })).toBe("https://8787-active.daytonaproxy01.net/signin")
   })
 
+  test("approves a web returnUrl matching any Cloud instance preview origin in the org", async () => {
+    const { approveWebHandoffReturnUrlForSignedPreviews } = await loadDesktopHandoffRoutes()
+
+    expect(approveWebHandoffReturnUrlForSignedPreviews({
+      orgMode: "multi_org",
+      signedPreviewUrls: [
+        "https://8787-alice.daytonaproxy01.net/signed",
+        "https://8787-bob.daytonaproxy01.net/signed",
+      ],
+      returnUrl: "https://8787-bob.daytonaproxy01.net/signin",
+    })).toBe("https://8787-bob.daytonaproxy01.net/signin")
+  })
+
   test("rejects a rotated hostname even on the same preview suffix (shared proxy zone)", async () => {
     const { approveWebHandoffReturnUrl } = await loadDesktopHandoffRoutes()
 

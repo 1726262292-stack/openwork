@@ -23,6 +23,13 @@ type ProvisionedInstance = {
   region?: string
 }
 
+export class DaytonaSandboxMissingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "DaytonaSandboxMissingError"
+  }
+}
+
 export type StopWorkerOnDaytonaResult =
   | { status: "no_sandbox" }
   | { status: "stopped" }
@@ -148,6 +155,20 @@ function assertDaytonaConfig() {
   if (!env.daytona.apiKey) {
     throw new Error("DAYTONA_API_KEY is required for daytona provisioner")
   }
+}
+
+function isDaytonaNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  return message.includes("not found") || message.includes("404")
+}
+
+export function isDaytonaSandboxMissingError(error: unknown) {
+  return error instanceof DaytonaSandboxMissingError
+    || (error instanceof Error && error.name === "DaytonaSandboxMissingError")
 }
 
 function workerHint(workerId: WorkerId) {
@@ -456,6 +477,28 @@ export async function getDaytonaSandboxRecord(workerId: WorkerId) {
   return rows[0] ?? null
 }
 
+export async function inspectDaytonaSandbox(workerId: WorkerId) {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return null
+  }
+
+  const daytona = createDaytonaClient()
+  try {
+    const sandbox = await daytona.get(record.sandbox_id)
+    await sandbox.refreshData()
+    return { state: sandbox.state ?? null }
+  } catch (error) {
+    if (isDaytonaNotFoundError(error)) {
+      return null
+    }
+
+    throw error
+  }
+}
+
 export async function refreshDaytonaSignedPreview(workerId: WorkerId) {
   assertDaytonaConfig()
 
@@ -627,12 +670,29 @@ export async function wakeWorkerOnDaytona(
 
   const record = await getDaytonaSandboxRecord(input.workerId)
   if (!record) {
-    throw new Error(`Daytona sandbox record missing for worker ${input.workerId}`)
+    throw new DaytonaSandboxMissingError(`Daytona sandbox record missing for worker ${input.workerId}`)
   }
 
   const daytona = createDaytonaClient()
-  const sandbox = await daytona.get(record.sandbox_id)
-  await sandbox.start(env.daytona.createTimeoutSeconds)
+  let sandbox: Sandbox
+  try {
+    sandbox = await daytona.get(record.sandbox_id)
+  } catch (error) {
+    if (isDaytonaNotFoundError(error)) {
+      throw new DaytonaSandboxMissingError(`Daytona sandbox ${record.sandbox_id} missing for worker ${input.workerId}`)
+    }
+
+    throw error
+  }
+  try {
+    await sandbox.start(env.daytona.createTimeoutSeconds)
+  } catch (error) {
+    if (isDaytonaNotFoundError(error)) {
+      throw new DaytonaSandboxMissingError(`Daytona sandbox ${record.sandbox_id} missing for worker ${input.workerId}`)
+    }
+
+    throw error
+  }
 
   const sessionId = `openwork-wake-${workerHint(input.workerId)}-${Date.now()}`
   await sandbox.process.createSession(sessionId)

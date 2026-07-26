@@ -5,13 +5,20 @@ import { env } from "../env.js"
 import { appLogger } from "../observability/logger.js"
 import { captureException } from "../observability/runtime.js"
 import { CLOUD_INSTANCE_BACKEND } from "./cloud-constants.js"
-import { stopWorkerOnDaytona, wakeWorkerOnDaytona, type StopWorkerOnDaytonaResult } from "./daytona.js"
+import {
+  isDaytonaSandboxMissingError,
+  provisionWorkerOnDaytona,
+  stopWorkerOnDaytona,
+  wakeWorkerOnDaytona,
+  type StopWorkerOnDaytonaResult,
+} from "./daytona.js"
 
 type WorkerId = typeof WorkerTable.$inferSelect.id
 type WorkerStatus = typeof WorkerTable.$inferSelect.status
 type CloudWorker = Pick<typeof WorkerTable.$inferSelect, "id" | "name" | "status" | "last_active_at" | "updated_at">
 type WorkerToken = typeof WorkerTokenTable.$inferSelect
 type WakeWorkerOnDaytona = typeof wakeWorkerOnDaytona
+type ProvisionWorkerOnDaytona = typeof provisionWorkerOnDaytona
 type StopWorkerOnDaytona = typeof stopWorkerOnDaytona
 
 type CloudLifecycleStore = {
@@ -24,6 +31,7 @@ type CloudLifecycleStore = {
 type WakeCloudWorkerOptions = {
   store?: CloudLifecycleStore
   wakeWorker?: WakeWorkerOnDaytona
+  provisionWorker?: ProvisionWorkerOnDaytona
 }
 
 type StopIdleCloudWorkersOptions = {
@@ -118,6 +126,7 @@ async function safelyMarkWorkerFailed(store: CloudLifecycleStore, workerId: Work
 async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOptions) {
   const store = options.store ?? databaseCloudLifecycleStore
   const wakeWorker = options.wakeWorker ?? wakeWorkerOnDaytona
+  const provisionWorker = options.provisionWorker ?? provisionWorkerOnDaytona
 
   try {
     const worker = await store.getWorker(workerId)
@@ -140,13 +149,24 @@ async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOp
       return
     }
 
-    const woken = await wakeWorker({
+    const wakeInput = {
       workerId,
       name: worker.name,
       hostToken,
       clientToken,
       activityToken,
-    })
+    }
+    let woken: Awaited<ReturnType<WakeWorkerOnDaytona>>
+    try {
+      woken = await wakeWorker(wakeInput)
+    } catch (error) {
+      if (!isDaytonaSandboxMissingError(error)) {
+        throw error
+      }
+
+      logger.warn("worker wake sandbox missing; reprovisioning", { worker_id: workerId, error })
+      woken = await provisionWorker(wakeInput)
+    }
 
     await store.updateWorkerStatus({ workerId, status: woken.status, onlyWhenStatus: "provisioning" })
   } catch (error) {
