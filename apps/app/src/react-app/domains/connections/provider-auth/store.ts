@@ -96,7 +96,8 @@ type CloudProviderSyncReason =
   | "app_resume"
   | "model_picker_open"
   | "new_chat"
-  | "settings_cloud_opened";
+  | "settings_cloud_opened"
+  | "manual";
 
 let lastGlobalProviderDisposeRefreshAt = 0;
 const globalCloudProviderSyncByContext = new Map<string, Promise<void>>();
@@ -255,8 +256,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudOrgProvidersLoadKey = "";
   let cloudOrgProvidersInFlightKey = "";
   let cloudOrgProvidersInFlight: Promise<DenOrgLlmProvider[]> | null = null;
-  let cloudProviderSyncInFlight: Promise<void> | null = null;
-  let cloudProviderSyncQueuedReason: CloudProviderSyncReason | null = null;
+  let cloudProviderSyncTail: Promise<void> = Promise.resolve();
   let cloudProviderSyncContextKey = "";
 
   const emitChange = () => {
@@ -1823,31 +1823,22 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function runCloudProviderSync(reason: CloudProviderSyncReason) {
-    if (cloudProviderSyncInFlight) {
-      cloudProviderSyncQueuedReason = reason;
-      return cloudProviderSyncInFlight;
-    }
-
-    const request = enqueueGlobalCloudProviderSync(
-      getCloudProviderSyncContextKey(),
-      () => performCloudProviderSync(reason),
-    )
+    const request = cloudProviderSyncTail
+      .catch(() => undefined)
+      .then(() =>
+        enqueueGlobalCloudProviderSync(
+          getCloudProviderSyncContextKey(),
+          () => performCloudProviderSync(reason),
+        ),
+      )
       .catch((error) => {
         const message = logCloudProviderSyncError(reason, error);
         if (reason === "settings_cloud_opened") {
           setStateField("providerAuthError", message);
         }
-      })
-      .finally(() => {
-        cloudProviderSyncInFlight = null;
-        const queuedReason = cloudProviderSyncQueuedReason;
-        cloudProviderSyncQueuedReason = null;
-        if (queuedReason) {
-          void runCloudProviderSync(queuedReason);
-        }
       });
 
-    cloudProviderSyncInFlight = request;
+    cloudProviderSyncTail = request;
     return request;
   }
 
