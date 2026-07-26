@@ -19,6 +19,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
+import { readDenSettings } from "@/app/lib/den";
 import { modelEquals, resolveProviderDisplayName } from "../../../../app/utils";
 import type { ModelOption, ModelRef } from "../../../../app/types";
 import { isRecommendedModel } from "../../../../app/defaults";
@@ -81,6 +83,10 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   const navigate = useNavigate();
   const platform = usePlatform();
   const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const organizationProviderLabel = useMemo(
+    () => readDenSettings().activeOrgName?.trim() || t("settings.provider_source_organization"),
+    [denAuth.status],
+  );
 
   const disabledSet = useMemo(
     () => new Set(props.disabledProviders ?? []),
@@ -167,7 +173,8 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     }
   }, [props.query, providerGroups]);
 
-  // Expand current + OpenWork groups once they appear (options often load async).
+  // Expand current, organization-provided, and OpenWork groups once they appear
+  // (options often load async).
   const autoExpandedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!props.open) {
@@ -175,10 +182,16 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
       return;
     }
     const toExpand: string[] = [];
+    const queueExpand = (id: string) => {
+      if (!autoExpandedRef.current.has(id) && !toExpand.includes(id)) toExpand.push(id);
+    };
     const current = providerGroups.find((group) => group.hasCurrent);
-    if (current && !autoExpandedRef.current.has(current.id)) toExpand.push(current.id);
+    if (current) queueExpand(current.id);
+    for (const group of providerGroups) {
+      if (group.isCloud) queueExpand(group.id);
+    }
     const openwork = providerGroups.find((group) => group.id === OPENWORK_MODELS_PROVIDER_ID);
-    if (openwork && !autoExpandedRef.current.has(openwork.id)) toExpand.push(openwork.id);
+    if (openwork) queueExpand(openwork.id);
     if (toExpand.length === 0) return;
     for (const id of toExpand) autoExpandedRef.current.add(id);
     setExpandedProviders((prev) => {
@@ -351,6 +364,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
                   onToggleExpand={() => toggleProvider(group.id)}
                   onToggleProvider={props.onToggleProvider}
                   onSelect={handleSelect}
+                  organizationProviderLabel={organizationProviderLabel}
                 />
               ))
             )}
@@ -380,6 +394,7 @@ function ProviderAccordion({
   onToggleExpand,
   onToggleProvider,
   onSelect,
+  organizationProviderLabel,
 }: {
   group: ProviderGroup;
   expanded: boolean;
@@ -388,6 +403,7 @@ function ProviderAccordion({
   onToggleExpand: () => void;
   onToggleProvider?: (providerId: string, enabled: boolean) => void;
   onSelect: (opt: ModelOption) => void;
+  organizationProviderLabel: string;
 }) {
   const totalModels = group.recommended.length + group.other.length;
   const Chevron = expanded ? ChevronDown : ChevronRight;
@@ -405,16 +421,18 @@ function ProviderAccordion({
           <ProviderIcon providerId={group.id} size={18} className="shrink-0 text-dls-text" />
           <div className="min-w-0 flex-1">
             <span className="text-[13px] font-medium text-dls-text">{group.name}</span>
+            {" "}
             <span className="ml-2 text-[11px] text-dls-secondary">
               {totalModels} model{totalModels === 1 ? "" : "s"}
             </span>
           </div>
+          {" "}
           <span className="flex shrink-0 items-center gap-1.5">
             {group.isNew ? (
               <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">New</span>
             ) : null}
             {group.isCloud ? (
-              <span className="rounded-md bg-blue-3/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-11/70">Cloud</span>
+              <span className="rounded-md bg-blue-3/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-11/70">{organizationProviderLabel}</span>
             ) : null}
             {group.hasCurrent ? (
               <span className="rounded-md bg-green-3 px-1.5 py-0.5 text-[10px] font-medium text-green-11">Current</span>

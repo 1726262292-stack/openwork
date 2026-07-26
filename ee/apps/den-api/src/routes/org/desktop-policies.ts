@@ -28,6 +28,8 @@ type MemberId = typeof MemberTable.$inferSelect.id
 type TeamId = typeof TeamTable.$inferSelect.id
 
 const desktopPolicyParamsSchema = idParamSchema("desktopPolicyId", "desktopPolicy")
+const desktopPolicyAssignmentRoleSchema = z.enum(["owner", "admin", "member"])
+type DesktopPolicyAssignmentRole = z.infer<typeof desktopPolicyAssignmentRoleSchema>
 
 const desktopPolicyWriteSchema = z.object({
   policyName: z.string().trim().min(1).max(255),
@@ -36,6 +38,7 @@ const desktopPolicyWriteSchema = z.object({
   isEnabled: z.boolean().optional(),
   memberIds: z.array(denTypeIdSchema("member")).max(500).optional().default([]),
   teamIds: z.array(denTypeIdSchema("team")).max(500).optional().default([]),
+  roles: z.array(desktopPolicyAssignmentRoleSchema).max(10).optional().default([]),
 })
 
 const desktopPolicyListResponseSchema = z.object({
@@ -57,6 +60,15 @@ function parseMemberId(value: string) {
 
 function parseTeamId(value: string) {
   return normalizeDenTypeId("team", value)
+}
+
+function normalizeAssignmentRole(value: string | null): DesktopPolicyAssignmentRole | null {
+  if (value === "owner" || value === "admin" || value === "member") return value
+  return null
+}
+
+function resolveRoles(values: DesktopPolicyAssignmentRole[]) {
+  return [...new Set(values)]
 }
 
 async function resolveMemberIds(input: {
@@ -113,34 +125,42 @@ async function loadDesktopPolicies(organizationId: typeof DesktopPolicyTable.$in
       desktopPolicyId: DesktopPolicyMemberTable.desktopPolicyId,
       orgMemberId: DesktopPolicyMemberTable.orgMemberId,
       teamId: DesktopPolicyMemberTable.teamId,
+      role: DesktopPolicyMemberTable.role,
       createdAt: DesktopPolicyMemberTable.createdAt,
     })
     .from(DesktopPolicyMemberTable)
     .where(inArray(DesktopPolicyMemberTable.desktopPolicyId, policyIds))
 
-  return policies.map((policy) => ({
-    id: policy.id,
-    organizationId: policy.organizationId,
-    policyName: policy.policyName,
-    isDefault: policy.isDefault === true,
-    isEnabled: policy.isEnabled === true,
-    priority: policy.priority,
-    policy: policy.isDefault === true
-      ? normalizeDefaultDesktopPolicyDocument(policy.policy)
-      : normalizeDesktopPolicyDocument(policy.policy),
-    createdByOrgMemberId: policy.createdByOrgMemberId,
-    createdAt: policy.createdAt,
-    updatedAt: policy.updatedAt,
-    deletedAt: policy.deletedAt,
-    assignments: assignments
-      .filter((assignment) => assignment.desktopPolicyId === policy.id)
-      .map((assignment) => ({
-        id: assignment.id,
-        orgMemberId: assignment.orgMemberId,
-        teamId: assignment.teamId,
-        createdAt: assignment.createdAt,
+  return policies.map((policy) => {
+    const policyAssignments = assignments.filter((assignment) => assignment.desktopPolicyId === policy.id)
+    return {
+      id: policy.id,
+      organizationId: policy.organizationId,
+      policyName: policy.policyName,
+      isDefault: policy.isDefault === true,
+      isEnabled: policy.isEnabled === true,
+      priority: policy.priority,
+      policy: policy.isDefault === true
+        ? normalizeDefaultDesktopPolicyDocument(policy.policy)
+        : normalizeDesktopPolicyDocument(policy.policy),
+      createdByOrgMemberId: policy.createdByOrgMemberId,
+      createdAt: policy.createdAt,
+      updatedAt: policy.updatedAt,
+      deletedAt: policy.deletedAt,
+      roles: resolveRoles(policyAssignments.flatMap((assignment) => {
+        const role = normalizeAssignmentRole(assignment.role)
+        return role ? [role] : []
       })),
-  }))
+      assignments: policyAssignments
+        .map((assignment) => ({
+          id: assignment.id,
+          orgMemberId: assignment.orgMemberId,
+          teamId: assignment.teamId,
+          role: normalizeAssignmentRole(assignment.role),
+          createdAt: assignment.createdAt,
+        })),
+    }
+  })
 }
 
 export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
@@ -195,6 +215,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
       try {
         const memberIds = await resolveMemberIds({ organizationId: payload.organization.id, values: input.memberIds })
         const teamIds = await resolveTeamIds({ organizationId: payload.organization.id, values: input.teamIds })
+        const roles = resolveRoles(input.roles)
         const desktopPolicyId = createDenTypeId("desktopPolicy")
         const now = new Date()
 
@@ -219,6 +240,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
               desktopPolicyId,
               orgMemberId,
               teamId: null,
+              role: null,
               createdAt: now,
             })),
             ...teamIds.map((teamId) => ({
@@ -227,6 +249,16 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
               desktopPolicyId,
               orgMemberId: null,
               teamId,
+              role: null,
+              createdAt: now,
+            })),
+            ...roles.map((role) => ({
+              id: createDenTypeId("desktopPolicyMember"),
+              organizationId: payload.organization.id,
+              desktopPolicyId,
+              orgMemberId: null,
+              teamId: null,
+              role,
               createdAt: now,
             })),
           ]
@@ -303,6 +335,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
       try {
         const memberIds = await resolveMemberIds({ organizationId: payload.organization.id, values: input.memberIds })
         const teamIds = await resolveTeamIds({ organizationId: payload.organization.id, values: input.teamIds })
+        const roles = resolveRoles(input.roles)
         const updatedAt = new Date()
 
         await db.transaction(async (tx) => {
@@ -337,6 +370,7 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
                 desktopPolicyId: existing.id,
                 orgMemberId,
                 teamId: null,
+                role: null,
                 createdAt: updatedAt,
               })),
               ...teamIds.map((teamId) => ({
@@ -345,6 +379,16 @@ export function registerOrgDesktopPolicyRoutes<T extends { Variables: OrgRouteVa
                 desktopPolicyId: existing.id,
                 orgMemberId: null,
                 teamId,
+                role: null,
+                createdAt: updatedAt,
+              })),
+              ...roles.map((role) => ({
+                id: createDenTypeId("desktopPolicyMember"),
+                organizationId: payload.organization.id,
+                desktopPolicyId: existing.id,
+                orgMemberId: null,
+                teamId: null,
+                role,
                 createdAt: updatedAt,
               })),
             ]

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Zap } from "lucide-react";
 
 import { resolveOrganizationPromptCardContent } from "@/components/chat/task-suggestions";
-import { useOrgRestrictions } from "@/react-app/domains/cloud/desktop-config-provider";
+import { useCheckDesktopRestriction, useOrgRestrictions } from "@/react-app/domains/cloud/desktop-config-provider";
 import { NewTaskComposer, type NewTaskComposerContext } from "./new-task-composer";
 
 type HeroSuggestion = {
@@ -55,6 +55,8 @@ export type SessionEmptyHeroProps = {
 export function SessionEmptyHero(props: SessionEmptyHeroProps) {
   const [prompt, setPrompt] = useState("");
   const orgRestrictions = useOrgRestrictions();
+  const checkDesktopRestriction = useCheckDesktopRestriction();
+  const canAddProviders = !checkDesktopRestriction({ restriction: "allowCustomProviders" });
 
   const organizationPrompts = orgRestrictions.onboardingPrompts;
   const suggestions: HeroSuggestion[] = organizationPrompts !== undefined
@@ -96,7 +98,7 @@ export function SessionEmptyHero(props: SessionEmptyHeroProps) {
         context={props.composer ?? null}
       />
 
-      {props.providerCount === 0 && props.onOpenProviderAuth ? (
+      {canAddProviders && props.providerCount === 0 && props.onOpenProviderAuth ? (
         <button
           type="button"
           className="flex w-full items-start gap-3 rounded-xl border border-blue-7/50 bg-blue-2/40 p-3.5 text-left transition-colors hover:bg-blue-3/50"

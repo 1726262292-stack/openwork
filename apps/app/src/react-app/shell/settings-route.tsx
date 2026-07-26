@@ -192,6 +192,13 @@ const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   config: { read: true, write: true },
 };
 
+function canRestartDesktopForReloadError(error: unknown) {
+  return (
+    error instanceof OpenworkServerError &&
+    (error.code === "opencode_engine_unreachable" || error.code === "opencode_unconfigured")
+  );
+}
+
 async function reloadEngineOrRestartDesktop(
   client: Pick<OpenworkServerClient, "reloadEngine">,
   workspaceId: string,
@@ -200,9 +207,7 @@ async function reloadEngineOrRestartDesktop(
   try {
     await client.reloadEngine(workspaceId);
   } catch (error) {
-    const unreachable =
-      error instanceof OpenworkServerError && error.code === "opencode_engine_unreachable";
-    if (!unreachable || !isDesktopRuntime()) {
+    if (!canRestartDesktopForReloadError(error) || !isDesktopRuntime()) {
       throw error;
     }
     await engineRestart({});
@@ -825,16 +830,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [providerAuthStore]);
 
   const handleOpenProviderAuth = useCallback(() => {
-    if (checkDesktopRestriction({ restriction: "allowCustomProviders" })) {
+    if (providerAuthStore.isProviderAddRestricted()) {
       restrictionNotice.show({
-        title: "Adding custom providers is disabled",
-        message: "Your organization administrator has disabled adding custom providers.",
+        title: t("restrictions.add_custom_providers_disabled_title"),
+        message: t("restrictions.add_custom_providers_disabled_message"),
       });
       return;
     }
 
     void providerAuthStore.openProviderAuthModal();
-  }, [checkDesktopRestriction, providerAuthStore, restrictionNotice]);
+  }, [providerAuthStore, restrictionNotice]);
 
   useEffect(() => {
     if (!activeClient || !selectedWorkspaceId) return;
@@ -2197,6 +2202,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             canDisconnectProvider={(provider) =>
               provider.id.trim().toLowerCase() === "opencode" || provider.source !== "env"
             }
+            canAddProviders={!providerAuthStore.isProviderAddRestricted()}
+            organizationName={cloudSession.activeOrgName}
             cloudProviderIds={new Set([
               ...Object.values(providerAuthSnapshot.importedCloudProviders ?? {}).map((p) => p.providerId),
               ...(openWorkModelsEntitled || openWorkModelsAvailable ? ["openwork"] : []),
