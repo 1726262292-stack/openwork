@@ -331,11 +331,53 @@ function markProvidersSeen(providers: DenOrgLlmProvider[]) {
   } catch {}
 }
 
-function readHandoffAutoContinueFlag() {
-  if (typeof window === "undefined") return false;
-  const raw = window.sessionStorage.getItem(DEN_HANDOFF_AUTO_CONTINUE_KEY);
-  const timestamp = Number(raw);
-  return Number.isFinite(timestamp) && Date.now() - timestamp < 5 * 60_000;
+type OrgOnboardingInitialSelectionState = {
+  hasSelectedOrganization: boolean;
+  autoContinueResources: boolean;
+};
+
+export function initialOrgOnboardingSelectionState(): OrgOnboardingInitialSelectionState {
+  return {
+    hasSelectedOrganization: false,
+    autoContinueResources: false,
+  };
+}
+
+type OrgOnboardingPostListStep =
+  | { kind: "auto-select-single-org"; organization: DenOrgSummary }
+  | { kind: "choose-org"; defaultOrganization: DenOrgSummary }
+  | { kind: "resources"; autoContinue: boolean };
+
+export function resolveOrgOnboardingPostListStep({
+  orgs,
+  activeOrgId,
+  hasSelectedOrganization,
+  autoContinueResources,
+  autoSelectFailedOrgId,
+}: {
+  orgs: DenOrgSummary[];
+  activeOrgId: string;
+  hasSelectedOrganization: boolean;
+  autoContinueResources: boolean;
+  autoSelectFailedOrgId: string | null;
+}): OrgOnboardingPostListStep {
+  const singleOrg = orgs.length === 1 ? orgs[0] : null;
+
+  if (orgs.length > 0 && !hasSelectedOrganization) {
+    if (singleOrg && autoSelectFailedOrgId !== singleOrg.id) {
+      return { kind: "auto-select-single-org", organization: singleOrg };
+    }
+
+    return {
+      kind: "choose-org",
+      defaultOrganization: orgs.find((org) => org.id === activeOrgId) ?? orgs[0],
+    };
+  }
+
+  return {
+    kind: "resources",
+    autoContinue: autoContinueResources || orgs.length <= 1,
+  };
 }
 
 /**
@@ -350,16 +392,16 @@ export function OrgOnboardingPage() {
   const { authToken, denClient, orgId, settings } = useDenClient();
   const { markRouteReady } = useBootState();
   const prepared = usePreparedBootstrap();
-  const handoffAutoContinueRef = useRef<boolean | null>(null);
-  if (handoffAutoContinueRef.current === null) {
-    handoffAutoContinueRef.current = readHandoffAutoContinueFlag();
-  }
-  const handoffAutoContinue = handoffAutoContinueRef.current === true;
-  const [hasSelectedOrganization, setHasSelectedOrganization] = useState(handoffAutoContinue);
-  const [autoContinueResources, setAutoContinueResources] = useState(handoffAutoContinue);
+  const initialSelectionState = initialOrgOnboardingSelectionState();
+  const [hasSelectedOrganization, setHasSelectedOrganization] = useState(
+    initialSelectionState.hasSelectedOrganization,
+  );
+  const [autoContinueResources, setAutoContinueResources] = useState(
+    initialSelectionState.autoContinueResources,
+  );
   const [autoSelectFailedOrgId, setAutoSelectFailedOrgId] = useState<string | null>(null);
   const autoSelectingOrgIdRef = useRef<string | null>(null);
-  
+
   useEffect(() => {
     window.dispatchEvent(new CustomEvent(orgOnboardingVisibilityEvent, { detail: { visible: true } }));
     return () => {
@@ -396,34 +438,42 @@ export function OrgOnboardingPage() {
     queryFn: () => denClient.listOrgs(),
   });
   const orgs = data?.orgs ?? [];
-  const singleOrg = orgs.length === 1 ? orgs[0] : null;
+  const postListStep = resolveOrgOnboardingPostListStep({
+    orgs,
+    activeOrgId: orgId,
+    hasSelectedOrganization,
+    autoContinueResources,
+    autoSelectFailedOrgId,
+  });
+  const autoSelectOrg = postListStep.kind === "auto-select-single-org"
+    ? postListStep.organization
+    : null;
 
   useEffect(() => {
-    if (!authToken || hasSelectedOrganization || !singleOrg) return;
-    if (autoSelectFailedOrgId === singleOrg.id) return;
-    if (autoSelectingOrgIdRef.current === singleOrg.id) return;
+    if (!authToken || !autoSelectOrg) return;
+    if (autoSelectingOrgIdRef.current === autoSelectOrg.id) return;
 
     let cancelled = false;
-    autoSelectingOrgIdRef.current = singleOrg.id;
+    autoSelectingOrgIdRef.current = autoSelectOrg.id;
     void denClient
-      .setActiveOrganization({ organizationId: singleOrg.id })
+      .setActiveOrganization({ organizationId: autoSelectOrg.id })
       .then(() => {
         if (cancelled) return;
         writeDenSettings({
           ...settings,
           authToken: authToken || null,
-          activeOrgId: singleOrg.id,
-          activeOrgSlug: singleOrg.slug,
-          activeOrgName: singleOrg.name,
+          activeOrgId: autoSelectOrg.id,
+          activeOrgSlug: autoSelectOrg.slug,
+          activeOrgName: autoSelectOrg.name,
         });
         setAutoContinueResources(true);
         setHasSelectedOrganization(true);
       })
       .catch(() => {
-        if (!cancelled) setAutoSelectFailedOrgId(singleOrg.id);
+        if (!cancelled) setAutoSelectFailedOrgId(autoSelectOrg.id);
       })
       .finally(() => {
-        if (autoSelectingOrgIdRef.current === singleOrg.id) {
+        if (autoSelectingOrgIdRef.current === autoSelectOrg.id) {
           autoSelectingOrgIdRef.current = null;
         }
       });
@@ -431,7 +481,7 @@ export function OrgOnboardingPage() {
     return () => {
       cancelled = true;
     };
-  }, [authToken, autoSelectFailedOrgId, denClient, hasSelectedOrganization, settings, singleOrg]);
+  }, [authToken, autoSelectOrg, denClient, settings]);
 
   if (!authToken) {
     return prepared ? <PreparedWorkspacePage prepared={prepared} /> : null;
@@ -477,34 +527,31 @@ export function OrgOnboardingPage() {
     );
   }
 
-  if (orgs.length > 0 && !hasSelectedOrganization) {
-    if (singleOrg && autoSelectFailedOrgId !== singleOrg.id) {
-      return (
-        <Page>
-          <PageBackground />
-          <PageTitlebarRegion />
-          <PageContainer>
-            <PageHeader>
-              <PageTitle>Your organization</PageTitle>
-            </PageHeader>
-            <PageContent>
-              <PageLoading>
-                <PageLoadingSpinner />
-                <PageLoadingDescription>Loading organizations...</PageLoadingDescription>
-              </PageLoading>
-            </PageContent>
-          </PageContainer>
-        </Page>
-      );
-    }
+  if (postListStep.kind === "auto-select-single-org") {
+    return (
+      <Page>
+        <PageBackground />
+        <PageTitlebarRegion />
+        <PageContainer>
+          <PageHeader>
+            <PageTitle>Your organization</PageTitle>
+          </PageHeader>
+          <PageContent>
+            <PageLoading>
+              <PageLoadingSpinner />
+              <PageLoadingDescription>Loading organizations...</PageLoadingDescription>
+            </PageLoading>
+          </PageContent>
+        </PageContainer>
+      </Page>
+    );
+  }
 
+  if (postListStep.kind === "choose-org") {
     return (
       <OrganizationSelectionPage
         orgs={orgs}
-        defaultOrganization={
-          orgs.find((org) => org.id === orgId) ??
-          orgs[0]
-        }
+        defaultOrganization={postListStep.defaultOrganization}
         onContinue={() => {
           setAutoContinueResources(false);
           setHasSelectedOrganization(true);
@@ -515,7 +562,7 @@ export function OrgOnboardingPage() {
 
   return (
     <ResourceSelectionPage
-      autoContinue={autoContinueResources || orgs.length <= 1}
+      autoContinue={postListStep.autoContinue}
     />
   );
 }
