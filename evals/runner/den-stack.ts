@@ -16,7 +16,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { openSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +34,8 @@ const DEN_BASE_URL = `http://localhost:${DEN_API_PORT}`;
 const DEMO_EMAIL = process.env.DEN_DEMO_OWNER_EMAIL ?? "alex@acme.test";
 const DEMO_PASSWORD = process.env.DEN_DEMO_OWNER_PASSWORD ?? "OpenWorkDemo123!";
 const MYSQL_CONTAINER = "openwork-web-local-mysql";
+const MYSQL_STATE_DIR = join(STATE_DIR, "mysql");
+const MYSQL_SOCKET = join(MYSQL_STATE_DIR, "mysql.sock");
 const COMPOSE_ARGS = ["compose", "-p", "openwork-den-local", "-f", "packaging/docker/docker-compose.web-local.yml"];
 const DEN_WEB_ORIGIN = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? "http://localhost:3005").replace(/\/+$/, "");
 const DEN_TRUSTED_ORIGINS = `${DEN_BASE_URL},${DEN_WEB_ORIGIN},http://localhost:5173,http://127.0.0.1:5173`;
@@ -42,6 +44,9 @@ const DEN_TRUSTED_ORIGINS = `${DEN_BASE_URL},${DEN_WEB_ORIGIN},http://localhost:
 // dev database (e.g. a dedicated schema on the same MySQL container).
 const DEN_DATABASE_URL = process.env.OPENWORK_EVAL_DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_den";
 const DEN_DATABASE_NAME = new URL(DEN_DATABASE_URL).pathname.replace(/^\//, "") || "openwork_den";
+if (!/^[A-Za-z0-9_]+$/.test(DEN_DATABASE_NAME)) {
+  throw new Error(`Unsupported Den database name: ${DEN_DATABASE_NAME}`);
+}
 
 const DEN_ENV = {
   OPENWORK_DEV_MODE: "1",
@@ -176,10 +181,166 @@ async function readPidState(name: string): Promise<string | null> {
   }
 }
 
-async function ensureMysql(log: (message: string) => void): Promise<void> {
+async function resolveExecutable(names: string[]): Promise<string | null> {
+  for (const name of names) {
+    try {
+      const { stdout } = await run("which", [name]);
+      const executable = stdout.trim();
+      if (executable) return executable;
+    } catch {
+      // Try the next compatible binary name.
+    }
+  }
+  return null;
+}
+
+function mysqlConnectionArgs(includeDatabase = true): string[] {
+  const url = new URL(DEN_DATABASE_URL);
+  const args = [
+    "--protocol=tcp",
+    "-h",
+    url.hostname,
+    "-P",
+    url.port || "3306",
+    `-u${decodeURIComponent(url.username || "root")}`,
+  ];
+  const password = decodeURIComponent(url.password);
+  if (password) args.push(`-p${password}`);
+  if (includeDatabase) args.push(DEN_DATABASE_NAME);
+  return args;
+}
+
+async function nativeMysqlQuery(sql: string, includeDatabase = true): Promise<string> {
+  const client = await resolveExecutable(["mariadb", "mysql"]);
+  if (!client) throw new Error("Neither mariadb nor mysql client is available.");
+  const { stdout } = await run(client, [
+    ...mysqlConnectionArgs(includeDatabase),
+    "-N",
+    "-e",
+    sql,
+  ]);
+  return stdout.trim();
+}
+
+async function nativeMysqlHealthy(): Promise<boolean> {
   try {
-    const { stdout } = await run("docker", ["inspect", "-f", "{{.State.Health.Status}}", MYSQL_CONTAINER]);
+    await nativeMysqlQuery("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureNativeMysql(log: (message: string) => void): Promise<void> {
+  if (await nativeMysqlHealthy()) {
+    await writePidState("mysql.backend", "native");
+    log("Native MySQL already healthy");
+    return;
+  }
+
+  const server = await resolveExecutable(["mariadbd", "mysqld"]);
+  const installer = await resolveExecutable(["mariadb-install-db", "mysql_install_db"]);
+  const socketClient = await resolveExecutable(["mariadb", "mysql"]);
+  if (!server || !installer || !socketClient) {
+    throw new Error(
+      "Docker is unavailable and the native MySQL server/client toolchain is incomplete.",
+    );
+  }
+
+  await mkdir(MYSQL_STATE_DIR, { recursive: true });
+  try {
+    await access(join(MYSQL_STATE_DIR, "mysql"));
+  } catch {
+    log("Initializing native MariaDB data directory...");
+    await run(installer, [
+      `--datadir=${MYSQL_STATE_DIR}`,
+      "--auth-root-authentication-method=normal",
+      "--skip-test-db",
+    ]);
+  }
+
+  log("Starting native MariaDB...");
+  const pid = spawnDetached(
+    server,
+    [
+      `--datadir=${MYSQL_STATE_DIR}`,
+      `--socket=${MYSQL_SOCKET}`,
+      "--port=3306",
+      "--bind-address=127.0.0.1",
+      "--skip-networking=0",
+      `--pid-file=${join(MYSQL_STATE_DIR, "mysql.pid")}`,
+      `--log-error=${join(MYSQL_STATE_DIR, "mysql.error.log")}`,
+    ],
+    { logName: "mysql", env: {} },
+  );
+  await writePidState("mysql.pid", pid);
+  await writePidState("mysql.backend", "native");
+
+  let socketReady = false;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      await run(socketClient, [
+        "--protocol=socket",
+        `--socket=${MYSQL_SOCKET}`,
+        "-uroot",
+        "-N",
+        "-e",
+        "SELECT 1",
+      ]);
+      socketReady = true;
+      break;
+    } catch {
+      await sleep(500);
+    }
+  }
+  if (!socketReady) {
+    throw new Error("Native MariaDB did not become ready within 30s.");
+  }
+
+  await run(socketClient, [
+    "--protocol=socket",
+    `--socket=${MYSQL_SOCKET}`,
+    "-uroot",
+    "-e",
+    [
+      "ALTER USER 'root'@'localhost' IDENTIFIED BY 'password'",
+      "CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY 'password'",
+      "GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION",
+      `CREATE DATABASE IF NOT EXISTS \`${DEN_DATABASE_NAME}\``,
+      "FLUSH PRIVILEGES",
+    ].join("; "),
+  ]);
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (await nativeMysqlHealthy()) {
+      log("Native MariaDB healthy");
+      return;
+    }
+    await sleep(500);
+  }
+  throw new Error("Native MariaDB did not accept Den database connections within 15s.");
+}
+
+async function ensureMysql(log: (message: string) => void): Promise<void> {
+  if (process.env.OPENWORK_EVAL_DATABASE_URL) {
+    if (!(await nativeMysqlHealthy())) {
+      throw new Error("OPENWORK_EVAL_DATABASE_URL is configured but not reachable.");
+    }
+    await writePidState("mysql.backend", "external");
+    log("External MySQL already healthy");
+    return;
+  }
+
+  const docker = await resolveExecutable(["docker"]);
+  if (!docker) {
+    await ensureNativeMysql(log);
+    return;
+  }
+
+  try {
+    const { stdout } = await run(docker, ["inspect", "-f", "{{.State.Health.Status}}", MYSQL_CONTAINER]);
     if (stdout.trim() === "healthy") {
+      await writePidState("mysql.backend", "docker");
       log("MySQL already healthy");
       return;
     }
@@ -187,13 +348,20 @@ async function ensureMysql(log: (message: string) => void): Promise<void> {
     // Not running — start it below.
   }
   log("Starting MySQL (docker compose)...");
-  await run("docker", [...COMPOSE_ARGS, "up", "-d", "--wait", "mysql"]);
+  await run(docker, [...COMPOSE_ARGS, "up", "-d", "--wait", "mysql"]);
+  await writePidState("mysql.backend", "docker");
   await writePidState("mysql.started", "1");
   log("MySQL healthy");
 }
 
 async function mysqlQuery(sql: string): Promise<string> {
-  const { stdout } = await run("docker", [
+  const backend = await readPidState("mysql.backend");
+  if (backend === "native" || backend === "external") {
+    return nativeMysqlQuery(sql);
+  }
+  const docker = await resolveExecutable(["docker"]);
+  if (!docker) throw new Error("The selected Docker MySQL backend is unavailable.");
+  const { stdout } = await run(docker, [
     "exec", MYSQL_CONTAINER,
     "mysql", "-uroot", "-ppassword", DEN_DATABASE_NAME, "-N", "-e", sql,
   ]);
@@ -440,11 +608,25 @@ export async function denStackDown({ log }: DenStackDownOptions): Promise<void> 
     await rm(bootstrapPath, { force: true });
     log("Removed dev desktop bootstrap override");
   }
-  try {
-    await run("docker", [...COMPOSE_ARGS, "down"]);
-    log("MySQL compose project stopped (volume kept)");
-  } catch {
-    log("Docker compose down skipped (docker unavailable?)");
+  const mysqlBackend = await readPidState("mysql.backend");
+  const mysqlPid = await readPidState("mysql.pid");
+  if (mysqlBackend === "native" && mysqlPid) {
+    try {
+      process.kill(Number(mysqlPid));
+      log(`Stopped native MariaDB (pid ${mysqlPid})`);
+    } catch {
+      // Already gone.
+    }
+  } else if (mysqlBackend === "docker") {
+    const docker = await resolveExecutable(["docker"]);
+    if (docker) {
+      try {
+        await run(docker, [...COMPOSE_ARGS, "down"]);
+        log("MySQL compose project stopped (volume kept)");
+      } catch {
+        log("Docker compose down skipped (docker unavailable?)");
+      }
+    }
   }
   await rm(STATE_DIR, { recursive: true, force: true });
 }
