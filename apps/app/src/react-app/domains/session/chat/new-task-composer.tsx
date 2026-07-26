@@ -24,6 +24,9 @@ export type NewTaskComposerContext = {
   client: OpenworkServerClient;
   workspaceId: string | null;
   selectedModel: ModelRef;
+  modelUnavailable?: boolean;
+  modelUnavailableMessage?: string | null;
+  onRefreshOrganizationModels?: () => void | Promise<void>;
   modelPickerOpen: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
@@ -181,11 +184,14 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
       steering={false}
       submissionPreparing={props.busy}
       queuedCount={0}
-      disabled={false}
+      disabled={Boolean(context?.modelUnavailable)}
+      modelUnavailable={context?.modelUnavailable}
+      modelUnavailableMessage={context?.modelUnavailableMessage}
       statusLabel=""
       modelPickerOpen={context?.modelPickerOpen ?? false}
       selectedModel={context?.selectedModel ?? FALLBACK_MODEL}
       openWorkModelsEntitled={context?.openWorkModelsEntitled}
+      onRefreshOrganizationModels={context?.onRefreshOrganizationModels}
       onModelPickerOpenChange={context?.onModelPickerOpenChange ?? noop}
       onModelChange={context?.onModelChange ?? noop}
       attachments={[]}

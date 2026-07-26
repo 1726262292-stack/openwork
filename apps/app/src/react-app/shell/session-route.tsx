@@ -117,9 +117,15 @@ import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-works
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
 import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import {
+  filterEntitledModelOptions,
   resolveEntitledOrgDefaultModel,
   type ModelEntitlementOption,
 } from "@/react-app/domains/connections/provider-auth/provider-policy";
+import {
+  isOrganizationModelsEmpty,
+  refreshOrganizationModels,
+  shouldAutoOpenUnavailableModelPicker,
+} from "@/react-app/domains/connections/provider-auth/managed-models-recovery";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import {
   disabledProvidersFromConfig,
@@ -167,7 +173,7 @@ import { useComposerStateStore } from "@/react-app/domains/session/surface/compo
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
-import { readDenSettings } from "@/app/lib/den";
+import { createDenClient, readDenSettings } from "@/app/lib/den";
 import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
 import { filterProviderList } from "@/app/utils/providers";
@@ -440,6 +446,7 @@ export function SessionRoute() {
   const reloadCoordinator = useReloadCoordinator();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
+  const [activeOrganizationRole, setActiveOrganizationRole] = useState<"owner" | "admin" | "member" | null>(null);
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
   const [developerMode, setDeveloperMode] = useState(() => {
@@ -756,6 +763,39 @@ export function SessionRoute() {
     setProviderConnectedIds,
     setDisabledProviderIds,
   });
+  useEffect(() => {
+    if (!denAuth.isSignedIn) {
+      setActiveOrganizationRole(null);
+      return;
+    }
+
+    const settings = readDenSettings();
+    const tokenValue = settings.authToken?.trim() ?? "";
+    const activeOrgId = settings.activeOrgId?.trim() ?? "";
+    const activeOrgSlug = settings.activeOrgSlug?.trim() ?? "";
+    if (!tokenValue || (!activeOrgId && !activeOrgSlug)) {
+      setActiveOrganizationRole(null);
+      return;
+    }
+
+    let cancelled = false;
+    void createDenClient({ baseUrl: settings.baseUrl, token: tokenValue })
+      .listOrgs()
+      .then((response) => {
+        if (cancelled) return;
+        const active = response.orgs.find((org) =>
+          org.id === activeOrgId || org.slug === activeOrgSlug,
+        );
+        setActiveOrganizationRole(active?.role ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveOrganizationRole(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [denAuth.isSignedIn, denAuth.status, denSessionVersion]);
   const handleModelPickerOpen = useCallback(() => {
     void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
   }, [sessionProviderAuthStore]);
@@ -779,10 +819,38 @@ export function SessionRoute() {
     sessionProviderAuthSnapshot.cloudOrgProviders,
     sessionProviderAuthSnapshot.importedCloudProviders,
   ]);
-  const refreshOpenWorkModels = useCallback(async () => {
-    await sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
-    await sessionProviderAuthStore.refreshProviders();
+  const refreshOrganizationModelAccess = useCallback(async () => {
+    await refreshOrganizationModels({
+      runCloudProviderSync: sessionProviderAuthStore.runCloudProviderSync,
+      refreshProviders: () => sessionProviderAuthStore.refreshProviders({ force: true }),
+    });
   }, [sessionProviderAuthStore]);
+  const refreshOpenWorkModels = useCallback(async () => {
+    await refreshOrganizationModelAccess();
+  }, [refreshOrganizationModelAccess]);
+  const organizationModelsSettingsUrl = useMemo(() => {
+    if (activeOrganizationRole !== "owner" && activeOrganizationRole !== "admin") {
+      return undefined;
+    }
+    return new URL("/dashboard/custom-llm-providers", readDenSettings().baseUrl).toString();
+  }, [activeOrganizationRole, denSessionVersion]);
+  const restrictToCloudProviders = checkDesktopRestriction({ restriction: "allowCustomProviders" });
+  const entitledModelOptions = useMemo(() =>
+    filterEntitledModelOptions(
+      providerListModelEntitlementOptions(cloudProviderList ?? providerListQuery.data),
+      {
+        restrictToCloud: restrictToCloudProviders,
+        checkRestriction: checkDesktopRestriction,
+      },
+    ),
+  [checkDesktopRestriction, cloudProviderList, providerListQuery.data, restrictToCloudProviders]);
+  const organizationModelsEmpty = isOrganizationModelsEmpty({
+    workspaceReady: Boolean(selectedWorkspaceId && opencodeClient),
+    loading,
+    restrictToCloud: restrictToCloudProviders,
+    cloudProviderSyncReady,
+    entitledModelCount: entitledModelOptions.length,
+  });
   const modelPicker = useModelPicker({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -813,11 +881,11 @@ export function SessionRoute() {
       providerListModelEntitlementOptions(cloudProviderList ?? providerListQuery.data),
       {
         currentDefault: local.prefs.defaultModel,
-        restrictToCloud: checkDesktopRestriction({ restriction: "allowCustomProviders" }),
+        restrictToCloud: restrictToCloudProviders,
         checkRestriction: checkDesktopRestriction,
       },
     ),
-  [checkDesktopRestriction, cloudProviderList, local.prefs.defaultModel, providerListQuery.data]);
+  [checkDesktopRestriction, cloudProviderList, local.prefs.defaultModel, providerListQuery.data, restrictToCloudProviders]);
   useEffect(() => {
     if (entitledOrgDefaultModel) writeStoredDefaultModel(entitledOrgDefaultModel);
   }, [entitledOrgDefaultModel]);
@@ -834,7 +902,7 @@ export function SessionRoute() {
         }) ||
         (
           selectedModelProviderList &&
-          checkDesktopRestriction({ restriction: "allowCustomProviders" }) &&
+          restrictToCloudProviders &&
           !selectedModelProviderList.connected.some(
             (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
           )
@@ -855,19 +923,25 @@ export function SessionRoute() {
       autoOpenedUnavailableModelRef.current = null;
       return;
     }
-    if (denAuth.isSignedIn && !cloudProviderSyncReady) return;
+    if (!shouldAutoOpenUnavailableModelPicker({
+      selectedModelUnavailableKey,
+      signedIn: denAuth.isSignedIn,
+      cloudProviderSyncReady,
+      entitledOrgDefaultModel: Boolean(entitledOrgDefaultModel),
+      organizationModelsEmpty,
+      autoOpenedUnavailableModelKey: autoOpenedUnavailableModelRef.current,
+    })) return;
     if (entitledOrgDefaultModel) {
       writeStoredDefaultModel(entitledOrgDefaultModel);
       return;
     }
-    if (autoOpenedUnavailableModelRef.current === selectedModelUnavailableKey) return;
 
     autoOpenedUnavailableModelRef.current = selectedModelUnavailableKey;
     modelPicker.setQuery("");
     modelPicker.setRecentProviderIds(new Set());
     modelPicker.setCompactOpen(false);
     modelPicker.setOpen(true);
-  }, [cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, selectedModelUnavailableKey]);
+  }, [cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, organizationModelsEmpty, selectedModelUnavailableKey]);
 
   const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   const canCreateTask = Boolean(
@@ -895,9 +969,15 @@ export function SessionRoute() {
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
   });
+  const modelUnavailableMessage = organizationModelsEmpty
+    ? t("models.organization_models_empty")
+    : selectedModelUnavailable
+      ? t("models.model_unavailable_short")
+      : null;
   const showPreparingStatus =
-    effectiveLoading ||
-    (!canCreateTask && !routeError && !selectedWorkspaceError);
+    !organizationModelsEmpty &&
+    (effectiveLoading ||
+      (!canCreateTask && !routeError && !selectedWorkspaceError));
 
   useEffect(() => {
     if (!opencodeClient) {
@@ -1042,8 +1122,10 @@ export function SessionRoute() {
       providerCatalog,
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
+      modelUnavailableMessage,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       openWorkModelsEntitled,
+      onRefreshOrganizationModels: refreshOrganizationModelAccess,
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
         if (open) {
@@ -1245,11 +1327,13 @@ export function SessionRoute() {
     modelBehaviorOptions,
     cloudMcpSubmissionState,
     modelLabel,
+    modelUnavailableMessage,
     modelVariantLabel,
     modelVariantValue,
     navigate,
     providerCatalog,
     openWorkModelsEntitled,
+    refreshOrganizationModelAccess,
     opencodeBaseUrl,
     opencodeClient,
     providerConnectedIds,
@@ -1276,6 +1360,9 @@ export function SessionRoute() {
       client,
       workspaceId: selectedWorkspaceId || null,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
+      modelUnavailable: selectedModelUnavailable,
+      modelUnavailableMessage,
+      onRefreshOrganizationModels: refreshOrganizationModelAccess,
       modelPickerOpen: modelPicker.compactOpen,
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
@@ -1330,13 +1417,16 @@ export function SessionRoute() {
     listAgents,
     listSlashCommands,
     local,
+    modelUnavailableMessage,
     modelBehaviorOptions,
     modelPicker,
     modelVariantLabel,
     modelVariantValue,
     opencodeClient,
     openWorkModelsEntitled,
+    refreshOrganizationModelAccess,
     selectedAgent,
+    selectedModelUnavailable,
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
@@ -2236,8 +2326,8 @@ export function SessionRoute() {
       environmentClient={client}
       openworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
-      headerStatus={canCreateTask ? t("status.connected") : t("session.loading_detail")}
-      busyHint={effectiveLoading ? t("session.loading_detail") : null}
+      headerStatus={canCreateTask ? t("status.connected") : (modelUnavailableMessage ?? t("session.loading_detail"))}
+      busyHint={organizationModelsEmpty ? t("models.organization_models_empty") : effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
       hasUsableModel={hasUsableModel}
@@ -2614,6 +2704,8 @@ export function SessionRoute() {
     <ModelPickerModal
       open={modelPicker.open}
       options={modelPicker.options}
+      organizationModelsEmpty={organizationModelsEmpty}
+      organizationModelsSettingsUrl={organizationModelsSettingsUrl}
 
       query={modelPicker.query}
       setQuery={modelPicker.setQuery}
@@ -2677,6 +2769,8 @@ export function SessionRoute() {
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
       openWorkModelsEntitled={openWorkModelsEntitled}
       onRefreshOpenWorkModels={refreshOpenWorkModels}
+      onRefreshOrganizationModels={refreshOrganizationModelAccess}
+      restrictToCloud={restrictToCloudProviders}
     />
     </WorkspaceProvider>
   );

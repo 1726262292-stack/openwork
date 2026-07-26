@@ -73,12 +73,14 @@ type ComposerProps = {
   queuedCount: number;
   disabled: boolean;
   modelUnavailable?: boolean;
+  modelUnavailableMessage?: string | null;
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
   /** When set, the full model picker opened from here targets this session. */
   sessionId?: string;
   openWorkModelsEntitled?: boolean;
+  onRefreshOrganizationModels?: () => void | Promise<void>;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   attachments: ComposerAttachment[];
@@ -1717,7 +1719,18 @@ export function ReactSessionComposer(props: ComposerProps) {
                   openWorkModelsEntitled={props.openWorkModelsEntitled}
                 />
                 {props.modelUnavailable ? (
-                  <span className="text-xs font-medium text-red-10">Model no longer available</span>
+                  <span className="flex items-center gap-2 text-xs font-medium text-red-10">
+                    <span>{props.modelUnavailableMessage ?? t("models.model_unavailable_short")}</span>
+                    {props.onRefreshOrganizationModels ? (
+                      <button
+                        type="button"
+                        className="rounded-full border border-red-6 px-2 py-0.5 text-[11px] text-red-11 transition-colors hover:bg-red-3"
+                        onClick={() => void props.onRefreshOrganizationModels?.()}
+                      >
+                        {t("models.refresh_organization_models")}
+                      </button>
+                    ) : null}
+                  </span>
                 ) : null}
 
                 <ModelBehaviorSelect

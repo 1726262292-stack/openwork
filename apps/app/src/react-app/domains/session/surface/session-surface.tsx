@@ -252,11 +252,13 @@ export type SessionSurfaceProps = {
   onModelClick: (sessionId?: string) => void;
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
+  modelUnavailableMessage?: string | null;
   selectedModel: ModelRef;
   /** providerID → modelID → provider model, for per-session variant options. */
   providerCatalog?: ProviderCatalog;
   /** Den/import includes OpenWork Models for this org member (not just local sync). */
   openWorkModelsEntitled?: boolean;
+  onRefreshOrganizationModels?: () => void | Promise<void>;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => Promise<CloudMcpSubmissionResult>;
@@ -1985,10 +1987,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
         queuedCount={queuedDrafts.length}
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}
+        modelUnavailableMessage={props.modelUnavailableMessage}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={modelPickerOpen}
         selectedModel={sessionModel.selectedModel}
         openWorkModelsEntitled={props.openWorkModelsEntitled}
+        onRefreshOrganizationModels={props.onRefreshOrganizationModels}
         onModelPickerOpenChange={handleModelPickerOpenChange}
         onModelChange={handleModelChange}
         sessionId={props.sessionId}

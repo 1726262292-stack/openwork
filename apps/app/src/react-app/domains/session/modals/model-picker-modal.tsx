@@ -49,6 +49,8 @@ export type ModelPickerModalProps = {
   open: boolean;
   options: ModelOption[];
   disabledProviders?: string[];
+  organizationModelsEmpty?: boolean;
+  organizationModelsSettingsUrl?: string;
   query: string;
   setQuery: (value: string) => void;
   subtitle?: string;
@@ -62,6 +64,8 @@ export type ModelPickerModalProps = {
   /** Den entitlement present; used to avoid a false Subscribe CTA while models sync. */
   openWorkModelsEntitled?: boolean;
   onRefreshOpenWorkModels?: () => void | Promise<void>;
+  onRefreshOrganizationModels?: () => void | Promise<void>;
+  restrictToCloud?: boolean;
 };
 
 type ProviderGroup = {
@@ -75,14 +79,55 @@ type ProviderGroup = {
   other: ModelOption[];
 };
 
+export type ModelPickerEmptyState = {
+  messageKey: string;
+  showConnectProvider: boolean;
+  showRefreshOrganizationModels: boolean;
+  showOrganizationModelsSettings: boolean;
+};
+
+export function resolveModelPickerEmptyState(input: {
+  providerGroupCount: number;
+  query: string;
+  organizationModelsEmpty: boolean;
+  restrictToCloud: boolean;
+  organizationModelsSettingsUrl?: string;
+}): ModelPickerEmptyState | null {
+  if (input.providerGroupCount > 0) return null;
+  if (input.query.trim()) {
+    return {
+      messageKey: "models.no_models_match_search",
+      showConnectProvider: false,
+      showRefreshOrganizationModels: false,
+      showOrganizationModelsSettings: false,
+    };
+  }
+  if (input.organizationModelsEmpty) {
+    return {
+      messageKey: "models.organization_models_empty",
+      showConnectProvider: false,
+      showRefreshOrganizationModels: true,
+      showOrganizationModelsSettings: Boolean(input.organizationModelsSettingsUrl),
+    };
+  }
+  return {
+    messageKey: "models.no_models_available",
+    showConnectProvider: !input.restrictToCloud,
+    showRefreshOrganizationModels: false,
+    showOrganizationModelsSettings: false,
+  };
+}
+
 export function ModelPickerModal(props: ModelPickerModalProps) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [promoHidden, setPromoHidden] = useState(isOpenWorkModelsPromoHidden);
+  const [refreshingOrganizationModels, setRefreshingOrganizationModels] = useState(false);
   const denAuth = useDenAuth();
   const navigate = useNavigate();
   const platform = usePlatform();
   const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const organizationModelsSettingsUrl = props.organizationModelsSettingsUrl;
   const organizationProviderLabel = useMemo(
     () => readDenSettings().activeOrgName?.trim() || t("settings.provider_source_organization"),
     [denAuth.status],
@@ -243,6 +288,24 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     [props.onSelect],
   );
 
+  const handleRefreshOrganizationModels = useCallback(async () => {
+    if (!props.onRefreshOrganizationModels || refreshingOrganizationModels) return;
+    setRefreshingOrganizationModels(true);
+    try {
+      await props.onRefreshOrganizationModels();
+    } finally {
+      setRefreshingOrganizationModels(false);
+    }
+  }, [props.onRefreshOrganizationModels, refreshingOrganizationModels]);
+
+  const emptyState = resolveModelPickerEmptyState({
+    providerGroupCount: providerGroups.length,
+    query: props.query,
+    organizationModelsEmpty: Boolean(props.organizationModelsEmpty),
+    restrictToCloud: Boolean(props.restrictToCloud),
+    organizationModelsSettingsUrl,
+  });
+
   // Escape
   useEffect(() => {
     if (!props.open) return;
@@ -262,7 +325,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     >
       <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 w-full max-w-lg flex-col overflow-hidden sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Models</DialogTitle>
+          <DialogTitle>{t("models.title")}</DialogTitle>
           <DialogDescription>
             {resolveModelPickerSubtitle(props.subtitle)}
           </DialogDescription>
@@ -276,7 +339,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
               ref={searchInputRef}
               type="text"
               className="h-10 w-full rounded-xl border border-dls-border bg-dls-surface pl-9 pr-3 text-sm text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
-              placeholder="Search providers and models..."
+              placeholder={t("models.search_placeholder")}
               value={props.query}
               onChange={(e) => props.setQuery(e.target.value)}
             />
@@ -342,14 +405,25 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
 
           {/* Content */}
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 -mr-1">
-            {providerGroups.length === 0 ? (
+            {emptyState ? (
               <div className="space-y-3 rounded-2xl border border-dls-border bg-dls-hover/30 px-4 py-6 text-center">
                 <div className="text-sm text-dls-secondary">
-                  {props.query.trim() ? "No models match your search." : "No models available. Connect a provider to get started."}
+                  {t(emptyState.messageKey)}
                 </div>
-                {!props.query.trim() ? (
+                {emptyState.showRefreshOrganizationModels ? (
+                  <Button variant="outline" onClick={() => void handleRefreshOrganizationModels()} disabled={refreshingOrganizationModels}>
+                    <RefreshCw className={`mr-1 size-3 ${refreshingOrganizationModels ? "animate-spin" : ""}`} />
+                    {refreshingOrganizationModels ? t("models.refreshing_organization_models") : t("models.refresh_organization_models")}
+                  </Button>
+                ) : null}
+                {emptyState.showOrganizationModelsSettings && organizationModelsSettingsUrl ? (
+                  <Button variant="ghost" onClick={() => platform.openLink(organizationModelsSettingsUrl)}>
+                    {t("models.manage_organization_models")}
+                  </Button>
+                ) : null}
+                {emptyState.showConnectProvider ? (
                   <Button variant="outline" onClick={props.onOpenSettings}>
-                    Connect a provider
+                    {t("models.connect_provider")}
                   </Button>
                 ) : null}
               </div>
@@ -374,7 +448,7 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
         {/* Footer */}
         <DialogFooter className="shrink-0">
           <DialogClose render={<Button variant="outline" />}>
-            Done
+            {t("models.done")}
           </DialogClose>
         </DialogFooter>
       </DialogContent>
