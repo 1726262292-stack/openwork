@@ -239,6 +239,8 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote("/usr/local/bin/opencode"),
     " OPENWORK_WEB_ROOT=",
     shellQuote("/opt/openwork/web"),
+    " OPENWORK_EXTENSIONS_PLUGIN_DIR=",
+    shellQuote("/opt/openwork/opencode-plugins"),
     " DEN_RUNTIME_PROVIDER=",
     shellQuote("daytona"),
     " DEN_WORKER_ID=",

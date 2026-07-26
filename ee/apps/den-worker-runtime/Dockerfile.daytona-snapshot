@@ -25,6 +25,7 @@ RUN set -eux; \
     arm64) target="bun-linux-arm64" ;; \
     *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
   esac; \
+  pnpm --filter openwork-server build; \
   pnpm --filter openwork-server exec bun ./script/build.ts --outdir dist/bin --target "$target"; \
   install -m 0755 "apps/server/dist/bin/openwork-server-${target}" /tmp/openwork-server; \
   pnpm --filter @openwork/app build:web
@@ -41,6 +42,7 @@ RUN apt-get update \
 
 COPY --from=openwork-builder /tmp/openwork-server /usr/local/bin/openwork-server
 COPY --from=openwork-builder /src/apps/app/dist /opt/openwork/web
+COPY --from=openwork-builder /src/apps/server/dist/opencode-plugins /opt/openwork/opencode-plugins
 
 RUN set -eux; \
   test -n "$OPENCODE_VERSION"; \
@@ -68,7 +70,12 @@ RUN set -eux; \
 # real hardware.
 ARG RUNTIME_ASSERTS=1
 RUN if [ "$RUNTIME_ASSERTS" = "1" ]; then \
-    test "$(openwork-server --version)" = "$OPENWORK_SERVER_VERSION" \
+    test -f /opt/openwork/opencode-plugins/openwork-extensions-preview.js \
+    && test -f /opt/openwork/opencode-plugins/openwork-capabilities-knowledge.js \
+    && test -f /opt/openwork/opencode-plugins/openwork-office-attachments.js \
+    && test -f /opt/openwork/opencode-plugins/openwork-anthropic-adaptive-thinking.js \
+    && test -f /opt/openwork/opencode-plugins/openwork-anthropic-tool-schema.js \
+    && test "$(openwork-server --version)" = "$OPENWORK_SERVER_VERSION" \
     && opencode --version; \
   else \
     echo "RUNTIME_ASSERTS disabled (cross-build); binaries must be verified on target hardware"; \
