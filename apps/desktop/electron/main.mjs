@@ -125,15 +125,6 @@ const uiControlServer = createUiControlServer({
   getWindow: () => createMainWindow(),
 });
 
-async function fetchWithElectronNetFallback(input, init) {
-  try {
-    return await electronNet.fetch(input, init);
-  } catch (error) {
-    if (typeof fetch !== "function") throw error;
-    return fetch(input, init);
-  }
-}
-
 const terminalProcesses = new Map();
 let nextTerminalId = 1;
 
@@ -2071,14 +2062,14 @@ const desktopCommandHandlers = {
       };
       if (init.agentContextDiagnostics && typeof init.agentContextDiagnostics === "object") {
         return fetchAgentContextDiagnosticsResponse(
-          fetchWithElectronNetFallback,
+          electronNet.fetch,
           url,
           requestInit,
           init.agentContextDiagnostics.deadlineAtMs,
         );
       }
       const timeoutMs = Number(init.timeoutMs);
-      const response = await fetchWithElectronNetFallback(url, {
+      const response = await electronNet.fetch(url, {
         ...requestInit,
         signal: Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined,
       });
