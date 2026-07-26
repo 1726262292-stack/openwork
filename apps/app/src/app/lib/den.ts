@@ -10,7 +10,7 @@ import {
 export type { SharedDesktopConfig };
 export { normalizeDesktopConfig };
 
-import { isDesktopDeployment } from "./openwork-deployment";
+import { isDesktopDeployment, isWebDeployment } from "./openwork-deployment";
 import {
   dispatchDenSettingsChanged,
 } from "./den-session-events";
@@ -774,6 +774,9 @@ export function buildDenAuthUrl(baseUrl: string, mode: "sign-in" | "sign-up"): s
   if (isDesktopDeployment()) {
     target.searchParams.set("desktopAuth", "1");
     target.searchParams.set("desktopScheme", "openwork");
+  } else if (isWebDeployment() && typeof window !== "undefined") {
+    target.searchParams.set("webAuth", "1");
+    target.searchParams.set("webAuthReturn", window.location.origin);
   }
   return target.toString();
 }

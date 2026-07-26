@@ -47,8 +47,8 @@ export function AuthScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const routingRef = useRef(false);
-  const { user, sessionHydrated, desktopAuthRequested, resolveUserLandingRoute } = useDenFlow();
-  const hasResolvedSession = sessionHydrated && Boolean(user) && !desktopAuthRequested;
+  const { user, sessionHydrated, desktopAuthRequested, webAuthRequested, resolveUserLandingRoute } = useDenFlow();
+  const hasResolvedSession = sessionHydrated && Boolean(user) && !desktopAuthRequested && !webAuthRequested;
 
   useEffect(() => {
     if (!hasResolvedSession || routingRef.current) {
