@@ -833,6 +833,16 @@ const STORAGE_TOKEN = "openwork.server.token";
 const STORAGE_HOST_AUTH_KEY = "openwork.server.hostToken";
 const STORAGE_REMOTE_ACCESS = "openwork.server.remoteAccessEnabled";
 
+type OpenworkBootstrap = {
+  token?: string;
+};
+
+declare global {
+  interface Window {
+    __OPENWORK_BOOTSTRAP__?: OpenworkBootstrap;
+  }
+}
+
 export function normalizeOpenworkServerUrl(input: string) {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -1040,8 +1050,11 @@ export function hydrateOpenworkServerSettingsFromEnv() {
   const envHostToken = typeof import.meta.env?.VITE_OPENWORK_HOST_TOKEN === "string"
     ? import.meta.env.VITE_OPENWORK_HOST_TOKEN.trim()
     : "";
+  const bootstrapToken = typeof window.__OPENWORK_BOOTSTRAP__?.token === "string"
+    ? window.__OPENWORK_BOOTSTRAP__.token.trim()
+    : "";
 
-  if (!envUrl && !envPort && !envToken && !envHostToken) return;
+  if (!envUrl && !envPort && !envToken && !envHostToken && !bootstrapToken) return;
 
   try {
     const current = readOpenworkServerSettings();
@@ -1061,7 +1074,10 @@ export function hydrateOpenworkServerSettingsFromEnv() {
       }
     }
 
-    if (!current.token && envToken) {
+    if (bootstrapToken && current.token !== bootstrapToken) {
+      next.token = bootstrapToken;
+      changed = true;
+    } else if (!current.token && envToken) {
       next.token = envToken;
       changed = true;
     }

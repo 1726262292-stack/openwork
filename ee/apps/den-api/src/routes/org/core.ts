@@ -6,6 +6,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
 import { validateBrandIconUrl } from "../../brand-icon-validation.js"
+import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
@@ -14,7 +15,6 @@ import { env } from "../../env.js"
 import { findEnterpriseAuthRequirementForEmail } from "../../enterprise-auth-requirement.js"
 import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, resolveMemberTeamsMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { normalizeOrganizationCapabilities } from "../../organization-capabilities.js"
 import { validateInvitationAcceptVerification } from "../../organization-join-verification.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
@@ -24,6 +24,7 @@ import {
   getSingletonSsoStatus,
   normalizeAllowedEmailDomains,
   OrganizationEmailDomainRestrictionError,
+  serializeMemberFacingOrganizationMetadata,
   setSessionActiveOrganization,
   updateOrganizationSettings,
 } from "../../orgs.js"
@@ -507,7 +508,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     async (c) => {
       const payload = c.get("organizationContext")
       const owner = payload.members.find((member: typeof payload.members[number]) => member.isOwner) ?? null
-      const capabilities = normalizeOrganizationCapabilities(payload.organization.metadata)
+      const cloudEnabled = organizationCloudEnabled(payload.organization.metadata, { orgMode: env.orgMode })
       const [ssoRows, scimRows] = await Promise.all([
         db
           .select({ id: SsoConnectionTable.id })
@@ -525,6 +526,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         ...payload,
         organization: {
           ...payload.organization,
+          metadata: serializeMemberFacingOrganizationMetadata(payload.organization.metadata),
           owner: owner
             ? {
               memberId: owner.id,
@@ -539,7 +541,6 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         plan: parseOrganizationPlan(payload.organization.metadata),
         entitlements: getOrganizationEntitlements(payload.organization.metadata),
         capabilities: {
-          ...capabilities,
           // Expose the effective value, not the raw stored flag: Connect is
           // member-facing default-on unless an explicit org kill switch says no.
           mcpConnections: memberFacingMcpConnectionsEnabled(payload.organization.metadata, {
@@ -548,6 +549,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
           installLinks: organizationInstallLinksEnabled(payload.organization.metadata, {
             gatingEnabled: env.installLinksGatingEnabled,
           }),
+          ...(cloudEnabled ? { cloud: true } : {}),
         },
         authMethods: {
           sso: Boolean(ssoRows[0]),

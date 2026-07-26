@@ -114,7 +114,8 @@
           {
             "group": "Run in the cloud",
             "pages": [
-              "cloud/run-in-the-cloud/shared-workspace"
+              "cloud/run-in-the-cloud/shared-workspace",
+              "cloud/run-in-the-cloud/open-cloud-in-browser"
             ]
           },
           {

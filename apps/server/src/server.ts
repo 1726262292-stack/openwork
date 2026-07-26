@@ -56,6 +56,7 @@ import {
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
 import { serve, type ServeResult } from "./serve-node.js";
+import { serveStaticUi } from "./static-ui.js";
 import { externalFetch, loopbackFetch } from "./server-fetch.js";
 import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
@@ -921,6 +922,8 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
 
       const route = matchRoute(routes, request.method, url.pathname);
       if (!route) {
+        const staticUiResponse = await serveStaticUi(request, config);
+        if (staticUiResponse) return finalize(staticUiResponse);
         errorMessage = "not_found";
         return finalize(jsonResponse({ code: "not_found", message: "Not found" }, 404));
       }
@@ -1025,7 +1028,7 @@ type OpencodeClientResult<T, E> =
   | { data: T | undefined; error: undefined; response: Response }
   | { data: undefined; error: E; response: Response };
 
-function createWorkspaceOpencodeClient(
+export function createWorkspaceOpencodeClient(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   options?: { boundedDiagnosticsReads?: boolean },

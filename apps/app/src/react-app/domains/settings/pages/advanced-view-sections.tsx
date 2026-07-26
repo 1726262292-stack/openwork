@@ -24,6 +24,7 @@ import {
 import { isDesktopRuntime } from "@/app/utils";
 import { t } from "@/i18n";
 import { ControlPlaneUrlEditor } from "../cloud/control-plane-url-editor";
+import { usePlatform } from "../../../kernel/platform";
 import {
   displayCustomControlPlaneUrl,
   isValidControlPlaneUrl,
@@ -184,6 +185,7 @@ interface AdvancedOrganizationServerSectionProps {
 }
 
 export function AdvancedOrganizationServerSection(props: AdvancedOrganizationServerSectionProps) {
+  const platform = usePlatform();
   const [clearConfirming, setClearConfirming] = useState(false);
   const controlsDisabled = [props.authBusy, props.baseUrlBusy, props.sessionBusy].some(Boolean);
   const customUrl = displayCustomControlPlaneUrl(props.baseUrlDraft);
@@ -224,23 +226,25 @@ export function AdvancedOrganizationServerSection(props: AdvancedOrganizationSer
             : t("settings.organization_server_default")}
         </LayoutSectionItemFootnote>
         {isDesktopRuntime() ? <ServerEndpointsCard cloudMcpUrl={props.cloudMcpUrl} /> : null}
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-9">
-          <Button
-            variant={clearConfirming ? "destructive" : "outline"}
-            size="sm"
-            onClick={clearServerConfiguration}
-            disabled={controlsDisabled}
-          >
-            {clearConfirming
-              ? t("den.cloud_control_plane_clear_confirm")
-              : t("den.cloud_control_plane_clear")}
-          </Button>
-          <span>
-            {clearConfirming
-              ? t("den.cloud_control_plane_clear_confirm_hint")
-              : t("den.cloud_control_plane_clear_hint")}
-          </span>
-        </div>
+        {platform.capabilities.desktopBootstrap ? (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-9">
+            <Button
+              variant={clearConfirming ? "destructive" : "outline"}
+              size="sm"
+              onClick={clearServerConfiguration}
+              disabled={controlsDisabled}
+            >
+              {clearConfirming
+                ? t("den.cloud_control_plane_clear_confirm")
+                : t("den.cloud_control_plane_clear")}
+            </Button>
+            <span>
+              {clearConfirming
+                ? t("den.cloud_control_plane_clear_confirm_hint")
+                : t("den.cloud_control_plane_clear_hint")}
+            </span>
+          </div>
+        ) : null}
         {props.baseUrlError ? <SettingsNotice tone="error">{props.baseUrlError}</SettingsNotice> : null}
       </LayoutSectionItem>
     </LayoutSection>

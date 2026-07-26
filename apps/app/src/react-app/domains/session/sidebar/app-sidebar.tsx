@@ -102,6 +102,7 @@ import {
 
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import { AccountStatusMenu, type AccountStatusMenuProps } from "./account-status-menu";
+import { usePlatform } from "../../../kernel/platform";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
   MAX_SESSIONS_PREVIEW,
@@ -539,6 +540,7 @@ type WorkspaceActionsMenuProps = {
 
 function WorkspaceActionsMenu({ workspace, isConnectionActionBusy, canRecover, className }: WorkspaceActionsMenuProps) {
   const ctx = useSidebarContext();
+  const platform = usePlatform();
 
   return (
     <DropdownMenu>
@@ -566,7 +568,7 @@ function WorkspaceActionsMenu({ workspace, isConnectionActionBusy, canRecover, c
           <Share2 className="size-4" />
           {t("workspace_list.share")}
         </DropdownMenuItem>
-        {workspace.workspaceType === "local" ? (
+        {workspace.workspaceType === "local" && platform.capabilities.revealInFileManager ? (
           <DropdownMenuItem onClick={() => ctx.onRevealWorkspace(workspace.id)}>
             <FolderOpen className="size-4" />
             {isWindowsPlatform() ? t("workspace_list.reveal_explorer") : t("workspace_list.reveal_finder")}

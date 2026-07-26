@@ -23,6 +23,10 @@ type ProvisionedInstance = {
   region?: string
 }
 
+export type StopWorkerOnDaytonaResult =
+  | { status: "no_sandbox" }
+  | { status: "stopped" }
+
 type DaytonaSandboxListPage = {
   items: Array<{ id?: unknown }>
   nextCursor?: string | null
@@ -196,18 +200,24 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
 
 function buildOpenWorkStartCommand(input: ProvisionInput) {
   const verifyRuntimeStep = [
-    "if ! command -v openwork >/dev/null 2>&1; then echo 'openwork binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
+    "if ! command -v openwork-server >/dev/null 2>&1; then echo 'openwork-server binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
     "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
   ].join("; ")
   const openworkServe = [
     "OPENWORK_DATA_DIR=",
     shellQuote(env.daytona.runtimeDataPath),
-    " OPENWORK_SIDECAR_DIR=",
-    shellQuote(env.daytona.sidecarDir),
+    " OPENWORK_SERVER_CONFIG=",
+    shellQuote(`${env.daytona.runtimeDataPath}/server.json`),
     " OPENWORK_TOKEN=",
     shellQuote(input.clientToken),
     " OPENWORK_HOST_TOKEN=",
     shellQuote(input.hostToken),
+    " OPENWORK_MANAGE_OPENCODE=",
+    shellQuote("1"),
+    " OPENWORK_OPENCODE_BIN=",
+    shellQuote("/usr/local/bin/opencode"),
+    " OPENWORK_WEB_ROOT=",
+    shellQuote("/opt/openwork/web"),
     " DEN_RUNTIME_PROVIDER=",
     shellQuote("daytona"),
     " DEN_WORKER_ID=",
@@ -218,18 +228,12 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote(workerActivityHeartbeatUrl(input.workerId)),
     " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
     shellQuote(input.activityToken),
-    " openwork serve",
+    " openwork-server",
     ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
-    ` --remote-access`,
-    ` --openwork-port ${env.daytona.openworkPort}`,
-    ` --opencode-host 127.0.0.1`,
-    ` --opencode-port ${env.daytona.opencodePort}`,
-    ` --connect-host 127.0.0.1`,
+    ` --host 0.0.0.0`,
+    ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
     ` --cors '*'`,
     ` --approval manual`,
-    ` --allow-external`,
-    ` --opencode-source external`,
-    ` --opencode-bin $(command -v opencode)`,
     ` --verbose`,
   ].join("")
 
@@ -246,7 +250,7 @@ while [ "$attempt" -lt 3 ]; do
     exit 0
   fi
   status=$?
-  echo "openwork serve failed (attempt $attempt, exit $status); retrying in 3s"
+  echo "openwork-server failed (attempt $attempt, exit $status); rebuild and republish the Daytona snapshot if this persists; retrying in 3s"
   sleep 3
 done
 exit 1
@@ -592,6 +596,73 @@ export async function provisionWorkerOnDaytona(
       await sandbox.delete(env.daytona.deleteTimeoutSeconds).catch(() => {})
     }
     throw error
+  }
+}
+
+// This preserves customer data: deprovisionWorkerOnDaytona erases workers/<id>/,
+// while stopWorkerOnDaytona must not delete the sandbox, cleanup data, or touch volumes.
+export async function stopWorkerOnDaytona(workerId: WorkerId): Promise<StopWorkerOnDaytonaResult> {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return { status: "no_sandbox" }
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  if (sandbox.state === "stopped") {
+    return { status: "stopped" }
+  }
+
+  await sandbox.stop(env.daytona.stopTimeoutSeconds ?? env.daytona.deleteTimeoutSeconds)
+
+  return { status: "stopped" }
+}
+
+export async function wakeWorkerOnDaytona(
+  input: ProvisionInput,
+): Promise<ProvisionedInstance> {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(input.workerId)
+  if (!record) {
+    throw new Error(`Daytona sandbox record missing for worker ${input.workerId}`)
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  await sandbox.start(env.daytona.createTimeoutSeconds)
+
+  const sessionId = `openwork-wake-${workerHint(input.workerId)}-${Date.now()}`
+  await sandbox.process.createSession(sessionId)
+  const command = await sandbox.process.executeSessionCommand(
+    sessionId,
+    {
+      command: buildOpenWorkStartCommand(input),
+      runAsync: true,
+    },
+    0,
+  )
+
+  const expiresInSeconds = normalizedSignedPreviewExpirySeconds()
+  const preview = await sandbox.getSignedPreviewUrl(env.daytona.openworkPort, expiresInSeconds)
+  await waitForHealth(preview.url, env.daytona.healthcheckTimeoutMs, sandbox, sessionId, command.cmdId)
+  await upsertDaytonaSandbox({
+    workerId: input.workerId,
+    sandboxId: sandbox.id,
+    workspaceVolumeId: record.workspace_volume_id,
+    dataVolumeId: record.data_volume_id,
+    signedPreviewUrl: preview.url,
+    signedPreviewUrlExpiresAt: signedPreviewRefreshAt(expiresInSeconds),
+    region: sandbox.target ?? null,
+  })
+
+  return {
+    provider: "daytona",
+    url: workerProxyUrl(input.workerId),
+    status: "healthy",
+    region: sandbox.target,
   }
 }
 

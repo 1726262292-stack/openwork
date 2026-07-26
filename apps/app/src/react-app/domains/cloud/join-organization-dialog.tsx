@@ -5,6 +5,7 @@ import { installConfigSchema, parseInstallLinkInput } from "@openwork/install-co
 import { createDenClient, readDenSettings, setDenBootstrapConfig } from "@/app/lib/den";
 import { exchangeHandoffAndSignIn } from "@/app/lib/den-handoff";
 import { desktopFetchViaMain } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +43,13 @@ function hostFromUrl(value: string): string {
   } catch {
     return value.replace(/^https?:\/\//, "").replace(/\/+$/, "");
   }
+}
+
+function fetchInstallConfig(url: string) {
+  const init = { headers: { accept: "application/json" } };
+  return isDesktopRuntime()
+    ? desktopFetchViaMain(url, init, 10_000)
+    : globalThis.fetch(url, init);
 }
 
 export function JoinOrganizationDialog({
@@ -89,11 +97,7 @@ export function JoinOrganizationDialog({
 
     let response: Response;
     try {
-      response = await desktopFetchViaMain(
-        parsed.url,
-        { headers: { accept: "application/json" } },
-        10_000,
-      );
+      response = await fetchInstallConfig(parsed.url);
     } catch {
       setError(t("join_org.error_network"));
       return true;

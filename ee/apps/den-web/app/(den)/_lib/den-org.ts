@@ -240,6 +240,7 @@ export type DenOrgEntitlements = {
 export type DenOrgCapabilities = {
   installLinks: boolean;
   mcpConnections: boolean;
+  cloud: boolean;
 };
 
 export type DenOrganizationMetadata = {
@@ -528,6 +529,10 @@ export function getCustomLlmProvidersRoute(orgSlug?: string | null): string {
 
 export function getInferenceRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/inference`;
+}
+
+export function getCloudRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/cloud`;
 }
 
 export function getLlmProvidersRoute(orgSlug?: string | null): string {
@@ -894,12 +899,13 @@ function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
 
 function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
   if (!isRecord(value)) {
-    return { installLinks: false, mcpConnections: false };
+    return { installLinks: false, mcpConnections: false, cloud: false };
   }
 
   return {
     installLinks: value.installLinks === true,
     mcpConnections: value.mcpConnections === true,
+    cloud: value.cloud === true,
   };
 }
 
