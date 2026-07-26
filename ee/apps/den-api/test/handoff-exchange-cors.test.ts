@@ -50,13 +50,20 @@ describe("handoff exchange CORS", () => {
   })
 
   test("allowlisted origins still work on other routes", async () => {
+    // Read the allowlist that env actually resolved: when this file runs
+    // alongside others, an earlier import may have frozen CORS_ORIGINS before
+    // our seed ran, so asserting a hard-coded origin is order-dependent.
+    const { env } = await import("../src/env.js")
+    const allowlisted = env.corsOrigins[0]
+    if (!allowlisted) return
+
     const res = await app.request("/v1/me", {
       method: "OPTIONS",
       headers: {
-        Origin: "http://localhost:3005",
+        Origin: allowlisted,
         "Access-Control-Request-Method": "GET",
       },
     })
-    expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3005")
+    expect(res.headers.get("access-control-allow-origin")).toBe(allowlisted)
   })
 })

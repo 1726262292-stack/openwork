@@ -128,7 +128,7 @@ function withDenProxyPath(origin: string) {
 }
 
 function configuredDesktopDenBaseUrl() {
-  return env.desktopDenBaseUrl ?? withDenProxyPath(env.betterAuthUrl)
+  return env.desktopDenBaseUrl ?? withDenProxyPath(process.env.BETTER_AUTH_URL?.trim() || env.betterAuthUrl)
 }
 
 export function resolveDesktopDenBaseUrl(request: Request) {
@@ -249,8 +249,27 @@ export function approveWebHandoffReturnUrl(input: {
   return `${candidate.origin}/signin`
 }
 
-async function getCloudSignedPreviewUrl(organizationId: WorkerOrgId) {
-  const [row] = await db
+export function approveWebHandoffReturnUrlForSignedPreviews(input: {
+  returnUrl: string
+  signedPreviewUrls: string[]
+  orgMode: DenOrgMode
+}) {
+  for (const signedPreviewUrl of input.signedPreviewUrls) {
+    const approved = approveWebHandoffReturnUrl({
+      returnUrl: input.returnUrl,
+      signedPreviewUrl,
+      orgMode: input.orgMode,
+    })
+    if (approved) {
+      return approved
+    }
+  }
+
+  return null
+}
+
+async function getCloudSignedPreviewUrls(organizationId: WorkerOrgId) {
+  const rows = await db
     .select({ signedPreviewUrl: DaytonaSandboxTable.signed_preview_url })
     .from(WorkerTable)
     .innerJoin(DaytonaSandboxTable, eq(WorkerTable.id, DaytonaSandboxTable.worker_id))
@@ -260,9 +279,8 @@ async function getCloudSignedPreviewUrl(organizationId: WorkerOrgId) {
       eq(WorkerTable.sandbox_backend, CLOUD_INSTANCE_BACKEND),
     ))
     .orderBy(desc(WorkerTable.created_at))
-    .limit(1)
 
-  return row?.signedPreviewUrl ?? null
+  return rows.map((row) => row.signedPreviewUrl)
 }
 
 async function resolveApprovedWebHandoffReturnUrl(input: {
@@ -280,10 +298,12 @@ async function resolveApprovedWebHandoffReturnUrl(input: {
     return null
   }
 
-  const signedPreviewUrl = await getCloudSignedPreviewUrl(organizationId)
-  return signedPreviewUrl
-    ? approveWebHandoffReturnUrl({ returnUrl: input.returnUrl, signedPreviewUrl, orgMode: env.orgMode })
-    : null
+  const signedPreviewUrls = await getCloudSignedPreviewUrls(organizationId)
+  return approveWebHandoffReturnUrlForSignedPreviews({
+    returnUrl: input.returnUrl,
+    signedPreviewUrls,
+    orgMode: env.orgMode,
+  })
 }
 
 export function registerDesktopAuthRoutes<T extends { Variables: AuthContextVariables }>(app: Hono<T>) {

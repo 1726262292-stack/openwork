@@ -1,4 +1,4 @@
-import { and, desc, eq } from "@openwork-ee/den-db/drizzle"
+import { and, asc, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import { WorkerTable, WorkerTokenTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono, MiddlewareHandler } from "hono"
@@ -9,9 +9,10 @@ import { db } from "../../db.js"
 import { env, type DenOrgMode } from "../../env.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { getDaytonaSandboxRecord, refreshDaytonaSignedPreview } from "../../workers/daytona.js"
+import { getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview } from "../../workers/daytona.js"
 import { CLOUD_INSTANCE_BACKEND, CLOUD_INSTANCE_NAME } from "../../workers/cloud-constants.js"
 import { wakeCloudWorker as defaultWakeCloudWorker } from "../../workers/cloud-lifecycle.js"
+import { appLogger } from "../../observability/logger.js"
 import type { OrgRouteVariables } from "../org/shared.js"
 import { continueCloudProvisioning, token } from "../workers/shared.js"
 
@@ -22,26 +23,52 @@ type CloudRouteOptions = {
   daytonaApiKey?: string
   continueProvisioning?: typeof continueCloudProvisioning
   refreshSignedPreview?: typeof refreshDaytonaSignedPreview
+  cloudWorkerStore?: CloudWorkerStore
   ensureCloudWorker?: EnsureCloudWorker
   getSandboxRecord?: GetSandboxRecord
+  inspectSandbox?: InspectSandbox
+  probeSignedPreview?: ProbeSignedPreview
   wakeCloudWorker?: WakeCloudWorker
+  now?: () => number
 }
 
-type CloudWorker = Pick<typeof WorkerTable.$inferSelect, "id" | "status">
+type CloudWorker = Pick<typeof WorkerTable.$inferSelect, "id" | "name" | "status">
+type WorkerToken = Pick<typeof WorkerTokenTable.$inferSelect, "scope" | "token">
 type CloudSandboxRecord = Pick<NonNullable<Awaited<ReturnType<typeof getDaytonaSandboxRecord>>>, "signed_preview_url" | "signed_preview_url_expires_at">
+type CloudSandboxInspection = { state: string | null } | null
 type OrgId = typeof WorkerTable.$inferSelect.org_id
-type UserId = typeof WorkerTable.$inferSelect.created_by_user_id
+type UserId = NonNullable<typeof WorkerTable.$inferSelect.created_by_user_id>
+type WorkerId = typeof WorkerTable.$inferSelect.id
 type CloudInstanceResponse = {
   status: "provisioning" | "waking" | "ready" | "failed"
   url: string | null
 }
+type CloudWorkerStore = {
+  getCloudWorker: (input: { orgId: OrgId; userId: UserId }) => Promise<CloudWorker | null>
+  insertCloudWorker: (input: { workerId: WorkerId; orgId: OrgId; userId: UserId; name: string }) => Promise<void>
+  insertWorkerTokens: (input: { workerId: WorkerId; hostToken: string; clientToken: string; activityToken: string }) => Promise<void>
+  deleteCreateRaceLoser: (workerId: WorkerId) => Promise<void>
+  claimFailedWorker: (workerId: WorkerId) => Promise<boolean>
+  getActiveTokens: (workerId: WorkerId) => Promise<WorkerToken[]>
+  markProvisioningWorkerFailed: (workerId: WorkerId) => Promise<void>
+  markHealthyWorkerFailed: (workerId: WorkerId) => Promise<void>
+}
 type EnsureCloudWorker = (input: {
   orgId: OrgId
   createdByUserId: UserId
+  name: string
   continueProvisioning: typeof continueCloudProvisioning
+  store: CloudWorkerStore
 }) => Promise<CloudWorker>
 type GetSandboxRecord = (workerId: CloudWorker["id"]) => Promise<CloudSandboxRecord | null>
+type InspectSandbox = (workerId: CloudWorker["id"]) => Promise<CloudSandboxInspection>
+type ProbeSignedPreview = (signedPreviewUrl: string) => Promise<boolean>
 type WakeCloudWorker = (workerId: CloudWorker["id"]) => Promise<void>
+
+type UpdateResultRecord = {
+  rowsAffected?: unknown
+  affectedRows?: unknown
+}
 
 const cloudInstanceResponseSchema = z.object({
   status: z.enum(["provisioning", "waking", "ready", "failed"]),
@@ -52,100 +79,420 @@ function cloudNotFound() {
   return { error: "cloud_not_found" }
 }
 
+const logger = appLogger.child({ component: "cloud_routes" })
+const cloudWorkerNameMaxLength = 255
+const failedHealCooldownMs = 60_000
+const signedPreviewProbeTimeoutMs = 2_500
+const signedPreviewHealthCacheMs = 15_000
+const ensureCloudWorkerInFlight = new Map<string, Promise<CloudWorker>>()
+const failedHealAttempts = new Map<WorkerId, number>()
+const signedPreviewHealthCache = new Map<WorkerId, { url: string; healthyUntilMs: number }>()
+
+function isUpdateResultRecord(value: unknown): value is UpdateResultRecord {
+  return typeof value === "object" && value !== null
+}
+
+function changedRows(result: unknown): number | null {
+  if (Array.isArray(result)) {
+    for (const value of result) {
+      const nestedRows = changedRows(value)
+      if (nestedRows !== null) {
+        return nestedRows
+      }
+    }
+    return null
+  }
+
+  if (!isUpdateResultRecord(result)) {
+    return null
+  }
+
+  if (typeof result.rowsAffected === "number") {
+    return result.rowsAffected
+  }
+
+  if (typeof result.affectedRows === "number") {
+    return result.affectedRows
+  }
+
+  return null
+}
+
+function hasChangedRows(result: unknown) {
+  const rows = changedRows(result)
+  return rows !== null && rows > 0
+}
+
+function tokenByScope(tokens: WorkerToken[], scope: WorkerToken["scope"]) {
+  return tokens.find((entry) => entry.scope === scope)?.token ?? null
+}
+
+function truncateForWorkerName(value: string) {
+  return Array.from(value).slice(0, cloudWorkerNameMaxLength).join("").trim()
+}
+
+function emailLocalPart(email: string | null | undefined) {
+  const trimmed = email?.trim() ?? ""
+  if (!trimmed) {
+    return null
+  }
+
+  return trimmed.split("@")[0]?.trim() || trimmed
+}
+
+function displayNameForCloudWorker(payload: NonNullable<OrgRouteVariables["organizationContext"]>, user: NonNullable<OrgRouteVariables["user"]>) {
+  const member = payload.members.find((entry) => entry.userId === payload.currentMember.userId) ?? null
+  const memberName = member?.user.name.trim()
+  if (memberName) {
+    return memberName
+  }
+
+  const userName = user.name?.trim()
+  if (userName) {
+    return userName
+  }
+
+  return emailLocalPart(member?.user.email) ?? emailLocalPart(user.email) ?? "member"
+}
+
+function cloudWorkerName(payload: NonNullable<OrgRouteVariables["organizationContext"]>, user: NonNullable<OrgRouteVariables["user"]>) {
+  return truncateForWorkerName(`${CLOUD_INSTANCE_NAME} — ${displayNameForCloudWorker(payload, user)}`)
+}
+
+function ensureKey(orgId: OrgId, userId: UserId) {
+  return `${orgId}:${userId}`
+}
+
+function healthUrlForPreview(signedPreviewUrl: string) {
+  return `${signedPreviewUrl.replace(/\/+$/, "")}/health`
+}
+
+async function probeSignedPreview(signedPreviewUrl: string) {
+  try {
+    const response = await fetch(healthUrlForPreview(signedPreviewUrl), {
+      method: "GET",
+      signal: AbortSignal.timeout(signedPreviewProbeTimeoutMs),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+const databaseCloudWorkerStore: CloudWorkerStore = {
+  async getCloudWorker(input) {
+    // Cloud is per-user. Legacy shared rows already have created_by_user_id set
+    // to the first clicker; that member keeps the row while others get fresh
+    // instances. Follow-up: admin user deletion currently nulls
+    // created_by_user_id (src/user-deletion.ts), orphaning instances; cleanup is
+    // tracked separately.
+    const rows = await db
+      .select()
+      .from(WorkerTable)
+      .where(and(
+        eq(WorkerTable.org_id, input.orgId),
+        eq(WorkerTable.created_by_user_id, input.userId),
+        eq(WorkerTable.destination, "cloud"),
+        eq(WorkerTable.sandbox_backend, CLOUD_INSTANCE_BACKEND),
+      ))
+      .orderBy(asc(WorkerTable.created_at), asc(WorkerTable.id))
+      .limit(1)
+
+    return rows[0] ?? null
+  },
+  async insertCloudWorker(input) {
+    await db.insert(WorkerTable).values({
+      id: input.workerId,
+      org_id: input.orgId,
+      created_by_user_id: input.userId,
+      name: input.name,
+      description: "OpenWork Cloud browser instance",
+      destination: "cloud",
+      status: "provisioning",
+      sandbox_backend: CLOUD_INSTANCE_BACKEND,
+    })
+  },
+  async insertWorkerTokens(input) {
+    await db.insert(WorkerTokenTable).values([
+      {
+        id: createDenTypeId("workerToken"),
+        worker_id: input.workerId,
+        scope: "host",
+        token: input.hostToken,
+      },
+      {
+        id: createDenTypeId("workerToken"),
+        worker_id: input.workerId,
+        scope: "client",
+        token: input.clientToken,
+      },
+      {
+        id: createDenTypeId("workerToken"),
+        worker_id: input.workerId,
+        scope: "activity",
+        token: input.activityToken,
+      },
+    ])
+  },
+  async deleteCreateRaceLoser(workerId) {
+    await db.transaction(async (tx) => {
+      await tx.delete(WorkerTokenTable).where(eq(WorkerTokenTable.worker_id, workerId))
+      await tx.delete(WorkerTable).where(eq(WorkerTable.id, workerId))
+    })
+  },
+  async claimFailedWorker(workerId) {
+    const result: unknown = await db
+      .update(WorkerTable)
+      .set({ status: "provisioning" })
+      .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "failed")))
+
+    return hasChangedRows(result)
+  },
+  async getActiveTokens(workerId) {
+    return db
+      .select({ scope: WorkerTokenTable.scope, token: WorkerTokenTable.token })
+      .from(WorkerTokenTable)
+      .where(and(eq(WorkerTokenTable.worker_id, workerId), isNull(WorkerTokenTable.revoked_at)))
+  },
+  async markProvisioningWorkerFailed(workerId) {
+    await db
+      .update(WorkerTable)
+      .set({ status: "failed" })
+      .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "provisioning")))
+  },
+  async markHealthyWorkerFailed(workerId) {
+    await db
+      .update(WorkerTable)
+      .set({ status: "failed" })
+      .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "healthy")))
+  },
+}
+
 function hasDaytonaProvisioner(options: CloudRouteOptions) {
   const apiKey = options.daytonaApiKey !== undefined ? options.daytonaApiKey : env.daytona.apiKey
   return (options.provisionerMode ?? env.provisionerMode) === "daytona" && Boolean(apiKey?.trim())
 }
 
-async function getCloudWorker(orgId: OrgId) {
-  const rows = await db
-    .select()
-    .from(WorkerTable)
-    .where(and(
-      eq(WorkerTable.org_id, orgId),
-      eq(WorkerTable.destination, "cloud"),
-      eq(WorkerTable.sandbox_backend, CLOUD_INSTANCE_BACKEND),
-    ))
-    .orderBy(desc(WorkerTable.created_at))
-    .limit(1)
-
-  return rows[0] ?? null
+async function getCloudWorker(orgId: OrgId, userId: UserId, store: CloudWorkerStore) {
+  return store.getCloudWorker({ orgId, userId })
 }
 
 async function createCloudWorker(input: {
   orgId: OrgId
   createdByUserId: UserId
+  name: string
   continueProvisioning: typeof continueCloudProvisioning
+  store: CloudWorkerStore
 }): Promise<CloudWorker> {
   const workerId = createDenTypeId("worker")
   const hostToken = token()
   const clientToken = token()
   const activityToken = token()
 
-  await db.insert(WorkerTable).values({
-    id: workerId,
-    org_id: input.orgId,
-    created_by_user_id: input.createdByUserId,
-    name: CLOUD_INSTANCE_NAME,
-    description: "OpenWork Cloud browser instance",
-    destination: "cloud",
-    status: "provisioning",
-    sandbox_backend: CLOUD_INSTANCE_BACKEND,
-  })
+  await input.store.insertCloudWorker({ workerId, orgId: input.orgId, userId: input.createdByUserId, name: input.name })
+  await input.store.insertWorkerTokens({ workerId, hostToken, clientToken, activityToken })
 
-  await db.insert(WorkerTokenTable).values([
-    {
-      id: createDenTypeId("workerToken"),
-      worker_id: workerId,
-      scope: "host",
-      token: hostToken,
-    },
-    {
-      id: createDenTypeId("workerToken"),
-      worker_id: workerId,
-      scope: "client",
-      token: clientToken,
-    },
-    {
-      id: createDenTypeId("workerToken"),
-      worker_id: workerId,
-      scope: "activity",
-      token: activityToken,
-    },
-  ])
+  const canonical = await getCloudWorker(input.orgId, input.createdByUserId, input.store)
+  if (canonical && canonical.id !== workerId) {
+    // No unique index exists for (org_id, created_by_user_id, destination,
+    // sandbox_backend), and a partial unique is not viable across legacy rows.
+    // Converge create races by keeping the oldest canonical row and deleting the
+    // losing worker plus the tokens that were minted for it before provisioning.
+    await input.store.deleteCreateRaceLoser(workerId)
+    return canonical
+  }
 
   void input.continueProvisioning({
     workerId,
-    name: CLOUD_INSTANCE_NAME,
+    name: input.name,
     hostToken,
     clientToken,
     activityToken,
   })
 
-  return { id: workerId, status: "provisioning" }
+  return canonical ?? { id: workerId, name: input.name, status: "provisioning" }
 }
 
 async function ensureCloudWorker(input: {
   orgId: OrgId
   createdByUserId: UserId
+  name: string
   continueProvisioning: typeof continueCloudProvisioning
+  store: CloudWorkerStore
 }) {
-  const existing = await getCloudWorker(input.orgId)
-  if (existing) {
-    return existing
+  const key = ensureKey(input.orgId, input.createdByUserId)
+  const existingPromise = ensureCloudWorkerInFlight.get(key)
+  if (existingPromise) {
+    return existingPromise
   }
 
-  return createCloudWorker(input)
+  const promise = (async () => {
+    const existing = await getCloudWorker(input.orgId, input.createdByUserId, input.store)
+    if (existing) {
+      return existing
+    }
+
+    return createCloudWorker(input)
+  })()
+    .finally(() => {
+      if (ensureCloudWorkerInFlight.get(key) === promise) {
+        ensureCloudWorkerInFlight.delete(key)
+      }
+    })
+  ensureCloudWorkerInFlight.set(key, promise)
+
+  return promise
+}
+
+function cachedPreviewIsHealthy(workerId: WorkerId, url: string, now: number) {
+  const cached = signedPreviewHealthCache.get(workerId)
+  return cached?.url === url && cached.healthyUntilMs > now
+}
+
+function rememberHealthyPreview(workerId: WorkerId, url: string, now: number) {
+  signedPreviewHealthCache.set(workerId, { url, healthyUntilMs: now + signedPreviewHealthCacheMs })
+}
+
+async function startFailedCloudHeal(input: {
+  worker: CloudWorker
+  continueProvisioning: typeof continueCloudProvisioning
+  store: CloudWorkerStore
+}) {
+  const claimed = await input.store.claimFailedWorker(input.worker.id)
+  if (!claimed) {
+    return false
+  }
+
+  void (async () => {
+    const tokens = await input.store.getActiveTokens(input.worker.id)
+    const hostToken = tokenByScope(tokens, "host")
+    const clientToken = tokenByScope(tokens, "client")
+    const activityToken = tokenByScope(tokens, "activity")
+
+    if (!hostToken || !clientToken || !activityToken) {
+      await input.store.markProvisioningWorkerFailed(input.worker.id)
+      logger.error("cloud failed-worker heal failed", { worker_id: input.worker.id, reason: "missing_worker_tokens" })
+      return
+    }
+
+    await input.continueProvisioning({
+      workerId: input.worker.id,
+      name: input.worker.name,
+      hostToken,
+      clientToken,
+      activityToken,
+    })
+  })()
+    .catch(async (error) => {
+      await input.store.markProvisioningWorkerFailed(input.worker.id).catch(() => undefined)
+      logger.error("cloud failed-worker heal failed", { worker_id: input.worker.id, error })
+    })
+
+  return true
+}
+
+async function resolveFailedCloudInstance(input: {
+  worker: CloudWorker
+  continueProvisioning: typeof continueCloudProvisioning
+  getSandboxRecord: GetSandboxRecord
+  store: CloudWorkerStore
+  now: () => number
+}): Promise<CloudInstanceResponse> {
+  const now = input.now()
+  const lastAttempt = failedHealAttempts.get(input.worker.id)
+  if (lastAttempt !== undefined && now - lastAttempt < failedHealCooldownMs) {
+    return { status: "failed", url: null }
+  }
+
+  failedHealAttempts.set(input.worker.id, now)
+  const sandbox = await input.getSandboxRecord(input.worker.id)
+  const started = await startFailedCloudHeal(input)
+  if (!started) {
+    return { status: "failed", url: null }
+  }
+
+  return { status: sandbox ? "waking" : "provisioning", url: null }
+}
+
+async function readyFromSignedPreview(input: {
+  workerId: WorkerId
+  signedPreviewUrl: string
+  probeSignedPreview: ProbeSignedPreview
+  now: () => number
+}): Promise<CloudInstanceResponse | null> {
+  const now = input.now()
+  if (cachedPreviewIsHealthy(input.workerId, input.signedPreviewUrl, now)) {
+    return { status: "ready", url: input.signedPreviewUrl }
+  }
+
+  if (await input.probeSignedPreview(input.signedPreviewUrl)) {
+    rememberHealthyPreview(input.workerId, input.signedPreviewUrl, now)
+    return { status: "ready", url: input.signedPreviewUrl }
+  }
+
+  return null
+}
+
+async function refreshAndProbeSignedPreview(input: {
+  workerId: WorkerId
+  refreshSignedPreview: typeof refreshDaytonaSignedPreview
+  probeSignedPreview: ProbeSignedPreview
+  now: () => number
+}): Promise<CloudInstanceResponse | null> {
+  try {
+    const refreshed = await input.refreshSignedPreview(input.workerId)
+    if (!refreshed) {
+      return null
+    }
+
+    return readyFromSignedPreview({
+      workerId: input.workerId,
+      signedPreviewUrl: refreshed.signed_preview_url,
+      probeSignedPreview: input.probeSignedPreview,
+      now: input.now,
+    })
+  } catch {
+    return null
+  }
+}
+
+async function recoverUnhealthyCloudSandbox(input: {
+  worker: CloudWorker
+  continueProvisioning: typeof continueCloudProvisioning
+  inspectSandbox: InspectSandbox
+  startWake: (workerId: CloudWorker["id"]) => void
+  store: CloudWorkerStore
+}): Promise<CloudInstanceResponse> {
+  let inspection: CloudSandboxInspection = null
+  try {
+    inspection = await input.inspectSandbox(input.worker.id)
+  } catch {
+    inspection = null
+  }
+
+  if (inspection?.state === "stopped") {
+    input.startWake(input.worker.id)
+    return { status: "waking", url: null }
+  }
+
+  await input.store.markHealthyWorkerFailed(input.worker.id)
+  await startFailedCloudHeal(input)
+  return { status: "waking", url: null }
 }
 
 async function resolveCloudInstance(input: {
   worker: CloudWorker
+  continueProvisioning: typeof continueCloudProvisioning
   refreshSignedPreview: typeof refreshDaytonaSignedPreview
   getSandboxRecord: GetSandboxRecord
+  inspectSandbox: InspectSandbox
+  probeSignedPreview: ProbeSignedPreview
   startWake: (workerId: CloudWorker["id"]) => void
+  store: CloudWorkerStore
+  now: () => number
 }): Promise<CloudInstanceResponse> {
   if (input.worker.status === "failed") {
-    return { status: "failed", url: null }
+    return resolveFailedCloudInstance(input)
   }
 
   if (input.worker.status === "stopped") {
@@ -159,22 +506,38 @@ async function resolveCloudInstance(input: {
   }
 
   if (!sandbox) {
+    if (input.worker.status === "healthy") {
+      await input.store.markHealthyWorkerFailed(input.worker.id)
+      await startFailedCloudHeal(input)
+      return { status: "waking", url: null }
+    }
+
     return { status: "provisioning", url: null }
   }
 
-  if (sandbox.signed_preview_url_expires_at.getTime() > Date.now()) {
-    return { status: "ready", url: sandbox.signed_preview_url }
+  if (sandbox.signed_preview_url_expires_at.getTime() > input.now()) {
+    const ready = await readyFromSignedPreview({
+      workerId: input.worker.id,
+      signedPreviewUrl: sandbox.signed_preview_url,
+      probeSignedPreview: input.probeSignedPreview,
+      now: input.now,
+    })
+    if (ready) {
+      return ready
+    }
   }
 
-  try {
-    const refreshed = await input.refreshSignedPreview(input.worker.id)
-    if (!refreshed) {
-      return { status: "failed", url: null }
-    }
-    return { status: "ready", url: refreshed.signed_preview_url }
-  } catch {
-    return { status: "failed", url: null }
+  const refreshedReady = await refreshAndProbeSignedPreview({
+    workerId: input.worker.id,
+    refreshSignedPreview: input.refreshSignedPreview,
+    probeSignedPreview: input.probeSignedPreview,
+    now: input.now,
+  })
+  if (refreshedReady) {
+    return refreshedReady
   }
+
+  return recoverUnhealthyCloudSandbox(input)
 }
 
 export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
@@ -184,9 +547,13 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
   const orgMemberRouteMiddleware = options.memberRoute ?? orgMemberRoute()
   const continueProvisioning = options.continueProvisioning ?? continueCloudProvisioning
   const refreshSignedPreview = options.refreshSignedPreview ?? refreshDaytonaSignedPreview
+  const store = options.cloudWorkerStore ?? databaseCloudWorkerStore
   const ensureWorker = options.ensureCloudWorker ?? ensureCloudWorker
   const getSandboxRecord = options.getSandboxRecord ?? getDaytonaSandboxRecord
+  const inspectSandbox = options.inspectSandbox ?? inspectDaytonaSandbox
+  const signedPreviewProbe = options.probeSignedPreview ?? probeSignedPreview
   const wakeCloudWorker = options.wakeCloudWorker ?? defaultWakeCloudWorker
+  const now = options.now ?? Date.now
   const wakingWorkers = new Set<CloudWorker["id"]>()
 
   function startWake(workerId: CloudWorker["id"]) {
@@ -233,9 +600,21 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
       const worker = await ensureWorker({
         orgId: payload.organization.id,
         createdByUserId: user.id,
+        name: cloudWorkerName(payload, user),
         continueProvisioning,
+        store,
       })
-      const instance = await resolveCloudInstance({ worker, refreshSignedPreview, getSandboxRecord, startWake })
+      const instance = await resolveCloudInstance({
+        worker,
+        continueProvisioning,
+        refreshSignedPreview,
+        getSandboxRecord,
+        inspectSandbox,
+        probeSignedPreview: signedPreviewProbe,
+        startWake,
+        store,
+        now,
+      })
 
       return c.json(instance)
     },

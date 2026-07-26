@@ -2,6 +2,7 @@ import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
 
 type CloudLifecycleModule = typeof import("../src/workers/cloud-lifecycle.js")
+type DaytonaModule = typeof import("../src/workers/daytona.js")
 type WakeCloudWorkerOptions = NonNullable<Parameters<CloudLifecycleModule["wakeCloudWorker"]>[1]>
 type Store = NonNullable<WakeCloudWorkerOptions["store"]>
 type TestWorker = NonNullable<Awaited<ReturnType<Store["getWorker"]>>>
@@ -19,10 +20,12 @@ function seedRequiredEnv() {
 }
 
 let lifecycle: CloudLifecycleModule
+let daytona: DaytonaModule
 
 beforeAll(async () => {
   seedRequiredEnv()
   lifecycle = await import("../src/workers/cloud-lifecycle.js")
+  daytona = await import("../src/workers/daytona.js")
 })
 
 function makeWorker(input: {
@@ -234,6 +237,36 @@ describe("cloud lifecycle wake", () => {
 
     hold.resolve()
     await Promise.all([first, second])
+    expect(worker.status).toBe("healthy")
+  })
+
+  test("falls back to full provisioning when the Daytona sandbox is missing during wake", async () => {
+    const worker = makeWorker({ status: "stopped" })
+    const { store } = makeStore({
+      workers: [worker],
+      tokens: [
+        makeToken(worker.id, "host"),
+        makeToken(worker.id, "client"),
+        makeToken(worker.id, "activity"),
+      ],
+    })
+    let wakeExecutions = 0
+    let provisionExecutions = 0
+
+    await lifecycle.wakeCloudWorker(worker.id, {
+      store,
+      wakeWorker: async () => {
+        wakeExecutions += 1
+        throw new daytona.DaytonaSandboxMissingError("sandbox deleted")
+      },
+      provisionWorker: async () => {
+        provisionExecutions += 1
+        return { provider: "daytona", url: "https://cloud.example", status: "healthy" }
+      },
+    })
+
+    expect(wakeExecutions).toBe(1)
+    expect(provisionExecutions).toBe(1)
     expect(worker.status).toBe("healthy")
   })
 })
