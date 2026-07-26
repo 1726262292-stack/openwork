@@ -190,6 +190,11 @@ const marketplaceConflictSchema = z.object({
   message: z.string().optional(),
 }).meta({ ref: "PluginArchMarketplaceConflictError" })
 
+const configObjectConflictSchema = z.object({
+  error: z.enum(["config_object_in_use", "managed_config_object"]),
+  message: z.string(),
+}).meta({ ref: "PluginArchConfigObjectConflictError" })
+
 function validRequestPart<T>(c: OrgContext, target: "json" | "param" | "query") {
   return (c.req as unknown as { valid: (part: typeof target) => unknown }).valid(target) as T
 }
@@ -429,6 +434,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
         401: jsonResponse("The caller must be signed in to create config object versions.", unauthorizedSchema),
         403: jsonResponse("The caller lacks permission to edit this config object.", forbiddenSchema),
         404: jsonResponse("The config object could not be found.", notFoundSchema),
+        409: jsonResponse("A connector-managed config object cannot be edited directly.", configObjectConflictSchema),
       },
     }),
     async (c: OrgContext) => {
@@ -522,6 +528,9 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
           401: jsonResponse("The caller must be signed in to manage config objects.", unauthorizedSchema),
           403: jsonResponse("The caller lacks permission to manage this config object.", forbiddenSchema),
           404: jsonResponse("The config object could not be found.", notFoundSchema),
+          ...(action === "delete" ? {
+            409: jsonResponse("A connector-managed or in-use config object cannot be deleted.", configObjectConflictSchema),
+          } : {}),
         },
       }),
       async (c: OrgContext) => {

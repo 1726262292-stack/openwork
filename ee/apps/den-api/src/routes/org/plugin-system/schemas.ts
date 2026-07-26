@@ -24,7 +24,10 @@ const jsonObjectSchema = z.object({}).passthrough()
 // MEDIUMTEXT allows ~12.58 MB of encrypted plaintext; 1 MiB stays safely below storage
 // while still ~40x the largest real skill document, yielding a clean 400 instead of a 500.
 const configObjectInputMaxPayloadBytes = 1_048_576
-const rawSourceTextSchema = z.string().trim().min(1).refine(
+const rawSourceTextSchema = z.string().min(1).refine(
+  (value) => value.trim().length > 0,
+  { message: "rawSourceText must contain non-whitespace text." },
+).refine(
   (value) => Buffer.byteLength(value, "utf8") <= configObjectInputMaxPayloadBytes,
   { message: `rawSourceText must be at most ${configObjectInputMaxPayloadBytes} bytes (1 MiB) after UTF-8 encoding.` },
 )

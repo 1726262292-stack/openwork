@@ -346,6 +346,10 @@ function normalizeOptionalString(value: string | null | undefined) {
   return trimmed ? trimmed : null
 }
 
+function preserveOptionalText(value: string | null | undefined) {
+  return value?.trim() ? value : null
+}
+
 function firstTextLine(value: string) {
   return value
     .split(/\r?\n/g)
@@ -1638,7 +1642,7 @@ export async function createConfigObject(input: {
         isDeletedVersion: false,
         normalizedPayloadJson: input.value.normalizedPayloadJson ?? null,
         organizationId,
-        rawSourceText: normalizeOptionalString(input.value.rawSourceText),
+        rawSourceText: preserveOptionalText(input.value.rawSourceText),
       schemaVersion: normalizeOptionalString(input.value.schemaVersion),
       sourceRevisionRef: null,
     })
@@ -1730,6 +1734,13 @@ export async function createConfigObjectVersion(input: { context: PluginArchActo
     throw new PluginArchRouteFailure(404, "config_object_not_found", "Config object not found.")
   }
   await requirePluginArchResourceRole({ context: input.context, resourceId: row.id, resourceKind: "config_object", role: "editor" })
+  if (row.sourceMode === "connector") {
+    throw new PluginArchRouteFailure(
+      409,
+      "managed_config_object",
+      `${row.objectType === "skill" ? "Skill" : "Config object"} \"${row.title}\" is managed by a connected source and cannot be edited here.`,
+    )
+  }
 
   const now = new Date()
   const projection = deriveProjection({ objectType: row.objectType, value: input.value })
@@ -1744,7 +1755,7 @@ export async function createConfigObjectVersion(input: { context: PluginArchActo
       isDeletedVersion: false,
       normalizedPayloadJson: input.value.normalizedPayloadJson ?? null,
       organizationId: row.organizationId,
-      rawSourceText: normalizeOptionalString(input.value.rawSourceText),
+      rawSourceText: preserveOptionalText(input.value.rawSourceText),
       schemaVersion: normalizeOptionalString(input.value.schemaVersion),
       sourceRevisionRef: normalizeOptionalString(input.reason),
     })
@@ -1770,6 +1781,31 @@ export async function setConfigObjectLifecycle(input: { context: PluginArchActor
     throw new PluginArchRouteFailure(404, "config_object_not_found", "Config object not found.")
   }
   await requirePluginArchResourceRole({ context: input.context, resourceId: row.id, resourceKind: "config_object", role: "manager" })
+  if (input.action === "delete") {
+    if (row.sourceMode === "connector") {
+      throw new PluginArchRouteFailure(
+        409,
+        "managed_config_object",
+        `${row.objectType === "skill" ? "Skill" : "Config object"} \"${row.title}\" is managed by a connected source and cannot be deleted here.`,
+      )
+    }
+    const activePluginMembership = await db
+      .select({ id: PluginConfigObjectTable.id })
+      .from(PluginConfigObjectTable)
+      .where(and(
+        eq(PluginConfigObjectTable.organizationId, row.organizationId),
+        eq(PluginConfigObjectTable.configObjectId, row.id),
+        isNull(PluginConfigObjectTable.removedAt),
+      ))
+      .limit(1)
+    if (activePluginMembership[0]) {
+      throw new PluginArchRouteFailure(
+        409,
+        "config_object_in_use",
+        `${row.objectType === "skill" ? "Skill" : "Config object"} \"${row.title}\" is used by a plugin. Remove it from the plugin before deleting it.`,
+      )
+    }
+  }
   const now = new Date()
   const patch = input.action === "archive"
     ? { deletedAt: null, status: "archived" as const, updatedAt: now }

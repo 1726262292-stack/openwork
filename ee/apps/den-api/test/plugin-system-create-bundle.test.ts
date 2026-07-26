@@ -282,6 +282,17 @@ test("pluginCreateSchema accepts legacy and bundle bodies while rejecting empty 
   }).success).toBe(false)
 })
 
+test("config object input validation preserves complete source text and rejects whitespace-only text", () => {
+  const rawSourceText = "---\nname: exact-source\ndescription: Keep the complete source.\n---\nInstructions.\n\n"
+  const parsed = schemas.configObjectInputSchema.safeParse({ rawSourceText })
+
+  expect(parsed.success).toBe(true)
+  if (parsed.success) {
+    expect(parsed.data.rawSourceText).toBe(rawSourceText)
+  }
+  expect(schemas.configObjectInputSchema.safeParse({ rawSourceText: " \n\t" }).success).toBe(false)
+})
+
 test("createPluginBundle rejects invalid standard SKILL.md content before any write", async () => {
   const invalidSkills = [
     {
@@ -385,7 +396,7 @@ test("createConfigObjectVersion updates a same-name skill without creating a dup
     throw new Error("expected created skill config object")
   }
 
-  const updatedSkill = `---\nname: ${skillName}\ndescription: Prepare for sales calls from current account notes.\n---\nReview the account notes and list the open risks.`
+  const updatedSkill = `---\nname: ${skillName}\ndescription: Prepare for sales calls from current account notes.\n---\nReview the account notes and list the open risks.\n\n`
   const configObjectId = normalizeDenTypeId("configObject", configObject.value.id)
   await storeModule.createConfigObjectVersion({
     configObjectId,
@@ -414,6 +425,107 @@ test("createConfigObjectVersion updates a same-name skill without creating a dup
       title: skillName,
     }),
   })
+})
+
+test("connector-managed config objects cannot be edited or deleted directly", async () => {
+  const organizationId = createDenTypeId("organization")
+  const memberId = createDenTypeId("member")
+  const configObjectId = createDenTypeId("configObject")
+  const now = new Date("2026-07-05T00:00:00.000Z")
+  resetDb({
+    config_object: [{
+      id: configObjectId,
+      organizationId,
+      objectType: "skill",
+      sourceMode: "connector",
+      status: "active",
+      title: "managed-skill",
+      description: "Managed skill",
+      searchText: "managed-skill",
+      createdByOrgMembershipId: memberId,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }],
+  })
+
+  for (const action of ["edit", "delete"]) {
+    let failure: ReturnType<typeof routeFailure> = null
+    let status: number | null = null
+    try {
+      if (action === "edit") {
+        await storeModule.createConfigObjectVersion({
+          configObjectId,
+          context: ownerContext(organizationId, memberId),
+          value: { rawSourceText: "---\nname: managed-skill\ndescription: Managed skill\n---\nChanged." },
+        })
+      } else {
+        await storeModule.setConfigObjectLifecycle({
+          action: "delete",
+          configObjectId,
+          context: ownerContext(organizationId, memberId),
+        })
+      }
+      throw new Error("expected rejection")
+    } catch (error) {
+      failure = routeFailure(error)
+      status = errorStatus(error)
+    }
+
+    expect(status).toBe(409)
+    expect(failure?.error).toBe("managed_config_object")
+  }
+
+  expect(insertCalls).toBe(0)
+  expect(updateCalls).toBe(0)
+})
+
+test("config objects used by a plugin cannot be deleted", async () => {
+  const organizationId = createDenTypeId("organization")
+  const memberId = createDenTypeId("member")
+  const configObjectId = createDenTypeId("configObject")
+  const now = new Date("2026-07-05T00:00:00.000Z")
+  resetDb({
+    config_object: [{
+      id: configObjectId,
+      organizationId,
+      objectType: "skill",
+      sourceMode: "cloud",
+      status: "active",
+      title: "in-use-skill",
+      description: "In-use skill",
+      searchText: "in-use-skill",
+      createdByOrgMembershipId: memberId,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }],
+    plugin_config_object: [{
+      id: createDenTypeId("pluginConfigObject"),
+      configObjectId,
+      organizationId,
+      pluginId: createDenTypeId("plugin"),
+      removedAt: null,
+    }],
+  })
+
+  let failure: ReturnType<typeof routeFailure> = null
+  let status: number | null = null
+  try {
+    await storeModule.setConfigObjectLifecycle({
+      action: "delete",
+      configObjectId,
+      context: ownerContext(organizationId, memberId),
+    })
+    throw new Error("expected rejection")
+  } catch (error) {
+    failure = routeFailure(error)
+    status = errorStatus(error)
+  }
+
+  expect(status).toBe(409)
+  expect(failure?.error).toBe("config_object_in_use")
+  expect(updateCalls).toBe(0)
 })
 
 test("createPluginBundle composes component creation, org-wide grants, and marketplace publishing", async () => {
