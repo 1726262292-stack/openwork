@@ -6,6 +6,8 @@ import type { McpServerEntry } from "../src/app/types";
 import {
   buildExtensionItems,
   isOpenworkProvidedSkill,
+  resolveExtensionInventoryGroup,
+  type ExtensionItem,
 } from "../src/react-app/domains/settings/extension-items";
 
 const connectedBuiltIn: McpDirectoryInfo = {
