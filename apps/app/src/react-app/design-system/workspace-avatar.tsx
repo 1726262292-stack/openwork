@@ -9,7 +9,7 @@ import {
 export type WorkspaceAvatarProps = {
   workspaceId: string;
   label: string;
-  /** Optional custom picture; falls back to initials + color when absent. */
+  /** Optional custom picture; falls back to a solid color marker when absent. */
   imageUrl?: string | null;
   /** Optional preferred solid color; falls back to hashed autoset color. */
   color?: string | null;
@@ -32,7 +32,7 @@ export function WorkspaceAvatar({
       <img
         src={trimmedUrl}
         alt=""
-        className={`${sizeClass} shrink-0 rounded-[5px] object-cover`}
+        className={`${sizeClass} shrink-0 rounded-full object-cover`}
         draggable={false}
         data-workspace-avatar=""
       />
@@ -41,14 +41,12 @@ export function WorkspaceAvatar({
 
   return (
     <span
-      className={`${sizeClass} flex shrink-0 items-center justify-center rounded-[5px] text-[10px] font-semibold leading-none text-white`}
+      className={`${sizeClass} shrink-0 rounded-full`}
       style={{ backgroundColor: resolveWorkspaceAvatarColor(workspaceId, color) }}
       role="presentation"
       aria-hidden="true"
       data-workspace-avatar=""
       title={label}
-    >
-      {workspaceAvatarInitials(label)}
-    </span>
+    />
   );
 }

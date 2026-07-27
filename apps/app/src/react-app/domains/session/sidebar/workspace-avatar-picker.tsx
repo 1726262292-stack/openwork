@@ -58,7 +58,7 @@ export function WorkspaceAvatarPicker({
         render={
           <button
             type="button"
-            className="rounded-[5px] outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-full outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("workspace_list.edit_avatar")}
             title={t("workspace_list.edit_avatar")}
             onClick={(event) => {
