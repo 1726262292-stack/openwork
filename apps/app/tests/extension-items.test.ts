@@ -208,3 +208,40 @@ describe("extension item projection", () => {
     expect(result.quickConnectEntries.map((entry) => entry.name)).toEqual(["Notion"]);
   });
 });
+
+describe("resolveExtensionInventoryGroup", () => {
+  const baseItem = (overrides: Partial<ExtensionItem> = {}): ExtensionItem => ({
+    id: "builtin:openwork-browser",
+    source: "builtin",
+    name: "OpenWork Browser",
+    description: null,
+    installState: "installed",
+    setupState: "ready",
+    active: true,
+    enablement: null,
+    resources: [],
+    ...overrides,
+  });
+
+  test("marks disabled items first", () => {
+    expect(resolveExtensionInventoryGroup(baseItem({ installState: "available" }), {
+      disabledReason: "Disabled by organization",
+    })).toBe("disabled");
+  });
+
+  test("maps available install state", () => {
+    expect(resolveExtensionInventoryGroup(baseItem({ installState: "available" }))).toBe("available");
+  });
+
+  test("maps installed local items to ready", () => {
+    expect(resolveExtensionInventoryGroup(baseItem())).toBe("ready");
+  });
+
+  test("maps org connection readiness", () => {
+    expect(resolveExtensionInventoryGroup(baseItem({
+      source: "org-connection",
+      installState: "available",
+      orgMcpConnection: orgMcpConnection({ connectedForMe: false }),
+    }))).toBe("needs_signin");
+  });
+});
