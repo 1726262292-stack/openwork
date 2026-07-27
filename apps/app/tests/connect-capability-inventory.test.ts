@@ -277,4 +277,55 @@ describe("assigned OpenWork Connect capability inventory", () => {
     expect(byName["Windows skill"]?.trigger).toBe("escalate-ticket");
     expect(byName["Loose skill"]?.trigger).toBeUndefined();
   });
+
+  test("merges usable org MCP connections into the composer inventory", async () => {
+    const inventory = await listAssignedConnectCapabilities({
+      organizationId: "org_1",
+      client: {
+        listOrgMarketplaces: async () => [],
+        getOrgMarketplaceResolved: async () => {
+          throw new Error("unused");
+        },
+        getOrgPluginResolved: async () => {
+          throw new Error("unused");
+        },
+        listMcpConnections: async () => [
+          {
+            id: "conn_gmail",
+            name: "Gmail",
+            url: "https://mcp.gmail.example/sse",
+            authType: "oauth",
+            credentialMode: "per_member",
+            connected: false,
+            connectedAt: null,
+            connectedForMe: false,
+          },
+          {
+            id: "conn_notion",
+            name: "Notion",
+            url: "https://mcp.notion.com/mcp",
+            authType: "oauth",
+            credentialMode: "per_member",
+            connected: true,
+            connectedAt: "2026-01-01T00:00:00.000Z",
+            connectedForMe: true,
+          },
+          {
+            id: "conn_shared_pending",
+            name: "Shared pending",
+            url: "https://mcp.shared.example/sse",
+            authType: "oauth",
+            credentialMode: "shared",
+            connected: false,
+            connectedAt: null,
+            connectedForMe: false,
+          },
+        ],
+      },
+    });
+
+    expect(inventory.mcpServers.map((server) => server.name)).toEqual(["Gmail", "Notion"]);
+    expect(inventory.mcpStatuses["openwork-connect:connection:conn_gmail"]).toEqual({ status: "needs_auth" });
+    expect(inventory.mcpStatuses["openwork-connect:connection:conn_notion"]).toEqual({ status: "connected" });
+  });
 });

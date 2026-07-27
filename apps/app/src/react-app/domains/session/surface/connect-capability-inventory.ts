@@ -1,4 +1,5 @@
 import type {
+  DenExternalMcpConnection,
   DenOrgMarketplace,
   DenOrgMarketplaceResolved,
   DenOrgPlugin,
@@ -18,6 +19,10 @@ type ConnectCapabilityClient = {
     organizationId: string,
     plugin: DenOrgPlugin,
   ) => Promise<DenOrgPluginResolved>;
+  listMcpConnections?: (
+    organizationId: string,
+    scope?: "usable" | "manageable",
+  ) => Promise<DenExternalMcpConnection[]>;
 };
 
 export type ConnectCapabilityInventory = {
@@ -147,6 +152,86 @@ function toMcpEntries(
   });
 }
 
+function normalizeConnectionUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "").toLowerCase();
+  } catch {
+    return value.trim().replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+/** Per-member connections always show; shared ones only once the org has connected them. */
+export function orgConnectionVisibleInComposer(connection: DenExternalMcpConnection) {
+  return connection.credentialMode === "per_member" || connection.connected;
+}
+
+export function orgConnectionToComposerMcp(
+  connection: DenExternalMcpConnection,
+): { entry: McpServerEntry; status: McpStatus } {
+  const id = `openwork-connect:connection:${connection.id}`;
+  let status: McpStatus;
+  if (connection.credentialMode === "shared") {
+    status = connection.connected
+      ? { status: "connected" }
+      : { status: "failed", error: "Organization setup is required." };
+  } else if (connection.connectedForMe && !connection.needsReconnect) {
+    status = { status: "connected" };
+  } else {
+    status = { status: "needs_auth" };
+  }
+  return {
+    entry: {
+      id,
+      name: connection.name,
+      config: { type: "remote", url: connection.url },
+      origin: "openwork-connect",
+      marketplaceName: "Your organization",
+      pluginName: connection.credentialMode === "shared" ? "Shared connection" : "Your account",
+    },
+    status,
+  };
+}
+
+function mergeOrgConnectionsIntoInventory(
+  inventory: ConnectCapabilityInventory,
+  connections: DenExternalMcpConnection[],
+): ConnectCapabilityInventory {
+  const existingUrls = new Set(
+    inventory.mcpServers
+      .map((server) => (typeof server.config.url === "string" ? normalizeConnectionUrl(server.config.url) : ""))
+      .filter(Boolean),
+  );
+  const mcpServers = [...inventory.mcpServers];
+  const mcpStatuses = { ...inventory.mcpStatuses };
+
+  for (const connection of connections) {
+    if (!orgConnectionVisibleInComposer(connection)) continue;
+    const url = normalizeConnectionUrl(connection.url);
+    const mapped = orgConnectionToComposerMcp(connection);
+    const statusKey = mapped.entry.id ?? mapped.entry.name;
+
+    // Same URL already listed from a marketplace plugin — keep the plugin row,
+    // but prefer the live connection status so "Sign in needed" is accurate.
+    if (url && existingUrls.has(url)) {
+      const existing = mcpServers.find((server) =>
+        typeof server.config.url === "string" && normalizeConnectionUrl(server.config.url) === url
+      );
+      if (existing) {
+        mcpStatuses[existing.id ?? existing.name] = mapped.status;
+      }
+      continue;
+    }
+
+    mcpServers.push(mapped.entry);
+    mcpStatuses[statusKey] = mapped.status;
+    if (url) existingUrls.add(url);
+  }
+
+  mcpServers.sort((left, right) => left.name.localeCompare(right.name));
+  return { ...inventory, mcpServers, mcpStatuses };
+}
+
 export async function listAssignedConnectCapabilities(input: {
   client: ConnectCapabilityClient;
   organizationId: string;
@@ -196,5 +281,13 @@ export async function listAssignedConnectCapabilities(input: {
 
   skills.sort((left, right) => left.name.localeCompare(right.name));
   mcpServers.sort((left, right) => left.name.localeCompare(right.name));
-  return { skills, mcpServers, mcpStatuses };
+  const inventory = { skills, mcpServers, mcpStatuses };
+
+  if (!input.client.listMcpConnections) return inventory;
+  try {
+    const connections = await input.client.listMcpConnections(input.organizationId, "usable");
+    return mergeOrgConnectionsIntoInventory(inventory, connections);
+  } catch {
+    return inventory;
+  }
 }

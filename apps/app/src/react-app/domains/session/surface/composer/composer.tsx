@@ -1564,35 +1564,54 @@ export function ReactSessionComposer(props: ComposerProps) {
                               ) : null}
                               {activeMcpItems.length > 0 ? (
                                 <div className={`grid gap-1 ${composerExtensions.length > 0 ? "mt-2 border-t border-dls-border pt-2" : ""}`}>
-                                  {activeMcpItems.map(({ entry, status }) => (
-                                    <div key={entry.id ?? entry.name} className="flex items-start gap-3 rounded-[16px] px-3 py-2.5 text-gray-11">
-                                      <Plug size={14} className="mt-0.5 shrink-0 text-gray-9" />
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div className="truncate text-xs font-semibold text-gray-11">{entry.name}</div>
-                                          <div className="flex shrink-0 items-center gap-1">
-                                            {isLocalCapability(entry.origin) ? (
-                                              <span className="rounded-full bg-gray-3 px-2 py-0.5 text-[10px] font-medium text-gray-11">
-                                                {t("composer.source_local")}
+                                  {activeMcpItems.map(({ entry, status }) => {
+                                    const needsSetup = status === "needs_auth" || status === "needs_client_registration";
+                                    const openExtensions = () => props.onOpenSettingsSection?.("mcps");
+                                    const rowClassName = "flex w-full items-start gap-3 rounded-[16px] px-3 py-2.5 text-left text-gray-11 transition-colors hover:bg-gray-2/70";
+                                    const body = (
+                                      <>
+                                        <Plug size={14} className="mt-0.5 shrink-0 text-gray-9" />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="truncate text-xs font-semibold text-gray-11">{entry.name}</div>
+                                            <div className="flex shrink-0 items-center gap-1">
+                                              {isLocalCapability(entry.origin) ? (
+                                                <span className="rounded-full bg-gray-3 px-2 py-0.5 text-[10px] font-medium text-gray-11">
+                                                  {t("composer.source_local")}
+                                                </span>
+                                              ) : null}
+                                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${mcpStatusBadgeClass(status)}`}>
+                                                {formatMcpStatusLabel(status)}
                                               </span>
-                                            ) : null}
-                                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${mcpStatusBadgeClass(status)}`}>
-                                              {formatMcpStatusLabel(status)}
-                                            </span>
+                                            </div>
+                                          </div>
+                                          <div className="truncate text-xs text-gray-10">
+                                            {entry.origin === "openwork-connect"
+                                              ? [entry.marketplaceName, entry.pluginName].filter(Boolean).join(" · ")
+                                                || entry.config.url
+                                                || "Remote app"
+                                              : entry.config.type === "remote"
+                                                ? entry.config.url ?? entry.config.command?.join(" ") ?? "Remote app"
+                                                : entry.config.command?.join(" ") ?? "Local app"}
                                           </div>
                                         </div>
-                                        <div className="truncate text-xs text-gray-10">
-                                          {entry.origin === "openwork-connect"
-                                            ? [entry.marketplaceName, entry.pluginName].filter(Boolean).join(" · ")
-                                              || entry.config.url
-                                              || "Remote app"
-                                            : entry.config.type === "remote"
-                                              ? entry.config.url ?? entry.config.command?.join(" ") ?? "Remote app"
-                                              : entry.config.command?.join(" ") ?? "Local app"}
-                                        </div>
+                                      </>
+                                    );
+                                    return needsSetup && props.onOpenSettingsSection ? (
+                                      <button
+                                        key={entry.id ?? entry.name}
+                                        type="button"
+                                        className={rowClassName}
+                                        onClick={openExtensions}
+                                      >
+                                        {body}
+                                      </button>
+                                    ) : (
+                                      <div key={entry.id ?? entry.name} className={rowClassName}>
+                                        {body}
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               ) : null}
                               {composerExtensions.length === 0 && activeMcpItems.length === 0 ? (
