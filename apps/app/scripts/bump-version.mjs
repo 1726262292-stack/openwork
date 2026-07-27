@@ -61,28 +61,17 @@ const updatePackageJson = async (nextVersion) => {
   const uiPath = path.join(ROOT, "package.json");
   const tauriPath = path.join(REPO_ROOT, "apps", "desktop", "package.json");
   const serverPath = path.join(REPO_ROOT, "apps", "server", "package.json");
-  const installerPath = path.join(
-    REPO_ROOT,
-    "apps",
-    "installer",
-    "package.json",
-  );
   const uiData = await readJson(uiPath);
   const tauriData = await readJson(tauriPath);
   const serverData = await readJson(serverPath);
-  const installerData = await readJson(installerPath);
   uiData.version = nextVersion;
   tauriData.version = nextVersion;
-  // The installer stamps this version into its artifacts when a release build
-  // has no tag to resolve from.
-  installerData.version = nextVersion;
 
   serverData.version = nextVersion;
   if (!isDryRun) {
     await writeFile(uiPath, JSON.stringify(uiData, null, 2) + "\n");
     await writeFile(tauriPath, JSON.stringify(tauriData, null, 2) + "\n");
     await writeFile(serverPath, JSON.stringify(serverData, null, 2) + "\n");
-    await writeFile(installerPath, JSON.stringify(installerData, null, 2) + "\n");
   }
 };
 
@@ -127,7 +116,6 @@ const main = async () => {
           "apps/app/package.json",
           "apps/desktop/package.json",
           "apps/server/package.json",
-          "apps/installer/package.json",
           "ee/apps/den-api/src/generated/desktop-versions.ts",
         ],
       },
