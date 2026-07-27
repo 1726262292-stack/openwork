@@ -89,7 +89,7 @@ export type ExtensionDetailModalProps = {
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
-  mcp: "MCP Server",
+  mcp: "App",
   plugin: "Plugin",
   skill: "Skill",
   "ui-control": "UI Control",
