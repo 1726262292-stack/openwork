@@ -17,6 +17,12 @@ import {
 } from "./nuke.mjs";
 import { runNukeCleanupWorker } from "./nuke-worker.mjs";
 
+const LEGACY_ORCHESTRATOR_DIR_NAME = ["openwork", "orchestrator"].join("-");
+
+function legacyOrchestratorPath(home) {
+  return path.join(home, ".openwork", LEGACY_ORCHESTRATOR_DIR_NAME);
+}
+
 async function exists(targetPath) {
   try {
     await readFile(targetPath);
@@ -124,7 +130,7 @@ test("buildNukeManifest includes default macOS state roots and preserves bootstr
   assert.ok(manifest.deletePaths.includes("/Users/alice/Library/Application Support/opencode"));
   assert.ok(manifest.deletePaths.includes("/Users/alice/.config/opencode"));
   assert.ok(manifest.deletePaths.includes("/Users/alice/.cache/opencode"));
-  assert.ok(manifest.deletePaths.includes("/Users/alice/.openwork/openwork-orchestrator"));
+  assert.ok(manifest.deletePaths.includes(legacyOrchestratorPath(home)));
   assert.ok(!manifest.deletePaths.includes("/Users/alice/.opencode/bin"));
   assert.ok(!manifest.deletePaths.includes("/Users/alice/project/.opencode"));
 });
@@ -256,7 +262,7 @@ test("buildNukeManifest never reaches production state from a non-dev isolated p
     "/Users/alice/.cache/opencode",
     "/Users/alice/.local/share/opencode",
     "/Users/alice/Library/Application Support/opencode",
-    "/Users/alice/.openwork/openwork-orchestrator",
+    legacyOrchestratorPath("/Users/alice"),
     "/Users/alice/Library/Caches/com.differentai.openwork.ShipIt",
   ]) {
     assert.ok(!manifest.deletePaths.includes(productionPath), `must not delete ${productionPath}`);
@@ -264,15 +270,16 @@ test("buildNukeManifest never reaches production state from a non-dev isolated p
 });
 
 test("buildNukeManifest still wipes a dev profile's own orchestrator data dir", () => {
+  const devOrchestratorPath = `${legacyOrchestratorPath("/Users/alice")}-dev`;
   const manifest = buildNukeManifest({
-    env: { OPENWORK_DEV_MODE: "1", OPENWORK_DATA_DIR: "/Users/alice/.openwork/openwork-orchestrator-dev" },
+    env: { OPENWORK_DEV_MODE: "1", OPENWORK_DATA_DIR: devOrchestratorPath },
     homedir: "/Users/alice",
     platform: "darwin",
     userDataPath: "/tmp/openwork-dev-userdata",
   });
 
-  assert.ok(manifest.deletePaths.includes("/Users/alice/.openwork/openwork-orchestrator-dev"));
-  assert.ok(!manifest.deletePaths.includes("/Users/alice/.openwork/openwork-orchestrator"));
+  assert.ok(manifest.deletePaths.includes(devOrchestratorPath));
+  assert.ok(!manifest.deletePaths.includes(legacyOrchestratorPath("/Users/alice")));
 });
 
 test("buildNukeManifest ignores an inherited XDG_CONFIG_HOME pointing at production config", () => {

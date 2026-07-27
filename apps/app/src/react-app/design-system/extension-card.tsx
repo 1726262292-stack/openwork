@@ -1,8 +1,11 @@
 /** @jsxImportSource react */
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
-import type { ExtensionKind } from "../../app/constants";
 import type { EnablementResult } from "../../app/extensions";
 import { t } from "../../i18n";
+import {
+  extensionTaxonomyLabel,
+  type ExtensionTaxonomy,
+} from "../domains/settings/extension-taxonomy";
 import { resolveExtensionIconUrl } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
 
@@ -15,8 +18,8 @@ export type ExtensionCardProps = {
   iconSrc?: string;
   /** Related service URL used for favicon fallback when no icon is configured. */
   url?: string;
-  /** Extension category badge. */
-  kind?: ExtensionKind;
+  /** What this row is: a local app, an account connection, an MCP server, a skill, or a plugin. */
+  taxonomy?: ExtensionTaxonomy;
   /** Whether the extension is already installed/connected. */
   connected?: boolean;
   connectedLabel?: string;
@@ -34,26 +37,24 @@ export type ExtensionCardProps = {
   beta?: boolean;
   /** Reason this item is visible but unavailable. */
   disabledReason?: string | null;
+  /** Secondary meta line under the description (e.g. "from Acme"). */
+  meta?: string | null;
   /** Action label shown at bottom. */
   actionLabel?: string;
+  /** Optional primary next-step label (signin/connect). */
+  nextActionLabel?: string;
+  /** Click handler for nextActionLabel; falls back to onClick. */
+  onNextAction?: () => void;
   /** Click handler. */
   onClick?: () => void;
 };
 
-const kindLabel: Record<ExtensionKind, string> = {
-  mcp: "MCP",
-  plugin: "Plugin",
-  skill: "Skill",
-  "ui-control": "UI Control",
-  extension: "OpenWork Extension",
-};
-
-const kindStyle: Record<ExtensionKind, string> = {
+const taxonomyStyle: Record<ExtensionTaxonomy, string> = {
+  app: "bg-teal-3 text-teal-11",
+  connection: "bg-blue-3 text-blue-11",
   mcp: "bg-dls-hover text-dls-secondary",
-  plugin: "bg-violet-3 text-violet-11",
   skill: "bg-amber-3 text-amber-11",
-  "ui-control": "bg-blue-3 text-blue-11",
-  extension: "bg-teal-3 text-teal-11",
+  plugin: "bg-violet-3 text-violet-11",
 };
 
 /**
@@ -68,7 +69,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
     iconSlug,
     iconSrc,
     url,
-    kind = "mcp",
+    taxonomy = "mcp",
     connected: connectedProp = false,
     connectedLabel = "Connected",
     enablement,
@@ -78,7 +79,10 @@ export function ExtensionCard(props: ExtensionCardProps) {
     preview = false,
     beta = false,
     disabledReason = null,
+    meta = null,
     actionLabel,
+    nextActionLabel,
+    onNextAction,
     onClick,
   } = props;
 
@@ -118,7 +122,7 @@ export function ExtensionCard(props: ExtensionCardProps) {
             ) : (
               <ExtensionMeshAvatar
                 name={name}
-                category={kind}
+                category={taxonomy}
                 className="size-7 rounded-md shadow-inner"
               />
             )}
@@ -147,8 +151,8 @@ export function ExtensionCard(props: ExtensionCardProps) {
                 Partially set up
               </span>
             ) : (
-              <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${kindStyle[kind]}`}>
-                {kindLabel[kind]}
+              <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${taxonomyStyle[taxonomy]}`}>
+                {extensionTaxonomyLabel(taxonomy)}
               </span>
             )}
             {hidden ? (
@@ -173,12 +177,26 @@ export function ExtensionCard(props: ExtensionCardProps) {
             ) : null}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
+          {meta ? (
+            <div className="mt-1 text-[11px] text-dls-secondary">{meta}</div>
+          ) : null}
           {disabledReason ? (
             <div className="mt-2 text-[11px] font-medium text-amber-11">
               {disabledReason}
             </div>
           ) : null}
-          {!disabledReason && !connecting && actionLabel ? (
+          {!disabledReason && !connecting && nextActionLabel ? (
+            <div
+              className="mt-2 text-[11px] font-medium text-dls-text transition-colors group-hover:opacity-80"
+              onClick={(event) => {
+                if (!onNextAction) return;
+                event.stopPropagation();
+                onNextAction();
+              }}
+            >
+              {nextActionLabel}
+            </div>
+          ) : !disabledReason && !connecting && actionLabel ? (
             <div className="mt-2 text-[11px] font-medium text-dls-text transition-colors group-hover:opacity-80">
               {actionLabel}
             </div>

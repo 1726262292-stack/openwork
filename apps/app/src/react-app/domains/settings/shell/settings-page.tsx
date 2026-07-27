@@ -198,11 +198,10 @@ export function getGlobalSettingsTabs(
 
 export const CLOUD_SETTINGS_TABS: SettingsTab[] = [
   "cloud-account",
-  "connect",
 ];
 
-export function isSettingsTabBeta(tab: SettingsTab) {
-  return tab === "connect";
+export function isSettingsTabBeta(_tab: SettingsTab) {
+  return false;
 }
 
 export function SettingsBetaBadge({ className }: { className?: string }) {
@@ -233,7 +232,7 @@ function SettingsSidebarTabLabel({ tab }: { tab: SettingsTab }) {
  * surfaces (sidebar + compact section menu) must use this so they can't drift.
  */
 export function getCloudSettingsTabs(memoryEnabled: boolean): SettingsTab[] {
-  return memoryEnabled ? ["cloud-account", "memory", "connect"] : CLOUD_SETTINGS_TABS;
+  return memoryEnabled ? ["cloud-account", "memory"] : CLOUD_SETTINGS_TABS;
 }
 
 type SettingsPageProps = {

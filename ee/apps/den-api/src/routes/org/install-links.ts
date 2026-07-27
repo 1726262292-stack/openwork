@@ -26,7 +26,8 @@ import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, 
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
-  desktopReleaseAssetName,
+  cloudDesktopReleaseAssetName,
+  enterpriseDesktopReleaseAssetName,
   installerReleaseAssetUrl,
   resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
@@ -94,10 +95,16 @@ const rateLimitedSchema = z.object({
 }).meta({ ref: "RateLimitedError" })
 
 type InstallPlatform = z.infer<typeof installPlatformSchema>
+type ManagedDesktopDistribution = "cloud" | "enterprise"
+
+function managedDesktopDistribution(): ManagedDesktopDistribution {
+  return env.orgMode === "multi_org" ? "cloud" : "enterprise"
+}
 
 export type InstallExperienceDependencies = {
   resolveConfiguredArtifact: typeof resolveConfiguredInstallerArtifact
   resolveDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
+  resolveCloudDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
   mintConnectGrant: typeof mintDesktopConnectGrant
   previewConnectGrant: typeof previewDesktopConnectGrant
   inspectConnectGrant: typeof inspectDesktopConnectGrant
@@ -107,13 +114,27 @@ export type InstallExperienceDependencies = {
 const defaultInstallerDependencies: InstallExperienceDependencies = {
   resolveConfiguredArtifact: resolveConfiguredInstallerArtifact,
   resolveDirectUrl: (platform, releaseTag) => {
-    const fileName = desktopReleaseAssetName(platform, releaseTag)
+    const fileName = enterpriseDesktopReleaseAssetName(platform, releaseTag)
+    return fileName ? installerReleaseAssetUrl(fileName, { releaseTag }) : OPENWORK_DOWNLOAD_URL
+  },
+  resolveCloudDirectUrl: (platform, releaseTag) => {
+    const fileName = cloudDesktopReleaseAssetName(platform, releaseTag)
     return fileName ? installerReleaseAssetUrl(fileName, { releaseTag }) : OPENWORK_DOWNLOAD_URL
   },
   mintConnectGrant: mintDesktopConnectGrant,
   previewConnectGrant: previewDesktopConnectGrant,
   inspectConnectGrant: inspectDesktopConnectGrant,
   consumeConnectGrant: consumeDesktopConnectGrant,
+}
+
+function contentDisposition(filename: string) {
+  return `attachment; filename="${filename.replace(/["\\]/g, "-")}"`
+}
+
+function installerContentType(platform: InstallPlatform) {
+  if (platform.startsWith("mac-")) return "application/x-apple-diskimage"
+  if (platform === "win-x64") return "application/vnd.microsoft.portable-executable"
+  return "application/vnd.appimage"
 }
 
 function organizationMetadataInput(value: unknown): Record<string, unknown> | string | null {
@@ -258,83 +279,6 @@ async function resolveInstallConfigForToken(token: string, request: Request) {
   }
 }
 
-function safeAttachmentSlug(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "workspace"
-}
-
-function contentDisposition(filename: string) {
-  return `attachment; filename="${filename.replace(/["\\]/g, "-")}"`
-}
-
-function installerContentType(platform: InstallPlatform) {
-  if (platform.startsWith("mac-")) return "application/x-apple-diskimage"
-  if (platform === "win-x64") return "application/vnd.microsoft.portable-executable"
-  return "application/vnd.appimage"
-}
-
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
-function installConfigEndpoint(apiUrl: string, token: string) {
-  return new URL(`/v1/install-config?token=${encodeURIComponent(token)}`, new URL(apiUrl).origin).toString()
-}
-
-function linuxInstallScript(input: { token: string; config: z.infer<typeof installConfigSchema> }) {
-  const configUrl = installConfigEndpoint(input.config.apiUrl, input.token)
-  return `#!/usr/bin/env sh
-# OpenWork Linux setup for ${input.config.clientName}.
-# Downloads no code. It writes the desktop bootstrap config, then tells you
-# where to download the current OpenWork AppImage.
-set -eu
-
-CONFIG_URL=${shellQuote(configUrl)}
-CLIENT_NAME=${shellQuote(input.config.clientName)}
-WEB_URL=${shellQuote(input.config.webUrl)}
-API_URL=${shellQuote(input.config.apiUrl)}
-DOWNLOAD_URL=${shellQuote(OPENWORK_DOWNLOAD_URL)}
-
-if command -v curl >/dev/null 2>&1; then
-  FETCH="curl -fsSL"
-elif command -v wget >/dev/null 2>&1; then
-  FETCH="wget -qO-"
-else
-  echo "OpenWork setup requires curl or wget." >&2
-  exit 1
-fi
-
-echo "Checking your OpenWork install link..."
-# shellcheck disable=SC2086
-$FETCH "$CONFIG_URL" >/dev/null
-
-CONFIG_HOME="\${XDG_CONFIG_HOME:-$HOME/.config}"
-BOOTSTRAP_DIR="$CONFIG_HOME/openwork"
-BOOTSTRAP_PATH="$BOOTSTRAP_DIR/desktop-bootstrap.json"
-mkdir -p "$BOOTSTRAP_DIR"
-
-cat > "$BOOTSTRAP_PATH" <<EOF
-{
-  "baseUrl": "$WEB_URL",
-  "apiBaseUrl": "$API_URL",
-  "requireSignin": true
-}
-EOF
-
-echo
-echo "This sets up OpenWork for $CLIENT_NAME."
-echo "Wrote $BOOTSTRAP_PATH"
-echo
-echo "Download the OpenWork AppImage here:"
-echo "  $DOWNLOAD_URL"
-echo
-echo "Run the AppImage, then sign in — your team's workspace is preconfigured."
-`
-}
-
 const setActiveOrganizationFromParam: MiddlewareHandler<{ Variables: OrgRouteVariables }> = async (c, next) => {
   const parsed = denTypeIdSchema("organization").safeParse(c.req.param("organizationId"))
   if (!parsed.success) {
@@ -457,6 +401,8 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         connectExpiresAt: handoff.connectExpiresAt,
         activationUrl: exchangeHandoff.activationUrl,
         activationExpiresAt: exchangeHandoff.connectExpiresAt,
+        desktopVersion: resolved.installerReleaseTag.replace(/^v/i, ""),
+        distribution: managedDesktopDistribution(),
       })
     },
   )
@@ -549,11 +495,11 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     "/v1/install/:platform",
     describeRoute({
       tags: ["Organizations"],
-      summary: "Download OpenWork desktop",
-      description: "Redirects cloud downloads to the standard OpenWork desktop app for the requested platform and organization-approved version. Operators can still mount installer artifacts for an air-gapped mirror.",
+      summary: "Download managed OpenWork desktop",
+      description: "Redirects hosted Cloud deployments to the sign-in-required Cloud app and private single-org deployments to the activation-required Enterprise app.",
       responses: {
-        200: textResponse("Mounted installer artifact returned successfully."),
-        302: emptyResponse("Den redirected the browser to the standard OpenWork desktop release asset."),
+        200: textResponse("Mounted desktop artifact returned successfully."),
+        302: emptyResponse("Den redirected the browser to the signed desktop asset for this deployment."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many installer download attempts.", rateLimitedSchema),
@@ -580,17 +526,10 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       }
 
       const platform = platformResult.data.platform
-      if (platform.startsWith("linux-")) {
-        return new Response(linuxInstallScript({ token: input.token, config: resolved.config }), {
-          headers: {
-            "content-type": "text/x-shellscript; charset=utf-8",
-            "content-disposition": contentDisposition(`openwork-linux-setup-${safeAttachmentSlug(resolved.organizationSlug)}.sh`),
-            "cache-control": "no-store",
-          },
-        })
-      }
-
-      const fileName = desktopReleaseAssetName(platform, resolved.installerReleaseTag)
+      const distribution = managedDesktopDistribution()
+      const fileName = distribution === "cloud"
+        ? cloudDesktopReleaseAssetName(platform, resolved.installerReleaseTag)
+        : enterpriseDesktopReleaseAssetName(platform, resolved.installerReleaseTag)
       if (!fileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported desktop platform." }] }, 400)
       }
@@ -608,7 +547,10 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         })
       }
 
-      return c.redirect(installer.resolveDirectUrl(platform, resolved.installerReleaseTag), 302)
+      const directUrl = distribution === "cloud"
+        ? installer.resolveCloudDirectUrl(platform, resolved.installerReleaseTag)
+        : installer.resolveDirectUrl(platform, resolved.installerReleaseTag)
+      return c.redirect(directUrl, 302)
     },
   )
 }

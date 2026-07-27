@@ -73,7 +73,6 @@ import "@/react-app/domains/settings/ollama-config";
 import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/browser-extension-config";
 import "@/react-app/domains/settings/openwork-voice-config";
-import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
@@ -84,7 +83,6 @@ import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
-import { ConnectView } from "@/react-app/domains/settings/pages/connect-view";
 import {
   EMPTY_CONNECT_CAPABILITY_INVENTORY,
   listAssignedConnectCapabilities,
@@ -273,6 +271,7 @@ export function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
   extensionsSection?: ExtensionsSection;
+  extensionDetailId?: string;
 } {
   const trimmed = pathname
     .replace(/^\/workspace\/[^/]+\/settings\/?/, "")
@@ -296,21 +295,33 @@ export function parseSettingsPath(pathname: string): {
     case "debug":
       return { tab: head, redirectPath: null };
     case "cloud-account":
-    case "connect":
     case "cloud-providers":
     case "memory":
       return { tab: head, redirectPath: null };
+    case "connect":
+      return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "skills":
       return { tab: "extensions", redirectPath: "extensions/skills", extensionsSection: "skills" };
+    case "mcp":
+      return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
     case "cloud-marketplaces":
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "den":
     case "cloud-workers":
       return { tab: "cloud-account", redirectPath: "cloud-account" };
     case "extensions":
-      if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
-      if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
-      if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
+      if (tail === "mcp") return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
+      if (tail === "apps" || tail === "connections" || tail === "mcps" || tail === "skills" || tail === "plugins") {
+        return { tab: "extensions", redirectPath: null, extensionsSection: tail };
+      }
+      if (tail) {
+        return {
+          tab: "extensions",
+          redirectPath: null,
+          extensionsSection: "all",
+          extensionDetailId: decodeURIComponent(tail),
+        };
+      }
       return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
     default:
       return { tab: "general", redirectPath: "general" };
@@ -367,6 +378,9 @@ function findSessionWorkspaceId(
 }
 
 function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
+  if (route.tab === "extensions" && route.extensionDetailId) {
+    return `extensions/${encodeURIComponent(route.extensionDetailId)}`;
+  }
   if (route.tab === "extensions" && route.extensionsSection && route.extensionsSection !== "all") {
     return `extensions/${route.extensionsSection}`;
   }
@@ -465,7 +479,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [localProviderBusy, setLocalProviderBusy] = useState(false);
   const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
-  const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
   const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
@@ -1020,27 +1033,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
-    if (!client) {
-      setGoogleWorkspaceConnected(false);
-      return;
-    }
-
-    let cancelled = false;
-    void client.googleWorkspaceStatus()
-      .then((result) => {
-        if (!cancelled) setGoogleWorkspaceConnected(result.connected === true);
-      })
-      .catch(() => {
-        if (!cancelled) setGoogleWorkspaceConnected(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [openworkClient, selectedWorkspaceEndpoint]);
 
   useEffect(() => {
     if (!openworkClient) {
@@ -1786,8 +1778,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     mcpServers: connectionsSnapshot.mcpServers,
     mcpConnectingName: connectionsSnapshot.mcpConnectingName,
     onComputerUsePermissionsChange: setComputerUsePermissions,
-    googleWorkspaceConnected,
-    setGoogleWorkspaceConnected,
     restartLocalServer: restartExtensionLocalServer,
     connectMcp: async (entry) => {
       await connectionsStore.connectMcp(entry);
@@ -2281,6 +2271,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
+            detailId={route.extensionDetailId ?? null}
+            onDetailIdChange={(id) => {
+              navigateSettingsPath(id ? `extensions/${encodeURIComponent(id)}` : "extensions");
+            }}
             setSectionRoute={(section) => {
               const path = section === "all" ? "extensions" : `extensions/${section}`;
               navigateSettingsPath(path);
@@ -2297,7 +2291,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void orgMcpConnections.refresh();
               void refreshConnectCapabilities();
             }}
-            mcpView={({ initialFilter, onFilterChange }) => (
+            mcpView={({ initialFilter, onFilterChange, detailId, onDetailIdChange }) => (
               <McpView
                 busy={busy}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2355,6 +2349,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
                 initialFilter={initialFilter}
                 onFilterChange={onFilterChange}
+                detailId={detailId}
+                onDetailIdChange={onDetailIdChange}
                 showHeader={false}
               />
             )}
@@ -2366,19 +2362,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <CloudAccountView
             developerMode={developerMode}
             session={denSession}
-          />
-        );
-      case "connect":
-        return (
-          <ConnectView
-            developerMode={developerMode}
-            session={denSession}
-            openworkClient={selectedWorkspaceEndpoint?.client ?? openworkClient}
-            workspaceId={runtimeWorkspaceId}
-            currentModel={currentCloudMcpModel}
-            onCloudMcpHealthChange={setCloudMcpHealth}
-            orgMcpConnections={orgMcpConnections}
-            marketplaceItems={extensionItems.cloudPluginItems}
           />
         );
       case "memory":
@@ -2507,6 +2490,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <DebugView
             {...debugViewProps}
+            agentAccess={{
+              client: selectedWorkspaceEndpoint?.client ?? openworkClient,
+              workspaceId: runtimeWorkspaceId,
+              currentModel: currentCloudMcpModel,
+              onHealthChange: setCloudMcpHealth,
+            }}
             agentContextDiagnostics={{
               scopeKey: diagnosticsScopeKey,
               available: diagnosticsAvailable,
