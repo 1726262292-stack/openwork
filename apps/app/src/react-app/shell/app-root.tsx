@@ -121,10 +121,9 @@ function DenSigninGate({ children }: DenSigninGateProps) {
     requireSignin,
   ]);
 
-  // After a fresh sign-in, navigate to the onboarding page so the
-  // user sees what their org provides.
-  // Poll for activeOrgId (set asynchronously by refreshOrgs) rather
-  // than using a fixed delay — handles both fast and slow org lookups.
+  // After a fresh sign-in, navigate to the onboarding page so the user sees
+  // their signed-in org state. Do not wait for an active org: first-run users
+  // may not belong to one yet, and must not remain on the signed-out welcome.
   useEffect(() => {
     const handler = (event: WindowEventMap[typeof denSessionUpdatedEvent]) => {
       if (event.detail?.status !== "success") return;
@@ -132,10 +131,11 @@ function DenSigninGate({ children }: DenSigninGateProps) {
       const check = () => {
         attempts++;
         const settings = readDenSettings();
-        if (settings.authToken?.trim() && settings.activeOrgId?.trim()) {
+        if (settings.authToken?.trim()) {
           navigate("/onboarding", { replace: true });
         } else if (attempts < 10) {
-          // Org not selected yet — retry (max ~5 seconds)
+          // Session persistence should already be done, but retry briefly in
+          // case another consumer is still applying the handoff result.
           setTimeout(check, 500);
         }
       };
