@@ -149,6 +149,15 @@ jobs:
               -e DB_MODE=mysql
               -e DATABASE_URL=mysql://smoke:smoke@127.0.0.1:3306/smoke
               -e DEN_DB_ENCRYPTION_KEY=ci-den-db-encryption-key-value-123456
+          # The gateway's own liveness lives at /__gw/health because /health is
+          # proxied through to the user's instance.
+          - image: openwork-den-gateway
+            dockerfile: packaging/docker/Dockerfile.den-gateway
+            port: 8788
+            health_path: /__gw/health
+            smoke_env: >-
+              -e DEN_API_BASE=http://127.0.0.1:9
+              -e DEN_GATEWAY_KEY=ci-den-gateway-key-value-123456
 
     steps:
       - name: Checkout
