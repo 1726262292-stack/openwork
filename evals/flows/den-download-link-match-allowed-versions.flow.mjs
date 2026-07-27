@@ -4,12 +4,10 @@ const FLOW_ID = "den-download-link-match-allowed-versions";
 const DEN_API_URL = cleanBaseUrl(process.env.OPENWORK_EVAL_DEN_API_URL);
 const DEN_TOKEN = process.env.OPENWORK_EVAL_DEN_TOKEN?.trim() || "";
 const MEMBER_TOKEN = process.env.OPENWORK_EVAL_MEMBER_DEN_TOKEN?.trim() || DEN_TOKEN;
-const LATEST_WINDOWS_INSTALLER_URL = "https://github.com/different-ai/openwork/releases/latest/download/OpenWork-Installer-win-x64.exe";
 const ALLOWED_VERSIONS = ["0.17.37", "0.17.38"];
 const SELECTED_VERSION = "0.17.38";
 const DISALLOWED_VERSION = "0.17.39";
 const LEGACY_ALLOWED_VERSIONS = ["0.17.26", "0.17.27"];
-const FIRST_GENERIC_INSTALLER_VERSION = "0.17.37";
 
 // Narration is loaded from the approved script (evals/voiceovers/den-download-link-match-allowed-versions.md).
 // The runner fails this flow if the narration drifts from that script.
@@ -199,9 +197,9 @@ export default {
       },
     },
     {
-      name: "Frame 4 — Legacy pins still get an installer binary that exists",
+      name: "Frame 4 — Legacy pins stay on their selected desktop version",
       run: async (ctx) => {
-        await ctx.prove("Legacy desktop-version pins download the first generic installer release instead of a missing legacy asset", {
+        await ctx.prove("Legacy desktop-version pins redirect to their matching standard desktop release", {
           voiceover: vo[3],
           action: async () => {
             await setAllowedDesktopVersions(ctx, LEGACY_ALLOWED_VERSIONS);
@@ -210,8 +208,8 @@ export default {
           },
           assert: async () => {
             witness(ctx, [200, 302].includes(state.legacyDownload.status), "The legacy-pinned installer endpoint returns a download or redirect", state.legacyDownload);
-            witness(ctx, downloadMentionsVersion(state.legacyDownload, FIRST_GENERIC_INSTALLER_VERSION), "The legacy-pinned download uses the first release with installer assets", state.legacyDownload);
-            witness(ctx, !downloadMentionsVersion(state.legacyDownload, "0.17.27"), "The legacy-pinned download does not point at the missing v0.17.27 installer asset", state.legacyDownload);
+            witness(ctx, downloadMentionsVersion(state.legacyDownload, "0.17.27"), "The legacy-pinned download uses the selected standard desktop release", state.legacyDownload);
+            witness(ctx, !downloadMentionsVersion(state.legacyDownload, "0.17.37"), "The legacy-pinned download is not clamped to a later release", state.legacyDownload);
           },
         });
       },
@@ -219,7 +217,7 @@ export default {
     {
       name: "Frame 5 — Unrestricted orgs follow the latest published release",
       run: async (ctx) => {
-        await ctx.prove("Removing the allowed-version restriction redirects to GitHub's latest published installer", {
+        await ctx.prove("Removing the allowed-version restriction redirects to a standard desktop release asset", {
           voiceover: vo[4],
           action: async () => {
             await setAllowedDesktopVersions(ctx, null);
@@ -228,7 +226,7 @@ export default {
           },
           assert: async () => {
             witness(ctx, state.unrestrictedDownload.status === 302, "The unrestricted installer endpoint redirects to GitHub", state.unrestrictedDownload);
-            witness(ctx, state.unrestrictedDownload.location === LATEST_WINDOWS_INSTALLER_URL, "The unrestricted download follows the latest published installer release", state.unrestrictedDownload);
+            witness(ctx, String(state.unrestrictedDownload.location ?? "").includes("/openwork-win-x64-"), "The unrestricted download follows a standard Windows desktop release asset", state.unrestrictedDownload);
           },
         });
       },

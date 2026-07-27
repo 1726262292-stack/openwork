@@ -439,7 +439,7 @@ test("mounted artifact lookup keeps serving the exact Windows installer filename
   }
   const artifactFileNames: string[] = []
   const installer = Buffer.from("signed-standard-windows-installer", "utf8")
-  const artifactPath = path.join(mkdtempSync(path.join(os.tmpdir(), "openwork-installer-route-")), "installer.exe")
+  const artifactPath = path.join(mkdtempSync(path.join(os.tmpdir(), "openwork-install-route-")), "installer.exe")
   writeFileSync(artifactPath, installer)
 
   const response = await createApp({
@@ -448,9 +448,9 @@ test("mounted artifact lookup keeps serving the exact Windows installer filename
   }).request("http://den.local/v1/install/win-x64?token=opaque-token")
 
   expect(response.status).toBe(200)
-  expect(artifactFileNames).toEqual(["OpenWork-Installer-win-x64.exe"])
+  expect(artifactFileNames).toEqual(["openwork-win-x64-0.17.27.exe"])
   expect(response.headers.get("content-type")).toBe("application/vnd.microsoft.portable-executable")
-  expect(response.headers.get("content-disposition")).toContain("OpenWork-Installer-win-x64.exe")
+  expect(response.headers.get("content-disposition")).toContain("openwork-win-x64-0.17.27.exe")
   expect(response.headers.get("content-disposition")).not.toContain("opaque-token")
   expect(Buffer.from(await response.arrayBuffer())).toEqual(installer)
 })
@@ -539,7 +539,7 @@ test("install token organization policy applies to member and admin downloads", 
   }
 })
 
-test("configured desktop release tags are not clamped to the generic-installer floor", async () => {
+test("configured desktop release tags are not clamped to a legacy release floor", async () => {
   envModule.env.installerReleaseTagExplicit = true
   envModule.env.installerReleaseTag = "v0.17.27"
   organizationMetadata = {
@@ -605,7 +605,7 @@ test.each(["linux-x64", "linux-arm64"])(
 
 test("guided semi-air-gapped mac downloads keep returning a provisioned installer DMG", async () => {
   const installer = Buffer.from("signed-standard-mac-installer", "utf8")
-  const artifactPath = path.join(mkdtempSync(path.join(os.tmpdir(), "openwork-installer-route-")), "installer.dmg")
+  const artifactPath = path.join(mkdtempSync(path.join(os.tmpdir(), "openwork-install-route-")), "installer.dmg")
   writeFileSync(artifactPath, installer)
   const response = await createApp({
     configuredArtifact: { filePath: artifactPath, size: installer.byteLength },
@@ -615,7 +615,7 @@ test("guided semi-air-gapped mac downloads keep returning a provisioned installe
 
   expect(response.status).toBe(200)
   expect(response.headers.get("content-type")).toBe("application/x-apple-diskimage")
-  expect(response.headers.get("content-disposition")).toContain("OpenWork-Installer-mac-arm64.dmg")
+  expect(response.headers.get("content-disposition")).toContain("openwork-mac-arm64-9.9.9.dmg")
   expect(response.headers.get("content-disposition")).not.toContain("opaque-token")
   expect(Buffer.from(await response.arrayBuffer())).toEqual(installer)
 })

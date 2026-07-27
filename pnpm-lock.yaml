@@ -269,18 +269,6 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0
 
-  apps/installer:
-    dependencies:
-      '@openwork/install-config':
-        specifier: workspace:*
-        version: link:../../packages/install-config
-      '@openwork/paths':
-        specifier: workspace:*
-        version: link:../../packages/paths
-      webview-bun:
-        specifier: 2.4.0
-        version: 2.4.0
-
   apps/orchestrator:
     dependencies:
       '@opencode-ai/sdk':
@@ -9314,9 +9302,6 @@ packages:
     peerDependenciesMeta:
       webpack-cli:
         optional: true
-
-  webview-bun@2.4.0:
-    resolution: {integrity: sha512-0+ugnQlcUHmuW+iLeb+Lzb8rGUJh7WEdXvNsuvaVEXT3EagK380XdD7heVJu0Ek/mNxMY3G2JM142YRQ1hDUGQ==}
 
   whatwg-url@5.0.0:
     resolution: {integrity: sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==}
@@ -18454,8 +18439,6 @@ snapshots:
       - lightningcss
       - postcss
       - uglify-js
-
-  webview-bun@2.4.0: {}
 
   whatwg-url@5.0.0:
     dependencies:

@@ -1,6 +1,5 @@
 import { z } from "zod"
 
-export const INSTALL_SIDECAR_FILENAME = "openwork-installer.json"
 export const DESKTOP_BOOTSTRAP_FILENAME = "desktop-bootstrap.json"
 
 export const installConfigSchema = z.object({

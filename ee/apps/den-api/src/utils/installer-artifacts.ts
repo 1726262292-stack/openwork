@@ -9,9 +9,6 @@ export type ConfiguredInstallerArtifact = {
 }
 
 export const DEFAULT_INSTALLER_RELEASE_REPO = "different-ai/openwork"
-// First GitHub release tag on different-ai/openwork that carries the OpenWork-Installer-* assets;
-// earlier tags have no installer assets so redirects to them 404.
-export const FIRST_GENERIC_INSTALLER_RELEASE = "0.17.37"
 
 export function installerReleaseAssetUrl(
   fileName: string,
@@ -27,7 +24,7 @@ export function installerLatestReleaseAssetUrl(
   options: { releaseRepo?: string } = {},
 ) {
   const releaseRepo = options.releaseRepo ?? env.installerReleaseRepo
-  // GitHub latest only flips when publish-release un-drafts, which is gated on installer assets,
+  // GitHub latest only flips when publish-release un-drafts, which is gated on desktop assets,
   // so this URL cannot 404 during a release window.
   return `https://github.com/${releaseRepo}/releases/latest/download/${encodeURIComponent(fileName)}`
 }
@@ -45,19 +42,6 @@ export function desktopReleaseAssetName(platform: string, releaseTag: string) {
   }
   if (platform === "linux-arm64") {
     return `openwork-linux-arm64-${version}.AppImage`
-  }
-  return null
-}
-
-export function genericInstallerArtifactName(platform: string) {
-  if (platform === "mac-arm64") {
-    return "OpenWork-Installer-mac-arm64.dmg"
-  }
-  if (platform === "mac-x64") {
-    return "OpenWork-Installer-mac-x64.dmg"
-  }
-  if (platform === "win-x64") {
-    return "OpenWork-Installer-win-x64.exe"
   }
   return null
 }

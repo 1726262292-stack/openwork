@@ -1,14 +1,13 @@
 "use client";
 
 import { detectPlatform, DownloadPlatformGrid, type DetectedPlatform, type DownloadPlatformGroup, type DownloadPlatformOption } from "@openwork/ui/react";
-import { ChevronDown, Download, ShieldCheck } from "lucide-react";
+import { ChevronDown, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { requestJson } from "../_lib/den-flow";
 import { getInstallConfigErrorMessage } from "../_lib/install-errors";
-import { buildInstallDownloadHref, installerFileName, type InstallPlatform } from "../_lib/install-download";
+import { buildInstallDownloadHref, type InstallPlatform } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
-import { InstallerPreview } from "./installer-preview";
 import { OnboardingShell } from "./onboarding-shell";
 import { OrganizationBrandIdentity } from "./organization-brand-identity";
 
@@ -53,17 +52,15 @@ function installerOsFor(platform: InstallPlatform | null, detected: DetectedPlat
   return detected?.os ?? null;
 }
 
-/** Copy for opening the downloaded installer, per operating system. */
-function openGuidance(os: InstallerOs | null, appName: string, fileName: string | null): OpenGuidance {
-  const openFile = fileName
-    ? `Double-click ${fileName} in Downloads.`
-    : `Open the ${appName} installer in your Downloads folder.`;
+/** Copy for opening the downloaded desktop installer, per operating system. */
+function openGuidance(os: InstallerOs | null, appName: string): OpenGuidance {
+  const openFile = `Open the ${appName} installer from Downloads.`;
 
   if (os === "macos") {
     return {
       // The disk image holds only "Install OpenWork" — there is no Applications
       // shortcut to drag onto. That app is the installer, and it installs the app.
-      actions: [openFile, `In the window that opens, double-click Install OpenWork, then choose Install.`],
+      actions: [openFile, `Follow the macOS prompts to install ${appName}, then open it.`],
       trust: {
         title: "macOS may ask before it opens the installer",
         body: "If you see “unidentified developer”, choose Open. This is normal for a new app.",
@@ -72,7 +69,7 @@ function openGuidance(os: InstallerOs | null, appName: string, fileName: string 
   }
   if (os === "windows") {
     return {
-      actions: [openFile, `Choose Install in the installer window.`],
+      actions: [openFile, `Follow the Windows prompts to install ${appName}, then open it.`],
       trust: {
         title: "Windows may warn before it opens the installer",
         body: "If you see “Windows protected your PC”, choose More info, then Run anyway.",
@@ -89,7 +86,7 @@ function openGuidance(os: InstallerOs | null, appName: string, fileName: string 
     };
   }
   return {
-    actions: [openFile, `Choose Install in the installer window.`],
+    actions: [openFile, `Follow the prompts to install ${appName}, then open it.`],
     trust: {
       title: "Your computer may ask before it opens the installer",
       body: "If you see a warning about an app from the internet, choose to open it anyway. This is normal for a new app.",
@@ -574,8 +571,7 @@ export function InstallScreen() {
     );
   }
 
-  const installerFile = installerFileName(downloadPlatform ?? detectedInstallPlatform(detected));
-  const guidance = openGuidance(installerOsFor(downloadPlatform, detected), config.appName, installerFile);
+  const guidance = openGuidance(installerOsFor(downloadPlatform, detected), config.appName);
 
   return (
     <OnboardingShell state="install" width="full">
@@ -609,7 +605,7 @@ export function InstallScreen() {
               index={1}
               state={guideStep > 1 ? "complete" : "active"}
               title="Download the OpenWork installer"
-              description="It's a small setup app. When the download finishes, open it and keep this page open."
+              description="When the download finishes, install the desktop app and keep this page open."
               expanded={expandedStep === 1}
               onExpand={() => setExpandedStep(1)}
               testId="install-guide-step-download"
@@ -654,27 +650,15 @@ export function InstallScreen() {
               title="Continue on your computer"
               description={guideStep < 2
                 ? `Only continue once ${config.appName} is installed and running on this computer.`
-                : `Your download is done. Open the file on this computer — the installer takes it from there.`}
+                : `Your download is done. Install and open ${config.appName} on this computer.`}
               expanded={expandedStep === 2 && guideStep >= 2}
               onExpand={() => setExpandedStep(2)}
               testId="install-guide-step-open"
             >
-                  <div className="grid gap-5 lg:grid-cols-2">
+                  <div className="grid gap-5">
                     <div className="grid content-start gap-3 rounded-[14px] border border-[#e1e4e8] bg-white p-[18px]">
                       <p className="m-0 text-xs font-semibold uppercase tracking-[0.04em] text-[#667085]">Next, on your computer</p>
                       <p className="m-0 text-base font-semibold text-[#101828]">Open the file you just downloaded</p>
-
-                      {installerFile ? (
-                        <div className="flex items-center gap-2.5 rounded-[10px] border border-[#e1e4e8] bg-[#fafbfc] px-3 py-2.5" data-testid="install-file-chip">
-                          <span className="grid size-[30px] shrink-0 place-items-center rounded-lg border border-[#e1e4e8] bg-white" aria-hidden="true">
-                            <Download className="size-[15px] text-[#344054]" />
-                          </span>
-                          <span className="grid min-w-0 gap-0.5">
-                            <span className="truncate text-[13px] font-semibold text-[#101828]">{installerFile}</span>
-                            <span className="text-xs text-[#60646c]">Saved in your Downloads folder</span>
-                          </span>
-                        </div>
-                      ) : null}
 
                       <ol className="m-0 grid list-none gap-2.5 p-0">
                         {guidance.actions.map((action, index) => (
@@ -702,8 +686,8 @@ export function InstallScreen() {
                           <span className="size-1.5 rounded-full bg-[#3e63dd]" />
                         </span>
                         <span className="grid gap-0.5">
-                          <span className="text-[13px] font-semibold leading-[17px] text-[#1f3d8f]">The installer continues from here</span>
-                          <span className="text-[13px] leading-[17px] text-[#3a4e80]">It installs {config.appName} and opens a sign-in page in your browser so you can approve this computer.</span>
+                          <span className="text-[13px] font-semibold leading-[17px] text-[#1f3d8f]">{config.appName} continues from here</span>
+                          <span className="text-[13px] leading-[17px] text-[#3a4e80]">Open the app, then use this page or the pasted link to approve this computer.</span>
                         </span>
                       </div>
 
@@ -749,11 +733,6 @@ export function InstallScreen() {
                         </button>
                       </details>
                     </div>
-                    <InstallerPreview
-                      appName={config.appName}
-                      iconUrl={config.iconUrl}
-                      activationLinkHint={`${config.webUrl.replace(/\/+$/, "")}/activate?token=…`}
-                    />
                   </div>
 
                   {connectError ? <p className="m-0 text-sm text-red-600" role="alert">{connectError}</p> : null}

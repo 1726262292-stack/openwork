@@ -69,9 +69,8 @@ const releaseWithAssets = (assets: GithubFixtureAsset[]): GithubFixtureRelease =
   assets
 });
 
-const expectNoInstallerUrl = (url: string) => {
+const expectDownloadUrl = (url: string) => {
   expect(url.length).toBeGreaterThan(0);
-  expect(url.toLowerCase()).not.toContain("installer");
 };
 
 afterEach(() => {
@@ -79,16 +78,13 @@ afterEach(() => {
 });
 
 describe("getGithubData", () => {
-  test("selects only public desktop assets when installer assets are listed first", async () => {
+  test("selects public desktop assets from the latest release", async () => {
     const macArm64 = asset("openwork-mac-arm64-0.17.38.dmg");
     const macX64 = asset("openwork-mac-x64-0.17.38.dmg");
     const winArm64 = asset("openwork-win-arm64-0.17.38.exe");
     const winX64 = asset("openwork-win-x64-0.17.38.exe");
     const linuxX64 = asset("openwork-linux-x86_64-0.17.38.AppImage");
     const release = releaseWithAssets([
-      asset("OpenWork-Installer-mac-arm64.dmg"),
-      asset("OpenWork-Installer-mac-x64.dmg"),
-      asset("OpenWork-Installer-win-x64.exe"),
       macArm64,
       macX64,
       winArm64,
@@ -100,9 +96,9 @@ describe("getGithubData", () => {
 
     const data = await getGithubData();
 
-    expectNoInstallerUrl(data.downloads.macos);
-    expectNoInstallerUrl(data.downloads.windows);
-    expectNoInstallerUrl(data.downloads.linux);
+    expectDownloadUrl(data.downloads.macos);
+    expectDownloadUrl(data.downloads.windows);
+    expectDownloadUrl(data.downloads.linux);
     expect(data.installers.macos.appleSilicon).toBe(macArm64.browser_download_url);
     expect(data.installers.macos.intel).toBe(macX64.browser_download_url);
     expect(data.installers.windows.x64).toBe(winX64.browser_download_url);
@@ -110,12 +106,8 @@ describe("getGithubData", () => {
     expect(data.releaseTag).toBe(releaseTag);
   });
 
-  test("falls back to release pages when a release contains only installer assets", async () => {
-    const release = releaseWithAssets([
-      asset("OpenWork-Installer-mac-arm64.dmg"),
-      asset("OpenWork-Installer-mac-x64.dmg"),
-      asset("OpenWork-Installer-win-x64.exe")
-    ]);
+  test("falls back to release pages when a release contains no desktop assets", async () => {
+    const release = releaseWithAssets([]);
 
     installGithubFetch({ latestRelease: release, releases: [release] });
 
@@ -135,7 +127,7 @@ describe("getGithubData", () => {
     ];
 
     for (const url of returnedUrls) {
-      expectNoInstallerUrl(url);
+      expectDownloadUrl(url);
     }
 
     expect(data.downloads).toEqual({

@@ -27,7 +27,6 @@ import { organizationCapabilityKeySchema } from "../../organization-capabilities
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
   desktopReleaseAssetName,
-  genericInstallerArtifactName,
   installerReleaseAssetUrl,
   resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
@@ -591,25 +590,22 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         })
       }
 
-      const genericFileName = genericInstallerArtifactName(platform)
-      if (genericFileName) {
-        const configuredArtifact = await installer.resolveConfiguredArtifact(genericFileName)
-        if (configuredArtifact) {
-          c.header("content-type", installerContentType(platform))
-          c.header("content-length", String(configuredArtifact.size))
-          c.header("content-disposition", contentDisposition(genericFileName))
-          c.header("cache-control", "private, max-age=300")
-          return stream(c, async (body) => {
-            for await (const chunk of createReadStream(configuredArtifact.filePath)) {
-              await body.write(chunk)
-            }
-          })
-        }
-      }
-
       const fileName = desktopReleaseAssetName(platform, resolved.installerReleaseTag)
       if (!fileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported desktop platform." }] }, 400)
+      }
+
+      const configuredArtifact = await installer.resolveConfiguredArtifact(fileName)
+      if (configuredArtifact) {
+        c.header("content-type", installerContentType(platform))
+        c.header("content-length", String(configuredArtifact.size))
+        c.header("content-disposition", contentDisposition(fileName))
+        c.header("cache-control", "private, max-age=300")
+        return stream(c, async (body) => {
+          for await (const chunk of createReadStream(configuredArtifact.filePath)) {
+            await body.write(chunk)
+          }
+        })
       }
 
       return c.redirect(installer.resolveDirectUrl(platform, resolved.installerReleaseTag), 302)

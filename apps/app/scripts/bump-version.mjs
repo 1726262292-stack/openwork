@@ -67,23 +67,13 @@ const updatePackageJson = async (nextVersion) => {
     "package.json",
   );
   const serverPath = path.join(REPO_ROOT, "apps", "server", "package.json");
-  const installerPath = path.join(
-    REPO_ROOT,
-    "apps",
-    "installer",
-    "package.json",
-  );
   const uiData = await readJson(uiPath);
   const tauriData = await readJson(tauriPath);
   const orchestratorData = await readJson(orchestratorPath);
   const serverData = await readJson(serverPath);
-  const installerData = await readJson(installerPath);
   uiData.version = nextVersion;
   tauriData.version = nextVersion;
   orchestratorData.version = nextVersion;
-  // The installer stamps this version into its artifacts when a release build
-  // has no tag to resolve from.
-  installerData.version = nextVersion;
 
   // Ensure openwork-orchestrator uses the same openwork-server version.
   orchestratorData.dependencies = orchestratorData.dependencies ?? {};
@@ -98,7 +88,6 @@ const updatePackageJson = async (nextVersion) => {
       JSON.stringify(orchestratorData, null, 2) + "\n",
     );
     await writeFile(serverPath, JSON.stringify(serverData, null, 2) + "\n");
-    await writeFile(installerPath, JSON.stringify(installerData, null, 2) + "\n");
   }
 };
 
@@ -157,7 +146,6 @@ const main = async () => {
           "apps/desktop/package.json",
           "apps/orchestrator/package.json",
           "apps/server/package.json",
-          "apps/installer/package.json",
           "ee/apps/den-api/src/generated/desktop-versions.ts",
           "pnpm-lock.yaml",
         ],
