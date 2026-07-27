@@ -2,6 +2,9 @@ import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { generateConnectLinkKeyPair, verifyConnectLinkToken } from "@openwork/connect-link/node"
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
+import { mkdtempSync, writeFileSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 
 type InstallExperienceDependencies = import("../src/routes/org/install-links.js").InstallExperienceDependencies
 
@@ -174,6 +177,8 @@ afterAll(() => {
 })
 
 function createApp(options: {
+  configuredArtifact?: { filePath: string; size: number }
+  artifactFileNames?: string[]
   grantOverrides?: Partial<Pick<InstallExperienceDependencies, "mintConnectGrant" | "previewConnectGrant" | "inspectConnectGrant" | "consumeConnectGrant">>
 } = {}) {
   const app = new Hono()
@@ -194,7 +199,16 @@ function createApp(options: {
     })
     await next()
   })
+  const shouldResolveConfiguredArtifact = options.configuredArtifact !== undefined || options.artifactFileNames !== undefined
   const overrides: Partial<InstallExperienceDependencies> = {
+    ...(shouldResolveConfiguredArtifact
+      ? {
+          resolveConfiguredArtifact: (fileName: string) => {
+            options.artifactFileNames?.push(fileName)
+            return Promise.resolve(options.configuredArtifact ?? null)
+          },
+        }
+      : {}),
     ...options.grantOverrides,
   }
   installLinkModule.registerOrgInstallLinkRoutes(app, overrides)
@@ -348,6 +362,49 @@ test("Cloud downloads resolve the matching version without forwarding the instal
   expect(response.status).toBe(302)
   expect(response.headers.get("location")).toBe(officialWindowsCloudDesktopUrl)
   expect(response.headers.get("location")).not.toContain("opaque-token")
+})
+
+test("mounted artifact lookup uses the resolved enterprise desktop filename", async () => {
+  organizationMetadata = {
+    ...defaultOrganizationMetadata(),
+    allowedDesktopVersions: ["0.17.26", "0.17.27"],
+  }
+  const artifactFileNames: string[] = []
+  const installer = Buffer.from("signed-enterprise-windows-installer", "utf8")
+  const artifactPath = path.join(mkdtempSync(path.join(os.tmpdir(), "openwork-install-route-")), "installer.exe")
+  writeFileSync(artifactPath, installer)
+
+  const response = await createApp({
+    artifactFileNames,
+    configuredArtifact: { filePath: artifactPath, size: installer.byteLength },
+  }).request("http://den.local/v1/install/win-x64?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  expect(artifactFileNames).toEqual(["openwork-enterprise-win-x64-0.17.27.exe"])
+  expect(response.headers.get("content-type")).toBe("application/vnd.microsoft.portable-executable")
+  expect(response.headers.get("content-disposition")).toContain("openwork-enterprise-win-x64-0.17.27.exe")
+  expect(response.headers.get("content-disposition")).not.toContain("opaque-token")
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(installer)
+})
+
+test("hosted Cloud mounted artifact lookup uses the resolved Cloud desktop filename", async () => {
+  envModule.env.orgMode = "multi_org"
+  const artifactFileNames: string[] = []
+  const installer = Buffer.from("signed-cloud-mac-installer", "utf8")
+  const artifactPath = path.join(mkdtempSync(path.join(os.tmpdir(), "openwork-install-route-")), "installer.dmg")
+  writeFileSync(artifactPath, installer)
+
+  const response = await createApp({
+    artifactFileNames,
+    configuredArtifact: { filePath: artifactPath, size: installer.byteLength },
+  }).request("http://den.local/v1/install/mac-arm64?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  expect(artifactFileNames).toEqual(["openwork-cloud-mac-arm64-9.9.9.dmg"])
+  expect(response.headers.get("content-type")).toBe("application/x-apple-diskimage")
+  expect(response.headers.get("content-disposition")).toContain("openwork-cloud-mac-arm64-9.9.9.dmg")
+  expect(response.headers.get("content-disposition")).not.toContain("opaque-token")
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(installer)
 })
 
 test("unordered organization allowed desktop versions select the maximum direct release URL", async () => {

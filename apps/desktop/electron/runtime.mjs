@@ -9,6 +9,12 @@ import tls from "node:tls";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 import { openworkEnvStorePath, openworkServerConfigPath, resolveWorkspaceOpencodeConfigPath } from "@openwork/paths";
+import {
+  dedupeCertificates,
+  resolveSystemCaBundle,
+  summarizeSystemCaSources,
+  systemPlatformCertificateLoader,
+} from "./system-ca.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -442,6 +448,7 @@ function loadUserEnvFile() {
 /**
  * @typedef {Object} RuntimeSystemCaTlsModule
  * @property {(type?: string) => string[]} [getCACertificates]
+ * @property {(certificates: string[]) => void} [setDefaultCACertificates]
  */
 
 /**
@@ -450,6 +457,9 @@ function loadUserEnvFile() {
  * @property {string} userDataDir
  * @property {NodeJS.ProcessEnv} [parentEnv]
  * @property {(...args: unknown[]) => void} [logInfo]
+ * @property {() => Promise<string[]>} [loadPlatformCertificates]
+ * @property {string} [platformSourceName]
+ * @property {NodeJS.Platform} [platform]
  */
 
 /**
@@ -461,6 +471,9 @@ export async function resolveSystemCaEnv({
   userDataDir,
   parentEnv = process.env,
   logInfo = console.info,
+  loadPlatformCertificates,
+  platformSourceName,
+  platform = process.platform,
 }) {
   const env = parentEnv ?? {};
   if (Object.prototype.hasOwnProperty.call(env, "NODE_EXTRA_CA_CERTS")) {
@@ -471,10 +484,30 @@ export async function resolveSystemCaEnv({
   }
 
   try {
-    if (typeof tlsModule?.getCACertificates !== "function") return {};
-    const certs = tlsModule.getCACertificates("system");
-    if (!Array.isArray(certs) || certs.length === 0) return {};
-    const pem = certs.filter((cert) => typeof cert === "string" && cert.trim()).join("\n");
+    const platformLoader = loadPlatformCertificates
+      ? { name: platformSourceName || "platform-stores", load: loadPlatformCertificates }
+      : systemPlatformCertificateLoader(platform);
+    const bundle = await resolveSystemCaBundle({
+      runtime: () => {
+        if (typeof tlsModule?.getCACertificates !== "function") return [];
+        const certs = tlsModule.getCACertificates("system");
+        return Array.isArray(certs) ? certs : [];
+      },
+      platform: platformLoader,
+    });
+    if (typeof logInfo === "function") {
+      logInfo(`OpenWork runtime: system CA bundle sources ${summarizeSystemCaSources(bundle.sources)}`);
+    }
+    if (bundle.certificates.length === 0) return {};
+    if (typeof tlsModule?.getCACertificates === "function" && typeof tlsModule?.setDefaultCACertificates === "function") {
+      try {
+        const defaultCerts = tlsModule.getCACertificates("default");
+        tlsModule.setDefaultCACertificates(dedupeCertificates([...(Array.isArray(defaultCerts) ? defaultCerts : []), ...bundle.certificates]));
+      } catch {
+        // Best-effort only; child processes still receive NODE_EXTRA_CA_CERTS.
+      }
+    }
+    const pem = bundle.certificates.join("\n");
     if (!pem) return {};
     const bundlePath = path.join(userDataDir, "system-ca-bundle.pem");
     await mkdir(path.dirname(bundlePath), { recursive: true });
