@@ -97,7 +97,7 @@ export function WorkspaceAvatarPicker({
                 key={color}
                 type="button"
                 className={cn(
-                  "size-7 rounded-[6px] ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring",
+                  "size-7 rounded-full ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring",
                   selected && "ring-2 ring-foreground",
                 )}
                 style={{ backgroundColor: color }}
