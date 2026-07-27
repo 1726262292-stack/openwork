@@ -93,6 +93,37 @@ describe("gateway Den session reflection", () => {
     ).toBe(false);
   });
 
+  test("a stored token holds the welcome surface only for transient or signed-in auth", () => {
+    expect(
+      shouldHoldWelcomeForDenSession({
+        authStatus: "checking",
+        hasStoredAuthToken: true,
+        isSignedIn: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldHoldWelcomeForDenSession({
+        authStatus: "signed_in",
+        hasStoredAuthToken: true,
+        isSignedIn: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldHoldWelcomeForDenSession({
+        authStatus: "unavailable",
+        hasStoredAuthToken: true,
+        isSignedIn: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHoldWelcomeForDenSession({
+        authStatus: "signed_out",
+        hasStoredAuthToken: true,
+        isSignedIn: false,
+      }),
+    ).toBe(false);
+  });
+
   test("gateway bootstrap snapshot identity stays stable while settings reflect the token", async () => {
     installGatewayWindow();
     await initializeDenBootstrapConfig();

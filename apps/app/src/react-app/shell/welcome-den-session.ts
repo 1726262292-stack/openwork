@@ -13,5 +13,5 @@ export function shouldHoldWelcomeForDenSession({
   hasStoredAuthToken: boolean;
   isSignedIn: boolean;
 }) {
-  return isSignedIn || (hasStoredAuthToken && authStatus !== "signed_out");
+  return isSignedIn || (hasStoredAuthToken && authStatus === "checking");
 }
