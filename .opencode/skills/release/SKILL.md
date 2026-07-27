@@ -21,7 +21,7 @@ e.g. `release/vX.Y.Z`). Confirm dev CI is green.
 pnpm bump:patch     # or bump:minor / bump:major / bump:set -- X.Y.Z
 ```
 
-This updates `apps/app`, `apps/desktop`, `apps/orchestrator`, `apps/server`
+This updates `apps/app`, `apps/desktop`, `apps/server`
 package.json versions, `ee/apps/den-api/src/generated/desktop-versions.ts`
 (den-api's `PUBLISHED_DESKTOP_VERSIONS` — the install door redirects to
 `v<PUBLISHED_DESKTOP_VERSIONS[0]>`), and `pnpm-lock.yaml`. Revert incidental

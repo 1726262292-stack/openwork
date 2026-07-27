@@ -1,5 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   preventPendingUpdaterInstall,
@@ -9,6 +13,12 @@ import {
 } from "./updater.mjs";
 
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+// Unpackaged builds resolve their version from package.json, so release bumps
+// must not require touching this test.
+const desktopVersion = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 describe("staleUpdaterStatePaths", () => {
   it("targets the ShipIt cache on macOS", { skip: process.platform !== "darwin" }, () => {
@@ -84,5 +94,32 @@ describe("release channel changes", () => {
 
     preventPendingUpdaterInstall(updater);
     assert.equal(updater.autoInstallOnAppQuit, false);
+  });
+
+  it("pins enterprise builds to their parallel stable manifest channel", async () => {
+    const handlers = new Map();
+    const userData = await mkdtemp(path.join(os.tmpdir(), "openwork-enterprise-updater-"));
+    try {
+      registerUpdaterIpc({
+        app: {
+          isPackaged: false,
+          getVersion: () => desktopVersion,
+          getPath: () => userData,
+        },
+        ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+        getMainWindow: () => null,
+        manifestChannel: "enterprise",
+      });
+
+      const setChannel = handlers.get("openwork:updater:setChannel");
+      assert.equal(typeof setChannel, "function");
+      assert.deepEqual(await setChannel(null, "alpha"), {
+        channel: "stable",
+        feedUrl: "https://github.com/different-ai/openwork/releases/latest/download",
+        currentVersion: desktopVersion,
+      });
+    } finally {
+      await rm(userData, { recursive: true, force: true });
+    }
   });
 });

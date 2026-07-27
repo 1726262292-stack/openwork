@@ -24,9 +24,11 @@ import {
   type InspectAgentDiagnosticsEngine,
 } from "./agent-context-engine-inspection.js";
 import {
+  differentialCloudVerdict,
   probeOpenworkCloudCatalog,
   type CloudCatalogProbe,
 } from "./agent-context-cloud-probe.js";
+import { readActivatedEnterpriseDenOrigin } from "./enterprise-den-origin.js";
 import {
   isCloudEndpointCertificateVerificationFailure,
   probeCloudEndpointTransport,
@@ -124,6 +126,8 @@ type DiagnosticDependencies = {
   uuid?: () => string;
   inspectEffectiveEngine?: InspectAgentDiagnosticsEngine;
   signal?: AbortSignal;
+  /** Test seam for the administrator-provisioned enterprise activation read. */
+  readActivatedEnterpriseOrigin?: (signal?: AbortSignal) => Promise<string | null>;
 };
 
 type EffectiveToolPolicyAssessment = {
@@ -530,6 +534,22 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
       handshakePerformed: probe.performed,
       requestPerformed: probe.toolsListPerformed,
       httpStatus: probe.httpStatus,
+      stage: probe.stage,
+      networkCode: probe.networkCode,
+      retryable: probe.retryable,
+      runtimeFamily: probe.runtimeFamily,
+      transport: probe.transport,
+      sessionEstablished: probe.sessionEstablished,
+      sessionCleanupAttempted: probe.cleanupAttempted,
+      sessionCleanupSucceeded: probe.cleanupSucceeded,
+      totalToolCount: probe.totalToolCount,
+      requiredToolsPresent: probe.requiredToolsPresent,
+      referenceId: probe.referenceId,
+      proxyConfigured: probe.proxyConfigured,
+      extraCaConfigured: probe.extraCaConfigured,
+      trustSource: probe.trustSource,
+      enterpriseActivationPresent: probe.enterpriseActivationPresent,
+      probeSteps: probe.steps,
     },
   };
   if (probe.status === "observed") {
@@ -560,7 +580,7 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
     case "runtime_config_unavailable":
       status = "warning";
       evidenceKind = "unavailable";
-      message = "The passive runtime configuration snapshot is unavailable, so the cloud catalog request was not started.";
+      message = "The passive runtime configuration snapshot is unavailable, so the runtime endpoint probe was not started.";
       action = "Start or repair the selected workspace runtime, then rerun diagnostics.";
       break;
     case "remote_workspace_unavailable":
@@ -578,18 +598,6 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
       message = "The selected workspace OpenWork Cloud MCP entry is disabled.";
       action = "Enable or reconnect OpenWork Cloud from Settings > Connect, then rerun diagnostics.";
       break;
-    case "cloud_tool_policy_unavailable":
-      status = "warning";
-      evidenceKind = "unavailable";
-      owner = "opencode-engine";
-      message = "Required tool visibility could not be observed from the selected engine's effective OpenWork agent, so the cloud catalog request was not started.";
-      action = "Check the selected workspace engine health and rerun diagnostics.";
-      break;
-    case "cloud_tool_policy_denied":
-      owner = "member";
-      message = "Policy evidence denies at least one required OpenWork Cloud tool, so the cloud catalog request was not started.";
-      action = "Allow the required openwork-cloud capability tool IDs in the workspace or OpenWork agent policy, then rerun diagnostics.";
-      break;
     case "cloud_mcp_not_remote":
       message = "The managed OpenWork Cloud entry is not configured as a remote MCP.";
       action = "Reconnect OpenWork Cloud to restore its managed remote configuration.";
@@ -599,8 +607,14 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
       action = "Reconnect OpenWork Cloud to restore its managed endpoint, then rerun diagnostics.";
       break;
     case "untrusted_endpoint":
-      message = "The server did not send the credentialed cloud catalog request because the Cloud endpoint origin is not in the diagnostics trust list.";
-      action = "Set OPENWORK_AGENT_DIAGNOSTICS_TRUSTED_ORIGINS on the OpenWork desktop/server process to include the Cloud endpoint origin, then rerun diagnostics.";
+      status = "warning";
+      evidenceKind = "unavailable";
+      message = probe.enterpriseActivationPresent
+        ? "The runtime endpoint probe was not performed: this installation is enterprise activated, but against a different control-plane origin than the configured OpenWork Cloud MCP. No request was sent, so this is a configuration mismatch, not a network, TLS, or MCP failure."
+        : "The runtime endpoint probe was not performed because the configured origin is not in the diagnostics trust list; no request was sent, so this is a trust-configuration state, not a network, TLS, or MCP failure.";
+      action = probe.enterpriseActivationPresent
+        ? "Reconcile the enterprise activation origin with the configured OpenWork Cloud MCP origin, or have an administrator add the exact endpoint origin to OPENWORK_AGENT_DIAGNOSTICS_TRUSTED_ORIGINS, then rerun diagnostics."
+        : "Activate this installation against your on-prem Den, or have an administrator set OPENWORK_AGENT_DIAGNOSTICS_TRUSTED_ORIGINS on the OpenWork desktop/server process to the exact endpoint origin, then rerun diagnostics.";
       break;
     case "credential_missing":
     case "duplicate_authorization":
@@ -608,76 +622,64 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
       message = "The managed OpenWork Cloud entry does not contain one unambiguous authentication value.";
       action = "Reconnect OpenWork Cloud so the client can replace the managed credential, then rerun diagnostics.";
       break;
-    case "registration_failed":
-      owner = "opencode-engine";
-      message = "The selected engine reported that this exact OpenWork Cloud registration failed, so no new egress was started.";
-      action = "Repair the selected workspace runtime registration, then rerun diagnostics.";
-      break;
-    case "registration_disabled":
-      owner = "opencode-engine";
-      message = "The selected engine reported this enabled OpenWork Cloud registration as disabled, so no new egress was started.";
-      action = "Enable the managed OpenWork Cloud MCP in the selected engine, then rerun diagnostics.";
-      break;
-    case "registration_needs_auth":
-      owner = "member";
-      message = "The selected engine reported that OpenWork Cloud needs authentication, so no new egress was started.";
-      action = "Reconnect OpenWork Cloud from Settings > Connect, then rerun diagnostics.";
-      break;
-    case "registration_needs_client_registration":
-      owner = "openwork-server";
-      message = "The selected engine reported that OpenWork Cloud needs MCP client registration, so no new egress was started.";
-      action = "Repair the selected engine MCP client-registration flow, then rerun diagnostics.";
-      break;
-    case "registration_not_recorded":
-      status = "warning";
-      owner = "opencode-engine";
-      message = "This exact runtime-managed OpenWork Cloud configuration has no current engine registration record, so no new egress was started.";
-      action = "Start the selected workspace runtime so its managed MCP registration connects, then rerun diagnostics.";
-      break;
     case "timeout":
     case "network_error":
     case "redirect_rejected":
     case "http_error":
       owner = "network-admin";
-      message = "The one-shot OpenWork Cloud catalog request could not be completed through the configured network path.";
+      message = "The independent runtime endpoint probe could not be completed through the configured network path.";
       action = "Verify server egress, DNS, TLS, proxy policy, and the configured OpenWork Cloud service, then rerun diagnostics.";
       break;
     case "dns_error":
       owner = "network-admin";
-      message = "The one-shot OpenWork Cloud catalog request could not resolve the configured service hostname.";
+      message = "The independent runtime endpoint probe could not resolve the configured service hostname.";
       action = "Verify DNS resolution from the OpenWork server, then rerun diagnostics.";
       break;
     case "connection_refused":
       owner = "network-admin";
-      message = "The configured OpenWork Cloud service refused the one-shot catalog connection.";
+      message = "The configured OpenWork Cloud service refused the independent runtime probe connection.";
       action = "Verify the service listener, firewall, and egress route, then rerun diagnostics.";
       break;
     case "connection_reset":
       owner = "network-admin";
-      message = "The one-shot OpenWork Cloud catalog connection was reset before a response completed.";
+      message = "The independent runtime probe connection was reset before a response completed.";
       action = "Verify the service, proxy, and network path, then rerun diagnostics.";
       break;
     case "tls_error":
       owner = "network-admin";
-      message = "The one-shot OpenWork Cloud catalog request failed TLS certificate validation or negotiation.";
+      message = "The independent runtime endpoint probe failed TLS certificate validation or negotiation on the OpenWork runtime trust store.";
       action = "Verify the server trust store, enterprise certificates, TLS inspection, and service certificate, then rerun diagnostics.";
       break;
     case "proxy_error":
       owner = "network-admin";
-      message = "The configured proxy could not complete the one-shot OpenWork Cloud catalog request.";
+      message = "The configured proxy could not complete the independent runtime endpoint probe.";
       action = "Verify proxy reachability, authentication, and bypass policy, then rerun diagnostics.";
       break;
     case "unauthorized":
-    case "forbidden":
       owner = "openwork-client";
-      message = "OpenWork Cloud rejected the configured credential during the one-shot catalog request.";
+      message = "OpenWork Cloud rejected the configured credential during the independent runtime probe.";
       action = "Reconnect OpenWork Cloud so the client can replace the managed credential, then rerun diagnostics.";
+      break;
+    case "forbidden":
+      owner = "organization-admin";
+      message = "OpenWork Cloud rejected the probe for membership, scope, or policy reasons rather than credential validity.";
+      action = "Verify organization membership, workspace scope, and Cloud policy for this credential, then rerun diagnostics.";
+      break;
+    case "mcp_route_not_found":
+      owner = "openwork-support";
+      message = "The configured service answered, but the MCP agent route was not found; the deployment version or route configuration is implicated.";
+      action = "Verify the OpenWork Cloud or on-prem Den deployment version exposes the /mcp/agent route, then rerun diagnostics.";
       break;
     case "rate_limited":
       status = "warning";
       owner = "openwork-support";
-      message = "OpenWork Cloud rate-limited the one-shot catalog request.";
+      message = "OpenWork Cloud rate-limited the independent runtime probe.";
       action = "Wait before rerunning diagnostics; contact OpenWork support if rate limiting persists.";
+      break;
+    case "gateway_unavailable":
+      owner = "network-admin";
+      message = "A gateway or upstream in front of the OpenWork Cloud service reported it unavailable during the independent runtime probe.";
+      action = "Check service status and gateway health, wait briefly, then rerun diagnostics.";
       break;
     case "probe_busy":
       status = "warning";
@@ -688,13 +690,23 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
       break;
     case "response_too_large":
     case "invalid_content_type":
-    case "invalid_response":
+    case "invalid_utf8":
+    case "invalid_json":
+    case "invalid_jsonrpc_envelope":
+    case "request_id_mismatch":
     case "jsonrpc_error":
+    case "unsupported_protocol_version":
+    case "invalid_session_header":
     case "pagination_unsupported":
     case "invalid_catalog":
       owner = "openwork-support";
-      message = "OpenWork Cloud returned a response that does not satisfy the bounded tools/list protocol contract.";
-      action = "Review the OpenWork Cloud deployment and restore the canonical two-tool catalog response.";
+      message = "OpenWork Cloud returned a response that does not satisfy the bounded MCP handshake protocol contract.";
+      action = "Review the OpenWork Cloud deployment and restore a conformant MCP handshake response.";
+      break;
+    case "required_tools_missing":
+      owner = "openwork-support";
+      message = "The OpenWork Cloud catalog handshake succeeded, but the catalog does not contain both required capability tools.";
+      action = "Review the OpenWork Cloud deployment and restore the canonical capability catalog.";
       break;
   }
   return diagnosticCheck({
@@ -705,6 +717,84 @@ function cloudCatalogCheck(probe: CloudCatalogProbe): AgentContextDiagnosticChec
     message,
     owner,
     action,
+  });
+}
+
+function cloudDifferentialCheck(probe: CloudCatalogProbe, engineReachableNow: boolean): AgentContextDiagnosticCheck {
+  const verdict = differentialCloudVerdict(probe, engineReachableNow);
+  const common = {
+    id: "cloud-endpoint-differential" as const,
+    code: verdict,
+    details: {
+      runtimeProbeStatus: probe.status,
+      runtimeProbeStage: probe.stage,
+      runtimeProbeCode: probe.code,
+      runtimeProbeRetryable: probe.retryable,
+      runtimeFamily: probe.runtimeFamily,
+      transport: probe.transport,
+      engineRegistrationStatus: probe.engineRegistrationStatus,
+      engineEvidenceSource: probe.engineEvidenceSource,
+      engineEvidenceAgeMs: probe.engineEvidenceAgeMs,
+      engineReachableNow,
+    },
+  };
+  if (verdict === "runtime_and_engine_connected") {
+    return diagnosticCheck({
+      ...common,
+      status: "passed",
+      evidenceKind: "derived",
+      message: "The independent OpenWork runtime probe and the engine registration evidence both report the OpenWork Cloud endpoint as reachable.",
+      owner: "openwork-server",
+      action: "No action is required.",
+    });
+  }
+  if (verdict === "runtime_connected_engine_failed") {
+    return diagnosticCheck({
+      ...common,
+      status: "failed",
+      evidenceKind: "derived",
+      message: "The OpenWork runtime reached the Cloud endpoint directly, but the engine registration evidence reports a failure; the engine-side connection path or registration lifecycle is implicated, not the endpoint.",
+      owner: "opencode-engine",
+      action: "Reconnect OpenWork Cloud or restart the selected workspace engine, then rerun diagnostics; the endpoint itself is reachable from this machine.",
+    });
+  }
+  if (verdict === "runtime_failed_engine_connected") {
+    return diagnosticCheck({
+      ...common,
+      status: "warning",
+      evidenceKind: "derived",
+      message: "The engine registration evidence reports a live connection, but the independent runtime probe failed; the OpenWork runtime network path is implicated rather than the endpoint or the engine.",
+      owner: "network-admin",
+      action: "Compare proxy, DNS, and trust-store configuration between the OpenWork runtime and the engine process, then rerun diagnostics.",
+    });
+  }
+  if (verdict === "runtime_and_engine_failed") {
+    return diagnosticCheck({
+      ...common,
+      status: "failed",
+      evidenceKind: "derived",
+      message: "Both the independent runtime probe and the engine registration evidence report failures; the endpoint or the shared network path is implicated.",
+      owner: "network-admin",
+      action: "Verify endpoint availability, network egress, and credentials, then rerun diagnostics.",
+    });
+  }
+  if (verdict === "engine_evidence_stale_or_unavailable") {
+    return diagnosticCheck({
+      ...common,
+      status: "warning",
+      evidenceKind: "derived",
+      message: "The engine registration evidence for OpenWork Cloud is stale or was never recorded, so only the independent runtime observation is current.",
+      owner: "opencode-engine",
+      action: "Start or reconnect the selected workspace engine to refresh its registration evidence, then rerun diagnostics.",
+    });
+  }
+  return diagnosticCheck({
+    ...common,
+    status: "skipped",
+    evidenceKind: "unavailable",
+    message: "The independent runtime probe was not performed, so endpoint availability cannot be compared with the engine registration evidence.",
+    owner: "openwork-server",
+    action: "Address the probe eligibility code reported by the cloud catalog check, then rerun diagnostics.",
   });
 }
 
@@ -735,7 +825,7 @@ function cloudEndpointTransportCheck(
       status: "skipped",
       evidenceKind: "derived",
       code: "transport_probe_not_required",
-      message: "The managed OpenWork Cloud MCP registration is connected, so a credential-free transport probe was not needed.",
+      message: "The managed OpenWork Cloud MCP registration is connected; the differential check compares runtime and engine reachability, so a separate TLS-layer probe was not needed.",
       owner: "openwork-server",
       action: "No action is required.",
       details,
@@ -747,9 +837,9 @@ function cloudEndpointTransportCheck(
       status: "passed",
       evidenceKind: "observed",
       code: "endpoint_tls_handshake_verified",
-      message: "The OpenWork Cloud endpoint completed a credential-free TLS handshake; the failure is above transport.",
+      message: "The OpenWork Cloud endpoint completed a credential-free TLS handshake; use the differential check for authentication, MCP protocol, and engine-registration attribution.",
       owner: "openwork-server",
-      action: "Review MCP registration, authentication, and catalog evidence for the next failure layer.",
+      action: "Review the cloud-endpoint-differential verdict and catalog evidence for the next failure layer.",
       details,
     });
   }
@@ -782,7 +872,7 @@ function cloudEndpointTransportCheck(
     status: "skipped",
     evidenceKind: probe.skipReason === "invalid_endpoint" || probe.skipReason === "missing_endpoint" ? "unavailable" : "derived",
     code: "transport_probe_not_applicable",
-    message: "A credential-free transport probe was not applicable to this workspace or endpoint configuration.",
+    message: "A credential-free TLS-layer probe was not applicable to this workspace or endpoint configuration; the differential check reports runtime probe eligibility.",
     owner: "openwork-server",
     action: "Review the managed OpenWork Cloud MCP configuration if transport evidence is needed.",
     details,
@@ -1050,7 +1140,9 @@ export async function runAgentContextDiagnostics(input: {
   input.dependencies?.signal?.throwIfAborted();
   const now = input.dependencies?.now ?? Date.now;
   const uuid = input.dependencies?.uuid ?? randomUUID;
-  const fetchImpl = input.dependencies?.fetchImpl ?? fetch;
+  // No global-fetch fallback here: the probe resolves its transport through
+  // the named runtimeDiagnosticFetch wrapper unless a test seam is injected.
+  const fetchImpl = input.dependencies?.fetchImpl;
   const startedMs = now();
   const startedAt = new Date(startedMs).toISOString();
   const runId = uuid();
@@ -1246,6 +1338,19 @@ export async function runAgentContextDiagnostics(input: {
     if (decision === "ask") return "approval-required";
     return "unspecified";
   };
+  const engineReachableNow = engineInspectionStatus === "observed" || engineInspectionStatus === "invalid";
+  // Local workspaces only: the activation record describes this installation,
+  // so it must never authorize egress on behalf of a remote workspace shell.
+  const activatedEnterpriseOrigin = input.workspace.workspaceType === "local"
+    ? await (input.dependencies?.readActivatedEnterpriseOrigin
+      ?? ((signal?: AbortSignal) => readActivatedEnterpriseDenOrigin({ signal })))(
+        input.dependencies?.signal,
+      ).catch(() => null)
+    : null;
+  input.dependencies?.signal?.throwIfAborted();
+  // Cached engine registration and agent tool policy are comparison inputs
+  // for the differential verdict, never eligibility gates: the independent
+  // runtime probe exists precisely to diagnose engine-side failures.
   const cloudProbe = await probeOpenworkCloudCatalog({
     workspaceId: input.workspace.id,
     workspaceType: input.workspace.workspaceType,
@@ -1255,13 +1360,12 @@ export async function runAgentContextDiagnostics(input: {
       || runtimeInspection.status === "table-missing"
       ? null
       : runtimeCloudConfig,
-    toolPolicyStatus: cloudToolPolicyStatus,
-    toolPolicyProvenance: effectiveEngine && effectiveToolPolicy.status !== "unavailable"
-      ? "authoritative-effective-engine"
-      : staticallyDeniedCloudAgentToolIds.size > 0
-        ? "passive-static-subset"
-        : "unavailable",
-    registrationStatus: runtimeCloudRegistration?.status ?? "not-recorded",
+    engineRegistration: {
+      status: runtimeCloudRegistration?.status ?? "not-recorded",
+      source: runtimeCloudRegistration?.source ?? null,
+      recordAgeMs: runtimeCloudRegistration?.recordAgeMs ?? null,
+    },
+    activatedEnterpriseOrigin,
     requestId: runId,
     fetchImpl,
     now,
@@ -1280,7 +1384,6 @@ export async function runAgentContextDiagnostics(input: {
   input.dependencies?.signal?.throwIfAborted();
 
   const remoteMcps = inventory.items.filter((item) => item.source === "config.remote");
-  const engineReachableNow = engineInspectionStatus === "observed" || engineInspectionStatus === "invalid";
   const registrationInspections = remoteMcps.map((item) => registrationForItem(item));
   const enabledRemoteMcps = remoteMcps.filter((item) => item.config.enabled !== false);
   const disabledRemoteMcps = remoteMcps.filter((item) => item.config.enabled === false);
@@ -1680,6 +1783,7 @@ export async function runAgentContextDiagnostics(input: {
       },
     }),
     cloudCatalogCheck(cloudProbe),
+    cloudDifferentialCheck(cloudProbe, engineReachableNow),
     cloudEndpointTransportCheck(
       cloudEndpointTransportProbe,
       transportProbeApplicable && runtimeCloudRegistration?.status === "connected",
@@ -1779,6 +1883,7 @@ export async function runAgentContextDiagnostics(input: {
       diagnosticsWorkspaceRuntimeConfigurationReadOnly: true,
       cloudCatalogToolsListPerformed: cloudProbe.toolsListPerformed,
       credentialFreeTransportProbePerformed: cloudEndpointTransportProbe.performed,
+      cloudSessionCleanupRequested: cloudProbe.cleanupAttempted,
       directNonCloudMcpFetchPerformed: false,
       directMcpToolCallPerformed: false,
       directProviderOperationPerformed: false,

@@ -54,6 +54,49 @@ describe("desktop handoff public URL", () => {
     })).toBe("https://8787-bob.daytonaproxy01.net/signin")
   })
 
+  test("approves a web returnUrl on the exact configured gateway origin", async () => {
+    const { approveWebHandoffReturnUrlForSignedPreviews } = await loadDesktopHandoffRoutes()
+
+    expect(approveWebHandoffReturnUrlForSignedPreviews({
+      orgMode: "multi_org",
+      gatewayOrigin: "https://web.openworklabs.com",
+      signedPreviewUrls: [],
+      returnUrl: "https://web.openworklabs.com/",
+    })).toBe("https://web.openworklabs.com/signin")
+  })
+
+  test("rejects a gateway web returnUrl when the gateway origin is unset", async () => {
+    const { approveWebHandoffReturnUrlForSignedPreviews } = await loadDesktopHandoffRoutes()
+
+    expect(approveWebHandoffReturnUrlForSignedPreviews({
+      orgMode: "multi_org",
+      signedPreviewUrls: ["https://8787-active.daytonaproxy01.net/signed"],
+      returnUrl: "https://web.openworklabs.com/signin",
+    })).toBeNull()
+  })
+
+  test("rejects a gateway web returnUrl on a different origin", async () => {
+    const { approveWebHandoffReturnUrlForSignedPreviews } = await loadDesktopHandoffRoutes()
+
+    expect(approveWebHandoffReturnUrlForSignedPreviews({
+      orgMode: "multi_org",
+      gatewayOrigin: "https://web.openworklabs.com",
+      signedPreviewUrls: [],
+      returnUrl: "https://app.openworklabs.com/signin",
+    })).toBeNull()
+  })
+
+  test("rejects an http gateway web returnUrl", async () => {
+    const { approveWebHandoffReturnUrlForSignedPreviews } = await loadDesktopHandoffRoutes()
+
+    expect(approveWebHandoffReturnUrlForSignedPreviews({
+      orgMode: "multi_org",
+      gatewayOrigin: "https://web.openworklabs.com",
+      signedPreviewUrls: [],
+      returnUrl: "http://web.openworklabs.com/signin",
+    })).toBeNull()
+  })
+
   test("rejects a rotated hostname even on the same preview suffix (shared proxy zone)", async () => {
     const { approveWebHandoffReturnUrl } = await loadDesktopHandoffRoutes()
 
