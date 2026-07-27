@@ -1,6 +1,17 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import {
+  SIDEBAR_ROW_BASE_PAD_PX,
+  SIDEBAR_ROW_NEST_STEP_PX,
+  sidebarRowPaddingInlineStart,
+} from "./sidebar-lane-metrics";
+
+export {
+  SIDEBAR_ROW_BASE_PAD_PX,
+  SIDEBAR_ROW_NEST_STEP_PX,
+  sidebarRowPaddingInlineStart,
+};
 
 /**
  * Sidebar lane system — two vertical rails shared by every row in the sidebar.
