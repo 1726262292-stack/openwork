@@ -15,7 +15,7 @@ import type {
   OpenworkServerCapabilities,
   OpenworkServerDiagnostics,
 } from "../../../../app/lib/openwork-server";
-import type { NukeManifestPreview, SandboxDebugProbeResult } from "../../../../app/lib/desktop";
+import type { NukeManifestPreview } from "../../../../app/lib/desktop";
 import type {
   OpencodeConnectStatus,
   ReleaseChannel,
@@ -138,10 +138,6 @@ export type DebugViewProps = {
   electronAlphaUpdaterChannel: ReleaseChannel;
   onSetElectronAlphaUpdaterChannel: (channel: ReleaseChannel) => void | Promise<void>;
   onCheckElectronAlphaUpdates: () => void | Promise<void>;
-  sandboxProbeBusy: boolean;
-  sandboxProbeResult: SandboxDebugProbeResult | null;
-  sandboxProbeStatus: string | null;
-  onRunSandboxDebugProbe: () => void | Promise<void>;
   onStopHost: () => void | Promise<void>;
   onResetStartupPreference: () => void | Promise<void>;
   engineSource: "path" | "sidecar" | "custom";
@@ -478,12 +474,6 @@ export function DebugView(props: DebugViewProps) {
 
   const isDesktop = isDesktopRuntime();
   const isLocalPreference = props.startupPreference !== "server";
-  const sandboxProbeDisabled = !isDesktop || props.sandboxProbeBusy || props.anyActiveRuns;
-  const sandboxProbeTitle = !isDesktop
-    ? t("settings.sandbox_requires_desktop")
-    : props.anyActiveRuns
-      ? t("settings.sandbox_stop_runs_hint")
-      : "";
   const canConfirmNuke = props.nukeConfirmationText.trim().toUpperCase() === "NUKE"
     && !props.nukeConfigBusy
     && !props.nukePreviewBusy;
@@ -874,40 +864,6 @@ export function DebugView(props: DebugViewProps) {
         <div className={sectionHeaderClass}>
           <div className={sectionTitleClass}>{t("settings.tools_section_title")}</div>
           <div className={sectionDescClass}>{t("settings.tools_section_desc")}</div>
-        </div>
-
-        <div className={subCardClass}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold tracking-[-0.1px] text-dls-text">
-                {t("settings.sandbox_probe_title")}
-              </div>
-              <div className="text-[12px] text-dls-secondary">{t("settings.sandbox_probe_desc")}</div>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => void props.onRunSandboxDebugProbe()}
-              disabled={sandboxProbeDisabled}
-              title={sandboxProbeTitle}
-            >
-              {props.sandboxProbeBusy ? t("settings.running_probe") : t("settings.run_sandbox_probe")}
-            </Button>
-          </div>
-          {props.sandboxProbeResult ? (
-            <div className="space-y-1 text-[12px] text-dls-secondary">
-              <div>{t("settings.sandbox_run_id", { id: props.sandboxProbeResult.runId ?? "—" })}</div>
-              <div>
-                {t("settings.sandbox_result", {
-                  status: props.sandboxProbeResult.ready ? t("settings.sandbox_ready") : t("settings.sandbox_error"),
-                })}
-              </div>
-              {props.sandboxProbeResult.error ? (
-                <div className="text-red-11">{props.sandboxProbeResult.error}</div>
-              ) : null}
-            </div>
-          ) : null}
-          {props.sandboxProbeStatus ? <StatusBanner tone="info" message={props.sandboxProbeStatus} /> : null}
-          <div className="text-[11px] text-dls-secondary">{t("settings.sandbox_export_hint")}</div>
         </div>
 
         {isDesktop && (isLocalPreference || props.developerMode) ? (

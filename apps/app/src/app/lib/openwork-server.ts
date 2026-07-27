@@ -71,10 +71,6 @@ export type OpenworkRuntimeServiceSnapshot = {
 
 export type OpenworkRuntimeSnapshot = {
   ok: boolean;
-  orchestrator?: {
-    version: string;
-    startedAt: number;
-  };
   worker?: {
     workspace: string;
     sandboxMode: string;
