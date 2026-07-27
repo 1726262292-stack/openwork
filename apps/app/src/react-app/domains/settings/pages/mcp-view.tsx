@@ -1,9 +1,10 @@
 /** @jsxImportSource react */
-import { useEffect, useReducer, useRef, useState, type SetStateAction } from "react";
+import { useEffect, useReducer, useRef, useState, type ReactNode, type SetStateAction } from "react";
 import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   CircleAlert,
   Cloud,
   Code2,
@@ -17,7 +18,6 @@ import {
   Plug2,
   Plus,
   Power,
-  Search,
   Settings2,
   Unplug,
   Zap,
@@ -32,8 +32,12 @@ import { ExtensionDetailModal } from "../../../design-system/extension-detail-mo
 import {
   isOrgMcpConnectionItem,
   orgMcpConnectionActionLabel,
+  resolveExtensionInventoryGroup,
+  type ExtensionInventoryGroup,
   type ExtensionItem,
 } from "../extension-items";
+import { SettingsGroupHeader } from "../settings-section";
+import { SettingsListSearchInput } from "../settings-list";
 import {
   openDesktopPath,
   readOpencodeConfig,
@@ -140,9 +144,13 @@ export type McpViewProps = {
   disconnectOrgMcp?: (connectionId: string) => void;
   initialFilter?: ExtensionInventoryFilter;
   onFilterChange?: (filter: ExtensionInventoryFilter) => void;
+  /** Stable extension detail id from `/settings/extensions/:id`. */
+  detailId?: string | null;
+  /** Navigate when detail opens/closes. When set, detail renders as a page. */
+  onDetailIdChange?: (id: string | null) => void;
 };
 
-const builtInExtensionDisabledReason = "Disabled by organization";
+const builtInExtensionDisabledReason = () => t("extensions.disabled_by_organization");
 
 const statusDot = (status: ReactMcpStatus) => {
   switch (status) {
@@ -253,15 +261,82 @@ type ExtensionFilter = ExtensionInventoryFilter | "plugin";
 
 const extensionInventoryFilters: ExtensionInventoryFilter[] = ["all", "mcp", "skill"];
 
+type ExtensionDetailTarget =
+  | { kind: "entry"; entry: McpDirectoryInfo }
+  | { kind: "skill"; skill: SkillItem }
+  | { kind: "connect-mcp"; entry: McpServerEntry }
+  | { kind: "plugin"; plugin: CloudImportedPlugin }
+  | { kind: "org-mcp"; item: ExtensionItem };
+
+function extensionDetailIdForTarget(target: ExtensionDetailTarget): string {
+  switch (target.kind) {
+    case "entry":
+      return getMcpIdentityKey(target.entry);
+    case "skill":
+      return `skill:${target.skill.name}`;
+    case "connect-mcp":
+      return `connect-mcp:${target.entry.name}`;
+    case "plugin":
+      return `plugin:${target.plugin.pluginId}`;
+    case "org-mcp":
+      return target.item.id.startsWith("org-mcp:")
+        ? target.item.id
+        : `org-mcp:${target.item.orgMcpConnection?.id ?? target.item.id}`;
+  }
+}
+
+function resolveExtensionDetailTarget(
+  detailId: string,
+  lists: {
+    quickConnect: McpDirectoryInfo[];
+    skills: SkillItem[];
+    connectMcps: McpServerEntry[];
+    plugins: CloudImportedPlugin[];
+    orgMcpItems: ExtensionItem[];
+  },
+): ExtensionDetailTarget | null {
+  if (detailId.startsWith("skill:")) {
+    const name = detailId.slice("skill:".length);
+    const skill = lists.skills.find((entry) => entry.name === name);
+    return skill ? { kind: "skill", skill } : null;
+  }
+  if (detailId.startsWith("connect-mcp:")) {
+    const name = detailId.slice("connect-mcp:".length);
+    const entry = lists.connectMcps.find((item) => item.name === name || item.id === name);
+    return entry ? { kind: "connect-mcp", entry } : null;
+  }
+  if (detailId.startsWith("plugin:")) {
+    const pluginId = detailId.slice("plugin:".length);
+    const plugin = lists.plugins.find((entry) => entry.pluginId === pluginId);
+    return plugin ? { kind: "plugin", plugin } : null;
+  }
+  if (detailId.startsWith("org-mcp:")) {
+    const connectionId = detailId.slice("org-mcp:".length);
+    const item = lists.orgMcpItems.find((entry) =>
+      entry.id === detailId
+      || entry.orgMcpConnection?.id === connectionId,
+    );
+    return item ? { kind: "org-mcp", item } : null;
+  }
+  const entry = lists.quickConnect.find((item) =>
+    getMcpIdentityKey(item) === detailId
+    || item.id === detailId
+    || item.name === detailId,
+  );
+  return entry ? { kind: "entry", entry } : null;
+}
+
 export function McpView(props: McpViewProps) {
   const showHeader = props.showHeader !== false;
   const skillCount = props.installedSkills?.length ?? 0;
-  const [detailEntry, setDetailEntry] = useState<McpDirectoryInfo | null>(null);
-  const [detailSkill, setDetailSkill] = useState<SkillItem | null>(null);
+  const useRoutedDetail = typeof props.onDetailIdChange === "function";
+  const [detailTarget, setDetailTarget] = useState<ExtensionDetailTarget | null>(null);
+  const detailEntry = detailTarget?.kind === "entry" ? detailTarget.entry : null;
+  const detailSkill = detailTarget?.kind === "skill" ? detailTarget.skill : null;
+  const detailConnectMcp = detailTarget?.kind === "connect-mcp" ? detailTarget.entry : null;
+  const detailPlugin = detailTarget?.kind === "plugin" ? detailTarget.plugin : null;
+  const detailOrgMcpItem = detailTarget?.kind === "org-mcp" ? detailTarget.item : null;
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
-  const [detailConnectMcp, setDetailConnectMcp] = useState<McpServerEntry | null>(null);
-  const [detailPlugin, setDetailPlugin] = useState<CloudImportedPlugin | null>(null);
-  const [detailOrgMcpItem, setDetailOrgMcpItem] = useState<ExtensionItem | null>(null);
   const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
@@ -308,9 +383,37 @@ export function McpView(props: McpViewProps) {
   const configRequestId = useRef(0);
 
   const quickConnectList = props.quickConnect;
+  const installedSkills = props.installedSkills ?? [];
+  const availableConnectMcpServers = props.availableConnectMcpServers ?? [];
+  const installedPlugins = props.installedPlugins ?? [];
+  const installedOrgMcpItems = props.installedOrgMcpItems ?? [];
+  const detailPresentation = useRoutedDetail ? "page" : "dialog";
   const setInventoryFilter = (nextFilter: ExtensionInventoryFilter) => {
     setFilter(nextFilter);
     props.onFilterChange?.(nextFilter);
+  };
+
+  const closeDetail = () => {
+    setDetailTarget(null);
+    setDetailSkillContent(null);
+    props.onDetailIdChange?.(null);
+  };
+
+  const openDetail = (target: ExtensionDetailTarget) => {
+    setDetailTarget(target);
+    if (target.kind === "skill") {
+      setDetailSkillContent(target.skill.content ?? null);
+      if (!target.skill.content && target.skill.origin !== "openwork-connect" && props.readSkill) {
+        void props.readSkill(target.skill.name).then((result) => {
+          if (result?.content) {
+            setDetailSkillContent(result.content);
+          }
+        });
+      }
+    } else {
+      setDetailSkillContent(null);
+    }
+    props.onDetailIdChange?.(extensionDetailIdForTarget(target));
   };
 
   useEffect(() => {
@@ -318,10 +421,50 @@ export function McpView(props: McpViewProps) {
   }, [props.initialFilter]);
 
   useEffect(() => {
-    if (detailEntry && !quickConnectList.includes(detailEntry)) {
-      setDetailEntry(null);
+    if (!useRoutedDetail) return;
+    const detailId = props.detailId ?? null;
+    if (!detailId) {
+      setDetailTarget(null);
+      setDetailSkillContent(null);
+      return;
     }
-  }, [detailEntry, quickConnectList]);
+    const resolved = resolveExtensionDetailTarget(detailId, {
+      quickConnect: quickConnectList,
+      skills: installedSkills,
+      connectMcps: availableConnectMcpServers,
+      plugins: installedPlugins,
+      orgMcpItems: installedOrgMcpItems,
+    });
+    setDetailTarget(resolved);
+    if (resolved?.kind === "skill") {
+      setDetailSkillContent(resolved.skill.content ?? null);
+      if (!resolved.skill.content && resolved.skill.origin !== "openwork-connect" && props.readSkill) {
+        void props.readSkill(resolved.skill.name).then((result) => {
+          if (result?.content) {
+            setDetailSkillContent(result.content);
+          }
+        });
+      }
+    } else {
+      setDetailSkillContent(null);
+    }
+  }, [
+    useRoutedDetail,
+    props.detailId,
+    props.readSkill,
+    quickConnectList,
+    installedSkills,
+    availableConnectMcpServers,
+    installedPlugins,
+    installedOrgMcpItems,
+  ]);
+
+  useEffect(() => {
+    if (useRoutedDetail) return;
+    if (detailEntry && !quickConnectList.includes(detailEntry)) {
+      setDetailTarget(null);
+    }
+  }, [useRoutedDetail, detailEntry, quickConnectList]);
 
   useEffect(() => {
     const refresh = () => setExtensionStateVersion((value) => value + 1);
@@ -537,6 +680,197 @@ export function McpView(props: McpViewProps) {
     }
   };
 
+  const detailPanels = (
+    <>
+      {detailEntry ? (() => {
+        const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
+        const hasConfigSlot = extensionConfigSlot !== null;
+        const hidden = isOpenWorkExtensionHidden(detailEntry);
+        const disabledReason = props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(detailEntry)
+          ? builtInExtensionDisabledReason()
+          : null;
+        const isConnected = disabledReason
+          ? false
+          : isToggleOnlyExtension(detailEntry)
+          ? isOpenWorkExtensionEnabled(detailEntry)
+          : detailEntry.kind === "extension" && !isMcpBackedExtension(detailEntry)
+          ? props.isExtensionConnected?.(detailEntry) ?? false
+          : isQuickConnectConfigured(detailEntry);
+        const isGoogleWorkspace = detailEntry.id === "google-workspace";
+        return (
+          <ExtensionDetailModal
+            open={!!detailEntry}
+            onClose={closeDetail}
+            presentation={detailPresentation}
+            backLabel={t("extensions.title")}
+            name={detailEntry.name}
+            description={detailEntry.description}
+            iconSlug={detailEntry.iconSlug}
+            iconSrc={detailEntry.iconSrc}
+            kind={detailEntry.kind ?? "mcp"}
+            connected={isConnected}
+            connecting={props.mcpConnectingName === detailEntry.name}
+            hidden={hidden}
+            preview={detailEntry.preview}
+            disabledReason={disabledReason}
+            setupInstructions={isGoogleWorkspace ? undefined : detailEntry.extensionManifest?.setup?.instructions}
+            resourceLabels={isGoogleWorkspace ? [] : extensionResourceLabels(detailEntry)}
+            contributionLabels={isGoogleWorkspace ? [] : extensionContributionLabels(detailEntry)}
+            launchCommand={launchCommandForEntry(detailEntry)}
+            environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
+            url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
+            oauth={detailEntry.oauth}
+            configSlot={disabledReason ? null : extensionConfigSlot}
+            showEnablementCard={!isGoogleWorkspace}
+            onConnect={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
+              setOpenWorkExtensionEnabled(detailEntry, true);
+              closeDetail();
+            } : hasConfigSlot ? undefined : () => {
+              props.connectMcp(detailEntry);
+              closeDetail();
+            }}
+            onUninstall={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) && isConnected ? () => {
+              setOpenWorkExtensionEnabled(detailEntry, false);
+            } : isQuickConnectConfigured(detailEntry) ? () => {
+              const slug = getMcpIdentityKey(detailEntry);
+              props.removeMcp(slug);
+              closeDetail();
+            } : undefined}
+            onHide={() => setOpenWorkExtensionHidden(detailEntry, true)}
+            onShow={() => setOpenWorkExtensionHidden(detailEntry, false)}
+          />
+        );
+      })() : null}
+
+      {detailSkill ? (() => {
+        const hidden = isOpenWorkExtensionHidden(getSkillHiddenId(detailSkill));
+        return (
+          <ExtensionDetailModal
+            open={!!detailSkill}
+            onClose={closeDetail}
+            presentation={detailPresentation}
+            backLabel={t("extensions.title")}
+            name={detailSkill.name}
+            description={detailSkill.description ?? "Installed skill"}
+            kind="skill"
+            connected={true}
+            connectedLabel={detailSkill.origin === "openwork-connect" ? "Available through OpenWork Connect" : undefined}
+            hidden={hidden}
+            path={detailSkill.origin === "openwork-connect" ? undefined : detailSkill.path}
+            trigger={detailSkill.trigger}
+            contentPreview={detailSkillContent ?? undefined}
+            onReveal={detailSkill.path && detailSkill.origin !== "openwork-connect" ? () => {
+              void revealDesktopItemInDir(detailSkill.path);
+            } : undefined}
+            onUninstall={props.uninstallSkill && detailSkill.origin !== "openwork-connect" ? () => {
+              props.uninstallSkill?.(detailSkill.name);
+              closeDetail();
+            } : undefined}
+            onHide={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
+            onShow={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
+          />
+        );
+      })() : null}
+
+      {detailConnectMcp ? (
+        <ExtensionDetailModal
+          open={true}
+          onClose={closeDetail}
+          presentation={detailPresentation}
+          backLabel={t("extensions.title")}
+          name={detailConnectMcp.name}
+          description={
+            detailConnectMcp.pluginName
+              ? `Provided by ${detailConnectMcp.pluginName}${detailConnectMcp.marketplaceName ? ` · ${detailConnectMcp.marketplaceName}` : ""}.`
+              : detailConnectMcp.marketplaceName
+                ? `Provided by ${detailConnectMcp.marketplaceName}.`
+                : "Available through OpenWork Connect."
+          }
+          kind="mcp"
+          connected={(props.availableConnectMcpStatuses?.[detailConnectMcp.id ?? detailConnectMcp.name]?.status) === "connected"}
+          connectedLabel="Available through OpenWork Connect"
+          disconnectedLabel="Setup required"
+          url={detailConnectMcp.config.type === "remote" ? detailConnectMcp.config.url : undefined}
+          oauth={detailConnectMcp.config.type === "remote"}
+          showEnablementCard
+        />
+      ) : null}
+
+      {detailPlugin ? (() => {
+        const hidden = isOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
+        return (
+          <ExtensionDetailModal
+            open={!!detailPlugin}
+            onClose={closeDetail}
+            presentation={detailPresentation}
+            backLabel={t("extensions.title")}
+            name={detailPlugin.name}
+            description={detailPlugin.description ?? "Organization extension installed in this workspace."}
+            kind="extension"
+            connected={true}
+            hidden={hidden}
+            onUninstall={props.removeCloudPlugin ? () => {
+              void props.removeCloudPlugin?.(detailPlugin.pluginId);
+              closeDetail();
+            } : undefined}
+            onHide={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, true)}
+            onShow={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, false)}
+          />
+        );
+      })() : null}
+
+      {detailOrgMcpItem && isOrgMcpConnectionItem(detailOrgMcpItem) ? (() => {
+        const connection = detailOrgMcpItem.orgMcpConnection;
+        const canDisconnect = canDisconnectNativeProviderAccount(connection);
+        return (
+          <ExtensionDetailModal
+            open={true}
+            onClose={closeDetail}
+            presentation={detailPresentation}
+            backLabel={t("extensions.title")}
+            name={detailOrgMcpItem.name}
+            description={detailOrgMcpItem.description ?? orgMcpConnectionActionLabel(connection)}
+            kind="mcp"
+            connected={true}
+            connectedLabel={orgMcpConnectionActionLabel(connection)}
+            beta
+            url={connection.url}
+            oauth={connection.authType === "oauth"}
+            onUninstall={canDisconnect && props.disconnectOrgMcp ? () => props.disconnectOrgMcp?.(connection.id) : undefined}
+            uninstallLabel={t("mcp.org_connection_disconnect_action")}
+            showEnablementCard={false}
+            configSlot={(
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1 text-xs text-dls-secondary">Shared by your organization</span>
+                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1 text-xs text-dls-secondary">{connection.credentialMode === "shared" ? "Org account" : "Your account"}</span>
+              </div>
+            )}
+          />
+        );
+      })() : null}
+    </>
+  );
+
+  if (useRoutedDetail && props.detailId) {
+    if (detailTarget) {
+      return detailPanels;
+    }
+    return (
+      <div className="flex w-full max-w-3xl flex-col gap-6 animate-in fade-in duration-300">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit gap-1 px-2 text-muted-foreground"
+          onClick={closeDetail}
+        >
+          <ChevronLeft size={16} />
+          {t("extensions.title")}
+        </Button>
+        <p className="text-sm text-dls-secondary">This extension is not available in the current workspace.</p>
+      </div>
+    );
+  }
+
   return (
     <section className="space-y-8 max-w-3xl w-full animate-in fade-in duration-300">
       {showHeader ? (
@@ -566,10 +900,8 @@ export function McpView(props: McpViewProps) {
 
       {/* Search + filter */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
-          <input
-            className="w-full rounded-lg border border-dls-border bg-dls-surface py-2 pl-9 pr-3 text-xs text-dls-text placeholder:text-dls-secondary focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
+        <div className="flex-1">
+          <SettingsListSearchInput
             placeholder="Search extensions..."
             value={search}
             onChange={(e) => setSearch(e.currentTarget.value)}
@@ -583,7 +915,7 @@ export function McpView(props: McpViewProps) {
               size="xs"
               onClick={() => setInventoryFilter(f)}
             >
-              {f === "all" ? "All" : f === "mcp" ? "MCPs" : "Skills"}
+              {f === "all" ? t("extensions.filter_all") : f === "mcp" ? t("extensions.filter_apps") : "Skills"}
             </Button>
           ))}
           <Button
@@ -609,7 +941,7 @@ export function McpView(props: McpViewProps) {
           })
         }
         installedSkills={
-          (props.installedSkills ?? []).filter((skill) => {
+          installedSkills.filter((skill) => {
             if (!showHidden && isOpenWorkExtensionHidden(getSkillHiddenId(skill))) return false;
             if (filter === "mcp") return false;
             if (!search.trim()) return true;
@@ -618,7 +950,7 @@ export function McpView(props: McpViewProps) {
           })
         }
         availableConnectMcpServers={
-          (props.availableConnectMcpServers ?? []).filter((entry) => {
+          availableConnectMcpServers.filter((entry) => {
             if (filter === "skill") return false;
             if (!search.trim()) return true;
             const query = search.toLowerCase();
@@ -631,7 +963,7 @@ export function McpView(props: McpViewProps) {
         }
         availableConnectMcpStatuses={props.availableConnectMcpStatuses ?? {}}
         installedPlugins={
-          (props.installedPlugins ?? []).filter((plugin) => {
+          installedPlugins.filter((plugin) => {
             if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
             if (filter === "mcp" || filter === "skill") return false;
             if (!search.trim()) return true;
@@ -643,7 +975,7 @@ export function McpView(props: McpViewProps) {
           })
         }
         installedOrgMcpItems={
-          (props.installedOrgMcpItems ?? []).filter((item) => {
+          installedOrgMcpItems.filter((item) => {
             if (!isOrgMcpConnectionItem(item)) return false;
             if (filter === "skill") return false;
             if (!search.trim()) return true;
@@ -658,7 +990,7 @@ export function McpView(props: McpViewProps) {
         isPluginHidden={(plugin) => isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)}
         disabledReasonForEntry={(entry) =>
           props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(entry)
-            ? builtInExtensionDisabledReason
+            ? builtInExtensionDisabledReason()
             : null
         }
         isConfigured={(entry) => {
@@ -673,21 +1005,11 @@ export function McpView(props: McpViewProps) {
         enablementForEntry={props.enablementContext ? enablementForEntry : undefined}
         statusForEntry={quickConnectStatus}
         onConnect={props.connectMcp}
-        onDetail={setDetailEntry}
-        onSkillDetail={(skill) => {
-          setDetailSkill(skill);
-          setDetailSkillContent(skill.content ?? null);
-          if (!skill.content && skill.origin !== "openwork-connect" && props.readSkill) {
-            void props.readSkill(skill.name).then((result) => {
-              if (result?.content) {
-                setDetailSkillContent(result.content);
-              }
-            });
-          }
-        }}
-        onConnectMcpDetail={setDetailConnectMcp}
-        onPluginDetail={setDetailPlugin}
-        onOrgMcpDetail={setDetailOrgMcpItem}
+        onDetail={(entry) => openDetail({ kind: "entry", entry })}
+        onSkillDetail={(skill) => openDetail({ kind: "skill", skill })}
+        onConnectMcpDetail={(entry) => openDetail({ kind: "connect-mcp", entry })}
+        onPluginDetail={(plugin) => openDetail({ kind: "plugin", plugin })}
+        onOrgMcpDetail={(item) => openDetail({ kind: "org-mcp", item })}
         orgMcpDisconnectingId={props.orgMcpDisconnectingId ?? null}
         disconnectOrgMcp={props.disconnectOrgMcp}
       />
@@ -780,162 +1102,7 @@ export function McpView(props: McpViewProps) {
         />
       ) : null}
 
-      {detailEntry ? (() => {
-        const extensionConfigSlot = props.configSlotForEntry?.(detailEntry) ?? null;
-        const hasConfigSlot = extensionConfigSlot !== null;
-        const hidden = isOpenWorkExtensionHidden(detailEntry);
-        const disabledReason = props.builtInExtensionsDisabled && isBuiltInOpenWorkExtension(detailEntry)
-          ? builtInExtensionDisabledReason
-          : null;
-        const isConnected = disabledReason
-          ? false
-          : isToggleOnlyExtension(detailEntry)
-          ? isOpenWorkExtensionEnabled(detailEntry)
-          : detailEntry.kind === "extension" && !isMcpBackedExtension(detailEntry)
-          ? props.isExtensionConnected?.(detailEntry) ?? false
-          : isQuickConnectConfigured(detailEntry);
-        const isGoogleWorkspace = detailEntry.id === "google-workspace";
-        return (
-          <ExtensionDetailModal
-            open={!!detailEntry}
-            onClose={() => setDetailEntry(null)}
-            name={detailEntry.name}
-            description={detailEntry.description}
-            iconSlug={detailEntry.iconSlug}
-            iconSrc={detailEntry.iconSrc}
-            kind={detailEntry.kind ?? "mcp"}
-            connected={isConnected}
-            connecting={props.mcpConnectingName === detailEntry.name}
-            hidden={hidden}
-            preview={detailEntry.preview}
-            disabledReason={disabledReason}
-            setupInstructions={isGoogleWorkspace ? undefined : detailEntry.extensionManifest?.setup?.instructions}
-            resourceLabels={isGoogleWorkspace ? [] : extensionResourceLabels(detailEntry)}
-            contributionLabels={isGoogleWorkspace ? [] : extensionContributionLabels(detailEntry)}
-            launchCommand={launchCommandForEntry(detailEntry)}
-            environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
-            url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
-            oauth={detailEntry.oauth}
-            configSlot={disabledReason ? null : extensionConfigSlot}
-            showEnablementCard={!isGoogleWorkspace}
-            onConnect={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
-              setOpenWorkExtensionEnabled(detailEntry, true);
-              setDetailEntry(null);
-            } : hasConfigSlot ? undefined : () => {
-              props.connectMcp(detailEntry);
-              setDetailEntry(null);
-            }}
-            onUninstall={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) && isConnected ? () => {
-              setOpenWorkExtensionEnabled(detailEntry, false);
-            } : isQuickConnectConfigured(detailEntry) ? () => {
-              const slug = getMcpIdentityKey(detailEntry);
-              props.removeMcp(slug);
-              setDetailEntry(null);
-            } : undefined}
-            onHide={() => setOpenWorkExtensionHidden(detailEntry, true)}
-            onShow={() => setOpenWorkExtensionHidden(detailEntry, false)}
-          />
-        );
-      })() : null}
-
-      {detailSkill ? (() => {
-        const hidden = isOpenWorkExtensionHidden(getSkillHiddenId(detailSkill));
-        return (
-          <ExtensionDetailModal
-            open={!!detailSkill}
-            onClose={() => { setDetailSkill(null); setDetailSkillContent(null); }}
-            name={detailSkill.name}
-            description={detailSkill.description ?? "Installed skill"}
-            kind="skill"
-            connected={true}
-            connectedLabel={detailSkill.origin === "openwork-connect" ? "Available through OpenWork Connect" : undefined}
-            hidden={hidden}
-            path={detailSkill.origin === "openwork-connect" ? undefined : detailSkill.path}
-            trigger={detailSkill.trigger}
-            contentPreview={detailSkillContent ?? undefined}
-            onReveal={detailSkill.path && detailSkill.origin !== "openwork-connect" ? () => {
-              void revealDesktopItemInDir(detailSkill.path);
-            } : undefined}
-            onUninstall={props.uninstallSkill && detailSkill.origin !== "openwork-connect" ? () => {
-              props.uninstallSkill?.(detailSkill.name);
-              setDetailSkill(null);
-            } : undefined}
-            onHide={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), true)}
-            onShow={() => setOpenWorkExtensionHidden(getSkillHiddenId(detailSkill), false)}
-          />
-        );
-      })() : null}
-
-      {detailConnectMcp ? (
-        <ExtensionDetailModal
-          open={true}
-          onClose={() => setDetailConnectMcp(null)}
-          name={detailConnectMcp.name}
-          description={
-            detailConnectMcp.pluginName
-              ? `Provided by ${detailConnectMcp.pluginName}${detailConnectMcp.marketplaceName ? ` · ${detailConnectMcp.marketplaceName}` : ""}.`
-              : detailConnectMcp.marketplaceName
-                ? `Provided by ${detailConnectMcp.marketplaceName}.`
-                : "Available through OpenWork Connect."
-          }
-          kind="mcp"
-          connected={(props.availableConnectMcpStatuses?.[detailConnectMcp.id ?? detailConnectMcp.name]?.status) === "connected"}
-          connectedLabel="Available through OpenWork Connect"
-          disconnectedLabel="Setup required"
-          url={detailConnectMcp.config.type === "remote" ? detailConnectMcp.config.url : undefined}
-          oauth={detailConnectMcp.config.type === "remote"}
-          showEnablementCard
-        />
-      ) : null}
-
-      {detailPlugin ? (() => {
-        const hidden = isOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
-        return (
-          <ExtensionDetailModal
-            open={!!detailPlugin}
-            onClose={() => setDetailPlugin(null)}
-            name={detailPlugin.name}
-            description={detailPlugin.description ?? "Organization extension installed in this workspace."}
-            kind="extension"
-            connected={true}
-            hidden={hidden}
-            onUninstall={props.removeCloudPlugin ? () => {
-              void props.removeCloudPlugin?.(detailPlugin.pluginId);
-              setDetailPlugin(null);
-            } : undefined}
-            onHide={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, true)}
-            onShow={() => setOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`, false)}
-          />
-        );
-      })() : null}
-
-      {detailOrgMcpItem && isOrgMcpConnectionItem(detailOrgMcpItem) ? (() => {
-        const connection = detailOrgMcpItem.orgMcpConnection;
-        const canDisconnect = canDisconnectNativeProviderAccount(connection);
-        return (
-          <ExtensionDetailModal
-            open={true}
-            onClose={() => setDetailOrgMcpItem(null)}
-            name={detailOrgMcpItem.name}
-            description={detailOrgMcpItem.description ?? orgMcpConnectionActionLabel(connection)}
-            kind="mcp"
-            connected={true}
-            connectedLabel={orgMcpConnectionActionLabel(connection)}
-            beta
-            url={connection.url}
-            oauth={connection.authType === "oauth"}
-            onUninstall={canDisconnect && props.disconnectOrgMcp ? () => props.disconnectOrgMcp?.(connection.id) : undefined}
-            uninstallLabel={t("mcp.org_connection_disconnect_action")}
-            showEnablementCard={false}
-            configSlot={(
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1 text-xs text-dls-secondary">Shared by your organization</span>
-                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1 text-xs text-dls-secondary">{connection.credentialMode === "shared" ? "Org account" : "Your account"}</span>
-              </div>
-            )}
-          />
-        );
-      })() : null}
+      {detailPanels}
     </section>
   );
 }
@@ -982,6 +1149,35 @@ function McpCustomAppCard(props: { onOpen: () => void; onOpenGithubImport?: () =
   );
 }
 
+const inventoryGroupOrder: ExtensionInventoryGroup[] = [
+  "needs_signin",
+  "needs_admin_setup",
+  "ready",
+  "available",
+  "disabled",
+];
+
+function inventoryGroupLabel(group: ExtensionInventoryGroup) {
+  switch (group) {
+    case "needs_signin":
+      return t("connect.group_needs_signin");
+    case "needs_admin_setup":
+      return t("connect.group_needs_admin_setup");
+    case "ready":
+      return t("connect.group_ready");
+    case "available":
+      return t("mcp.available_apps");
+    case "disabled":
+      return t("extensions.disabled_by_organization");
+  }
+}
+
+type InventoryCard = {
+  key: string;
+  group: ExtensionInventoryGroup;
+  node: ReactNode;
+};
+
 function McpQuickConnectSection(props: {
   skillCount: number;
   entries: McpDirectoryInfo[];
@@ -990,6 +1186,7 @@ function McpQuickConnectSection(props: {
   availableConnectMcpStatuses: McpStatusMap;
   installedPlugins?: CloudImportedPlugin[];
   installedOrgMcpItems?: ExtensionItem[];
+  organizationName?: string | null;
   busy: boolean;
   connectingName: string | null;
   isEntryHidden: (entry: McpDirectoryInfo) => boolean;
@@ -1008,149 +1205,189 @@ function McpQuickConnectSection(props: {
   orgMcpDisconnectingId: string | null;
   disconnectOrgMcp?: (connectionId: string) => void;
 }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-dls-secondary">
-            {t("mcp.available_apps")}
-          </h3>
-          <span className="text-[11px] uppercase text-dls-secondary">
-            {t("extensions.skill_count", { count: props.skillCount })}
-          </span>
+  const orgMeta = props.organizationName?.trim()
+    ? t("extensions.from_org", { org: props.organizationName.trim() })
+    : t("extensions.surface_cloud");
+
+  const cards: InventoryCard[] = [];
+
+  for (const entry of props.entries) {
+    const configured = props.isConfigured(entry);
+    const enablement = props.enablementForEntry?.(entry);
+    const connecting = props.connectingName === entry.name;
+    const hidden = props.isEntryHidden(entry);
+    const disabledReason = props.disabledReasonForEntry(entry);
+    const entryUrl = typeof entry.url === "string" ? entry.url : undefined;
+    const group: ExtensionInventoryGroup = disabledReason
+      ? "disabled"
+      : configured || enablement?.active
+        ? "ready"
+        : "available";
+    cards.push({
+      key: getMcpIdentityKey(entry),
+      group,
+      node: (
+        <ExtensionCard
+          name={entry.name}
+          description={entry.description}
+          iconSlug={entry.iconSlug}
+          iconSrc={entry.iconSrc}
+          url={entryUrl}
+          kind={entry.kind ?? "mcp"}
+          connected={configured}
+          enablement={enablement?.results}
+          connecting={connecting}
+          hidden={hidden}
+          preview={entry.preview}
+          disabledReason={disabledReason}
+          disabled={props.busy}
+          meta={t("extensions.surface_this_device")}
+          actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
+          nextActionLabel={configured || disabledReason ? undefined : t("connect.row_action_connect")}
+          onClick={() => props.onDetail(entry)}
+        />
+      ),
+    });
+  }
+
+  for (const skill of props.installedSkills ?? []) {
+    const hidden = props.isSkillHidden(skill);
+    const fromOrg = skill.origin === "openwork-connect";
+    cards.push({
+      key: `skill:${skill.path}`,
+      group: "ready",
+      node: (
+        <ExtensionCard
+          name={skill.name}
+          description={skill.description ?? "Installed skill"}
+          kind="skill"
+          connected={true}
+          connectedLabel={fromOrg ? t("connect.row_chip_ready") : undefined}
+          hidden={hidden}
+          meta={fromOrg ? orgMeta : t("extensions.surface_this_device")}
+          actionLabel="View details"
+          onClick={() => props.onSkillDetail?.(skill)}
+        />
+      ),
+    });
+  }
+
+  for (const entry of props.availableConnectMcpServers ?? []) {
+    const status = props.availableConnectMcpStatuses[entry.id ?? entry.name]?.status;
+    const ready = status === "connected";
+    cards.push({
+      key: `connect-mcp:${entry.id ?? entry.name}`,
+      group: ready ? "ready" : "needs_signin",
+      node: (
+        <ExtensionCard
+          name={entry.name}
+          description={
+            entry.pluginName
+              ? `Provided by ${entry.pluginName}${entry.marketplaceName ? ` · ${entry.marketplaceName}` : ""}.`
+              : entry.marketplaceName
+                ? `Provided by ${entry.marketplaceName}.`
+                : t("extensions.surface_cloud")
+          }
+          kind="mcp"
+          connected={ready}
+          connectedLabel={ready ? t("connect.row_chip_ready") : undefined}
+          meta={orgMeta}
+          actionLabel="View details"
+          nextActionLabel={ready ? undefined : t("mcp.login_action")}
+          onClick={() => props.onConnectMcpDetail?.(entry)}
+        />
+      ),
+    });
+  }
+
+  for (const plugin of props.installedPlugins ?? []) {
+    const hidden = props.isPluginHidden(plugin);
+    const fileCount = plugin.files.length;
+    cards.push({
+      key: `plugin:${plugin.pluginId}`,
+      group: "ready",
+      node: (
+        <ExtensionCard
+          name={plugin.name}
+          description={plugin.description ?? `Organization extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
+          kind="extension"
+          connected={true}
+          hidden={hidden}
+          meta={orgMeta}
+          actionLabel="View details"
+          onClick={() => props.onPluginDetail?.(plugin)}
+        />
+      ),
+    });
+  }
+
+  for (const item of (props.installedOrgMcpItems ?? []).filter(isOrgMcpConnectionItem)) {
+    const connection = item.orgMcpConnection;
+    const canDisconnect = canDisconnectNativeProviderAccount(connection);
+    const disconnecting = props.orgMcpDisconnectingId === connection.id;
+    const group = resolveExtensionInventoryGroup(item);
+    cards.push({
+      key: item.id,
+      group,
+      node: (
+        <div className="space-y-2">
+          <ExtensionCard
+            name={item.name}
+            description={item.description ?? "Shared by your organization."}
+            kind="mcp"
+            url={connection.url}
+            connected={group === "ready"}
+            connectedLabel={orgMcpConnectionActionLabel(connection)}
+            beta
+            meta={orgMeta}
+            actionLabel={disconnecting ? t("mcp.org_connection_disconnecting_action") : "View details"}
+            nextActionLabel={group === "needs_signin" ? t("mcp.login_action") : undefined}
+            onClick={() => props.onOrgMcpDetail?.(item)}
+          />
+          {canDisconnect ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="w-full"
+              disabled={disconnecting}
+              onClick={() => props.disconnectOrgMcp?.(connection.id)}
+            >
+              {disconnecting ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_disconnect_action")}
+            </Button>
+          ) : null}
         </div>
-        <span className="text-[11px] text-dls-secondary">{t("mcp.one_click_connect")}</span>
-      </div>
+      ),
+    });
+  }
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
-        {/* MCP entries */}
-        {props.entries.map((entry) => {
-          const configured = props.isConfigured(entry);
-          const enablement = props.enablementForEntry?.(entry);
-          const connecting = props.connectingName === entry.name;
-          const hidden = props.isEntryHidden(entry);
-          const disabledReason = props.disabledReasonForEntry(entry);
-          const entryUrl = typeof entry.url === "string" ? entry.url : undefined;
+  const grouped = inventoryGroupOrder
+    .map((group) => ({ group, cards: cards.filter((card) => card.group === group) }))
+    .filter((entry) => entry.cards.length > 0);
 
-          return (
-            <ExtensionCard
-              key={getMcpIdentityKey(entry)}
-              name={entry.name}
-              description={entry.description}
-              iconSlug={entry.iconSlug}
-              iconSrc={entry.iconSrc}
-              url={entryUrl}
-              kind={entry.kind ?? "mcp"}
-              connected={configured}
-              enablement={enablement?.results}
-              connecting={connecting}
-              hidden={hidden}
-              preview={entry.preview}
-              disabledReason={disabledReason}
-              disabled={props.busy}
-              actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
-              onClick={() => props.onDetail(entry)}
+  return (
+    <div className="space-y-6">
+      {grouped.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-dls-border px-5 py-10 text-center">
+          <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
+          <div className="text-sm font-medium text-dls-secondary">No extensions found</div>
+          <div className="mt-1 text-xs text-dls-secondary/60">Try a different search or filter, or add an MCP server.</div>
+        </div>
+      ) : (
+        grouped.map(({ group, cards: groupCards }) => (
+          <div key={group} className="space-y-4">
+            <SettingsGroupHeader
+              label={inventoryGroupLabel(group)}
+              count={groupCards.length}
+              hint={group === "available" ? t("mcp.one_click_connect") : undefined}
             />
-          );
-        })}
-
-        {/* Installed skills */}
-        {(props.installedSkills ?? []).map((skill) => {
-          const hidden = props.isSkillHidden(skill);
-          return (
-            <ExtensionCard
-              key={`skill:${skill.path}`}
-              name={skill.name}
-              description={skill.description ?? "Installed skill"}
-              kind="skill"
-              connected={true}
-              connectedLabel={skill.origin === "openwork-connect" ? "Available" : undefined}
-              hidden={hidden}
-              actionLabel="View details"
-              onClick={() => props.onSkillDetail?.(skill)}
-            />
-          );
-        })}
-
-        {(props.availableConnectMcpServers ?? []).map((entry) => {
-          const status = props.availableConnectMcpStatuses[entry.id ?? entry.name]?.status;
-          return (
-            <ExtensionCard
-              key={`connect-mcp:${entry.id ?? entry.name}`}
-              name={entry.name}
-              description={
-                entry.pluginName
-                  ? `Provided by ${entry.pluginName}${entry.marketplaceName ? ` · ${entry.marketplaceName}` : ""}.`
-                  : entry.marketplaceName
-                    ? `Provided by ${entry.marketplaceName}.`
-                    : "Available through OpenWork Connect."
-              }
-              kind="mcp"
-              connected={status === "connected"}
-              connectedLabel={status === "connected" ? "Available" : undefined}
-              actionLabel="View details"
-              onClick={() => props.onConnectMcpDetail?.(entry)}
-            />
-          );
-        })}
-
-        {(props.installedPlugins ?? []).map((plugin) => {
-          const hidden = props.isPluginHidden(plugin);
-          const fileCount = plugin.files.length;
-          return (
-            <ExtensionCard
-              key={`plugin:${plugin.pluginId}`}
-              name={plugin.name}
-              description={plugin.description ?? `Organization extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
-              kind="extension"
-              connected={true}
-              hidden={hidden}
-              actionLabel="View details"
-              onClick={() => props.onPluginDetail?.(plugin)}
-            />
-          );
-        })}
-
-        {(props.installedOrgMcpItems ?? []).filter(isOrgMcpConnectionItem).map((item) => {
-          const connection = item.orgMcpConnection;
-          const canDisconnect = canDisconnectNativeProviderAccount(connection);
-          const disconnecting = props.orgMcpDisconnectingId === connection.id;
-          return (
-            <div key={item.id} className="space-y-2">
-              <ExtensionCard
-                name={item.name}
-                description={item.description ?? "Shared by your organization."}
-                kind="mcp"
-                url={connection.url}
-                connected={true}
-                connectedLabel={orgMcpConnectionActionLabel(connection)}
-                beta
-                actionLabel={disconnecting ? t("mcp.org_connection_disconnecting_action") : "View details"}
-                onClick={() => props.onOrgMcpDetail?.(item)}
-              />
-              {canDisconnect ? (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="w-full"
-                  disabled={disconnecting}
-                  onClick={() => props.disconnectOrgMcp?.(connection.id)}
-                >
-                  {disconnecting ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_disconnect_action")}
-                </Button>
-              ) : null}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
+              {groupCards.map((card) => (
+                <div key={card.key}>{card.node}</div>
+              ))}
             </div>
-          );
-        })}
-
-        {props.entries.length === 0 && (props.installedSkills ?? []).length === 0 && (props.availableConnectMcpServers ?? []).length === 0 && (props.installedPlugins ?? []).length === 0 && (props.installedOrgMcpItems ?? []).length === 0 ? (
-          <div className="col-span-full rounded-xl border border-dashed border-dls-border px-5 py-10 text-center">
-            <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
-            <div className="text-sm font-medium text-dls-secondary">No extensions found</div>
-            <div className="mt-1 text-xs text-dls-secondary/60">Try a different search or filter, or add an MCP server.</div>
           </div>
-        ) : null}
-      </div>
+        ))
+      )}
     </div>
   );
 }

@@ -40,6 +40,12 @@ import {
   AgentContextDiagnosticsSection,
   type AgentContextDiagnosticsSectionProps,
 } from "./agent-context-diagnostics-section";
+import { AgentAccessCard } from "@/react-app/domains/settings/cloud/agent-access-card";
+import type {
+  OpenworkCloudMcpHealth,
+  OpenworkCloudMcpProviderModelContext,
+  OpenworkServerClient,
+} from "@/app/lib/openwork-server";
 
 const sectionHeaderClass = "flex flex-col gap-1 pb-2";
 const sectionTitleClass = "text-[15px] font-semibold tracking-[-0.2px] text-dls-text";
@@ -85,6 +91,12 @@ type ServiceStatus = { tone: "success" | "error"; message: string } | null;
 export type DebugViewProps = {
   developerMode: boolean;
   agentContextDiagnostics: AgentContextDiagnosticsSectionProps;
+  agentAccess?: {
+    client: OpenworkServerClient | null;
+    workspaceId: string | null;
+    currentModel: OpenworkCloudMcpProviderModelContext | null;
+    onHealthChange?: (health: OpenworkCloudMcpHealth | null) => void;
+  } | null;
   busy: boolean;
   anyActiveRuns: boolean;
   startupPreference: StartupPreference | null;
@@ -621,6 +633,23 @@ export function DebugView(props: DebugViewProps) {
       </div>
 
       <AgentContextDiagnosticsSection {...props.agentContextDiagnostics} />
+
+      {props.agentAccess ? (
+        <div className={cardClass}>
+          <div className={sectionHeaderClass}>
+            <div className={sectionTitleClass}>Agent access</div>
+            <div className={sectionDescClass}>
+              Test and repair OpenWork Cloud MCP access for this workspace.
+            </div>
+          </div>
+          <AgentAccessCard
+            client={props.agentAccess.client}
+            workspaceId={props.agentAccess.workspaceId}
+            currentModel={props.agentAccess.currentModel}
+            onHealthChange={props.agentAccess.onHealthChange}
+          />
+        </div>
+      ) : null}
 
       {/* Section: Diagnostics */}
       <div className={cardClass}>

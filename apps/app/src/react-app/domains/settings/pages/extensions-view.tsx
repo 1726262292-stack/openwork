@@ -41,11 +41,15 @@ export type ExtensionsViewProps = {
   mcpView: (routing: {
     initialFilter: ExtensionsInventoryFilter;
     onFilterChange: (filter: ExtensionsInventoryFilter) => void;
+    detailId: string | null;
+    onDetailIdChange?: (id: string | null) => void;
   }) => ReactNode;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
   setSectionRoute?: (tab: ExtensionsSection) => void;
   showHeader?: boolean;
+  detailId?: string | null;
+  onDetailIdChange?: (id: string | null) => void;
 };
 
 export function ExtensionsView(props: ExtensionsViewProps) {
@@ -61,6 +65,17 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const setFilterRoute = (filter: ExtensionsInventoryFilter) => {
     props.setSectionRoute?.(filter === "skill" ? "skills" : filter);
   };
+  const detailId = props.detailId ?? null;
+  const mcpRouting = {
+    initialFilter,
+    onFilterChange: setFilterRoute,
+    detailId,
+    onDetailIdChange: props.onDetailIdChange,
+  };
+
+  if (detailId) {
+    return <>{props.mcpView(mcpRouting)}</>;
+  }
 
   return (
     <section className="space-y-6 max-w-3xl w-full animate-in fade-in duration-300">
@@ -84,7 +99,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       </div>
 
       {/* Runtime extensions and organization-assigned capabilities share one inventory. */}
-      {props.mcpView({ initialFilter, onFilterChange: setFilterRoute })}
+      {props.mcpView(mcpRouting)}
 
       {/* OpenCode plugins -- advanced, collapsed */}
       {pluginCount > 0 ? (

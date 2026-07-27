@@ -3,13 +3,30 @@ import type { CloudImportedPlugin, CloudImportedPluginFile } from "../../../app/
 import type { PendingCloudPluginChange } from "../../../app/cloud/desktop-cloud-sync";
 import { evaluateEnablement, type EnablementContext } from "../../../app/enablement";
 import type { EnablementResult } from "../../../app/extensions";
-import type { DenExternalMcpConnection, DenOrgMarketplaceResolved, DenOrgPlugin } from "../../../app/lib/den";
+import type {
+  DenExternalMcpConnection,
+  DenOrgMarketplaceResolved,
+  DenOrgPlugin,
+  DenPluginCloudReadiness,
+} from "../../../app/lib/den";
 import type { McpServerEntry, SkillCard } from "../../../app/types";
 import { connectionNeedsReconnect } from "../connections/native-provider-connections";
+import {
+  resolveConnectRowGroup,
+  resolveConnectionRowGroup,
+  type ConnectOrgRole,
+} from "./connect-cloud-readiness";
 
 export type ExtensionItemSource = "builtin" | "marketplace" | "org-connection" | "mcp-directory" | "skill";
 export type ExtensionInstallState = "available" | "installed" | "update_available";
 export type ExtensionSetupState = "ready" | "needs_setup" | "partial";
+export type ExtensionInventoryGroup = "needs_signin" | "needs_admin_setup" | "ready" | "available" | "disabled";
+
+export type ResolveExtensionInventoryGroupOptions = {
+  role?: ConnectOrgRole;
+  disabledReason?: string | null;
+  cloudReadiness?: DenPluginCloudReadiness | null;
+};
 
 export type ExtensionResourceItem = {
   id: string;
@@ -39,6 +56,36 @@ export type ExtensionItem = {
   mcpEntry?: McpDirectoryInfo;
   skill?: { name: string; description?: string; path: string };
 };
+
+/**
+ * Map an inventory item into the unified Extensions readiness groups.
+ * Org/cloud readiness wins when present; otherwise fall back to install state.
+ */
+export function resolveExtensionInventoryGroup(
+  item: ExtensionItem,
+  opts: ResolveExtensionInventoryGroupOptions = {},
+): ExtensionInventoryGroup {
+  if (opts.disabledReason) return "disabled";
+
+  if (item.orgMcpConnection) {
+    return resolveConnectionRowGroup(item.orgMcpConnection);
+  }
+
+  const readiness = opts.cloudReadiness ?? item.plugin?.cloudReadiness;
+  if (item.source === "marketplace" || readiness) {
+    const group = resolveConnectRowGroup(
+      readiness,
+      opts.role,
+      item.plugin?.componentCounts ?? {},
+    );
+    if (group === "needs_signin" || group === "needs_admin_setup" || group === "ready") {
+      return group;
+    }
+  }
+
+  if (item.installState === "available") return "available";
+  return "ready";
+}
 
 export type ExtensionItemBuildInput = {
   quickConnect: McpDirectoryInfo[];

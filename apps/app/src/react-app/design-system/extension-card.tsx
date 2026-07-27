@@ -34,14 +34,20 @@ export type ExtensionCardProps = {
   beta?: boolean;
   /** Reason this item is visible but unavailable. */
   disabledReason?: string | null;
+  /** Secondary meta line under the description (e.g. "from Acme"). */
+  meta?: string | null;
   /** Action label shown at bottom. */
   actionLabel?: string;
+  /** Optional primary next-step label (signin/connect). */
+  nextActionLabel?: string;
+  /** Click handler for nextActionLabel; falls back to onClick. */
+  onNextAction?: () => void;
   /** Click handler. */
   onClick?: () => void;
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
-  mcp: "MCP",
+  mcp: "App",
   plugin: "Plugin",
   skill: "Skill",
   "ui-control": "UI Control",
@@ -78,7 +84,10 @@ export function ExtensionCard(props: ExtensionCardProps) {
     preview = false,
     beta = false,
     disabledReason = null,
+    meta = null,
     actionLabel,
+    nextActionLabel,
+    onNextAction,
     onClick,
   } = props;
 
@@ -173,12 +182,26 @@ export function ExtensionCard(props: ExtensionCardProps) {
             ) : null}
           </div>
           <p className="mt-0.5 line-clamp-2 text-xs text-dls-secondary">{description}</p>
+          {meta ? (
+            <div className="mt-1 text-[11px] text-dls-secondary">{meta}</div>
+          ) : null}
           {disabledReason ? (
             <div className="mt-2 text-[11px] font-medium text-amber-11">
               {disabledReason}
             </div>
           ) : null}
-          {!disabledReason && !connecting && actionLabel ? (
+          {!disabledReason && !connecting && nextActionLabel ? (
+            <div
+              className="mt-2 text-[11px] font-medium text-dls-text transition-colors group-hover:opacity-80"
+              onClick={(event) => {
+                if (!onNextAction) return;
+                event.stopPropagation();
+                onNextAction();
+              }}
+            >
+              {nextActionLabel}
+            </div>
+          ) : !disabledReason && !connecting && actionLabel ? (
             <div className="mt-2 text-[11px] font-medium text-dls-text transition-colors group-hover:opacity-80">
               {actionLabel}
             </div>
