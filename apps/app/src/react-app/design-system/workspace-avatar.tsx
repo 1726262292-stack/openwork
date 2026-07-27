@@ -28,18 +28,21 @@ export function WorkspaceAvatar({
       <img
         src={trimmedUrl}
         alt=""
-        className={`${sizeClass} shrink-0 rounded-full object-cover`}
+        className={`${sizeClass} shrink-0 rounded-[5px] object-cover`}
         draggable={false}
+        data-workspace-avatar=""
       />
     );
   }
 
   return (
     <span
-      className={`${sizeClass} flex shrink-0 items-center justify-center rounded-full text-[8px] font-semibold leading-none text-white`}
+      className={`${sizeClass} flex shrink-0 items-center justify-center rounded-[5px] text-[10px] font-semibold leading-none text-white`}
       style={{ backgroundColor: workspaceAvatarColor(workspaceId) }}
       role="presentation"
       aria-hidden="true"
+      data-workspace-avatar=""
+      title={label}
     >
       {workspaceAvatarInitials(label)}
     </span>

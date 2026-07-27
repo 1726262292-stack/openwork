@@ -1403,11 +1403,11 @@ function WorkspaceHeader({
         handleSelectWorkspace();
       }}
     >
-      <SidebarGlyphSlot>
+      <SidebarGlyphSlot className="size-5">
         {isLoading ? (
           <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
         ) : (
-          <WorkspaceAvatar workspaceId={workspace.id} label={label} />
+          <WorkspaceAvatar workspaceId={workspace.id} label={label} sizeClass="size-5" />
         )}
       </SidebarGlyphSlot>
       <div
