@@ -19,10 +19,8 @@ type Release = {
 // Cloud and enterprise flavors. All can match the loose per-architecture
 // keywords below and sort ahead of the public asset, so exclude them here
 // exactly as the landing page does.
-const RETIRED_HELPER_ASSET_PREFIX = "openwork-" + "installer-";
-
 function isNonPublicDesktopAsset(name: string) {
-  return name.startsWith(RETIRED_HELPER_ASSET_PREFIX)
+  return name.startsWith("openwork-installer-")
     || name.startsWith("openwork-cloud-")
     || name.startsWith("openwork-enterprise-");
 }
