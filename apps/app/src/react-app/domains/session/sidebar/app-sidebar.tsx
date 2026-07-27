@@ -1395,7 +1395,7 @@ function WorkspaceHeader({
     <SidebarMenuButton
       {...props}
       className={cn(
-        "gap-2.5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
+        "gap-2 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
@@ -1403,11 +1403,11 @@ function WorkspaceHeader({
         handleSelectWorkspace();
       }}
     >
-      <SidebarGlyphSlot className="size-5">
+      <SidebarGlyphSlot>
         {isLoading ? (
           <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
         ) : (
-          <WorkspaceAvatarPicker workspaceId={workspace.id} label={label} sizeClass="size-5" />
+          <WorkspaceAvatarPicker workspaceId={workspace.id} label={label} />
         )}
       </SidebarGlyphSlot>
       <div
@@ -1632,6 +1632,7 @@ function WorkspaceSidebarGroup({
                             key={row.session.id}
                             session={row.session}
                             depth={row.depth}
+                            nestOffset={1}
                             tree={tree}
                             workspaceId={workspace.id}
                             forcedExpandedSessionIds={forcedExpandedSessionIds}
@@ -1877,7 +1878,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
         onToggle();
       }}
       className={cn("group/separator flex w-full items-center gap-2 rounded pe-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50")}
-      style={{ paddingInlineStart: sidebarRowPaddingInlineStart(0) }}
+      style={{ paddingInlineStart: sidebarRowPaddingInlineStart(1) }}
       aria-expanded={expanded}
     >
       <SidebarGlyphSlot>
@@ -2081,6 +2082,7 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
                     <SessionMenuItem
                       session={row.session}
                       depth={row.depth}
+                      nestOffset={1}
                       tree={tree}
                       workspaceId={workspaceId}
                       forcedExpandedSessionIds={forcedExpandedSessionIds}

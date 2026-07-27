@@ -29,7 +29,7 @@ type WorkspaceAvatarPickerProps = {
 export function WorkspaceAvatarPicker({
   workspaceId,
   label,
-  sizeClass = "size-5",
+  sizeClass = "size-4",
 }: WorkspaceAvatarPickerProps) {
   const preference = useWorkspaceAvatarPreference(workspaceId);
   const setColor = useWorkspaceAvatarStore((state) => state.setColor);
@@ -58,7 +58,10 @@ export function WorkspaceAvatarPicker({
         render={
           <button
             type="button"
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded-full leading-none outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "inline-flex shrink-0 items-center justify-center rounded-full leading-none outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring",
+              sizeClass,
+            )}
             aria-label={t("workspace_list.edit_avatar")}
             title={t("workspace_list.edit_avatar")}
             onClick={(event) => {
