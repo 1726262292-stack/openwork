@@ -17,9 +17,24 @@ describe("settings route parsing", () => {
   });
 
   test("preserves extension section deep links", () => {
-    expect(parseSettingsPath("/settings/extensions/mcp")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "mcp" });
+    expect(parseSettingsPath("/settings/extensions/apps")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "apps" });
+    expect(parseSettingsPath("/settings/extensions/connections")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "connections" });
+    expect(parseSettingsPath("/settings/extensions/mcps")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "mcps" });
     expect(parseSettingsPath("/settings/extensions/skills")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "skills" });
     expect(parseSettingsPath("/settings/extensions/plugins")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "plugins" });
+  });
+
+  test("redirects the old mcp section to the MCPs filter", () => {
+    expect(parseSettingsPath("/settings/extensions/mcp")).toEqual({
+      tab: "extensions",
+      redirectPath: "extensions/mcps",
+      extensionsSection: "mcps",
+    });
+    expect(parseSettingsPath("/settings/mcp")).toEqual({
+      tab: "extensions",
+      redirectPath: "extensions/mcps",
+      extensionsSection: "mcps",
+    });
   });
 
   test("treats non-section extension tails as detail ids", () => {

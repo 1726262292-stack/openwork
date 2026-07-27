@@ -151,30 +151,6 @@ export function isOrgMcpConnectionItem(item: ExtensionItem): item is ExtensionIt
   return item.source === "org-connection" && Boolean(item.orgMcpConnection);
 }
 
-function normalizeProviderKey(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
-}
-
-function normalizeProviderUrl(value: string | undefined) {
-  if (!value) return "";
-  try {
-    const url = new URL(value);
-    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "").toLowerCase();
-  } catch {
-    return value.trim().replace(/\/+$/, "").toLowerCase();
-  }
-}
-
-function orgConnectionMatchesQuickEntry(connection: DenExternalMcpConnection, entry: McpDirectoryInfo) {
-  const entryUrl = normalizeProviderUrl(entry.url);
-  const connectionUrl = normalizeProviderUrl(connection.url);
-  if (entryUrl && connectionUrl && entryUrl === connectionUrl) return true;
-
-  const entryKeys = [entry.serverName ?? "", entry.name].map(normalizeProviderKey).filter(Boolean);
-  const connectionKey = normalizeProviderKey(connection.name);
-  return entryKeys.some((key) => key && key === connectionKey);
-}
-
 function orgConnectionCanRender(connection: DenExternalMcpConnection) {
   return connection.credentialMode === "per_member" || connection.connected;
 }
@@ -307,13 +283,6 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
     }];
   });
 
-  const renderableOrgConnections = orgMcpConnectionItems.flatMap((item) => item.orgMcpConnection ? [item.orgMcpConnection] : []);
-  const hasRenderableOrgEquivalent = (entry: McpDirectoryInfo) => {
-    if (entry.type !== "remote") return false;
-    if (input.mcpServers.some((server) => server.name === getMcpServerName(entry))) return false;
-    return renderableOrgConnections.some((connection) => orgConnectionMatchesQuickEntry(connection, entry));
-  };
-
   const groupedMcpServerNames = new Set<string>();
   const groupedExternalMcpConnectionIds = new Set<string>();
   const groupedSkillPaths = new Set<string>();
@@ -374,21 +343,12 @@ export function buildExtensionItems(input: ExtensionItemBuildInput) {
       ...builtInItems.flatMap((item) => item.active && item.builtInEntry ? [item.builtInEntry] : []),
       ...standaloneMcpEntries,
     ],
-    // The MCP quick-connect surface ("Available apps · One-click connect")
-    // needs unconfigured directory entries too — otherwise Notion, Linear,
-    // OpenWork Cloud Control, etc. are undiscoverable for anyone who is not
-    // signed in to cloud (regression from #2008, which narrowed the section
-    // to installed entries only).
+    // Extensions is an inventory, not a browse catalog: built-ins always show
+    // so they can be turned on, and everything else only shows once it is
+    // configured here. Third-party connections arrive through the organization.
     quickConnectEntries: [
-      ...builtInItems.flatMap((item) => item.active && item.builtInEntry ? [item.builtInEntry] : []),
+      ...builtInItems.flatMap((item) => item.builtInEntry ? [item.builtInEntry] : []),
       ...standaloneMcpEntries,
-      ...input.quickConnect.filter((entry) => {
-        if (isBuiltInOpenWorkExtension(entry)) return false;
-        const serverName = getMcpServerName(entry);
-        if (groupedMcpServerNames.has(serverName)) return false;
-        if (hasRenderableOrgEquivalent(entry)) return false;
-        return !input.mcpServers.some((server) => server.name === serverName);
-      }),
     ],
     installedSkills: standaloneSkillItems.flatMap((item) => item.skill ? [item.skill] : []),
     installedCloudPlugins: Object.values(input.importedCloudPlugins),

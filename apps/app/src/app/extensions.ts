@@ -121,6 +121,12 @@ export type OpenWorkExtensionManifest = {
     prompt: string;
   };
   setup?: OpenWorkExtensionSetup;
+  /**
+   * Where the work happens for the user: on this device, or against an account
+   * hosted elsewhere. Local runtimes are listed as apps, account-backed ones as
+   * connections. Defaults to "local".
+   */
+  surface?: "local" | "cloud";
   resources: OpenWorkExtensionResource[];
   contributions?: OpenWorkExtensionContribution[];
   lifecycle?: OpenWorkExtensionLifecycle;
@@ -281,6 +287,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
       secondaryCta: "Test connection",
       testActionRef: "openwork.googleWorkspace.testConnection",
     },
+    surface: "cloud",
     resources: [
       { type: "provider", id: "google-oauth", label: "Google account", providerId: "google-workspace", required: true },
       { type: "local-service", id: "google-workspace-connector", label: "Secure local connection", required: true },
