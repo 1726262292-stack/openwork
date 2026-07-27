@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { readDenBootstrapConfig, readDenSettings, resolveDenBaseUrls } from "../src/app/lib/den";
+import {
+  buildDenAuthUrl,
+  createDenClient,
+  getDenMcpUrl,
+  readDenBootstrapConfig,
+  readDenSettings,
+  resolveDenBaseUrls,
+} from "../src/app/lib/den";
 import {
   hydrateOpenworkServerSettingsFromEnv,
   readOpenworkServerSettings,
@@ -8,6 +15,7 @@ import {
 import { resolveOpenworkConnection } from "../src/react-app/shell/openwork-connection";
 
 const originalWindow = globalThis.window;
+const originalFetch = globalThis.fetch;
 const originalDeployment = process.env.VITE_OPENWORK_DEPLOYMENT;
 
 function memoryStorage(): Storage {
@@ -32,6 +40,12 @@ function memoryStorage(): Storage {
       map.set(key, value);
     },
   };
+}
+
+function getRequestUrl(input: RequestInfo | URL): string {
+  if (input instanceof URL) return input.toString();
+  if (typeof input === "string") return input;
+  return input.url;
 }
 
 function installWindow(options: {
@@ -83,6 +97,10 @@ describe("gateway runtime mode", () => {
       configurable: true,
       value: originalWindow,
     });
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: originalFetch,
+    });
     if (originalDeployment === undefined) {
       delete process.env.VITE_OPENWORK_DEPLOYMENT;
     } else {
@@ -107,18 +125,62 @@ describe("gateway runtime mode", () => {
     });
   });
 
-  test("keeps Den API calls on the gateway origin and ignores stale Den storage", () => {
-    const storage = installWindow({ origin: "https://web.openworklabs.com", gateway: true });
+  test("keeps Den web on the configured origin and Den API calls on the gateway origin", () => {
+    const storage = installWindow({ origin: "https://gw.example", gateway: true });
     storage.setItem("openwork.den.baseUrl", "https://app.openworklabs.com");
     storage.setItem("openwork.den.authToken", "den-session-token");
 
-    expect(resolveDenBaseUrls("https://app.openworklabs.com")).toEqual({
-      baseUrl: "https://web.openworklabs.com",
-      apiBaseUrl: "https://web.openworklabs.com/api/den",
+    expect(resolveDenBaseUrls("https://gw.example")).toEqual({
+      baseUrl: "https://app.openworklabs.com",
+      apiBaseUrl: "https://gw.example/api/den",
     });
-    expect(readDenSettings().baseUrl).toBe("https://web.openworklabs.com");
-    expect(readDenSettings().apiBaseUrl).toBe("https://web.openworklabs.com/api/den");
+    expect(readDenSettings().baseUrl).toBe("https://app.openworklabs.com");
+    expect(readDenSettings().apiBaseUrl).toBe("https://gw.example/api/den");
     expect(readDenSettings().authToken).toBe("den-session-token");
+  });
+
+  test("builds web auth URLs on the Den web origin with the gateway return origin", () => {
+    installWindow({ origin: "https://gw.example", gateway: true });
+
+    const authUrl = new URL(buildDenAuthUrl(readDenSettings().baseUrl, "sign-up"));
+
+    expect(authUrl.origin).toBe("https://app.openworklabs.com");
+    expect(authUrl.searchParams.get("mode")).toBe("sign-up");
+    expect(authUrl.searchParams.get("webAuth")).toBe("1");
+    expect(authUrl.searchParams.get("webAuthReturn")).toBe("https://gw.example");
+  });
+
+  test("routes Den auth API paths to Den web and v1 paths through the gateway API", async () => {
+    installWindow({ origin: "https://gw.example", gateway: true });
+    const requestedUrls: string[] = [];
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: async (input: RequestInfo | URL) => {
+        requestedUrls.push(getRequestUrl(input));
+        return new Response(JSON.stringify({
+          user: { id: "user_test", email: "user@example.com" },
+          token: "tok_test",
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    const client = createDenClient({ baseUrl: readDenSettings().baseUrl, token: "tok_test" });
+    await client.signInEmail("user@example.com", "password");
+    await client.getSession();
+
+    expect(requestedUrls).toEqual([
+      "https://app.openworklabs.com/api/auth/sign-in/email",
+      "https://gw.example/api/den/v1/me",
+    ]);
+  });
+
+  test("uses the gateway Den API proxy for MCP", () => {
+    installWindow({ origin: "https://gw.example", gateway: true });
+
+    expect(getDenMcpUrl()).toBe("https://gw.example/api/den/mcp");
   });
 
   test("returns a stable gateway bootstrap snapshot for React external stores", () => {
@@ -128,7 +190,7 @@ describe("gateway runtime mode", () => {
     const second = readDenBootstrapConfig();
 
     expect(second).toBe(first);
-    expect(first.baseUrl).toBe("https://web.openworklabs.com");
+    expect(first.baseUrl).toBe("https://app.openworklabs.com");
     expect(first.apiBaseUrl).toBe("https://web.openworklabs.com/api/den");
   });
 
@@ -155,6 +217,10 @@ describe("non-gateway connection modes", () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: originalWindow,
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: originalFetch,
     });
     if (originalDeployment === undefined) {
       delete process.env.VITE_OPENWORK_DEPLOYMENT;
@@ -187,6 +253,14 @@ describe("non-gateway connection modes", () => {
     expect(connection.resolvedToken).toBe("manual-token");
     expect(connection.resolvedHostToken).toBe("");
     expect(connection.source).toBe("stored-settings");
+  });
+
+  test("plain web Den settings still use a stored custom base URL without the marker", () => {
+    const storage = installWindow({ origin: "https://instance.example.com" });
+    storage.setItem("openwork.den.baseUrl", "https://den.self-hosted.example.com");
+
+    expect(readDenSettings().baseUrl).toBe("https://den.self-hosted.example.com");
+    expect(readDenSettings().apiBaseUrl).toBe("https://den.self-hosted.example.com/api/den");
   });
 
   test("desktop runtime still uses live desktop server info without the marker", async () => {
