@@ -32,20 +32,13 @@ import {
   type ComposerSlashCommandOption,
 } from "./slash-command";
 import { encodeConnectSkillToken } from "./connect-skill-token";
-import { FILE_URL_RE, HTTP_URL_RE } from "./pasted-text";
+import { FILE_URL_RE, HTTP_URL_RE, type PastedTextChip } from "./pasted-text";
 
 type MentionItem = {
   id: string;
   kind: ComposerMentionKind;
   value: string;
   label: string;
-};
-
-type PastedTextChip = {
-  id: string;
-  label: string;
-  text: string;
-  lines: number;
 };
 
 type ToolMenuSettingsSection = "commands" | "skills" | "mcps" | "plugins";
@@ -1299,9 +1292,11 @@ export function ReactSessionComposer(props: ComposerProps) {
                 const text = event.clipboardData?.getData("text/plain") ?? "";
 
                 // Plain text paste display is owned by PasteChipPlugin inside
-                // the Lexical editor: >50 chars collapse unless the whole
-                // string is a standalone HTTP(S) URL; expanded pasted text gets
-                // the gray pasted-content styling. Do NOT duplicate that here.
+                // the Lexical editor: text collapses when it would exceed the
+                // editor's current width and maximum height, unless the whole
+                // string is a standalone HTTP(S) URL. Text that fits, or is
+                // expanded from a chip, renders like normal text. Do NOT
+                // duplicate that here.
 
                 if (
                   text.trim() &&
