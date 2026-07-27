@@ -39,7 +39,6 @@ import {
 import {
   extensionFilterLabel,
   extensionInventoryFilters,
-  extensionSurfaceLabel,
   matchesExtensionFilter,
   taxonomyForDirectoryEntry,
   type ExtensionInventoryFilter,
@@ -708,7 +707,6 @@ export function McpView(props: McpViewProps) {
           : detailEntry.kind === "extension" && !isMcpBackedExtension(detailEntry)
           ? props.isExtensionConnected?.(detailEntry) ?? false
           : isQuickConnectConfigured(detailEntry);
-        const isGoogleWorkspace = detailEntry.id === "google-workspace";
         return (
           <ExtensionDetailModal
             open={!!detailEntry}
@@ -726,15 +724,15 @@ export function McpView(props: McpViewProps) {
             hidden={hidden}
             preview={detailEntry.preview}
             disabledReason={disabledReason}
-            setupInstructions={isGoogleWorkspace ? undefined : detailEntry.extensionManifest?.setup?.instructions}
-            resourceLabels={isGoogleWorkspace ? [] : extensionResourceLabels(detailEntry)}
-            contributionLabels={isGoogleWorkspace ? [] : extensionContributionLabels(detailEntry)}
+            setupInstructions={detailEntry.extensionManifest?.setup?.instructions}
+            resourceLabels={extensionResourceLabels(detailEntry)}
+            contributionLabels={extensionContributionLabels(detailEntry)}
             launchCommand={launchCommandForEntry(detailEntry)}
             environment={detailEntry.serverName === "openwork-ui" ? openworkUiMcpEnvironment ?? undefined : undefined}
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={disabledReason ? null : extensionConfigSlot}
-            showEnablementCard={!isGoogleWorkspace}
+            showEnablementCard
             onConnect={disabledReason ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
               setOpenWorkExtensionEnabled(detailEntry, true);
               closeDetail();
@@ -1219,7 +1217,7 @@ function McpQuickConnectSection(props: {
           preview={entry.preview}
           disabledReason={disabledReason}
           disabled={props.busy}
-          meta={extensionSurfaceLabel(entry)}
+          meta={t("extensions.surface_this_device")}
           actionLabel={configured ? "View details" : t("mcp.tap_to_connect")}
           nextActionLabel={configured || disabledReason ? undefined : t("connect.row_action_connect")}
           onClick={() => props.onDetail(entry)}

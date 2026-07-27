@@ -73,7 +73,6 @@ import "@/react-app/domains/settings/ollama-config";
 import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/browser-extension-config";
 import "@/react-app/domains/settings/openwork-voice-config";
-import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
@@ -480,7 +479,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [localProviderBusy, setLocalProviderBusy] = useState(false);
   const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
-  const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
   const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
@@ -1035,27 +1033,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
-    if (!client) {
-      setGoogleWorkspaceConnected(false);
-      return;
-    }
-
-    let cancelled = false;
-    void client.googleWorkspaceStatus()
-      .then((result) => {
-        if (!cancelled) setGoogleWorkspaceConnected(result.connected === true);
-      })
-      .catch(() => {
-        if (!cancelled) setGoogleWorkspaceConnected(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [openworkClient, selectedWorkspaceEndpoint]);
 
   useEffect(() => {
     if (!openworkClient) {
@@ -1801,8 +1778,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     mcpServers: connectionsSnapshot.mcpServers,
     mcpConnectingName: connectionsSnapshot.mcpConnectingName,
     onComputerUsePermissionsChange: setComputerUsePermissions,
-    googleWorkspaceConnected,
-    setGoogleWorkspaceConnected,
     restartLocalServer: restartExtensionLocalServer,
     connectMcp: async (entry) => {
       await connectionsStore.connectMcp(entry);

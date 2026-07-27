@@ -21,22 +21,9 @@ export const extensionInventoryFilters: ExtensionInventoryFilter[] = [
   "plugin",
 ];
 
-export function extensionSurface(entry: Pick<McpDirectoryInfo, "extensionManifest">): "local" | "cloud" {
-  return entry.extensionManifest?.surface ?? "local";
-}
-
-export function extensionSurfaceLabel(entry: Pick<McpDirectoryInfo, "extensionManifest">) {
-  return extensionSurface(entry) === "cloud"
-    ? t("extensions.surface_cloud")
-    : t("extensions.surface_this_device");
-}
-
-/** Built-ins that run here are apps; built-ins backed by a remote account are connections. */
+/** Built-ins ship with OpenWork and run here, so they are apps. Accounts arrive as org connections. */
 export function taxonomyForDirectoryEntry(entry: McpDirectoryInfo): ExtensionTaxonomy {
-  if (isBuiltInOpenWorkExtension(entry)) {
-    return extensionSurface(entry) === "cloud" ? "connection" : "app";
-  }
-  if (entry.kind === "ui-control") return "app";
+  if (isBuiltInOpenWorkExtension(entry) || entry.kind === "ui-control") return "app";
   return "mcp";
 }
 

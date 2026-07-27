@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { BUILT_IN_OPENWORK_EXTENSION_MANIFESTS } from "../src/app/extensions";
 import { MCP_QUICK_CONNECT, type McpDirectoryInfo } from "../src/app/constants";
 import {
-  extensionSurface,
   matchesExtensionFilter,
   taxonomyForDirectoryEntry,
 } from "../src/react-app/domains/settings/extension-taxonomy";
@@ -15,28 +13,20 @@ function builtInEntry(id: string): McpDirectoryInfo {
 }
 
 describe("extension taxonomy", () => {
-  test("local built-ins are apps", () => {
+  test("built-ins are apps because they run on this device", () => {
     for (const id of ["openwork-browser", "computer-use", "ollama", "openwork-voice"]) {
       expect(taxonomyForDirectoryEntry(builtInEntry(id))).toBe("app");
     }
   });
 
-  test("account-backed built-ins are connections", () => {
-    expect(taxonomyForDirectoryEntry(builtInEntry("google-workspace"))).toBe("connection");
-    expect(extensionSurface(builtInEntry("google-workspace"))).toBe("cloud");
+  test("Google Workspace is not a built-in app; it arrives as an org connection", () => {
+    expect(MCP_QUICK_CONNECT.some((entry) => entry.id === "google-workspace")).toBe(false);
   });
 
   test("directory entries that are not built-in stay MCPs", () => {
     const notion = MCP_QUICK_CONNECT.find((entry) => entry.name === "Notion");
     expect(notion).toBeDefined();
     if (notion) expect(taxonomyForDirectoryEntry(notion)).toBe("mcp");
-  });
-
-  test("only cloud built-ins declare a cloud surface", () => {
-    const cloudManifestIds = BUILT_IN_OPENWORK_EXTENSION_MANIFESTS
-      .filter((manifest) => manifest.surface === "cloud")
-      .map((manifest) => manifest.id);
-    expect(cloudManifestIds).toEqual(["google-workspace"]);
   });
 
   test("the all filter keeps every taxonomy, others match exactly", () => {
