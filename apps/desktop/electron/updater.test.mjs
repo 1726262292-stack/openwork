@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   preventPendingUpdaterInstall,
@@ -84,5 +87,32 @@ describe("release channel changes", () => {
 
     preventPendingUpdaterInstall(updater);
     assert.equal(updater.autoInstallOnAppQuit, false);
+  });
+
+  it("pins enterprise builds to their parallel stable manifest channel", async () => {
+    const handlers = new Map();
+    const userData = await mkdtemp(path.join(os.tmpdir(), "openwork-enterprise-updater-"));
+    try {
+      registerUpdaterIpc({
+        app: {
+          isPackaged: false,
+          getVersion: () => "0.18.3",
+          getPath: () => userData,
+        },
+        ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+        getMainWindow: () => null,
+        manifestChannel: "enterprise",
+      });
+
+      const setChannel = handlers.get("openwork:updater:setChannel");
+      assert.equal(typeof setChannel, "function");
+      assert.deepEqual(await setChannel(null, "alpha"), {
+        channel: "stable",
+        feedUrl: "https://github.com/different-ai/openwork/releases/latest/download",
+        currentVersion: "0.18.3",
+      });
+    } finally {
+      await rm(userData, { recursive: true, force: true });
+    }
   });
 });

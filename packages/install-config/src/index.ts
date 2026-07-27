@@ -20,6 +20,8 @@ export const installExperienceConfigSchema = installConfigSchema.extend({
   connectExpiresAt: z.string().datetime(),
   activationUrl: z.string().trim().url(),
   activationExpiresAt: z.string().datetime(),
+  desktopVersion: z.string().trim().min(1),
+  distribution: z.literal("enterprise"),
 }).meta({ ref: "InstallExperienceConfig" })
 
 export type InstallExperienceConfig = z.infer<typeof installExperienceConfigSchema>
@@ -28,6 +30,7 @@ export const desktopBootstrapConfigSchema = z.object({
   baseUrl: z.string().trim().url(),
   apiBaseUrl: z.string().trim().url().optional(),
   requireSignin: z.boolean(),
+  requireActivation: z.boolean().optional(),
   brandAppName: z.string().trim().min(1).max(64).optional(),
   brandLogoUrl: z.string().trim().url().optional(),
   brandIconUrl: z.string().trim().url().optional(),

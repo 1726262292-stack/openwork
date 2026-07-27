@@ -144,6 +144,15 @@ export type AppBuildInfo = {
   arch?: string | null;
 };
 
+export type DesktopDistributionInfo = {
+  flavor: "public" | "enterprise";
+  appName: string;
+  appIdentifier: string;
+  protocolScheme: string;
+  requireSignin: boolean;
+  requireActivation: boolean;
+};
+
 /** Org + first-skill identity shared by the handoff and prepared records. */
 export type DesktopBootstrapOrgSkill = {
   orgId: string;
@@ -157,6 +166,7 @@ export type DesktopBootstrapConfig = {
   baseUrl: string;
   apiBaseUrl?: string | null;
   requireSignin: boolean;
+  requireActivation?: boolean;
   brandAppName?: string | null;
   brandLogoUrl?: string | null;
   brandIconUrl?: string | null;
@@ -179,6 +189,10 @@ export type DesktopBootstrapConfig = {
     skillPath: string;
     preparedAt: string;
   }) | null;
+  enterpriseActivation?: {
+    activatedAt: string;
+    denBaseUrl: string;
+  } | null;
 };
 
 export type OrchestratorDetachedHost = {
