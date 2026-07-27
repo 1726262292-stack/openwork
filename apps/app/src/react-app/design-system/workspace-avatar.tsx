@@ -41,7 +41,7 @@ export function WorkspaceAvatar({
 
   return (
     <span
-      className={`${sizeClass} inline-block shrink-0 rounded-full`}
+      className={`${sizeClass} inline-block shrink-0 rounded-full leading-none`}
       style={{ backgroundColor: resolveWorkspaceAvatarColor(workspaceId, color) }}
       role="presentation"
       aria-hidden="true"
