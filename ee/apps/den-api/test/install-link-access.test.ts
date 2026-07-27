@@ -20,6 +20,7 @@ const installLinkId = createDenTypeId("installLink")
 const insertedRows: unknown[] = []
 const revokedRows: unknown[] = []
 const officialWindowsDesktopUrl = "https://github.com/different-ai/openwork/releases/download/v9.9.9/openwork-enterprise-win-x64-9.9.9.exe"
+const officialWindowsCloudDesktopUrl = "https://github.com/different-ai/openwork/releases/download/v9.9.9/openwork-cloud-win-x64-9.9.9.exe"
 const connectKeyPair = generateConnectLinkKeyPair()
 const connectKeyId = "owc-route-test"
 
@@ -157,6 +158,7 @@ beforeEach(() => {
   envModule.env.installerReleaseRepo = "different-ai/openwork"
   envModule.env.installerReleaseTag = "v9.9.9"
   envModule.env.installerReleaseTagExplicit = true
+  envModule.env.orgMode = "single_org"
   insertedRows.length = 0
   revokedRows.length = 0
   role = "member"
@@ -334,6 +336,17 @@ test("zero-config downloads redirect the browser to the enterprise desktop relea
 
   expect(response.status).toBe(302)
   expect(response.headers.get("location")).toBe(officialWindowsDesktopUrl)
+  expect(response.headers.get("location")).not.toContain("opaque-token")
+})
+
+test("Cloud downloads resolve the matching version without forwarding the install token", async () => {
+  envModule.env.orgMode = "multi_org"
+  const response = await createApp().request("http://den.local/v1/install/win-x64?token=opaque-token", {
+    redirect: "manual",
+  })
+
+  expect(response.status).toBe(302)
+  expect(response.headers.get("location")).toBe(officialWindowsCloudDesktopUrl)
   expect(response.headers.get("location")).not.toContain("opaque-token")
 })
 
@@ -542,6 +555,17 @@ test("zero-config install config mints a short-lived exchange without storing th
   })
   expect(grant).not.toHaveProperty("code")
   expect(JSON.stringify(grant)).not.toContain(code)
+})
+
+test("hosted multi-org install config selects Cloud without enterprise activation", async () => {
+  envModule.env.orgMode = "multi_org"
+  const response = await createApp().request("http://127.0.0.1:8790/v1/install-config?token=opaque-token")
+
+  expect(response.status).toBe(200)
+  const body = await response.json()
+  expect(body.requireSignin).toBe(true)
+  expect(body.desktopVersion).toBe("9.9.9")
+  expect(body.distribution).toBe("cloud")
 })
 
 test("keyless preview is read-only and exchange consumes the grant once", async () => {

@@ -181,6 +181,11 @@ describe("join organization invite clean layout contract", () => {
     expect(successSource).toContain('className="whitespace-nowrap">&apos;s {brand.appName}</span>');
     expect(installSource).toContain("DownloadPlatformGrid");
     expect(installSource).toContain("<span>Download OpenWork Enterprise</span>");
+    expect(installSource).toContain("Download OpenWork");
+    expect(installSource).toContain('data-testid="install-cloud-download-primary"');
+    expect(installSource).toContain("Other platforms");
+    expect(installSource).toContain('config.distribution === "cloud"');
+    expect(installSource).not.toContain("never asks for an enterprise activation code");
     expect(installSource).toContain("<span>for</span>");
     expect(installSource).toContain("AppImage (ARM64)");
     expect(installSource).toContain('desktopScheme: "openwork"');

@@ -14,6 +14,10 @@ export function installerFileName(platform: InstallPlatform | null, version: str
   return `openwork-enterprise-linux-arm64-${version}.AppImage`;
 }
 
+export function cloudInstallerFileName(platform: InstallPlatform | null, version: string) {
+  return installerFileName(platform, version)?.replace(/^openwork-enterprise-/, "openwork-cloud-") ?? null;
+}
+
 export function buildInstallDownloadHref(apiUrl: string, platform: InstallPlatform, token: string) {
   const url = new URL(apiUrl);
   const basePath = url.pathname.replace(/\/+$/, "");

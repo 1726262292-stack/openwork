@@ -24,6 +24,7 @@ import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, 
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
+  cloudDesktopReleaseAssetName,
   enterpriseDesktopReleaseAssetName,
   installerReleaseAssetUrl,
 } from "../../utils/installer-artifacts.js"
@@ -91,9 +92,15 @@ const rateLimitedSchema = z.object({
 }).meta({ ref: "RateLimitedError" })
 
 type InstallPlatform = z.infer<typeof installPlatformSchema>
+type ManagedDesktopDistribution = "cloud" | "enterprise"
+
+function managedDesktopDistribution(): ManagedDesktopDistribution {
+  return env.orgMode === "multi_org" ? "cloud" : "enterprise"
+}
 
 export type InstallExperienceDependencies = {
   resolveDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
+  resolveCloudDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
   mintConnectGrant: typeof mintDesktopConnectGrant
   previewConnectGrant: typeof previewDesktopConnectGrant
   inspectConnectGrant: typeof inspectDesktopConnectGrant
@@ -103,6 +110,10 @@ export type InstallExperienceDependencies = {
 const defaultInstallerDependencies: InstallExperienceDependencies = {
   resolveDirectUrl: (platform, releaseTag) => {
     const fileName = enterpriseDesktopReleaseAssetName(platform, releaseTag)
+    return fileName ? installerReleaseAssetUrl(fileName, { releaseTag }) : OPENWORK_DOWNLOAD_URL
+  },
+  resolveCloudDirectUrl: (platform, releaseTag) => {
+    const fileName = cloudDesktopReleaseAssetName(platform, releaseTag)
     return fileName ? installerReleaseAssetUrl(fileName, { releaseTag }) : OPENWORK_DOWNLOAD_URL
   },
   mintConnectGrant: mintDesktopConnectGrant,
@@ -376,7 +387,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         activationUrl: exchangeHandoff.activationUrl,
         activationExpiresAt: exchangeHandoff.connectExpiresAt,
         desktopVersion: resolved.installerReleaseTag.replace(/^v/i, ""),
-        distribution: "enterprise",
+        distribution: managedDesktopDistribution(),
       })
     },
   )
@@ -469,10 +480,10 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
     "/v1/install/:platform",
     describeRoute({
       tags: ["Organizations"],
-      summary: "Download OpenWork desktop",
-      description: "Redirects cloud downloads to the OpenWork Enterprise desktop app for the requested platform and organization-approved version.",
+      summary: "Download managed OpenWork desktop",
+      description: "Redirects hosted Cloud deployments to the sign-in-required Cloud app and private single-org deployments to the activation-required Enterprise app.",
       responses: {
-        302: emptyResponse("Den redirected the browser to the signed OpenWork Enterprise release asset."),
+        302: emptyResponse("Den redirected the browser to the signed desktop asset for this deployment."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
         429: jsonResponse("Too many installer download attempts.", rateLimitedSchema),
@@ -499,12 +510,18 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       }
 
       const platform = platformResult.data.platform
-      const fileName = enterpriseDesktopReleaseAssetName(platform, resolved.installerReleaseTag)
+      const distribution = managedDesktopDistribution()
+      const fileName = distribution === "cloud"
+        ? cloudDesktopReleaseAssetName(platform, resolved.installerReleaseTag)
+        : enterpriseDesktopReleaseAssetName(platform, resolved.installerReleaseTag)
       if (!fileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported desktop platform." }] }, 400)
       }
 
-      return c.redirect(installer.resolveDirectUrl(platform, resolved.installerReleaseTag), 302)
+      const directUrl = distribution === "cloud"
+        ? installer.resolveCloudDirectUrl(platform, resolved.installerReleaseTag)
+        : installer.resolveDirectUrl(platform, resolved.installerReleaseTag)
+      return c.redirect(directUrl, 302)
     },
   )
 }

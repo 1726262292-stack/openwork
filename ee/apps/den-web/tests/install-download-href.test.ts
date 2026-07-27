@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildInstallDownloadHref, installerFileName } from "../app/(den)/_lib/install-download";
+import { buildInstallDownloadHref, cloudInstallerFileName, installerFileName } from "../app/(den)/_lib/install-download";
 
 test("organization installer downloads preserve a prefixed public API path", () => {
   expect(buildInstallDownloadHref(
@@ -27,4 +27,10 @@ test("organization installer downloads still support a root API origin", () => {
     "mac-arm64",
     "opaque-token",
   )).toBe("https://api.openwork.example.test/v1/install/mac-arm64?token=opaque-token");
+});
+
+test("Cloud installer filenames match release artifacts without a hardcoded version", () => {
+  expect(cloudInstallerFileName("mac-arm64", "0.18.4")).toBe(
+    "openwork-cloud-mac-arm64-0.18.4.dmg",
+  );
 });
