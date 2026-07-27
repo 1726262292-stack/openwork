@@ -1632,7 +1632,6 @@ function WorkspaceSidebarGroup({
                             key={row.session.id}
                             session={row.session}
                             depth={row.depth}
-                            nestOffset={1}
                             tree={tree}
                             workspaceId={workspace.id}
                             forcedExpandedSessionIds={forcedExpandedSessionIds}
@@ -1878,7 +1877,7 @@ function SessionGroupSeparator({ label, count, expanded, onToggle, group, groups
         onToggle();
       }}
       className={cn("group/separator flex w-full items-center gap-2 rounded pe-2 pb-1 pt-2.5 text-left transition-colors first:pt-1 hover:bg-sidebar-accent/50")}
-      style={{ paddingInlineStart: sidebarRowPaddingInlineStart(1) }}
+      style={{ paddingInlineStart: sidebarRowPaddingInlineStart(0) }}
       aria-expanded={expanded}
     >
       <SidebarGlyphSlot>
@@ -2002,7 +2001,6 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
       <SessionMenuItem
         session={row.session}
         depth={row.depth}
-        nestOffset={1}
         tree={tree}
         workspaceId={workspaceId}
         forcedExpandedSessionIds={forcedExpandedSessionIds}
@@ -2082,7 +2080,6 @@ function GroupedSessionList({ sessionRows, groups, assignments, pinnedIds, tree,
                     <SessionMenuItem
                       session={row.session}
                       depth={row.depth}
-                      nestOffset={1}
                       tree={tree}
                       workspaceId={workspaceId}
                       forcedExpandedSessionIds={forcedExpandedSessionIds}
@@ -2196,8 +2193,6 @@ type SessionMenuItemProps = {
   isPinned?: boolean;
   draggable?: boolean;
   workspaceName?: string;
-  /** Extra nest steps (e.g. +1 when the session sits under a folder/group). */
-  nestOffset?: number;
 };
 
 function SessionMenuItem({
@@ -2209,7 +2204,6 @@ function SessionMenuItem({
   isPinned = false,
   draggable = false,
   workspaceName,
-  nestOffset = 0,
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
   const unreadIds = useUnreadSessionIds();
@@ -2253,7 +2247,7 @@ function SessionMenuItem({
         ? `${displayTitle}, ${t("workspace_list.session_unread")}`
         : itemTitle;
 
-  const visualDepth = depth + nestOffset;
+  const visualDepth = depth;
   const rowButtonClass = cn(
     // Soft pill @ 11px radius from Paper; overlay tint adapts to theme
     // (light: --ow-light-hover ≈ black/5, dark: #FFFFFF17 ≈ white/9).
