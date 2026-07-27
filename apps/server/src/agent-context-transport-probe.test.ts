@@ -4,10 +4,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import tls from "node:tls";
+import tls, { type ConnectionOptions } from "node:tls";
 import { promisify } from "node:util";
 
-import { probeCloudEndpointTransport } from "./agent-context-transport-probe.js";
+import { probeCloudEndpointTransport, type TransportProbeConnector } from "./agent-context-transport-probe.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
@@ -91,7 +91,74 @@ async function startSelfSignedTlsServer(): Promise<number> {
   return port;
 }
 
+function captureConnectorOptions(): { connector: TransportProbeConnector; options: ConnectionOptions[] } {
+  const options: ConnectionOptions[] = [];
+  return {
+    connector: (connectionOptions) => {
+      options.push(connectionOptions);
+      throw new Error("captured options");
+    },
+    options,
+  };
+}
+
+function onlyCapturedOption(options: ConnectionOptions[]): ConnectionOptions {
+  const option = options[0];
+  if (!option || options.length !== 1) throw new Error(`Expected one connector call, got ${options.length}`);
+  return option;
+}
+
 describe("probeCloudEndpointTransport", () => {
+  test("passes SNI servername for DNS endpoints", async () => {
+    const capture = captureConnectorOptions();
+
+    await probeCloudEndpointTransport({
+      endpointUrl: "https://example.com/mcp/agent",
+      performProbe: true,
+      timeoutMs: 1_000,
+      connector: capture.connector,
+      env: {},
+    });
+
+    const options = onlyCapturedOption(capture.options);
+    expect(options.host).toBe("example.com");
+    expect(options.servername).toBe("example.com");
+  });
+
+  test("omits SNI servername for IPv4 endpoints", async () => {
+    const capture = captureConnectorOptions();
+
+    await probeCloudEndpointTransport({
+      endpointUrl: "https://127.0.0.1:444/mcp/agent",
+      performProbe: true,
+      timeoutMs: 1_000,
+      connector: capture.connector,
+      env: {},
+    });
+
+    const options = onlyCapturedOption(capture.options);
+    expect(options.host).toBe("127.0.0.1");
+    expect(options.port).toBe(444);
+    expect("servername" in options).toBe(false);
+  });
+
+  test("omits SNI servername and strips brackets for IPv6 endpoints", async () => {
+    const capture = captureConnectorOptions();
+
+    await probeCloudEndpointTransport({
+      endpointUrl: "https://[::1]/mcp/agent",
+      performProbe: true,
+      timeoutMs: 1_000,
+      connector: capture.connector,
+      env: {},
+    });
+
+    const options = onlyCapturedOption(capture.options);
+    expect(options.host).toBe("::1");
+    expect(options.port).toBe(443);
+    expect("servername" in options).toBe(false);
+  });
+
   test("captures certificate-chain evidence for a self-signed endpoint without credentials", async () => {
     const port = await startSelfSignedTlsServer();
     const result = await probeCloudEndpointTransport({
@@ -129,6 +196,7 @@ describe("probeCloudEndpointTransport", () => {
     });
 
     expect(result.verifiedHandshake).toBe("failed");
+    expect(result.verifyErrorCode).not.toBe("ERR_INVALID_ARG_VALUE");
     expect(result.verifyErrorCode).toBe("ECONNREFUSED");
     expect(result.dnsResolved).toBe(true);
     expect(result.tcpConnected).toBe(false);
