@@ -272,6 +272,7 @@ export function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
   extensionsSection?: ExtensionsSection;
+  extensionDetailId?: string;
 } {
   const trimmed = pathname
     .replace(/^\/workspace\/[^/]+\/settings\/?/, "")
@@ -311,6 +312,14 @@ export function parseSettingsPath(pathname: string): {
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
+      if (tail) {
+        return {
+          tab: "extensions",
+          redirectPath: null,
+          extensionsSection: "all",
+          extensionDetailId: decodeURIComponent(tail),
+        };
+      }
       return { tab: "extensions", redirectPath: null, extensionsSection: "all" };
     default:
       return { tab: "general", redirectPath: "general" };
@@ -367,6 +376,9 @@ function findSessionWorkspaceId(
 }
 
 function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
+  if (route.tab === "extensions" && route.extensionDetailId) {
+    return `extensions/${encodeURIComponent(route.extensionDetailId)}`;
+  }
   if (route.tab === "extensions" && route.extensionsSection && route.extensionsSection !== "all") {
     return `extensions/${route.extensionsSection}`;
   }
@@ -2281,6 +2293,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             extensions={extensionsStore}
             mcpConnectedAppsCount={mcpConnectedAppsCount}
             initialSection={route.extensionsSection}
+            detailId={route.extensionDetailId ?? null}
+            onDetailIdChange={(id) => {
+              navigateSettingsPath(id ? `extensions/${encodeURIComponent(id)}` : "extensions");
+            }}
             setSectionRoute={(section) => {
               const path = section === "all" ? "extensions" : `extensions/${section}`;
               navigateSettingsPath(path);
@@ -2297,7 +2313,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void orgMcpConnections.refresh();
               void refreshConnectCapabilities();
             }}
-            mcpView={({ initialFilter, onFilterChange }) => (
+            mcpView={({ initialFilter, onFilterChange, detailId, onDetailIdChange }) => (
               <McpView
                 busy={busy}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2355,6 +2371,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
                 initialFilter={initialFilter}
                 onFilterChange={onFilterChange}
+                detailId={detailId}
+                onDetailIdChange={onDetailIdChange}
                 showHeader={false}
               />
             )}

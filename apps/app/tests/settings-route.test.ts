@@ -21,4 +21,19 @@ describe("settings route parsing", () => {
     expect(parseSettingsPath("/settings/extensions/skills")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "skills" });
     expect(parseSettingsPath("/settings/extensions/plugins")).toEqual({ tab: "extensions", redirectPath: null, extensionsSection: "plugins" });
   });
+
+  test("treats non-section extension tails as detail ids", () => {
+    expect(parseSettingsPath("/settings/extensions/notion")).toEqual({
+      tab: "extensions",
+      redirectPath: null,
+      extensionsSection: "all",
+      extensionDetailId: "notion",
+    });
+    expect(parseSettingsPath("/settings/extensions/skill%3Abriefing")).toEqual({
+      tab: "extensions",
+      redirectPath: null,
+      extensionsSection: "all",
+      extensionDetailId: "skill:briefing",
+    });
+  });
 });
