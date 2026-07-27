@@ -62,15 +62,19 @@ export function enterpriseActivationComplete(config) {
 }
 
 export function desktopActivationRequired(distribution, config) {
-  const requireActivation = typeof config?.requireActivation === "boolean"
-    ? config.requireActivation
-    : distribution.requireActivation;
+  const requireActivation = distribution.flavor === "enterprise"
+    ? distribution.requireActivation
+    : (typeof config?.requireActivation === "boolean"
+        ? config.requireActivation
+        : distribution.requireActivation);
   return requireActivation && !enterpriseActivationComplete(config);
 }
 
 const ENTERPRISE_PREACTIVATION_COMMANDS = new Set([
   "__fetch",
   "appBuildInfo",
+  "connectLinkAccept",
+  "connectLinkVerify",
   "getDesktopBootstrapConfig",
   "setDesktopBootstrapConfig",
 ]);
