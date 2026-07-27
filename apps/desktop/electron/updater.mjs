@@ -262,7 +262,7 @@ export function registerUpdaterIpc({
   app,
   ipcMain,
   getMainWindow,
-  loadAutoUpdater,
+  loadAutoUpdater = () => import("electron-updater"),
   manifestChannel = "latest",
   shipItDefaultsDomain = SHIP_IT_DEFAULTS_DOMAIN,
 }) {
@@ -288,9 +288,7 @@ export function registerUpdaterIpc({
     if (autoUpdaterLoaded) return autoUpdaterInstance;
     autoUpdaterLoaded = true;
     try {
-      const mod = await (loadAutoUpdater
-        ? loadAutoUpdater()
-        : import("electron-updater"));
+      const mod = await loadAutoUpdater();
       autoUpdaterInstance = mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
       if (autoUpdaterInstance) {
         autoUpdaterInstance.autoDownload = false;

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import tls from "node:tls";
 import type { ConnectionOptions, DetailedPeerCertificate, TLSSocket } from "node:tls";
 
@@ -181,14 +182,21 @@ function endpointPort(url: URL): number {
   return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : 443;
 }
 
+function stripIpv6HostnameBrackets(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+}
+
 function tlsOptions(url: URL, rejectUnauthorized: boolean): ConnectionOptions {
-  return {
-    host: url.hostname,
+  const host = stripIpv6HostnameBrackets(url.hostname);
+  const options: ConnectionOptions = {
+    host,
     port: endpointPort(url),
-    servername: url.hostname,
     rejectUnauthorized,
     ALPNProtocols: ["http/1.1"],
   };
+  // SNI forbids IP literals; Node throws ERR_INVALID_ARG_VALUE if servername is an IP address.
+  if (isIP(host) === 0) options.servername = host;
+  return options;
 }
 
 function connectTls(input: {
