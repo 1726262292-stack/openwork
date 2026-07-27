@@ -9,7 +9,7 @@
  */
 const GLYPH_LANE = 20;
 const LABEL_LANE = 44;
-const NEST_STEP = 12;
+const NEST_STEP = 16;
 
 const MEASURE_LANES = `(() => {
   const sidebar = document.querySelector('[data-slot="sidebar"]');
@@ -123,7 +123,7 @@ export default {
 
         await ctx.prove("Sidebar rows land on the two shared lanes", {
           claim:
-            "Section label, workspace titles, group labels, session titles, placeholders and the account name all sit on the 20px glyph lane or the 44px label lane (+12px per nesting depth).",
+            "Section label, workspace titles, group labels, session titles, placeholders and the account name all sit on the 20px glyph lane or the 44px label lane (+16px per nesting depth).",
           assert: () => {
             ctx.assert(
               offLane.length === 0,
@@ -134,7 +134,7 @@ export default {
               const onANestLane = allowedLabel.some((lane) => lane >= LABEL_LANE && Math.abs(row.label - lane) <= 1);
               ctx.assert(
                 onANestLane,
-                `Title "${row.text}" starts at ${row.label}px instead of the ${LABEL_LANE}px label lane (+12px per depth).`,
+                `Title "${row.text}" starts at ${row.label}px instead of the ${LABEL_LANE}px label lane (+16px per depth).`,
               );
             }
           },

@@ -136,7 +136,7 @@ import {
   SidebarGlyphSlot,
   sidebarRowPaddingInlineStart,
 } from "./sidebar-lanes";
-import { WorkspaceAvatar } from "@/react-app/design-system/workspace-avatar";
+import { WorkspaceAvatarPicker } from "./workspace-avatar-picker";
 import { useWorkbenchStore } from "../chat/workbench-store";
 
 /** Paper Desktop: unread #2FBE54, needs-action #E8933A (14px artboard → ~8px app). */
@@ -1395,7 +1395,7 @@ function WorkspaceHeader({
     <SidebarMenuButton
       {...props}
       className={cn(
-        "group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
+        "gap-2.5 group-hover/workspace-header:bg-sidebar-accent group-hover/workspace-header:text-sidebar-accent-foreground mac:group-hover/workspace-header:bg-black/5 dark:mac:group-hover/workspace-header:bg-white/10",
         statusLabel && "h-10",
       )}
       onClick={(event) => {
@@ -1407,7 +1407,7 @@ function WorkspaceHeader({
         {isLoading ? (
           <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
         ) : (
-          <WorkspaceAvatar workspaceId={workspace.id} label={label} sizeClass="size-5" />
+          <WorkspaceAvatarPicker workspaceId={workspace.id} label={label} sizeClass="size-5" />
         )}
       </SidebarGlyphSlot>
       <div

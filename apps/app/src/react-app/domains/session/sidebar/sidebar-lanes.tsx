@@ -24,7 +24,7 @@ export {
  * 1. A row's first child is a `SidebarGlyphSlot`, rendered even when it has no
  *    glyph, so the title never shifts when an indicator appears.
  * 2. Section labels sit on the glyph lane, one step left of the titles below.
- * 3. Nesting steps right by 12px per depth level.
+ * 3. Nesting steps right by 16px per depth level.
  */
 
 /** Row padding that puts the glyph slot on the glyph lane. */

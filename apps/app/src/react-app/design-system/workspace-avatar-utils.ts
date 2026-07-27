@@ -1,5 +1,5 @@
 /** Strong solid markers for dark sidebars — hashed per workspace, no gradients. */
-const PLANE_COLORS = [
+export const WORKSPACE_AVATAR_COLORS = [
   "#E23B4C",
   "#D44A7A",
   "#D9921A",
@@ -11,6 +11,8 @@ const PLANE_COLORS = [
   "#6B4FD4",
   "#2A8FBF",
 ] as const;
+
+export type WorkspaceAvatarColor = (typeof WORKSPACE_AVATAR_COLORS)[number];
 
 export function workspaceAvatarInitials(label: string) {
   const parts = label
@@ -34,5 +36,46 @@ export function workspaceAvatarColor(workspaceId: string) {
     hash ^= seed.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return PLANE_COLORS[(hash >>> 0) % PLANE_COLORS.length] ?? PLANE_COLORS[0];
+  return WORKSPACE_AVATAR_COLORS[(hash >>> 0) % WORKSPACE_AVATAR_COLORS.length]
+    ?? WORKSPACE_AVATAR_COLORS[0];
+}
+
+export function resolveWorkspaceAvatarColor(
+  workspaceId: string,
+  preferredColor?: string | null,
+) {
+  const trimmed = preferredColor?.trim() ?? "";
+  if (trimmed && /^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed;
+  return workspaceAvatarColor(workspaceId);
+}
+
+/** Read a local image file and shrink it to a small square data URL for localStorage. */
+export async function readWorkspaceAvatarImage(file: File): Promise<string> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(objectUrl);
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare avatar image");
+
+    const minSide = Math.min(image.width, image.height);
+    const sourceX = (image.width - minSide) / 2;
+    const sourceY = (image.height - minSide) / 2;
+    context.drawImage(image, sourceX, sourceY, minSide, minSide, 0, 0, size, size);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not read image"));
+    image.src = src;
+  });
 }
