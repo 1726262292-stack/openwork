@@ -353,10 +353,20 @@ async function getCloudSignedPreviewUrls(organizationId: WorkerOrgId) {
   return rows.map((row) => row.signedPreviewUrl)
 }
 
-async function resolveApprovedWebHandoffReturnUrl(input: {
+export async function resolveApprovedWebHandoffReturnUrl(input: {
   returnUrl: string
   activeOrganizationId?: string | null
 }) {
+  const gatewayReturnUrl = approveWebHandoffReturnUrlForSignedPreviews({
+    returnUrl: input.returnUrl,
+    signedPreviewUrls: [],
+    orgMode: env.orgMode,
+    gatewayOrigin: env.gatewayOrigin,
+  })
+  if (gatewayReturnUrl) {
+    return gatewayReturnUrl
+  }
+
   if (env.orgMode !== "multi_org" || !input.activeOrganizationId) {
     return null
   }

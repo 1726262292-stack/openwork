@@ -12,6 +12,14 @@ async function loadDesktopHandoffRoutes() {
   return import("../src/routes/auth/desktop-handoff.js")
 }
 
+async function configureDesktopHandoffEnv(input: {
+  gatewayOrigin?: string
+}) {
+  const { env } = await import("../src/env.js")
+  env.orgMode = "multi_org"
+  env.gatewayOrigin = input.gatewayOrigin
+}
+
 describe("desktop handoff public URL", () => {
   test("does not send 0.0.0.0 to desktop clients", async () => {
     seedRequiredEnv()
@@ -83,6 +91,46 @@ describe("desktop handoff public URL", () => {
       gatewayOrigin: "https://web.openworklabs.com",
       signedPreviewUrls: [],
       returnUrl: "https://app.openworklabs.com/signin",
+    })).toBeNull()
+  })
+
+  test("approves the configured gateway web returnUrl without an active organization", async () => {
+    const { resolveApprovedWebHandoffReturnUrl } = await loadDesktopHandoffRoutes()
+    await configureDesktopHandoffEnv({ gatewayOrigin: "https://web.openworklabs.com" })
+
+    expect(await resolveApprovedWebHandoffReturnUrl({
+      activeOrganizationId: null,
+      returnUrl: "https://web.openworklabs.com/",
+    })).toBe("https://web.openworklabs.com/signin")
+  })
+
+  test("rejects a different web returnUrl origin without an active organization", async () => {
+    const { resolveApprovedWebHandoffReturnUrl } = await loadDesktopHandoffRoutes()
+    await configureDesktopHandoffEnv({ gatewayOrigin: "https://web.openworklabs.com" })
+
+    expect(await resolveApprovedWebHandoffReturnUrl({
+      activeOrganizationId: null,
+      returnUrl: "https://app.openworklabs.com/signin",
+    })).toBeNull()
+  })
+
+  test("rejects a gateway web returnUrl without a configured gateway origin or active organization", async () => {
+    const { resolveApprovedWebHandoffReturnUrl } = await loadDesktopHandoffRoutes()
+    await configureDesktopHandoffEnv({})
+
+    expect(await resolveApprovedWebHandoffReturnUrl({
+      activeOrganizationId: null,
+      returnUrl: "https://web.openworklabs.com/signin",
+    })).toBeNull()
+  })
+
+  test("rejects signed-preview web returnUrls without an active organization", async () => {
+    const { resolveApprovedWebHandoffReturnUrl } = await loadDesktopHandoffRoutes()
+    await configureDesktopHandoffEnv({})
+
+    expect(await resolveApprovedWebHandoffReturnUrl({
+      activeOrganizationId: null,
+      returnUrl: "https://8787-active.daytonaproxy01.net/signin",
     })).toBeNull()
   })
 
