@@ -1,8 +1,9 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronRight } from "lucide-react";
 
 import { mintCloudControlMcpToken, readDenSettings } from "@/app/lib/den";
+import { openDesktopUrl } from "@/app/lib/desktop";
 import type {
   OpenworkCloudMcpEngineRefresh,
   OpenworkCloudMcpHealth,
@@ -31,6 +32,7 @@ import {
   cloudMcpProbeTraceLines,
 } from "@/react-app/domains/connections/cloud-mcp-diagnostics";
 import { readCloudMcpUserState } from "@/react-app/domains/connections/cloud-mcp-user-state";
+import { t } from "@/i18n";
 
 const CLOUD_MCP_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
 
