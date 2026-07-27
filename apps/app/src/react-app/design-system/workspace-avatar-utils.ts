@@ -1,15 +1,15 @@
-/** Muted plane colors — hashed per workspace, no gradients. */
+/** Bright solid markers for dark sidebars — hashed per workspace, no gradients. */
 const PLANE_COLORS = [
-  "#D94A5B",
-  "#B85F7A",
-  "#C79245",
-  "#5B8A72",
-  "#5B6FA8",
-  "#C27A4A",
-  "#9B6B8A",
-  "#4A8B8C",
-  "#7A6BA8",
-  "#6B8FA3",
+  "#F06172",
+  "#E07A9A",
+  "#E8B04A",
+  "#4DB88A",
+  "#6B8CFF",
+  "#F08A52",
+  "#C784B8",
+  "#3DB8BA",
+  "#9B84E8",
+  "#5BB8D9",
 ] as const;
 
 export function workspaceAvatarInitials(label: string) {
