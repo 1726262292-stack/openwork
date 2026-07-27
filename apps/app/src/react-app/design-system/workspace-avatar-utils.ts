@@ -1,15 +1,15 @@
-/** Bright solid markers for dark sidebars — hashed per workspace, no gradients. */
+/** Strong solid markers for dark sidebars — hashed per workspace, no gradients. */
 const PLANE_COLORS = [
-  "#F06172",
-  "#E07A9A",
-  "#E8B04A",
-  "#4DB88A",
-  "#6B8CFF",
-  "#F08A52",
-  "#C784B8",
-  "#3DB8BA",
-  "#9B84E8",
-  "#5BB8D9",
+  "#E23B4C",
+  "#D44A7A",
+  "#D9921A",
+  "#1F9A62",
+  "#3B6AE0",
+  "#E06A28",
+  "#A84FA0",
+  "#1A9A9C",
+  "#6B4FD4",
+  "#2A8FBF",
 ] as const;
 
 export function workspaceAvatarInitials(label: string) {
