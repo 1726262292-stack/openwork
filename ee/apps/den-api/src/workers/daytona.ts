@@ -239,6 +239,11 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote("/usr/local/bin/opencode"),
     " OPENWORK_WEB_ROOT=",
     shellQuote("/opt/openwork/web"),
+    // The instance still serves its own SPA copy for direct/debug access, but
+    // without a bootstrap token that path is intentionally inert; the gateway
+    // is the supported entry.
+    " OPENWORK_WEB_BOOTSTRAP_TOKEN=",
+    shellQuote("0"),
     " OPENWORK_EXTENSIONS_PLUGIN_DIR=",
     shellQuote("/opt/openwork/opencode-plugins"),
     " DEN_RUNTIME_PROVIDER=",
