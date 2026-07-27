@@ -57,7 +57,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
     () => props.extensions.pluginList().length,
     [props.extensions],
   );
-  const initialFilter = props.initialSection === "mcp"
+  const initialFilter: ExtensionsInventoryFilter = props.initialSection === "mcp"
     ? "mcp"
     : props.initialSection === "skills"
       ? "skill"
