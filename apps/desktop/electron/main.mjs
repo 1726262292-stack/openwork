@@ -1253,10 +1253,6 @@ async function bootRuntimeForSelectedWorkspace() {
       watchedId: String(fallback.id ?? ""),
     }).catch(() => undefined);
   }
-  await runtimeManager.orchestratorWorkspaceActivate({
-    workspacePath: bootWorkspaceRoot,
-    name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
-  }).catch(() => undefined);
   const openworkServer = assertOpenworkServerReady(await runtimeManager.openworkServerInfo());
   return { ok: true, skipped: false, engine, openworkServer, workspaceId: bootWorkspace.id ?? null };
 }
@@ -1648,15 +1644,6 @@ const desktopCommandHandlers = {
   "engineInstall": async (event, ...args) => {
       return runtimeManager.engineInstall();
   },
-  "orchestratorStatus": async (event, ...args) => {
-      return runtimeManager.orchestratorStatus();
-  },
-  "orchestratorWorkspaceActivate": async (event, ...args) => {
-      return runtimeManager.orchestratorWorkspaceActivate(args[0] ?? {});
-  },
-  "orchestratorInstanceDispose": async (event, ...args) => {
-      return runtimeManager.orchestratorInstanceDispose(String(args[0] ?? "").trim());
-  },
   "appBuildInfo": async (event, ...args) => {
       return {
         version: app.getVersion(),
@@ -1800,20 +1787,8 @@ const desktopCommandHandlers = {
         },
       });
   },
-  "orchestratorStartDetached": async (event, ...args) => {
-      return runtimeManager.orchestratorStartDetached(args[0] ?? {});
-  },
-  "sandboxDoctor": async (event, ...args) => {
-      return runtimeManager.sandboxDoctor();
-  },
-  "sandboxStop": async (event, ...args) => {
-      return runtimeManager.sandboxStop(String(args[0] ?? "").trim());
-  },
   "sandboxCleanupOpenworkContainers": async (event, ...args) => {
       return runtimeManager.sandboxCleanupOpenworkContainers();
-  },
-  "sandboxDebugProbe": async (event, ...args) => {
-      return runtimeManager.sandboxDebugProbe();
   },
   "openworkServerInfo": async (event, ...args) => {
       return runtimeManager.openworkServerInfo();

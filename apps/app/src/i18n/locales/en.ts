@@ -1300,7 +1300,7 @@ export default {
   "settings.nuke_confirm_button": "Nuke & relaunch",
   "settings.nuke_deleted_empty": "No local paths reported.",
   "settings.nuke_deleted_title": "Will delete",
-  "settings.nuke_dialog_desc": "This removes local OpenWork, OpenCode, browser, token, runtime, cache, and orchestrator state on this device.",
+  "settings.nuke_dialog_desc": "This removes local OpenWork, OpenCode, browser, token, runtime, cache, and legacy runtime state on this device.",
   "settings.nuke_dialog_title": "Nuke local state and start fresh?",
   "settings.nuke_no_bootstrap_path": "No bootstrap file detected",
   "settings.nuke_partitions": "Chromium storage cleared: {partitions}",

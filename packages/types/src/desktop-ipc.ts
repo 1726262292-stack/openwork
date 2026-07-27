@@ -195,78 +195,10 @@ export type DesktopBootstrapConfig = {
   } | null;
 };
 
-export type OrchestratorDetachedHost = {
-  openworkUrl: string;
-  token: string;
-  ownerToken?: string | null;
-  hostToken: string;
-  port: number;
-  /** "none" | "docker" | "microsandbox" today; kept open like WorkspaceWire. */
-  sandboxBackend?: string | null;
-  sandboxRunId?: string | null;
-  sandboxContainerName?: string | null;
-};
-
-export type SandboxDoctorResult = {
-  installed: boolean;
-  daemonRunning: boolean;
-  permissionOk: boolean;
-  ready: boolean;
-  clientVersion?: string | null;
-  serverVersion?: string | null;
-  error?: string | null;
-  debug?: {
-    candidates: string[];
-    selectedBin?: string | null;
-    versionCommand?: {
-      status: number;
-      stdout: string;
-      stderr: string;
-    } | null;
-    infoCommand?: {
-      status: number;
-      stdout: string;
-      stderr: string;
-    } | null;
-  } | null;
-};
-
 export type OpenworkDockerCleanupResult = {
   candidates: string[];
   removed: string[];
   errors: string[];
-};
-
-export type SandboxDebugProbeResult = {
-  startedAt: number;
-  finishedAt: number;
-  runId: string;
-  workspacePath: string;
-  ready: boolean;
-  doctor: SandboxDoctorResult;
-  detachedHost?: OrchestratorDetachedHost | null;
-  dockerInspect?: {
-    status: number;
-    stdout: string;
-    stderr: string;
-  } | null;
-  dockerLogs?: {
-    status: number;
-    stdout: string;
-    stderr: string;
-  } | null;
-  cleanup: {
-    containerName?: string | null;
-    containerRemoved: boolean;
-    removeResult?: {
-      status: number;
-      stdout: string;
-      stderr: string;
-    } | null;
-    workspaceRemoved: boolean;
-    errors: string[];
-  };
-  error?: string | null;
 };
 
 export type ExecResult = {
@@ -455,13 +387,6 @@ export type DesktopCommandMap = {
   engineInfo: { args: []; result: EngineInfo };
   engineDoctor: { args: [projectDir?: string]; result: EngineDoctorResult };
   engineInstall: { args: []; result: unknown };
-  orchestratorStatus: { args: []; result: unknown };
-  orchestratorWorkspaceActivate: { args: [input?: Record<string, unknown>]; result: unknown };
-  orchestratorInstanceDispose: { args: [instanceId: string]; result: unknown };
-  orchestratorStartDetached: {
-    args: [input?: Record<string, unknown>];
-    result: OrchestratorDetachedHost;
-  };
 
   // App / bridge info
   appBuildInfo: { args: []; result: AppBuildInfo };
@@ -502,10 +427,7 @@ export type DesktopCommandMap = {
   nukeOpenworkAndOpencodeConfigAndExit: { args: [options?: NukeOptions]; result: NukeReceipt };
 
   // Sandbox
-  sandboxDoctor: { args: []; result: SandboxDoctorResult };
-  sandboxStop: { args: [runId: string]; result: unknown };
   sandboxCleanupOpenworkContainers: { args: []; result: OpenworkDockerCleanupResult };
-  sandboxDebugProbe: { args: []; result: SandboxDebugProbeResult };
 
   // Openwork server sidecar
   openworkServerInfo: { args: []; result: OpenworkServerInfo };
