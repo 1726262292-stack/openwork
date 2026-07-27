@@ -226,7 +226,10 @@ jobs:
           echo "den_web_upload=$den_web_upload" >> "$GITHUB_OUTPUT"
 
       - name: Build and optionally push without Sentry source-map upload
-        if: ${{ matrix.image == 'openwork-inference' || (matrix.image == 'openwork-den-api' && steps.sentry_sourcemaps.outputs.den_api_upload != 'true') || (matrix.image == 'openwork-den-web' && steps.sentry_sourcemaps.outputs.den_web_upload != 'true') }}
+        # Build every image except the ones whose Sentry-enabled step below owns
+        # them. Stated as an exclusion so a newly added matrix entry builds by
+        # default instead of silently skipping and failing the smoke step.
+        if: ${{ !((matrix.image == 'openwork-den-api' && steps.sentry_sourcemaps.outputs.den_api_upload == 'true') || (matrix.image == 'openwork-den-web' && steps.sentry_sourcemaps.outputs.den_web_upload == 'true')) }}
         uses: docker/build-push-action@v6
         with:
           context: .
