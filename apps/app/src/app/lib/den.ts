@@ -556,24 +556,33 @@ function ensureDenApiBasePath(input: string | null | undefined): string | null {
 }
 
 export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?: string | null } | string | null | undefined): DenBaseUrls {
+  const rawBaseUrl = typeof input === "string" ? input : input?.baseUrl;
+  const normalizedBaseUrl = normalizeDenBaseUrl(rawBaseUrl);
+  const normalizedApiBaseUrl = typeof input === "string" ? null : normalizeDenBaseUrl(input?.apiBaseUrl);
   const gatewayOrigin = getOpenworkGatewayOrigin();
+
   if (gatewayOrigin) {
-    const baseUrl = normalizeDenBaseUrl(gatewayOrigin) ?? gatewayOrigin;
+    const normalizedGatewayOrigin = normalizeDenBaseUrl(gatewayOrigin) ?? gatewayOrigin;
+    const gatewayBaseUrl =
+      normalizedBaseUrl && denOriginComparisonKey(normalizedBaseUrl) !== denOriginComparisonKey(normalizedGatewayOrigin)
+        ? normalizedBaseUrl
+        : DEFAULT_DEN_BASE_URL;
+    const baseUrl = stripDenApiBasePath(gatewayBaseUrl) ?? DEFAULT_DEN_BASE_URL;
+
     return {
       baseUrl,
-      apiBaseUrl: ensureDenApiBasePath(baseUrl) ?? baseUrl,
+      apiBaseUrl: ensureDenApiBasePath(normalizedGatewayOrigin) ?? normalizedGatewayOrigin,
     };
   }
 
-  const rawBaseUrl = typeof input === "string" ? input : input?.baseUrl;
-  const normalizedBaseUrl = normalizeDenBaseUrl(rawBaseUrl);
-  const legacyApiBaseUrl = typeof input === "string" ? null : normalizeDenBaseUrl(input?.apiBaseUrl);
-  const seedUrl = stripDenApiBasePath(normalizedBaseUrl ?? legacyApiBaseUrl) ?? DEFAULT_DEN_BASE_URL;
+  const seedUrl = stripDenApiBasePath(normalizedBaseUrl ?? normalizedApiBaseUrl) ?? DEFAULT_DEN_BASE_URL;
   const baseUrl = stripDenApiBasePath(seedUrl) ?? DEFAULT_DEN_BASE_URL;
 
   return {
     baseUrl,
-    apiBaseUrl: ensureDenApiBasePath(baseUrl) ?? baseUrl,
+    apiBaseUrl: normalizedApiBaseUrl
+      ? ensureDenApiBasePath(normalizedApiBaseUrl) ?? normalizedApiBaseUrl
+      : ensureDenApiBasePath(baseUrl) ?? baseUrl,
   };
 }
 
@@ -693,7 +702,10 @@ export function readDenBootstrapConfig(): DenBootstrapConfig {
 
     gatewayBootstrapConfig = {
       ...desktopBootstrapConfig,
-      ...resolveDenBaseUrls({ baseUrl: gatewayOrigin }),
+      ...resolveDenBaseUrls({
+        baseUrl: desktopBootstrapConfig.baseUrl,
+        apiBaseUrl: gatewayOrigin,
+      }),
     };
     gatewayBootstrapConfigOrigin = gatewayOrigin;
     gatewayBootstrapConfigSource = desktopBootstrapConfig;
@@ -705,8 +717,10 @@ export function readDenBootstrapConfig(): DenBootstrapConfig {
 
 export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig> {
   if (!isDesktopRuntime()) {
+    const gatewayOrigin = getOpenworkGatewayOrigin();
     desktopBootstrapConfig = resolveDenBootstrapConfig({
-      baseUrl: getOpenworkGatewayOrigin() ?? BUILD_DEN_BASE_URL,
+      baseUrl: BUILD_DEN_BASE_URL,
+      ...(gatewayOrigin ? { apiBaseUrl: gatewayOrigin } : {}),
       requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
     });
     return desktopBootstrapConfig;
@@ -851,11 +865,12 @@ export function readDenSettings(): DenSettings {
     };
   }
 
-  const baseUrls = resolveDenBaseUrls({
-    baseUrl: isDesktopRuntime()
-      ? readDenBootstrapConfig().baseUrl
-      : getOpenworkGatewayOrigin() ?? window.localStorage.getItem(STORAGE_BASE_URL) ?? readDenBootstrapConfig().baseUrl,
-  });
+  const bootstrapConfig = readDenBootstrapConfig();
+  const baseUrls = resolveDenBaseUrls(
+    isDesktopRuntime() || getOpenworkGatewayOrigin()
+      ? bootstrapConfig
+      : { baseUrl: window.localStorage.getItem(STORAGE_BASE_URL) ?? bootstrapConfig.baseUrl },
+  );
 
   return {
     ...baseUrls,
