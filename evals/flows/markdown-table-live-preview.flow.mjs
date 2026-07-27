@@ -169,16 +169,20 @@ export default {
         await ctx.prove("Clicking a table returns its source with the cursor on the clicked row", {
           voiceover: vo[1],
           action: async () => {
-            await ctx.eval(`(() => {
+            // Click a body row, not the header, so the cursor position proves the
+            // click landed on the row the user aimed at.
+            const clicked = await ctx.eval(`(() => {
               const wrapper = document.querySelectorAll(".cm-md-table")[1];
-              const rect = wrapper.getBoundingClientRect();
-              wrapper.dispatchEvent(new MouseEvent("mousedown", {
+              const row = wrapper.querySelectorAll("tbody tr")[0];
+              const rect = row.getBoundingClientRect();
+              row.querySelector("td").dispatchEvent(new MouseEvent("mousedown", {
                 bubbles: true,
                 clientX: rect.x + 20,
-                clientY: rect.y + 20,
+                clientY: rect.y + rect.height / 2,
               }));
-              return true;
+              return Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent).join(" / ");
             })()`);
+            ctx.log(`clicked row: ${clicked}`);
             await ctx.waitFor(
               `document.querySelectorAll(".cm-editor .cm-content table").length === 1`,
               { timeoutMs: 30_000, label: "clicked table back to source" },
@@ -193,8 +197,8 @@ export default {
               return view.state.doc.lineAt(view.state.selection.main.head).text;
             })()`);
             ctx.assert(
-              cursorLine.startsWith("|"),
-              `Expected the cursor to land inside the table markdown, but it is on: "${cursorLine}".`,
+              cursorLine.startsWith("| Plan owner"),
+              `Expected the cursor on the clicked row's markdown, but it is on: "${cursorLine}".`,
             );
             ctx.log(`cursor landed on: ${cursorLine}`);
           },
@@ -250,11 +254,76 @@ export default {
       },
     },
     {
+      name: "Arrow keys step into a table instead of over it",
+      run: async (ctx) => {
+        await ctx.prove("Arrowing down into a table, and up into its last row, opens its markdown", {
+          voiceover: vo[3],
+          action: async () => {
+            // Both keyboard journeys run here because the assertion below has to
+            // stay read-only (the frame screenshot is taken after it).
+            const walk = await ctx.eval(`(async () => {
+              const view = window.__artifactEditorView;
+              const press = async (key) => {
+                view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                return view.state.doc.lineAt(view.state.selection.main.head).text;
+              };
+
+              view.dispatch({ selection: { anchor: 0 } });
+              view.focus();
+              await new Promise((resolve) => setTimeout(resolve, 150));
+              const down = [];
+              for (let step = 0; step < 3; step += 1) down.push(await press("ArrowDown"));
+
+              view.dispatch({ selection: { anchor: view.state.doc.length } });
+              await new Promise((resolve) => setTimeout(resolve, 150));
+              const up = await press("ArrowUp");
+              return { down, up };
+            })()`, { awaitPromise: true });
+            ctx.log(`arrow down walk: ${JSON.stringify(walk.down)}`);
+            ctx.log(`arrow up landed on: ${walk.up}`);
+            ctx.assert(
+              walk.down.some((line) => line.startsWith("| Service or obligation")),
+              `Arrow down skipped the table instead of entering it: ${JSON.stringify(walk.down)}.`,
+            );
+            ctx.assert(
+              walk.up.startsWith("| Security owner"),
+              `Arrow up should land on the table's last row, but landed on: "${walk.up}".`,
+            );
+          },
+          assert: async () => {
+            const editor = await readEditor(ctx);
+            ctx.assert(
+              editor.tableCount === 1,
+              `Only the table holding the cursor should be source; found ${editor.tableCount} rendered tables.`,
+            );
+            ctx.assert(
+              editor.pipeLines >= 4,
+              `Expected the entered table's markdown on screen, got ${editor.pipeLines} pipe rows.`,
+            );
+            ctx.log(`${editor.tableCount} table still rendered, ${editor.pipeLines} pipe rows shown as source`);
+          },
+          screenshot: {
+            name: "arrow-keys-enter-table",
+            requireText: ["| Security owner |"],
+            rejectText: ["Something went wrong"],
+          },
+        });
+      },
+    },
+    {
       name: "A wide table does not stop the prose wrapping",
       run: async (ctx) => {
         await ctx.prove("The table scrolls in its own box instead of stretching the document", {
-          voiceover: vo[3],
+          voiceover: vo[4],
           action: async () => {
+            // The previous frame left the cursor inside a table; move it out so
+            // both tables are rendered again.
+            await ctx.eval(`(() => {
+              const view = window.__artifactEditorView;
+              view.dispatch({ selection: { anchor: 0 } });
+              return true;
+            })()`);
             await ctx.waitFor(
               `Boolean(document.querySelector(".cm-editor .cm-scroller")) && document.querySelectorAll(".cm-md-table").length === 2`,
               { timeoutMs: 30_000, label: "both rendered tables present" },

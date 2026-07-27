@@ -1,9 +1,10 @@
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
-import { type EditorState, type Extension, type Range, RangeSetBuilder, StateField } from "@codemirror/state";
+import { type EditorState, type Extension, Prec, type Range, RangeSetBuilder, StateField } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  keymap,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
@@ -229,6 +230,18 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 );
 
 /**
+ * Source lines of a pipe table map to rendered rows: header, delimiter, then one
+ * line per body row. Returns how far the clicked row sits from the table start so
+ * a click lands the cursor on the row the user aimed at.
+ */
+function clickedRowOffset(target: EventTarget | null): number {
+  const row = target instanceof Element ? target.closest("tr") : null;
+  const body = row?.parentElement;
+  if (!row || !(body instanceof HTMLTableSectionElement) || body.tagName !== "TBODY") return 0;
+  return Array.from(body.rows).indexOf(row) + 2;
+}
+
+/**
  * A GFM table rendered as one block. Pipe tables are unreadable as source once
  * they have more than a couple of columns, so the whole table is replaced by the
  * same HTML the rest of the app uses for markdown, and clicking it hands the
@@ -250,7 +263,9 @@ class TableWidget extends WidgetType {
     wrapper.innerHTML = renderMarkdownHtml(this.source, "surface");
     wrapper.addEventListener("mousedown", (event) => {
       event.preventDefault();
-      view.dispatch({ selection: { anchor: this.from } });
+      const doc = view.state.doc;
+      const lineNumber = doc.lineAt(this.from).number + clickedRowOffset(event.target);
+      view.dispatch({ selection: { anchor: doc.line(Math.min(lineNumber, doc.lines)).from } });
       view.focus();
     });
     return wrapper;
@@ -303,6 +318,35 @@ const tableField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+/**
+ * A rendered table has no text positions inside it, so vertical cursor motion
+ * steps straight over it. Arrowing into one puts the cursor on the nearest source
+ * line instead, which returns the table to editable markdown.
+ */
+function enterTable(view: EditorView, direction: 1 | -1): boolean {
+  const { state } = view;
+  const cursorLine = state.doc.lineAt(state.selection.main.head);
+  const probe = direction === 1 ? cursorLine.to + 1 : cursorLine.from - 1;
+  if (probe < 0 || probe > state.doc.length) return false;
+
+  let target: number | null = null;
+  state.field(tableField).between(probe, probe, (from, to) => {
+    target = direction === 1 ? from : state.doc.lineAt(to).from;
+    return false;
+  });
+  if (target === null) return false;
+
+  view.dispatch({ selection: { anchor: target }, scrollIntoView: true });
+  return true;
+}
+
+const tableKeymap = Prec.high(
+  keymap.of([
+    { key: "ArrowDown", run: (view) => enterTable(view, 1) },
+    { key: "ArrowUp", run: (view) => enterTable(view, -1) },
+  ]),
+);
+
 const livePreviewTheme = EditorView.baseTheme({
   ".cm-md-h1": { fontSize: "1.6em", fontWeight: "700", lineHeight: "1.3" },
   ".cm-md-h2": { fontSize: "1.4em", fontWeight: "700", lineHeight: "1.3" },
@@ -339,5 +383,5 @@ const livePreviewTheme = EditorView.baseTheme({
 });
 
 export function markdownLivePreview(): Extension {
-  return [tableField, livePreviewPlugin, livePreviewTheme];
+  return [tableField, tableKeymap, livePreviewPlugin, livePreviewTheme];
 }
