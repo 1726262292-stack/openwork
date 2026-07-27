@@ -312,6 +312,9 @@ let desktopBootstrapConfig: DenBootstrapConfig = {
   source: "default",
   requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
 };
+let gatewayBootstrapConfig: DenBootstrapConfig | null = null;
+let gatewayBootstrapConfigOrigin: string | null = null;
+let gatewayBootstrapConfigSource: DenBootstrapConfig | null = null;
 
 export type DenAppVersionMetadata = {
   minAppVersion: string;
@@ -680,10 +683,21 @@ function applyDesktopBootstrapConfig(config: DenBootstrapConfig) {
 export function readDenBootstrapConfig(): DenBootstrapConfig {
   const gatewayOrigin = getOpenworkGatewayOrigin();
   if (gatewayOrigin) {
-    return {
+    if (
+      gatewayBootstrapConfig &&
+      gatewayBootstrapConfigOrigin === gatewayOrigin &&
+      gatewayBootstrapConfigSource === desktopBootstrapConfig
+    ) {
+      return gatewayBootstrapConfig;
+    }
+
+    gatewayBootstrapConfig = {
       ...desktopBootstrapConfig,
       ...resolveDenBaseUrls({ baseUrl: gatewayOrigin }),
     };
+    gatewayBootstrapConfigOrigin = gatewayOrigin;
+    gatewayBootstrapConfigSource = desktopBootstrapConfig;
+    return gatewayBootstrapConfig;
   }
 
   return desktopBootstrapConfig;

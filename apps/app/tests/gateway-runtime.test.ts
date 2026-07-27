@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { readDenSettings, resolveDenBaseUrls } from "../src/app/lib/den";
+import { readDenBootstrapConfig, readDenSettings, resolveDenBaseUrls } from "../src/app/lib/den";
 import {
   hydrateOpenworkServerSettingsFromEnv,
   readOpenworkServerSettings,
@@ -119,6 +119,17 @@ describe("gateway runtime mode", () => {
     expect(readDenSettings().baseUrl).toBe("https://web.openworklabs.com");
     expect(readDenSettings().apiBaseUrl).toBe("https://web.openworklabs.com/api/den");
     expect(readDenSettings().authToken).toBe("den-session-token");
+  });
+
+  test("returns a stable gateway bootstrap snapshot for React external stores", () => {
+    installWindow({ origin: "https://web.openworklabs.com", gateway: true });
+
+    const first = readDenBootstrapConfig();
+    const second = readDenBootstrapConfig();
+
+    expect(second).toBe(first);
+    expect(first.baseUrl).toBe("https://web.openworklabs.com");
+    expect(first.apiBaseUrl).toBe("https://web.openworklabs.com/api/den");
   });
 
   test("does not hydrate an instance bootstrap token into server storage behind the gateway", () => {
