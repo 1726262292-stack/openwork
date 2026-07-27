@@ -22,6 +22,7 @@ import {
   setDesktopBootstrapConfig as setDesktopBootstrapConfigInShell,
   type DesktopBootstrapConfig as ShellDesktopBootstrapConfig,
 } from "./desktop";
+import { getOpenworkGatewayOrigin } from "./gateway-runtime";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ReloadReason } from "../types";
 import type {
@@ -552,6 +553,15 @@ function ensureDenApiBasePath(input: string | null | undefined): string | null {
 }
 
 export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?: string | null } | string | null | undefined): DenBaseUrls {
+  const gatewayOrigin = getOpenworkGatewayOrigin();
+  if (gatewayOrigin) {
+    const baseUrl = normalizeDenBaseUrl(gatewayOrigin) ?? gatewayOrigin;
+    return {
+      baseUrl,
+      apiBaseUrl: ensureDenApiBasePath(baseUrl) ?? baseUrl,
+    };
+  }
+
   const rawBaseUrl = typeof input === "string" ? input : input?.baseUrl;
   const normalizedBaseUrl = normalizeDenBaseUrl(rawBaseUrl);
   const legacyApiBaseUrl = typeof input === "string" ? null : normalizeDenBaseUrl(input?.apiBaseUrl);
@@ -668,13 +678,21 @@ function applyDesktopBootstrapConfig(config: DenBootstrapConfig) {
 }
 
 export function readDenBootstrapConfig(): DenBootstrapConfig {
+  const gatewayOrigin = getOpenworkGatewayOrigin();
+  if (gatewayOrigin) {
+    return {
+      ...desktopBootstrapConfig,
+      ...resolveDenBaseUrls({ baseUrl: gatewayOrigin }),
+    };
+  }
+
   return desktopBootstrapConfig;
 }
 
 export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig> {
   if (!isDesktopRuntime()) {
     desktopBootstrapConfig = resolveDenBootstrapConfig({
-      baseUrl: BUILD_DEN_BASE_URL,
+      baseUrl: getOpenworkGatewayOrigin() ?? BUILD_DEN_BASE_URL,
       requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
     });
     return desktopBootstrapConfig;
@@ -822,7 +840,7 @@ export function readDenSettings(): DenSettings {
   const baseUrls = resolveDenBaseUrls({
     baseUrl: isDesktopRuntime()
       ? readDenBootstrapConfig().baseUrl
-      : window.localStorage.getItem(STORAGE_BASE_URL) ?? readDenBootstrapConfig().baseUrl,
+      : getOpenworkGatewayOrigin() ?? window.localStorage.getItem(STORAGE_BASE_URL) ?? readDenBootstrapConfig().baseUrl,
   });
 
   return {

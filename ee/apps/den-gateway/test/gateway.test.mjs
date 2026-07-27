@@ -68,6 +68,51 @@ function startDenApi(resolvePayload) {
   return { server, observed }
 }
 
+function startPassthroughDenApi() {
+  const observed = { requests: [] }
+  const encoder = new TextEncoder()
+  const server = startServer(async (request) => {
+    const url = new URL(request.url)
+    observed.requests.push({
+      method: request.method,
+      path: `${url.pathname}${url.search}`,
+      authorization: request.headers.get("authorization"),
+      cookie: request.headers.get("cookie"),
+      gatewayKey: request.headers.get("x-openwork-gateway-key"),
+      forwardedPrefix: request.headers.get("x-forwarded-prefix"),
+      body: await request.text(),
+    })
+
+    if (url.pathname === "/v1/events") {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: den-first\n\n"))
+          setTimeout(() => {
+            controller.enqueue(encoder.encode("data: den-second\n\n"))
+            controller.close()
+          }, 500)
+        },
+      })
+      return new Response(stream, { headers: { "Content-Type": "text/event-stream" } })
+    }
+
+    if (url.pathname === "/v1/compressed") {
+      return new Response(Bun.gzipSync("compressed den upstream"), {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Encoding": "gzip",
+          "Transfer-Encoding": "chunked",
+        },
+      })
+    }
+
+    return Response.json({ ok: true, path: url.pathname }, {
+      headers: { "Cache-Control": "private, max-age=10" },
+    })
+  })
+  return { server, observed }
+}
+
 function startUpstream() {
   const observed = { requests: [] }
   const encoder = new TextEncoder()
@@ -137,9 +182,76 @@ describe("den-gateway static UI", () => {
     const traversal = await fetch(`${base}/%2e%2e%2fsecret.txt`)
     expect(traversal.status).toBe(400)
   })
+
+  test("injects the gateway runtime marker into index.html without a bootstrap token", async () => {
+    const root = await makeWebRoot()
+    const gateway = startGateway({ webRoot: root })
+
+    const response = await fetch(`${serverBase(gateway)}/`)
+    const html = await response.text()
+
+    expect(html).toContain("window.__OPENWORK_GATEWAY__ = {\"version\":1}")
+    expect(html).not.toContain("__OPENWORK_BOOTSTRAP__")
+    expect(html).not.toContain("client-token")
+  })
 })
 
 describe("den-gateway proxy", () => {
+  test("passes /api/den through to den-api with the caller bearer, no cookies, and the prefix stripped", async () => {
+    const denApi = startPassthroughDenApi()
+    const upstream = startUpstream()
+    const gateway = startGateway({ denApiBase: serverBase(denApi.server), gatewayKey: "gateway-secret" })
+
+    const response = await fetch(`${serverBase(gateway)}/api/den/v1/me?expand=org`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer den-session",
+        Cookie: "ow_session=must_not_leak",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ hello: "world" }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("private, max-age=10")
+    expect(denApi.observed.requests).toHaveLength(1)
+    expect(denApi.observed.requests[0]).toEqual({
+      method: "POST",
+      path: "/v1/me?expand=org",
+      authorization: "Bearer den-session",
+      cookie: null,
+      gatewayKey: null,
+      forwardedPrefix: "/api/den",
+      body: '{"hello":"world"}',
+    })
+    expect(upstream.observed.requests).toHaveLength(0)
+  })
+
+  test("streams /api/den responses without buffering and strips stale compression headers", async () => {
+    const denApi = startPassthroughDenApi()
+    const gateway = startGateway({ denApiBase: serverBase(denApi.server), gatewayKey: "gateway-secret" })
+    const base = serverBase(gateway)
+
+    const startedAt = Date.now()
+    const streamResponse = await fetch(`${base}/api/den/v1/events`, {
+      headers: { Authorization: "Bearer den-stream", Accept: "text/event-stream" },
+    })
+    expect(streamResponse.headers.get("content-type")).toContain("text/event-stream")
+    const reader = streamResponse.body.getReader()
+    const first = await reader.read()
+    const elapsed = Date.now() - startedAt
+    expect(new TextDecoder().decode(first.value)).toBe("data: den-first\n\n")
+    expect(elapsed).toBeLessThan(300)
+    await reader.read()
+
+    const compressed = await fetch(`${base}/api/den/v1/compressed`, {
+      headers: { Authorization: "Bearer den-stream" },
+    })
+    expect(compressed.headers.get("content-encoding")).toBeNull()
+    expect(compressed.headers.get("transfer-encoding")).toBeNull()
+    expect(await compressed.text()).toBe("compressed den upstream")
+  })
+
   test("answers gateway health while /health proxies to the instance", async () => {
     const upstream = startUpstream()
     const denApi = startDenApi(() => ({ status: "ready", url: serverBase(upstream.server), clientToken: "client-token" }))

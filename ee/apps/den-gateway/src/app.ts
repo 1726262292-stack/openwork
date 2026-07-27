@@ -51,6 +51,19 @@ const ASSET_CACHE = "public, max-age=31536000, immutable"
 const INDEX_CACHE = "no-cache"
 const gatewayKeyHeader = "X-OpenWork-Gateway-Key"
 const resolvePath = "/v1/cloud/gateway/resolve"
+const denApiRoutePrefix = "/api/den"
+const gatewayMarker = { version: 1 }
+const hopByHopHeaders = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+])
+const spoofableForwardingHeaders = new Set(["forwarded", "x-forwarded-host", "x-forwarded-prefix", "x-forwarded-proto"])
 const proxyPathNamespaces = [
   "/health",
   "/status",
@@ -293,6 +306,20 @@ function responseHeaders(extension: string, cacheControl: string) {
   })
 }
 
+function escapeScriptJson(json: string) {
+  return json.replace(/[<>&\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)
+}
+
+function injectGatewayMarker(html: string) {
+  const marker = escapeScriptJson(JSON.stringify(gatewayMarker))
+  const script = `<script>window.__OPENWORK_GATEWAY__ = ${marker}</script>`
+  const headCloseIndex = html.toLowerCase().indexOf("</head>")
+  if (headCloseIndex < 0) {
+    return `${script}${html}`
+  }
+  return `${html.slice(0, headCloseIndex)}${script}${html.slice(headCloseIndex)}`
+}
+
 async function serveFile(root: string, relativePath: string, requestPathname: string, method: string) {
   const filePath = await resolveWithinRoot(root, relativePath)
   const fileStat = await stat(filePath).catch(() => null)
@@ -308,7 +335,9 @@ async function serveFile(root: string, relativePath: string, requestPathname: st
   }
 
   if (isTextExtension(extension)) {
-    return new Response(await readFile(filePath, "utf8"), { status: 200, headers })
+    const body = await readFile(filePath, "utf8")
+    const text = relativePath === "index.html" ? injectGatewayMarker(body) : body
+    return new Response(text, { status: 200, headers })
   }
 
   const bytes = await readFile(filePath)
@@ -429,6 +458,26 @@ function buildProxyUrl(baseUrl: string, requestUrl: string) {
   return target.toString()
 }
 
+function denApiProxyPath(pathname: string) {
+  if (pathname === denApiRoutePrefix) {
+    return ""
+  }
+  if (pathname.startsWith(`${denApiRoutePrefix}/`)) {
+    return pathname.slice(denApiRoutePrefix.length)
+  }
+  return pathname
+}
+
+function buildDenApiProxyUrl(denApiBase: string, requestUrl: string) {
+  const current = new URL(requestUrl)
+  const target = new URL(denApiBase)
+  const basePath = target.pathname.replace(/\/+$/, "")
+  const proxyPath = denApiProxyPath(current.pathname)
+  target.pathname = `${basePath}${proxyPath}` || "/"
+  target.search = current.search
+  return target.toString()
+}
+
 async function requestBody(request: Request) {
   const method = request.method.toUpperCase()
   if (method === "GET" || method === "HEAD") {
@@ -452,6 +501,24 @@ function upstreamRequestHeaders(headers: Headers, clientToken: string) {
   return upstream
 }
 
+function denApiRequestHeaders(request: Request) {
+  const upstream = new Headers()
+  request.headers.forEach((value, name) => {
+    const normalized = name.toLowerCase()
+    if (hopByHopHeaders.has(normalized)) return
+    if (normalized === "host" || normalized === "content-length" || normalized === "cookie") return
+    if (spoofableForwardingHeaders.has(normalized)) return
+    if (normalized === gatewayKeyHeader.toLowerCase()) return
+    upstream.append(name, value)
+  })
+
+  const url = new URL(request.url)
+  upstream.set("x-forwarded-host", url.host)
+  upstream.set("x-forwarded-proto", url.protocol.replace(/:$/, ""))
+  upstream.set("x-forwarded-prefix", denApiRoutePrefix)
+  return upstream
+}
+
 function sanitizeProxyResponse(response: Response) {
   const headers = new Headers(response.headers)
   headers.delete("content-encoding")
@@ -463,6 +530,37 @@ function sanitizeProxyResponse(response: Response) {
     statusText: response.statusText,
     headers,
   })
+}
+
+function sanitizeDenApiResponse(response: Response) {
+  const headers = new Headers(response.headers)
+  headers.delete("content-encoding")
+  headers.delete("transfer-encoding")
+  headers.delete("content-length")
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+async function proxyToDenApi(input: {
+  config: GatewayConfig
+  request: Request
+}) {
+  let response: Response
+  try {
+    response = await input.config.fetchImpl(buildDenApiProxyUrl(input.config.denApiBase, input.request.url), {
+      method: input.request.method,
+      headers: denApiRequestHeaders(input.request),
+      body: await requestBody(input.request),
+      redirect: "manual",
+    })
+  } catch {
+    return jsonResponse({ error: "gateway_den_api_failed" }, 502)
+  }
+
+  return sanitizeDenApiResponse(response)
 }
 
 async function proxyToInstance(input: {
@@ -550,6 +648,9 @@ export function createGatewayApp(options: GatewayAppOptions = {}) {
 
   app.get("/__gw/health", (c) => c.json({ ok: true, service: "den-gateway" }))
   app.get("/__gw/ready", (c) => c.json({ ok: true, service: "den-gateway" }))
+
+  app.all(denApiRoutePrefix, (c) => proxyToDenApi({ config, request: c.req.raw }))
+  app.all(`${denApiRoutePrefix}/*`, (c) => proxyToDenApi({ config, request: c.req.raw }))
 
   app.all("*", async (c) => {
     if (shouldProxyToInstance(c.req.raw)) {

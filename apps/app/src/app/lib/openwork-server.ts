@@ -11,6 +11,7 @@ import {
   requestAgentContextDiagnosticsPayload,
 } from "./agent-context-diagnostics-transport";
 import { desktopFetch, desktopFetchAgentContextDiagnostics } from "./desktop";
+import { isOpenworkGatewayRuntime } from "./gateway-runtime";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { DenOrgMarketplace, DenOrgPluginResolved, DenResourceSnapshot } from "./den-types";
@@ -984,6 +985,7 @@ export function writeOpenworkServerSettings(next: OpenworkServerSettings): Openw
 
 export function hydrateOpenworkServerSettingsFromEnv() {
   if (typeof window === "undefined") return;
+  if (isOpenworkGatewayRuntime()) return;
 
   const envUrl = typeof import.meta.env?.VITE_OPENWORK_URL === "string"
     ? import.meta.env.VITE_OPENWORK_URL.trim()

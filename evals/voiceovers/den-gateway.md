@@ -1,12 +1,12 @@
 # den-gateway — OpenWork in the browser at one address, with the machine invisible
 
-ui.openworklabs.com is served by den-gateway: it signs the user in, routes them
+web.openworklabs.com is served by den-gateway: it signs the user in, routes them
 to their own instance, and injects that instance's credentials server-side. The
 browser never holds an instance token, never sees a machine name, and never
 learns which compute vendor is behind it. den-api remains the only thing that
 talks to Daytona.
 
-1. I go to ui.openworklabs.com and get a sign-in page. Nothing is running for me
+1. I go to web.openworklabs.com and get a sign-in page. Nothing is running for me
    yet, and there is nothing to install.
 
 2. I sign in with my work account and land in OpenWork with the cursor already
@@ -20,7 +20,7 @@ talks to Daytona.
 
 5. I ask it to save a summary to a file, and the file appears in my workspace.
 
-6. The address bar says ui.openworklabs.com and nothing else — no tokens, no
+6. The address bar says web.openworklabs.com and nothing else — no tokens, no
    machine names, nothing I'd think twice about screen-sharing.
 
 7. I close the tab and come back the next morning from a different laptop. The
