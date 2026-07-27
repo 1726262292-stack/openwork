@@ -181,6 +181,90 @@ type RemoteSidecarManifest = {
   entries: Record<string, RemoteSidecarEntry>;
 };
 
+const REMOTE_SIDECAR_ENTRY_NAMES = new Set<string>([
+  "openwork-server",
+  "opencode",
+]);
+const REMOTE_SIDECAR_TARGETS = new Set<string>([
+  "darwin-arm64",
+  "darwin-x64",
+  "linux-x64",
+  "linux-arm64",
+  "windows-x64",
+  "windows-arm64",
+]);
+const REMOTE_SIDECAR_SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseRemoteSidecarAsset(value: unknown): RemoteSidecarAsset | null {
+  if (!isJsonObject(value)) return null;
+  const asset = typeof value.asset === "string" ? value.asset.trim() : value.asset;
+  const url = typeof value.url === "string" ? value.url.trim() : value.url;
+  const sha256 = typeof value.sha256 === "string" ? value.sha256.trim() : value.sha256;
+  const size = value.size;
+  if (asset !== undefined && typeof asset !== "string") return null;
+  if (url !== undefined && typeof url !== "string") return null;
+  if (sha256 !== undefined && typeof sha256 !== "string") return null;
+  if (asset !== undefined && !isSafeSidecarAssetName(asset)) return null;
+  if (url !== undefined && !resolveAssetUrl("", undefined, url)) return null;
+  if (asset === undefined && url === undefined) return null;
+  if (sha256 !== undefined && !REMOTE_SIDECAR_SHA256_PATTERN.test(sha256)) {
+    return null;
+  }
+  if (
+    size !== undefined &&
+    (typeof size !== "number" || !Number.isFinite(size) || size < 0)
+  ) {
+    return null;
+  }
+  return {
+    ...(asset !== undefined ? { asset } : {}),
+    ...(url !== undefined ? { url } : {}),
+    ...(sha256 !== undefined ? { sha256 } : {}),
+    ...(size !== undefined ? { size } : {}),
+  };
+}
+
+function parseRemoteSidecarEntry(value: unknown): RemoteSidecarEntry | null {
+  if (!isJsonObject(value)) return null;
+  if (typeof value.version !== "string" || !value.version.trim()) return null;
+  if (!isJsonObject(value.targets)) return null;
+  const targets: Record<string, RemoteSidecarAsset> = {};
+  for (const [target, asset] of Object.entries(value.targets)) {
+    if (!REMOTE_SIDECAR_TARGETS.has(target)) continue;
+    const parsed = parseRemoteSidecarAsset(asset);
+    if (!parsed) return null;
+    targets[target] = parsed;
+  }
+  return { version: value.version, targets };
+}
+
+function parseRemoteSidecarManifest(
+  value: unknown,
+): RemoteSidecarManifest | null {
+  if (!isJsonObject(value)) return null;
+  if (typeof value.version !== "string" || !value.version.trim()) return null;
+  if (value.generatedAt !== undefined && typeof value.generatedAt !== "string") {
+    return null;
+  }
+  if (!isJsonObject(value.entries)) return null;
+  const entries: Record<string, RemoteSidecarEntry> = {};
+  for (const [name, entry] of Object.entries(value.entries)) {
+    if (!REMOTE_SIDECAR_ENTRY_NAMES.has(name)) continue;
+    const parsed = parseRemoteSidecarEntry(entry);
+    if (!parsed) return null;
+    entries[name] = parsed;
+  }
+  return {
+    version: value.version,
+    ...(value.generatedAt !== undefined ? { generatedAt: value.generatedAt } : {}),
+    entries,
+  };
+}
+
 type SidecarConfig = {
   dir: string;
   baseUrl: string;
@@ -1916,7 +2000,7 @@ async function fetchRemoteManifest(
     try {
       const response = await fetch(url);
       if (!response.ok) return null;
-      return (await response.json()) as RemoteSidecarManifest;
+      return parseRemoteSidecarManifest(await response.json());
     } catch {
       return null;
     }
@@ -1930,20 +2014,43 @@ function resolveAssetUrl(
   asset?: string,
   url?: string,
 ): string | null {
-  if (url && url.trim()) return url.trim();
+  if (url && url.trim()) {
+    try {
+      const parsed = new URL(url.trim());
+      return parsed.protocol === "http:" || parsed.protocol === "https:"
+        ? parsed.toString()
+        : null;
+    } catch {
+      return null;
+    }
+  }
   if (asset && asset.trim())
     return `${baseUrl.replace(/\/$/, "")}/${asset.trim()}`;
   return null;
 }
 
+function isSafeSidecarAssetName(value: string): boolean {
+  const trimmed = value.trim();
+  return Boolean(trimmed) &&
+    trimmed === basename(trimmed) &&
+    trimmed !== "." &&
+    trimmed !== ".." &&
+    !trimmed.includes("\0");
+}
+
 function resolveAssetName(asset?: string, url?: string): string | null {
-  if (asset && asset.trim()) return asset.trim();
+  if (asset && asset.trim()) {
+    const trimmed = asset.trim();
+    return isSafeSidecarAssetName(trimmed) ? trimmed : null;
+  }
   if (url && url.trim()) {
     try {
-      return basename(new URL(url).pathname);
+      const name = basename(new URL(url).pathname);
+      return isSafeSidecarAssetName(name) ? name : null;
     } catch {
       const parts = url.split("/").filter(Boolean);
-      return parts.length ? parts[parts.length - 1] : null;
+      const name = parts.length ? parts[parts.length - 1] : "";
+      return isSafeSidecarAssetName(name) ? name : null;
     }
   }
   return null;
