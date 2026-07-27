@@ -14,6 +14,7 @@ import {
   AGENT_CONTEXT_DIAGNOSTICS_SCHEMA_VERSION,
   agentContextDiagnosticsReportSchema,
   agentContextDiagnosticsRequestSchema,
+  scrubAgentContextDiagnosticText,
   sanitizeAgentContextDiagnosticText,
 } from "./agent-context-diagnostics-schema.js";
 import {
@@ -28,6 +29,11 @@ import {
   type CloudCatalogProbe,
 } from "./agent-context-cloud-probe.js";
 import { readActivatedEnterpriseDenOrigin } from "./enterprise-den-origin.js";
+import {
+  isCloudEndpointCertificateVerificationFailure,
+  probeCloudEndpointTransport,
+  type CloudEndpointTransportProbe,
+} from "./agent-context-transport-probe.js";
 import {
   inspectConnectSnapshot,
   type ConnectSnapshot,
@@ -70,17 +76,34 @@ export type McpRegistrationInspection = {
   status: McpRegistrationStatus;
   source?: McpRegistrationSource | null;
   recordAgeMs?: number | null;
+  errorSummary: string | null;
 };
 export type InspectMcpRegistration = (
   name: string,
   config: Record<string, unknown>,
 ) => McpRegistrationStatus | McpRegistrationInspection;
 
+export type EngineMcpTransportCause =
+  | "tls_incomplete_chain"
+  | "tls_untrusted_ca"
+  | "tls_hostname_mismatch"
+  | "tls_expired"
+  | "tls_error"
+  | "dns_error"
+  | "connection_refused"
+  | "connection_reset"
+  | "timeout"
+  | "http_error"
+  | "auth_error"
+  | "unknown";
+
 type FailedRegistrationDetail = {
   name: string;
   status: McpRegistrationStatus;
   source: McpRegistrationSource | null;
   recordAgeMs: number | null;
+  errorSummary: string | null;
+  transportCause: EngineMcpTransportCause | null;
   engineReachableNow: boolean;
 };
 
@@ -170,6 +193,54 @@ function safeText(value: unknown, max: number, fallback = ""): string {
   if (typeof value !== "string") return fallback;
   const cleaned = sanitizeAgentContextDiagnosticText(value).trim();
   return cleaned.slice(0, max) || fallback;
+}
+
+function safeNullableText(value: unknown, max: number): string | null {
+  const cleaned = safeText(value, max);
+  return cleaned || null;
+}
+
+function matchesAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
+}
+
+export function classifyEngineMcpTransportCause(errorSummary: string | null): EngineMcpTransportCause | null {
+  if (errorSummary === null) return null;
+  const value = errorSummary.toLowerCase();
+  if (matchesAny(value, ["unable to verify the first certificate", "unable_to_verify_leaf_signature"])) {
+    return "tls_incomplete_chain";
+  }
+  if (matchesAny(value, [
+    "unable to get local issuer",
+    "self signed certificate",
+    "self_signed_cert",
+    "depth_zero",
+    "unknown ca",
+    "certificate verify failed",
+    "unable_to_get_issuer",
+  ])) return "tls_untrusted_ca";
+  if (matchesAny(value, ["altname", "hostname/ip does not match"])) return "tls_hostname_mismatch";
+  if (matchesAny(value, ["certificate has expired", "cert_has_expired"])) return "tls_expired";
+  if (matchesAny(value, ["certificate", "tls", "ssl"])) return "tls_error";
+  if (matchesAny(value, ["enotfound", "eai_again", "getaddrinfo"])) return "dns_error";
+  if (matchesAny(value, ["econnrefused", "connectionrefused", "connection refused"])) {
+    return "connection_refused";
+  }
+  if (matchesAny(value, [
+    "econnreset",
+    "epipe",
+    "socket hang up",
+    "connectionreset",
+    "connection reset",
+    "connectionclosed",
+    "connection closed",
+  ])) {
+    return "connection_reset";
+  }
+  if (matchesAny(value, ["etimedout", "timed out", "timeout"])) return "timeout";
+  if (matchesAny(value, ["401", "403", "unauthorized", "forbidden"])) return "auth_error";
+  if (value.includes("http") || /(?:^|\s)(?:status\s*)?[1-5]\d{2}\b/iu.test(errorSummary)) return "http_error";
+  return "unknown";
 }
 
 function elapsed(startedAt: number, now: () => number): number {
@@ -375,11 +446,11 @@ function mcpOauthMode(
   return "auto";
 }
 
-function cloudTerminalPathEvidence(
+function cloudEndpointEvidenceUrl(
   name: string,
   source: DiagnosticMcpItem["source"],
   config: Record<string, unknown>,
-): AgentContextMcpEvidence["path"] {
+): URL | null {
   if (
     name !== OPENWORK_CLOUD_MCP_NAME
     || (source !== "config.remote" && source !== "engine.config")
@@ -387,26 +458,40 @@ function cloudTerminalPathEvidence(
   ) return null;
   try {
     const url = new URL(config.url);
-    if (!url.pathname.endsWith(CLOUD_MCP_TERMINAL_PATH) || url.pathname.endsWith(CLOUD_MCP_TERMINAL_PATH + "/")) return null;
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     if (url.username || url.password || url.search || url.hash) return null;
-    // Deliberately emit only the required terminal route. A deployment may
-    // use a prefix, and reporting this suffix must not imply a canonical URL.
-    return CLOUD_MCP_TERMINAL_PATH;
+    return url;
   } catch {
     return null;
   }
 }
 
+function cloudTerminalPathEvidence(url: URL | null): AgentContextMcpEvidence["path"] {
+  if (!url) return null;
+  if (!url.pathname.endsWith(CLOUD_MCP_TERMINAL_PATH) || url.pathname.endsWith(CLOUD_MCP_TERMINAL_PATH + "/")) return null;
+  // Report the actual path prefix evidence without query, hash, or origin.
+  return url.pathname.length <= 240 ? url.pathname : null;
+}
+
+function cloudOriginEvidence(url: URL | null): AgentContextMcpEvidence["origin"] {
+  if (!url) return null;
+  return url.origin.length <= 240 ? url.origin : null;
+}
+
 function normalizeRegistrationInspection(
   value: McpRegistrationStatus | McpRegistrationInspection,
 ): McpRegistrationInspection {
-  if (typeof value === "string") return { status: value, source: null, recordAgeMs: null };
+  if (typeof value === "string") return { status: value, source: null, recordAgeMs: null, errorSummary: null };
   return {
     status: value.status,
     source: value.source ?? null,
     recordAgeMs: typeof value.recordAgeMs === "number" && Number.isFinite(value.recordAgeMs)
       ? Math.max(0, Math.round(value.recordAgeMs))
       : null,
+    errorSummary: safeNullableText(
+      typeof value.errorSummary === "string" ? scrubAgentContextDiagnosticText(value.errorSummary) : value.errorSummary,
+      400,
+    ),
   };
 }
 
@@ -416,14 +501,15 @@ function mcpEvidence(
   managedMcpNames: ReadonlySet<string>,
 ): AgentContextMcpEvidence {
   const type = mcpType(item.config);
+  const cloudEndpoint = cloudEndpointEvidenceUrl(item.name, item.source, item.config);
   return {
     name: safeText(item.name, 160, "unnamed-mcp"),
     source: item.source,
     type,
     enabled: item.config.enabled !== false,
     disabledByTools: item.disabledByTools === true,
-    origin: null,
-    path: cloudTerminalPathEvidence(item.name, item.source, item.config),
+    origin: cloudOriginEvidence(cloudEndpoint),
+    path: cloudTerminalPathEvidence(cloudEndpoint),
     hasHeaders: isRecord(item.config.headers) && Object.keys(item.config.headers).length > 0,
     oauthMode: mcpOauthMode(type, item.config),
     syncStatus: item.source === "config.remote" && managedMcpNames.has(item.name) ? syncStatus : "not-applicable",
@@ -709,6 +795,87 @@ function cloudDifferentialCheck(probe: CloudCatalogProbe, engineReachableNow: bo
     message: "The independent runtime probe was not performed, so endpoint availability cannot be compared with the engine registration evidence.",
     owner: "openwork-server",
     action: "Address the probe eligibility code reported by the cloud catalog check, then rerun diagnostics.",
+  });
+}
+
+function cloudEndpointTransportCheck(
+  probe: CloudEndpointTransportProbe,
+  notRequired: boolean,
+): AgentContextDiagnosticCheck {
+  const details = {
+    endpointOrigin: probe.endpointOrigin,
+    endpointProtocol: probe.endpointProtocol,
+    skipReason: probe.skipReason,
+    handshakePerformed: probe.performed,
+    verifiedHandshake: probe.verifiedHandshake,
+    verifyErrorCode: probe.verifyErrorCode,
+    dnsResolved: probe.dnsResolved,
+    tcpConnected: probe.tcpConnected,
+    servedChainLength: probe.servedChainLength,
+    servedChain: probe.servedChain,
+    systemCaCertificateCount: probe.systemCaCertificateCount,
+    bundledCaCertificateCount: probe.bundledCaCertificateCount,
+    nodeExtraCaCertsSet: probe.nodeExtraCaCertsSet,
+    nodeExtraCaCertsFileReadable: probe.nodeExtraCaCertsFileReadable,
+    nodeExtraCaCertsCertCount: probe.nodeExtraCaCertsCertCount,
+  };
+  if (notRequired) {
+    return diagnosticCheck({
+      id: "cloud-endpoint-transport",
+      status: "skipped",
+      evidenceKind: "derived",
+      code: "transport_probe_not_required",
+      message: "The managed OpenWork Cloud MCP registration is connected; the differential check compares runtime and engine reachability, so a separate TLS-layer probe was not needed.",
+      owner: "openwork-server",
+      action: "No action is required.",
+      details,
+    });
+  }
+  if (probe.verifiedHandshake === "ok") {
+    return diagnosticCheck({
+      id: "cloud-endpoint-transport",
+      status: "passed",
+      evidenceKind: "observed",
+      code: "endpoint_tls_handshake_verified",
+      message: "The OpenWork Cloud endpoint completed a credential-free TLS handshake; use the differential check for authentication, MCP protocol, and engine-registration attribution.",
+      owner: "openwork-server",
+      action: "Review the cloud-endpoint-differential verdict and catalog evidence for the next failure layer.",
+      details,
+    });
+  }
+  if (isCloudEndpointCertificateVerificationFailure(probe)) {
+    return diagnosticCheck({
+      id: "cloud-endpoint-transport",
+      status: "failed",
+      evidenceKind: "observed",
+      code: "endpoint_tls_untrusted",
+      message: `The OpenWork Cloud endpoint TLS handshake failed with ${probe.verifyErrorCode ?? "a certificate verification error"}; the OS or corporate CA chain is not visible to this runtime.`,
+      owner: "network-admin",
+      action: "Provide the corporate CA chain to OpenWork with NODE_EXTRA_CA_CERTS or fix the server to present its full certificate chain; the served-chain evidence below shows what the endpoint sent.",
+      details,
+    });
+  }
+  if (probe.verifiedHandshake === "failed") {
+    return diagnosticCheck({
+      id: "cloud-endpoint-transport",
+      status: "failed",
+      evidenceKind: "observed",
+      code: "endpoint_unreachable",
+      message: "The OpenWork Cloud endpoint could not be reached with a credential-free TCP/TLS handshake.",
+      owner: "network-admin",
+      action: "Verify DNS, firewall, VPN, proxy, and endpoint availability from this machine, then rerun diagnostics.",
+      details,
+    });
+  }
+  return diagnosticCheck({
+    id: "cloud-endpoint-transport",
+    status: "skipped",
+    evidenceKind: probe.skipReason === "invalid_endpoint" || probe.skipReason === "missing_endpoint" ? "unavailable" : "derived",
+    code: "transport_probe_not_applicable",
+    message: "A credential-free TLS-layer probe was not applicable to this workspace or endpoint configuration; the differential check reports runtime probe eligibility.",
+    owner: "openwork-server",
+    action: "Review the managed OpenWork Cloud MCP configuration if transport evidence is needed.",
+    details,
   });
 }
 
@@ -1134,12 +1301,13 @@ export async function runAgentContextDiagnostics(input: {
     if (existing) return existing;
     const inspection: McpRegistrationInspection = item.source === "config.remote" && managedMcpNames.has(item.name)
       ? normalizeRegistrationInspection(input.inspectRegistration(item.name, item.config))
-      : { status: "not-recorded", source: null, recordAgeMs: null };
+      : { status: "not-recorded", source: null, recordAgeMs: null, errorSummary: null };
     registrationByItem.set(item, inspection);
     return inspection;
   };
   const mcps = inventoryItems.map((item) => mcpEvidence(item, registrationForItem(item).status, managedMcpNames));
   const runtimeCloudConfig = runtimeMcpMap(runtime)[OPENWORK_CLOUD_MCP_NAME] ?? null;
+  const runtimeCloudRegistration = runtimeCloudItem && runtimeCloudConfig ? registrationForItem(runtimeCloudItem) : null;
   const staticallyDeniedCloudAgentToolIds = new Set(inventory.toolPolicy.deniedToolIds);
   const effectiveToolPolicy = assessEffectiveToolPolicy(effectiveEngine);
   const cloudToolPolicyStatus = effectiveEngine
@@ -1180,9 +1348,6 @@ export async function runAgentContextDiagnostics(input: {
       ).catch(() => null)
     : null;
   input.dependencies?.signal?.throwIfAborted();
-  const cloudRegistration = runtimeCloudItem && runtimeCloudConfig
-    ? registrationForItem(runtimeCloudItem)
-    : null;
   // Cached engine registration and agent tool policy are comparison inputs
   // for the differential verdict, never eligibility gates: the independent
   // runtime probe exists precisely to diagnose engine-side failures.
@@ -1196,14 +1361,24 @@ export async function runAgentContextDiagnostics(input: {
       ? null
       : runtimeCloudConfig,
     engineRegistration: {
-      status: cloudRegistration?.status ?? "not-recorded",
-      source: cloudRegistration?.source ?? null,
-      recordAgeMs: cloudRegistration?.recordAgeMs ?? null,
+      status: runtimeCloudRegistration?.status ?? "not-recorded",
+      source: runtimeCloudRegistration?.source ?? null,
+      recordAgeMs: runtimeCloudRegistration?.recordAgeMs ?? null,
     },
     activatedEnterpriseOrigin,
     requestId: runId,
     fetchImpl,
     now,
+    signal: input.dependencies?.signal,
+  });
+  input.dependencies?.signal?.throwIfAborted();
+  const transportProbeApplicable = input.workspace.workspaceType === "local"
+    && Boolean(runtimeCloudConfig)
+    && runtimeCloudConfig?.type === "remote"
+    && runtimeCloudConfig.enabled === true;
+  const cloudEndpointTransportProbe = await probeCloudEndpointTransport({
+    endpointUrl: typeof runtimeCloudConfig?.url === "string" ? runtimeCloudConfig.url : null,
+    performProbe: transportProbeApplicable && runtimeCloudRegistration?.status !== "connected",
     signal: input.dependencies?.signal,
   });
   input.dependencies?.signal?.throwIfAborted();
@@ -1226,6 +1401,8 @@ export async function runAgentContextDiagnostics(input: {
       status: inspection.status,
       source: inspection.source ?? null,
       recordAgeMs: inspection.recordAgeMs ?? null,
+      errorSummary: inspection.errorSummary,
+      transportCause: classifyEngineMcpTransportCause(inspection.errorSummary),
       engineReachableNow,
     }];
   });
@@ -1237,6 +1414,8 @@ export async function runAgentContextDiagnostics(input: {
       status: inspection.status,
       source: inspection.source ?? null,
       recordAgeMs: inspection.recordAgeMs ?? null,
+      errorSummary: inspection.errorSummary,
+      transportCause: classifyEngineMcpTransportCause(inspection.errorSummary),
       engineReachableNow,
     }];
   });
@@ -1605,13 +1784,17 @@ export async function runAgentContextDiagnostics(input: {
     }),
     cloudCatalogCheck(cloudProbe),
     cloudDifferentialCheck(cloudProbe, engineReachableNow),
+    cloudEndpointTransportCheck(
+      cloudEndpointTransportProbe,
+      transportProbeApplicable && runtimeCloudRegistration?.status === "connected",
+    ),
     organizationCheck(request),
     diagnosticCheck({
       id: "report-safety",
       status: "passed",
       evidenceKind: "derived",
       code: "sanitized_allowlist_report",
-      message: "The report contains only allowlisted evidence and excludes credential-bearing or raw material; diagnostics did not directly request mutations, provider operations, or capability calls.",
+      message: "The report contains only allowlisted evidence, bounded sanitized engine error summaries, and credential-free transport metadata; diagnostics did not directly request mutations, provider operations, or capability calls.",
       owner: "openwork-server",
       action: engineApiReadPerformed
         ? "Be aware that reading a cold engine may initialize configured bootstrap or plugin hooks whose side effects this report does not inspect."
@@ -1622,6 +1805,8 @@ export async function runAgentContextDiagnostics(input: {
         providerResponseIncluded: false,
         stackTraceIncluded: false,
         fullUrlIncluded: false,
+        credentialFreeTransportProbePerformed: cloudEndpointTransportProbe.performed,
+        sanitizedEngineErrorSummariesIncluded: failedRegistrationDetails.some((failure) => failure.errorSummary !== null),
         engineBootstrapMayHaveRun: engineApiReadPerformed,
         engineBootstrapSideEffectsInspected: false,
       },
@@ -1697,6 +1882,7 @@ export async function runAgentContextDiagnostics(input: {
     safety: {
       diagnosticsWorkspaceRuntimeConfigurationReadOnly: true,
       cloudCatalogToolsListPerformed: cloudProbe.toolsListPerformed,
+      credentialFreeTransportProbePerformed: cloudEndpointTransportProbe.performed,
       cloudSessionCleanupRequested: cloudProbe.cleanupAttempted,
       directNonCloudMcpFetchPerformed: false,
       directMcpToolCallPerformed: false,
@@ -1714,6 +1900,7 @@ export async function runAgentContextDiagnostics(input: {
       providerResponsesIncluded: false,
       stackTracesIncluded: false,
       rawEngineErrorsIncluded: false,
+      sanitizedEngineErrorSummariesIncluded: failedRegistrationDetails.some((failure) => failure.errorSummary !== null),
       secretBearingUrlsIncluded: false,
       inputStrictlyValidated: true,
     },

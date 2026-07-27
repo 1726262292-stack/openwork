@@ -138,6 +138,7 @@ function healthyReport(): AgentContextDiagnosticsReport {
     safety: {
       diagnosticsWorkspaceRuntimeConfigurationReadOnly: true,
       cloudCatalogToolsListPerformed: false,
+      credentialFreeTransportProbePerformed: false,
       cloudSessionCleanupRequested: false,
       directNonCloudMcpFetchPerformed: false,
       directMcpToolCallPerformed: false,
@@ -155,6 +156,7 @@ function healthyReport(): AgentContextDiagnosticsReport {
       providerResponsesIncluded: false,
       stackTracesIncluded: false,
       rawEngineErrorsIncluded: false,
+      sanitizedEngineErrorSummariesIncluded: false,
       secretBearingUrlsIncluded: false,
       inputStrictlyValidated: true,
     },

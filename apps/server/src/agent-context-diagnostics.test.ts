@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFile } from "node:child_process";
 import {
   lstat,
   mkdir,
@@ -11,7 +12,9 @@ import {
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import tls from "node:tls";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 import {
   AGENT_CONTEXT_DIAGNOSTIC_CHECK_IDS,
@@ -20,6 +23,7 @@ import {
 } from "@openwork/types/agent-context-diagnostics";
 
 import {
+  classifyEngineMcpTransportCause,
   expectedConnectBranch,
   runAgentContextDiagnostics,
 } from "./agent-context-diagnostics.js";
@@ -60,6 +64,7 @@ const DYNAMIC_BEARER_CANARY = "Bearer DYNAMIC_LABEL_TOKEN_CANARY";
 const DYNAMIC_SECRET_ASSIGNMENT_CANARY = "client_secret=DYNAMIC_CLIENT_SECRET_CANARY";
 const DYNAMIC_URL_CANARY = "https://labels.invalid/mcp?access_token=DYNAMIC_URL_TOKEN_CANARY";
 const DYNAMIC_PATH_CANARY = "/Users/diagnostics/private/mcp.json";
+const execFileAsync = promisify(execFile);
 const nativeFetch = globalThis.fetch;
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
@@ -165,6 +170,59 @@ async function createRoot(prefix = "openwork-agent-context-diagnostics-"): Promi
   const root = await mkdtemp(join(tmpdir(), prefix));
   roots.push(root);
   return root;
+}
+
+function closeTlsServer(server: tls.Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+async function selfSignedCertificate(): Promise<{ key: string; cert: string }> {
+  const root = await createRoot("openwork-agent-context-diagnostics-tls-");
+  const keyPath = join(root, "key.pem");
+  const certPath = join(root, "cert.pem");
+  await execFileAsync("openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-keyout",
+    keyPath,
+    "-out",
+    certPath,
+    "-subj",
+    "/CN=localhost",
+    "-days",
+    "1",
+    "-addext",
+    "subjectAltName=DNS:localhost,IP:127.0.0.1",
+  ]);
+  return {
+    key: await readFile(keyPath, "utf8"),
+    cert: await readFile(certPath, "utf8"),
+  };
+}
+
+async function startSelfSignedTlsServer(): Promise<number> {
+  const material = await selfSignedCertificate();
+  const server = tls.createServer(material, (socket) => socket.end());
+  const port = await new Promise<number>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.removeListener("error", onError);
+      const address = server.address();
+      if (typeof address === "object" && address !== null) resolve(address.port);
+      else reject(new Error("Expected a TLS test port"));
+    });
+  });
+  stops.push(() => closeTlsServer(server));
+  return port;
 }
 
 async function createFixture(options?: {
@@ -438,6 +496,32 @@ afterEach(async () => {
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
 });
 
+describe("classifyEngineMcpTransportCause", () => {
+  const cases: Array<[string | null, ReturnType<typeof classifyEngineMcpTransportCause>]> = [
+    [null, null],
+    ["unable to verify the first certificate", "tls_incomplete_chain"],
+    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "tls_incomplete_chain"],
+    ["unable to get local issuer certificate", "tls_untrusted_ca"],
+    ["SELF_SIGNED_CERT_IN_CHAIN", "tls_untrusted_ca"],
+    ["Hostname/IP does not match certificate altname", "tls_hostname_mismatch"],
+    ["CERT_HAS_EXPIRED", "tls_expired"],
+    ["TLS handshake failed", "tls_error"],
+    ["getaddrinfo ENOTFOUND den.internal", "dns_error"],
+    ["connect ECONNREFUSED 127.0.0.1:443", "connection_refused"],
+    ["ConnectionRefused", "connection_refused"],
+    ["socket hang up", "connection_reset"],
+    ["connection reset by peer", "connection_reset"],
+    ["request timed out", "timeout"],
+    ["HTTP status 502", "http_error"],
+    ["403 forbidden", "auth_error"],
+    ["something else", "unknown"],
+  ];
+
+  test.each(cases)("classifies %p", (message, expected) => {
+    expect(classifyEngineMcpTransportCause(message)).toBe(expected);
+  });
+});
+
 describe("agent context diagnostics analyzer", () => {
   test("mirrors Connect's health-first steering priority", () => {
     const snapshot = {
@@ -521,7 +605,7 @@ describe("agent context diagnostics analyzer", () => {
     expect(report.overall).toBe("warning");
     expect(report.firstFailedCheck).toBeNull();
     expect(report.observedCloudToolIds).toEqual(["search_capabilities", "execute_capability"]);
-    expect(report.mcps.find((mcp) => mcp.name === "openwork-cloud")?.path).toBe("/mcp/agent");
+    expect(report.mcps.find((mcp) => mcp.name === "openwork-cloud")?.path).toBe("/private-prefix/mcp/agent");
     expect(report.workspace.name).toBe("[redacted-sensitive-label]");
     expect(report.agent.evidenceSource).toBe("effective-engine");
     expect(report.agent.defaultAgent).toBe("openwork");
@@ -545,6 +629,8 @@ describe("agent context diagnostics analyzer", () => {
     expect(report.mcps).toContainEqual(expect.objectContaining({
       name: "openwork-cloud",
       source: "config.remote",
+      origin: "http://127.0.0.1:43123",
+      path: "/private-prefix/mcp/agent",
       syncStatus: "connected",
     }));
     expect(report.mcps).toContainEqual(expect.objectContaining({
@@ -566,9 +652,19 @@ describe("agent context diagnostics analyzer", () => {
       evidenceKind: "derived",
       code: "runtime_and_engine_connected",
     });
+    expect(checkById(report, "cloud-endpoint-transport")).toMatchObject({
+      status: "skipped",
+      code: "transport_probe_not_required",
+      details: {
+        endpointOrigin: "http://127.0.0.1:43123",
+        skipReason: "perform_probe_false",
+        verifiedHandshake: "not-performed",
+      },
+    });
     expect(report.safety).toMatchObject({
       diagnosticsWorkspaceRuntimeConfigurationReadOnly: true,
       cloudCatalogToolsListPerformed: true,
+      credentialFreeTransportProbePerformed: false,
       cloudSessionCleanupRequested: true,
       directNonCloudMcpFetchPerformed: false,
       directMcpToolCallPerformed: false,
@@ -610,7 +706,6 @@ describe("agent context diagnostics analyzer", () => {
       "DYNAMIC_CLIENT_SECRET_CANARY",
       "DYNAMIC_URL_TOKEN_CANARY",
       DYNAMIC_PATH_CANARY,
-      "private-prefix",
       fixture.workspaceRoot,
       RAW_PROMPT_CANARY,
     ]) {
@@ -691,7 +786,7 @@ describe("agent context diagnostics analyzer", () => {
     expect(report.mcps).toContainEqual(expect.objectContaining({
       name: "openwork-cloud",
       source: "config.remote",
-      path: "/mcp/agent",
+      path: "/private-prefix/mcp/agent",
       syncStatus: "connected",
     }));
     expect(checkById(report, "mcp-inventory")).toMatchObject({
@@ -904,7 +999,7 @@ describe("agent context diagnostics analyzer", () => {
       request: emptyObservedRequest,
       // The engine reports this managed entry as failed; the independent
       // probe must still run and separate endpoint from engine.
-      inspectRegistration: () => ({ status: "failed", source: "engine_status", recordAgeMs: 16_000 }),
+      inspectRegistration: () => ({ status: "failed", source: "engine_status", recordAgeMs: 16_000, errorSummary: null }),
       dependencies: {
         fetchImpl: catalogFetch(["search_capabilities", "execute_capability"], fetchCalls),
         inspectEffectiveEngine: effectiveEngineInspection(runtime),
@@ -936,7 +1031,12 @@ describe("agent context diagnostics analyzer", () => {
       "https://den.customer.example/custom/mcp/agent",
     ]);
     expect(fetchCalls.some((call) => call.url.includes("openworklabs.com"))).toBe(false);
-    expect(JSON.stringify(report)).not.toContain("den.customer.example");
+    expect(report.mcps).toContainEqual(expect.objectContaining({
+      name: "openwork-cloud",
+      source: "config.remote",
+      origin: "https://den.customer.example",
+      path: "/custom/mcp/agent",
+    }));
   });
 
   test("distinguishes an activation origin that does not match the configured cloud MCP", async () => {
@@ -1322,7 +1422,117 @@ describe("agent context diagnostics analyzer", () => {
       owner: "opencode-engine",
       details: { engineRegistrationStatus: "needs-auth" },
     });
+    expect(checkById(report, "cloud-endpoint-transport")).toMatchObject({
+      status: "skipped",
+      code: "transport_probe_not_applicable",
+      details: {
+        endpointOrigin: "http://127.0.0.1:43123",
+        skipReason: "http_loopback_no_tls",
+        verifiedHandshake: "not-performed",
+      },
+    });
     expect(fetchCalls).toHaveLength(4);
+  });
+
+  test("scrubs endpoint-bearing registration errors without losing TLS transport cause", async () => {
+    const fixture = await createFixture();
+    const fetchCalls: CatalogFetchCall[] = [];
+    const endpointError = "failed to connect to https://openwork-poc.blueyonder.com/api/den/mcp/agent: unable to verify the first certificate";
+    const pathError = "request to /api/den/mcp/agent failed: self signed certificate in certificate chain";
+    const report = agentContextDiagnosticsReportSchema.parse(await runAgentContextDiagnostics({
+      config: fixture.config,
+      workspace: fixture.workspace,
+      request: emptyObservedRequest,
+      inspectRegistration: (name) => {
+        if (name === "openwork-cloud") {
+          return { status: "failed", source: "engine_status", recordAgeMs: 1_000, errorSummary: endpointError };
+        }
+        if (name === "non-cloud-canary") {
+          return { status: "failed", source: "engine_status", recordAgeMs: 1_000, errorSummary: pathError };
+        }
+        return "connected";
+      },
+      dependencies: {
+        fetchImpl: catalogFetch(["search_capabilities", "execute_capability"], fetchCalls),
+        inspectEffectiveEngine: effectiveEngineInspection(),
+      },
+    }));
+
+    const failedRegistrations = checkById(report, "engine-mcp-sync").details.failedRegistrations;
+    expect(failedRegistrations).toEqual([
+      expect.objectContaining({
+        name: "openwork-cloud",
+        errorSummary: "failed to connect to [url] unable to verify the first certificate",
+        transportCause: "tls_incomplete_chain",
+      }),
+      expect.objectContaining({
+        name: "non-cloud-canary",
+        errorSummary: "request to [path] failed: self signed certificate in certificate chain",
+        transportCause: "tls_untrusted_ca",
+      }),
+    ]);
+    expect(JSON.stringify(failedRegistrations)).not.toContain("[redacted-sensitive-label]");
+    expect(fetchCalls).toHaveLength(4);
+  });
+
+  test("adds TLS-layer served-chain evidence when certificate verification fails", async () => {
+    const port = await startSelfSignedTlsServer();
+    const runtime = diagnosticRuntimeConfig();
+    if (!runtime.mcp) throw new Error("Expected the diagnostics MCP fixture.");
+    runtime.mcp["openwork-cloud"] = {
+      ...cloudConfig(),
+      url: `https://127.0.0.1:${port}/mcp/agent`,
+    };
+    const fixture = await createFixture({ runtime });
+
+    const report = agentContextDiagnosticsReportSchema.parse(await runAgentContextDiagnostics({
+      config: fixture.config,
+      workspace: fixture.workspace,
+      request: emptyObservedRequest,
+      inspectRegistration: () => ({
+        status: "failed",
+        source: "engine_status",
+        recordAgeMs: 1_000,
+        errorSummary: "self signed certificate in certificate chain",
+      }),
+      dependencies: {
+        inspectEffectiveEngine: effectiveEngineInspection(runtime),
+      },
+    }));
+
+    expect(checkById(report, "cloud-tool-catalog")).toMatchObject({
+      status: "failed",
+      details: {
+        requestPerformed: false,
+        runtimeFamily: expect.any(String),
+        transport: expect.any(String),
+      },
+    });
+    expect(checkById(report, "cloud-endpoint-differential")).toMatchObject({
+      status: "failed",
+      code: "runtime_and_engine_failed",
+    });
+    expect(checkById(report, "cloud-endpoint-transport")).toMatchObject({
+      status: "failed",
+      code: "endpoint_tls_untrusted",
+      details: {
+        endpointOrigin: `https://127.0.0.1:${port}`,
+        endpointProtocol: "https:",
+        handshakePerformed: true,
+        verifiedHandshake: "failed",
+        dnsResolved: true,
+        tcpConnected: true,
+        servedChainLength: 1,
+        servedChain: [expect.objectContaining({
+          subjectCN: "localhost",
+          issuerCN: "localhost",
+          selfIssued: true,
+        })],
+        nodeExtraCaCertsSet: expect.any(Boolean),
+      },
+    });
+    expect(report.safety.credentialFreeTransportProbePerformed).toBe(true);
+    expect(report.safety.sanitizedEngineErrorSummariesIncluded).toBe(true);
   });
 
   test("downgrades stale failed registration evidence when the engine is reachable", async () => {
@@ -1332,10 +1542,11 @@ describe("agent context diagnostics analyzer", () => {
       config: fixture.config,
       workspace: fixture.workspace,
       request: emptyObservedRequest,
-      inspectRegistration: () => ({
+      inspectRegistration: (name) => ({
         status: "failed",
         source: "transport_failure",
         recordAgeMs: 61_000,
+        errorSummary: name === "openwork-cloud" ? "unable to verify the first certificate" : null,
       }),
       dependencies: {
         fetchImpl: catalogFetch(["search_capabilities", "execute_capability"], fetchCalls),
@@ -1350,9 +1561,33 @@ describe("agent context diagnostics analyzer", () => {
       details: { engineReachableNow: true, failedCount: 3 },
     });
     expect(check.details.failedRegistrations).toEqual([
-      { name: "openwork-cloud", status: "failed", source: "transport_failure", recordAgeMs: 61_000, engineReachableNow: true },
-      { name: "non-cloud-canary", status: "failed", source: "transport_failure", recordAgeMs: 61_000, engineReachableNow: true },
-      { name: "[redacted-sensitive-label]", status: "failed", source: "transport_failure", recordAgeMs: 61_000, engineReachableNow: true },
+      {
+        name: "openwork-cloud",
+        status: "failed",
+        source: "transport_failure",
+        recordAgeMs: 61_000,
+        errorSummary: "unable to verify the first certificate",
+        transportCause: "tls_incomplete_chain",
+        engineReachableNow: true,
+      },
+      {
+        name: "non-cloud-canary",
+        status: "failed",
+        source: "transport_failure",
+        recordAgeMs: 61_000,
+        errorSummary: null,
+        transportCause: null,
+        engineReachableNow: true,
+      },
+      {
+        name: "[redacted-sensitive-label]",
+        status: "failed",
+        source: "transport_failure",
+        recordAgeMs: 61_000,
+        errorSummary: null,
+        transportCause: null,
+        engineReachableNow: true,
+      },
     ]);
     expect(checkById(report, "cloud-endpoint-differential")).toMatchObject({
       status: "warning",
@@ -1373,6 +1608,7 @@ describe("agent context diagnostics analyzer", () => {
         status: "failed",
         source: "engine_status",
         recordAgeMs: 1_000,
+        errorSummary: null,
       }),
       dependencies: {
         fetchImpl: catalogFetch(["search_capabilities", "execute_capability"], fetchCalls),
