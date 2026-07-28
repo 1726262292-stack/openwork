@@ -83,6 +83,15 @@ export type CloudProviderMaterializationResult =
       fingerprint: string | null
       providers: number
     }
+  | {
+      ok: false
+      status: "unsupported"
+      error: "provider_materialization_unsupported"
+      reason: string
+      message: string
+      fingerprint: string | null
+      providers: number
+    }
 
 export type MaterializeCloudWorkerProviders = typeof materializeCloudWorkerProviders
 
@@ -91,6 +100,7 @@ export const OPENWORK_PROVIDERS_FINGERPRINT_ENV = "OPENWORK_PROVIDERS_FINGERPRIN
 const logger = appLogger.child({ component: "cloud_provider_materialization" })
 const requestTimeoutMs = 8_000
 const materializedFingerprintByWorker = new Map<WorkerId, string>()
+const unsupportedLogFingerprintByWorker = new Map<WorkerId, string>()
 const modelConfigPassthroughKeys = [
   "family",
   "release_date",
@@ -421,6 +431,18 @@ function hostTokenHeaders(hostToken: string) {
   }
 }
 
+class MaterializationHttpError extends Error {
+  readonly label: string
+  readonly status: number
+
+  constructor(label: string, status: number) {
+    super(`${label}_failed_${status}`)
+    this.name = "MaterializationHttpError"
+    this.label = label
+    this.status = status
+  }
+}
+
 async function requestJson(input: {
   fetchImpl: FetchImpl
   label: string
@@ -429,7 +451,7 @@ async function requestJson(input: {
 }) {
   const response = await fetchWithTimeout(input.fetchImpl, input.url, input.init)
   if (!response.ok) {
-    throw new Error(`${input.label}_failed_${response.status}`)
+    throw new MaterializationHttpError(input.label, response.status)
   }
 
   return readJsonObject(response)
@@ -443,7 +465,7 @@ async function requestOk(input: {
 }) {
   const response = await fetchWithTimeout(input.fetchImpl, input.url, input.init)
   if (!response.ok) {
-    throw new Error(`${input.label}_failed_${response.status}`)
+    throw new MaterializationHttpError(input.label, response.status)
   }
 }
 
@@ -495,6 +517,51 @@ async function readRuntimeManagedProviders(input: {
   }
 
   return managed
+}
+
+function readRuntimeSnapshotVersion(payload: JsonRecord) {
+  const services = Array.isArray(payload.services) ? payload.services : []
+  let fallback: string | null = null
+  for (const service of services) {
+    if (!isRecord(service)) {
+      continue
+    }
+
+    const version = readString(service.actualVersion) ?? readString(service.targetVersion)
+    if (!version) {
+      continue
+    }
+
+    fallback = fallback ?? version
+    const serviceName = readString(service.name)?.toLowerCase()
+    if (serviceName?.includes("openwork") || serviceName?.includes("server")) {
+      return version
+    }
+  }
+
+  return fallback
+}
+
+async function readInstanceVersion(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+}) {
+  try {
+    const payload = await requestJson({
+      fetchImpl: input.fetchImpl,
+      label: "runtime_versions_read",
+      url: `${input.instanceUrl}/runtime/versions`,
+      init: {
+        method: "GET",
+        headers: bearerHeaders(input.clientToken),
+      },
+    })
+
+    return readRuntimeSnapshotVersion(payload)
+  } catch {
+    return null
+  }
 }
 
 function buildRuntimeProviderPatch(prepared: PreparedMaterialization, currentManagedProviders: JsonRecord) {
@@ -726,6 +793,30 @@ function failureResult(input: {
   } satisfies CloudProviderMaterializationResult
 }
 
+function unsupportedResult(input: {
+  reason: string
+  fingerprint: string | null
+  providers: number
+}) {
+  return {
+    ok: false,
+    status: "unsupported",
+    error: "provider_materialization_unsupported",
+    reason: input.reason,
+    message: input.reason,
+    fingerprint: input.fingerprint,
+    providers: input.providers,
+  } satisfies CloudProviderMaterializationResult
+}
+
+function unsupportedProviderRouteReason(error: unknown) {
+  return error instanceof MaterializationHttpError
+    && error.label === "runtime_provider_patch"
+    && (error.status === 404 || error.status === 405)
+    ? error.message
+    : null
+}
+
 function logFailure(input: {
   logger: MaterializationLogger
   workerId: WorkerId
@@ -742,6 +833,40 @@ function logFailure(input: {
   })
 }
 
+async function logUnsupportedOnce(input: {
+  logger: MaterializationLogger
+  workerId: WorkerId
+  organizationId: OrganizationId
+  fingerprint: string
+  providers: number
+  reason: string
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+}) {
+  if (unsupportedLogFingerprintByWorker.get(input.workerId) === input.fingerprint) {
+    return
+  }
+
+  unsupportedLogFingerprintByWorker.set(input.workerId, input.fingerprint)
+  const instanceVersion = await readInstanceVersion({
+    fetchImpl: input.fetchImpl,
+    instanceUrl: input.instanceUrl,
+    clientToken: input.clientToken,
+  })
+
+  input.logger.warn("cloud provider materialization unsupported by worker version", {
+    worker_id: input.workerId,
+    organization_id: input.organizationId,
+    reason: input.reason,
+    fingerprint: input.fingerprint,
+    providers: input.providers,
+    instance_version: instanceVersion,
+  })
+}
+
+// den-api must tolerate instances older than itself: sandbox images ship on the
+// release/snapshot cadence while den-api deploys from dev.
 export async function materializeCloudWorkerProviders(input: {
   organizationId: OrganizationId
   workerId: WorkerId
@@ -846,6 +971,27 @@ export async function materializeCloudWorkerProviders(input: {
         providerIds: desiredProviderIds,
       })
     } catch (error) {
+      const unsupportedReason = unsupportedProviderRouteReason(error)
+      if (unsupportedReason) {
+        materializedFingerprintByWorker.delete(input.workerId)
+        await logUnsupportedOnce({
+          logger: materializationLogger,
+          workerId: input.workerId,
+          organizationId: input.organizationId,
+          fingerprint: prepared.fingerprint,
+          providers: providerCount,
+          reason: unsupportedReason,
+          fetchImpl,
+          instanceUrl,
+          clientToken: tokens.clientToken,
+        })
+        return unsupportedResult({
+          reason: unsupportedReason,
+          fingerprint: prepared.fingerprint,
+          providers: providerCount,
+        })
+      }
+
       if (providerPatched) {
         await patchRuntimeProviders({
           fetchImpl,
