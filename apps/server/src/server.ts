@@ -76,10 +76,13 @@ import { sanitizeDiagnosticString } from "./diagnostic-sanitizer.js";
 import {
   mergeOpencodeConfigs,
   mergeRuntimeProviderUpdate,
+  readGlobalRuntimeOpencodeConfig,
   readRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
   runtimeMcpMap,
+  runtimeProviderMap,
   type RuntimeOpencodeConfig,
+  writeGlobalRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import {
@@ -89,8 +92,9 @@ import {
   seedOpenworkWorkspaceConfigIfEmpty,
   writeOpenworkWorkspaceConfig,
 } from "./openwork-workspace-config-store.js";
-import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath } from "./openwork-runtime-config.js";
+import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import { readLegacyConfigSweepState } from "./legacy-config-sweep.js";
+import { findManagedEngineWorkspace } from "./workspaces.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -323,6 +327,30 @@ function parseDisabledProvidersPayload(value: unknown): string[] {
     if (!providers.includes(provider)) providers.push(provider);
   }
   return providers;
+}
+
+function parseRuntimeProviderPatchPayload(body: Record<string, unknown>): Record<string, unknown> {
+  const provider = body.provider;
+  if (!isRecord(provider)) {
+    throw new ApiError(400, "invalid_payload", "provider must be an object");
+  }
+  for (const [providerId, value] of Object.entries(provider)) {
+    if (!providerId.trim()) {
+      throw new ApiError(400, "invalid_payload", "provider keys must be non-empty strings");
+    }
+    if (value !== null && !isRecord(value)) {
+      throw new ApiError(400, "invalid_payload", "provider values must be objects or null");
+    }
+  }
+  return provider;
+}
+
+function resolveEngineRuntimeWorkspace(config: ServerConfig): WorkspaceInfo {
+  const workspace = findManagedEngineWorkspace(config.workspaces) ?? config.workspaces[0];
+  if (!workspace) {
+    throw new ApiError(400, "workspace_missing", "At least one workspace is required for engine runtime config");
+  }
+  return workspace;
 }
 
 function redactBearerTokens(value: string): string {
@@ -1989,6 +2017,33 @@ function createRoutes(
     return jsonResponse({
       ok: true,
       disabledProviders: runtimeDisabledProviderList(result.config),
+    });
+  });
+
+  addRoute(routes, "GET", "/runtime-config/providers", "host-token", async () => {
+    const runtime = await readGlobalRuntimeOpencodeConfig(config);
+    return jsonResponse({ provider: runtimeProviderMap(runtime) });
+  });
+
+  addRoute(routes, "PATCH", "/runtime-config/providers", "host-token", async (ctx) => {
+    ensureWritable(config);
+    const workspace = resolveEngineRuntimeWorkspace(config);
+    const body = await readJsonBody(ctx.request);
+    const providerPatch = parseRuntimeProviderPatchPayload(body);
+    const result = await writeGlobalRuntimeOpencodeConfig(config, (current) => ({
+      ...current,
+      provider: mergeRuntimeProviderUpdate(current.provider, providerPatch),
+    }));
+
+    await writeOpenworkRuntimeConfigFile(config, workspace.id);
+    await reloadOpencodeEngine(config, workspace, engineMcpServerState);
+
+    return jsonResponse({
+      ok: true,
+      changed: result.changed,
+      provider: runtimeProviderMap(result.config),
+      runtimeConfigPath: openworkRuntimeConfigFilePath(config),
+      reload: "reloaded",
     });
   });
 

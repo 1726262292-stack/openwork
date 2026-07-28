@@ -13,11 +13,6 @@ type FetchCall = {
   headers: Record<string, string>
   body: unknown
 }
-type WorkspaceFixture = {
-  id: string
-  workspaceType?: string
-  path?: string
-}
 
 const organizationId = createDenTypeId("organization")
 const instanceUrl = "https://worker.example.test"
@@ -80,20 +75,11 @@ function bodyEntries(body: unknown) {
 }
 
 function providerPatchFromBody(body: unknown) {
-  if (!isRecord(body) || !isRecord(body.opencode) || !isRecord(body.opencode.provider)) {
+  if (!isRecord(body) || !isRecord(body.provider)) {
     return {}
   }
 
-  return body.opencode.provider
-}
-
-function workspaceRouteId(path: string, suffix: string) {
-  if (!path.startsWith("/workspace/") || !path.endsWith(suffix)) {
-    return null
-  }
-
-  const encoded = path.slice("/workspace/".length, path.length - suffix.length)
-  return encoded ? decodeURIComponent(encoded) : null
+  return body.provider
 }
 
 function makeAnthropicProvider(input: {
@@ -147,10 +133,8 @@ function makeInstance(input: {
   failEnvWrites?: number
   failConfigPatches?: number
   runtimeProviders?: Record<string, unknown>
-  configReadProviders?: Record<string, unknown>
-  missingConfigReadbacks?: number
-  workspaces?: WorkspaceFixture[]
-  activeId?: string | null
+  opencodeConfigProviders?: Record<string, unknown>
+  missingEngineReadbacks?: number
 } = {}) {
   const calls: FetchCall[] = []
   const envValues = new Map<string, string>()
@@ -159,10 +143,9 @@ function makeInstance(input: {
   }
   let failEnvWrites = input.failEnvWrites ?? 0
   let failConfigPatches = input.failConfigPatches ?? 0
-  let missingConfigReadbacks = input.missingConfigReadbacks ?? 0
+  let missingEngineReadbacks = input.missingEngineReadbacks ?? 0
   const runtimeProviders: Record<string, unknown> = { ...(input.runtimeProviders ?? {}) }
-  const workspaces = input.workspaces ?? [{ id: "workspace-one" }]
-  const activeId = input.activeId === undefined ? workspaces[0]?.id ?? null : input.activeId
+  const engineProviders = input.opencodeConfigProviders ? { ...input.opencodeConfigProviders } : null
   const fetchImpl: FetchImpl = async (url, init) => {
     const parsed = new URL(url)
     const method = init?.method ?? "GET"
@@ -182,20 +165,12 @@ function makeInstance(input: {
         : jsonResponse({ error: "env_not_found" }, 404)
     }
 
-    if (method === "GET" && parsed.pathname === "/workspaces") {
-      return jsonResponse({ activeId, items: workspaces })
-    }
-
-    if (method === "GET" && workspaceRouteId(parsed.pathname, "/runtime-config")) {
-      return jsonResponse({ runtime: { provider: runtimeProviders } })
-    }
-
-    if (method === "GET" && workspaceRouteId(parsed.pathname, "/config")) {
-      if (missingConfigReadbacks > 0) {
-        missingConfigReadbacks -= 1
-        return jsonResponse({ opencode: { provider: {} } })
+    if (method === "GET" && parsed.pathname === "/opencode/config") {
+      if (missingEngineReadbacks > 0) {
+        missingEngineReadbacks -= 1
+        return jsonResponse({ provider: {} })
       }
-      return jsonResponse({ opencode: { provider: input.configReadProviders ?? runtimeProviders } })
+      return jsonResponse({ provider: engineProviders ?? runtimeProviders })
     }
 
     if (method === "PUT" && parsed.pathname === "/env") {
@@ -220,7 +195,7 @@ function makeInstance(input: {
       return jsonResponse({ ok: true })
     }
 
-    if (method === "PATCH" && workspaceRouteId(parsed.pathname, "/config")) {
+    if (method === "PATCH" && parsed.pathname === "/runtime-config/providers") {
       if (failConfigPatches > 0) {
         failConfigPatches -= 1
         return jsonResponse({ error: "config_patch_failed" }, 500)
@@ -234,10 +209,6 @@ function makeInstance(input: {
         }
       }
       return jsonResponse({ updatedAt: Date.now() })
-    }
-
-    if (method === "POST" && workspaceRouteId(parsed.pathname, "/engine/reload")) {
-      return jsonResponse({ ok: true, reloadedAt: Date.now() })
     }
 
     return jsonResponse({ error: "not_found" }, 404)
@@ -298,37 +269,34 @@ describe("Cloud provider materialization", () => {
     expect(result.status).toBe("applied")
     expect(callMethods(instance.calls)).toEqual([
       `GET /env/${openworkProvidersFingerprintEnv}`,
-      "GET /workspaces",
-      "GET /workspace/workspace-one/runtime-config",
+      "GET /opencode/config",
       "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
-      "PATCH /workspace/workspace-one/config",
-      "POST /workspace/workspace-one/engine/reload",
-      "GET /workspace/workspace-one/config",
+      "PATCH /runtime-config/providers",
+      "GET /opencode/config",
       "PUT /env",
     ])
-    expect(instance.calls[4]?.headers["x-openwork-host-token"]).toBe("host-token")
-    expect(instance.calls[4]?.body).toEqual({
+    expect(instance.calls[3]?.headers["x-openwork-host-token"]).toBe("host-token")
+    expect(instance.calls[3]?.body).toEqual({
       entries: [{ key: "ANTHROPIC_API_KEY", value: "sk-anthropic" }],
     })
-    expect(instance.calls[5]?.headers.authorization).toBe("Bearer client-token")
-    expect(instance.calls[5]?.body).toEqual({
-      opencode: {
-        provider: {
-          [provider.id]: {
-            id: "anthropic",
-            name: "Anthropic",
-            env: ["ANTHROPIC_API_KEY"],
-            models: {
-              "claude-fable-5": {
-                id: "claude-fable-5",
-                name: "claude-fable-5",
-                tool_call: true,
-              },
+    expect(instance.calls[4]?.headers["x-openwork-host-token"]).toBe("host-token")
+    expect(instance.calls[4]?.headers.authorization).toBeUndefined()
+    expect(instance.calls[4]?.body).toEqual({
+      provider: {
+        [provider.id]: {
+          id: "anthropic",
+          name: "Anthropic",
+          env: ["ANTHROPIC_API_KEY"],
+          models: {
+            "claude-fable-5": {
+              id: "claude-fable-5",
+              name: "claude-fable-5",
+              tool_call: true,
             },
-            npm: "@ai-sdk/anthropic",
-            api: "https://api.anthropic.com/v1",
           },
+          npm: "@ai-sdk/anthropic",
+          api: "https://api.anthropic.com/v1",
         },
       },
     })
@@ -349,8 +317,7 @@ describe("Cloud provider materialization", () => {
     expect(result).toEqual({ ok: true, status: "noop", fingerprint, providers: 1 })
     expect(callMethods(instance.calls)).toEqual([
       `GET /env/${openworkProvidersFingerprintEnv}`,
-      "GET /workspaces",
-      "GET /workspace/workspace-one/config",
+      "GET /opencode/config",
     ])
     expect(writeCalls(instance.calls)).toHaveLength(0)
   })
@@ -358,7 +325,7 @@ describe("Cloud provider materialization", () => {
   test("retries a stored fingerprint when provider read-back is missing", async () => {
     const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
     const fingerprint = computeCloudProviderMaterializationFingerprint([provider])
-    const instance = makeInstance({ storedFingerprint: fingerprint, missingConfigReadbacks: 1 })
+    const instance = makeInstance({ storedFingerprint: fingerprint, missingEngineReadbacks: 1 })
 
     const result = await materialize({
       providers: () => [provider],
@@ -370,14 +337,12 @@ describe("Cloud provider materialization", () => {
     expect(result.status).toBe("applied")
     expect(callMethods(instance.calls)).toEqual([
       `GET /env/${openworkProvidersFingerprintEnv}`,
-      "GET /workspaces",
-      "GET /workspace/workspace-one/config",
-      "GET /workspace/workspace-one/runtime-config",
+      "GET /opencode/config",
+      "GET /opencode/config",
       "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
-      "PATCH /workspace/workspace-one/config",
-      "POST /workspace/workspace-one/engine/reload",
-      "GET /workspace/workspace-one/config",
+      "PATCH /runtime-config/providers",
+      "GET /opencode/config",
       "PUT /env",
     ])
     expect(instance.storedFingerprint).toBe(result.fingerprint)
@@ -385,7 +350,7 @@ describe("Cloud provider materialization", () => {
 
   test("treats missing provider read-back as materialization failure", async () => {
     const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
-    const instance = makeInstance({ configReadProviders: {} })
+    const instance = makeInstance({ opencodeConfigProviders: {} })
 
     const result = await materialize({
       providers: () => [provider],
@@ -399,29 +364,37 @@ describe("Cloud provider materialization", () => {
     }
     expect(callMethods(instance.calls)).toEqual([
       `GET /env/${openworkProvidersFingerprintEnv}`,
-      "GET /workspaces",
-      "GET /workspace/workspace-one/runtime-config",
+      "GET /opencode/config",
       "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
-      "PATCH /workspace/workspace-one/config",
-      "POST /workspace/workspace-one/engine/reload",
-      "GET /workspace/workspace-one/config",
-      "PATCH /workspace/workspace-one/config",
+      "PATCH /runtime-config/providers",
+      "GET /opencode/config",
+      "PATCH /runtime-config/providers",
       "DELETE /env/ANTHROPIC_API_KEY",
     ])
     expect(instance.storedFingerprint).toBeNull()
     expect(instance.envValue("ANTHROPIC_API_KEY")).toBeNull()
   })
 
-  test("patches the local session workspace when discovery lists a remote workspace first", async () => {
+  test("fails when the provider is absent from engine-visible config", async () => {
     const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
-    const instance = makeInstance({
-      activeId: "rem_ws_remote",
-      workspaces: [
-        { id: "rem_ws_remote", workspaceType: "remote", path: "/remote" },
-        { id: "ws_session", workspaceType: "local", path: "/tmp/openwork-runtime" },
-      ],
+    const instance = makeInstance({ opencodeConfigProviders: {} })
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
     })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.reason).toBe(`provider_readback_missing_${provider.id}`)
+    }
+  })
+
+  test("uses the global provider route without workspace discovery", async () => {
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance()
 
     const result = await materialize({
       providers: () => [provider],
@@ -430,8 +403,9 @@ describe("Cloud provider materialization", () => {
     })
 
     expect(result.ok).toBe(true)
-    expect(instance.calls.some((call) => call.method === "PATCH" && call.path === "/workspace/ws_session/config")).toBe(true)
-    expect(instance.calls.some((call) => call.method === "PATCH" && call.path === "/workspace/rem_ws_remote/config")).toBe(false)
+    expect(instance.calls.some((call) => call.path === "/workspaces")).toBe(false)
+    expect(instance.calls.some((call) => call.method === "PATCH" && call.path === "/runtime-config/providers")).toBe(true)
+    expect(instance.calls.some((call) => call.path.startsWith("/workspace/"))).toBe(false)
   })
 
   test("reapplies exactly once when providers drift, then caches the resolve check", async () => {
@@ -446,7 +420,7 @@ describe("Cloud provider materialization", () => {
     const drift = await materialize({ workerId, providers: () => providers, fetchImpl: instance.fetchImpl })
     expect(drift.ok).toBe(true)
     expect(drift.status).toBe("applied")
-    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "POST", "PUT"])
+    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "PUT"])
 
     instance.calls.length = 0
     const cached = await materialize({ workerId, providers: () => providers, fetchImpl: instance.fetchImpl })
@@ -467,13 +441,11 @@ describe("Cloud provider materialization", () => {
     expect(failed.ok).toBe(false)
     expect(callMethods(instance.calls)).toEqual([
       `GET /env/${openworkProvidersFingerprintEnv}`,
-      "GET /workspaces",
-      "GET /workspace/workspace-one/runtime-config",
+      "GET /opencode/config",
       "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
     ])
     expect(instance.calls.some((call) => call.method === "PATCH")).toBe(false)
-    expect(instance.calls.some((call) => call.path.endsWith("/engine/reload"))).toBe(false)
     expect(instance.storedFingerprint).toBeNull()
 
     instance.calls.length = 0
@@ -483,7 +455,7 @@ describe("Cloud provider materialization", () => {
     })
     expect(retried.ok).toBe(true)
     expect(retried.status).toBe("applied")
-    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "POST", "PUT"])
+    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "PUT"])
   })
 
   test("rolls back credential env, skips fingerprint, and retries when config patch fails", async () => {
@@ -497,18 +469,17 @@ describe("Cloud provider materialization", () => {
 
     expect(failed.ok).toBe(false)
     if (!failed.ok) {
-      expect(failed.reason).toBe("runtime_config_patch_failed_500")
+      expect(failed.reason).toBe("runtime_provider_patch_failed_500")
     }
     expect(callMethods(instance.calls)).toEqual([
       `GET /env/${openworkProvidersFingerprintEnv}`,
-      "GET /workspaces",
-      "GET /workspace/workspace-one/runtime-config",
+      "GET /opencode/config",
       "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
-      "PATCH /workspace/workspace-one/config",
+      "PATCH /runtime-config/providers",
+      "PATCH /runtime-config/providers",
       "DELETE /env/ANTHROPIC_API_KEY",
     ])
-    expect(instance.calls.some((call) => call.path.endsWith("/engine/reload"))).toBe(false)
     expect(instance.storedFingerprint).toBeNull()
     expect(instance.envValue("ANTHROPIC_API_KEY")).toBeNull()
 
@@ -519,7 +490,7 @@ describe("Cloud provider materialization", () => {
     })
     expect(retried.ok).toBe(true)
     expect(retried.status).toBe("applied")
-    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "POST", "PUT"])
+    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "PUT"])
   })
 
   test("does not serialize provider keys into logs, results, or fingerprints", async () => {
