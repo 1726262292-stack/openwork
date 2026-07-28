@@ -86,6 +86,7 @@ function startPassthroughDenApi() {
       method: request.method,
       path: `${url.pathname}${url.search}`,
       authorization: request.headers.get("authorization"),
+      hostToken: request.headers.get("x-openwork-host-token"),
       cookie: request.headers.get("cookie"),
       gatewayKey: request.headers.get("x-openwork-gateway-key"),
       forwardedPrefix: request.headers.get("x-forwarded-prefix"),
@@ -131,6 +132,7 @@ function startUpstream() {
       method: request.method,
       path: `${url.pathname}${url.search}`,
       authorization: request.headers.get("authorization"),
+      hostToken: request.headers.get("x-openwork-host-token"),
       cookie: request.headers.get("cookie"),
     })
 
@@ -216,6 +218,7 @@ describe("den-gateway proxy", () => {
       method: "POST",
       headers: {
         Authorization: "Bearer den-session",
+        "X-OpenWork-Host-Token": "browser-host-token",
         Cookie: "ow_session=must_not_leak",
         "Content-Type": "application/json",
       },
@@ -229,12 +232,14 @@ describe("den-gateway proxy", () => {
       method: "POST",
       path: "/v1/me?expand=org",
       authorization: "Bearer den-session",
+      hostToken: null,
       cookie: null,
       gatewayKey: null,
       forwardedPrefix: "/api/den",
       body: '{"hello":"world"}',
     })
     expect(denApi.observed.requests[0].authorization).not.toBe("Bearer host-token")
+    expect(denApi.observed.requests[0].authorization).not.toBe("Bearer client-token")
     expect(upstream.observed.requests).toHaveLength(0)
   })
 
@@ -281,7 +286,7 @@ describe("den-gateway proxy", () => {
     expect(denApi.observed.gatewayKey).toBe("gateway-secret")
   })
 
-  test("injects the host token upstream and strips the Den bearer and cookies", async () => {
+  test("injects client and host tokens upstream while stripping browser-supplied credentials", async () => {
     const upstream = startUpstream()
     const denApi = startDenApi(() => readyResolvePayload(serverBase(upstream.server)))
     const gateway = startGateway({ denApiBase: serverBase(denApi.server), gatewayKey: "gateway-secret" })
@@ -289,14 +294,16 @@ describe("den-gateway proxy", () => {
     const response = await fetch(`${serverBase(gateway)}/status`, {
       headers: {
         Authorization: "Bearer den-bearer",
+        "X-OpenWork-Host-Token": "browser-host-token",
         Cookie: "ow_session=must_not_leak",
       },
     })
 
     expect(response.status).toBe(200)
-    expect(upstream.observed.requests[0].authorization).toBe("Bearer host-token")
-    expect(upstream.observed.requests[0].authorization).not.toBe("Bearer client-token")
+    expect(upstream.observed.requests[0].authorization).toBe("Bearer client-token")
     expect(upstream.observed.requests[0].authorization).not.toBe("Bearer den-bearer")
+    expect(upstream.observed.requests[0].hostToken).toBe("host-token")
+    expect(upstream.observed.requests[0].hostToken).not.toBe("browser-host-token")
     expect(upstream.observed.requests[0].cookie).toBeNull()
   })
 
@@ -306,7 +313,10 @@ describe("den-gateway proxy", () => {
     let resolveResponses = 0
     const denApi = startDenApi(() => {
       resolveResponses += 1
-      return readyResolvePayload(serverBase(upstream.server), { hostToken: `host-token-${resolveResponses}` })
+      return readyResolvePayload(serverBase(upstream.server), {
+        clientToken: `client-token-${resolveResponses}`,
+        hostToken: `host-token-${resolveResponses}`,
+      })
     })
     const gateway = startGateway({ denApiBase: serverBase(denApi.server), gatewayKey: "gateway-secret", resolveTtlMs: 1_000, now: () => now })
     const base = serverBase(gateway)
@@ -323,9 +333,14 @@ describe("den-gateway proxy", () => {
     expect(denApi.observed.calls).toBe(2)
     expect(upstream.observed.requests).toHaveLength(3)
     expect(upstream.observed.requests.map((request) => request.authorization)).toEqual([
-      "Bearer host-token-1",
-      "Bearer host-token-1",
-      "Bearer host-token-2",
+      "Bearer client-token-1",
+      "Bearer client-token-1",
+      "Bearer client-token-2",
+    ])
+    expect(upstream.observed.requests.map((request) => request.hostToken)).toEqual([
+      "host-token-1",
+      "host-token-1",
+      "host-token-2",
     ])
   })
 
