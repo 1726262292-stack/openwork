@@ -1135,13 +1135,13 @@ export default defineFlow({
         await focusSection(ctx, "[data-testid='scheduled-tasks-list']");
         await ctx.screenshot("scheduled-tasks-paused-list", {
           claim:
-            "The final workspace overview moves the paused task into Drafts and recent while preserving its latest needs-attention receipt and honest running-app limitation.",
+            "The final workspace overview moves the paused task into Drafts and recent while preserving its schedule, latest audited run, and honest running-app limitation.",
           requireText: [
             "Drafts and recent",
             "EVAL daily workspace report",
             "Paused",
             "Latest run",
-            "needs-attention",
+            "completed",
             "Runs while OpenWork is running.",
           ],
         });
