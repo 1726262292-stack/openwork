@@ -41,7 +41,7 @@ type MentionItem = {
   label: string;
 };
 
-type ToolMenuSettingsSection = "commands" | "skills" | "mcps" | "plugins";
+type ToolMenuSettingsSection = "commands" | "skills" | "mcps" | "plugins" | "extensions";
 type ToolMenuSection = "agents" | "commands" | "skills" | "mcps" | "extensions" | `plugin:${string}`;
 
 function isComposerExtensionAvailable(entry: McpDirectoryInfo) {
@@ -890,10 +890,15 @@ export function ReactSessionComposer(props: ComposerProps) {
     setToolMenuOpen(false);
   };
 
+  // Configure lands on the matching OpenWork Extensions section: skills and
+  // plugin tabs keep their scoped views, everything else opens the inventory.
   const openToolMenuSettings = () => {
-    const section: ToolMenuSettingsSection = toolMenuSection === "commands" || toolMenuSection === "skills"
-      ? toolMenuSection
-      : "plugins";
+    const section: ToolMenuSettingsSection =
+      toolMenuSection === "commands" || toolMenuSection === "skills"
+        ? toolMenuSection
+        : toolMenuSection === "agents" || toolMenuSection === "extensions"
+          ? "extensions"
+          : "plugins";
     props.onOpenSettingsSection?.(section);
   };
 

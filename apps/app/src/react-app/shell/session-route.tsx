@@ -108,7 +108,7 @@ import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { getSessionModelSelection, useSessionModelStore } from "@/react-app/domains/session/surface/session-model-store";
-import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
+import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
 import { connectSkillPrompt, parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
@@ -140,9 +140,6 @@ import { useRemoteAccessRestart } from "@/react-app/domains/workspace/remote-acc
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
-import { OpenWorkModelsStartupDialog } from "@/react-app/domains/cloud/openwork-models-startup-dialog";
-import { OPENWORK_MODEL_PREVIEWS } from "@/react-app/domains/cloud/openwork-models-promo";
-import { useOpenWorkModelsStartupPromo } from "@/react-app/domains/cloud/use-openwork-models-startup-promo";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -968,13 +965,6 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const openWorkModelsPromo = useOpenWorkModelsStartupPromo({
-    clientReady: Boolean(opencodeClient),
-    workspaceId: selectedWorkspaceId,
-    providerConnectedIds,
-    openWorkModelsEntitled,
-  });
-
   const {
     activePermission,
     permissionReplyBusy,
@@ -1163,8 +1153,8 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions" | "providers") => {
+        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/extensions");
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string): Promise<CloudMcpSubmissionResult> => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1440,8 +1430,8 @@ export function SessionRoute() {
       },
       isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
       isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : "/settings/general");
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => {
+        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : "/settings/extensions");
       },
     };
   }, [
@@ -1870,8 +1860,20 @@ export function SessionRoute() {
       return;
     }
 
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
-  }, [restrictionNotice, sessionProviderAuthStore]);
+    // Pre-workspace (chat-first) there is no opencode client yet, so the
+    // modal cannot load auth methods — fall back to the AI Providers page.
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" }).catch(() => {
+      handleOpenSettings("/settings/ai");
+    });
+  }, [handleOpenSettings, restrictionNotice, sessionProviderAuthStore]);
+
+  // "Your API keys → Connect" in the compact model picker (and anything else
+  // outside this route's prop tree) requests the provider auth modal here.
+  useEffect(() => {
+    const handler = () => handleOpenProviderAuth();
+    window.addEventListener(openProviderAuthEvent, handler);
+    return () => window.removeEventListener(openProviderAuthEvent, handler);
+  }, [handleOpenProviderAuth]);
 
   const paletteSessionOptions = useMemo(
     () => buildCommandPaletteSessions(workspaces, sessionsByWorkspaceId, selectedWorkspaceId),
@@ -2650,13 +2652,6 @@ export function SessionRoute() {
       notFoundMessage={gatedRouteNotFoundMessage}
       mainContentTakeover={cloudWorkspaceMainContentTakeover}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
-    />
-    <OpenWorkModelsStartupDialog
-      open={openWorkModelsPromo.open}
-      isSignedIn={denAuth.isSignedIn}
-      models={OPENWORK_MODEL_PREVIEWS}
-      onSubscribe={openWorkModelsPromo.subscribe}
-      onContinueWithout={openWorkModelsPromo.continueWithout}
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}

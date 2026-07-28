@@ -45,7 +45,7 @@ export type NewTaskComposerContext = {
   searchFiles: (query: string) => Promise<string[]>;
   isRemoteWorkspace: boolean;
   isSandboxWorkspace: boolean;
-  onOpenSettingsSection?: (section: "commands" | "skills" | "mcps" | "plugins") => void;
+  onOpenSettingsSection?: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => void;
 };
 
 export type NewTaskComposerProps = {
