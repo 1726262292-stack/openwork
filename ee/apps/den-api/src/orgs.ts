@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, isNull, sql } from "@openwork-ee/den-db/drizzle"
+import { and, asc, count, eq, gt, inArray, isNotNull, isNull, sql } from "@openwork-ee/den-db/drizzle"
 import {
   AuthSessionTable,
   AuthUserTable,
@@ -50,6 +50,15 @@ type MemberId = MemberRow["id"]
 type InvitationRow = typeof InvitationTable.$inferSelect
 export type AllowedEmailDomains = string[] | null
 type OrganizationMetadataInput = Record<string, unknown> | string | null | undefined
+
+export type AcceptInvitationForUserResult = {
+  status: "accepted"
+  invitation: InvitationRow
+  member: MemberRow
+} | {
+  status: "membership_removed"
+  invitation: InvitationRow
+}
 
 type MemberLifecycleValidationFailure = Extract<MemberLifecycleValidation, { ok: false }>
 
@@ -513,8 +522,9 @@ async function insertMemberIfMissing(input: {
     .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.userId), isNull(MemberTable.removedAt)))
     .limit(1)
 
-  if (existing.length > 0) {
-    return existing[0]
+  const existingMember = existing[0] ?? null
+  if (existingMember) {
+    return existingMember
   }
 
   const invitedMember = await acceptPendingInvitationForBootstrapMembership({
@@ -525,6 +535,14 @@ async function insertMemberIfMissing(input: {
   })
   if (invitedMember) {
     return invitedMember
+  }
+
+  const removedMember = await findSoftRemovedMemberForUser({
+    organizationId: input.organizationId,
+    userId: input.userId,
+  })
+  if (removedMember) {
+    return null
   }
 
   try {
@@ -548,6 +566,19 @@ async function insertMemberIfMissing(input: {
   }
 
   return created[0]
+}
+
+async function findSoftRemovedMemberForUser(input: {
+  organizationId: OrgId
+  userId: UserId
+}) {
+  const rows = await db
+    .select()
+    .from(MemberTable)
+    .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.userId), isNotNull(MemberTable.removedAt)))
+    .limit(1)
+
+  return rows[0] ?? null
 }
 
 export async function ensureBootstrapMembershipForOrganization(input: {
@@ -661,6 +692,12 @@ async function acceptInvitation(invitation: InvitationRow, userId: UserId, optio
 
   const invitedMember = invitedMemberRows[0] ?? null
   const existingMember = existingMemberRows[0] ?? null
+  const removedMember = existingMember
+    ? null
+    : await findSoftRemovedMemberForUser({
+      organizationId: invitation.organizationId,
+      userId,
+    })
   let member = existingMember
 
   if (existingMember && invitedMember) {
@@ -676,6 +713,32 @@ async function acceptInvitation(invitation: InvitationRow, userId: UserId, optio
     member = { ...existingMember, role: existingRole, joinedAt: existingJoinedAt }
   }
 
+  if (!member && removedMember) {
+    await db
+      .update(MemberTable)
+      .set({
+        role,
+        joinedAt,
+        removedAt: null,
+        removedByOrgMember: null,
+        inviteId: invitation.id,
+        invitedByOrgMember: invitation.orgMemberId,
+      })
+      .where(eq(MemberTable.id, removedMember.id))
+    if (invitedMember && invitedMember.id !== removedMember.id) {
+      await db.delete(MemberTable).where(eq(MemberTable.id, invitedMember.id))
+    }
+    member = {
+      ...removedMember,
+      role,
+      joinedAt,
+      removedAt: null,
+      removedByOrgMember: null,
+      inviteId: invitation.id,
+      invitedByOrgMember: invitation.orgMemberId,
+    }
+  }
+
   if (!member && invitedMember) {
     await db
       .update(MemberTable)
@@ -685,11 +748,15 @@ async function acceptInvitation(invitation: InvitationRow, userId: UserId, optio
   }
 
   if (!member) {
-    member = await insertMemberIfMissing({
+    const createdMember = await insertMemberIfMissing({
       organizationId: invitation.organizationId,
       userId,
       role,
     })
+    if (!createdMember) {
+      throw new Error("failed_to_create_member")
+    }
+    member = createdMember
   }
 
   if (invitation.teamId) {
@@ -728,7 +795,7 @@ export async function acceptInvitationForUser(input: {
   userId: UserId
   email: string
   invitationId: string | null
-}) {
+}): Promise<AcceptInvitationForUserResult | null> {
   if (!input.invitationId) {
     return null
   }
@@ -754,8 +821,20 @@ export async function acceptInvitationForUser(input: {
       const member = memberRows[0]
       if (member) {
         return {
+          status: "accepted",
           invitation,
           member,
+        }
+      }
+
+      const removedMember = await findSoftRemovedMemberForUser({
+        organizationId: invitation.organizationId,
+        userId: input.userId,
+      })
+      if (removedMember) {
+        return {
+          status: "membership_removed",
+          invitation,
         }
       }
     }
@@ -777,6 +856,7 @@ export async function acceptInvitationForUser(input: {
   const member = await acceptInvitation(invitation, input.userId)
   await runPostOrganizationMemberChangeHooks({ organizationId: invitation.organizationId, memberId: member.id, change: "added" })
   return {
+    status: "accepted",
     invitation,
     member,
   }
@@ -976,6 +1056,9 @@ export async function ensureSingletonOrganizationForUser(userId: UserId) {
     role,
     email: userEmail,
   })
+  if (!member) {
+    return null
+  }
 
   await ensureDefaultDesktopPolicyForOrganization({
     organizationId: organization.id,
@@ -1806,7 +1889,7 @@ export async function removeOrganizationMember(input: {
 
     await tx
       .update(MemberTable)
-      .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null, userId: null })
+      .set({ removedAt: new Date(), removedByOrgMember: input.removedByOrgMemberId ?? null })
       .where(and(eq(MemberTable.id, member.id), eq(MemberTable.organizationId, input.organizationId), isNull(MemberTable.removedAt)))
 
     return { ok: true, member }

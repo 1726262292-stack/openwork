@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, eq, gt, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
@@ -457,10 +457,19 @@ export function registerBootstrapRoutes<T extends { Variables: AuthContextVariab
           .from(MemberTable)
           .where(and(eq(MemberTable.organizationId, claim.organizationId), eq(MemberTable.userId, normalizedUserId), isNull(MemberTable.removedAt)))
           .limit(1)
+        const [removedMember] = existingMember
+          ? []
+          : await tx
+            .select({ id: MemberTable.id })
+            .from(MemberTable)
+            .where(and(eq(MemberTable.organizationId, claim.organizationId), eq(MemberTable.userId, normalizedUserId), isNotNull(MemberTable.removedAt)))
+            .limit(1)
 
-        const memberId = existingMember?.id ?? createDenTypeId("member")
+        const memberId = existingMember?.id ?? removedMember?.id ?? createDenTypeId("member")
         if (existingMember) {
           await tx.update(MemberTable).set({ role: claim.role, joinedAt: now }).where(eq(MemberTable.id, existingMember.id))
+        } else if (removedMember) {
+          await tx.update(MemberTable).set({ role: claim.role, joinedAt: now, removedAt: null, removedByOrgMember: null }).where(eq(MemberTable.id, removedMember.id))
         } else {
           await tx.insert(MemberTable).values({
             id: memberId,
