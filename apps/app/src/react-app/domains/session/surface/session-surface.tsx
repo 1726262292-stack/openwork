@@ -54,6 +54,10 @@ import {
   uiArtifactRenderResultSchema,
   type UiArtifactRenderResult,
 } from "@openwork/types/ui-artifact";
+import {
+  uiArtifactPublishReceiptSchema,
+  type UiArtifactPublishReceipt,
+} from "@openwork/types/ui-artifact-project";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { useReactRenderWatchdog } from "@/react-app/shell/react-render-watchdog";
 import { SessionDebugPanel } from "./debug-panel";
@@ -111,10 +115,16 @@ import {
   loadSessionConnectCapabilities,
 } from "@/react-app/domains/connections/cloud-inventory-cache";
 import { consumeComposerAutoSend } from "./composer-auto-send";
+import {
+  DYNAMIC_ARTIFACT_EVAL_INITIAL_STATE,
+  DYNAMIC_ARTIFACT_EVAL_PROJECT,
+} from "@/react-app/domains/session/ui-artifacts/dynamic-artifact-eval-fixture";
+import { mergeDynamicArtifactPrompt } from "@/react-app/domains/session/ui-artifacts/dynamic-artifact-attachment";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
 const IDLE_STATUS: SessionStatus = { type: "idle" };
 const DEFAULT_COMPOSER_CONTROL_TEXT = "Help me outline the next OpenWork task.";
+const DYNAMIC_ARTIFACT_EVAL_STORAGE_PREFIX = "openwork:eval:dynamic-artifact:v1";
 const SESSION_SURFACE_SELECTOR = "[data-session-surface-id]";
 const MARKDOWN_PRIMITIVE_EVAL_TEXT = `# Markdown proof heading
 
@@ -186,6 +196,63 @@ function createUiArtifactEvalMessages(
   ];
 
   return { messages, assistantMessageId };
+}
+
+function dynamicArtifactEvalStorageKey(workspaceId: string, sessionId: string) {
+  return `${DYNAMIC_ARTIFACT_EVAL_STORAGE_PREFIX}:${workspaceId}:${sessionId}`;
+}
+
+function createDynamicArtifactEvalMessages(
+  sessionId: string,
+  receipt: UiArtifactPublishReceipt,
+) {
+  const userMessageId = `${sessionId}:eval-dynamic-artifact-user`;
+  const assistantMessageId = `${sessionId}:eval-dynamic-artifact-assistant`;
+  const messages: UIMessage[] = [
+    {
+      id: userMessageId,
+      role: "user",
+      parts: [{ type: "text", text: "Build and attach the reusable Launch Radar artifact." }],
+      metadata: { opencode: { created: Date.now() } },
+    },
+    {
+      id: assistantMessageId,
+      role: "assistant",
+      parts: [{
+        type: "dynamic-tool",
+        toolName: "openwork_execute",
+        toolCallId: `${assistantMessageId}:publish`,
+        state: "output-available",
+        input: { action: "publish_ui_artifact", projectId: receipt.attachment.slug },
+        output: { ok: true, id: "dynamic-artifact-eval", result: receipt },
+      }],
+      metadata: { opencode: { created: Date.now() + 1 } },
+    },
+  ];
+  return { messages, assistantMessageId };
+}
+
+function readDynamicArtifactEvalMessages(workspaceId: string, sessionId: string) {
+  if (!import.meta.env.DEV) return EMPTY_TRANSCRIPT;
+  try {
+    const raw = window.localStorage.getItem(dynamicArtifactEvalStorageKey(workspaceId, sessionId));
+    if (!raw) return EMPTY_TRANSCRIPT;
+    const parsed = uiArtifactPublishReceiptSchema.safeParse(JSON.parse(raw));
+    return parsed.success
+      ? createDynamicArtifactEvalMessages(sessionId, parsed.data).messages
+      : EMPTY_TRANSCRIPT;
+  } catch {
+    return EMPTY_TRANSCRIPT;
+  }
+}
+
+function isNotFoundError(value: unknown) {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "status" in value &&
+    value.status === 404,
+  );
 }
 
 /**
@@ -842,8 +909,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [liveStatus, sending]);
   const [evalMarkdownMessages, setEvalMarkdownMessages] = useState<UIMessage[]>(EMPTY_TRANSCRIPT);
   useEffect(() => {
-    setEvalMarkdownMessages(EMPTY_TRANSCRIPT);
-  }, [props.sessionId]);
+    setEvalMarkdownMessages(readDynamicArtifactEvalMessages(props.workspaceId, props.sessionId));
+  }, [props.sessionId, props.workspaceId]);
 
   const baseRenderedMessages = useMemo(
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
@@ -906,6 +973,98 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId, setComposerDraft]);
   useControlAction(props.isControlTarget ? seedUiArtifactControlAction : null);
+  const seedDynamicArtifactControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "ui-artifacts.seed-dynamic-project",
+      label: "Seed dynamic artifact project",
+      description: "Create, build, publish, and attach the deterministic Launch Radar React artifact.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      execute: async (args) => {
+        const controlArgs = args && typeof args === "object"
+          ? args as { instanceId?: unknown; projectId?: unknown }
+          : null;
+        const projectId = controlArgs?.projectId ?? null;
+        if (projectId !== "launch-radar") {
+          throw new Error('projectId must be "launch-radar"');
+        }
+        const instanceId = typeof controlArgs?.instanceId === "string" &&
+          /^launch-radar-eval-[a-z0-9-]{1,48}$/.test(controlArgs.instanceId)
+          ? controlArgs.instanceId
+          : null;
+
+        local.setPrefs((previous) => ({
+          ...previous,
+          featureFlags: {
+            ...previous.featureFlags,
+            uiArtifacts: true,
+          },
+        }));
+
+        const artifactSettings = await props.client.getUiArtifactSettings(props.workspaceId);
+        if (
+          !artifactSettings.builderSkillEnabled ||
+          artifactSettings.projectOverrides[projectId] === false
+        ) {
+          await props.client.updateUiArtifactSettings(props.workspaceId, {
+            expectedRevision: artifactSettings.settingsRevision,
+            builderSkillEnabled: true,
+            project: { slug: projectId, enabled: true },
+          });
+        }
+
+        let expectedRevision: string | null = null;
+        try {
+          const existing = await props.client.getUiArtifactProject(props.workspaceId, projectId);
+          expectedRevision = existing.projectRevision;
+        } catch (loadError) {
+          if (!isNotFoundError(loadError)) throw loadError;
+        }
+
+        const snapshot = await props.client.putUiArtifactProject(
+          props.workspaceId,
+          projectId,
+          {
+            files: DYNAMIC_ARTIFACT_EVAL_PROJECT,
+            expectedRevision,
+          },
+        );
+        expectedRevision = snapshot.projectRevision;
+
+        const receipt = await props.client.publishUiArtifactProject(
+          props.workspaceId,
+          projectId,
+          {
+            expectedProjectRevision: expectedRevision ?? undefined,
+            initialState: DYNAMIC_ARTIFACT_EVAL_INITIAL_STATE,
+            instanceId: instanceId ?? `launch-radar-${expectedRevision?.slice(0, 12) ?? "eval"}`,
+            provenance: {
+              createdBy: "agent",
+              agent: "OpenWork eval",
+              sessionId: props.sessionId,
+              messageId: `${props.sessionId}:eval-dynamic-artifact-assistant`,
+            },
+          },
+        );
+        const seeded = createDynamicArtifactEvalMessages(props.sessionId, receipt);
+        window.localStorage.setItem(
+          dynamicArtifactEvalStorageKey(props.workspaceId, props.sessionId),
+          JSON.stringify(receipt),
+        );
+        setEvalMarkdownMessages(seeded.messages);
+        return {
+          ok: true,
+          assistantMessageId: seeded.assistantMessageId,
+          projectId,
+          projectRevision: receipt.attachment.projectRevision,
+          instanceId: receipt.attachment.instanceId,
+        };
+      },
+    };
+  }, [local, props.client, props.sessionId, props.workspaceId]);
+  useControlAction(props.isControlTarget ? seedDynamicArtifactControlAction : null);
   const seedChatTranscriptControlAction = useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -1632,6 +1791,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const handleMessageListSetPrompt = useCallback((prompt: string) => {
     void typeComposerText(prompt);
   }, [typeComposerText]);
+  const handleMessageListStagePrompt = useCallback((prompt: string) => {
+    const current = getComposerDraft(useComposerStateStore.getState(), props.sessionId);
+    void typeComposerText(mergeDynamicArtifactPrompt(current, prompt));
+  }, [props.sessionId, typeComposerText]);
 
   useEffect(() => {
     const resetReconnectState = () => {
@@ -1931,6 +2094,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onApplyChanges={props.onApplyEnvironmentChanges}
                   >
                     <MessageListProvider
+                      client={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
                       showThinking={showThinking}
@@ -1940,6 +2104,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       providerConnectedCount={props.providerConnectedCount ?? 0}
                       dispatchAction={handleMessageListDispatchAction}
                       setPrompt={handleMessageListSetPrompt}
+                      stagePrompt={handleMessageListStagePrompt}
                       onRevertToUserMessage={handleRevertToUserMessage}
                       onForkAtMessage={handleForkAtMessage}
                       onEditUserMessage={handleEditUserMessage}

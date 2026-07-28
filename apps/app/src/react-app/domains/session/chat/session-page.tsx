@@ -73,7 +73,6 @@ import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { getExtensionId, isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "../../settings/extension-state";
 import { cn } from "@/lib/utils";
-import { useFeatureFlagsPreferences } from "../../settings/state/feature-flags-preferences";
 import {
   canNavigateSelectedConversationHistory,
   createConversationTabHistory,
@@ -307,7 +306,6 @@ function controlStringArg(args: unknown, key: string) {
 
 export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
-  const { uiArtifactsEnabled } = useFeatureFlagsPreferences();
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
@@ -662,12 +660,6 @@ export function SessionPage(props: SessionPageProps) {
       setCurrentSidePanel(null);
     }
   }, [activeSidePanel, setCurrentSidePanel, voiceExtensionEnabled]);
-  useEffect(() => {
-    if (activeSidePanel === "ui-artifacts" && !uiArtifactsEnabled) {
-      setCurrentSidePanel(null);
-    }
-  }, [activeSidePanel, setCurrentSidePanel, uiArtifactsEnabled]);
-
   const openVoicePanelControlAction = useMemo<OpenworkControlAction | null>(() => (
     voiceExtensionEnabled ? {
       id: "voice.panel.open",
@@ -1412,8 +1404,17 @@ export function SessionPage(props: SessionPageProps) {
                     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
                       {props.settingsSlot}
                     </div>
+                  ) : activeSidePanel === "ui-artifacts" && props.openworkServerClient && props.runtimeWorkspaceId && props.selectedSessionId ? (
+                    <UiArtifactCatalogPanel
+                      client={props.openworkServerClient}
+                      workspaceId={props.runtimeWorkspaceId}
+                      sessionId={props.selectedSessionId}
+                      onClose={closeRightPane}
+                    />
                   ) : activeSidePanel === "ui-artifacts" ? (
-                    <UiArtifactCatalogPanel onClose={closeRightPane} />
+                    <div className="grid h-full place-items-center px-6 text-center text-sm text-muted-foreground">
+                      Connect this workspace to open its artifact library.
+                    </div>
                   ) : activeSidePanel === "voice" ? (
                     <VoicePanel
                       client={props.openworkServerClient}
@@ -1490,24 +1491,22 @@ export function SessionPage(props: SessionPageProps) {
                 </span>
               ) : null}
             </Button>
-            {uiArtifactsEnabled ? (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className={cn(
-                  "rounded-xl border transition-colors hover:bg-muted hover:text-foreground",
-                  uiArtifactsRailActive
-                    ? "border-border bg-muted text-foreground shadow-sm ring-2 ring-muted/70"
-                    : "border-transparent",
-                )}
-                onClick={openUiArtifactsRailPane}
-                title="UI Artifacts"
-                aria-label="UI Artifacts"
-                aria-pressed={uiArtifactsRailActive}
-              >
-                <LayoutDashboard size={17} />
-              </Button>
-            ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                "rounded-xl border transition-colors hover:bg-muted hover:text-foreground",
+                uiArtifactsRailActive
+                  ? "border-border bg-muted text-foreground shadow-sm ring-2 ring-muted/70"
+                  : "border-transparent",
+              )}
+              onClick={openUiArtifactsRailPane}
+              title="UI Artifacts"
+              aria-label="UI Artifacts"
+              aria-pressed={uiArtifactsRailActive}
+            >
+              <LayoutDashboard size={17} />
+            </Button>
           </aside>
           </div>
         </SidebarInset>

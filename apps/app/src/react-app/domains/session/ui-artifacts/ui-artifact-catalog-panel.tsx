@@ -1,3 +1,4 @@
+import * as React from "react"
 import {
   BellRing,
   CalendarDays,
@@ -7,10 +8,12 @@ import {
   MessageSquareText,
   Sparkles,
   TrendingUp,
+  Code2,
   X,
 } from "lucide-react"
 import type { UiArtifactKind } from "@openwork/types/ui-artifact"
 
+import type { OpenworkServerClient } from "@/app/lib/openwork-server"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -18,6 +21,7 @@ import { t } from "@/i18n"
 import { STANDARD_UI_ARTIFACTS } from "@/lib/ui-artifact-catalog"
 import { cn } from "@/lib/utils"
 import { useFeatureFlagsPreferences } from "@/react-app/domains/settings/state/feature-flags-preferences"
+import { DynamicArtifactStudio } from "./dynamic-artifact-studio"
 
 function artifactIcon(artifactId: UiArtifactKind) {
   switch (artifactId) {
@@ -110,7 +114,20 @@ function ArtifactCatalogTile(props: {
   )
 }
 
-export function UiArtifactCatalogPanel({ onClose }: { onClose: () => void }) {
+type UiArtifactCatalogPanelProps = {
+  client: OpenworkServerClient
+  onClose: () => void
+  sessionId: string
+  workspaceId: string
+}
+
+export function UiArtifactCatalogPanel({
+  client,
+  onClose,
+  sessionId,
+  workspaceId,
+}: UiArtifactCatalogPanelProps) {
+  const [catalogKind, setCatalogKind] = React.useState<"generated" | "standard">("generated")
   const {
     enabledUiArtifactIds,
     toggleUiArtifact,
@@ -130,7 +147,11 @@ export function UiArtifactCatalogPanel({ onClose }: { onClose: () => void }) {
             <h2 className="text-sm font-semibold text-foreground">UI artifacts</h2>
             <Badge variant="outline" className="border-amber-6/50 bg-amber-3/40 text-amber-11">Alpha</Badge>
           </div>
-          <p className="text-xs text-muted-foreground">{enabledCount} of {STANDARD_UI_ARTIFACTS.length} standard artifacts enabled</p>
+          <p className="text-xs text-muted-foreground">
+            {catalogKind === "generated"
+              ? "React projects your agents can build and evolve"
+              : `${enabledCount} of ${STANDARD_UI_ARTIFACTS.length} standard artifacts enabled`}
+          </p>
         </div>
         <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close UI artifacts">
           <X />
@@ -138,32 +159,71 @@ export function UiArtifactCatalogPanel({ onClose }: { onClose: () => void }) {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="mb-4 rounded-2xl border border-violet-6/30 bg-violet-3/25 p-3">
-          <div className="flex items-start gap-2.5">
-            <Sparkles className="mt-0.5 size-4 shrink-0 text-violet-11" aria-hidden="true" />
-            <div>
-              <p className="text-xs font-medium text-foreground">Native answer prototypes</p>
-              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                These member-level switches control both capability suggestions and validated native cards.
-                Suggestions are added only to successful execute_capability results and work with any compatible agent engine.
-              </p>
-            </div>
-          </div>
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-muted/50 p-1" role="tablist" aria-label="Artifact catalogs">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={catalogKind === "generated"}
+            className={cn(
+              "flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground",
+              catalogKind === "generated" && "bg-background text-foreground shadow-xs",
+            )}
+            onClick={() => setCatalogKind("generated")}
+          >
+            <Code2 className="size-3.5" aria-hidden="true" />
+            Generated
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={catalogKind === "standard"}
+            className={cn(
+              "flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground",
+              catalogKind === "standard" && "bg-background text-foreground shadow-xs",
+            )}
+            onClick={() => setCatalogKind("standard")}
+          >
+            <LayoutDashboard className="size-3.5" aria-hidden="true" />
+            Standard
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 @md/ui-artifact-panel:grid-cols-2">
-          {STANDARD_UI_ARTIFACTS.map((definition) => (
-            <ArtifactCatalogTile
-              key={definition.artifactId}
-              artifactId={definition.artifactId}
-              label={t(definition.labelKey)}
-              description={t(definition.descriptionKey)}
-              sources={definition.sources}
-              enabled={enabledUiArtifactIds.includes(definition.artifactId)}
-              onToggle={() => toggleUiArtifact(definition.artifactId)}
-            />
-          ))}
-        </div>
+        {catalogKind === "generated" ? (
+          <DynamicArtifactStudio
+            client={client}
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+          />
+        ) : (
+          <>
+            <div className="mb-4 rounded-2xl border border-violet-6/30 bg-violet-3/25 p-3">
+              <div className="flex items-start gap-2.5">
+                <Sparkles className="mt-0.5 size-4 shrink-0 text-violet-11" aria-hidden="true" />
+                <div>
+                  <p className="text-xs font-medium text-foreground">Native answer prototypes</p>
+                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                    These member-level switches control both capability suggestions and validated native cards.
+                    Suggestions are added only to successful execute_capability results and work with any compatible agent engine.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 @md/ui-artifact-panel:grid-cols-2">
+              {STANDARD_UI_ARTIFACTS.map((definition) => (
+                <ArtifactCatalogTile
+                  key={definition.artifactId}
+                  artifactId={definition.artifactId}
+                  label={t(definition.labelKey)}
+                  description={t(definition.descriptionKey)}
+                  sources={definition.sources}
+                  enabled={enabledUiArtifactIds.includes(definition.artifactId)}
+                  onToggle={() => toggleUiArtifact(definition.artifactId)}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </section>
   )

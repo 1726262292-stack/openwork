@@ -37,6 +37,7 @@ import { QuestionTool } from "@/components/tools/question"
 import { SkillTool } from "@/components/tools/skill"
 import { TodoWriteTool } from "@/components/tools/todowrite"
 import { UiArtifactCard } from "@/components/tools/ui-artifact"
+import { DynamicUiArtifactCard } from "@/components/tools/dynamic-ui-artifact"
 import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
@@ -107,6 +108,7 @@ import {
   reconcileUiArtifactMessages,
 } from "@/lib/ui-artifacts"
 import type { AnyToolPart } from "@/lib/tool-aggregate"
+import { parseUiArtifactAttachment } from "@/react-app/domains/session/ui-artifacts/dynamic-artifact-attachment"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
 
@@ -165,6 +167,16 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
 const ToolMessageInner = ({ part }: ToolMessageProps) => {
   const { onMcpReconnect, onMcpReopenAuthorization, onMcpRetry, setPrompt } = useMessageList()
   const { uiArtifactsEnabled, enabledUiArtifactIds } = useUiArtifactPreferencesSnapshot()
+
+  if (
+    part.type === "dynamic-tool" &&
+    part.state === "output-available"
+  ) {
+    const attachment = parseUiArtifactAttachment(part.output)
+    if (attachment) {
+      return <DynamicUiArtifactCard attachment={attachment} />
+    }
+  }
 
   if (
     uiArtifactsEnabled &&
