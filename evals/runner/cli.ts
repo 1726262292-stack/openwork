@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolveCdpBaseUrl } from "./cdp.ts";
 import { denStackDown, ensureDenStack } from "./den-stack.ts";
 import { applyManifestToEnv, readEnvManifest } from "./env-manifest.ts";
+import { createDaytonaHost } from "./hosts/daytona.ts";
 import { createLocalHost } from "./hosts/local.ts";
 import { missingEnv, loadFlows, runFlow } from "./runner.ts";
 import { renderMarkdown } from "./reporters/markdown.ts";
@@ -19,6 +20,16 @@ const REPO_ROOT = resolve(RUNNER_DIR, "..", "..");
 const FLOWS_DIR = process.env.OPENWORK_EVAL_FLOWS_DIR?.trim() || join(RUNNER_DIR, "..", "flows");
 const DEFAULT_RESULTS_DIR = join(RUNNER_DIR, "..", "results");
 const DEFAULT_CDP_CANDIDATES = ["http://127.0.0.1:9825", "http://127.0.0.1:9823"];
+
+export interface HostPlacement {
+  defaultHostKind: string;
+  daytonaSandboxId: string | null;
+}
+
+export interface EvalHosts {
+  hosts: Map<string, Host>;
+  defaultHostKind: string;
+}
 
 interface CliArgs {
   flows: string[];
@@ -130,6 +141,34 @@ function incrementSummary(summary: Record<FlowStatus, number>, status: FlowStatu
   else summary.skipped += 1;
 }
 
+function manifestDaytonaSandbox(manifest: EnvManifest | null): string | null {
+  if (!manifest) return null;
+  for (const handle of Object.values(manifest.surfaces)) {
+    if (handle.hostKind === "daytona") {
+      const sandbox = handle.sandboxId?.trim();
+      if (sandbox) return sandbox;
+    }
+  }
+  return manifest.env?.OPENWORK_EVAL_DAYTONA_SANDBOX?.trim() || null;
+}
+
+export function resolveHostPlacement(manifest: EnvManifest | null, env: NodeJS.ProcessEnv = process.env): HostPlacement {
+  const daytonaSandboxId = manifestDaytonaSandbox(manifest) ?? (env.OPENWORK_EVAL_DAYTONA_SANDBOX?.trim() || null);
+  return {
+    daytonaSandboxId,
+    defaultHostKind: manifest?.defaultHostKind ?? (daytonaSandboxId ? "daytona" : "local"),
+  };
+}
+
+export function createEvalHosts({ manifest, env, repoRoot, log }: { manifest: EnvManifest | null; env: NodeJS.ProcessEnv; repoRoot: string; log: (msg: string) => void }): EvalHosts {
+  const placement = resolveHostPlacement(manifest, env);
+  const hosts = new Map<string, Host>([["local", createLocalHost({ repoRoot, log })]]);
+  if (placement.daytonaSandboxId) {
+    hosts.set("daytona", createDaytonaHost({ sandboxId: placement.daytonaSandboxId, log, repoRoot }));
+  }
+  return { hosts, defaultHostKind: placement.defaultHostKind };
+}
+
 function printHelp(): void {
   console.log("Usage: node evals/runner/run.mjs [--mode automation|demo] [--list | --all | --flow <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--env <name>] [--out <dir>] [--pr [number]] [--stack den | --stack-down]");
 }
@@ -214,11 +253,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     flows: [],
     summary: { passed: 0, failed: 0, skipped: 0 },
   };
-  const hosts: Map<string, Host> = new Map<string, Host>([["local", createLocalHost({ repoRoot: REPO_ROOT, log: (msg) => console.log(`▸ ${msg}`) })]]);
+  const { hosts, defaultHostKind } = createEvalHosts({
+    manifest,
+    env: process.env,
+    repoRoot: REPO_ROOT,
+    log: (msg) => console.log(`▸ ${msg}`),
+  });
 
   for (const flow of selected) {
     console.log(`▶ ${flow.id} — ${flow.title}`);
-    const result = await runFlow(flow, { cdpBaseUrl, outDir, env: process.env, mode: args.mode, hosts, manifest });
+    const result = await runFlow(flow, { cdpBaseUrl, outDir, env: process.env, mode: args.mode, hosts, defaultHostKind, manifest });
     report.flows.push(result);
     incrementSummary(report.summary, result.status);
     for (const step of result.steps) {

@@ -90,10 +90,11 @@ export interface RunFlowOptions {
   env: NodeJS.ProcessEnv;
   mode: EvalMode;
   hosts?: Map<string, Host>;
+  defaultHostKind?: string;
   manifest?: EnvManifest | null;
 }
 
-export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, mode, hosts, manifest = null }: RunFlowOptions): Promise<FlowResult> {
+export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, mode, hosts, defaultHostKind, manifest = null }: RunFlowOptions): Promise<FlowResult> {
   const result: FlowResult = {
     id: flow.id,
     title: flow.title,
@@ -126,7 +127,7 @@ export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, m
   const registry = hosts
     ? new SurfaceRegistry({
       hosts,
-      defaultHostKind: manifest?.defaultHostKind ?? "local",
+      defaultHostKind: defaultHostKind ?? manifest?.defaultHostKind ?? "local",
       manifest,
       onLog: (msg) => {
         if (ctx) ctx.log(msg);

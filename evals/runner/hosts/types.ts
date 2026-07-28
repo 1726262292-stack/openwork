@@ -42,6 +42,7 @@ export type ShareLinks = { label: string; url: string }[];
 
 export interface Host {
   kind: string;
+  previewUrl?(port: number): Promise<string>;
   spawnElectron(name: string, opts?: ElectronSurfaceOptions): Promise<SurfaceHandle>;
   spawnChrome(name: string, opts?: ChromeSurfaceOptions): Promise<SurfaceHandle>;
   startDen?(opts?: DenServiceOptions): Promise<DenServiceHandle>;

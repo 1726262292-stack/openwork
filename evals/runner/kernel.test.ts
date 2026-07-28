@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Server } from "node:http";
 
+import { resolveHostPlacement } from "./cli.ts";
 import { resolveActors } from "./actors.ts";
 import { EvalContext } from "./context.ts";
 import { applyManifestToEnv, manifestPath, readEnvManifest, writeEnvManifest } from "./env-manifest.ts";
@@ -13,12 +14,17 @@ import { allocateFreePorts } from "./ports.ts";
 import { isFlowDefinition } from "./runner.ts";
 import { defineScenario } from "./scenario.ts";
 import { SurfaceRegistry } from "./surfaces.ts";
+import { loadVoiceoverParagraphs } from "./voiceover.ts";
 import type { CdpClient } from "./cdp.ts";
 import type { EnvManifest } from "./env-manifest.ts";
 import type { Host, SurfaceHandle } from "./hosts/types.ts";
 import type { Surface } from "./surfaces.ts";
 
 const ONE_BY_ONE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function portFromServer(server: Server): number {
   const address = server.address();
@@ -171,6 +177,51 @@ test("defineScenario returns a flow, preserves steps, gates Den env, and passes 
   await flow.steps[0].run(ctx);
   assert.equal(ctx.state.ownerEmail, "alex@acme.test");
   assert.equal(ctx.state.freshEmail, "teammate-abc123@eval.openwork.test");
+});
+
+test("org-invite-two-desktops scenario loads with Den env gates and one step per narrated frame", async () => {
+  const flowModule: unknown = await import(new URL("../flows/org-invite-two-desktops.flow.mjs", import.meta.url).href);
+  const flow = isRecord(flowModule) ? flowModule.default : undefined;
+  assert(isFlowDefinition(flow));
+  const paragraphs = await loadVoiceoverParagraphs("org-invite-two-desktops");
+  assert(paragraphs);
+
+  assert.equal(flow.steps.length, paragraphs.length);
+  assert.deepEqual(flow.steps.map((step) => step.name), [
+    "Alex signs in on Den Web",
+    "Alex creates the org",
+    "Alex desktop connects to the org",
+    "Alex runs a hello-script task",
+    "Alex invites Jamie",
+    "Jamie accepts from her Chrome",
+    "Jamie desktop spawns fresh",
+    "Jamie connects and runs her task",
+  ]);
+  assert(flow.requiredEnv?.includes("OPENWORK_EVAL_DEN_API_URL"));
+  assert(flow.requiredEnv?.includes("OPENWORK_EVAL_DEN_WEB_URL"));
+});
+
+test("host placement defaults to Daytona when the manifest adopts a Daytona surface", () => {
+  const manifest: EnvManifest = {
+    name: "daytona-placement",
+    createdAt: "2026-07-28T00:00:00.000Z",
+    defaultHostKind: "daytona",
+    surfaces: {
+      desktop: {
+        name: "desktop",
+        kind: "electron",
+        hostKind: "daytona",
+        cdpUrl: "https://9825-preview.example.test",
+        sandboxId: "sandbox-123",
+      },
+    },
+    env: {},
+  };
+
+  assert.deepEqual(resolveHostPlacement(manifest, {}), {
+    daytonaSandboxId: "sandbox-123",
+    defaultHostKind: "daytona",
+  });
 });
 
 test("resolveActors honors seeded owner env defaults", () => {

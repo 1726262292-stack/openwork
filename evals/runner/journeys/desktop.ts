@@ -22,6 +22,8 @@ export interface ConnectDenOptions {
   actor: Actor;
   denWebUrl?: string;
   denApiUrl?: string;
+  organizationId?: string;
+  organizationName?: string;
 }
 
 export interface ConnectDenResult {
@@ -339,8 +341,20 @@ async function completeDesktopCloudOnboardingIfNeeded(ctx: FlowContext): Promise
   }
 }
 
-async function createDesktopHandoff(ctx: FlowContext, actor: Actor, denWebUrlValue: string, denApiUrlValue: string): Promise<string> {
+async function setActiveOrganizationForToken(ctx: FlowContext, token: string, organizationId: string, denWebUrlValue: string, denApiUrlValue: string): Promise<void> {
+  const result = await denApiFetch(ctx, "/v1/me/active-organization", {
+    method: "POST",
+    headers: new Headers({ authorization: `Bearer ${token}` }),
+    body: JSON.stringify({ organizationId }),
+  }, { denWebUrl: denWebUrlValue, denApiUrl: denApiUrlValue });
+  if (!result.response.ok) {
+    throw new EvalError(`Could not set active organization ${organizationId} before desktop handoff: ${result.response.status} ${result.text.slice(0, 300)}`);
+  }
+}
+
+async function createDesktopHandoff(ctx: FlowContext, actor: Actor, denWebUrlValue: string, denApiUrlValue: string, organizationId?: string): Promise<string> {
   const token = await apiSignIn(ctx, { actor, denWebUrl: denWebUrlValue, denApiUrl: denApiUrlValue });
+  if (organizationId) await setActiveOrganizationForToken(ctx, token, organizationId, denWebUrlValue, denApiUrlValue);
   // Provenance: marketplace-connect-only-delivery.flow.mjs:465-475,
   // org-connections-capability.flow.mjs:764-777, and durable-auth-mcp.flow.mjs
   // :314-320 use /v1/auth/desktop-handoff followed by the auth.exchange-grant
@@ -463,14 +477,18 @@ export async function connectDen(ctx: FlowContext, options: ConnectDenOptions): 
     const current = await getDesktopDenState(ctx);
     const baseMatches = normalizeBaseUrl(current.baseUrl) === normalizeBaseUrl(baseUrl)
       && normalizeBaseUrl(current.apiBaseUrl) === normalizeBaseUrl(apiBaseUrl);
-    if (current.token && baseMatches && await desktopTokenMatchesActor(ctx, current.token, actor, apiBaseUrl, baseUrl)) {
+    const orgMatches = !options.organizationName || current.activeOrgName === options.organizationName;
+    if (current.token && baseMatches && orgMatches && await desktopTokenMatchesActor(ctx, current.token, actor, apiBaseUrl, baseUrl)) {
       await completeDesktopCloudOnboardingIfNeeded(ctx);
       ctx.log(`Desktop is already connected to ${baseUrl} as ${actor.email}.`);
       return { email: actor.email, baseUrl, apiBaseUrl, activeOrgName: current.activeOrgName || undefined, status: "already-connected" };
     }
+    if (current.token && baseMatches && !orgMatches) {
+      ctx.log(`Desktop is connected to ${current.activeOrgName || "unknown org"}; reconnecting to scope ${options.organizationName ?? "requested org"}.`);
+    }
 
     await writeDesktopBootstrap(ctx, baseUrl, apiBaseUrl);
-    const grant = await createDesktopHandoff(ctx, actor, baseUrl, apiBaseUrl);
+    const grant = await createDesktopHandoff(ctx, actor, baseUrl, apiBaseUrl, options.organizationId);
     await ctx.waitFor("Boolean(window.__openworkControl?.listActions?.().some((action) => action.id === 'auth.exchange-grant' && !action.disabled))", {
       timeoutMs: 30_000,
       label: "auth.exchange-grant control action",
@@ -482,6 +500,9 @@ export async function connectDen(ctx: FlowContext, options: ConnectDenOptions): 
     });
     await completeDesktopCloudOnboardingIfNeeded(ctx);
     const after = await getDesktopDenState(ctx);
+    if (options.organizationName && after.activeOrgName && after.activeOrgName !== options.organizationName) {
+      throw new EvalError(`Desktop connected to ${after.activeOrgName}, expected ${options.organizationName}.`);
+    }
     ctx.log(`Desktop connected to ${baseUrl} as ${actor.email}; active org: ${after.activeOrgName || "unknown"}.`);
     return { email: actor.email, baseUrl, apiBaseUrl, activeOrgName: after.activeOrgName || undefined, status: "connected" };
   });
