@@ -17,3 +17,31 @@ This demo uses the deterministic Launch Radar project so every frame proves the 
 7. "After a reload, the same pinned build and watched-launch state return. I reopen Launch Radar from the Artifacts library, ready to reuse as-is or evolve into a new revision later."
 
 8. "The library also manages the lifecycle. I disable Launch Radar, which blocks new builds while preserving its source, editor, immutable revision, and pinned preview. Workspace-level agent authoring has its own explicit Artifact Builder skill switch."
+
+9. "The experience is not agent-only. Create artifact gives me the same bounded starting point, asks for a human-readable name and purpose, and shows the durable workspace slug before I create anything."
+
+10. "The workspace skill and each project have independent controls. I can restore injected agent authoring and re-enable Launch Radar for new builds without affecting any already-pinned conversation artifact."
+
+11. "Inside the artifact, Ask agent about launch risk crosses a deliberately narrow bridge. It stages the declared launch.explain intent in my composer, including its effect and confirmation contract, but does not send it or execute a tool."
+
+12. "artifact.json makes the runtime contract inspectable: protocol and API versions, React entrypoint, data and schema paths, chat and tab presentation, plus every declared intent, argument, effect, and confirmation policy."
+
+13. "src/App.tsx is ordinary typed JSX. Data and state arrive as props, while the injected runtime exposes only replaceState and invoke—enough for a rich app without granting browser, filesystem, credential, or tool authority."
+
+14. "styles.css is its own expressive layer. The agent or user can evolve layout, motion, color, and component states without mixing presentation into the manifest, data, or React contract."
+
+15. "data.json keeps the current artifact values portable and understandable. A later enhancement can update the mission data without reconstructing the component or weakening its schema boundary."
+
+16. "data.schema.json is the build-time contract for those values. Required fields, types, bounds, and additional-property rules are validated before a generated component can become a pinned build."
+
+17. "Now I try an unsafe source change with an unbounded loop. The compiler refuses to publish it, keeps src/App.tsx selected with a structured line-and-column diagnostic, and preserves the last known-good isolated preview."
+
+18. "I restore the safe component, raise Apollo readiness in data.json, and rebuild. OpenWork produces a new immutable revision and a visible compiler receipt instead of mutating the original artifact in place."
+
+19. "Back in chat, the existing Launch Radar card remains pinned to the exact revision and interaction state it started with. Project evolution never silently rewrites the history of a conversation."
+
+20. "I disable the enhanced project. New publication is blocked, but its source, new revision, editor, and last known-good preview remain available so governance does not become accidental data loss."
+
+21. "I also disable the workspace Artifact Builder skill. The injected instructions disappear from future agent context, while Launch Radar stays listed and existing pinned artifacts continue to render and interact."
+
+22. "Generated React projects coexist with OpenWork's standard native answer artifacts as separate catalogs. Workspace brief, calendars, widgets, communication, inbox, attention, and approval cards keep their own validated lifecycle."

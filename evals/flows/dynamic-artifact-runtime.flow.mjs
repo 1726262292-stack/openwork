@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { connect, debuggerUrlFor, evaluate, listTargets } from "../runner/cdp.mjs";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 
 const FLOW_ID = "dynamic-artifact-runtime";
@@ -20,6 +21,8 @@ const state = {
   sessionRoute: null,
   projectRevision: null,
   stateRevision: null,
+  originalSource: null,
+  enhancedProjectRevision: null,
 };
 
 function actionAvailable(actionId) {
@@ -202,6 +205,114 @@ async function openStudioFromAttachment(ctx) {
     timeoutMs: 30_000,
     label: "dynamic artifact studio",
   });
+}
+
+async function openArtifactLibrary(ctx) {
+  const panelOpen = await ctx.eval(
+    `document.querySelector('button[aria-label="UI Artifacts"]')?.getAttribute("aria-pressed") === "true"`,
+  );
+  if (!panelOpen) {
+    await ctx.trustedClick('button[aria-label="UI Artifacts"]', {
+      timeoutMs: 30_000,
+    });
+  }
+  await ctx.waitForText("UI artifacts", { timeoutMs: 30_000 });
+  const generatedSelected = await ctx.eval(`(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')]
+      .find((item) => item.textContent?.trim() === "Generated");
+    return tab?.getAttribute("aria-selected") === "true";
+  })()`);
+  if (!generatedSelected) {
+    await ctx.clickText("Generated", {
+      selector: '[role="tab"]',
+      timeoutMs: 30_000,
+    });
+  }
+  if (
+    await ctx.eval(
+      `Boolean(document.querySelector('button[aria-label="Back to generated projects"]'))`,
+    )
+  ) {
+    await ctx.trustedClick('button[aria-label="Back to generated projects"]', {
+      timeoutMs: 30_000,
+    });
+  }
+  await ctx.waitFor(
+    `document.querySelector(${JSON.stringify(STUDIO)})?.getAttribute("data-ui-artifact-studio-tab") === "library"`,
+    { timeoutMs: 30_000, label: "generated artifact library" },
+  );
+}
+
+async function closeArtifactPanel(ctx) {
+  if (await ctx.eval(`Boolean(document.querySelector('button[aria-label="Close UI artifacts"]'))`)) {
+    await ctx.trustedClick('button[aria-label="Close UI artifacts"]', {
+      timeoutMs: 30_000,
+    });
+    await ctx.waitFor(
+      `!document.querySelector('button[aria-label="Close UI artifacts"]')`,
+      { timeoutMs: 30_000, label: "UI artifacts panel closed" },
+    );
+  }
+}
+
+async function selectProjectFile(ctx, file) {
+  await ctx.clickText(file, {
+    selector: `${STUDIO} button`,
+    timeoutMs: 30_000,
+  });
+  await ctx.waitFor("Boolean(window.__artifactEditorView?.state?.doc)", {
+    timeoutMs: 30_000,
+    label: `${file} CodeMirror document`,
+  });
+}
+
+async function readEditorText(ctx) {
+  return ctx.eval(`window.__artifactEditorView?.state?.doc?.toString() ?? ""`);
+}
+
+async function replaceEditorText(ctx, nextText) {
+  const result = await ctx.eval(`(() => {
+    const view = window.__artifactEditorView;
+    if (!view?.dispatch || !view.state?.doc) return "no-view";
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: ${JSON.stringify(nextText)},
+      },
+    });
+    view.focus();
+    return view.state.doc.toString();
+  })()`);
+  ctx.assert(result === nextText, "The artifact source editor did not accept the requested content.");
+}
+
+async function clickArtifactButton(ctx, label) {
+  ctx.assert(Boolean(ctx.cdpBaseUrl), "The artifact interaction proof requires a CDP endpoint.");
+  const targets = await listTargets(ctx.cdpBaseUrl);
+  for (const target of targets.filter((candidate) => (
+    candidate.type === "iframe" &&
+    candidate.url === "about:srcdoc" &&
+    candidate.webSocketDebuggerUrl
+  ))) {
+    const frameClient = await connect(debuggerUrlFor(ctx.cdpBaseUrl, target));
+    try {
+      const clicked = await evaluate(frameClient, `(() => {
+          const button = [...document.querySelectorAll("button")]
+            .find((item) => item.textContent?.trim() === ${JSON.stringify(label)});
+          if (!button) return false;
+          button.scrollIntoView({ block: "center", inline: "center" });
+          button.click();
+          return true;
+        })()`);
+      if (clicked === true) return;
+    } catch {
+      // Opaque iframe targets can disappear while React remounts. Try the next one.
+    } finally {
+      frameClient.close();
+    }
+  }
+  ctx.assert(false, `Could not find the ${JSON.stringify(label)} control inside an artifact frame.`);
 }
 
 export default {
@@ -406,6 +517,16 @@ export default {
                   .every((file) => text.includes(file));
               })()`,
               { timeoutMs: 30_000, label: "complete artifact project file list" },
+            );
+            await ctx.waitFor(
+              `(() => {
+                const studio = document.querySelector(${JSON.stringify(STUDIO)});
+                const revision = studio?.querySelector("[data-ui-artifact-project-revision]")
+                  ?.getAttribute("data-ui-artifact-project-revision");
+                return studio?.innerText.includes("Launch Radar") &&
+                  revision === ${JSON.stringify(state.projectRevision)};
+              })()`,
+              { timeoutMs: 30_000, label: "loaded Launch Radar project snapshot" },
             );
           },
           assert: async () => {
@@ -625,6 +746,581 @@ export default {
             name: "dynamic-artifact-disabled-editable",
             requireText: ["Launch Radar", "Disabled", "Rebuild", "Live sandbox preview"],
             rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 9 — start a human-created artifact",
+      run: async (ctx) => {
+        await ctx.prove("The same managed library gives a person a clear create flow with an explicit reusable-project identity", {
+          voiceover: vo[8],
+          action: async () => {
+            await openArtifactLibrary(ctx);
+            await ctx.clickText("Create artifact", {
+              selector: `${STUDIO} button`,
+              timeoutMs: 30_000,
+            });
+            await ctx.waitForText("Create an artifact", { timeoutMs: 30_000 });
+            await ctx.fill('[role="dialog"] input[placeholder="Project pulse"]', "Incident Command Map");
+            await ctx.fill(
+              '[role="dialog"] input[placeholder="Show the status and next steps for my project"]',
+              "Coordinate owners, severity, evidence, and the next safe action.",
+            );
+            await ctx.waitForText("Workspace project: incident-command-map", {
+              timeoutMs: 30_000,
+            });
+          },
+          assert: async () => {
+            const dialog = await ctx.eval(`(() => {
+              const root = document.querySelector('[role="dialog"]');
+              const text = root?.innerText ?? "";
+              const create = [...(root?.querySelectorAll("button") ?? [])]
+                .find((button) => button.textContent?.includes("Create and edit"));
+              return {
+                found: Boolean(root),
+                hasName: text.includes("Name"),
+                hasPurpose: text.includes("What should it help with?"),
+                slug: text.includes("incident-command-map"),
+                canCreate: create?.disabled === false,
+              };
+            })()`);
+            ctx.assert(dialog.found, "The human artifact creation dialog did not open.");
+            ctx.assert(dialog.hasName && dialog.hasPurpose, "The creation flow is missing its name or purpose contract.");
+            ctx.assert(dialog.slug, "The creation flow did not expose the durable workspace slug.");
+            ctx.assert(dialog.canCreate, "A valid artifact draft cannot be created.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-create-dialog",
+            requireText: ["Create an artifact", "What should it help with?", "incident-command-map", "Create and edit"],
+            rejectText: ["Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 10 — restore agent authoring and project builds",
+      run: async (ctx) => {
+        await ctx.prove("Workspace skill and per-project switches are independent, visible controls rather than hidden agent configuration", {
+          voiceover: vo[9],
+          action: async () => {
+            await ctx.clickText("Close", {
+              selector: '[role="dialog"] button',
+              timeoutMs: 30_000,
+            });
+            await ctx.waitFor(
+              `!document.querySelector('[role="dialog"]')`,
+              { timeoutMs: 30_000, label: "artifact creation dialog closed" },
+            );
+            if (await ctx.eval(`Boolean(document.querySelector('[aria-label="Enable Artifact Builder skill"]'))`)) {
+              await ctx.trustedClick('[aria-label="Enable Artifact Builder skill"]', {
+                timeoutMs: 30_000,
+              });
+            }
+            if (await ctx.eval(`Boolean(document.querySelector('[aria-label="Enable Launch Radar"]'))`)) {
+              await ctx.trustedClick('[aria-label="Enable Launch Radar"]', {
+                timeoutMs: 30_000,
+              });
+            }
+            await ctx.waitFor(
+              `Boolean(document.querySelector('[aria-label="Disable Artifact Builder skill"]')) &&
+                Boolean(document.querySelector('[aria-label="Disable Launch Radar"]')) &&
+                document.body.innerText.includes("Injected")`,
+              { timeoutMs: 30_000, label: "workspace skill and Launch Radar both enabled" },
+            );
+          },
+          assert: async () => {
+            await ctx.expectText("Artifact Builder skill");
+            await ctx.expectText("Injected");
+            await ctx.expectText("Launch Radar");
+            const controls = await ctx.eval(`({
+              skillEnabled: Boolean(document.querySelector('[aria-label="Disable Artifact Builder skill"]')),
+              projectEnabled: Boolean(document.querySelector('[aria-label="Disable Launch Radar"]')),
+            })`);
+            ctx.assert(controls.skillEnabled, "The managed Artifact Builder skill is not enabled.");
+            ctx.assert(controls.projectEnabled, "Launch Radar is not enabled for new revisions.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-managed-controls",
+            requireText: ["Artifact Builder skill", "Injected", "Launch Radar", "Enabled"],
+            rejectText: ["Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 11 — stage a bounded agent intent",
+      run: async (ctx) => {
+        await ctx.prove("A component can request in-context help, but the bridge only stages a declared prompt and never executes tools or effects itself", {
+          voiceover: vo[10],
+          action: async () => {
+            await closeArtifactPanel(ctx);
+            await ctx.navigateHash(state.sessionRoute);
+            await waitForReadyAttachment(ctx);
+            await clickArtifactButton(ctx, "Ask agent about launch risk");
+            await ctx.waitFor(
+              `(() => {
+                const editable = document.querySelector('[contenteditable="true"]');
+                const text = editable?.textContent ?? "";
+                return text.includes("Stage this OpenWork artifact intent for the agent") &&
+                  text.includes("Intent: Explain launch risk (launch.explain)") &&
+                  text.includes("Do not execute tools or external effects automatically.");
+              })()`,
+              { timeoutMs: 30_000, label: "prompt-only artifact intent staged in composer" },
+            );
+          },
+          assert: async () => {
+            const composer = await ctx.eval(`document.querySelector('[contenteditable="true"]')?.textContent ?? ""`);
+            ctx.assert(
+              composer.includes("Intent: Explain launch risk (launch.explain)"),
+              "The declared launch.explain intent was not staged.",
+            );
+            ctx.assert(
+              composer.includes('"external":false'),
+              "The staged prompt does not preserve the declared no-external-effect contract.",
+            );
+            ctx.assert(
+              composer.includes("Confirmation policy: never"),
+              "The staged prompt does not preserve the manifest confirmation policy.",
+            );
+          },
+          screenshot: {
+            name: "dynamic-artifact-agent-intent",
+            requireText: [
+              "Stage this OpenWork artifact intent for the agent",
+              "Intent: Explain launch risk",
+            ],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 12 — inspect the versioned manifest",
+      run: async (ctx) => {
+        await ctx.prove("artifact.json is the explicit contract for protocol version, React entrypoint, data, presentation, declared intents, and effects", {
+          voiceover: vo[11],
+          action: async () => {
+            await ctx.control("composer.set_text", { text: "" });
+            await ctx.waitFor(
+              `!(document.querySelector('[contenteditable="true"]')?.textContent ?? "").trim()`,
+              { timeoutMs: 30_000, label: "composer cleared after intent proof" },
+            );
+            await openStudioFromAttachment(ctx);
+            await selectProjectFile(ctx, "artifact.json");
+            await ctx.waitFor(
+              `(() => {
+                const text = window.__artifactEditorView?.state?.doc?.toString() ?? "";
+                return text.includes('"protocol": "openwork.ui-artifact-project"') &&
+                  text.includes('"schemaVersion": 2') &&
+                  text.includes('"launch.explain"') &&
+                  text.includes('"external": false');
+              })()`,
+              { timeoutMs: 30_000, label: "complete artifact manifest contract" },
+            );
+          },
+          assert: async () => {
+            const manifest = JSON.parse(await readEditorText(ctx));
+            ctx.assert(manifest.protocol === "openwork.ui-artifact-project", "The project protocol is not explicit.");
+            ctx.assert(manifest.schemaVersion === 2 && manifest.apiVersion === 1, "The manifest versions are not pinned.");
+            ctx.assert(manifest.runtime?.kind === "react", "The runtime does not declare React.");
+            ctx.assert(manifest.presentation?.placement === "both", "The manifest does not support chat and artifact-tab placement.");
+            ctx.assert(manifest.intents?.[0]?.effects?.external === false, "The declared intent permits external effects.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-manifest-contract",
+            requireText: ["artifact.json", "Revision", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 13 — inspect the generated React component",
+      run: async (ctx) => {
+        await ctx.prove("The primary file is ordinary typed JSX with injected data, bounded state, and a narrow runtime adapter", {
+          voiceover: vo[12],
+          action: async () => {
+            await selectProjectFile(ctx, "src/App.tsx");
+            state.originalSource = await readEditorText(ctx);
+            await ctx.waitFor(
+              `(() => {
+                const text = window.__artifactEditorView?.state?.doc?.toString() ?? "";
+                return text.includes("export default function LaunchRadar") &&
+                  text.includes("runtime.replaceState") &&
+                  text.includes('runtime.invoke("launch.explain"');
+              })()`,
+              { timeoutMs: 30_000, label: "typed React component and bounded runtime calls" },
+            );
+          },
+          assert: async () => {
+            const source = await readEditorText(ctx);
+            ctx.assert(source.includes("type LaunchRadarProps"), "The generated component does not type its injected contract.");
+            ctx.assert(source.includes("runtime.replaceState"), "The component cannot use bounded local state.");
+            ctx.assert(source.includes('runtime.invoke("launch.explain"'), "The component cannot invoke its declared agent intent.");
+            ctx.assert(!source.includes("fetch("), "The generated source attempts direct network access.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-react-source",
+            requireText: ["src/App.tsx", "Revision", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 14 — inspect presentation as a separate file",
+      run: async (ctx) => {
+        await ctx.prove("Visual expression lives in styles.css, independently editable from the component, contract, and data", {
+          voiceover: vo[13],
+          action: async () => {
+            await selectProjectFile(ctx, "styles.css");
+            await ctx.waitFor(
+              `(() => {
+                const text = window.__artifactEditorView?.state?.doc?.toString() ?? "";
+                return text.includes(".launch-radar") &&
+                  text.includes(".watch-button") &&
+                  text.includes(".agent-button");
+              })()`,
+              { timeoutMs: 30_000, label: "artifact presentation stylesheet" },
+            );
+          },
+          assert: async () => {
+            const styles = await readEditorText(ctx);
+            ctx.assert(styles.includes("radial-gradient"), "The expressive visual treatment is not present.");
+            ctx.assert(styles.includes(".launch-grid"), "The artifact layout is not independently styled.");
+            ctx.assert(styles.includes(".agent-button"), "The in-context agent affordance has no presentation rule.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-styles",
+            requireText: ["styles.css", "Revision", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 15 — inspect portable artifact data",
+      run: async (ctx) => {
+        await ctx.prove("data.json makes the rendered values portable, inspectable, and separately enhanceable without rewriting JSX", {
+          voiceover: vo[14],
+          action: async () => {
+            await selectProjectFile(ctx, "data.json");
+            await ctx.waitFor(
+              `(() => {
+                const text = window.__artifactEditorView?.state?.doc?.toString() ?? "";
+                return text.includes('"launches"') &&
+                  text.includes('"Apollo"') &&
+                  text.includes('"readiness": 94');
+              })()`,
+              { timeoutMs: 30_000, label: "portable Launch Radar data" },
+            );
+          },
+          assert: async () => {
+            const data = JSON.parse(await readEditorText(ctx));
+            ctx.assert(Array.isArray(data.launches) && data.launches.length >= 3, "The artifact data is not a reusable launch collection.");
+            ctx.assert(data.launches[0]?.name === "Apollo", "The primary launch data is not preserved.");
+            ctx.assert(data.launches[0]?.readiness === 94, "The original readiness value is not pinned.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-data",
+            requireText: ["data.json", "Revision", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 16 — inspect the JSON Schema boundary",
+      run: async (ctx) => {
+        await ctx.prove("data.schema.json is the build-time data contract, keeping generated components honest before they ever reach the iframe", {
+          voiceover: vo[15],
+          action: async () => {
+            await selectProjectFile(ctx, "data.schema.json");
+            await ctx.waitFor(
+              `(() => {
+                const text = window.__artifactEditorView?.state?.doc?.toString() ?? "";
+                return text.includes('"type": "object"') &&
+                  text.includes('"required"') &&
+                  text.includes('"launches"');
+              })()`,
+              { timeoutMs: 30_000, label: "artifact JSON Schema contract" },
+            );
+          },
+          assert: async () => {
+            const schema = JSON.parse(await readEditorText(ctx));
+            ctx.assert(schema.type === "object", "The artifact data root is not constrained.");
+            ctx.assert(schema.required?.includes("launches"), "The launch collection is not required.");
+            ctx.assert(schema.properties?.launches?.type === "array", "The launch collection type is not declared.");
+            ctx.assert(schema.additionalProperties === false, "The root contract accepts undeclared data.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-json-schema",
+            requireText: ["data.schema.json", "Revision", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 17 — reject unsafe generated code",
+      run: async (ctx) => {
+        await ctx.prove("The code-mode compiler returns a structured diagnostic instead of publishing an obviously unbounded component", {
+          voiceover: vo[16],
+          action: async () => {
+            await selectProjectFile(ctx, "src/App.tsx");
+            await replaceEditorText(
+              ctx,
+              "export default function BrokenArtifact() { while (true) {} return <main>Broken</main> }\n",
+            );
+            await ctx.clickText("Rebuild", {
+              selector: `${STUDIO} button`,
+              timeoutMs: 30_000,
+            });
+            await ctx.waitForText(
+              "Potentially unbounded loops are not supported inside artifact components",
+              { timeoutMs: 60_000 },
+            );
+          },
+          assert: async () => {
+            await ctx.expectText("Artifact component could not be compiled");
+            await ctx.expectText("Potentially unbounded loops are not supported inside artifact components");
+            const diagnostic = await ctx.eval(`(() => {
+              const list = document.querySelector('[aria-label="Artifact build diagnostics"]');
+              return {
+                found: Boolean(list),
+                text: list?.innerText ?? "",
+                hasPreview: Boolean(
+                  document.querySelector(${JSON.stringify(`${STUDIO} [data-ui-artifact-studio-preview] iframe`)})
+                ),
+              };
+            })()`);
+            ctx.assert(diagnostic.found, "The compiler failure did not expose structured diagnostics.");
+            ctx.assert(
+              diagnostic.text.includes("line 1") && diagnostic.text.includes("column 44"),
+              "The diagnostic does not identify the failing source location.",
+            );
+            ctx.assert(diagnostic.hasPreview, "A failed rebuild removed the last known-good preview.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-compiler-diagnostic",
+            requireText: ["Artifact component could not be compiled", "Potentially unbounded loops", "Live sandbox preview"],
+            rejectText: ["Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 18 — publish an enhanced immutable revision",
+      run: async (ctx) => {
+        await ctx.prove("Restoring safe source and changing only data publishes a new immutable build while keeping its compiler receipt visible", {
+          voiceover: vo[17],
+          action: async () => {
+            ctx.assert(typeof state.originalSource === "string", "The original Launch Radar source was not captured.");
+            await replaceEditorText(ctx, state.originalSource);
+            await selectProjectFile(ctx, "data.json");
+            const dataText = await readEditorText(ctx);
+            ctx.assert(dataText.includes('"readiness": 94'), "The expected original readiness value is unavailable.");
+            await replaceEditorText(ctx, dataText.replace('"readiness": 94', '"readiness": 97'));
+            await ctx.clickText("Rebuild", {
+              selector: `${STUDIO} button`,
+              timeoutMs: 30_000,
+            });
+            await ctx.waitForText("Build ready:", { timeoutMs: 60_000 });
+            state.enhancedProjectRevision = await ctx.waitFor(
+              `(() => {
+                const revision = document.querySelector(${JSON.stringify(`${STUDIO} [data-ui-artifact-project-revision]`)})
+                  ?.getAttribute("data-ui-artifact-project-revision");
+                return revision && revision !== ${JSON.stringify(state.projectRevision)}
+                  ? revision
+                  : null;
+              })()`,
+              { timeoutMs: 30_000, label: "new immutable Launch Radar revision" },
+            );
+          },
+          assert: async () => {
+            const proof = await ctx.eval(`(() => {
+              const studio = document.querySelector(${JSON.stringify(STUDIO)});
+              return {
+                revision: studio?.querySelector("[data-ui-artifact-project-revision]")
+                  ?.getAttribute("data-ui-artifact-project-revision") ?? null,
+                diagnostic: studio?.innerText.includes("Build ready:") ?? false,
+                preview: Boolean(studio?.querySelector("[data-ui-artifact-studio-preview] iframe")),
+              };
+            })()`);
+            ctx.assert(proof.revision === state.enhancedProjectRevision, "The editor did not advance to the enhanced revision.");
+            ctx.assert(proof.revision !== state.projectRevision, "The enhanced build replaced the original revision identity.");
+            ctx.assert(proof.diagnostic, "The successful compiler receipt is not visible.");
+            ctx.assert(proof.preview, "The enhanced build has no live isolated preview.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-enhanced-revision",
+            requireText: ["Build ready:", "data.json", "Revision", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 19 — keep chat pinned to its original build",
+      run: async (ctx) => {
+        await ctx.prove("Evolving the reusable project never silently mutates an artifact already attached to a conversation", {
+          voiceover: vo[18],
+          action: async () => {
+            await closeArtifactPanel(ctx);
+            await ctx.navigateHash(state.sessionRoute);
+            await waitForReadyAttachment(ctx);
+          },
+          assert: async () => {
+            const attachment = await readAttachment(ctx);
+            ctx.assert(
+              attachment.projectRevision === state.projectRevision,
+              `The chat attachment silently moved from ${state.projectRevision} to ${attachment.projectRevision}.`,
+            );
+            ctx.assert(
+              attachment.projectRevision !== state.enhancedProjectRevision,
+              "The original chat card was silently upgraded to the new project revision.",
+            );
+            ctx.assert(
+              attachment.stateRevision === state.stateRevision &&
+                attachment.stateSummary === "watching-apollo",
+              "The pinned chat card lost its independent persisted interaction state.",
+            );
+          },
+          screenshot: {
+            name: "dynamic-artifact-chat-stays-pinned",
+            requireText: ["Launch Radar", "Open editor"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 20 — disable the enhanced project safely",
+      run: async (ctx) => {
+        await ctx.prove("Disabling a project blocks future publication but preserves the enhanced source, exact revision, and last known-good preview", {
+          voiceover: vo[19],
+          action: async () => {
+            await openArtifactLibrary(ctx);
+            await ctx.waitFor(
+              `Boolean(document.querySelector('[aria-label="Disable Launch Radar"]'))`,
+              { timeoutMs: 30_000, label: "enabled enhanced Launch Radar project" },
+            );
+            await ctx.trustedClick('[aria-label="Disable Launch Radar"]', {
+              timeoutMs: 30_000,
+            });
+            await ctx.waitFor(
+              `Boolean(document.querySelector('[aria-label="Enable Launch Radar"]'))`,
+              { timeoutMs: 30_000, label: "enhanced Launch Radar disabled" },
+            );
+            await ctx.clickText("Launch Radar", {
+              selector: '[data-ui-artifact-library-project="launch-radar"] button',
+              timeoutMs: 30_000,
+            });
+            await ctx.waitFor(
+              `(() => {
+                const studio = document.querySelector(${JSON.stringify(STUDIO)});
+                const revision = studio?.querySelector("[data-ui-artifact-project-revision]")
+                  ?.getAttribute("data-ui-artifact-project-revision");
+                const rebuild = [...(studio?.querySelectorAll("button") ?? [])]
+                  .find((button) => button.textContent?.includes("Rebuild"));
+                return revision === ${JSON.stringify(state.enhancedProjectRevision)} &&
+                  studio?.innerText.includes("Disabled · editing only") &&
+                  rebuild?.disabled === true &&
+                  Boolean(studio?.querySelector("[data-ui-artifact-studio-preview] iframe"));
+              })()`,
+              { timeoutMs: 30_000, label: "disabled enhanced project remains editable and previewable" },
+            );
+          },
+          assert: async () => {
+            const revision = await ctx.eval(
+              `document.querySelector(${JSON.stringify(`${STUDIO} [data-ui-artifact-project-revision]`)})
+                ?.getAttribute("data-ui-artifact-project-revision") ?? null`,
+            );
+            ctx.assert(revision === state.enhancedProjectRevision, "Disabling changed the enhanced revision.");
+            await ctx.expectText("Disabled · editing only");
+            await ctx.expectText("Live sandbox preview");
+          },
+          screenshot: {
+            name: "dynamic-artifact-enhanced-disabled",
+            requireText: ["Launch Radar", "Disabled", "Rebuild", "Live sandbox preview"],
+            rejectText: ["Artifact unavailable", "Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 21 — disable injected authoring without deleting work",
+      run: async (ctx) => {
+        await ctx.prove("The workspace can remove injected builder instructions while its reusable projects remain listed and pinned artifacts keep working", {
+          voiceover: vo[20],
+          action: async () => {
+            await openArtifactLibrary(ctx);
+            if (await ctx.eval(`Boolean(document.querySelector('[aria-label="Disable Artifact Builder skill"]'))`)) {
+              await ctx.trustedClick('[aria-label="Disable Artifact Builder skill"]', {
+                timeoutMs: 30_000,
+              });
+            }
+            await ctx.waitFor(
+              `Boolean(document.querySelector('[aria-label="Enable Artifact Builder skill"]')) &&
+                document.body.innerText.includes("Managed") &&
+                document.body.innerText.includes("Launch Radar")`,
+              { timeoutMs: 30_000, label: "builder skill disabled with project retained" },
+            );
+          },
+          assert: async () => {
+            await ctx.expectText("Disabled. Existing pinned artifacts still work");
+            await ctx.expectText("Managed");
+            await ctx.expectText("Launch Radar");
+            const retained = await ctx.eval(`Boolean(
+              document.querySelector('[data-ui-artifact-library-project="launch-radar"]')
+            )`);
+            ctx.assert(retained, "Disabling injected authoring removed the reusable project.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-builder-disabled-retained",
+            requireText: ["Artifact Builder skill", "Managed", "Launch Radar", "Disabled"],
+            rejectText: ["Something went wrong"],
+          },
+        });
+      },
+    },
+    {
+      name: "Frame 22 — coexist with standard native artifacts",
+      run: async (ctx) => {
+        await ctx.prove("Generated React projects and validated standard answer cards remain separate catalogs with independent lifecycle controls", {
+          voiceover: vo[21],
+          action: async () => {
+            await ctx.clickText("Standard", {
+              selector: '[role="tab"]',
+              timeoutMs: 30_000,
+            });
+            await ctx.waitForText("Native answer prototypes", { timeoutMs: 30_000 });
+          },
+          assert: async () => {
+            const text = await ctx.eval(`document.querySelector('[aria-label="UI artifacts"]')?.innerText ?? ""`);
+            for (const label of [
+              "Workspace brief",
+              "Calendar",
+              "Widgets",
+              "Conversation thread",
+              "Priority inbox",
+              "Attention queue",
+              "Approval queue",
+            ]) {
+              ctx.assert(text.includes(label), `The standard catalog is missing ${label}.`);
+            }
+            const standardSelected = await ctx.eval(`(() => {
+              const tab = [...document.querySelectorAll('[role="tab"]')]
+                .find((item) => item.textContent?.trim() === "Standard");
+              return tab?.getAttribute("aria-selected") === "true";
+            })()`);
+            ctx.assert(standardSelected, "The standard artifact catalog is not selected.");
+          },
+          screenshot: {
+            name: "dynamic-artifact-standard-coexistence",
+            requireText: ["Native answer prototypes", "Workspace brief", "Calendar", "Widgets"],
+            rejectText: ["Something went wrong"],
           },
         });
       },
