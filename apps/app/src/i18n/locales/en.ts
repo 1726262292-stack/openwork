@@ -612,6 +612,8 @@ export default {
   "extensions.badge_mcp": "MCP",
   "extensions.badge_plugin": "Plugin",
   "extensions.badge_skill": "Skill",
+  "extensions.empty_connections": "{org} has not shared any connections with you yet. An admin adds them in the OpenWork Cloud dashboard.",
+  "extensions.empty_connections_signed_out": "Connections are shared by your organization. Sign in to OpenWork Cloud from Account to see yours.",
   "extensions.filter_all": "All",
   "extensions.filter_apps": "Apps",
   "extensions.filter_connections": "Connections",

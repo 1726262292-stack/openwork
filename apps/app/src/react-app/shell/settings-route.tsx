@@ -1845,10 +1845,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }),
     [connectionsSnapshot.mcpServers, enablementContext, extensionController, extensionsSnapshot, extensionsStore, orgMcpConnections.connections, quickConnectCatalog],
   );
-  const installedOrgMcpConnectionItems = useMemo(
-    () => extensionItems.orgMcpConnectionItems.filter((item) => item.installState === "installed"),
-    [extensionItems.orgMcpConnectionItems],
-  );
+  // Every connection the organization provisioned for this member, connected
+  // or not: one that still needs the member's sign-in is the whole reason the
+  // "Needs your attention" group exists, so it must not be filtered out here.
+  const orgMcpConnectionItems = extensionItems.orgMcpConnectionItems;
   const organizationConnectionsProbe = resolveOrganizationConnectionsProbe({
     signedIn: cloudSession.isSignedIn,
     activeOrganizationId: cloudSession.activeOrganization?.id,
@@ -2352,14 +2352,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   ),
                 ]}
                 availableConnectMcpServers={connectCapabilities.mcpServers.filter(
-                  (entry) => !installedOrgMcpConnectionItems.some((item) =>
+                  (entry) => !orgMcpConnectionItems.some((item) =>
                     item.name.localeCompare(entry.name, undefined, { sensitivity: "accent" }) === 0
                   ),
                 )}
                 availableConnectMcpStatuses={connectCapabilities.mcpStatuses}
                 inventoryLoading={connectCapabilitiesLoading || (orgMcpConnections.loading && !orgMcpConnections.loaded)}
                 installedPlugins={extensionItems.installedCloudPlugins}
-                installedOrgMcpItems={installedOrgMcpConnectionItems}
+                orgMcpItems={orgMcpConnectionItems}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
                 orgMcpDisconnectingId={orgMcpConnections.disconnectingId}

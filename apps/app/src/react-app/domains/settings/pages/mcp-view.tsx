@@ -151,7 +151,7 @@ export type McpViewProps = {
   /** Install a Claude Code plugin bundle from a GitHub URL. */
   installClaudePlugin?: (url: string) => Promise<{ ok: boolean; message: string }>;
   /** Connected org-level External MCP Connections rendered in My Extensions. */
-  installedOrgMcpItems?: ExtensionItem[];
+  orgMcpItems?: ExtensionItem[];
   orgMcpDisconnectingId?: string | null;
   disconnectOrgMcp?: (connectionId: string) => void;
   initialFilter?: ExtensionInventoryFilter;
@@ -395,7 +395,7 @@ export function McpView(props: McpViewProps) {
   const installedSkills = props.installedSkills ?? [];
   const availableConnectMcpServers = props.availableConnectMcpServers ?? [];
   const installedPlugins = props.installedPlugins ?? [];
-  const installedOrgMcpItems = props.installedOrgMcpItems ?? [];
+  const orgMcpItems = props.orgMcpItems ?? [];
   const detailPresentation = useRoutedDetail ? "page" : "dialog";
   const setInventoryFilter = (nextFilter: ExtensionInventoryFilter) => {
     setFilter(nextFilter);
@@ -442,7 +442,7 @@ export function McpView(props: McpViewProps) {
       skills: installedSkills,
       connectMcps: availableConnectMcpServers,
       plugins: installedPlugins,
-      orgMcpItems: installedOrgMcpItems,
+      orgMcpItems,
     });
     setDetailTarget(resolved);
     if (resolved?.kind === "skill") {
@@ -465,7 +465,7 @@ export function McpView(props: McpViewProps) {
     installedSkills,
     availableConnectMcpServers,
     installedPlugins,
-    installedOrgMcpItems,
+    orgMcpItems,
   ]);
 
   useEffect(() => {
@@ -980,6 +980,7 @@ export function McpView(props: McpViewProps) {
         availableConnectMcpStatuses={props.availableConnectMcpStatuses ?? {}}
         loading={props.inventoryLoading === true}
         layout={layout}
+        filter={filter}
         installedPlugins={
           installedPlugins.filter((plugin) => {
             if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
@@ -992,8 +993,8 @@ export function McpView(props: McpViewProps) {
               .includes(q);
           })
         }
-        installedOrgMcpItems={
-          installedOrgMcpItems.filter((item) => {
+        orgMcpItems={
+          orgMcpItems.filter((item) => {
             if (!isOrgMcpConnectionItem(item)) return false;
             if (!matchesExtensionFilter(filter, "connection")) return false;
             if (!search.trim()) return true;
@@ -1206,8 +1207,9 @@ function McpQuickConnectSection(props: {
   availableConnectMcpStatuses: McpStatusMap;
   loading: boolean;
   layout: ExtensionLayout;
+  filter: ExtensionInventoryFilter;
   installedPlugins?: CloudImportedPlugin[];
-  installedOrgMcpItems?: ExtensionItem[];
+  orgMcpItems?: ExtensionItem[];
   organizationName?: string | null;
   busy: boolean;
   connectingName: string | null;
@@ -1347,7 +1349,7 @@ function McpQuickConnectSection(props: {
     });
   }
 
-  for (const item of (props.installedOrgMcpItems ?? []).filter(isOrgMcpConnectionItem)) {
+  for (const item of (props.orgMcpItems ?? []).filter(isOrgMcpConnectionItem)) {
     const connection = item.orgMcpConnection;
     const canDisconnect = canDisconnectNativeProviderAccount(connection);
     const disconnecting = props.orgMcpDisconnectingId === connection.id;
@@ -1406,7 +1408,13 @@ function McpQuickConnectSection(props: {
         <div className="rounded-xl border border-dashed border-dls-border px-5 py-10 text-center">
           <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
           <div className="text-sm font-medium text-dls-secondary">No extensions found</div>
-          <div className="mt-1 text-xs text-dls-secondary/60">Try a different search or filter, or add an MCP server.</div>
+          <div className="mt-1 text-xs text-dls-secondary/60">
+            {props.filter === "connection"
+              ? props.organizationName?.trim()
+                ? t("extensions.empty_connections", { org: props.organizationName.trim() })
+                : t("extensions.empty_connections_signed_out")
+              : "Try a different search or filter, or add an MCP server."}
+          </div>
         </div>
       ) : (
         grouped.map(({ group, cards: groupCards }) => (
