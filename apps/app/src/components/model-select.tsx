@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, Settings2, Sparkles } from "lucide-react";
+import { ChevronDown, Settings2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import type { ModelOption, ModelRef } from "@/app/types";
@@ -354,16 +354,22 @@ export function ModelSelect({
                 key={group.value}
                 items={group.items}
               >
-                <CommandGroupLabel className={group.promo ? "flex items-center gap-1.5 text-foreground" : undefined}>
-                  {group.promo ? <Sparkles className="size-3 text-blue-11" /> : null}
-                  {group.value}
+                <CommandGroupLabel className={group.promo ? "flex items-baseline justify-between gap-2" : undefined}>
+                  {group.promo ? (
+                    <>
+                      <span>{group.value}</span>
+                      <span className="shrink-0 font-normal text-muted-foreground">hosted · no API keys</span>
+                    </>
+                  ) : (
+                    group.value
+                  )}
                 </CommandGroupLabel>
                 <CommandCollection>
                   {(item: ModelSelectItem) => {
                     if (item.kind === "openwork") {
                       return (
                         <CommandItem
-                          className="gap-2 border border-blue-6/50 bg-blue-2/40 data-highlighted:bg-blue-3"
+                          className="gap-2"
                           key={item.id}
                           value={`${OPENWORK_MODELS_PROVIDER_NAME} ${item.title} ${item.id} sign in subscribe`}
                           onClick={handleOpenWorkModels}
@@ -371,21 +377,14 @@ export function ModelSelect({
                           <ProviderIcon
                             providerId={OPENWORK_MODELS_PROVIDER_ID}
                             providerName={OPENWORK_MODELS_PROVIDER_NAME}
-                            className="size-3.5 text-blue-11"
+                            className="size-3.5 opacity-70"
                             size={14}
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-foreground">
                               {item.title}
                             </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {item.subtitle} - {denAuth.isSignedIn ? "Subscribe to add this model" : "Sign in to unlock"}
-                            </span>
                           </span>
-                          <span className="shrink-0 rounded-full border border-blue-6 bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">
-                            {denAuth.isSignedIn ? "Subscribe" : "Sign in"}
-                          </span>
-                          <ChevronRight className="size-3.5 text-blue-11" />
                         </CommandItem>
                       );
                     }
@@ -418,6 +417,20 @@ export function ModelSelect({
                     );
                   }}
                 </CommandCollection>
+                {group.promo ? (
+                  <button
+                    type="button"
+                    className="mx-1 mb-1.5 mt-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md bg-blue-2 px-3 py-2 text-left transition-colors hover:bg-blue-3"
+                    onClick={handleOpenWorkModels}
+                  >
+                    <span className="min-w-0 flex-1 text-xs leading-4 text-foreground">
+                      One subscription unlocks these in every workspace.
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-blue-11">
+                      {denAuth.isSignedIn ? "Enable →" : "Sign in →"}
+                    </span>
+                  </button>
+                ) : null}
               </CommandGroup>
             )}
           </CommandList>
