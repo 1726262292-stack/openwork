@@ -6,6 +6,8 @@
  * idempotent deterministic ticks, restart recovery, needs-attention, and
  * pause behavior against server ground truth.
  */
+import { mkdir } from "node:fs/promises";
+
 import { defineFlow, type FlowContext } from "../runner/flow.ts";
 
 const REQUEST = [
@@ -136,11 +138,38 @@ function runTrigger(run: unknown) {
   return typeof trigger === "string" ? trigger : "";
 }
 
+async function finishPendingWorkspaceOnboarding(ctx: FlowContext) {
+  const providerStep = await ctx.eval(`Boolean([...document.querySelectorAll("button")]
+    .find((button) => button.textContent?.includes("Skip and use the free model")))`);
+  if (providerStep) {
+    await ctx.clickText("Skip and use the free model", {
+      selector: "button",
+      timeoutMs: 10_000,
+    });
+    await ctx.waitFor(`location.hash.includes("/workspace/")
+      || [...document.querySelectorAll("button")]
+        .some((button) => button.textContent?.trim() === "Skip")`, {
+      timeoutMs: 10_000,
+      label: "attribution step after provider selection",
+    });
+  }
+
+  const attributionStep = await ctx.eval(`Boolean([...document.querySelectorAll("button")]
+    .find((button) => button.textContent?.trim() === "Skip"))`);
+  if (attributionStep) {
+    await ctx.clickText("Skip", {
+      selector: "button",
+      timeoutMs: 10_000,
+    });
+  }
+}
+
 export default defineFlow({
   id: "scheduled-tasks-e2e",
   title: "Scheduled Tasks are proposed, reviewed, run, recovered, and paused safely",
   kind: "user-facing",
   spec: "SCHEDULED-TASKS",
+  requiredEnv: ["OPENWORK_EVAL_WORKSPACE_PATH"],
   requiresApp: true,
   steps: [
     {
@@ -150,15 +179,73 @@ export default defineFlow({
           timeoutMs: 30_000,
           label: "OpenWork semantic control",
         });
-        const workspaceId = await ctx.eval(`(() => {
+        const workspacePath = requireString(
+          ctx.env.OPENWORK_EVAL_WORKSPACE_PATH,
+          "OPENWORK_EVAL_WORKSPACE_PATH",
+        );
+        await mkdir(workspacePath, { recursive: true });
+        await finishPendingWorkspaceOnboarding(ctx);
+
+        let workspaceId = await ctx.eval(`(() => {
           const context = window.__openworkControl.context();
           return context.screen.workspaceId || context.resources
             .find((resource) => resource.kind === "workspace")?.ref.replace(/^workspace:/, "") || "";
         })()`);
+        if (!workspaceId) {
+          const welcomeInput = 'input[placeholder="/workspace/my-project"]';
+          const onWelcome = await ctx.eval(
+            `Boolean(document.querySelector(${JSON.stringify(welcomeInput)}))`,
+          );
+          if (onWelcome) {
+            await ctx.fill(welcomeInput, workspacePath);
+            await ctx.clickText("Use this folder", {
+              selector: "button",
+              timeoutMs: 10_000,
+            });
+          } else {
+            await ctx.waitFor(
+              "window.__openworkControl.listActions().some((action) => action.id === 'workspace.create' && !action.disabled)",
+              { timeoutMs: 30_000, label: "workspace.create" },
+            );
+            await ctx.control("workspace.create", {
+              path: workspacePath,
+              projectLabel: "Scheduled Tasks eval",
+            });
+          }
+          await ctx.waitFor(`location.hash.includes("/workspace/")
+            || [...document.querySelectorAll("button")]
+              .some((button) => button.textContent?.includes("Skip and use the free model"))`, {
+            timeoutMs: 60_000,
+            label: "Scheduled Tasks workspace or provider step",
+          });
+          await finishPendingWorkspaceOnboarding(ctx);
+          await ctx.waitFor("location.hash.includes('/workspace/')", {
+            timeoutMs: 60_000,
+            label: "Scheduled Tasks eval workspace route",
+          });
+          workspaceId = await ctx.waitFor(`(() => {
+            const context = window.__openworkControl.context();
+            return context.screen.workspaceId || context.resources
+              .find((resource) => resource.kind === "workspace")?.ref.replace(/^workspace:/, "") || null;
+          })()`, {
+            timeoutMs: 60_000,
+            label: "Scheduled Tasks eval workspace context",
+          });
+        }
         state.workspaceId = requireString(workspaceId, "workspaceId");
+        const composerReady = await ctx.eval(
+          "window.__openworkControl.listActions().some((action) => action.id === 'composer.set_text' && !action.disabled)",
+        );
+        if (!composerReady) {
+          await ctx.waitFor(
+            "window.__openworkControl.listActions().some((action) => action.id === 'session.create_task' && !action.disabled)",
+            { timeoutMs: 30_000, label: "session.create_task" },
+          );
+          await ctx.control("session.create_task");
+        }
         await ctx.waitFor(
           "window.__openworkControl.listActions().some((action) => action.id === 'composer.set_text' && !action.disabled)",
-          { timeoutMs: 30_000, label: "composer.set_text" },
+          { timeoutMs: 60_000, label: "composer.set_text" },
         );
       },
     },
