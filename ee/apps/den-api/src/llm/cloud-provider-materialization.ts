@@ -1,0 +1,767 @@
+import { createHash } from "node:crypto"
+import { and, asc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
+import {
+  LlmProviderModelTable,
+  LlmProviderTable,
+  WorkerTable,
+  WorkerTokenTable,
+} from "@openwork-ee/den-db/schema"
+import { db } from "../db.js"
+import { appLogger } from "../observability/logger.js"
+import { decodeProviderCredential, readProviderEnvNames } from "./provider-credentials.js"
+
+type JsonRecord = Record<string, unknown>
+type OrganizationId = typeof LlmProviderTable.$inferSelect.organizationId
+type WorkerId = typeof WorkerTable.$inferSelect.id
+type WorkerTokenScope = typeof WorkerTokenTable.$inferSelect.scope
+type LlmProviderId = typeof LlmProviderTable.$inferSelect.id
+type LlmProviderSource = typeof LlmProviderTable.$inferSelect.source
+
+type EnvEntry = {
+  key: string
+  value: string
+}
+
+type WorkerToken = {
+  scope: WorkerTokenScope
+  token: string
+}
+
+export type CloudProviderMaterializationProvider = {
+  id: LlmProviderId
+  source: LlmProviderSource
+  providerId: string
+  name: string
+  providerConfig: JsonRecord
+  apiKey: string | null
+  models: Array<{
+    modelId: string
+    name: string
+    modelConfig: JsonRecord
+  }>
+}
+
+export type CloudProviderMaterializationStore = {
+  listProviders: (organizationId: OrganizationId) => Promise<CloudProviderMaterializationProvider[]>
+  getActiveTokens: (workerId: WorkerId) => Promise<WorkerToken[]>
+}
+
+type MaterializedProvider = {
+  provider: CloudProviderMaterializationProvider
+  runtimeProviderId: string
+  config: JsonRecord
+  envEntries: EnvEntry[]
+}
+
+type PreparedMaterialization = {
+  fingerprint: string
+  providers: MaterializedProvider[]
+  envEntries: EnvEntry[]
+}
+
+type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>
+
+type MaterializationLogger = {
+  warn: (message: string, metadata?: JsonRecord) => void
+}
+
+export type CloudProviderMaterializationResult =
+  | {
+      ok: true
+      status: "applied" | "noop" | "cached"
+      fingerprint: string
+      providers: number
+    }
+  | {
+      ok: false
+      status: "failed"
+      error: "provider_materialization_failed"
+      reason: string
+      message: string
+      fingerprint: string | null
+      providers: number
+    }
+
+export type MaterializeCloudWorkerProviders = typeof materializeCloudWorkerProviders
+
+export const OPENWORK_PROVIDERS_FINGERPRINT_ENV = "OPENWORK_PROVIDERS_FINGERPRINT"
+
+const logger = appLogger.child({ component: "cloud_provider_materialization" })
+const requestTimeoutMs = 8_000
+const materializedFingerprintByWorker = new Map<WorkerId, string>()
+const modelConfigPassthroughKeys = [
+  "family",
+  "release_date",
+  "attachment",
+  "reasoning",
+  "temperature",
+  "tool_call",
+  "interleaved",
+  "cost",
+  "limit",
+  "modalities",
+  "status",
+  "options",
+  "headers",
+  "provider",
+  "variants",
+]
+
+const databaseMaterializationStore: CloudProviderMaterializationStore = {
+  async listProviders(organizationId) {
+    const providers = await db
+      .select()
+      .from(LlmProviderTable)
+      .where(eq(LlmProviderTable.organizationId, organizationId))
+      .orderBy(asc(LlmProviderTable.id))
+
+    if (providers.length === 0) {
+      return []
+    }
+
+    const providerIds = providers.map((provider) => provider.id)
+    const models = await db
+      .select()
+      .from(LlmProviderModelTable)
+      .where(inArray(LlmProviderModelTable.llmProviderId, providerIds))
+      .orderBy(asc(LlmProviderModelTable.llmProviderId), asc(LlmProviderModelTable.modelId))
+
+    const modelsByProvider = new Map<LlmProviderId, CloudProviderMaterializationProvider["models"]>()
+    for (const model of models) {
+      const existing = modelsByProvider.get(model.llmProviderId) ?? []
+      existing.push({
+        modelId: model.modelId,
+        name: model.name,
+        modelConfig: model.modelConfig,
+      })
+      modelsByProvider.set(model.llmProviderId, existing)
+    }
+
+    return providers.map((provider) => ({
+      id: provider.id,
+      source: provider.source,
+      providerId: provider.providerId,
+      name: provider.name,
+      providerConfig: provider.providerConfig,
+      apiKey: provider.apiKey ?? null,
+      models: modelsByProvider.get(provider.id) ?? [],
+    }))
+  },
+  async getActiveTokens(workerId) {
+    return db
+      .select({ scope: WorkerTokenTable.scope, token: WorkerTokenTable.token })
+      .from(WorkerTokenTable)
+      .where(and(eq(WorkerTokenTable.worker_id, workerId), isNull(WorkerTokenTable.revoked_at)))
+  },
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableValue)
+  }
+
+  if (!isRecord(value)) {
+    return value
+  }
+
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, stableValue(value[key])]),
+  )
+}
+
+function stableJson(value: unknown) {
+  return JSON.stringify(stableValue(value))
+}
+
+function hashString(value: string) {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function normalizeBaseUrl(value: string) {
+  return value.trim().replace(/\/+$/, "")
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function readStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : []
+}
+
+function runtimeProviderId(provider: Pick<CloudProviderMaterializationProvider, "id" | "source">) {
+  return provider.source === "openwork" ? "openwork" : provider.id.trim()
+}
+
+function isCloudManagedProviderKey(providerId: string) {
+  return /^lpr_/i.test(providerId) || providerId.trim() === "openwork"
+}
+
+function upsertEnvEntry(entries: EnvEntry[], key: string, value: string) {
+  const trimmedKey = key.trim()
+  const trimmedValue = value.trim()
+  if (!trimmedKey || !trimmedValue) {
+    return
+  }
+
+  const existing = entries.find((entry) => entry.key === trimmedKey)
+  if (existing) {
+    existing.value = trimmedValue
+    return
+  }
+
+  entries.push({ key: trimmedKey, value: trimmedValue })
+}
+
+function readOpenWorkInferenceBaseUrl(providerConfig: JsonRecord) {
+  const options = providerConfig.options
+  if (isRecord(options)) {
+    const baseUrl = readString(options.baseURL)
+    if (baseUrl) {
+      return baseUrl.replace(/\/api\/v1\/?$/, "")
+    }
+  }
+
+  const api = readString(providerConfig.api)
+  return api ? api.replace(/\/api\/v1\/?$/, "") : null
+}
+
+function providerEnvEntries(provider: CloudProviderMaterializationProvider): EnvEntry[] {
+  const entries: EnvEntry[] = []
+  const envNames = readProviderEnvNames(provider.providerConfig)
+  const credential = decodeProviderCredential(provider.apiKey)
+
+  if (credential.apiKeys) {
+    const keys = Object.keys(credential.apiKeys)
+    const orderedNames = [
+      ...envNames.filter((name) => keys.includes(name)),
+      ...keys.filter((name) => !envNames.includes(name)),
+    ]
+    for (const name of orderedNames) {
+      upsertEnvEntry(entries, name, credential.apiKeys[name] ?? "")
+    }
+  }
+
+  if (credential.apiKey && envNames[0]) {
+    upsertEnvEntry(entries, envNames[0], credential.apiKey)
+  }
+
+  const primaryCredential = credential.apiKey?.trim() || entries[0]?.value || ""
+  if (provider.source === "openwork" && primaryCredential) {
+    upsertEnvEntry(entries, "OPENWORK_API_KEY", primaryCredential)
+    const baseUrl = readOpenWorkInferenceBaseUrl(provider.providerConfig)
+    if (baseUrl) {
+      upsertEnvEntry(entries, "OPENWORK_INFERENCE_BASE_URL", baseUrl)
+    }
+  }
+
+  return entries
+}
+
+function buildModelConfig(model: CloudProviderMaterializationProvider["models"][number]) {
+  const next: JsonRecord = {
+    id: model.modelId,
+    name: model.name,
+  }
+
+  for (const key of modelConfigPassthroughKeys) {
+    const value = model.modelConfig[key]
+    if (value !== undefined) {
+      next[key] = value
+    }
+  }
+
+  return next
+}
+
+function buildProviderConfig(provider: CloudProviderMaterializationProvider) {
+  const models: JsonRecord = {}
+  const sortedModels = [...provider.models].sort((left, right) => left.modelId.localeCompare(right.modelId))
+  for (const model of sortedModels) {
+    models[model.modelId] = buildModelConfig(model)
+  }
+
+  const config: JsonRecord = {
+    id: provider.providerId,
+    name: provider.name,
+    env: readProviderEnvNames(provider.providerConfig),
+  }
+
+  if (Object.keys(models).length > 0 || provider.source !== "openwork") {
+    config.models = models
+  }
+
+  const npm = readString(provider.providerConfig.npm)
+  if (npm) {
+    config.npm = npm
+  }
+
+  const api = readString(provider.providerConfig.api)
+  if (api) {
+    config.api = api
+  }
+
+  const options = provider.providerConfig.options
+  if (isRecord(options)) {
+    config.options = options
+  }
+
+  const whitelist = readStringList(provider.providerConfig.whitelist)
+  if (whitelist.length > 0) {
+    config.whitelist = whitelist
+  }
+
+  const blacklist = readStringList(provider.providerConfig.blacklist)
+  if (blacklist.length > 0) {
+    config.blacklist = blacklist
+  }
+
+  return config
+}
+
+function providerHasRequiredCredential(provider: CloudProviderMaterializationProvider, envEntries: EnvEntry[]) {
+  const envNames = readProviderEnvNames(provider.providerConfig)
+  if (envNames.length === 0) {
+    return true
+  }
+
+  return envEntries.some((entry) => envNames.includes(entry.key))
+}
+
+function prepareMaterialization(providers: CloudProviderMaterializationProvider[]): PreparedMaterialization {
+  const materialized = providers
+    .map((provider) => {
+      const envEntries = providerEnvEntries(provider)
+      if (!providerHasRequiredCredential(provider, envEntries)) {
+        return null
+      }
+
+      return {
+        provider,
+        runtimeProviderId: runtimeProviderId(provider),
+        config: buildProviderConfig(provider),
+        envEntries,
+      }
+    })
+    .filter((entry): entry is MaterializedProvider => entry !== null)
+    .sort((left, right) => left.runtimeProviderId.localeCompare(right.runtimeProviderId))
+
+  const envEntries: EnvEntry[] = []
+  for (const provider of materialized) {
+    for (const entry of provider.envEntries) {
+      upsertEnvEntry(envEntries, entry.key, entry.value)
+    }
+  }
+
+  const fingerprintPayload = materialized.map((entry) => ({
+    id: entry.provider.id,
+    runtimeProviderId: entry.runtimeProviderId,
+    source: entry.provider.source,
+    providerId: entry.provider.providerId,
+    config: entry.config,
+    keyHashes: entry.envEntries
+      .map((envEntry) => ({ key: envEntry.key, hash: hashString(envEntry.value) }))
+      .sort((left, right) => left.key.localeCompare(right.key)),
+  }))
+
+  return {
+    fingerprint: `owp:v1:${hashString(stableJson(fingerprintPayload))}`,
+    providers: materialized,
+    envEntries,
+  }
+}
+
+export function computeCloudProviderMaterializationFingerprint(providers: CloudProviderMaterializationProvider[]) {
+  return prepareMaterialization(providers).fingerprint
+}
+
+async function fetchWithTimeout(fetchImpl: FetchImpl, url: string, init: RequestInit = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function readJsonObject(response: Response) {
+  const text = await response.text()
+  if (!text.trim()) {
+    return {}
+  }
+
+  const parsed = JSON.parse(text)
+  return isRecord(parsed) ? parsed : {}
+}
+
+function bearerHeaders(clientToken: string) {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${clientToken}`,
+  }
+}
+
+function hostTokenHeaders(hostToken: string) {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "X-OpenWork-Host-Token": hostToken,
+  }
+}
+
+async function requestJson(input: {
+  fetchImpl: FetchImpl
+  label: string
+  url: string
+  init: RequestInit
+}) {
+  const response = await fetchWithTimeout(input.fetchImpl, input.url, input.init)
+  if (!response.ok) {
+    throw new Error(`${input.label}_failed_${response.status}`)
+  }
+
+  return readJsonObject(response)
+}
+
+async function requestOk(input: {
+  fetchImpl: FetchImpl
+  label: string
+  url: string
+  init: RequestInit
+}) {
+  const response = await fetchWithTimeout(input.fetchImpl, input.url, input.init)
+  if (!response.ok) {
+    throw new Error(`${input.label}_failed_${response.status}`)
+  }
+}
+
+function readWorkspaceId(payload: JsonRecord) {
+  const activeId = readString(payload.activeId)
+  const rawItems = Array.isArray(payload.items)
+    ? payload.items
+    : Array.isArray(payload.workspaces)
+      ? payload.workspaces
+      : []
+  const items = rawItems.filter(isRecord)
+  if (activeId && items.some((item) => readString(item.id) === activeId)) {
+    return activeId
+  }
+
+  for (const item of items) {
+    const id = readString(item.id)
+    if (id) {
+      return id
+    }
+  }
+
+  return activeId
+}
+
+async function discoverWorkspaceId(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+}) {
+  const payload = await requestJson({
+    fetchImpl: input.fetchImpl,
+    label: "workspace_discovery",
+    url: `${input.instanceUrl}/workspaces`,
+    init: {
+      method: "GET",
+      headers: bearerHeaders(input.clientToken),
+    },
+  })
+  const workspaceId = readWorkspaceId(payload)
+  if (!workspaceId) {
+    throw new Error("workspace_discovery_missing_workspace")
+  }
+
+  return workspaceId
+}
+
+async function readStoredFingerprint(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  hostToken: string
+}) {
+  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/env/${OPENWORK_PROVIDERS_FINGERPRINT_ENV}`, {
+    method: "GET",
+    headers: hostTokenHeaders(input.hostToken),
+  })
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw new Error(`fingerprint_read_failed_${response.status}`)
+  }
+
+  const payload = await readJsonObject(response)
+  const item = isRecord(payload.item) ? payload.item : null
+  return item ? readString(item.value) : null
+}
+
+async function readRuntimeManagedProviderIds(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+  workspaceId: string
+}) {
+  const payload = await requestJson({
+    fetchImpl: input.fetchImpl,
+    label: "runtime_config_read",
+    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/runtime-config`,
+    init: {
+      method: "GET",
+      headers: bearerHeaders(input.clientToken),
+    },
+  })
+  const runtime = isRecord(payload.runtime) ? payload.runtime : null
+  const provider = runtime && isRecord(runtime.provider) ? runtime.provider : null
+  return provider ? Object.keys(provider).filter(isCloudManagedProviderKey) : []
+}
+
+function buildRuntimeProviderPatch(prepared: PreparedMaterialization, currentManagedProviderIds: string[]) {
+  const desiredIds = new Set(prepared.providers.map((provider) => provider.runtimeProviderId))
+  const patch: JsonRecord = {}
+  for (const providerId of currentManagedProviderIds) {
+    if (!desiredIds.has(providerId)) {
+      patch[providerId] = null
+    }
+  }
+
+  for (const provider of prepared.providers) {
+    patch[provider.runtimeProviderId] = provider.config
+  }
+
+  return patch
+}
+
+async function writeEnvEntries(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  hostToken: string
+  entries: EnvEntry[]
+}) {
+  if (input.entries.length === 0) {
+    return
+  }
+
+  await requestOk({
+    fetchImpl: input.fetchImpl,
+    label: "env_write",
+    url: `${input.instanceUrl}/env`,
+    init: {
+      method: "PUT",
+      headers: hostTokenHeaders(input.hostToken),
+      body: JSON.stringify({ entries: input.entries }),
+    },
+  })
+}
+
+async function patchRuntimeProviders(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+  workspaceId: string
+  patch: JsonRecord
+}) {
+  if (Object.keys(input.patch).length === 0) {
+    return
+  }
+
+  await requestOk({
+    fetchImpl: input.fetchImpl,
+    label: "runtime_config_patch",
+    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/config`,
+    init: {
+      method: "PATCH",
+      headers: bearerHeaders(input.clientToken),
+      body: JSON.stringify({ opencode: { provider: input.patch } }),
+    },
+  })
+}
+
+async function reloadOpencode(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+  workspaceId: string
+}) {
+  await requestOk({
+    fetchImpl: input.fetchImpl,
+    label: "opencode_reload",
+    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/engine/reload`,
+    init: {
+      method: "POST",
+      headers: bearerHeaders(input.clientToken),
+    },
+  })
+}
+
+async function resolveTokens(input: {
+  workerId: WorkerId
+  hostToken?: string
+  clientToken?: string
+  store: CloudProviderMaterializationStore
+}) {
+  let hostToken = input.hostToken?.trim() ?? ""
+  let clientToken = input.clientToken?.trim() ?? ""
+  if (hostToken && clientToken) {
+    return { hostToken, clientToken }
+  }
+
+  const tokens = await input.store.getActiveTokens(input.workerId)
+  hostToken = hostToken || tokens.find((token) => token.scope === "host")?.token.trim() || ""
+  clientToken = clientToken || tokens.find((token) => token.scope === "client")?.token.trim() || ""
+  return { hostToken, clientToken }
+}
+
+function failureResult(input: {
+  reason: string
+  error: unknown
+  fingerprint: string | null
+  providers: number
+}) {
+  const message = input.error instanceof Error ? input.error.message : input.reason
+  return {
+    ok: false,
+    status: "failed",
+    error: "provider_materialization_failed",
+    reason: input.reason,
+    message,
+    fingerprint: input.fingerprint,
+    providers: input.providers,
+  } satisfies CloudProviderMaterializationResult
+}
+
+function logFailure(input: {
+  logger: MaterializationLogger
+  workerId: WorkerId
+  organizationId: OrganizationId
+  result: Extract<CloudProviderMaterializationResult, { ok: false }>
+}) {
+  input.logger.warn("cloud provider materialization failed", {
+    worker_id: input.workerId,
+    organization_id: input.organizationId,
+    reason: input.result.reason,
+    message: input.result.message,
+    fingerprint: input.result.fingerprint,
+    providers: input.result.providers,
+  })
+}
+
+export async function materializeCloudWorkerProviders(input: {
+  organizationId: OrganizationId
+  workerId: WorkerId
+  instanceUrl: string
+  hostToken?: string
+  clientToken?: string
+  force?: boolean
+  store?: CloudProviderMaterializationStore
+  fetchImpl?: FetchImpl
+  logger?: MaterializationLogger
+}): Promise<CloudProviderMaterializationResult> {
+  const materializationLogger = input.logger ?? logger
+  const store = input.store ?? databaseMaterializationStore
+  const fetchImpl = input.fetchImpl ?? fetch
+  const instanceUrl = normalizeBaseUrl(input.instanceUrl)
+  let fingerprint: string | null = null
+  let providerCount = 0
+
+  try {
+    if (!instanceUrl) {
+      throw new Error("instance_url_missing")
+    }
+
+    const providers = await store.listProviders(input.organizationId)
+    const prepared = prepareMaterialization(providers)
+    fingerprint = prepared.fingerprint
+    providerCount = prepared.providers.length
+
+    if (!input.force && materializedFingerprintByWorker.get(input.workerId) === fingerprint) {
+      return { ok: true, status: "cached", fingerprint, providers: providerCount }
+    }
+
+    const tokens = await resolveTokens({
+      workerId: input.workerId,
+      hostToken: input.hostToken,
+      clientToken: input.clientToken,
+      store,
+    })
+    if (!tokens.hostToken || !tokens.clientToken) {
+      throw new Error("worker_tokens_missing")
+    }
+
+    const storedFingerprint = await readStoredFingerprint({
+      fetchImpl,
+      instanceUrl,
+      hostToken: tokens.hostToken,
+    })
+    if (storedFingerprint === fingerprint) {
+      materializedFingerprintByWorker.set(input.workerId, fingerprint)
+      return { ok: true, status: "noop", fingerprint, providers: providerCount }
+    }
+
+    const workspaceId = await discoverWorkspaceId({ fetchImpl, instanceUrl, clientToken: tokens.clientToken })
+    const currentManagedProviderIds = await readRuntimeManagedProviderIds({
+      fetchImpl,
+      instanceUrl,
+      clientToken: tokens.clientToken,
+      workspaceId,
+    })
+    const providerPatch = buildRuntimeProviderPatch(prepared, currentManagedProviderIds)
+
+    await writeEnvEntries({
+      fetchImpl,
+      instanceUrl,
+      hostToken: tokens.hostToken,
+      entries: prepared.envEntries,
+    })
+    await patchRuntimeProviders({
+      fetchImpl,
+      instanceUrl,
+      clientToken: tokens.clientToken,
+      workspaceId,
+      patch: providerPatch,
+    })
+    await reloadOpencode({ fetchImpl, instanceUrl, clientToken: tokens.clientToken, workspaceId })
+
+    // The fingerprint is intentionally stored inside the instance's env store:
+    // it survives restarts with the rest of the sandbox state, contains only
+    // hashes/non-secret metadata, and avoids a Den schema migration for a value
+    // whose truth is scoped to that one runtime.
+    await writeEnvEntries({
+      fetchImpl,
+      instanceUrl,
+      hostToken: tokens.hostToken,
+      entries: [{ key: OPENWORK_PROVIDERS_FINGERPRINT_ENV, value: fingerprint }],
+    })
+
+    materializedFingerprintByWorker.set(input.workerId, fingerprint)
+    return { ok: true, status: "applied", fingerprint, providers: providerCount }
+  } catch (error) {
+    const result = failureResult({
+      reason: error instanceof Error ? error.message : "provider_materialization_failed",
+      error,
+      fingerprint,
+      providers: providerCount,
+    })
+    logFailure({
+      logger: materializationLogger,
+      workerId: input.workerId,
+      organizationId: input.organizationId,
+      result,
+    })
+    return result
+  }
+}

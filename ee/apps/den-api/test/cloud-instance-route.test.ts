@@ -435,6 +435,7 @@ describe("Cloud gateway resolve route", () => {
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
       probeSignedPreview: async () => true,
+      materializeProviders: async () => ({ ok: true, status: "noop", fingerprint: "owp:v1:test", providers: 0 }),
     })
 
     const ready = await readyApp.request("http://den.local/v1/cloud/gateway/resolve", {
@@ -474,6 +475,49 @@ describe("Cloud gateway resolve route", () => {
     expect(payload).toMatchObject({ status: "ready", url: "https://preview.example.test" })
     expect(payload).not.toHaveProperty("hostToken")
     expect(payload).not.toHaveProperty("clientToken")
+  })
+
+  test("surfaces degraded provider materialization without leaking provider keys", async () => {
+    const readyWorker = fakeWorker("healthy")
+    const store = makeCloudWorkerStore({ tokens: [makeToken(readyWorker.id, "host"), makeToken(readyWorker.id, "client")] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    const secret = "sk-secret-never"
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      gatewayKey: "gateway-secret",
+      ensureCloudWorker: async () => readyWorker,
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      probeSignedPreview: async () => true,
+      materializeProviders: async () => ({
+        ok: false,
+        status: "failed",
+        error: "provider_materialization_failed",
+        reason: "env_write_failed_500",
+        message: `env_write_failed_500 ${secret}`,
+        fingerprint: "owp:v1:redacted",
+        providers: 1,
+      }),
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/gateway/resolve", {
+      headers: { "X-OpenWork-Gateway-Key": "gateway-secret" },
+    })
+    const body = await response.text()
+
+    expect(response.status).toBe(200)
+    expect(JSON.parse(body)).toEqual({
+      status: "ready",
+      url: "https://preview.example.test",
+      clientToken: "client-token",
+      hostToken: "host-token",
+      providerSync: { status: "degraded" },
+    })
+    expect(body).not.toContain(secret)
   })
 })
 
