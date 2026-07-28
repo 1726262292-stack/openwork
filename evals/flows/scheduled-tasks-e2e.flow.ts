@@ -441,15 +441,30 @@ export default defineFlow({
         await ctx.trustedClick("[data-action-class='write']");
         await ctx.trustedClick("[data-filesystem-write]");
         await ctx.trustedClick("[data-testid='scheduled-task-review-authority']");
+        const existingRunIds = new Set(
+          arrayValue(await readDetail(ctx), "runs")
+            .map((run) => recordValue(run, "id"))
+            .filter((id): id is string => typeof id === "string"),
+        );
         await ctx.trustedClick("[data-testid='scheduled-task-run-once']");
         const runs = await waitForRunCount(
           ctx,
-          (items) => items.some((run) => runStatus(run) === "needs-attention"),
+          (items) => items.some(
+            (run) =>
+              runStatus(run) === "needs-attention"
+              && typeof recordValue(run, "id") === "string"
+              && !existingRunIds.has(recordValue(run, "id") as string),
+          ),
           "Expected the write request under read-only authority to require attention",
         );
         ctx.assert(
-          runs.some((run) => runStatus(run) === "needs-attention"),
-          "Denied unattended approval must become needs-attention.",
+          runs.some(
+            (run) =>
+              runStatus(run) === "needs-attention"
+              && typeof recordValue(run, "id") === "string"
+              && !existingRunIds.has(recordValue(run, "id") as string),
+          ),
+          "The newly denied unattended run must become needs-attention.",
         );
         await ctx.screenshot("scheduled-task-needs-attention", {
           claim:
