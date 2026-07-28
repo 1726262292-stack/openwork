@@ -584,11 +584,33 @@ export default defineFlow({
             `eval.app.relaunch disconnected during the expected Electron handoff: ${String(error)}`,
           );
         }
-        await ctx.reconnect({ timeoutMs: 60_000 });
-        await ctx.navigateHash(workspaceScheduledRoute(state.workspaceId, state.taskId));
-        await ctx.waitFor(
-          "Boolean(window.__openworkControl) && Boolean(document.querySelector('[data-testid=\"scheduled-task-detail\"]'))",
-          { timeoutMs: 60_000, label: "Scheduled Task after restart" },
+        const reconnectDeadline = Date.now() + 60_000;
+        let reconnected = false;
+        let reconnectError: unknown = null;
+        while (Date.now() < reconnectDeadline && !reconnected) {
+          try {
+            await ctx.reconnect({
+              timeoutMs: Math.min(15_000, reconnectDeadline - Date.now()),
+            });
+            await ctx.waitFor("Boolean(window.__openworkControl)", {
+              timeoutMs: 10_000,
+              label: "OpenWork semantic control after restart",
+            });
+            await ctx.navigateHash(workspaceScheduledRoute(state.workspaceId, state.taskId));
+            await ctx.waitFor(
+              "Boolean(window.__openworkControl) && Boolean(document.querySelector('[data-testid=\"scheduled-task-detail\"]'))",
+              { timeoutMs: 15_000, label: "Scheduled Task after restart" },
+            );
+            reconnected = true;
+          } catch (error) {
+            reconnectError = error;
+            ctx.log(`Replacement Electron target was not stable yet: ${String(error)}`);
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        }
+        ctx.assert(
+          reconnected,
+          `Could not reconnect to the replacement Electron target: ${String(reconnectError)}`,
         );
         await ctx.control("eval.scheduled_tasks.tick", { now: state.deterministicNow });
         const runs = arrayValue(await readDetail(ctx), "runs");
