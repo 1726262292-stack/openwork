@@ -261,8 +261,20 @@ export default {
         // Resolve the org name before ctx.prove so the screenshot
         // requireText literals below are built with the real value.
         const orgResult = await authed("/v1/org");
-        const orgName = typeof orgResult.body?.organization?.name === "string" ? orgResult.body.organization.name : "";
+        let orgName = typeof orgResult.body?.organization?.name === "string" ? orgResult.body.organization.name : "";
         ctx.assert(orgName.length > 0, "Admin token resolves the active organization name.");
+
+        // The shared eval volume bootstraps the singleton org with the
+        // generic "OpenWork" name, which degenerates every copy line in the
+        // demo ("Join OpenWork.", "welcome to OpenWork's OpenWork"). Rename
+        // it to a real company so the frames read like the customer story;
+        // keep the resolved name on any failure — the flow is name-agnostic.
+        if (orgName === "OpenWork") {
+          const renamed = await authed("/v1/org", { method: "PATCH", body: JSON.stringify({ name: "Acme Robotics" }) });
+          if (renamed.response.ok) {
+            orgName = "Acme Robotics";
+          }
+        }
         state.orgName = orgName;
 
         await withClient(ctx, MEMBER_CDP_URL, async () => {
