@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -622,5 +622,28 @@ describe("OpenWorkExtensionsPreview semantic tool surface", () => {
     await expect(
       tool.execute({ path: ".opencode/config.json", content: "no" }, context),
     ).rejects.toThrow("control directories");
+  });
+
+  test("uses the session directory instead of a broader engine worktree", async () => {
+    const worktree = await mkdtemp(join(tmpdir(), "openwork-bounded-worktree-"));
+    temporaryDirectories.push(worktree);
+    const directory = join(worktree, "nested-workspace");
+    await mkdir(directory);
+    const plugin = await OpenWorkExtensionsPreview({ directory: worktree, worktree });
+    const tool = plugin.tool.openwork_workspace_write_file;
+
+    await tool.execute(
+      { path: "status.md", content: "nested report" },
+      {
+        directory,
+        worktree,
+        ask: async () => {},
+      },
+    );
+
+    expect(await readFile(join(directory, "status.md"), "utf8")).toBe(
+      "nested report",
+    );
+    await expect(readFile(join(worktree, "status.md"), "utf8")).rejects.toThrow();
   });
 });

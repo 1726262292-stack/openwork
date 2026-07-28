@@ -168,6 +168,36 @@ function successfulAssistantMessage(sessionId: string) {
   };
 }
 
+function successfulBoundedWriterMessage(sessionId: string) {
+  return {
+    info: {
+      ...successfulAssistantMessage(sessionId).info,
+      id: "assistant-bounded-writer",
+    },
+    parts: [
+      {
+        id: "tool-bounded-writer",
+        sessionID: sessionId,
+        messageID: "assistant-bounded-writer",
+        type: "tool",
+        tool: SCHEDULED_TASK_SAFE_WRITE_TOOL_ID,
+        state: {
+          status: "completed",
+          input: {
+            path: "scheduled-task-eval-report.md",
+            content: "# Scheduled report",
+          },
+          output: JSON.stringify({
+            ok: true,
+            path: "scheduled-task-eval-report.md",
+            bytes: 18,
+          }),
+        },
+      },
+    ],
+  };
+}
+
 function emptyEventStream() {
   return {
     async *[Symbol.asyncIterator]() {
@@ -437,6 +467,51 @@ describe("OpenCode scheduled-task execution adapter", () => {
       });
       expect(result.artifacts.map((artifact) => artifact.value)).toEqual([
         "status.md",
+      ]);
+    }
+  });
+
+  test("records artifacts written through the bounded Scheduled Tasks writer", async () => {
+    const { config, workspace, workspacePath } = await createFixture();
+    let statusReads = 0;
+    const client = fakeClient({
+      toolIds: ["read", SCHEDULED_TASK_SAFE_WRITE_TOOL_ID],
+      status: async () => {
+        statusReads += 1;
+        return {
+          "session-1": { type: statusReads === 1 ? "busy" : "idle" },
+        };
+      },
+      messages: async (sessionId) =>
+        statusReads === 1 ? [] : [successfulBoundedWriterMessage(sessionId)],
+    });
+    const adapter = createOpencodeScheduledTaskExecutionAdapter(
+      adapterOptions(config, workspace, client, {
+        resolveArtifacts: async ({ candidates }) =>
+          candidates.map((candidate, index) => ({
+            id: `artifact-${index + 1}`,
+            kind: "file",
+            value: candidate,
+            name: path.basename(candidate),
+          })),
+      }),
+    );
+
+    const result = await adapter.execute(
+      executionRequest(workspacePath, {
+        capabilities: [
+          SCHEDULED_TASK_WORKSPACE_READ_CAPABILITY_ID,
+          SCHEDULED_TASK_WORKSPACE_WRITE_CAPABILITY_ID,
+        ],
+        writeAccess: true,
+      }),
+      { signal: new AbortController().signal },
+    );
+
+    expect(result.status).toBe("completed");
+    if (result.status === "completed") {
+      expect(result.artifacts.map((artifact) => artifact.value)).toEqual([
+        "scheduled-task-eval-report.md",
       ]);
     }
   });

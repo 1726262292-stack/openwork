@@ -645,7 +645,10 @@ function collectArtifactCandidates(messages: unknown[]): string[] {
       }
       if (part.type === "tool" && isRecord(part.state) && part.state.status === "completed") {
         const tool = typeof part.tool === "string" ? part.tool.toLowerCase() : "";
-        if (/^(write|edit|apply_patch|patch|multiedit)$/u.test(tool)) {
+        if (
+          /^(write|edit|apply_patch|patch|multiedit)$/u.test(tool)
+          || tool === SCHEDULED_TASK_SAFE_WRITE_TOOL_ID
+        ) {
           const input = isRecord(part.state.input) ? part.state.input : {};
           add(input.filePath);
           add(input.file_path);

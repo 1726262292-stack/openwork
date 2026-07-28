@@ -965,8 +965,8 @@ async function writeWorkspaceTextArtifact(
     ...factoryContext,
     ...normalizeOpenCodeContext(context),
   };
-  const directory = mergedContext.worktree?.trim()
-    || mergedContext.directory?.trim();
+  const directory = mergedContext.directory?.trim()
+    || mergedContext.worktree?.trim();
   if (!directory) throw new Error("The workspace directory is unavailable.");
 
   const normalized = args.path.replace(/\\/gu, "/");
