@@ -270,11 +270,7 @@ export function DynamicArtifactStudio(props: DynamicArtifactStudioProps) {
     setError(null)
     setDiagnostic(null)
     setServerDiagnostics([])
-    setPreview(
-      selection?.workspaceId === props.workspaceId && selection.slug === selectedSlug
-        ? selection.attachment ?? null
-        : null,
-    )
+    setPreview(null)
 
     void props.client.getUiArtifactProject(props.workspaceId, selectedSlug)
       .then((project) => {
@@ -292,7 +288,17 @@ export function DynamicArtifactStudio(props: DynamicArtifactStudioProps) {
     return () => {
       cancelled = true
     }
-  }, [props.client, props.workspaceId, selectedSlug, selection])
+  }, [props.client, props.workspaceId, selectedSlug])
+
+  React.useEffect(() => {
+    if (
+      selection?.workspaceId === props.workspaceId &&
+      selection.slug === selectedSlug &&
+      selection.attachment
+    ) {
+      setPreview(selection.attachment)
+    }
+  }, [props.workspaceId, selectedSlug, selection])
 
   const persistFiles = React.useCallback(async () => {
     if (!snapshot || !files || !selectedSlug) {
