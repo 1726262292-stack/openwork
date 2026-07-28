@@ -31,6 +31,7 @@ import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
 import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
+import { CloudWorkspaceOverlay } from "./cloud-workspace-overlay";
 import { AppMenuProvider } from "./app-menu";
 import {
   OpenworkControlProvider,
@@ -448,6 +449,7 @@ export function AppRoot() {
         true app-level signal.
       */}
       <NewProvidersListener />
+      <CloudWorkspaceOverlay />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
     </>
