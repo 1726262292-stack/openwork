@@ -140,9 +140,6 @@ import { useRemoteAccessRestart } from "@/react-app/domains/workspace/remote-acc
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
-import { OpenWorkModelsStartupDialog } from "@/react-app/domains/cloud/openwork-models-startup-dialog";
-import { OPENWORK_MODEL_PREVIEWS } from "@/react-app/domains/cloud/openwork-models-promo";
-import { useOpenWorkModelsStartupPromo } from "@/react-app/domains/cloud/use-openwork-models-startup-promo";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -948,13 +945,6 @@ export function SessionRoute() {
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
-
-  const openWorkModelsPromo = useOpenWorkModelsStartupPromo({
-    clientReady: Boolean(opencodeClient),
-    workspaceId: selectedWorkspaceId,
-    providerConnectedIds,
-    openWorkModelsEntitled,
-  });
 
   const {
     activePermission,
@@ -2617,13 +2607,6 @@ export function SessionRoute() {
       }}
       notFoundMessage={routeNotFoundMessage}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
-    />
-    <OpenWorkModelsStartupDialog
-      open={openWorkModelsPromo.open}
-      isSignedIn={denAuth.isSignedIn}
-      models={OPENWORK_MODEL_PREVIEWS}
-      onSubscribe={openWorkModelsPromo.subscribe}
-      onContinueWithout={openWorkModelsPromo.continueWithout}
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
