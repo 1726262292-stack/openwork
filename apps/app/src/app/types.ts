@@ -182,7 +182,6 @@ export const SETTINGS_TAB_VALUES = [
   "ai",
   "preferences",
   "permissions",
-  "shell",
   "cloud-account",
   "connect",
   "cloud-marketplaces",
@@ -413,7 +412,6 @@ export type ModelOption = {
   behaviorOptions?: ModelBehaviorOption[];
   disabled?: boolean;
   isFree: boolean;
-  isConnected: boolean;
   isRecommended?: boolean;
   /** "cloud" for org-managed providers (lpr_*), undefined for local. */
   source?: "cloud";

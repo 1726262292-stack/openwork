@@ -35,8 +35,9 @@ import {
 } from "lexical";
 import type { InitialConfigType } from "@lexical/react/LexicalComposer.js";
 import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./mention-encoding";
-import { shouldCollapsePastedText } from "./pasted-text";
-import { insertStyledPastedText } from "./pasted-text-insertion";
+import { parseConnectSkillToken } from "./connect-skill-token";
+import { shouldCollapsePastedText, splitPastedText } from "./pasted-text";
+import { insertPastedText } from "./pasted-text-insertion";
 
 type PastedTextToken = { label: string; lines: number; text: string };
 
@@ -66,7 +67,7 @@ type EditorProps = {
 };
 
 export type LexicalPromptEditorHandle = {
-  insertSkillAtSelection: (skillName: string) => void;
+  insertSkillAtSelection: (skillName: string, skillToken?: string) => void;
 };
 
 type SerializedComposerMentionNode = Spread<
@@ -91,6 +92,7 @@ type SerializedComposerSlashCommandNode = Spread<
 type SerializedComposerSkillNode = Spread<
   {
     skillName: string;
+    skillToken?: string;
     type: "composer-skill";
     version: 1;
   },
@@ -249,28 +251,31 @@ function $createComposerSlashCommandNode(commandName: string) {
 
 class ComposerSkillNode extends TextNode {
   __skillName: string;
+  __skillToken: string;
 
   static override getType() {
     return "composer-skill";
   }
 
   static override clone(node: ComposerSkillNode) {
-    return new ComposerSkillNode(node.__skillName, node.__key);
+    return new ComposerSkillNode(node.__skillName, node.__skillToken, node.__key);
   }
 
   static override importJSON(serializedNode: SerializedComposerSkillNode) {
-    return $createComposerSkillNode(serializedNode.skillName);
+    return $createComposerSkillNode(serializedNode.skillName, serializedNode.skillToken);
   }
 
-  constructor(skillName = "", key?: NodeKey) {
-    super(`[skill ${skillName}]`, key);
+  constructor(skillName = "", skillToken?: string, key?: NodeKey) {
+    super(skillToken ?? `[skill ${skillName}]`, key);
     this.__skillName = skillName;
+    this.__skillToken = skillToken ?? `[skill ${skillName}]`;
   }
 
   override exportJSON(): SerializedComposerSkillNode {
     return {
       ...super.exportJSON(),
       skillName: this.__skillName,
+      skillToken: this.__skillToken,
       type: "composer-skill",
       version: 1,
     };
@@ -279,7 +284,7 @@ class ComposerSkillNode extends TextNode {
   override createDOM(_config: EditorConfig) {
     const dom = document.createElement("span");
     dom.className = "inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11";
-    dom.textContent = this.__skillName;
+    dom.textContent = `/${this.__skillName}`;
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
     dom.title = `Skill: ${this.__skillName}`;
@@ -288,7 +293,7 @@ class ComposerSkillNode extends TextNode {
 
   override updateDOM(prevNode: ComposerSkillNode, dom: HTMLElement) {
     if (prevNode.__skillName !== this.__skillName) {
-      dom.textContent = this.__skillName;
+      dom.textContent = `/${this.__skillName}`;
       dom.title = `Skill: ${this.__skillName}`;
     }
     return false;
@@ -311,8 +316,8 @@ class ComposerSkillNode extends TextNode {
   }
 }
 
-function $createComposerSkillNode(skillName: string) {
-  return $applyNodeReplacement(new ComposerSkillNode(skillName));
+function $createComposerSkillNode(skillName: string, skillToken?: string) {
+  return $applyNodeReplacement(new ComposerSkillNode(skillName, skillToken));
 }
 
 function pastedTextChipLabel(lines: number) {
@@ -691,7 +696,7 @@ function setPrompt(
     value = slashMatch[2] ?? "";
   }
 
-  const segments = value.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/);
+  const segments = value.split(/(\[attachment [^\]]+\]|\[pasted text [^\]]+\]|\[connect-skill [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/);
   const pastedTextByLabel = new Map((pastedText ?? []).map((item) => [item.label, item]));
   const attachmentsById = new Map((attachments ?? []).map((item) => [item.id, item]));
   for (const segment of segments) {
@@ -712,6 +717,11 @@ function setPrompt(
         continue;
       }
     }
+    const connectSkill = parseConnectSkillToken(segment);
+    if (connectSkill) {
+      paragraph.append($createComposerSkillNode(connectSkill.slug, segment));
+      continue;
+    }
     const skillMatch = segment.match(/^\[skill (.+)\]$/);
     if (skillMatch?.[1]) {
       paragraph.append($createComposerSkillNode(skillMatch[1]));
@@ -729,24 +739,24 @@ function setPrompt(
   }
 }
 
-function appendSkillAtEnd(skillName: string) {
+function appendSkillAtEnd(skillName: string, skillToken?: string) {
   const root = $getRoot();
   const lastChild = root.getLastChild();
   const paragraph = $isElementNode(lastChild) ? lastChild : $createParagraphNode();
   if (!$isElementNode(lastChild)) root.append(paragraph);
-  const skillNode = $createComposerSkillNode(skillName);
+  const skillNode = $createComposerSkillNode(skillName, skillToken);
   const spaceNode = $createTextNode(" ");
   paragraph.append(skillNode, spaceNode);
   setSelectionAfterNode(spaceNode);
 }
 
-function insertSkillAtSelection(skillName: string) {
+function insertSkillAtSelection(skillName: string, skillToken?: string) {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) {
-    appendSkillAtEnd(skillName);
+    appendSkillAtEnd(skillName, skillToken);
     return;
   }
-  const skillNode = $createComposerSkillNode(skillName);
+  const skillNode = $createComposerSkillNode(skillName, skillToken);
   const spaceNode = $createTextNode(" ");
   selection.insertNodes([skillNode, spaceNode]);
   setSelectionAfterNode(spaceNode);
@@ -859,6 +869,46 @@ function SubmitPlugin(props: { onSubmit: (options: { queue: boolean }) => void |
   return null;
 }
 
+function appendPastedTextMeasurement(element: HTMLElement, text: string) {
+  const paragraph = document.createElement("p");
+  for (const segment of splitPastedText(text)) {
+    if (segment.kind === "line-break") {
+      paragraph.append(document.createElement("br"));
+    } else if (segment.kind === "tab") {
+      paragraph.append(document.createTextNode("\t"));
+    } else {
+      paragraph.append(document.createTextNode(segment.text));
+    }
+  }
+  element.append(paragraph);
+}
+
+function pastedTextWouldOverflowEditor(text: string, editorElement: HTMLElement | null) {
+  if (!editorElement) return false;
+  const bounds = editorElement.getBoundingClientRect();
+  if (bounds.width <= 0) return false;
+
+  const measurement = editorElement.cloneNode(false);
+  if (!(measurement instanceof HTMLElement)) return false;
+  measurement.setAttribute("aria-hidden", "true");
+  measurement.style.position = "fixed";
+  measurement.style.left = "-10000px";
+  measurement.style.top = "0";
+  measurement.style.width = `${bounds.width}px`;
+  measurement.style.height = "auto";
+  measurement.style.minHeight = "0";
+  measurement.style.visibility = "hidden";
+  measurement.style.pointerEvents = "none";
+  appendPastedTextMeasurement(measurement, text);
+  document.body.append(measurement);
+
+  try {
+    return measurement.scrollHeight > measurement.clientHeight;
+  } finally {
+    measurement.remove();
+  }
+}
+
 function PasteChipPlugin(props: { onPasteText?: (text: string) => void }) {
   const [editor] = useLexicalComposerContext();
   const onPasteTextRef = useRef(props.onPasteText);
@@ -878,14 +928,15 @@ function PasteChipPlugin(props: { onPasteText?: (text: string) => void }) {
         if (event.clipboardData?.getData("text/uri-list").trim()) return false;
         const text = event.clipboardData?.getData("text/plain") ?? "";
         if (!text.trim()) return false;
-        if (shouldCollapsePastedText(text)) {
+        const wouldOverflowComposer = pastedTextWouldOverflowEditor(text, editor.getRootElement());
+        if (shouldCollapsePastedText(text, wouldOverflowComposer)) {
           if (!onPasteTextRef.current) return false;
           event.preventDefault();
           onPasteTextRef.current(text);
           return true;
         }
         event.preventDefault();
-        return insertStyledPastedText(text);
+        return insertPastedText(text);
       },
       COMMAND_PRIORITY_CRITICAL,
     );
@@ -904,12 +955,12 @@ function replacePastedTextChip(label: string, text: string, button: HTMLButtonEl
   const nearest = $getNearestNodeFromDOMNode(button);
   if (nearest instanceof ComposerPastedTextNode && nearest.getPastedLabel() === label) {
     nearest.select(0, nearest.getTextContentSize());
-    return insertStyledPastedText(text);
+    return insertPastedText(text);
   }
   for (const node of $nodesOfType(ComposerPastedTextNode)) {
     if (node.getPastedLabel() !== label) continue;
     node.select(0, node.getTextContentSize());
-    return insertStyledPastedText(text);
+    return insertPastedText(text);
   }
   return false;
 }
@@ -1079,8 +1130,8 @@ function ImperativeHandlePlugin(props: { editorRef: ForwardedRef<LexicalPromptEd
   const [editor] = useLexicalComposerContext();
 
   useImperativeHandle(props.editorRef, () => ({
-    insertSkillAtSelection(skillName: string) {
-      editor.update(() => insertSkillAtSelection(skillName));
+    insertSkillAtSelection(skillName: string, skillToken?: string) {
+      editor.update(() => insertSkillAtSelection(skillName, skillToken));
       editor.focus();
     },
   }), [editor]);
@@ -1181,7 +1232,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
-              className="min-h-[60px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
+              className="min-h-[60px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[13px] leading-[1.55] text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
               aria-placeholder={props.placeholder}
               placeholder={<span />}
               onPaste={props.onPaste}
@@ -1191,7 +1242,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-0 text-[15px] leading-6 text-dls-secondary/70">
+            <div className="pointer-events-none absolute left-0 top-0 text-[13px] leading-[1.55] text-dls-secondary/70">
               {props.placeholder}
             </div>
           }

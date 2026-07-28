@@ -23,7 +23,7 @@ const originalServerUrl = process.env.OPENWORK_SERVER_URL;
 const originalServerToken = process.env.OPENWORK_SERVER_TOKEN;
 
 const UNCHANGED_EXTENSION_DISCOVERY_INSTRUCTION =
-  "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_extension_list_actions to inspect available extension actions, then call the matching action with openwork_extension_call.";
+  "If the user asks for something you cannot do with obvious built-in tools, check OpenWork extensions before saying the capability is unavailable. Use openwork_query with id extension.actions to inspect available extension actions, then openwork_execute with id extension.call for the matching action.";
 
 beforeEach(() => {
   resetOpenWorkExtensionDiscoveryInstructionCacheForTests();
@@ -133,11 +133,14 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
       prompt: OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION,
     });
     expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("Skill creation: Cloud");
-    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("OpenWork Cloud first when it is available");
-    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("skill-creator Remote Cloud flow");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("retrieve and follow the listed create-skill remote skill");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("openwork-cloud_execute_capability");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("exact <capability>");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("OpenWork Cloud as a private plugin");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("add-to-marketplace");
+    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("add-user-to-marketplace");
     expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("workspace-local skill");
     expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("Do not create both copies");
-    expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).toContain("migrate an existing local skill only when the user asks");
     expect(OPENWORK_CLOUD_SKILL_AUTHORING_INSTRUCTION).not.toContain("Skill creation: Local");
 
     for (const instruction of [
@@ -151,7 +154,8 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
       });
     }
     expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).toContain("Skill creation: Local");
-    expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).toContain("skill-creator local flow");
+    expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).toContain("only when the user requests one");
+    expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).toContain(".opencode/skills/<skill-name>/SKILL.md");
     expect(OPENWORK_LOCAL_SKILL_AUTHORING_INSTRUCTION).not.toContain("Skill creation: Cloud");
   });
 

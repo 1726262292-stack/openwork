@@ -21,6 +21,7 @@ import {
   updateDesktopPolicy,
   useOrgDesktopPolicies,
   type DenDesktopPolicy,
+  type DenDesktopPolicyRole,
   type DesktopPolicyPayload,
 } from "./desktop-policy-data";
 import { EnterprisePlanNotice } from "./enterprise-plan-notice";
@@ -34,6 +35,7 @@ type PolicyDraft = {
   onboardingPromptDescriptions: string[];
   memberIds: string[];
   teamIds: string[];
+  roles: DenDesktopPolicyRole[];
 };
 
 const EMPTY_DRAFT: PolicyDraft = {
@@ -45,6 +47,7 @@ const EMPTY_DRAFT: PolicyDraft = {
   onboardingPromptDescriptions: ["", "", ""],
   memberIds: [],
   teamIds: [],
+  roles: [],
 };
 
 const ONBOARDING_PROMPT_LABELS = ["First prompt", "Second prompt", "Optional third prompt"];
@@ -79,6 +82,7 @@ function draftFromPolicy(policy: DenDesktopPolicy): PolicyDraft {
     ],
     memberIds: policy.assignments.flatMap((assignment) => (assignment.orgMemberId ? [assignment.orgMemberId] : [])),
     teamIds: policy.assignments.flatMap((assignment) => (assignment.teamId ? [assignment.teamId] : [])),
+    roles: policy.roles,
   };
 }
 
@@ -90,6 +94,7 @@ function policyToAssignmentPayload(policy: DenDesktopPolicy) {
   return {
     memberIds: policy.assignments.flatMap((assignment) => (assignment.orgMemberId ? [assignment.orgMemberId] : [])),
     teamIds: policy.assignments.flatMap((assignment) => (assignment.teamId ? [assignment.teamId] : [])),
+    roles: policy.roles,
   };
 }
 
@@ -267,6 +272,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
           priority: isDefault ? 0 : draft.priority,
           memberIds: isDefault ? [] : draft.memberIds,
           teamIds: isDefault ? [] : draft.teamIds,
+          roles: isDefault ? [] : draft.roles,
         };
         if (isEditing && desktopPolicyId) {
           // Preserve the current enabled state when saving form edits; the
@@ -297,7 +303,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
     try {
       await runReauthableAction("toggle-desktop-policy", async () => {
         setTogglingEnabled(true);
-        const { memberIds, teamIds } = policyToAssignmentPayload(policy);
+        const { memberIds, teamIds, roles } = policyToAssignmentPayload(policy);
         await updateDesktopPolicy(desktopPolicyId, {
           policyName: policy.policyName,
           policy: policy.policy,
@@ -305,6 +311,7 @@ export function DesktopPolicyEditorScreen({ desktopPolicyId }: { desktopPolicyId
           isEnabled: !policy.isEnabled,
           memberIds,
           teamIds,
+          roles,
         });
         await reloadPolicies();
       });

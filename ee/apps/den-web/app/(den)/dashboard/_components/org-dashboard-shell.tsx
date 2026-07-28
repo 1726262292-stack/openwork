@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  Globe,
   Home,
   LogOut,
   Menu,
@@ -45,6 +46,7 @@ import {
   getPluginsRoute,
   getSsoRoute,
   getScimRoute,
+  getWebRoute,
 } from "../../_lib/den-org";
 import { useOrgListWindow } from "../../_lib/use-org-list-window";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -175,9 +177,15 @@ export function WorkspaceFavicon({
 }: {
   metadata: string | null | undefined;
 }) {
+  const orgContextLoading = metadata === undefined;
   const iconUrl = getManagedBrandIconUrl(metadata ?? null);
 
   useEffect(() => {
+    if (orgContextLoading) {
+      // Keep the server-rendered favicon until the org context is known.
+      return;
+    }
+
     let favicon = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (!favicon) {
       favicon = document.createElement("link");
@@ -211,7 +219,7 @@ export function WorkspaceFavicon({
         favicon.setAttribute("type", previousType);
       }
     };
-  }, [iconUrl]);
+  }, [orgContextLoading, iconUrl]);
 
   return null;
 }
@@ -245,7 +253,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
     return "Background Tasks";
   }
   if (pathname.startsWith(getCustomLlmProvidersRoute(orgSlug))) {
-    return "LLM Providers";
+    return "Bring your Own Keys";
   }
   if (pathname.startsWith(getDesktopPoliciesRoute(orgSlug))) {
     return "Desktop Policies";
@@ -255,6 +263,9 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   }
   if (pathname.startsWith(getInferenceRoute(orgSlug))) {
     return "OpenWork Models";
+  }
+  if (pathname.startsWith(getWebRoute(orgSlug))) {
+    return "Web";
   }
   if (pathname.startsWith(getPluginsRoute(orgSlug))) {
     return "Plugins";
@@ -341,6 +352,11 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     orgSlug: activeOrg?.slug,
   });
   const mcpConnectionsEnabled = orgContext?.capabilities.mcpConnections === true;
+  // Web access is backed by the existing hosted cloud capability. The org
+  // payload only reports `cloud` after the server rollout helper has verified
+  // the multi-org deployment gate, so the sidebar stays hidden by default until
+  // both config and org context load.
+  const showWeb = runtimeConfigLoaded && orgContext?.capabilities.cloud === true;
 
   // Top-level rows: Dashboard, optional Your Connections, Extensions, Models,
   // Members, Analytics, Settings. Everything tool-shaped groups under
@@ -375,7 +391,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           ...(showOpenWorkModels
             ? [{ href: getInferenceRoute(activeOrg.slug), label: "OpenWork Models" }]
             : []),
-          { href: getCustomLlmProvidersRoute(activeOrg.slug), label: "LLM Providers" },
+          { href: getCustomLlmProvidersRoute(activeOrg.slug), label: "Bring your Own Keys" },
         ],
       }
     : null;
@@ -418,6 +434,14 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           label: "Your Connections",
           icon: Plug,
           badge: "Beta",
+        }]
+      : []),
+    ...(showWeb
+      ? [{
+          href: activeOrg ? getWebRoute(activeOrg.slug) : "#",
+          label: "Web",
+          icon: Globe,
+          badge: "Alpha",
         }]
       : []),
     ...(extensionsGroup ? [extensionsGroup] : []),

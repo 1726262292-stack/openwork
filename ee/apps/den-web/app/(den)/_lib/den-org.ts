@@ -110,6 +110,7 @@ export type DenOrgAccessFlags = {
   canManageScim: boolean;
   canManageSso: boolean;
   canTransferOwnership: boolean;
+  canDeleteOrganization: boolean;
   canStartSeatCheckout: boolean;
 };
 
@@ -239,6 +240,7 @@ export type DenOrgEntitlements = {
 export type DenOrgCapabilities = {
   installLinks: boolean;
   mcpConnections: boolean;
+  cloud: boolean;
 };
 
 export type DenOrganizationMetadata = {
@@ -468,6 +470,7 @@ export function getOrgAccessFlags(roleValue: string, isOwner: boolean, _roleDefi
     canManageScim: canManageSettings,
     canManageSso: canManageSettings,
     canTransferOwnership: resolvedIsOwner,
+    canDeleteOrganization: resolvedIsOwner,
     canStartSeatCheckout: isAdmin,
   };
 }
@@ -526,6 +529,10 @@ export function getCustomLlmProvidersRoute(orgSlug?: string | null): string {
 
 export function getInferenceRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/inference`;
+}
+
+export function getWebRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/web`;
 }
 
 export function getLlmProvidersRoute(orgSlug?: string | null): string {
@@ -590,6 +597,18 @@ export function getPluginsRoute(orgSlug?: string | null): string {
 
 export function getPluginRoute(orgSlug: string | null | undefined, pluginId: string): string {
   return `${getPluginsRoute(orgSlug)}/${encodeURIComponent(pluginId)}`;
+}
+
+export function getPluginSkillRoute(orgSlug: string | null | undefined, pluginId: string, skillId: string): string {
+  return `${getPluginRoute(orgSlug, pluginId)}/skills/${encodeURIComponent(skillId)}`;
+}
+
+export function getNewPluginSkillRoute(orgSlug: string | null | undefined, pluginId: string): string {
+  return `${getPluginRoute(orgSlug, pluginId)}/skills/new`;
+}
+
+export function getEditPluginSkillRoute(orgSlug: string | null | undefined, pluginId: string, skillId: string): string {
+  return `${getPluginSkillRoute(orgSlug, pluginId, skillId)}/edit`;
 }
 
 export function getNewPluginRoute(orgSlug?: string | null): string {
@@ -892,12 +911,13 @@ function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
 
 function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
   if (!isRecord(value)) {
-    return { installLinks: false, mcpConnections: false };
+    return { installLinks: false, mcpConnections: false, cloud: false };
   }
 
   return {
     installLinks: value.installLinks === true,
     mcpConnections: value.mcpConnections === true,
+    cloud: value.cloud === true,
   };
 }
 

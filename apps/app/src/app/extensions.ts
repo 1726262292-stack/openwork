@@ -131,6 +131,8 @@ export type OpenWorkExtensionManifest = {
   platform?: Array<"darwin" | "linux" | "windows" | "web">;
 };
 
+export type OpenWorkExtensionPlatform = NonNullable<OpenWorkExtensionManifest["platform"]>[number];
+
 export function extensionContribution(
   manifest: OpenWorkExtensionManifest | undefined,
   type: OpenWorkExtensionContributionType,
@@ -179,6 +181,7 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
     ],
     lifecycle: { reload: ["plugins", "agents"], detection: ["plugin:opencode-chrome-devtools"] },
     defaultEnabled: true,
+    platform: ["darwin", "linux", "windows"],
   },
   {
     schemaVersion: 1,
@@ -262,39 +265,6 @@ export const BUILT_IN_OPENWORK_EXTENSION_MANIFESTS: OpenWorkExtensionManifest[] 
       { type: "env-set", ref: "OPENAI_API_KEY", label: "OpenAI API key" },
     ],
     lifecycle: { reload: ["config"], detection: ["env:OPENAI_REALTIME_API_KEY", "env:OPENAI_API_KEY"] },
-  },
-  {
-    schemaVersion: 1,
-    id: "google-workspace",
-    name: "Google Workspace",
-    description: "Let OpenWork help with meetings, selected Drive files, and Gmail drafts.",
-    preview: true,
-    source: { format: "openwork-builtin", origin: "builtin", trusted: true },
-    icon: { simpleIconSlug: "google" },
-    composer: { prompt: "Use Google Workspace to " },
-    setup: {
-      instructions: "Connect your Google account to use Calendar, Drive, and Gmail drafts in OpenWork.",
-      primaryCta: "Connect Google Workspace",
-      secondaryCta: "Test connection",
-      testActionRef: "openwork.googleWorkspace.testConnection",
-    },
-    resources: [
-      { type: "provider", id: "google-oauth", label: "Google account", providerId: "google-workspace", required: true },
-      { type: "local-service", id: "google-workspace-connector", label: "Secure local connection", required: true },
-      { type: "tool", id: "google-calendar-read", label: "Calendar", required: true },
-      { type: "tool", id: "google-gmail-drafts", label: "Gmail drafts", required: true },
-      { type: "tool", id: "google-drive-selected-files", label: "Selected Drive files", required: true },
-      { type: "tool", id: "google-gmail-read", label: "Gmail read (opt-in)", required: false },
-      { type: "tool", id: "google-drive-full", label: "Full Drive access (opt-in)", required: false },
-      { type: "tool", id: "google-calendar-events", label: "Calendar events (opt-in)", required: false },
-      { type: "tool", id: "google-chat", label: "Google Chat (opt-in)", required: false },
-    ],
-    contributions: [
-      { type: "settings-panel", ref: "openwork.googleWorkspace.settings", location: "settings-detail" },
-      { type: "test-action", ref: "openwork.googleWorkspace.testConnection", label: "Test Google Workspace" },
-      { type: "composer-prompt", prompt: "Use Google Workspace to ", location: "composer" },
-    ],
-    lifecycle: { reload: ["config"], detection: ["provider:google-workspace"] },
   },
   {
     schemaVersion: 1,

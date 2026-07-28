@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "bffcf3b2-2d64-4ef2-b98b-ab175041d005",
+  "id": "654ec20b-4a9e-4b76-acd8-566773a7d9e5",
   "prevId": "f66a65bf-8f5c-4d5a-acd0-1619506b1105",
   "tables": {
     "account": {
@@ -5572,14 +5572,14 @@
         },
         "normalized_payload_json": {
           "name": "normalized_payload_json",
-          "type": "text",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
         "raw_source_text": {
           "name": "raw_source_text",
-          "type": "text",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -9251,53 +9251,6 @@
           "name": "telemetry_session_dimension_id",
           "columns": [
             "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "ui_artifact_preference": {
-      "name": "ui_artifact_preference",
-      "columns": {
-        "member_id": {
-          "name": "member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "enabled_artifact_ids": {
-          "name": "enabled_artifact_ids",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "ui_artifact_preference_member_id": {
-          "name": "ui_artifact_preference_member_id",
-          "columns": [
-            "member_id"
           ]
         }
       },

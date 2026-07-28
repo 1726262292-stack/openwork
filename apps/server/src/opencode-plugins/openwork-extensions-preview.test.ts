@@ -11,7 +11,6 @@ import {
 
 const originalServerUrl = process.env.OPENWORK_SERVER_URL;
 const originalServerToken = process.env.OPENWORK_SERVER_TOKEN;
-const originalUiControlTools = process.env.OPENWORK_UI_CONTROL_TOOLS;
 const stops: Array<() => void> = [];
 
 const searchResultSchema = z.object({
@@ -52,14 +51,23 @@ const createResultSchema = z.object({
   })),
 });
 
+const affordanceResultSchema = <T extends z.ZodTypeAny>(id: string, result: T) => z.object({
+  ok: z.literal(true),
+  id: z.literal(id),
+  result,
+  effects: z.object({
+    data: z.enum(["none", "read", "write"]),
+    ui: z.enum(["none", "focus", "navigate"]),
+    external: z.boolean(),
+  }),
+});
+
 afterEach(() => {
   while (stops.length) stops.pop()?.();
   if (originalServerUrl === undefined) delete process.env.OPENWORK_SERVER_URL;
   else process.env.OPENWORK_SERVER_URL = originalServerUrl;
   if (originalServerToken === undefined) delete process.env.OPENWORK_SERVER_TOKEN;
   else process.env.OPENWORK_SERVER_TOKEN = originalServerToken;
-  if (originalUiControlTools === undefined) delete process.env.OPENWORK_UI_CONTROL_TOOLS;
-  else process.env.OPENWORK_UI_CONTROL_TOOLS = originalUiControlTools;
 });
 
 async function transformedSystem(plugin: Awaited<ReturnType<typeof OpenWorkExtensionsPreview>>): Promise<string> {
@@ -287,21 +295,24 @@ describe("OpenWorkExtensionsPreview session tools", () => {
     const fake = startFakeOpenWorkServer();
     const plugin = await OpenWorkExtensionsPreview();
 
-    const output = await plugin.tool.openwork_session_search.execute({
-      query: "raven launch",
-      limit: 5,
-      scanLimit: 10,
+    const output = await plugin.tool.openwork_query.execute({
+      id: "session.search",
+      args: {
+        query: "raven launch",
+        limit: 5,
+        scanLimit: 10,
+      },
     });
-    const parsed = searchResultSchema.parse(JSON.parse(output));
+    const parsed = affordanceResultSchema("session.search", searchResultSchema).parse(JSON.parse(output));
 
-    expect(parsed.scannedSessions).toBe(3);
-    expect(parsed.results[0]).toMatchObject({
+    expect(parsed.result.scannedSessions).toBe(3);
+    expect(parsed.result.results[0]).toMatchObject({
       workspaceId: "ws_1",
       sessionId: "ses_alpha",
       kind: "message",
       role: "user",
     });
-    expect(parsed.results[0]?.snippet.match.toLowerCase()).toBe("raven launch");
+    expect(parsed.result.results[0]?.snippet.match.toLowerCase()).toBe("raven launch");
     expect(fake.requests.some((request) => request.pathname === "/workspace/ws_1/sessions/ses_alpha/messages" && request.search === "?limit=400")).toBe(true);
   });
 
@@ -372,18 +383,18 @@ describe("OpenWorkExtensionsPreview session tools", () => {
     startFakeOpenWorkServer();
     const plugin = await OpenWorkExtensionsPreview();
 
-    const output = await plugin.tool.openwork_session_read.execute({
-      sessionId: "ses_archive",
-      count: 2,
+    const output = await plugin.tool.openwork_query.execute({
+      id: "session.read",
+      args: { sessionId: "ses_archive", count: 2 },
     });
-    const parsed = readResultSchema.parse(JSON.parse(output));
+    const parsed = affordanceResultSchema("session.read", readResultSchema).parse(JSON.parse(output));
 
-    expect(parsed).toMatchObject({
+    expect(parsed.result).toMatchObject({
       workspaceId: "ws_2",
       sessionId: "ses_archive",
       title: "Archive decisions",
     });
-    expect(parsed.messages).toEqual([
+    expect(parsed.result.messages).toEqual([
       {
         index: 1,
         id: "msg_latest",
@@ -397,25 +408,28 @@ describe("OpenWorkExtensionsPreview session tools", () => {
     const fake = startFakeOpenWorkServer();
     const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
 
-    const output = await plugin.tool.openwork_session_create.execute({
-      sessions: [
-        { title: "Look into dolphins", prompt: "Research dolphins." },
-        { title: "Look into bananas", prompt: "Research bananas." },
-        { title: "Look into apple pies", prompt: "Research apple pies." },
-      ],
+    const output = await plugin.tool.openwork_execute.execute({
+      id: "session.create",
+      args: {
+        sessions: [
+          { title: "Look into dolphins", prompt: "Research dolphins." },
+          { title: "Look into bananas", prompt: "Research bananas." },
+          { title: "Look into apple pies", prompt: "Research apple pies." },
+        ],
+      },
     }, { sessionID: "ses_origin" });
-    const parsed = createResultSchema.parse(JSON.parse(output));
+    const parsed = affordanceResultSchema("session.create", createResultSchema).parse(JSON.parse(output));
 
-    expect(parsed.ok).toBe(true);
-    expect(parsed.workspaceId).toBe("ws_2");
-    expect(parsed.created).toHaveLength(3);
-    expect(parsed.failures).toEqual([]);
-    expect(parsed.created.map((session) => session.title)).toEqual([
+    expect(parsed.result.ok).toBe(true);
+    expect(parsed.result.workspaceId).toBe("ws_2");
+    expect(parsed.result.created).toHaveLength(3);
+    expect(parsed.result.failures).toEqual([]);
+    expect(parsed.result.created.map((session) => session.title)).toEqual([
       "Look into dolphins",
       "Look into bananas",
       "Look into apple pies",
     ]);
-    expect(parsed.created.map((session) => session.route).sort()).toEqual([
+    expect(parsed.result.created.map((session) => session.route).sort()).toEqual([
       "/workspace/ws_2/session/ses_created_1",
       "/workspace/ws_2/session/ses_created_2",
       "/workspace/ws_2/session/ses_created_3",
@@ -439,49 +453,35 @@ describe("OpenWorkExtensionsPreview session tools", () => {
       prompt: `Research topic ${index + 1}.`,
     }));
 
-    const output = await plugin.tool.openwork_session_create.execute({ sessions }, { sessionID: "ses_origin" });
-    const parsed = createResultSchema.parse(JSON.parse(output));
+    const output = await plugin.tool.openwork_execute.execute({
+      id: "session.create",
+      args: { sessions },
+    }, { sessionID: "ses_origin" });
+    const parsed = affordanceResultSchema("session.create", createResultSchema).parse(JSON.parse(output));
 
-    expect(parsed.ok).toBe(true);
-    expect(parsed.created).toHaveLength(21);
-    expect(parsed.failures).toEqual([]);
+    expect(parsed.result.ok).toBe(true);
+    expect(parsed.result.created).toHaveLength(21);
+    expect(parsed.result.failures).toEqual([]);
     expect(fake.requests.filter((request) => request.pathname === "/workspace/ws_2/sessions" && request.method === "POST")).toHaveLength(21);
   });
 });
 
-describe("OpenWorkExtensionsPreview UI control tools", () => {
-  test("omits UI-control tools and steering by default", async () => {
-    delete process.env.OPENWORK_UI_CONTROL_TOOLS;
+describe("OpenWorkExtensionsPreview semantic tool surface", () => {
+  test("exposes only the three semantic tools", async () => {
     const plugin = await OpenWorkExtensionsPreview();
-    const tools = Object.keys(plugin.tool);
+    const tools = Object.keys(plugin.tool).sort();
 
-    expect(tools).not.toContain("openwork_ui_snapshot");
-    expect(tools).not.toContain("openwork_ui_list_actions");
-    expect(tools).not.toContain("openwork_ui_execute_action");
-    expect(tools).toContain("openwork_context");
-    expect(tools).toContain("openwork_query");
-    expect(tools).toContain("openwork_execute");
-    expect(tools).toContain("openwork_session_create");
-    expect(tools).toContain("openwork_session_search");
-    expect(tools).toContain("openwork_extension_list_actions");
+    expect(tools).toEqual(["openwork_context", "openwork_execute", "openwork_query"]);
 
     const system = await transformedSystem(plugin);
+    expect(system).not.toContain("## Default Skill: skill-creator");
+    expect(system).not.toContain("<openwork_default_skill");
     expect(system).not.toContain("openwork_ui_");
+    expect(system).not.toContain("openwork_session_");
+    expect(system).not.toContain("openwork_extension_");
+    expect(system).not.toContain("openwork_browser_");
     expect(system).toContain("Use openwork_context");
     expect(system).toContain("session.search");
-    expect(system).not.toContain("ALWAYS use openwork_session_create");
-  });
-
-  test("registers UI-control tools and steering when opted in", async () => {
-    process.env.OPENWORK_UI_CONTROL_TOOLS = "1";
-    const plugin = await OpenWorkExtensionsPreview();
-    const tools = Object.keys(plugin.tool);
-
-    expect(tools).toContain("openwork_ui_snapshot");
-    expect(tools).toContain("openwork_ui_list_actions");
-    expect(tools).toContain("openwork_ui_execute_action");
-
-    const system = await transformedSystem(plugin);
-    expect(system).toContain("openwork_ui_execute_action");
+    expect(system).toContain("browser.open_url");
   });
 });

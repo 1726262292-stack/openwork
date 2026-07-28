@@ -95,7 +95,13 @@ export async function signInViaBrowser(ctx, email, password) {
     return true;
   })()`);
   ctx.assert(submitted, "No submit button found on the sign-in card.");
-  await ctx.waitForText("Dashboard", { timeoutMs: 30_000 });
+  await ctx.waitFor(
+    `(() => {
+      const text = document.body?.innerText ?? "";
+      return text.includes("Dashboard") || Boolean(document.querySelector('[data-testid="org-chooser-root"]'));
+    })()`,
+    { timeoutMs: 30_000, label: "signed-in dashboard or organization chooser" },
+  );
 }
 
 export async function openAdminConnections(ctx) {

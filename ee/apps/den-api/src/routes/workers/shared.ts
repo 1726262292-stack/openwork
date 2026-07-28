@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { and, asc, desc, eq, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, asc, desc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   AuditEventTable,
   AuthUserTable,
@@ -56,11 +56,56 @@ export type WorkerRouteVariables = AuthContextVariables & Partial<UserOrganizati
 
 type WorkerRow = typeof WorkerTable.$inferSelect
 type WorkerInstanceRow = typeof WorkerInstanceTable.$inferSelect
+type WorkerStatus = WorkerRow["status"]
 export type WorkerId = WorkerRow["id"]
 type OrgId = typeof MemberTable.$inferSelect.organizationId
 type UserId = typeof AuthUserTable.$inferSelect.id
+type ProvisionWorker = typeof provisionWorker
+type ProvisionedWorker = Awaited<ReturnType<ProvisionWorker>>
+type CloudProvisioningStore = {
+  updateWorkerStatus: (input: {
+    workerId: WorkerId
+    status: WorkerStatus
+    onlyWhenStatus?: WorkerStatus
+    onlyWhenStatusIn?: WorkerStatus[]
+  }) => Promise<void>
+  insertWorkerInstance: (input: { workerId: WorkerId; provisioned: ProvisionedWorker }) => Promise<void>
+}
+type ContinueCloudProvisioningOptions = {
+  provisionWorker?: ProvisionWorker
+  store?: CloudProvisioningStore
+}
 
 export const token = () => randomBytes(32).toString("hex")
+const provisioningSuccessWritableStatuses: WorkerStatus[] = ["provisioning", "failed"]
+const cloudProvisioningInFlight = new Map<WorkerId, Promise<void>>()
+
+const databaseCloudProvisioningStore: CloudProvisioningStore = {
+  async updateWorkerStatus(input) {
+    const statusPredicate = input.onlyWhenStatusIn
+      ? inArray(WorkerTable.status, input.onlyWhenStatusIn)
+      : input.onlyWhenStatus
+        ? eq(WorkerTable.status, input.onlyWhenStatus)
+        : undefined
+
+    await db
+      .update(WorkerTable)
+      .set({ status: input.status })
+      .where(statusPredicate
+        ? and(eq(WorkerTable.id, input.workerId), statusPredicate)
+        : eq(WorkerTable.id, input.workerId))
+  },
+  async insertWorkerInstance(input) {
+    await db.insert(WorkerInstanceTable).values({
+      id: createDenTypeId("workerInstance"),
+      worker_id: input.workerId,
+      provider: input.provisioned.provider,
+      region: input.provisioned.region,
+      url: input.provisioned.url,
+      status: input.provisioned.status,
+    })
+  },
+}
 
 export function parseWorkerIdParam(value: string): WorkerId {
   return normalizeDenTypeId("worker", value)
@@ -322,15 +367,18 @@ export function toWorkerResponse(row: WorkerRow, userId: string) {
   }
 }
 
-export async function continueCloudProvisioning(input: {
+async function runCloudProvisioning(input: {
   workerId: WorkerId
   name: string
   hostToken: string
   clientToken: string
   activityToken: string
-}) {
+}, options: ContinueCloudProvisioningOptions) {
+  const provision = options.provisionWorker ?? provisionWorker
+  const store = options.store ?? databaseCloudProvisioningStore
+
   try {
-    const provisioned = await provisionWorker({
+    const provisioned = await provision({
       workerId: input.workerId,
       name: input.name,
       hostToken: input.hostToken,
@@ -338,27 +386,43 @@ export async function continueCloudProvisioning(input: {
       activityToken: input.activityToken,
     })
 
-    await db
-      .update(WorkerTable)
-      .set({ status: provisioned.status })
-      .where(and(eq(WorkerTable.id, input.workerId), eq(WorkerTable.status, "provisioning")))
-
-    await db.insert(WorkerInstanceTable).values({
-      id: createDenTypeId("workerInstance"),
-      worker_id: input.workerId,
-      provider: provisioned.provider,
-      region: provisioned.region,
-      url: provisioned.url,
+    await store.updateWorkerStatus({
+      workerId: input.workerId,
       status: provisioned.status,
+      onlyWhenStatusIn: provisioningSuccessWritableStatuses,
     })
+
+    await store.insertWorkerInstance({ workerId: input.workerId, provisioned })
   } catch (error) {
-    await db
-      .update(WorkerTable)
-      .set({ status: "failed" })
-      .where(and(eq(WorkerTable.id, input.workerId), eq(WorkerTable.status, "provisioning")))
+    await store.updateWorkerStatus({ workerId: input.workerId, status: "failed", onlyWhenStatus: "provisioning" })
 
     logger.error("worker provisioning failed", { worker_id: input.workerId, error })
   }
+}
+
+export async function continueCloudProvisioning(input: {
+  workerId: WorkerId
+  name: string
+  hostToken: string
+  clientToken: string
+  activityToken: string
+}, options: ContinueCloudProvisioningOptions = {}) {
+  const existing = cloudProvisioningInFlight.get(input.workerId)
+  if (existing) {
+    return existing
+  }
+
+  // Conditional updates are the multi-replica safety; this in-process map is
+  // single-replica efficiency shared by routes, reconcilers, and self-heals.
+  const promise = runCloudProvisioning(input, options)
+    .finally(() => {
+      if (cloudProvisioningInFlight.get(input.workerId) === promise) {
+        cloudProvisioningInFlight.delete(input.workerId)
+      }
+    })
+  cloudProvisioningInFlight.set(input.workerId, promise)
+
+  return promise
 }
 
 export async function requireCloudAccessOrPayment(input: {

@@ -68,6 +68,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function serializedConsoleErrors(errors: unknown[][]) {
+  return errors
+    .flat()
+    .map((entry) => {
+      const serialized = typeof entry === "string" ? entry : JSON.stringify(entry)
+      return serialized ?? ""
+    })
+    .join(" ")
+}
+
 function requiredString(value: unknown, key: string) {
   if (!isRecord(value) || typeof value[key] !== "string") {
     throw new Error(`OAuth response did not include ${key}`)
@@ -77,6 +87,10 @@ function requiredString(value: unknown, key: string) {
 
 function codeChallenge(verifier: string) {
   return createHash("sha256").update(verifier).digest("base64url")
+}
+
+function hashStoredOAuthToken(token: string) {
+  return createHash("sha256").update(token).digest("base64url")
 }
 
 async function sleep(ms: number) {
@@ -155,6 +169,7 @@ let app: typeof import("../src/app.js").default
 let db: typeof import("../src/db.js").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
+let setMcpSessionLivenessDependenciesForTest: typeof import("../src/mcp/session-liveness.js").setMcpSessionLivenessDependenciesForTest
 
 const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
@@ -177,11 +192,13 @@ beforeAll(async () => {
     import("../src/db.js"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
+    import("../src/mcp/session-liveness.js"),
   ])
   app = modules[0].default
   db = modules[1].db
   schema = modules[2]
   drizzle = modules[3]
+  setMcpSessionLivenessDependenciesForTest = modules[4].setMcpSessionLivenessDependenciesForTest
 
   await db.insert(schema.AuthUserTable).values({
     id: userId,
@@ -329,6 +346,24 @@ async function issueOAuthGrant() {
   }
 }
 
+async function issueRefreshGrantWithoutSession() {
+  const clientId = await registerOAuthClient()
+  const refreshTokenSecret = `mcp-null-session-refresh-${createDenTypeId("verification")}`
+  await db.insert(schema.OAuthRefreshTokenTable).values({
+    id: createDenTypeId("oauthRefreshToken"),
+    token: hashStoredOAuthToken(refreshTokenSecret),
+    clientId,
+    userId,
+    referenceId: organizationId,
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    scopes: JSON.stringify(MCP_SCOPE.split(" ")),
+  })
+  return {
+    clientId,
+    refreshToken: `ow_mcp_rt_${refreshTokenSecret}`,
+  }
+}
+
 async function refreshOAuthToken(input: { clientId: string; refreshToken: string }) {
   const response = await app.fetch(new Request(`${API_ORIGIN}/api/auth/oauth2/token`, {
     method: "POST",
@@ -344,6 +379,17 @@ async function refreshOAuthToken(input: { clientId: string; refreshToken: string
     }),
   }))
   return { status: response.status, body: await response.json() }
+}
+
+async function fetchAgentToolsWithAccessToken(accessToken: string, id: string) {
+  return app.fetch(new Request(AGENT_RESOURCE, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/list", params: {} }),
+  }))
 }
 
 function requireRefreshToken(tokens: OAuthTokens) {
@@ -390,6 +436,186 @@ childTest("SDK MCP client survives multiple serial access-token refresh and repl
     await session.client.close()
   }
 }, 12_000)
+
+childTest("refresh_token grant with a live backing session still rotates", async () => {
+  const grant = await issueOAuthGrant()
+  const refresh = await refreshOAuthToken({
+    clientId: grant.clientInformation.client_id,
+    refreshToken: requireRefreshToken(grant.tokens),
+  })
+
+  expect(refresh.status).toBe(200)
+  const tokens = OAuthTokensSchema.parse(refresh.body)
+  expect(tokens.access_token).toBeTruthy()
+  expect(requireRefreshToken(tokens)).toStartWith("ow_mcp_rt_")
+}, 8_000)
+
+childTest("refresh_token grant with a deleted backing session returns invalid_grant and clears the grant family", async () => {
+  const grant = await issueOAuthGrant()
+  const clientId = grant.clientInformation.client_id
+  await db.insert(schema.OAuthAccessTokenTable).values({
+    id: createDenTypeId("oauthAccessToken"),
+    token: hashStoredOAuthToken(`dead-session-access-${grant.sessionId}`),
+    clientId,
+    sessionId: grant.sessionId,
+    userId,
+    referenceId: organizationId,
+    expiresAt: new Date(Date.now() + 60_000),
+    scopes: JSON.stringify(MCP_SCOPE.split(" ")),
+  })
+  await db.delete(schema.AuthSessionTable).where(drizzle.eq(schema.AuthSessionTable.id, grant.sessionId))
+
+  const refresh = await refreshOAuthToken({
+    clientId,
+    refreshToken: requireRefreshToken(grant.tokens),
+  })
+
+  expect(refresh.status).toBe(400)
+  if (!isRecord(refresh.body)) throw new Error("Expected OAuth error response body")
+  expect(refresh.body.error).toBe("invalid_grant")
+  expect(refresh.body.access_token).toBeUndefined()
+  expect(refresh.body.refresh_token).toBeUndefined()
+
+  const refreshGrants = await db
+    .select({ id: schema.OAuthRefreshTokenTable.id })
+    .from(schema.OAuthRefreshTokenTable)
+    .where(drizzle.eq(schema.OAuthRefreshTokenTable.sessionId, grant.sessionId))
+  const accessGrants = await db
+    .select({ id: schema.OAuthAccessTokenTable.id })
+    .from(schema.OAuthAccessTokenTable)
+    .where(drizzle.eq(schema.OAuthAccessTokenTable.sessionId, grant.sessionId))
+  expect(refreshGrants).toHaveLength(0)
+  expect(accessGrants).toHaveLength(0)
+}, 8_000)
+
+childTest("refresh_token grant with an expired backing session returns invalid_grant", async () => {
+  const grant = await issueOAuthGrant()
+  await db.update(schema.AuthSessionTable)
+    .set({ expiresAt: new Date(Date.now() - 1_000), updatedAt: new Date() })
+    .where(drizzle.eq(schema.AuthSessionTable.id, grant.sessionId))
+
+  const refresh = await refreshOAuthToken({
+    clientId: grant.clientInformation.client_id,
+    refreshToken: requireRefreshToken(grant.tokens),
+  })
+
+  expect(refresh.status).toBe(400)
+  if (!isRecord(refresh.body)) throw new Error("Expected OAuth error response body")
+  expect(refresh.body.error).toBe("invalid_grant")
+  expect(refresh.body.error_description).toBe("The session backing this grant has been signed out or expired. Re-authorize the connection.")
+}, 8_000)
+
+childTest("refresh_token grant with no session_id remains valid", async () => {
+  const grant = await issueRefreshGrantWithoutSession()
+  const refresh = await refreshOAuthToken({
+    clientId: grant.clientId,
+    refreshToken: grant.refreshToken,
+  })
+
+  expect(refresh.status).toBe(200)
+  const tokens = OAuthTokensSchema.parse(refresh.body)
+  expect(tokens.access_token).toBeTruthy()
+  expect(requireRefreshToken(tokens)).toStartWith("ow_mcp_rt_")
+}, 8_000)
+
+childTest("authorization_code grant path still issues session-bound refresh tokens", async () => {
+  const grant = await issueOAuthGrant()
+  const clientId = grant.clientInformation.client_id
+  expect(grant.tokens.access_token).toBeTruthy()
+  expect(requireRefreshToken(grant.tokens)).toStartWith("ow_mcp_rt_")
+
+  const [refreshGrant] = await db
+    .select({ sessionId: schema.OAuthRefreshTokenTable.sessionId })
+    .from(schema.OAuthRefreshTokenTable)
+    .where(drizzle.eq(schema.OAuthRefreshTokenTable.clientId, clientId))
+    .limit(1)
+  expect(refreshGrant?.sessionId).toBe(grant.sessionId)
+}, 8_000)
+
+childTest("session liveness check failures 503 resource requests but fail open refresh grants", async () => {
+  const grant = await issueOAuthGrant()
+  const clientId = grant.clientInformation.client_id
+  await db.insert(schema.OAuthAccessTokenTable).values({
+    id: createDenTypeId("oauthAccessToken"),
+    token: hashStoredOAuthToken(`fail-open-access-${grant.sessionId}`),
+    clientId,
+    sessionId: grant.sessionId,
+    userId,
+    referenceId: organizationId,
+    expiresAt: new Date(Date.now() + 60_000),
+    scopes: JSON.stringify(MCP_SCOPE.split(" ")),
+  })
+  const errors: unknown[][] = []
+  const originalError = console.error
+  console.error = (...args: unknown[]) => {
+    errors.push(args)
+  }
+  const restoreLiveness = setMcpSessionLivenessDependenciesForTest({
+    select: async () => {
+      throw new Error("simulated liveness select outage")
+    },
+  })
+
+  try {
+    const response = await fetchAgentToolsWithAccessToken(grant.tokens.access_token, "liveness-check-failed")
+    expect(response.status).toBe(503)
+    expect(response.headers.get("www-authenticate")).toBeNull()
+    expect(response.headers.get("retry-after")).toBe("10")
+    const body: unknown = await response.json()
+    expect(isRecord(body) && body.error).toBe("mcp_session_check_unavailable")
+
+    const refresh = await refreshOAuthToken({
+      clientId,
+      refreshToken: requireRefreshToken(grant.tokens),
+    })
+    expect(refresh.status).toBe(200)
+    expect(OAuthTokensSchema.parse(refresh.body).access_token).toBeTruthy()
+  } finally {
+    restoreLiveness()
+    console.error = originalError
+  }
+
+  expect(serializedConsoleErrors(errors)).toContain("mcp_session_liveness_check_failed")
+  const refreshGrants = await db
+    .select({ id: schema.OAuthRefreshTokenTable.id })
+    .from(schema.OAuthRefreshTokenTable)
+    .where(drizzle.eq(schema.OAuthRefreshTokenTable.sessionId, grant.sessionId))
+  const accessGrants = await db
+    .select({ id: schema.OAuthAccessTokenTable.id })
+    .from(schema.OAuthAccessTokenTable)
+    .where(drizzle.eq(schema.OAuthAccessTokenTable.sessionId, grant.sessionId))
+  expect(refreshGrants.length).toBeGreaterThan(0)
+  expect(accessGrants.length).toBeGreaterThan(0)
+}, 8_000)
+
+childTest("session touch failures do not block healthy liveness checks", async () => {
+  const grant = await issueOAuthGrant()
+  const provider = new HarnessOAuthProvider(grant)
+  const errors: unknown[][] = []
+  const originalError = console.error
+  console.error = (...args: unknown[]) => {
+    errors.push(args)
+  }
+  const restoreLiveness = setMcpSessionLivenessDependenciesForTest({
+    touch: async () => {
+      throw new Error("simulated liveness touch outage")
+    },
+  })
+
+  let session: Awaited<ReturnType<typeof connectMcpClient>> | null = null
+  try {
+    session = await connectMcpClient(provider)
+    await expectAgentTools(session.client)
+  } finally {
+    await session?.client.close()
+    restoreLiveness()
+    console.error = originalError
+  }
+
+  const logs = serializedConsoleErrors(errors)
+  expect(logs).toContain("mcp_session_liveness_touch_failed")
+  expect(logs).not.toContain("mcp_session_liveness_check_failed")
+}, 8_000)
 
 type RefreshRecord = {
   refreshToken: string | null

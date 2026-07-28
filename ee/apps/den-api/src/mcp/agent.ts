@@ -34,6 +34,11 @@ import {
   UI_ARTIFACT_SCHEMA_VERSION,
   type UiArtifactPreferences,
 } from "@openwork/types/ui-artifact"
+import {
+  executeBuiltinSkillCapability,
+  listBuiltinSkillDescriptors,
+  searchBuiltinSkillCapabilities,
+} from "./builtin-skills.js"
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
@@ -122,6 +127,7 @@ const BASE_AGENT_MCP_INSTRUCTIONS = [
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
+  "Built-in remote skills create-skill, add-to-marketplace, and add-user-to-marketplace are always listed in the skill index. Retrieve and follow the matching one by executing its exact capability; do not invent a local copy to access them.",
   "For a request to add a public GitHub plugin to an organization marketplace, search for the marketplace list, GitHub plugin import preview, GitHub plugin marketplace import, and resolved marketplace detail capabilities. Preview first; do not recreate the plugin by hand.",
   "Before importing, confirm the target marketplace, selected skill/server keys, and who can use them. Do not choose one authentication type for every server: the import route resolves known presets and plugin declarations, while the request authType is only a fallback for unknown servers.",
   "After importing, retrieve the resolved marketplace detail and report each plugin's cloudReadiness. An import or plugin binding is not proof that an MCP connection is usable. Relay needs_admin_setup or needs_signin as the next human action instead of claiming the connection is ready.",
@@ -331,6 +337,7 @@ export function registerAgentSkillResources(input: {
       description: skill.description,
       mimeType: "text/markdown",
     }, async () => {
+      const builtinResult = executeBuiltinSkillCapability(skill.capability)
       const marketplace = parseMarketplaceCapabilityName(skill.capability)
       const marketplaceResult = marketplace ? await executeMarketplaceCapability({
         organizationId: input.organizationId,
@@ -339,9 +346,10 @@ export function registerAgentSkillResources(input: {
         configObjectId: marketplace.configObjectId,
         enabled: input.marketplaceEnabled,
       }) : null
-      const source = marketplaceResult?.ok && marketplaceResult.result.kind === "skill"
-        ? marketplaceResult.result.content
-        : null
+      const source = builtinResult?.content
+        ?? (marketplaceResult?.ok && marketplaceResult.result.kind === "skill"
+          ? marketplaceResult.result.content
+          : null)
       if (typeof source !== "string") throw new McpError(ErrorCode.InvalidRequest, "Skill is no longer available")
       return {
         contents: [{
@@ -423,11 +431,14 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
     let remoteSkills: RemoteSkillDescriptor[] = []
     const method = await mcpRequestMethod(c.req.raw)
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
-      remoteSkills = (await listAccessibleMarketplaceSkillDescriptors({
-        organizationId: principal.organizationId,
-        member: memberIdentity,
-        enabled: externalMcpConnectionsEnabled,
-      }))
+      remoteSkills = [
+        ...listBuiltinSkillDescriptors(),
+        ...(await listAccessibleMarketplaceSkillDescriptors({
+          organizationId: principal.organizationId,
+          member: memberIdentity,
+          enabled: externalMcpConnectionsEnabled,
+        })),
+      ]
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
     const uiArtifactPreferences = method === "tools/call" && memberIdentity
@@ -460,13 +471,13 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
           "Native API matches include pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField.",
-          "Marketplace skill matches return stored SKILL.md content when executed.",
+          "Built-in and marketplace skill matches return SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
         inputSchema: z.object({
           query: z.string().min(1).describe("Keywords describing the capability you need, e.g. \"create organization\" or \"list workers\"."),
           limit: z.number().int().min(1).max(20).optional().describe("Max number of matches to return. Defaults to 5."),
-          type: searchCapabilityTypeSchema.optional().describe("Optional source filter. all searches every available source; api searches Den API capabilities; admin searches allowlisted platform-admin tools; mcp searches connected external MCP tools; marketplace searches marketplace plugin capabilities; skills searches marketplace skill objects. Defaults to all."),
+          type: searchCapabilityTypeSchema.optional().describe("Optional source filter. all searches every available source; api searches Den API capabilities; admin searches allowlisted platform-admin tools; mcp searches connected external MCP tools; marketplace searches marketplace plugin capabilities; skills searches built-in and marketplace skills. Defaults to all."),
         }),
         outputSchema: SEARCH_CAPABILITIES_OUTPUT_SCHEMA,
       },
@@ -480,6 +491,9 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           : []
         const adminMatches = sourceFilter.admin
           ? await searchAvailableAdminCapabilities(await resolvePlatformAdmin(), query, boundedLimit)
+          : []
+        const builtinSkillMatches = sourceFilter.skills
+          ? searchBuiltinSkillCapabilities(query, boundedLimit)
           : []
         // Merged in from each connected External MCP Connection's live
         // tools/list (capability-sources/external-mcp-client.ts) — a
@@ -508,7 +522,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
             enabled: externalMcpConnectionsEnabled,
           })
           : []
-        const matches = [...restMatches, ...uiArtifactMatches, ...adminMatches, ...externalMatches, ...marketplaceMatches]
+        const matches = [...restMatches, ...uiArtifactMatches, ...adminMatches, ...builtinSkillMatches, ...externalMatches, ...marketplaceMatches]
           .sort(compareCapabilityMatches)
           .slice(0, boundedLimit)
         return capabilitySearchToolResult(matches, externalCoverageHint)
@@ -523,7 +537,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "Call a capability found via search_capabilities, by its exact name.",
           "Pass path/query/body only as described by that match's pathParams/queryParams/hasBody.",
           "For external MCP capabilities, provider-advertised schema mismatches are returned as advisory schemaGuidance alongside the provider result; they do not block the downstream call.",
-          "For plugin:<pluginId>:<configObjectId> capabilities listed in the remote skill catalog, this returns the authorized marketplace skill's stored SKILL.md content.",
+          "For skill capabilities listed in the remote skill catalog, this returns their authorized SKILL.md content.",
           "Returns unknown_capability if name doesn't match a current capability — call search_capabilities again.",
         ].join(" "),
         annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
@@ -554,6 +568,11 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
               ? await executeAvailableAdminCapability(await resolvePlatformAdmin(), name, body)
               : null
             if (adminResult) return adminResult
+
+            const builtinSkill = executeBuiltinSkillCapability(name)
+            if (builtinSkill) {
+              return { content: textContent(JSON.stringify(builtinSkill, null, 2)) }
+            }
 
             const external = parseExternalCapabilityName(name)
             if (external) {

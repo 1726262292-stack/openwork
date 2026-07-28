@@ -5,11 +5,13 @@ import {
   type AgentContextDiagnosticsReport,
   type AgentContextDiagnosticsRequest,
 } from "@openwork/types/agent-context-diagnostics";
+import { normalizeBaseUrl } from "@openwork/types/url";
 import {
   AGENT_CONTEXT_DIAGNOSTICS_REQUEST_TIMEOUT_MS,
   requestAgentContextDiagnosticsPayload,
 } from "./agent-context-diagnostics-transport";
 import { desktopFetch, desktopFetchAgentContextDiagnostics } from "./desktop";
+import { isOpenworkGatewayRuntime } from "./gateway-runtime";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
 import type { DenOrgMarketplace, DenOrgPluginResolved, DenResourceSnapshot } from "./den-types";
@@ -70,10 +72,6 @@ export type OpenworkRuntimeServiceSnapshot = {
 
 export type OpenworkRuntimeSnapshot = {
   ok: boolean;
-  orchestrator?: {
-    version: string;
-    startedAt: number;
-  };
   worker?: {
     workspace: string;
     sandboxMode: string;
@@ -643,61 +641,12 @@ export type OpenworkArtifactList = {
   items: OpenworkArtifactItem[];
 };
 
-export type GoogleWorkspaceAccount = {
-  accountId: string | null;
-  email: string | null;
-  name: string | null;
-  picture: string | null;
-  sub: string | null;
-  scopes?: string[];
-  connectedAt?: string | null;
-};
-
-export type GoogleWorkspaceAuthStatus = {
-  configured: boolean;
-  missing: string[];
-  customClient: boolean;
-  vault: "encrypted" | "plaintext-dev" | "unavailable";
-  connected: boolean;
-  account: GoogleWorkspaceAccount | null;
-  accounts: GoogleWorkspaceAccount[];
-  activeAccountId: string | null;
-  scopes: string[];
-  connectedAt: string | null;
-  error: string | null;
-  testStatus: string | null;
-  smokeTest: {
-    driveFileId: string | null;
-    driveFileName: string | null;
-    gmailDraftId: string | null;
-  } | null;
-  connect?: {
-    enabled: true;
-    cloudMcpPresent: boolean;
-    guidance: string;
-  };
-};
-
 export type OpenworkConnectState = {
   ok: true;
   schemaVersion: 1;
   connectEnabled: boolean;
   cloudMcpPresent: boolean;
   googleWorkspace: { legacyConfigured: boolean };
-};
-
-export type GoogleWorkspaceConnectStart = {
-  flowId: string;
-  authUrl: string;
-  expiresAt: number;
-};
-
-export type GoogleWorkspaceConnectStatus = {
-  flowId: string;
-  status: "pending" | "connected" | "failed" | "expired";
-  expiresAt: number;
-  error: string | null;
-  googleWorkspace: GoogleWorkspaceAuthStatus | null;
 };
 
 export type OpenworkExtensionActionCall = {
@@ -832,11 +781,21 @@ const STORAGE_TOKEN = "openwork.server.token";
 const STORAGE_HOST_AUTH_KEY = "openwork.server.hostToken";
 const STORAGE_REMOTE_ACCESS = "openwork.server.remoteAccessEnabled";
 
+type OpenworkBootstrap = {
+  token?: string;
+};
+
+declare global {
+  interface Window {
+    __OPENWORK_BOOTSTRAP__?: OpenworkBootstrap;
+  }
+}
+
 export function normalizeOpenworkServerUrl(input: string) {
   const trimmed = input.trim();
   if (!trimmed) return null;
   const withProtocol = /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
-  return withProtocol.replace(/\/+$/, "");
+  return normalizeBaseUrl(withProtocol);
 }
 
 export function isLoopbackOpenworkServerUrl(input: string) {
@@ -1026,6 +985,7 @@ export function writeOpenworkServerSettings(next: OpenworkServerSettings): Openw
 
 export function hydrateOpenworkServerSettingsFromEnv() {
   if (typeof window === "undefined") return;
+  if (isOpenworkGatewayRuntime()) return;
 
   const envUrl = typeof import.meta.env?.VITE_OPENWORK_URL === "string"
     ? import.meta.env.VITE_OPENWORK_URL.trim()
@@ -1039,8 +999,11 @@ export function hydrateOpenworkServerSettingsFromEnv() {
   const envHostToken = typeof import.meta.env?.VITE_OPENWORK_HOST_TOKEN === "string"
     ? import.meta.env.VITE_OPENWORK_HOST_TOKEN.trim()
     : "";
+  const bootstrapToken = typeof window.__OPENWORK_BOOTSTRAP__?.token === "string"
+    ? window.__OPENWORK_BOOTSTRAP__.token.trim()
+    : "";
 
-  if (!envUrl && !envPort && !envToken && !envHostToken) return;
+  if (!envUrl && !envPort && !envToken && !envHostToken && !bootstrapToken) return;
 
   try {
     const current = readOpenworkServerSettings();
@@ -1060,7 +1023,10 @@ export function hydrateOpenworkServerSettingsFromEnv() {
       }
     }
 
-    if (!current.token && envToken) {
+    if (bootstrapToken && current.token !== bootstrapToken) {
+      next.token = bootstrapToken;
+      changed = true;
+    } else if (!current.token && envToken) {
       next.token = envToken;
       changed = true;
     }
@@ -1361,14 +1327,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       requestJson<OpenworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
-    googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     setConnectState: (connectEnabled: boolean) => requestJson<OpenworkConnectState>(baseUrl, "/experimental/connect/state", { token, hostToken, method: "PUT", body: { connectEnabled }, timeoutMs: timeouts.config }),
-    googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
-    googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),
-    googleWorkspaceDisconnect: (accountId?: string | null) => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/disconnect", { token, hostToken, method: "POST", body: accountId ? { accountId } : {}, timeoutMs: timeouts.status }),
-    googleWorkspaceSetActiveAccount: (accountId: string) => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/active-account", { token, hostToken, method: "POST", body: { accountId }, timeoutMs: timeouts.status }),
-    googleWorkspaceTestConnection: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/test", { token, hostToken, method: "POST", timeoutMs: 60_000 }),
-    googleWorkspaceRunScopeSmokeTest: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/smoke-test", { token, hostToken, method: "POST", timeoutMs: 120_000 }),
     callExtensionAction: (payload: OpenworkExtensionActionCall) =>
       requestJson<OpenworkExtensionActionResult>(baseUrl, "/experimental/extensions/call", {
         token,

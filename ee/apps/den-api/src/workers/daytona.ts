@@ -1,4 +1,4 @@
-import { Daytona, type Sandbox } from "@daytonaio/sdk"
+import { Daytona, DaytonaConflictError, type CreateSandboxFromImageParams, type CreateSandboxFromSnapshotParams, type Sandbox } from "@daytonaio/sdk"
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { DaytonaSandboxTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
@@ -23,9 +23,62 @@ type ProvisionedInstance = {
   region?: string
 }
 
-type DaytonaSandboxListPage = {
-  items: Array<{ id?: unknown }>
-  nextCursor?: string | null
+export class DaytonaSandboxMissingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "DaytonaSandboxMissingError"
+  }
+}
+
+export type StopWorkerOnDaytonaResult =
+  | { status: "no_sandbox" }
+  | { status: "stopped" }
+
+type DaytonaCreateParams = CreateSandboxFromImageParams | CreateSandboxFromSnapshotParams
+type DaytonaVolumeRuntime = {
+  id: string
+  state?: string | null
+}
+type DaytonaSessionCommand = {
+  exitCode?: number | null
+}
+type DaytonaSessionCommandLogs = {
+  stdout?: string | null
+  stderr?: string | null
+}
+type DaytonaSessionCommandResult = {
+  cmdId: string
+}
+export type DaytonaSandboxRuntime = {
+  id: string
+  state: string | null
+  target: string | null
+  refreshData: () => Promise<unknown>
+  start: (timeout?: number) => Promise<unknown>
+  delete: (timeout?: number) => Promise<unknown>
+  getSignedPreviewUrl: (port: number, expiresInSeconds?: number) => Promise<{ url: string }>
+  process: {
+    createSession: (sessionId: string) => Promise<unknown>
+    executeSessionCommand: (sessionId: string, request: { command: string; runAsync: boolean }, timeout?: number) => Promise<DaytonaSessionCommandResult>
+    getSessionCommand: (sessionId: string, commandId: string) => Promise<DaytonaSessionCommand>
+    getSessionCommandLogs: (sessionId: string, commandId: string) => Promise<DaytonaSessionCommandLogs>
+  }
+}
+type UpsertDaytonaSandboxInput = {
+  workerId: WorkerId
+  sandboxId: string
+  workspaceVolumeId: string
+  dataVolumeId: string
+  signedPreviewUrl: string
+  signedPreviewUrlExpiresAt: Date
+  region: string | null
+}
+export type DaytonaProvisioningRuntime = {
+  getVolume: (name: string, create?: boolean) => Promise<DaytonaVolumeRuntime>
+  getSandbox: (sandboxIdOrName: string) => Promise<DaytonaSandboxRuntime>
+  createSandbox: (params: DaytonaCreateParams) => Promise<DaytonaSandboxRuntime>
+  upsertSandbox: (input: UpsertDaytonaSandboxInput) => Promise<void>
+  waitForHealth: typeof waitForHealth
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -52,68 +105,24 @@ function createDaytonaClient() {
   })
 }
 
-function daytonaApiUrl(path: string) {
-  return `${env.daytona.apiUrl.replace(/\/+$/, "")}${path}`
-}
-
-function readDaytonaSandboxListPage(value: unknown): DaytonaSandboxListPage {
-  if (Array.isArray(value)) {
-    return { items: value as Array<{ id?: unknown }> }
-  }
-
-  if (!value || typeof value !== "object") {
-    return { items: [] }
-  }
-
-  const page = value as Record<string, unknown>
-  const items = Array.isArray(page.items)
-    ? page.items
-    : Array.isArray(page.data)
-      ? page.data
-      : Array.isArray(page.sandboxes)
-        ? page.sandboxes
-        : []
-  const nextCursor = typeof page.nextCursor === "string"
-    ? page.nextCursor
-    : typeof page.next_cursor === "string"
-      ? page.next_cursor
-      : null
-
-  return { items: items as Array<{ id?: unknown }>, nextCursor }
-}
-
 async function listDaytonaSandboxIdsByLabels(labels: Record<string, string>) {
+  const daytona = createDaytonaClient()
   const ids: string[] = []
-  let cursor: string | undefined
+  let page = 1
+  const limit = 100
 
-  do {
-    const url = new URL(daytonaApiUrl("/sandbox"))
-    url.searchParams.set("limit", "100")
-    url.searchParams.set("labels", JSON.stringify(labels))
-    if (cursor) {
-      url.searchParams.set("cursor", cursor)
+  while (true) {
+    const sandboxes = await daytona.list(labels, page, limit)
+    for (const sandbox of sandboxes.items) {
+      ids.push(sandbox.id)
     }
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${env.daytona.apiKey}`,
-        "X-Daytona-Source": "openwork-den-api",
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`Daytona sandbox list failed with ${response.status}`)
+    if (sandboxes.items.length < limit) {
+      break
     }
 
-    const page = readDaytonaSandboxListPage(await response.json())
-    for (const sandbox of page.items) {
-      if (typeof sandbox.id === "string") {
-        ids.push(sandbox.id)
-      }
-    }
-
-    cursor = page.nextCursor ?? undefined
-  } while (cursor)
+    page += 1
+  }
 
   return ids
 }
@@ -146,6 +155,25 @@ function assertDaytonaConfig() {
   }
 }
 
+function isDaytonaNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  const message = error.message.toLowerCase()
+  return message.includes("not found") || message.includes("404")
+}
+
+export function isDaytonaSandboxMissingError(error: unknown) {
+  return error instanceof DaytonaSandboxMissingError
+    || (error instanceof Error && error.name === "DaytonaSandboxMissingError")
+}
+
+export function isDaytonaConflictError(error: unknown) {
+  return error instanceof DaytonaConflictError
+    || (error instanceof Error && error.name === "DaytonaConflictError")
+}
+
 function workerHint(workerId: WorkerId) {
   return workerId.replace(/-/g, "").slice(0, 12)
 }
@@ -157,7 +185,7 @@ function sandboxLabels(workerId: WorkerId) {
   }
 }
 
-function sandboxName(input: ProvisionInput) {
+export function daytonaSandboxName(input: ProvisionInput) {
   return slug(
     `${env.daytona.sandboxNamePrefix}-${input.name}-${workerHint(input.workerId)}`,
   ).slice(0, 63)
@@ -196,18 +224,31 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
 
 function buildOpenWorkStartCommand(input: ProvisionInput) {
   const verifyRuntimeStep = [
-    "if ! command -v openwork >/dev/null 2>&1; then echo 'openwork binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
+    "if ! command -v openwork-server >/dev/null 2>&1; then echo 'openwork-server binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
     "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
   ].join("; ")
   const openworkServe = [
     "OPENWORK_DATA_DIR=",
     shellQuote(env.daytona.runtimeDataPath),
-    " OPENWORK_SIDECAR_DIR=",
-    shellQuote(env.daytona.sidecarDir),
+    " OPENWORK_SERVER_CONFIG=",
+    shellQuote(`${env.daytona.runtimeDataPath}/server.json`),
     " OPENWORK_TOKEN=",
     shellQuote(input.clientToken),
     " OPENWORK_HOST_TOKEN=",
     shellQuote(input.hostToken),
+    " OPENWORK_MANAGE_OPENCODE=",
+    shellQuote("1"),
+    " OPENWORK_OPENCODE_BIN=",
+    shellQuote("/usr/local/bin/opencode"),
+    " OPENWORK_WEB_ROOT=",
+    shellQuote("/opt/openwork/web"),
+    // The instance still serves its own SPA copy for direct/debug access, but
+    // without a bootstrap token that path is intentionally inert; the gateway
+    // is the supported entry.
+    " OPENWORK_WEB_BOOTSTRAP_TOKEN=",
+    shellQuote("0"),
+    " OPENWORK_EXTENSIONS_PLUGIN_DIR=",
+    shellQuote("/opt/openwork/opencode-plugins"),
     " DEN_RUNTIME_PROVIDER=",
     shellQuote("daytona"),
     " DEN_WORKER_ID=",
@@ -218,18 +259,12 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote(workerActivityHeartbeatUrl(input.workerId)),
     " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
     shellQuote(input.activityToken),
-    " openwork serve",
+    " openwork-server",
     ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
-    ` --remote-access`,
-    ` --openwork-port ${env.daytona.openworkPort}`,
-    ` --opencode-host 127.0.0.1`,
-    ` --opencode-port ${env.daytona.opencodePort}`,
-    ` --connect-host 127.0.0.1`,
+    ` --host 0.0.0.0`,
+    ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
     ` --cors '*'`,
     ` --approval manual`,
-    ` --allow-external`,
-    ` --opencode-source external`,
-    ` --opencode-bin $(command -v opencode)`,
     ` --verbose`,
   ].join("")
 
@@ -246,7 +281,7 @@ while [ "$attempt" -lt 3 ]; do
     exit 0
   fi
   status=$?
-  echo "openwork serve failed (attempt $attempt, exit $status); retrying in 3s"
+  echo "openwork-server failed (attempt $attempt, exit $status); rebuild and republish the Daytona snapshot if this persists; retrying in 3s"
   sleep 3
 done
 exit 1
@@ -255,11 +290,11 @@ exit 1
   return `sh -lc ${shellQuote(script)}`
 }
 
-async function waitForVolumeReady(daytona: Daytona, name: string, timeoutMs: number) {
+async function waitForVolumeReady(getVolume: DaytonaProvisioningRuntime["getVolume"], name: string, timeoutMs: number) {
   const startedAt = Date.now()
 
   while (Date.now() - startedAt < timeoutMs) {
-    const volume = await daytona.volume.get(name)
+    const volume = await getVolume(name)
     if (volume.state === "ready") {
       return volume
     }
@@ -294,7 +329,7 @@ async function cleanupWorkerDataOnDaytona(daytona: Daytona, workerId: WorkerId) 
 
   try {
     sharedVolume = await waitForVolumeReady(
-      daytona,
+      (name, create) => daytona.volume.get(name, create),
       sharedVolumeName(),
       env.daytona.createTimeoutSeconds * 1000,
     )
@@ -350,7 +385,7 @@ async function cleanupWorkerDataOnDaytona(daytona: Daytona, workerId: WorkerId) 
   }
 }
 
-async function waitForHealth(url: string, timeoutMs: number, sandbox: Sandbox, sessionId: string, commandId: string) {
+async function waitForHealth(url: string, timeoutMs: number, sandbox: DaytonaSandboxRuntime, sessionId: string, commandId: string) {
   const startedAt = Date.now()
 
   while (Date.now() - startedAt < timeoutMs) {
@@ -400,15 +435,7 @@ async function waitForHealth(url: string, timeoutMs: number, sandbox: Sandbox, s
   )
 }
 
-async function upsertDaytonaSandbox(input: {
-  workerId: WorkerId
-  sandboxId: string
-  workspaceVolumeId: string
-  dataVolumeId: string
-  signedPreviewUrl: string
-  signedPreviewUrlExpiresAt: Date
-  region: string | null
-}) {
+async function upsertDaytonaSandbox(input: UpsertDaytonaSandboxInput) {
   const existing = await db
     .select({ id: DaytonaSandboxTable.id })
     .from(DaytonaSandboxTable)
@@ -450,6 +477,28 @@ export async function getDaytonaSandboxRecord(workerId: WorkerId) {
     .limit(1)
 
   return rows[0] ?? null
+}
+
+export async function inspectDaytonaSandbox(workerId: WorkerId) {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return null
+  }
+
+  const daytona = createDaytonaClient()
+  try {
+    const sandbox = await daytona.get(record.sandbox_id)
+    await sandbox.refreshData()
+    return { state: sandbox.state ?? null }
+  } catch (error) {
+    if (isDaytonaNotFoundError(error)) {
+      return null
+    }
+
+    throw error
+  }
 }
 
 export async function refreshDaytonaSignedPreview(workerId: WorkerId) {
@@ -499,100 +548,271 @@ export async function getDaytonaSignedPreviewForProxy(workerId: WorkerId) {
   return refreshed?.signed_preview_url ?? null
 }
 
+function toDaytonaSandboxRuntime(sandbox: Sandbox): DaytonaSandboxRuntime {
+  return {
+    get id() {
+      return sandbox.id
+    },
+    get state() {
+      return sandbox.state ?? null
+    },
+    get target() {
+      return sandbox.target ?? null
+    },
+    refreshData: () => sandbox.refreshData(),
+    start: (timeout) => sandbox.start(timeout),
+    delete: (timeout) => sandbox.delete(timeout),
+    getSignedPreviewUrl: (port, expiresInSeconds) => sandbox.getSignedPreviewUrl(port, expiresInSeconds),
+    process: {
+      createSession: (sessionId) => sandbox.process.createSession(sessionId),
+      executeSessionCommand: (sessionId, request, timeout) => sandbox.process.executeSessionCommand(sessionId, request, timeout),
+      getSessionCommand: (sessionId, commandId) => sandbox.process.getSessionCommand(sessionId, commandId),
+      getSessionCommandLogs: (sessionId, commandId) => sandbox.process.getSessionCommandLogs(sessionId, commandId),
+    },
+  }
+}
+
+function createDaytonaProvisioningRuntime(daytona: Daytona): DaytonaProvisioningRuntime {
+  return {
+    getVolume: (name, create) => daytona.volume.get(name, create),
+    getSandbox: async (sandboxIdOrName) => toDaytonaSandboxRuntime(await daytona.get(sandboxIdOrName)),
+    createSandbox: async (params) => {
+      if ("image" in params) {
+        return toDaytonaSandboxRuntime(await daytona.create(params, { timeout: env.daytona.createTimeoutSeconds }))
+      }
+
+      return toDaytonaSandboxRuntime(await daytona.create(params, { timeout: env.daytona.createTimeoutSeconds }))
+    },
+    upsertSandbox: upsertDaytonaSandbox,
+    waitForHealth,
+  }
+}
+
+async function getSharedDaytonaVolume(runtime: DaytonaProvisioningRuntime) {
+  const sharedVolumeNameValue = sharedVolumeName()
+  await runtime.getVolume(sharedVolumeNameValue, true)
+  return waitForVolumeReady(
+    runtime.getVolume,
+    sharedVolumeNameValue,
+    env.daytona.createTimeoutSeconds * 1000,
+  )
+}
+
+function buildDaytonaCreateParams(input: ProvisionInput, name: string, sharedVolume: DaytonaVolumeRuntime): DaytonaCreateParams {
+  const labels = sandboxLabels(input.workerId)
+  const base = {
+    name,
+    autoStopInterval: env.daytona.autoStopInterval,
+    autoArchiveInterval: env.daytona.autoArchiveInterval,
+    autoDeleteInterval: env.daytona.autoDeleteInterval,
+    public: env.daytona.public,
+    labels,
+    envVars: {
+      DEN_WORKER_ID: input.workerId,
+      DEN_RUNTIME_PROVIDER: "daytona",
+    },
+    volumes: sharedVolumeMounts(input.workerId, sharedVolume.id),
+  }
+
+  if (env.daytona.snapshot) {
+    return {
+      ...base,
+      snapshot: env.daytona.snapshot,
+    }
+  }
+
+  return {
+    ...base,
+    image: env.daytona.image,
+    resources: {
+      cpu: env.daytona.resources.cpu,
+      memory: env.daytona.resources.memory,
+      disk: env.daytona.resources.disk,
+    },
+  }
+}
+
+async function getSandboxByName(runtime: DaytonaProvisioningRuntime, name: string) {
+  try {
+    const sandbox = await runtime.getSandbox(name)
+    await sandbox.refreshData()
+    return sandbox
+  } catch (error) {
+    if (isDaytonaNotFoundError(error)) {
+      return null
+    }
+
+    throw error
+  }
+}
+
+async function startOpenWorkOnDaytonaSandbox(input: {
+  provisionInput: ProvisionInput
+  runtime: DaytonaProvisioningRuntime
+  sandbox: DaytonaSandboxRuntime
+  sessionId: string
+  workspaceVolumeId: string
+  dataVolumeId: string
+}): Promise<ProvisionedInstance> {
+  await input.sandbox.process.createSession(input.sessionId)
+  const command = await input.sandbox.process.executeSessionCommand(
+    input.sessionId,
+    {
+      command: buildOpenWorkStartCommand(input.provisionInput),
+      runAsync: true,
+    },
+    0,
+  )
+
+  const expiresInSeconds = normalizedSignedPreviewExpirySeconds()
+  const preview = await input.sandbox.getSignedPreviewUrl(env.daytona.openworkPort, expiresInSeconds)
+  await input.runtime.waitForHealth(preview.url, env.daytona.healthcheckTimeoutMs, input.sandbox, input.sessionId, command.cmdId)
+  await input.runtime.upsertSandbox({
+    workerId: input.provisionInput.workerId,
+    sandboxId: input.sandbox.id,
+    workspaceVolumeId: input.workspaceVolumeId,
+    dataVolumeId: input.dataVolumeId,
+    signedPreviewUrl: preview.url,
+    signedPreviewUrlExpiresAt: signedPreviewRefreshAt(expiresInSeconds),
+    region: input.sandbox.target,
+  })
+
+  return {
+    provider: "daytona",
+    url: workerProxyUrl(input.provisionInput.workerId),
+    status: "healthy",
+    region: input.sandbox.target ?? undefined,
+  }
+}
+
+async function adoptDaytonaSandbox(input: {
+  provisionInput: ProvisionInput
+  runtime: DaytonaProvisioningRuntime
+  sandbox: DaytonaSandboxRuntime
+  sharedVolume: DaytonaVolumeRuntime
+}): Promise<ProvisionedInstance> {
+  if (input.sandbox.state === "stopped") {
+    await input.sandbox.start(env.daytona.createTimeoutSeconds)
+  }
+
+  return startOpenWorkOnDaytonaSandbox({
+    provisionInput: input.provisionInput,
+    runtime: input.runtime,
+    sandbox: input.sandbox,
+    sessionId: `openwork-wake-${workerHint(input.provisionInput.workerId)}-${Date.now()}`,
+    workspaceVolumeId: input.sharedVolume.id,
+    dataVolumeId: input.sharedVolume.id,
+  })
+}
+
+export async function provisionWorkerOnDaytonaWithRuntime(
+  input: ProvisionInput,
+  runtime: DaytonaProvisioningRuntime,
+): Promise<ProvisionedInstance> {
+  const name = daytonaSandboxName(input)
+  const sharedVolume = await getSharedDaytonaVolume(runtime)
+  const existingSandbox = await getSandboxByName(runtime, name)
+  if (existingSandbox) {
+    return adoptDaytonaSandbox({ provisionInput: input, runtime, sandbox: existingSandbox, sharedVolume })
+  }
+
+  let createdSandbox: DaytonaSandboxRuntime | null = null
+  try {
+    createdSandbox = await runtime.createSandbox(buildDaytonaCreateParams(input, name, sharedVolume))
+    return startOpenWorkOnDaytonaSandbox({
+      provisionInput: input,
+      runtime,
+      sandbox: createdSandbox,
+      sessionId: `openwork-${workerHint(input.workerId)}`,
+      workspaceVolumeId: sharedVolume.id,
+      dataVolumeId: sharedVolume.id,
+    })
+  } catch (error) {
+    if (createdSandbox) {
+      await createdSandbox.delete(env.daytona.deleteTimeoutSeconds).catch(() => undefined)
+    }
+
+    if (isDaytonaConflictError(error)) {
+      const conflictSandbox = await getSandboxByName(runtime, name)
+      if (conflictSandbox) {
+        return adoptDaytonaSandbox({ provisionInput: input, runtime, sandbox: conflictSandbox, sharedVolume })
+      }
+    }
+
+    throw error
+  }
+}
+
 export async function provisionWorkerOnDaytona(
   input: ProvisionInput,
 ): Promise<ProvisionedInstance> {
   assertDaytonaConfig()
 
   const daytona = createDaytonaClient()
-  const labels = sandboxLabels(input.workerId)
-  const sharedVolumeNameValue = sharedVolumeName()
-  await daytona.volume.get(sharedVolumeNameValue, true)
-  const sharedVolume = await waitForVolumeReady(
-    daytona,
-    sharedVolumeNameValue,
-    env.daytona.createTimeoutSeconds * 1000,
-  )
-  let sandbox: Awaited<ReturnType<typeof daytona.create>> | null = null
+  return provisionWorkerOnDaytonaWithRuntime(input, createDaytonaProvisioningRuntime(daytona))
+}
 
+// This preserves customer data: deprovisionWorkerOnDaytona erases workers/<id>/,
+// while stopWorkerOnDaytona must not delete the sandbox, cleanup data, or touch volumes.
+export async function stopWorkerOnDaytona(workerId: WorkerId): Promise<StopWorkerOnDaytonaResult> {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return { status: "no_sandbox" }
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  if (sandbox.state === "stopped") {
+    return { status: "stopped" }
+  }
+
+  await sandbox.stop(env.daytona.stopTimeoutSeconds ?? env.daytona.deleteTimeoutSeconds)
+
+  return { status: "stopped" }
+}
+
+export async function wakeWorkerOnDaytona(
+  input: ProvisionInput,
+): Promise<ProvisionedInstance> {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(input.workerId)
+  if (!record) {
+    throw new DaytonaSandboxMissingError(`Daytona sandbox record missing for worker ${input.workerId}`)
+  }
+
+  const daytona = createDaytonaClient()
+  const runtime = createDaytonaProvisioningRuntime(daytona)
+  let sandbox: DaytonaSandboxRuntime
   try {
-    sandbox = env.daytona.snapshot
-      ? await daytona.create(
-          {
-            name: sandboxName(input),
-            snapshot: env.daytona.snapshot,
-            autoStopInterval: env.daytona.autoStopInterval,
-            autoArchiveInterval: env.daytona.autoArchiveInterval,
-            autoDeleteInterval: env.daytona.autoDeleteInterval,
-            public: env.daytona.public,
-            labels,
-            envVars: {
-              DEN_WORKER_ID: input.workerId,
-              DEN_RUNTIME_PROVIDER: "daytona",
-            },
-            volumes: sharedVolumeMounts(input.workerId, sharedVolume.id),
-          },
-          { timeout: env.daytona.createTimeoutSeconds },
-        )
-      : await daytona.create(
-          {
-            name: sandboxName(input),
-            image: env.daytona.image,
-            autoStopInterval: env.daytona.autoStopInterval,
-            autoArchiveInterval: env.daytona.autoArchiveInterval,
-            autoDeleteInterval: env.daytona.autoDeleteInterval,
-            public: env.daytona.public,
-            labels,
-            envVars: {
-              DEN_WORKER_ID: input.workerId,
-              DEN_RUNTIME_PROVIDER: "daytona",
-            },
-            resources: {
-              cpu: env.daytona.resources.cpu,
-              memory: env.daytona.resources.memory,
-              disk: env.daytona.resources.disk,
-            },
-            volumes: sharedVolumeMounts(input.workerId, sharedVolume.id),
-          },
-          { timeout: env.daytona.createTimeoutSeconds },
-        )
-
-    const sessionId = `openwork-${workerHint(input.workerId)}`
-    await sandbox.process.createSession(sessionId)
-    const command = await sandbox.process.executeSessionCommand(
-      sessionId,
-      {
-        command: buildOpenWorkStartCommand(input),
-        runAsync: true,
-      },
-      0,
-    )
-
-    const expiresInSeconds = normalizedSignedPreviewExpirySeconds()
-    const preview = await sandbox.getSignedPreviewUrl(env.daytona.openworkPort, expiresInSeconds)
-    await waitForHealth(preview.url, env.daytona.healthcheckTimeoutMs, sandbox, sessionId, command.cmdId)
-    await upsertDaytonaSandbox({
-      workerId: input.workerId,
-      sandboxId: sandbox.id,
-      workspaceVolumeId: sharedVolume.id,
-      dataVolumeId: sharedVolume.id,
-      signedPreviewUrl: preview.url,
-      signedPreviewUrlExpiresAt: signedPreviewRefreshAt(expiresInSeconds),
-      region: sandbox.target ?? null,
-    })
-
-    return {
-      provider: "daytona",
-      url: workerProxyUrl(input.workerId),
-      status: "healthy",
-      region: sandbox.target,
-    }
+    sandbox = await runtime.getSandbox(record.sandbox_id)
   } catch (error) {
-    if (sandbox) {
-      await sandbox.delete(env.daytona.deleteTimeoutSeconds).catch(() => {})
+    if (isDaytonaNotFoundError(error)) {
+      throw new DaytonaSandboxMissingError(`Daytona sandbox ${record.sandbox_id} missing for worker ${input.workerId}`)
     }
+
     throw error
   }
+  try {
+    await sandbox.start(env.daytona.createTimeoutSeconds)
+  } catch (error) {
+    if (isDaytonaNotFoundError(error)) {
+      throw new DaytonaSandboxMissingError(`Daytona sandbox ${record.sandbox_id} missing for worker ${input.workerId}`)
+    }
+
+    throw error
+  }
+
+  return startOpenWorkOnDaytonaSandbox({
+    provisionInput: input,
+    runtime,
+    sandbox,
+    sessionId: `openwork-wake-${workerHint(input.workerId)}-${Date.now()}`,
+    workspaceVolumeId: record.workspace_volume_id,
+    dataVolumeId: record.data_volume_id,
+  })
 }
 
 export async function deprovisionWorkerOnDaytona(workerId: WorkerId) {

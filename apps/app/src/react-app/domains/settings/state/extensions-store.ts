@@ -1197,7 +1197,7 @@ export function createExtensionsStore(options: {
                 body: `${plugin.name ?? plugin.id} was added to ${marketplaceName}`,
                 dedupeKey: `new-marketplace-plugin:${plugin.id}`,
                 action: { type: "open-extensions-marketplace", pluginName: plugin.name ?? plugin.id },
-                actionLabel: "View in Marketplace",
+                actionLabel: t("extensions.view_in_extensions"),
               });
             }
           }

@@ -2,9 +2,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { installConfigSchema, parseInstallLinkInput } from "@openwork/install-config";
 
-import { createDenClient, readDenSettings, setDenBootstrapConfig } from "@/app/lib/den";
+import { createDenClient, readDenBootstrapConfig, readDenSettings, setDenBootstrapConfig } from "@/app/lib/den";
 import { exchangeHandoffAndSignIn } from "@/app/lib/den-handoff";
 import { desktopFetchViaMain } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +43,13 @@ function hostFromUrl(value: string): string {
   } catch {
     return value.replace(/^https?:\/\//, "").replace(/\/+$/, "");
   }
+}
+
+function fetchInstallConfig(url: string) {
+  const init = { headers: { accept: "application/json" } };
+  return isDesktopRuntime()
+    ? desktopFetchViaMain(url, init, 10_000)
+    : globalThis.fetch(url, init);
 }
 
 export function JoinOrganizationDialog({
@@ -89,11 +97,7 @@ export function JoinOrganizationDialog({
 
     let response: Response;
     try {
-      response = await desktopFetchViaMain(
-        parsed.url,
-        { headers: { accept: "application/json" } },
-        10_000,
-      );
+      response = await fetchInstallConfig(parsed.url);
     } catch {
       setError(t("join_org.error_network"));
       return true;
@@ -127,6 +131,10 @@ export function JoinOrganizationDialog({
     await setDenBootstrapConfig({
       baseUrl: config.webUrl,
       requireSignin: config.requireSignin,
+      // Joining an organization must not silently rewrite activation policy in
+      // either direction — dropping this re-gates an enterprise app an admin
+      // unlocked, and clears a gate an admin turned on for a public artifact.
+      requireActivation: readDenBootstrapConfig().requireActivation,
       brandAppName: config.appName,
       ...(config.logoUrl ? { brandLogoUrl: config.logoUrl } : {}),
       ...(config.iconUrl ? { brandIconUrl: config.iconUrl } : {}),

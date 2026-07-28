@@ -154,6 +154,29 @@ Do not register backend reads as pretend navigation actions. Add an explicit
 query, keep UI commands outcome-oriented, and scope session operations by ID so
 split-screen sessions cannot be confused.
 
+## Sidebar lanes
+
+The sidebar has two vertical rails, defined once in
+`domains/session/sidebar/sidebar-lanes.tsx`:
+
+- **glyph lane, 20px** — activity dot-matrix, chevrons, row icons, and the
+  top-level `WORKSPACES` label.
+- **label lane, 44px** — every row title: workspace names, session titles,
+  group labels (`TO DO`, `PINNED`, `ARCHIVED`), empty/loading placeholders, and
+  the account name in the footer.
+
+Rules when adding a sidebar row:
+
+1. Compose the row with `SIDEBAR_ROW_LANE` / `sidebarRowPaddingInlineStart(depth)`
+   (12px base + 16px per depth level) instead of ad-hoc `ps-*`.
+2. Render `SidebarGlyphSlot` as the first child even when there is no glyph, so
+   the title never shifts when an indicator appears.
+3. Style section labels with `SIDEBAR_SECTION_LABEL`; put them on the glyph lane
+   only when they are top-level.
+
+`evals/flows/sidebar-lanes.flow.mjs` asserts every rendered row lands on one of
+the two rails, so a new row with its own padding fails the flow.
+
 ## Testing
 
 - Unit: `bun test tests/` (CI-gated). Pure logic and parsers belong here.

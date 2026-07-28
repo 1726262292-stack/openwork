@@ -50,6 +50,8 @@ const EnvSchema = z.object({
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
   DEN_DIAGNOSTICS_ORIGIN: z.string().optional(),
   DEN_DIAGNOSTICS_BEARER_TOKEN: z.string().optional(),
+  DEN_GATEWAY_KEY: z.string().optional(),
+  DEN_GATEWAY_ORIGIN: z.string().optional(),
   DEN_GOOGLE_OAUTH_AUTHORIZE_URL: z.string().optional(),
   DEN_GOOGLE_OAUTH_TOKEN_URL: z.string().optional(),
   DEN_GOOGLE_API_BASE_URL: z.string().optional(),
@@ -73,6 +75,9 @@ const EnvSchema = z.object({
   WORKER_PROVISIONING_RECONCILE_INTERVAL_MS: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_STALE_MS: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_BATCH_SIZE: z.string().optional(),
+  CLOUD_IDLE_STOP_MINUTES: z.string().optional(),
+  CLOUD_IDLE_LOOP_SECONDS: z.string().optional(),
+  CLOUD_IDLE_STOP_BATCH_SIZE: z.string().optional(),
   PROVISIONER_MODE: z.enum(["stub", "render", "daytona"]).optional(),
   WORKER_URL_TEMPLATE: z.string().optional(),
   WORKER_ACTIVITY_BASE_URL: z.string().optional(),
@@ -137,6 +142,7 @@ const EnvSchema = z.object({
   DAYTONA_OPENCODE_PORT: z.string().optional(),
   DAYTONA_CREATE_TIMEOUT_SECONDS: z.string().optional(),
   DAYTONA_DELETE_TIMEOUT_SECONDS: z.string().optional(),
+  DAYTONA_STOP_TIMEOUT_SECONDS: z.string().optional(),
   DAYTONA_HEALTHCHECK_TIMEOUT_MS: z.string().optional(),
   INFERENCE_PROXY_BASE_URL: z.string().optional(),
   OPENROUTER_MANAGEMENT_API_KEY: z.string().optional(),
@@ -273,6 +279,29 @@ function normalizeDiagnosticsOrigin(value: string | undefined, allowInsecureHttp
   return url.origin
 }
 
+function normalizeOptionalHttpsOrigin(envName: string, value: string | undefined) {
+  const configured = optionalString(value)
+  if (!configured) {
+    return undefined
+  }
+
+  let url: URL
+  try {
+    url = new URL(configured)
+  } catch {
+    throw new Error(`${envName} must be an absolute https origin.`)
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error(`${envName} must be an absolute https origin.`)
+  }
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
+    throw new Error(`${envName} cannot contain credentials, a path, a query string, or a fragment.`)
+  }
+
+  return url.origin
+}
+
 function normalizeAbsoluteUrlCsv(envName: string, value: string | undefined) {
   const entries = splitCsv(value)
   const invalidEntries: string[] = []
@@ -401,6 +430,8 @@ export const env = {
     origin: diagnosticsOrigin,
     bearerToken: diagnosticsBearerToken,
   },
+  gatewayKey: optionalString(parsed.DEN_GATEWAY_KEY),
+  gatewayOrigin: normalizeOptionalHttpsOrigin("DEN_GATEWAY_ORIGIN", parsed.DEN_GATEWAY_ORIGIN),
   planGatingEnabled,
   installLinksGatingEnabled,
   connectLink,
@@ -480,6 +511,9 @@ export const env = {
   workerProvisioningReconcileIntervalMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_INTERVAL_MS ?? "60000"),
   workerProvisioningReconcileStaleMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_STALE_MS ?? "1200000"),
   workerProvisioningReconcileBatchSize: Number(parsed.WORKER_PROVISIONING_RECONCILE_BATCH_SIZE ?? "10"),
+  cloudIdleStopMs: Number(parsed.CLOUD_IDLE_STOP_MINUTES ?? "30") * 60_000,
+  cloudIdleLoopIntervalMs: Number(parsed.CLOUD_IDLE_LOOP_SECONDS ?? "60") * 1000,
+  cloudIdleStopBatchSize: Number(parsed.CLOUD_IDLE_STOP_BATCH_SIZE ?? "10"),
   workerUrlTemplate: parsed.WORKER_URL_TEMPLATE,
   workerActivityBaseUrl:
     optionalString(parsed.WORKER_ACTIVITY_BASE_URL) ??
@@ -581,6 +615,9 @@ export const env = {
     opencodePort: Number(parsed.DAYTONA_OPENCODE_PORT ?? "4096"),
     createTimeoutSeconds: Number(parsed.DAYTONA_CREATE_TIMEOUT_SECONDS ?? "300"),
     deleteTimeoutSeconds: Number(parsed.DAYTONA_DELETE_TIMEOUT_SECONDS ?? "120"),
+    stopTimeoutSeconds: parsed.DAYTONA_STOP_TIMEOUT_SECONDS === undefined
+      ? undefined
+      : Number(parsed.DAYTONA_STOP_TIMEOUT_SECONDS),
     healthcheckTimeoutMs: Number(
       parsed.DAYTONA_HEALTHCHECK_TIMEOUT_MS ?? "300000",
     ),
