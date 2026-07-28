@@ -477,7 +477,7 @@ describe("Cloud gateway resolve route", () => {
     expect(payload).not.toHaveProperty("clientToken")
   })
 
-  test("surfaces degraded provider materialization without leaking provider keys", async () => {
+  test("surfaces degraded provider materialization failures without leaking provider keys", async () => {
     const readyWorker = fakeWorker("healthy")
     const store = makeCloudWorkerStore({ tokens: [makeToken(readyWorker.id, "host"), makeToken(readyWorker.id, "client")] })
     const app = new Hono<{ Variables: OrgRouteVariables }>()
@@ -497,8 +497,8 @@ describe("Cloud gateway resolve route", () => {
         ok: false,
         status: "failed",
         error: "provider_materialization_failed",
-        reason: "env_write_failed_500",
-        message: `env_write_failed_500 ${secret}`,
+        reason: "runtime_config_patch_failed_500",
+        message: `runtime_config_patch_failed_500 ${secret}`,
         fingerprint: "owp:v1:redacted",
         providers: 1,
       }),
