@@ -1,9 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveCdpBaseUrl } from "./cdp.ts";
 import { denStackDown, ensureDenStack } from "./den-stack.ts";
 import { applyManifestToEnv, readEnvManifest } from "./env-manifest.ts";
+import { createLocalHost } from "./hosts/local.ts";
 import { missingEnv, loadFlows, runFlow } from "./runner.ts";
 import { renderMarkdown } from "./reporters/markdown.ts";
 import { renderFrameIndex } from "./reporters/fraimz-html.ts";
@@ -14,6 +15,7 @@ import type { EnvManifest } from "./env-manifest.ts";
 import type { Host } from "./hosts/types.ts";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(RUNNER_DIR, "..", "..");
 const FLOWS_DIR = process.env.OPENWORK_EVAL_FLOWS_DIR?.trim() || join(RUNNER_DIR, "..", "flows");
 const DEFAULT_RESULTS_DIR = join(RUNNER_DIR, "..", "results");
 const DEFAULT_CDP_CANDIDATES = ["http://127.0.0.1:9825", "http://127.0.0.1:9823"];
@@ -212,7 +214,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     flows: [],
     summary: { passed: 0, failed: 0, skipped: 0 },
   };
-  const hosts: Map<string, Host> | undefined = manifest ? new Map<string, Host>() : undefined;
+  const hosts: Map<string, Host> = new Map<string, Host>([["local", createLocalHost({ repoRoot: REPO_ROOT, log: (msg) => console.log(`▸ ${msg}`) })]]);
 
   for (const flow of selected) {
     console.log(`▶ ${flow.id} — ${flow.title}`);
