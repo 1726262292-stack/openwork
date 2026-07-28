@@ -222,7 +222,11 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
   ]
 }
 
-function buildOpenWorkStartCommand(input: ProvisionInput) {
+function checkpointRestoreMarkerPath() {
+  return `${env.daytona.runtimeDataPath}/.openwork-restore-marker`
+}
+
+export function buildOpenWorkStartCommand(input: ProvisionInput) {
   const verifyRuntimeStep = [
     "if ! command -v openwork-server >/dev/null 2>&1; then echo 'openwork-server binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
     "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
@@ -267,6 +271,9 @@ function buildOpenWorkStartCommand(input: ProvisionInput) {
     ` --approval manual`,
     ` --verbose`,
   ].join("")
+  const stateManifest = `${env.daytona.runtimeDataPath} ${env.daytona.runtimeWorkspacePath}`
+  const checkpointDir = `${env.daytona.dataMountPath}/checkpoints`
+  const lastFlushMarker = `${env.daytona.sidecarDir}/checkpoint.last-flush`
 
   const script = `
 set -u
@@ -274,16 +281,149 @@ mkdir -p ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(env.daytona.
 ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
 ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
 ${verifyRuntimeStep}
+OPENWORK_STATE_MANIFEST=${shellQuote(stateManifest)}
+CHECKPOINT_DIR=${shellQuote(checkpointDir)}
+RESTORE_MARKER=${shellQuote(checkpointRestoreMarkerPath())}
+LAST_FLUSH_MARKER=${shellQuote(lastFlushMarker)}
+DEN_CKPT_INTERVAL_SECONDS=\${DEN_CKPT_INTERVAL_SECONDS:-${shellQuote(String(env.daytona.checkpointIntervalSeconds))}}
+DEN_CKPT_KEEP=\${DEN_CKPT_KEEP:-${shellQuote(String(env.daytona.checkpointKeep))}}
+
+state_dirs_pristine() {
+  if [ -e "$RESTORE_MARKER" ]; then
+    return 1
+  fi
+  data_entry=$(find ${shellQuote(env.daytona.runtimeDataPath)} -mindepth 1 -print -quit 2>/dev/null || true)
+  if [ -n "$data_entry" ]; then
+    return 1
+  fi
+  workspace_entry=$(find ${shellQuote(env.daytona.runtimeWorkspacePath)} -mindepth 1 ! -path ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)} ! -path ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/*`)} -print -quit 2>/dev/null || true)
+  if [ -n "$workspace_entry" ]; then
+    return 1
+  fi
+  return 0
+}
+
+hydrate_checkpoint() {
+  mkdir -p "$CHECKPOINT_DIR"
+  latest_checkpoint=$(find "$CHECKPOINT_DIR" -maxdepth 1 -type f -name 'ckpt-*.tar' -print 2>/dev/null | sort | tail -n 1 || true)
+  if [ -z "$latest_checkpoint" ]; then
+    return 0
+  fi
+  if ! state_dirs_pristine; then
+    echo "checkpoint hydrate skipped; local OpenWork state is not pristine or was already restored"
+    return 0
+  fi
+  echo "checkpoint hydrate restoring $latest_checkpoint"
+  if tar -C / -xf "$latest_checkpoint"; then
+    printf '%s\n' "$latest_checkpoint" > "$RESTORE_MARKER"
+    return 0
+  fi
+  echo "checkpoint hydrate failed for $latest_checkpoint; continuing with fresh OpenWork state" >&2
+  rm -rf ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)}
+  mkdir -p ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
+  ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
+  ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
+}
+
+checkpoint_changed() {
+  if [ ! -e "$LAST_FLUSH_MARKER" ]; then
+    return 0
+  fi
+  for state_path in $OPENWORK_STATE_MANIFEST; do
+    changed_entry=$(find "$state_path" -newer "$LAST_FLUSH_MARKER" -print -quit 2>/dev/null || true)
+    if [ -n "$changed_entry" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+prune_checkpoints() {
+  keep_count=$DEN_CKPT_KEEP
+  if ! [ "$keep_count" -gt 0 ] 2>/dev/null; then
+    keep_count=3
+  fi
+  checkpoint_count=0
+  find "$CHECKPOINT_DIR" -maxdepth 1 -type f -name 'ckpt-*.tar' -print 2>/dev/null | sort -r | while IFS= read -r checkpoint_path; do
+    checkpoint_count=$((checkpoint_count + 1))
+    if [ "$checkpoint_count" -gt "$keep_count" ]; then
+      rm -f "$checkpoint_path" || echo "checkpoint prune failed for $checkpoint_path" >&2
+    fi
+  done
+}
+
+flush_checkpoint() {
+  mkdir -p "$CHECKPOINT_DIR" ${shellQuote(env.daytona.sidecarDir)}
+  if ! checkpoint_changed; then
+    return 0
+  fi
+  epoch=$(date +%s)
+  tmp_checkpoint=${shellQuote(env.daytona.sidecarDir)}/ckpt-$epoch.tar
+  set --
+  for state_path in $OPENWORK_STATE_MANIFEST; do
+    set -- "$@" "\${state_path#/}"
+  done
+  if tar -C / -cf "$tmp_checkpoint" "$@"; then
+    if cp "$tmp_checkpoint" "$CHECKPOINT_DIR/ckpt-$epoch.tar"; then
+      touch "$LAST_FLUSH_MARKER"
+      rm -f "$tmp_checkpoint"
+      prune_checkpoints
+      return 0
+    fi
+    echo "checkpoint flush copy failed for $CHECKPOINT_DIR/ckpt-$epoch.tar" >&2
+  else
+    echo "checkpoint flush tar failed for $tmp_checkpoint" >&2
+  fi
+  rm -f "$tmp_checkpoint"
+  return 0
+}
+
+checkpoint_loop() {
+  while true; do
+    sleep "$DEN_CKPT_INTERVAL_SECONDS"
+    flush_checkpoint
+  done
+}
+
+server_pid=""
+checkpoint_pid=""
+on_term() {
+  echo "termination requested; flushing OpenWork checkpoint"
+  flush_checkpoint
+  if [ -n "$server_pid" ]; then
+    kill -TERM "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+  fi
+  if [ -n "$checkpoint_pid" ]; then
+    kill "$checkpoint_pid" 2>/dev/null || true
+    wait "$checkpoint_pid" 2>/dev/null || true
+  fi
+  exit 143
+}
+trap on_term TERM INT
+
+hydrate_checkpoint
 attempt=0
 while [ "$attempt" -lt 3 ]; do
   attempt=$((attempt + 1))
-  if ${openworkServe}; then
+  ${openworkServe} &
+  server_pid=$!
+  checkpoint_loop &
+  checkpoint_pid=$!
+  wait "$server_pid"
+  status=$?
+  kill "$checkpoint_pid" 2>/dev/null || true
+  wait "$checkpoint_pid" 2>/dev/null || true
+  server_pid=""
+  checkpoint_pid=""
+  if [ "$status" -eq 0 ]; then
+    flush_checkpoint
     exit 0
   fi
-  status=$?
   echo "openwork-server failed (attempt $attempt, exit $status); rebuild and republish the Daytona snapshot if this persists; retrying in 3s"
   sleep 3
 done
+flush_checkpoint
 exit 1
 `.trim()
 
