@@ -88,6 +88,9 @@ export type DaytonaProvisioningRuntime = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const maxSignedPreviewExpirySeconds = 60 * 60 * 24
 const signedPreviewRefreshLeadMs = 5 * 60 * 1000
+const wakeStartMaxAttempts = 3
+const wakeStartRetryBackoffMs = 250
+const wakeStartStateChangeTimeoutMs = 60_000
 const logger = appLogger.child({ component: "daytona_provisioner" })
 
 const slug = (value: string) =>
@@ -227,6 +230,64 @@ function daytonaSandboxLookupNames(input: ProvisionInput) {
 
 function isStoppedSandboxState(state: string | null) {
   return state?.toLowerCase() === "stopped"
+}
+
+function isStartedSandboxState(state: string | null) {
+  return state?.toLowerCase() === "started"
+}
+
+function daytonaErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message.toLowerCase() : ""
+}
+
+function isDaytonaStateChangeInProgressConflict(error: unknown) {
+  const message = daytonaErrorMessage(error)
+  return isDaytonaConflictError(error) && message.includes("state change") && message.includes("progress")
+}
+
+function isTransientDaytonaStartError(error: unknown) {
+  const message = daytonaErrorMessage(error)
+  if (!message) {
+    return false
+  }
+
+  return /\b5\d\d\b/.test(message)
+    || [
+      "econnreset",
+      "econnrefused",
+      "etimedout",
+      "enotfound",
+      "fetch failed",
+      "network",
+      "socket hang up",
+      "temporarily unavailable",
+      "timeout",
+    ].some((marker) => message.includes(marker))
+}
+
+async function waitForDaytonaStartConflictToSettle(sandbox: DaytonaSandboxRuntime) {
+  const startedAt = Date.now()
+  let sawTransitionState = false
+
+  while (Date.now() - startedAt < wakeStartStateChangeTimeoutMs) {
+    await sandbox.refreshData()
+
+    if (isStartedSandboxState(sandbox.state)) {
+      return "started"
+    }
+
+    if (isStoppedSandboxState(sandbox.state) && (sawTransitionState || Date.now() - startedAt >= env.daytona.pollIntervalMs)) {
+      return "stopped"
+    }
+
+    if (!isStoppedSandboxState(sandbox.state)) {
+      sawTransitionState = true
+    }
+
+    await sleep(env.daytona.pollIntervalMs)
+  }
+
+  throw new Error(`Timed out waiting for Daytona sandbox ${sandbox.id} state change to settle`)
 }
 
 function sharedVolumeName() {
@@ -1040,6 +1101,41 @@ async function startOpenWorkOnDaytonaSandbox(input: {
   return provisionedInstance(input.provisionInput.workerId, input.sandbox.target, input.imageVersion)
 }
 
+async function startDaytonaSandboxForWake(input: { workerId: WorkerId; sandbox: DaytonaSandboxRuntime }) {
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= wakeStartMaxAttempts; attempt += 1) {
+    try {
+      await input.sandbox.start(env.daytona.createTimeoutSeconds)
+      return
+    } catch (error) {
+      lastError = error
+
+      if (isDaytonaStateChangeInProgressConflict(error)) {
+        logger.warn("Daytona sandbox start already in progress; waiting for convergence", { worker_id: input.workerId, sandbox_id: input.sandbox.id, error })
+        const settledState = await waitForDaytonaStartConflictToSettle(input.sandbox)
+        if (settledState === "started") {
+          return
+        }
+        continue
+      }
+
+      if (!isTransientDaytonaStartError(error) || attempt === wakeStartMaxAttempts) {
+        throw error
+      }
+
+      logger.warn("transient Daytona sandbox start failure; retrying", { worker_id: input.workerId, sandbox_id: input.sandbox.id, attempt, error })
+      await sleep(wakeStartRetryBackoffMs)
+      await input.sandbox.refreshData().catch(() => undefined)
+      if (isStartedSandboxState(input.sandbox.state)) {
+        return
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`Daytona sandbox ${input.sandbox.id} start failed`)
+}
+
 function shouldRecycleDaytonaSandbox(input: { workerImageVersion: string | null; sandboxState: string | null }) {
   const imageVersion = currentDaytonaImageVersion()
   return Boolean(imageVersion && input.workerImageVersion !== imageVersion && isStoppedSandboxState(input.sandboxState))
@@ -1054,7 +1150,7 @@ async function wakeExistingDaytonaSandbox(input: {
   imageVersion?: string | null
 }) {
   if (isStoppedSandboxState(input.sandbox.state)) {
-    await input.sandbox.start(env.daytona.createTimeoutSeconds)
+    await startDaytonaSandboxForWake({ workerId: input.provisionInput.workerId, sandbox: input.sandbox })
   }
 
   return startOpenWorkOnDaytonaSandbox({
