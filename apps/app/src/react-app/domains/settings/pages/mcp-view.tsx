@@ -59,6 +59,7 @@ import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
@@ -108,6 +109,8 @@ export type McpViewProps = {
   /** MCP capabilities assigned through OpenWork Connect. */
   availableConnectMcpServers?: McpServerEntry[];
   availableConnectMcpStatuses?: McpStatusMap;
+  /** Organization inventory is still being fetched and nothing is cached yet. */
+  inventoryLoading?: boolean;
   /** Installed organization extensions to render alongside runtime extensions. */
   installedPlugins?: CloudImportedPlugin[];
   /** Uninstall a skill by name. */
@@ -963,6 +966,7 @@ export function McpView(props: McpViewProps) {
           })
         }
         availableConnectMcpStatuses={props.availableConnectMcpStatuses ?? {}}
+        loading={props.inventoryLoading === true}
         installedPlugins={
           installedPlugins.filter((plugin) => {
             if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
@@ -1160,6 +1164,7 @@ function McpQuickConnectSection(props: {
   installedSkills?: SkillItem[];
   availableConnectMcpServers?: McpServerEntry[];
   availableConnectMcpStatuses: McpStatusMap;
+  loading: boolean;
   installedPlugins?: CloudImportedPlugin[];
   installedOrgMcpItems?: ExtensionItem[];
   organizationName?: string | null;
@@ -1342,7 +1347,13 @@ function McpQuickConnectSection(props: {
 
   return (
     <div className="space-y-6">
-      {grouped.length === 0 ? (
+      {grouped.length === 0 && props.loading ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
+          {[0, 1, 2].map((index) => (
+            <Skeleton key={index} className="h-[104px] rounded-xl" />
+          ))}
+        </div>
+      ) : grouped.length === 0 ? (
         <div className="rounded-xl border border-dashed border-dls-border px-5 py-10 text-center">
           <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
           <div className="text-sm font-medium text-dls-secondary">No extensions found</div>

@@ -85,9 +85,12 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
 import {
   EMPTY_CONNECT_CAPABILITY_INVENTORY,
-  listAssignedConnectCapabilities,
   type ConnectCapabilityInventory,
 } from "@/react-app/domains/session/surface/connect-capability-inventory";
+import {
+  loadConnectCapabilities,
+  readCachedConnectCapabilities,
+} from "@/react-app/domains/connections/cloud-inventory-cache";
 import { createOpaqueDiagnosticsScopeKey } from "@/react-app/domains/settings/pages/agent-context-diagnostics-section";
 import { CloudProvidersView } from "@/react-app/domains/settings/pages/cloud-providers-view";
 import { MemoryView } from "@/react-app/domains/settings/pages/memory-view";
@@ -766,37 +769,53 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     openLink: (url) => platform.openLink(url),
   });
   const cloudSession = useCloudSession();
-  const [connectCapabilities, setConnectCapabilities] = useState<ConnectCapabilityInventory>(
-    EMPTY_CONNECT_CAPABILITY_INVENTORY,
+  const connectScope = useMemo(
+    () => ({
+      baseUrl: cloudSession.baseUrl,
+      organizationId: cloudSession.activeOrganization?.id?.trim() ?? "",
+    }),
+    [cloudSession.activeOrganization?.id, cloudSession.baseUrl],
   );
+  const [connectCapabilities, setConnectCapabilities] = useState<ConnectCapabilityInventory>(
+    () => readCachedConnectCapabilities(connectScope) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY,
+  );
+  const [connectCapabilitiesLoading, setConnectCapabilitiesLoading] = useState(false);
   const connectCapabilitiesRequestRef = useRef(0);
-  const refreshConnectCapabilities = useCallback(async () => {
+  const refreshConnectCapabilities = useCallback(async (options?: { force?: boolean }) => {
     const requestId = connectCapabilitiesRequestRef.current + 1;
     connectCapabilitiesRequestRef.current = requestId;
-    const organizationId = cloudSession.activeOrganization?.id?.trim() ?? "";
-    if (!cloudSession.isSignedIn || !organizationId) {
+    if (!cloudSession.isSignedIn || !connectScope.organizationId) {
       setConnectCapabilities(EMPTY_CONNECT_CAPABILITY_INVENTORY);
+      setConnectCapabilitiesLoading(false);
       return;
     }
+    // Paint what the app already fetched, then revalidate behind it.
+    const cached = readCachedConnectCapabilities(connectScope);
+    if (cached) setConnectCapabilities(cached);
+    setConnectCapabilitiesLoading(!cached);
     try {
-      const inventory = await listAssignedConnectCapabilities({
+      const inventory = await loadConnectCapabilities({
         client: cloudSession.client,
-        organizationId,
+        scope: connectScope,
+        maxAgeMs: options?.force ? 0 : undefined,
       });
       if (connectCapabilitiesRequestRef.current === requestId) {
         setConnectCapabilities(inventory);
       }
     } catch {
-      if (connectCapabilitiesRequestRef.current === requestId) {
+      if (connectCapabilitiesRequestRef.current === requestId && !cached) {
         setConnectCapabilities(EMPTY_CONNECT_CAPABILITY_INVENTORY);
       }
+    } finally {
+      if (connectCapabilitiesRequestRef.current === requestId) setConnectCapabilitiesLoading(false);
     }
-  }, [cloudSession.activeOrganization?.id, cloudSession.client, cloudSession.isSignedIn]);
+  }, [cloudSession.client, cloudSession.isSignedIn, connectScope]);
 
+  // Not gated on the Extensions tab: the inventory should be warm before the
+  // user gets there, and the fetch is deduped by the shared cloud cache.
   useEffect(() => {
-    if (route.tab !== "extensions") return;
     void refreshConnectCapabilities();
-  }, [refreshConnectCapabilities, route.tab]);
+  }, [refreshConnectCapabilities]);
 
   const hasOpenWorkCloudProvider = useMemo(
     () =>
@@ -2289,7 +2308,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshPlugins();
               void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
               void orgMcpConnections.refresh();
-              void refreshConnectCapabilities();
+              void refreshConnectCapabilities({ force: true });
             }}
             mcpView={({ initialFilter, onFilterChange, detailId, onDetailIdChange }) => (
               <McpView
@@ -2338,6 +2357,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   ),
                 )}
                 availableConnectMcpStatuses={connectCapabilities.mcpStatuses}
+                inventoryLoading={connectCapabilitiesLoading || (orgMcpConnections.loading && !orgMcpConnections.loaded)}
                 installedPlugins={extensionItems.installedCloudPlugins}
                 installedOrgMcpItems={installedOrgMcpConnectionItems}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}

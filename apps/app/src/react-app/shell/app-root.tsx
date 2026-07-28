@@ -19,6 +19,10 @@ import { evalRelaunchDesktopApp } from "../../app/lib/desktop";
 import { Button } from "../../components/ui/button";
 import { t } from "../../i18n";
 import { useDenAuth } from "../domains/cloud/den-auth-provider";
+import {
+  clearCloudInventoryCache,
+  prefetchCloudInventory,
+} from "../domains/connections/cloud-inventory-cache";
 import { ForcedSigninPage } from "../domains/cloud/forced-signin-page";
 import { EnterpriseActivationGate } from "../domains/cloud/enterprise-activation-gate";
 import { OrgOnboardingPage } from "../domains/cloud/org-onboarding-page";
@@ -321,6 +325,19 @@ export function AppRoot() {
     appOpenedCaptured = true;
     initAnalytics();
     captureAnalyticsEvent("app_opened", {});
+  }, []);
+
+  // Fetch what the organization shares with this member up front. Settings
+  // mounts cold every time the extensions panel opens, so without this the
+  // readiness groups wait on a Den round-trip the app could have done already.
+  useEffect(() => {
+    prefetchCloudInventory();
+    const handleSessionChanged = () => {
+      clearCloudInventoryCache();
+      prefetchCloudInventory();
+    };
+    window.addEventListener(denSettingsChangedEvent, handleSessionChanged);
+    return () => window.removeEventListener(denSettingsChangedEvent, handleSessionChanged);
   }, []);
 
   return (
