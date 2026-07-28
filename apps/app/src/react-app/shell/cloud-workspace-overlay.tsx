@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { clearDenSession, createDenClient, readDenSettings } from "@/app/lib/den";
 import { isOpenworkGatewayRuntime } from "@/app/lib/gateway-runtime";
@@ -8,8 +9,42 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
-import { mapCloudWorkspaceState } from "./cloud-workspace-status";
+import { softCardClass } from "@/react-app/domains/workspace/modal-styles";
+import { mapCloudWorkspaceState, type CloudWorkspaceMainContentDecision, type CloudWorkspacePillVariant, type CloudWorkspaceViewModel } from "./cloud-workspace-status";
 import type { DenCloudInstance } from "@/app/lib/den";
+import { OwDotTicker } from "./dot-ticker";
+
+type CloudWorkspaceStatusContextValue = {
+  gatewayMode: boolean;
+  visible: boolean;
+  instance: DenCloudInstance | null;
+  requestFailed: boolean;
+  updating: boolean;
+  viewModel: CloudWorkspaceViewModel;
+  refresh: () => Promise<void>;
+  signOut: () => void;
+  updateNow: () => void;
+};
+
+const fallbackViewModel = mapCloudWorkspaceState({ instance: null, updating: false });
+
+async function noopRefresh() {}
+
+function noopAction() {}
+
+const fallbackCloudWorkspaceStatus: CloudWorkspaceStatusContextValue = {
+  gatewayMode: false,
+  visible: false,
+  instance: null,
+  requestFailed: false,
+  updating: false,
+  viewModel: fallbackViewModel,
+  refresh: noopRefresh,
+  signOut: noopAction,
+  updateNow: noopAction,
+};
+
+const CloudWorkspaceStatusContext = createContext<CloudWorkspaceStatusContextValue | null>(null);
 
 const readDenSettingsSnapshot = () => {
   const settings = readDenSettings();
@@ -26,12 +61,16 @@ function subscribeToDenSettings(onStoreChange: () => void) {
   return () => window.removeEventListener(denSettingsChangedEvent, onStoreChange);
 }
 
-function CloudWorkspaceOverlayInner() {
+export function useCloudWorkspaceStatus() {
+  return useContext(CloudWorkspaceStatusContext) ?? fallbackCloudWorkspaceStatus;
+}
+
+export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
   const denAuth = useDenAuth();
-  const [open, setOpen] = useState(false);
   const [instance, setInstance] = useState<DenCloudInstance | null>(null);
   const [requestFailed, setRequestFailed] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const gatewayMode = isOpenworkGatewayRuntime();
   const settingsSnapshot = useSyncExternalStore(
     subscribeToDenSettings,
     readDenSettingsSnapshot,
@@ -40,12 +79,14 @@ function CloudWorkspaceOverlayInner() {
   const settings = useMemo(() => readDenSettings(), [settingsSnapshot]);
   const authToken = settings.authToken?.trim() ?? "";
   const orgId = settings.activeOrgId?.trim() ?? "";
+  const visible = denAuth.isSignedIn || authToken.length > 0;
   const denClient = useMemo(
     () => createDenClient({ baseUrl: settings.baseUrl, token: authToken }),
     [authToken, settings.baseUrl],
   );
 
   const refresh = useCallback(async () => {
+    if (!gatewayMode) return;
     if (!authToken || !orgId) {
       setRequestFailed(true);
       return;
@@ -58,29 +99,33 @@ function CloudWorkspaceOverlayInner() {
     } catch {
       setRequestFailed(true);
     }
-  }, [authToken, denClient, orgId]);
+  }, [authToken, denClient, gatewayMode, orgId]);
 
-  const viewModel = mapCloudWorkspaceState({ instance, updating, requestFailed });
+  const viewModel = useMemo(
+    () => mapCloudWorkspaceState({ instance, updating, requestFailed }),
+    [instance, requestFailed, updating],
+  );
 
   useEffect(() => {
+    if (!gatewayMode || !visible) return;
     void refresh();
-  }, [refresh]);
+  }, [gatewayMode, refresh, visible]);
 
   useEffect(() => {
-    if (!authToken || !orgId) return;
+    if (!gatewayMode || !authToken || !orgId || !visible) return;
     const timeoutId = window.setTimeout(() => {
       void refresh();
     }, viewModel.pollMs);
     return () => window.clearTimeout(timeoutId);
-  }, [authToken, instance, orgId, refresh, requestFailed, updating, viewModel.pollMs]);
+  }, [authToken, gatewayMode, instance, orgId, refresh, requestFailed, updating, viewModel.pollMs, visible]);
 
   useEffect(() => {
-    if (!updating) return;
+    if (!gatewayMode || !updating) return;
     const nextModel = mapCloudWorkspaceState({ instance, updating: false, requestFailed });
     if (instance?.status === "ready" && !nextModel.updateAvailable) {
       setUpdating(false);
     }
-  }, [instance, requestFailed, updating]);
+  }, [gatewayMode, instance, requestFailed, updating]);
 
   const signOut = useCallback(() => {
     if (authToken) {
@@ -88,11 +133,10 @@ function CloudWorkspaceOverlayInner() {
     }
     clearDenSession();
     void denAuth.refresh();
-    setOpen(false);
   }, [authToken, denAuth, denClient]);
 
   const updateNow = useCallback(() => {
-    if (!orgId || updating) return;
+    if (!gatewayMode || !orgId || updating) return;
     setUpdating(true);
     setRequestFailed(false);
     void denClient
@@ -108,9 +152,131 @@ function CloudWorkspaceOverlayInner() {
         setUpdating(false);
         setRequestFailed(true);
       });
-  }, [denClient, orgId, refresh, updating]);
+  }, [denClient, gatewayMode, orgId, refresh, updating]);
 
-  if (!denAuth.isSignedIn && !authToken) return null;
+  const value = useMemo<CloudWorkspaceStatusContextValue>(() => ({
+    gatewayMode,
+    visible,
+    instance,
+    requestFailed,
+    updating,
+    viewModel,
+    refresh,
+    signOut,
+    updateNow,
+  }), [gatewayMode, instance, refresh, requestFailed, signOut, updateNow, updating, viewModel, visible]);
+
+  return (
+    <CloudWorkspaceStatusContext.Provider value={value}>
+      {props.children}
+    </CloudWorkspaceStatusContext.Provider>
+  );
+}
+
+function cloudWorkspaceTakeoverCopy(variant: CloudWorkspacePillVariant) {
+  if (variant === "provisioning") {
+    return {
+      title: "Starting your workspace…",
+      body: "We’re preparing your sandbox and reconnecting the app. This usually takes less than a minute.",
+    };
+  }
+  if (variant === "updating") {
+    return {
+      title: "Updating your workspace…",
+      body: "We’re applying the latest OpenWork image. Your files and sessions come along.",
+    };
+  }
+  if (variant === "failed") {
+    return {
+      title: "Workspace needs attention",
+      body: "We couldn’t start the sandbox. Retry, or sign out and reconnect.",
+    };
+  }
+  return {
+    title: "Waking your workspace…",
+    body: "Your sandbox is coming back online. We’ll open your workspace as soon as it’s ready.",
+  };
+}
+
+export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMainContentDecision }) {
+  const cloudWorkspace = useCloudWorkspaceStatus();
+  if (!cloudWorkspace.gatewayMode || !cloudWorkspace.visible || props.decision !== "takeover") return null;
+
+  const { viewModel } = cloudWorkspace;
+  const failed = viewModel.variant === "failed";
+  const copy = cloudWorkspaceTakeoverCopy(viewModel.variant);
+
+  return (
+    <div
+      className="flex h-full min-h-[420px] items-center justify-center px-6 py-16"
+      role={failed ? "alert" : "status"}
+      aria-live="polite"
+      data-testid="cloud-workspace-takeover"
+      data-cloud-workspace-state={viewModel.variant}
+    >
+      <div
+        className={cn(
+          "w-full max-w-md rounded-[20px] border p-6 shadow-[var(--dls-card-shadow)]",
+          failed
+            ? "border-amber-7/35 bg-amber-3/30"
+            : "border-dls-border bg-dls-surface",
+        )}
+      >
+        <div className="flex items-start gap-4">
+          <div
+            className={cn(
+              "flex size-12 shrink-0 items-center justify-center rounded-2xl border",
+              failed
+                ? "border-amber-7/35 bg-amber-3/60 text-amber-11"
+                : "border-dls-border bg-dls-hover text-dls-accent",
+            )}
+          >
+            {failed ? <AlertTriangle className="size-5" aria-hidden="true" /> : <OwDotTicker size="lg" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[24px] font-semibold leading-tight tracking-[-0.03em] text-dls-text">
+              {copy.title}
+            </h2>
+            <p className="mt-2 text-[14px] leading-6 text-dls-secondary">
+              {copy.body}
+            </p>
+          </div>
+        </div>
+
+        {failed ? (
+          <div className="mt-6 flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => void cloudWorkspace.refresh()}>
+              Retry
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={cloudWorkspace.signOut}>
+              Sign out
+            </Button>
+          </div>
+        ) : (
+          <div className={cn("mt-6", softCardClass)}>
+            <div className="flex items-center gap-2 text-[12px] font-semibold text-dls-text">
+              <Loader2 size={14} className="animate-spin text-dls-accent" aria-hidden="true" />
+              Sandbox setup
+            </div>
+            <div className="mt-4 overflow-hidden rounded-full bg-dls-surface">
+              <div className="h-1.5 w-2/3 animate-pulse rounded-full bg-dls-accent/60" />
+            </div>
+            <p className="mt-3 text-[12px] leading-5 text-dls-secondary">
+              We’ll refresh your workspace automatically when it’s ready.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CloudWorkspaceOverlayInner() {
+  const cloudWorkspace = useCloudWorkspaceStatus();
+  const [open, setOpen] = useState(false);
+  const viewModel = cloudWorkspace.viewModel;
+
+  if (!cloudWorkspace.gatewayMode || !cloudWorkspace.visible) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-[100]">
@@ -146,7 +312,7 @@ function CloudWorkspaceOverlayInner() {
           </div>
           {viewModel.showUpdate ? (
             <div className="rounded-2xl border border-border bg-muted/30 p-3">
-              <Button type="button" size="sm" className="w-full" onClick={updateNow} disabled={updating}>
+              <Button type="button" size="sm" className="w-full" onClick={cloudWorkspace.updateNow} disabled={cloudWorkspace.updating}>
                 Update now
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -156,11 +322,14 @@ function CloudWorkspaceOverlayInner() {
           ) : null}
           <div className="flex items-center justify-end gap-2">
             {viewModel.showRetry ? (
-              <Button type="button" size="sm" variant="outline" onClick={() => void refresh()}>
+              <Button type="button" size="sm" variant="outline" onClick={() => void cloudWorkspace.refresh()}>
                 Retry
               </Button>
             ) : null}
-            <Button type="button" size="sm" variant="ghost" onClick={signOut}>
+            <Button type="button" size="sm" variant="ghost" onClick={() => {
+              cloudWorkspace.signOut();
+              setOpen(false);
+            }}>
               Sign out
             </Button>
           </div>
@@ -171,6 +340,5 @@ function CloudWorkspaceOverlayInner() {
 }
 
 export function CloudWorkspaceOverlay() {
-  if (!isOpenworkGatewayRuntime()) return null;
   return <CloudWorkspaceOverlayInner />;
 }

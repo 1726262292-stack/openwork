@@ -4,9 +4,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { DenCloudInstance } from "../src/app/lib/den";
 import { CloudWorkspaceOverlay } from "../src/react-app/shell/cloud-workspace-overlay";
 import {
+  cloudWorkspaceStatusHasReadyContent,
   cloudWorkspaceUpdateAvailable,
+  mapCloudWorkspaceMainContentDecision,
   mapCloudWorkspaceState,
+  shouldRefetchCloudWorkspaceOnReadyTransition,
 } from "../src/react-app/shell/cloud-workspace-status";
+import type { CloudWorkspaceMainContentDecision, CloudWorkspacePillVariant } from "../src/react-app/shell/cloud-workspace-status";
 
 const originalWindow = globalThis.window;
 
@@ -75,6 +79,80 @@ describe("cloud workspace overlay state", () => {
     expect(state.label).toBe("Updating your workspace…");
     expect(state.showUpdate).toBe(false);
     expect(state.pollMs).toBe(5_000);
+  });
+
+  test("maps gateway main content decisions for every worker state", () => {
+    const withoutReadyContent: [CloudWorkspacePillVariant, CloudWorkspaceMainContentDecision][] = [
+      ["ready", "error"],
+      ["stale", "error"],
+      ["waking", "takeover"],
+      ["provisioning", "takeover"],
+      ["updating", "takeover"],
+      ["failed", "takeover"],
+    ];
+    const withReadyContent: [CloudWorkspacePillVariant, CloudWorkspaceMainContentDecision][] = [
+      ["ready", "content"],
+      ["stale", "content"],
+      ["waking", "content"],
+      ["provisioning", "content"],
+      ["updating", "content"],
+      ["failed", "takeover"],
+    ];
+
+    for (const [status, decision] of withoutReadyContent) {
+      expect(mapCloudWorkspaceMainContentDecision({ status, hasWorkspaces: false, gatewayMode: true })).toBe(decision);
+    }
+    for (const [status, decision] of withReadyContent) {
+      expect(mapCloudWorkspaceMainContentDecision({ status, hasWorkspaces: true, gatewayMode: true })).toBe(decision);
+    }
+  });
+
+  test("passes all cloud states through outside gateway mode", () => {
+    const statuses: CloudWorkspacePillVariant[] = ["ready", "stale", "waking", "provisioning", "updating", "failed"];
+
+    for (const status of statuses) {
+      expect(mapCloudWorkspaceMainContentDecision({ status, hasWorkspaces: false, gatewayMode: false })).toBe("content");
+      expect(mapCloudWorkspaceMainContentDecision({ status, hasWorkspaces: true, gatewayMode: false })).toBe("content");
+    }
+  });
+
+  test("does not allow not-found errors before a gateway worker is ready", () => {
+    const notReady: CloudWorkspacePillVariant[] = ["waking", "provisioning", "updating", "failed"];
+
+    for (const status of notReady) {
+      expect(cloudWorkspaceStatusHasReadyContent(status)).toBe(false);
+      expect(mapCloudWorkspaceMainContentDecision({ status, hasWorkspaces: false, gatewayMode: true })).toBe("takeover");
+    }
+    expect(mapCloudWorkspaceMainContentDecision({ status: "ready", hasWorkspaces: false, gatewayMode: true })).toBe("error");
+    expect(mapCloudWorkspaceMainContentDecision({ status: "stale", hasWorkspaces: false, gatewayMode: true })).toBe("error");
+  });
+
+  test("fires a refetch callback when gateway workers transition back to ready", () => {
+    let refetches = 0;
+    if (shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus: "waking",
+      nextStatus: "ready",
+      gatewayMode: true,
+    })) {
+      refetches += 1;
+    }
+
+    expect(refetches).toBe(1);
+    expect(shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus: "provisioning",
+      nextStatus: "stale",
+      gatewayMode: true,
+    })).toBe(true);
+    expect(shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus: "waking",
+      nextStatus: "ready",
+      gatewayMode: false,
+    })).toBe(false);
+    expect(shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus: "ready",
+      nextStatus: "ready",
+      gatewayMode: true,
+    })).toBe(false);
   });
 });
 

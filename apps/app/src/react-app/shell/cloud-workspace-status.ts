@@ -22,6 +22,8 @@ export type CloudWorkspaceViewModel = {
   pollMs: number;
 };
 
+export type CloudWorkspaceMainContentDecision = "takeover" | "error" | "content";
+
 export function formatCloudWorkspaceVersion(version: string | null): string | null {
   const trimmed = version?.trim() ?? "";
   if (!trimmed) return null;
@@ -34,6 +36,33 @@ export function formatCloudWorkspaceVersion(version: string | null): string | nu
 export function cloudWorkspaceUpdateAvailable(instance: DenCloudInstance | null): boolean {
   if (!instance?.latestVersion) return false;
   return instance.imageVersion === null || instance.imageVersion !== instance.latestVersion;
+}
+
+export function cloudWorkspaceStatusHasReadyContent(variant: CloudWorkspacePillVariant): boolean {
+  return variant === "ready" || variant === "stale";
+}
+
+export function mapCloudWorkspaceMainContentDecision(input: {
+  status: CloudWorkspacePillVariant;
+  hasWorkspaces: boolean;
+  gatewayMode: boolean;
+}): CloudWorkspaceMainContentDecision {
+  if (!input.gatewayMode) return "content";
+  if (input.status === "failed") return "takeover";
+  if (!cloudWorkspaceStatusHasReadyContent(input.status)) {
+    return input.hasWorkspaces ? "content" : "takeover";
+  }
+  return input.hasWorkspaces ? "content" : "error";
+}
+
+export function shouldRefetchCloudWorkspaceOnReadyTransition(input: {
+  previousStatus: CloudWorkspacePillVariant | null;
+  nextStatus: CloudWorkspacePillVariant;
+  gatewayMode: boolean;
+}): boolean {
+  if (!input.gatewayMode || input.previousStatus === null) return false;
+  if (cloudWorkspaceStatusHasReadyContent(input.previousStatus)) return false;
+  return cloudWorkspaceStatusHasReadyContent(input.nextStatus);
 }
 
 function versionDisplay(instance: DenCloudInstance | null) {
