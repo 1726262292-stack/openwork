@@ -546,8 +546,8 @@ export default defineFlow({
             requireText: [
               "Authority review",
               "Reviewed",
-              "workspace.files.read",
-              "workspace.files.write",
+              "Read files",
+              "Write files",
               "Communication",
               "Destructive actions",
               "Self-modification",
@@ -1058,8 +1058,7 @@ export default defineFlow({
           requireText: [
             "Authority review",
             "Reviewed",
-            "workspace.files.read",
-            "workspace.files.write",
+            "Read files",
             "Write files",
             "Communication",
             "Destructive actions",
