@@ -44,7 +44,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
+import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { newProvidersEvent } from "@/app/lib/provider-events";
 
 function getProviderDisplayName(providerId: string) {
@@ -207,6 +207,8 @@ export function ModelSelect({
   const navigate = useNavigate();
   const platform = usePlatform();
   const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const checkDesktopRestriction = useCheckDesktopRestriction();
+  const canAddProviders = !checkDesktopRestriction({ restriction: "allowCustomProviders" });
 
   React.useEffect(() => {
     const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
@@ -284,6 +286,12 @@ export function ModelSelect({
     hideOpenWorkModelsPromo();
     setPromoHidden(true);
   }, []);
+
+  const handleConnectProvider = React.useCallback(() => {
+    onOpenChange(false);
+    setSearch("");
+    window.dispatchEvent(new Event(openProviderAuthEvent));
+  }, [onOpenChange]);
 
   return (
     <Popover
@@ -434,6 +442,26 @@ export function ModelSelect({
               </CommandGroup>
             )}
           </CommandList>
+          {/* Your API keys → provider configuration */}
+          {canAddProviders ? (
+            <div className="border-t border-border p-1">
+              <div className="flex items-baseline px-2 pb-0.5 pt-1 text-xs text-muted-foreground">
+                Your API keys
+              </div>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                onClick={handleConnectProvider}
+              >
+                <span className="min-w-0 flex-1 truncate text-foreground">
+                  Anthropic, OpenAI, Google…
+                </span>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  Connect
+                </span>
+              </button>
+            </div>
+          ) : null}
           {/* Link to full model picker */}
           <div className="border-t border-border px-2 py-1.5">
             <div className="flex items-center gap-1">
