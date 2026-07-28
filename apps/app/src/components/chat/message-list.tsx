@@ -940,12 +940,6 @@ function MessageGroup({
   // Server timestamps, so this survives a reload.
   const stepsStartedAt = stepItems.length > 0 ? getMessageCreated(stepItems[0].message) : null
   const stepsEndedAt = getMessageCompleted(lastItem.message) ?? getMessageCreated(lastItem.message)
-  const stepRunLabel =
-    stepsStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > stepsStartedAt
-      ? `Worked for ${formatToolCallDuration(stepsEndedAt - stepsStartedAt)}`
-      : stepItems.length === 1
-        ? "1 step"
-        : `${stepItems.length} steps`
 
   // The answer message's own thinking belongs to the work, not the answer, so
   // a collapsed run shows it and the message below renders text only.
@@ -972,6 +966,12 @@ function MessageGroup({
           : 1),
       0
     ) + proseReasoning.length
+  const stepRunLabel =
+    stepsStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > stepsStartedAt
+      ? `Worked for ${formatToolCallDuration(stepsEndedAt - stepsStartedAt)}`
+      : stepRowCount === 1
+        ? "1 step"
+        : `${stepRowCount} steps`
   // A short finished run reads fine as a list, so only long ones fold away.
   const collapseSteps =
     !isLiveGroup && stepItems.length > 0 && stepRowCount > COLLAPSED_STEP_RUN_MIN_ROWS
