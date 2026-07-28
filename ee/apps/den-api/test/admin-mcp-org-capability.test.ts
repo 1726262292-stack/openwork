@@ -67,6 +67,11 @@ function installDbMock() {
   }))
 }
 
+async function configureAdminCapabilityEnv() {
+  const { env } = await import("../src/env.js")
+  env.orgMode = "multi_org"
+}
+
 function capabilitiesModule() {
   if (!adminCapabilities) {
     throw new Error("admin capabilities module not initialized")
@@ -139,6 +144,7 @@ beforeAll(async () => {
   }
 
   seedRequiredEnv()
+  await configureAdminCapabilityEnv()
   installDbMock()
   adminCapabilities = await import("../src/mcp/admin-capabilities.js")
 })
