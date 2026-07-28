@@ -336,7 +336,7 @@ export default defineFlow({
           claim:
             "The editor previews five scheduler-calculated occurrences and exposes provider, model, agent, runtime, overlap, missed-run, retry, and unattended-safety policy.",
           requireText: [
-            "Next five",
+            "Preview next five",
             "Occurrence 1",
             "Occurrence 5",
             "Execution",
