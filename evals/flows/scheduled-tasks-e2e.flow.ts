@@ -689,6 +689,10 @@ export default defineFlow({
           ),
           "The newly denied unattended run must become needs-attention.",
         );
+        await ctx.waitFor(
+          "Boolean(document.querySelector('[data-testid=\"scheduled-task-needs-attention\"]'))",
+          { timeoutMs: 30_000, label: "needs-attention UI after denied unattended run" },
+        );
         await ctx.screenshot("scheduled-task-needs-attention", {
           claim:
             "A denied unattended workspace write stops the run and asks the owner to repair authority.",
