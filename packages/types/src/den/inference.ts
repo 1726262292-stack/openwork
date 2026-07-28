@@ -108,12 +108,6 @@ export const INFERENCE_MODEL_ALIASES = {
     enabled: true,
     usageFactor: 1,
   },
-  "anthropic/claude-fable-5": {
-    upstreamModel: "anthropic/claude-fable-5",
-    displayName: "OpenWork: Claude Fable 5",
-    enabled: true,
-    usageFactor: 1,
-  },
 } as const;
 
 export type InferenceModelAlias = keyof typeof INFERENCE_MODEL_ALIASES;
