@@ -1400,7 +1400,7 @@ function McpQuickConnectSection(props: {
           {[0, 1, 2].map((index) => (
             <Skeleton
               key={index}
-              className={props.layout === "list" ? "h-[52px] rounded-lg" : "h-[104px] rounded-xl"}
+              className={props.layout === "list" ? "h-[42px] rounded-lg" : "h-[104px] rounded-xl"}
             />
           ))}
         </div>
@@ -1424,7 +1424,14 @@ function McpQuickConnectSection(props: {
               count={groupCards.length}
               hint={group === "available" ? t("extensions.group_ready_to_set_up_hint") : undefined}
             />
-            <div className={props.layout === "list" ? "flex flex-col gap-2" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"}>
+            {/* List mode: one quiet container per readiness group, rows divided by hairlines. */}
+            <div
+              className={
+                props.layout === "list"
+                  ? "overflow-hidden rounded-xl border border-dls-border bg-dls-surface [&>div+div]:border-t [&>div+div]:border-dls-border/60"
+                  : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"
+              }
+            >
               {groupCards.map((card) => (
                 <div key={card.key}>{card.node}</div>
               ))}
