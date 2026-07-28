@@ -14,6 +14,7 @@ const REQUEST = [
   "Propose a Scheduled Task draft named EVAL daily workspace report.",
   "Run it daily at 09:00 in Europe/Berlin.",
   "Use a fresh session to inspect this workspace and write a concise report to scheduled-task-eval-report.md.",
+  "Use the workspace default model and agent.",
   "Do not approve authority or enable it.",
 ].join(" ");
 
@@ -134,6 +135,10 @@ function runStatus(run: unknown) {
 function runTrigger(run: unknown) {
   const trigger = recordValue(run, "trigger");
   return typeof trigger === "string" ? trigger : "";
+}
+
+function runIsTerminal(run: unknown) {
+  return !["queued", "claimed", "running", "retrying"].includes(runStatus(run));
 }
 
 async function finishPendingWorkspaceOnboarding(ctx: FlowContext) {
@@ -297,6 +302,60 @@ export default defineFlow({
         );
         await ctx.prove("Review shows schedule, timezone, prompt, model/agent, timeout, authority, and the running-app limitation", {
           action: async () => {
+            const beforeEdit = await readDetail(ctx);
+            const draftRevision = recordValue(beforeEdit, "draftRevision");
+            const definition = recordValue(draftRevision, "definition");
+            const model = recordValue(definition, "model");
+            const needsWorkspaceDefaults = [
+              recordValue(model, "providerId"),
+              recordValue(model, "modelId"),
+              recordValue(model, "agent"),
+            ].some((value) => value !== null);
+            if (needsWorkspaceDefaults) {
+              const revisionBefore = requireString(
+                recordValue(draftRevision, "id"),
+                "draft revision before selecting workspace defaults",
+              );
+              await ctx.clickText("Edit", {
+                selector: "button",
+                timeoutMs: 10_000,
+              });
+              await ctx.waitFor(
+                "Boolean(document.querySelector('#scheduled-task-provider'))",
+                { timeoutMs: 30_000, label: "Scheduled Task editor" },
+              );
+              await ctx.fill("#scheduled-task-provider", "");
+              await ctx.fill("#scheduled-task-model", "");
+              await ctx.fill("#scheduled-task-agent", "");
+              await ctx.trustedClick("[data-testid='scheduled-task-save']");
+
+              const editDeadline = Date.now() + 30_000;
+              let defaultsApplied = false;
+              while (Date.now() < editDeadline) {
+                const editedDetail = await readDetail(ctx);
+                const editedRevision = recordValue(editedDetail, "draftRevision");
+                const editedDefinition = recordValue(editedRevision, "definition");
+                const editedModel = recordValue(editedDefinition, "model");
+                if (
+                  recordValue(editedRevision, "id") !== revisionBefore
+                  && recordValue(editedModel, "providerId") === null
+                  && recordValue(editedModel, "modelId") === null
+                  && recordValue(editedModel, "agent") === null
+                ) {
+                  defaultsApplied = true;
+                  break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 250));
+              }
+              ctx.assert(
+                defaultsApplied,
+                "The Scheduled Task did not durably select workspace-default execution.",
+              );
+              await ctx.waitFor(
+                "Boolean(document.querySelector('[data-testid=\"scheduled-task-detail\"]'))",
+                { timeoutMs: 30_000, label: "Scheduled Task detail after edit" },
+              );
+            }
             await ctx.fill(
               "[data-testid='scheduled-task-capabilities']",
               "workspace.files.read\nworkspace.files.write",
@@ -355,11 +414,15 @@ export default defineFlow({
               (items) => items.some(
                 (item) =>
                   recordValue(item, "id") === state.runId
-                  && runStatus(item) === "completed",
+                  && runIsTerminal(item),
               ),
-              "Manual run did not complete",
+              "Manual run did not reach a terminal state",
             );
             const latest = latestRuns.find((item) => recordValue(item, "id") === state.runId);
+            ctx.assert(
+              runStatus(latest) === "completed",
+              `Manual run terminated as ${runStatus(latest)}: ${JSON.stringify(recordValue(latest, "error"))}`,
+            );
             state.manualSessionId = requireString(
               recordValue(latest, "sessionId"),
               "manual sessionId",
@@ -563,9 +626,7 @@ export default defineFlow({
             (run) =>
               typeof recordValue(run, "id") === "string"
               && !existingRunIds.has(recordValue(run, "id") as string)
-              && !["queued", "claimed", "running", "retrying"].includes(
-                runStatus(run),
-              ),
+              && runIsTerminal(run),
           ),
           "The write request under read-only authority did not reach a terminal state",
         );
