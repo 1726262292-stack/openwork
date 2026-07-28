@@ -691,12 +691,28 @@ export default defineFlow({
               `[data-open-scheduled-task-session="${state.manualSessionId}"]`,
             );
             await ctx.waitFor(
-              `location.hash.includes(${JSON.stringify(state.manualSessionId)})`,
+              `location.hash.includes(${JSON.stringify(state.manualSessionId)})
+                && Boolean(document.querySelector('[data-session-surface-id="${state.manualSessionId}"]'))
+                && !document.querySelector('[data-testid="scheduled-task-detail"]')`,
               { timeoutMs: 30_000, label: "linked Scheduled Task session" },
             );
             await ctx.waitForText("scheduled-task-eval-report.md", {
               timeoutMs: 30_000,
             });
+            await ctx.eval(`(() => {
+              const surface = document.querySelector(
+                '[data-session-surface-id="${state.manualSessionId}"]',
+              );
+              if (!surface) throw new Error("Scheduled Task session surface is missing");
+              const candidates = [...surface.querySelectorAll("*")]
+                .filter((element) =>
+                  (element.textContent || "").includes("scheduled-task-eval-report.md"));
+              const target = candidates.sort(
+                (left, right) => left.childElementCount - right.childElementCount,
+              )[0] || surface;
+              target.scrollIntoView({ block: "center", inline: "nearest" });
+              return true;
+            })()`);
             await ctx.screenshot("scheduled-task-linked-session", {
               claim:
                 "Opening the receipt lands in the exact fresh OpenWork session, reusing the normal transcript instead of inventing a parallel automation log.",
