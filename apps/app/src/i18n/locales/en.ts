@@ -619,6 +619,8 @@ export default {
   "extensions.filter_plugins": "Plugins",
   "extensions.filter_skills": "Skills",
   "extensions.group_ready_to_set_up": "Ready to set up",
+  "extensions.layout_grid": "Card view",
+  "extensions.layout_list": "List view",
   "extensions.mcp_servers_section": "MCP servers configured here",
   "extensions.group_ready_to_set_up_hint": "Turn these on when you need them",
   "extensions.from_org": "from {org}",

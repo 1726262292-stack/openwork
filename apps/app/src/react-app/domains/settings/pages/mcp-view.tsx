@@ -13,6 +13,8 @@ import {
   ExternalLink,
   FolderOpen,
   Globe,
+  LayoutGrid,
+  List,
   Loader2,
   MonitorSmartphone,
   Plug2,
@@ -27,7 +29,7 @@ import { isBuiltInOpenWorkExtension, getMcpServerName, type McpDirectoryInfo } f
 import { evaluateEnablement } from "../../../../app/enablement";
 import type { EnablementResult } from "../../../../app/extensions";
 import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
-import { ExtensionCard } from "../../../design-system/extension-card";
+import { ExtensionCard, type ExtensionLayout } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import {
   isOrgMcpConnectionItem,
@@ -69,8 +71,10 @@ import {
   isOpenWorkExtensionEnabled,
   isOpenWorkExtensionHidden,
   OPENWORK_EXTENSION_STATE_CHANGED,
+  readExtensionLayout,
   setOpenWorkExtensionEnabled,
   setOpenWorkExtensionHidden,
+  writeExtensionLayout,
 } from "../extension-state";
 import {
   initialMcpViewLocalState,
@@ -347,6 +351,7 @@ export function McpView(props: McpViewProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionInventoryFilter>(props.initialFilter ?? "all");
   const [showHidden, setShowHidden] = useState(false);
+  const [layout, setLayout] = useState<ExtensionLayout>(readExtensionLayout);
   const [claudeImportOpen, setClaudeImportOpen] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
@@ -930,6 +935,13 @@ export function McpView(props: McpViewProps) {
           >
             {showHidden ? "Showing hidden" : hiddenOrPolicyCount > 0 ? `Show hidden (${hiddenOrPolicyCount})` : "Show hidden"}
           </Button>
+          <ExtensionLayoutToggle
+            layout={layout}
+            onChange={(next) => {
+              setLayout(next);
+              writeExtensionLayout(next);
+            }}
+          />
         </div>
       </div>
 
@@ -967,6 +979,7 @@ export function McpView(props: McpViewProps) {
         }
         availableConnectMcpStatuses={props.availableConnectMcpStatuses ?? {}}
         loading={props.inventoryLoading === true}
+        layout={layout}
         installedPlugins={
           installedPlugins.filter((plugin) => {
             if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
@@ -1158,6 +1171,33 @@ type InventoryCard = {
   node: ReactNode;
 };
 
+function ExtensionLayoutToggle(props: {
+  layout: ExtensionLayout;
+  onChange: (layout: ExtensionLayout) => void;
+}) {
+  const options: { layout: ExtensionLayout; label: string; icon: ReactNode }[] = [
+    { layout: "grid", label: t("extensions.layout_grid"), icon: <LayoutGrid size={13} /> },
+    { layout: "list", label: t("extensions.layout_list"), icon: <List size={13} /> },
+  ];
+  return (
+    <div className="flex items-center gap-1">
+      {options.map((option) => (
+        <Button
+          key={option.layout}
+          variant={props.layout === option.layout ? "secondary" : "outline"}
+          size="xs"
+          aria-pressed={props.layout === option.layout}
+          aria-label={option.label}
+          title={option.label}
+          onClick={() => props.onChange(option.layout)}
+        >
+          {option.icon}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function McpQuickConnectSection(props: {
   skillCount: number;
   entries: McpDirectoryInfo[];
@@ -1165,6 +1205,7 @@ function McpQuickConnectSection(props: {
   availableConnectMcpServers?: McpServerEntry[];
   availableConnectMcpStatuses: McpStatusMap;
   loading: boolean;
+  layout: ExtensionLayout;
   installedPlugins?: CloudImportedPlugin[];
   installedOrgMcpItems?: ExtensionItem[];
   organizationName?: string | null;
@@ -1209,6 +1250,7 @@ function McpQuickConnectSection(props: {
       group,
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={entry.name}
           description={entry.description}
           iconSlug={entry.iconSlug}
@@ -1239,6 +1281,7 @@ function McpQuickConnectSection(props: {
       group: "ready",
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={skill.name}
           description={skill.description ?? "Installed skill"}
           taxonomy="skill"
@@ -1261,6 +1304,7 @@ function McpQuickConnectSection(props: {
       group: ready ? "ready" : "needs_signin",
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={entry.name}
           description={
             entry.pluginName
@@ -1289,6 +1333,7 @@ function McpQuickConnectSection(props: {
       group: "ready",
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={plugin.name}
           description={plugin.description ?? `Organization extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
           taxonomy="plugin"
@@ -1313,6 +1358,7 @@ function McpQuickConnectSection(props: {
       node: (
         <div className="space-y-2">
           <ExtensionCard
+            layout={props.layout}
             name={item.name}
             description={item.description ?? "Shared by your organization."}
             taxonomy="connection"
@@ -1348,9 +1394,12 @@ function McpQuickConnectSection(props: {
   return (
     <div className="space-y-6">
       {grouped.length === 0 && props.loading ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
+        <div className={props.layout === "list" ? "flex flex-col gap-2" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"}>
           {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-[104px] rounded-xl" />
+            <Skeleton
+              key={index}
+              className={props.layout === "list" ? "h-[52px] rounded-lg" : "h-[104px] rounded-xl"}
+            />
           ))}
         </div>
       ) : grouped.length === 0 ? (
@@ -1367,7 +1416,7 @@ function McpQuickConnectSection(props: {
               count={groupCards.length}
               hint={group === "available" ? t("extensions.group_ready_to_set_up_hint") : undefined}
             />
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
+            <div className={props.layout === "list" ? "flex flex-col gap-2" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"}>
               {groupCards.map((card) => (
                 <div key={card.key}>{card.node}</div>
               ))}
