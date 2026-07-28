@@ -519,6 +519,11 @@ export default defineFlow({
     {
       name: "Denied unattended approval becomes needs-attention and pause blocks claims",
       run: async (ctx) => {
+        const authorityBefore = await readDetail(ctx);
+        const grantBefore = requireString(
+          recordValue(recordValue(authorityBefore, "grant"), "id"),
+          "grant before narrowing authority",
+        );
         await ctx.fill(
           "[data-testid='scheduled-task-capabilities']",
           "workspace.files.read",
@@ -526,6 +531,26 @@ export default defineFlow({
         await ctx.trustedClick("[data-action-class='write']");
         await ctx.trustedClick("[data-filesystem-write]");
         await ctx.trustedClick("[data-testid='scheduled-task-review-authority']");
+        const authorityDeadline = Date.now() + 30_000;
+        let narrowedAuthorityApplied = false;
+        while (Date.now() < authorityDeadline) {
+          const detail = await readDetail(ctx);
+          const grant = recordValue(detail, "grant");
+          const capabilityIds = arrayValue(grant, "capabilityIds");
+          if (
+            recordValue(grant, "id") !== grantBefore
+            && capabilityIds.length === 1
+            && capabilityIds[0] === "workspace.files.read"
+          ) {
+            narrowedAuthorityApplied = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        ctx.assert(
+          narrowedAuthorityApplied,
+          "The narrowed read-only authority review was not durably applied.",
+        );
         const existingRunIds = new Set(
           arrayValue(await readDetail(ctx), "runs")
             .map((run) => recordValue(run, "id"))
@@ -536,11 +561,13 @@ export default defineFlow({
           ctx,
           (items) => items.some(
             (run) =>
-              runStatus(run) === "needs-attention"
-              && typeof recordValue(run, "id") === "string"
-              && !existingRunIds.has(recordValue(run, "id") as string),
+              typeof recordValue(run, "id") === "string"
+              && !existingRunIds.has(recordValue(run, "id") as string)
+              && !["queued", "claimed", "running", "retrying"].includes(
+                runStatus(run),
+              ),
           ),
-          "Expected the write request under read-only authority to require attention",
+          "The write request under read-only authority did not reach a terminal state",
         );
         ctx.assert(
           runs.some(
