@@ -141,6 +141,16 @@ describe("join organization invite clean layout contract", () => {
     expect(source).toContain("Join ${preview.organization.name}");
   });
 
+  test("resolves an invite accepted during sign-in before showing it as already used", () => {
+    const source = readJoinOrgScreenSource();
+
+    expect(source).toContain('preview.invitation.status !== "accepted"');
+    expect(source).toContain("acceptedInvitationResolutionRef.current === acceptedInvitationId");
+    expect(source).toContain("resolveAcceptedInvitation");
+    expect(source).toContain("Opening your workspace.");
+    expect(source).toContain('reason: "membership_removed" | "unknown"');
+  });
+
   test("carries explicit organization branding through the invitation preview", () => {
     const preview = parseInvitationPreviewPayload({
       invitation: {
