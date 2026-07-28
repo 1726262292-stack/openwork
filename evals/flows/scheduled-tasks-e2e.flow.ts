@@ -518,7 +518,26 @@ export default defineFlow({
 
         const tick = await ctx.control("eval.scheduled_tasks.tick", { now: state.deterministicNow });
         const claimed = arrayValue(tick, "claimedRunIds");
-        ctx.assert(claimed.length === 1, `Expected exactly one claimed run, got ${JSON.stringify(claimed)}`);
+        const afterTick = arrayValue(await readDetail(ctx), "runs");
+        const newlyClaimedForTask = afterTick.filter(
+          (run) =>
+            runTrigger(run) === "scheduled"
+            && !beforeRuns.some((before) => recordValue(before, "id") === recordValue(run, "id")),
+        );
+        ctx.assert(
+          newlyClaimedForTask.length === 1,
+          `Expected exactly one occurrence for the task, got ${JSON.stringify(
+            newlyClaimedForTask.map((run) => recordValue(run, "id")),
+          )}`,
+        );
+        const claimedRunId = requireString(
+          recordValue(newlyClaimedForTask[0], "id"),
+          "claimed scheduled runId",
+        );
+        ctx.assert(
+          claimed.includes(claimedRunId),
+          `The scheduler tick did not report the task's claimed run: ${claimedRunId}`,
+        );
         const scheduledRuns = await waitForRunCount(
           ctx,
           (runs) =>
