@@ -483,7 +483,7 @@ describe("Cloud instance route lifecycle states", () => {
     expect(wakeExecutions).toBe(0)
   })
 
-  test("claims and wakes a stale stopped sandbox with a checkpoint instead of reporting it ready", async () => {
+  test("claims and wakes a stale stopped sandbox without checkpoint probing on resolve", async () => {
     const worker = { ...storedWorker({ status: "healthy" }), image_version: "openwork-0.18.7" }
     const store = makeCloudWorkerStore({ initialWorkers: [worker] })
     const app = new Hono<{ Variables: OrgRouteVariables }>()
@@ -498,7 +498,7 @@ describe("Cloud instance route lifecycle states", () => {
       ensureCloudWorker: async () => worker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
-      inspectSandbox: async () => ({ state: "stopped", hasCheckpoint: true }),
+      inspectSandbox: async () => ({ state: "stopped" }),
       probeSignedPreview: async () => {
         probes += 1
         return true
@@ -516,6 +516,36 @@ describe("Cloud instance route lifecycle states", () => {
     expect(worker.status).toBe("provisioning")
     expect(wakeCalls).toBe(1)
     expect(probes).toBe(0)
+  })
+
+  test("does not inspect the sandbox for an up-to-date stopped worker wake", async () => {
+    const worker = { ...fakeWorker("stopped"), image_version: "openwork-0.18.8" }
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let wakeCalls = 0
+    let inspectCalls = 0
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      ensureCloudWorker: async () => worker,
+      getSandboxRecord: async () => fakeSandbox(),
+      inspectSandbox: async () => {
+        inspectCalls += 1
+        return { state: "stopped" }
+      },
+      wakeCloudWorker: async () => {
+        wakeCalls += 1
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ status: "waking", url: null })
+    expect(inspectCalls).toBe(0)
+    expect(wakeCalls).toBe(1)
   })
 
   test("keeps first provisioning without a sandbox row as provisioning", async () => {

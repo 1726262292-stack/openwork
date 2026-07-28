@@ -291,6 +291,7 @@ describe("Daytona Cloud version-aware recycle", () => {
     )
 
     expect(result.status).toBe("healthy")
+    expect(result.imageVersion).toBe("openwork-0.18.7")
     expect(runtime.createCalls).toBe(0)
     expect(runtime.checkpointChecks).toBe(0)
     expect(old.deleteCalls).toBe(0)
@@ -313,6 +314,7 @@ describe("Daytona Cloud version-aware recycle", () => {
     )
 
     expect(result.status).toBe("healthy")
+    expect(result.imageVersion).toBe("openwork-0.18.7")
     expect(runtime.createCalls).toBe(0)
     expect(runtime.checkpointChecks).toBe(1)
     expect(old.startCalls).toBe(1)
@@ -339,6 +341,7 @@ describe("Daytona Cloud version-aware recycle", () => {
     )
 
     expect(result.status).toBe("healthy")
+    expect(result.imageVersion).toBe("openwork-0.18.7")
     expect(runtime.createCalls).toBe(1)
     expect(runtime.restoreMarkerChecks).toBe(1)
     expect(runtime.healthChecks).toBe(2)
@@ -365,6 +368,7 @@ describe("Daytona Cloud version-aware recycle", () => {
     )
 
     expect(result.status).toBe("healthy")
+    expect(result.imageVersion).toBe("openwork-0.18.8")
     expect(runtime.createCalls).toBe(0)
     expect(runtime.checkpointChecks).toBe(0)
     expect(old.startCalls).toBe(1)

@@ -39,7 +39,7 @@ type CloudWorker = Pick<typeof WorkerTable.$inferSelect, "id" | "name" | "status
 }
 type WorkerToken = Pick<typeof WorkerTokenTable.$inferSelect, "scope" | "token">
 type CloudSandboxRecord = Pick<NonNullable<Awaited<ReturnType<typeof getDaytonaSandboxRecord>>>, "signed_preview_url" | "signed_preview_url_expires_at">
-type CloudSandboxInspection = { state: string | null; hasCheckpoint?: boolean } | null
+type CloudSandboxInspection = { state: string | null } | null
 type OrgId = typeof WorkerTable.$inferSelect.org_id
 type UserId = NonNullable<typeof WorkerTable.$inferSelect.created_by_user_id>
 type WorkerId = typeof WorkerTable.$inferSelect.id
@@ -557,7 +557,7 @@ function isStoppedSandboxState(state: string | null) {
 
 function workerNeedsSnapshotRecycle(worker: CloudWorker) {
   const snapshot = env.daytona.snapshot
-  return Boolean(snapshot && worker.image_version !== snapshot)
+  return Boolean(snapshot && "image_version" in worker && worker.image_version !== snapshot)
 }
 
 async function startStaleStoppedRecycle(input: {
@@ -578,7 +578,7 @@ async function startStaleStoppedRecycle(input: {
     return false
   }
 
-  if (!isStoppedSandboxState(inspection?.state ?? null) || inspection?.hasCheckpoint !== true) {
+  if (!isStoppedSandboxState(inspection?.state ?? null)) {
     return false
   }
 
