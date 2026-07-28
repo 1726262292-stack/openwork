@@ -26,6 +26,7 @@ import {
   OrganizationEmailDomainRestrictionError,
   serializeMemberFacingOrganizationMetadata,
   setSessionActiveOrganization,
+  type AcceptInvitationForUserResult,
   updateOrganizationSettings,
 } from "../../orgs.js"
 import { getRequiredUserEmail } from "../../user.js"
@@ -158,6 +159,11 @@ const accountEmailDomainNotAllowedSchema = z.object({
   allowedEmailDomains: z.array(z.string()),
 }).meta({ ref: "AccountEmailDomainNotAllowedError" })
 
+const membershipRemovedSchema = z.object({
+  error: z.literal("membership_removed"),
+  message: z.string(),
+}).meta({ ref: "MembershipRemovedError" })
+
 function getStoredSessionId(session: { id?: string | null } | null) {
   if (!session?.id) {
     return null
@@ -282,6 +288,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         401: jsonResponse("The caller must be signed in to accept an invitation.", unauthorizedSchema),
         403: jsonResponse("API keys cannot accept invitations, or the deployment requires a verified account email.", forbiddenSchema),
         409: jsonResponse("The current account email is not allowed to join this organization.", accountEmailDomainNotAllowedSchema),
+        410: jsonResponse("The user previously accepted this invitation, but their workspace access was removed.", membershipRemovedSchema),
         404: jsonResponse("The invitation could not be found.", notFoundSchema),
       },
     }),
@@ -311,7 +318,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       return c.json({ error: verification.error, message: verification.message }, 403)
     }
 
-    let accepted
+    let accepted: AcceptInvitationForUserResult | null = null
     try {
       accepted = await acceptInvitationForUser({
         userId: normalizeDenTypeId("user", user.id),
@@ -332,6 +339,13 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
 
     if (!accepted) {
       return c.json({ error: "invitation_not_found" }, 404)
+    }
+
+    if (accepted.status === "membership_removed") {
+      return c.json({
+        error: "membership_removed",
+        message: "Your access to this workspace was removed. Ask a workspace admin for a new invite.",
+      }, 410)
     }
 
     await setRequestActiveOrganization(c, accepted.member.organizationId)

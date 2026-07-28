@@ -32,6 +32,11 @@ type AccountSummary = {
   email: string;
 } | null;
 
+type AcceptedAutoResolveFailure = {
+  id: string;
+  reason: "membership_removed" | "unknown";
+};
+
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid gap-1 py-2.5 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-4">
@@ -235,7 +240,7 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
   const [joinBusy, setJoinBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joinedOrg, setJoinedOrg] = useState<JoinedOrg | null>(null);
-  const [acceptedAutoResolveFailedInvitationId, setAcceptedAutoResolveFailedInvitationId] = useState<string | null>(null);
+  const [acceptedAutoResolveFailure, setAcceptedAutoResolveFailure] = useState<AcceptedAutoResolveFailure | null>(null);
   const acceptedInvitationResolutionRef = useRef<string | null>(null);
 
   const invitedEmailMatches = preview && user
@@ -338,10 +343,14 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
     }
 
     acceptedInvitationResolutionRef.current = acceptedInvitationId;
-    let cancelled = false;
 
+    // The ref above guarantees a single in-flight resolution per invitation,
+    // so every outcome below is applied unconditionally. Sign-in rehydration
+    // churns the user identity mid-flight; a cancellation guard here dropped
+    // the outcome and stranded users on the loading card in two real eval
+    // regressions (first the success redirect, then the 410 failure card).
     async function resolveAcceptedInvitation() {
-      setAcceptedAutoResolveFailedInvitationId(null);
+      setAcceptedAutoResolveFailure(null);
 
       try {
         const { response, payload } = await requestJson(
@@ -354,12 +363,10 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
         );
 
         if (!response.ok) {
-          if (cancelled) {
-            acceptedInvitationResolutionRef.current = null;
-            return;
-          }
-
-          setAcceptedAutoResolveFailedInvitationId(acceptedInvitationId);
+          setAcceptedAutoResolveFailure({
+            id: acceptedInvitationId,
+            reason: getStringProperty(payload, "error") === "membership_removed" ? "membership_removed" : "unknown",
+          });
           return;
         }
 
@@ -367,31 +374,19 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
         const nextJoinedOrg = getJoinedOrgFromPayload(payload, acceptedPreview);
 
         if (desktopAuthRequested) {
-          if (cancelled) {
-            acceptedInvitationResolutionRef.current = null;
-            return;
-          }
-
           setJoinedOrg(nextJoinedOrg);
           return;
         }
 
-        // Sign-in rehydration churns user identity mid-flight; dropping this
-        // success stranded users on the loading card in a real eval regression.
         router.replace(getOrgDashboardRoute(nextJoinedOrg.slug));
       } catch {
+        // Transient transport failure: allow a later effect run to retry.
         acceptedInvitationResolutionRef.current = null;
-        if (!cancelled) {
-          setAcceptedAutoResolveFailedInvitationId(acceptedInvitationId);
-        }
+        setAcceptedAutoResolveFailure({ id: acceptedInvitationId, reason: "unknown" });
       }
     }
 
     void resolveAcceptedInvitation();
-
-    return () => {
-      cancelled = true;
-    };
   }, [clearPendingInvitation, desktopAuthRequested, invitationId, invitedEmailMatches, preview, router, sessionHydrated, user]);
 
   function handleNotNow() {
@@ -478,7 +473,10 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
 
   const account = user ? { email: user.email } : null;
   const showAcceptAction = preview.invitation.status === "pending" && Boolean(user) && invitedEmailMatches;
-  const acceptedAutoResolveFailed = acceptedAutoResolveFailedInvitationId === preview.invitation.id;
+  const acceptedAutoResolveFailureForPreview = acceptedAutoResolveFailure?.id === preview.invitation.id
+    ? acceptedAutoResolveFailure
+    : null;
+  const acceptedAutoResolveFailed = Boolean(acceptedAutoResolveFailureForPreview);
 
   if (preview.invitation.status === "accepted" && user && invitedEmailMatches && !acceptedAutoResolveFailed) {
     return (
@@ -487,6 +485,24 @@ export function JoinOrgScreen({ invitationId }: { invitationId: string }) {
         title="Opening your workspace."
         copy={`Confirming your membership in ${preview.organization.name}...`}
       />
+    );
+  }
+
+  if (preview.invitation.status === "accepted" && user && invitedEmailMatches && acceptedAutoResolveFailureForPreview?.reason === "membership_removed") {
+    return (
+      <OnboardingShell state="membership-removed" width="wide">
+        <OnboardingCard organization={getCardOrganization(preview)}>
+          <InvitationHeading
+            title="Your access was removed."
+            copy={`Your access to ${preview.organization.name} was removed. Ask a workspace admin for a new invite.`}
+          />
+          <ActionGroup>
+            <button type="button" className={primaryActionClassName} onClick={handleNotNow}>
+              Back to OpenWork Cloud
+            </button>
+          </ActionGroup>
+        </OnboardingCard>
+      </OnboardingShell>
     );
   }
 

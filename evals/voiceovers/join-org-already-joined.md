@@ -11,3 +11,7 @@ Invited teammates — especially on SSO or single-org deployments where sign-in 
 4. In a fresh browser session, the same link now says they’ve already joined and asks them to sign in — not an error.
 
 5. They sign in and land straight in the workspace; the invite email keeps working as a door into the team forever.
+
+6. Later the admin removes the teammate. Signing in again doesn’t quietly restore access anymore — and the old invite now says plainly that access was removed, instead of pretending the invite was used up.
+
+7. A fresh invite from the admin opens the door again: one click and the teammate is back in the workspace, with their original membership picked up right where it left off.

@@ -25,6 +25,9 @@ const PASSWORD = "OpenWorkDemo123!";
 const state = {
   invitationId: null,
   inviteToken: null,
+  memberId: null,
+  reinvitationId: null,
+  reinviteToken: null,
   // Resolved from the admin token's active organization: in single-org
   // deployments the invite lands in the singleton org, not the seeded one.
   orgName: null,
@@ -341,7 +344,9 @@ export default {
               const org = await loadOrg(ctx);
               const members = membersForEmail(org, TEAMMATE_EMAIL);
               const joinedMember = members.find((member) => typeof member.userId === "string" && member.userId.length > 0);
-              witness(ctx, Boolean(joinedMember), `${TEAMMATE_EMAIL} has joined with a userId`, members.map(compactMember));
+              const joinedMemberId = typeof joinedMember?.id === "string" ? joinedMember.id : "";
+              witness(ctx, joinedMemberId.length > 0, `${TEAMMATE_EMAIL} has joined with a userId`, members.map(compactMember));
+              state.memberId = joinedMemberId;
 
               const invitations = invitationsForEmail(org, TEAMMATE_EMAIL);
               const acceptedInvitation = invitations.find((invitation) => invitation.status === "accepted");
@@ -434,6 +439,122 @@ export default {
               name: "signed-in-workspace",
               requireText: ["Your workspace"],
               rejectText: ["This invite has already been used.", "User Profile"],
+            },
+          });
+        });
+      },
+    },
+    {
+      name: "Frame 6 — Removal sticks and the invite says so",
+      run: async (ctx) => {
+        await withClient(ctx, MEMBER_CDP_URL, async () => {
+          await ctx.prove("Removing the teammate actually sticks — signing in again does not restore access, and the old invite says access was removed instead of pretending it was used", {
+            voiceover: vo[5],
+            assert: async () => {
+              const orgBeforeRemoval = await loadOrg(ctx);
+              const membersBeforeRemoval = membersForEmail(orgBeforeRemoval, TEAMMATE_EMAIL);
+              const member = membersBeforeRemoval.find((entry) => typeof entry.userId === "string" && entry.userId.length > 0);
+              const memberId = typeof member?.id === "string" ? member.id : "";
+              witness(ctx, memberId.length > 0, `${TEAMMATE_EMAIL} is an active member before removal`, membersBeforeRemoval.map(compactMember));
+              state.memberId = memberId;
+
+              const remove = await authed(`/v1/members/${encodeURIComponent(memberId)}`, { method: "DELETE" });
+              witness(ctx, remove.response.status === 204, "Admin removal API soft-removes the teammate membership", {
+                status: remove.response.status,
+                body: remove.body,
+              });
+
+              const orgAfterRemoval = await loadOrg(ctx);
+              const membersAfterRemoval = membersForEmail(orgAfterRemoval, TEAMMATE_EMAIL);
+              witness(ctx, membersAfterRemoval.length === 0, `${TEAMMATE_EMAIL} has no active member rows after removal`, membersAfterRemoval.map(compactMember));
+
+              await resetBrowserSession(ctx);
+              await goToDenWeb(ctx, invitePath(ctx));
+              await ctx.waitForText(`You've already joined ${state.orgName}.`, { timeoutMs: 30_000 });
+              await ctx.fill('input[type="password"]', PASSWORD);
+              await clickSubmitContaining(ctx, "Sign in to open workspace");
+              await ctx.waitForText("Your access was removed.", { timeoutMs: 45_000 });
+
+              const bodyText = await ctx.eval("document.body.innerText");
+              witness(ctx, bodyText.includes("Ask a workspace admin for a new invite."), "Removed-access card tells the teammate to ask an admin for a new invite", { bodyText });
+              witness(ctx, !bodyText.includes("This invite has already been used."), "Removed-access card does not show the old used-invite error", { bodyText });
+
+              const orgAfterSignIn = await loadOrg(ctx);
+              const membersAfterSignIn = membersForEmail(orgAfterSignIn, TEAMMATE_EMAIL);
+              witness(ctx, membersAfterSignIn.length === 0, `${TEAMMATE_EMAIL} is still not an active member after signing in`, membersAfterSignIn.map(compactMember));
+            },
+            screenshot: {
+              name: "access-removed",
+              requireText: ["Your access was removed.", "Ask a workspace admin for a new invite."],
+              rejectText: ["This invite has already been used.", "Your workspace"],
+            },
+          });
+        });
+      },
+    },
+    {
+      name: "Frame 7 — A fresh invite brings them back",
+      run: async (ctx) => {
+        await withClient(ctx, MEMBER_CDP_URL, async () => {
+          await ctx.prove("A fresh invite from the admin brings the teammate back into the workspace, reviving their original membership", {
+            voiceover: vo[6],
+            assert: async () => {
+              const reinvite = await authed("/v1/invitations", {
+                method: "POST",
+                body: JSON.stringify({ email: TEAMMATE_EMAIL, role: "member" }),
+              });
+              const reinviteToken = typeof reinvite.body?.inviteToken === "string" ? reinvite.body.inviteToken : "";
+              const reinvitationId = typeof reinvite.body?.invitationId === "string" ? reinvite.body.invitationId : "";
+              witness(ctx, reinvite.response.status === 201, "Admin re-invite API creates a fresh teammate invitation", {
+                status: reinvite.response.status,
+                body: redactInviteBody(reinvite.body),
+              });
+              witness(ctx, reinviteToken.length > 0, "Admin re-invite response includes an invite token", {
+                status: reinvite.response.status,
+                body: redactInviteBody(reinvite.body),
+              });
+              witness(ctx, reinviteToken !== state.inviteToken, "Admin re-invite returns a new invite token", {
+                oldInviteToken: "<redacted>",
+                newInviteToken: "<redacted>",
+              });
+              witness(ctx, reinvitationId.length > 0, "Admin re-invite response includes an invitation id", {
+                status: reinvite.response.status,
+                body: redactInviteBody(reinvite.body),
+              });
+              state.reinviteToken = reinviteToken;
+              state.reinvitationId = reinvitationId;
+
+              await goToDenWeb(ctx, `/join-org?invite=${encodeURIComponent(state.reinviteToken)}`);
+              await ctx.waitForText("You're one click away", { timeoutMs: 30_000 });
+              await ctx.waitFor(`(() => {
+                const button = [...document.querySelectorAll('button[type="button"]')]
+                  .find((entry) => (entry.textContent ?? '').includes(${JSON.stringify(`Join ${state.orgName}`)}) && !entry.disabled);
+                if (!button) return false;
+                button.scrollIntoView({ block: 'center' });
+                button.click();
+                return true;
+              })()`, { timeoutMs: 20_000, label: `enabled button containing ${JSON.stringify(`Join ${state.orgName}`)}` });
+              await ctx.waitFor(`document.body.innerText.includes("You're in, welcome to") || location.pathname.startsWith('/dashboard')`, {
+                timeoutMs: 45_000,
+                label: "re-invited teammate success screen or dashboard",
+              });
+
+              const org = await loadOrg(ctx);
+              const members = membersForEmail(org, TEAMMATE_EMAIL).filter((entry) => typeof entry.userId === "string" && entry.userId.length > 0);
+              witness(ctx, members.length === 1, `${TEAMMATE_EMAIL} has exactly one active member row after rejoining`, members.map(compactMember));
+              witness(ctx, members[0]?.id === state.memberId, `${TEAMMATE_EMAIL} rejoined through the original member row`, {
+                expectedMemberId: state.memberId,
+                members: members.map(compactMember),
+              });
+
+              const invitations = invitationsForEmail(org, TEAMMATE_EMAIL);
+              const acceptedReinvite = invitations.find((invitation) => invitation.id === state.reinvitationId && invitation.status === "accepted");
+              witness(ctx, Boolean(acceptedReinvite), `${TEAMMATE_EMAIL} fresh invitation is accepted after rejoining`, invitations.map(compactInvitation));
+            },
+            screenshot: {
+              name: "rejoined-after-reinvite",
+              requireText: [state.orgName],
+              rejectText: ["This invite has already been used.", "Your access was removed."],
             },
           });
         });

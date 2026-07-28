@@ -125,6 +125,9 @@ describe("join organization invite clean layout contract", () => {
     expect(source).toContain("acceptedInvitationResolutionRef");
     expect(source).toContain('preview.invitation.status !== "accepted"');
     expect(source).toContain("acceptedInvitationResolutionRef.current = acceptedInvitationId;");
+    expect(source).toContain('getStringProperty(payload, "error") === "membership_removed"');
+    expect(source).toContain("Your access was removed.");
+    expect(source).toContain("Ask a workspace admin for a new invite.");
     expect(source).toContain("router.replace(getOrgDashboardRoute(nextJoinedOrg.slug));");
     expect(source).toContain("Opening your workspace.");
     expect(source).toContain("You've already joined ${preview.organization.name}.");
