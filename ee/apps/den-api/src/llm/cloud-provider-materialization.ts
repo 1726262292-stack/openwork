@@ -22,6 +22,8 @@ type EnvEntry = {
   value: string
 }
 
+type EnvSnapshot = Map<string, string | null>
+
 type WorkerToken = {
   scope: WorkerTokenScope
   token: string
@@ -445,6 +447,16 @@ async function requestOk(input: {
   }
 }
 
+function workspaceItemId(item: JsonRecord) {
+  return readString(item.id)
+}
+
+function isManagedEngineWorkspaceItem(item: JsonRecord) {
+  const workspaceType = readString(item.workspaceType)
+  const path = readString(item.path)
+  return workspaceType !== "remote" && Boolean(path)
+}
+
 function readWorkspaceId(payload: JsonRecord) {
   const activeId = readString(payload.activeId)
   const rawItems = Array.isArray(payload.items)
@@ -453,12 +465,17 @@ function readWorkspaceId(payload: JsonRecord) {
       ? payload.workspaces
       : []
   const items = rawItems.filter(isRecord)
-  if (activeId && items.some((item) => readString(item.id) === activeId)) {
+  const managedWorkspace = items.find(isManagedEngineWorkspaceItem)
+  if (managedWorkspace) {
+    return workspaceItemId(managedWorkspace)
+  }
+
+  if (activeId && items.some((item) => workspaceItemId(item) === activeId)) {
     return activeId
   }
 
   for (const item of items) {
-    const id = readString(item.id)
+    const id = workspaceItemId(item)
     if (id) {
       return id
     }
@@ -510,7 +527,7 @@ async function readStoredFingerprint(input: {
   return item ? readString(item.value) : null
 }
 
-async function readRuntimeManagedProviderIds(input: {
+async function readRuntimeManagedProviders(input: {
   fetchImpl: FetchImpl
   instanceUrl: string
   clientToken: string
@@ -527,13 +544,24 @@ async function readRuntimeManagedProviderIds(input: {
   })
   const runtime = isRecord(payload.runtime) ? payload.runtime : null
   const provider = runtime && isRecord(runtime.provider) ? runtime.provider : null
-  return provider ? Object.keys(provider).filter(isCloudManagedProviderKey) : []
+  const managed: JsonRecord = {}
+  if (!provider) {
+    return managed
+  }
+
+  for (const [providerId, config] of Object.entries(provider)) {
+    if (isCloudManagedProviderKey(providerId) && isRecord(config)) {
+      managed[providerId] = config
+    }
+  }
+
+  return managed
 }
 
-function buildRuntimeProviderPatch(prepared: PreparedMaterialization, currentManagedProviderIds: string[]) {
+function buildRuntimeProviderPatch(prepared: PreparedMaterialization, currentManagedProviders: JsonRecord) {
   const desiredIds = new Set(prepared.providers.map((provider) => provider.runtimeProviderId))
   const patch: JsonRecord = {}
-  for (const providerId of currentManagedProviderIds) {
+  for (const providerId of Object.keys(currentManagedProviders)) {
     if (!desiredIds.has(providerId)) {
       patch[providerId] = null
     }
@@ -544,6 +572,64 @@ function buildRuntimeProviderPatch(prepared: PreparedMaterialization, currentMan
   }
 
   return patch
+}
+
+function buildRuntimeProviderRollbackPatch(prepared: PreparedMaterialization, currentManagedProviders: JsonRecord) {
+  const affectedIds = new Set([
+    ...Object.keys(currentManagedProviders),
+    ...prepared.providers.map((provider) => provider.runtimeProviderId),
+  ])
+  const patch: JsonRecord = {}
+  for (const providerId of affectedIds) {
+    patch[providerId] = currentManagedProviders[providerId] ?? null
+  }
+
+  return patch
+}
+
+async function readEnvEntry(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  hostToken: string
+  key: string
+}) {
+  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/env/${encodeURIComponent(input.key)}`, {
+    method: "GET",
+    headers: hostTokenHeaders(input.hostToken),
+  })
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw new Error(`env_read_failed_${response.status}`)
+  }
+
+  const payload = await readJsonObject(response)
+  const item = isRecord(payload.item) ? payload.item : null
+  return item && typeof item.value === "string" ? { key: input.key, value: item.value } : null
+}
+
+async function readEnvSnapshot(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  hostToken: string
+  entries: EnvEntry[]
+}): Promise<EnvSnapshot> {
+  const snapshot: EnvSnapshot = new Map()
+  for (const entry of input.entries) {
+    if (snapshot.has(entry.key)) {
+      continue
+    }
+    const existing = await readEnvEntry({
+      fetchImpl: input.fetchImpl,
+      instanceUrl: input.instanceUrl,
+      hostToken: input.hostToken,
+      key: entry.key,
+    })
+    snapshot.set(entry.key, existing?.value ?? null)
+  }
+
+  return snapshot
 }
 
 async function writeEnvEntries(input: {
@@ -566,6 +652,58 @@ async function writeEnvEntries(input: {
       body: JSON.stringify({ entries: input.entries }),
     },
   })
+}
+
+async function deleteEnvEntry(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  hostToken: string
+  key: string
+  ignoreNotFound?: boolean
+}) {
+  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/env/${encodeURIComponent(input.key)}`, {
+    method: "DELETE",
+    headers: hostTokenHeaders(input.hostToken),
+  })
+  if (response.status === 404 && input.ignoreNotFound) {
+    return
+  }
+  if (!response.ok) {
+    throw new Error(`env_delete_failed_${response.status}`)
+  }
+}
+
+async function restoreEnvSnapshot(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  hostToken: string
+  snapshot: EnvSnapshot
+}) {
+  const entries: EnvEntry[] = []
+  const deleteKeys: string[] = []
+  for (const [key, value] of input.snapshot) {
+    if (value === null) {
+      deleteKeys.push(key)
+    } else {
+      entries.push({ key, value })
+    }
+  }
+
+  await writeEnvEntries({
+    fetchImpl: input.fetchImpl,
+    instanceUrl: input.instanceUrl,
+    hostToken: input.hostToken,
+    entries,
+  })
+  for (const key of deleteKeys) {
+    await deleteEnvEntry({
+      fetchImpl: input.fetchImpl,
+      instanceUrl: input.instanceUrl,
+      hostToken: input.hostToken,
+      key,
+      ignoreNotFound: true,
+    })
+  }
 }
 
 async function patchRuntimeProviders(input: {
@@ -606,6 +744,35 @@ async function reloadOpencode(input: {
       headers: bearerHeaders(input.clientToken),
     },
   })
+}
+
+async function verifyRuntimeProviders(input: {
+  fetchImpl: FetchImpl
+  instanceUrl: string
+  clientToken: string
+  workspaceId: string
+  providerIds: string[]
+}) {
+  if (input.providerIds.length === 0) {
+    return
+  }
+
+  const payload = await requestJson({
+    fetchImpl: input.fetchImpl,
+    label: "provider_readback",
+    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/config`,
+    init: {
+      method: "GET",
+      headers: bearerHeaders(input.clientToken),
+    },
+  })
+  const opencode = isRecord(payload.opencode) ? payload.opencode : null
+  const provider = opencode && isRecord(opencode.provider) ? opencode.provider : null
+  for (const providerId of input.providerIds) {
+    if (!provider || !Object.prototype.hasOwnProperty.call(provider, providerId)) {
+      throw new Error(`provider_readback_missing_${providerId}`)
+    }
+  }
 }
 
 async function resolveTokens(input: {
@@ -677,6 +844,8 @@ export async function materializeCloudWorkerProviders(input: {
   const instanceUrl = normalizeBaseUrl(input.instanceUrl)
   let fingerprint: string | null = null
   let providerCount = 0
+  let cleanupHostToken: string | null = null
+  let clearStoredFingerprintOnFailure = false
 
   try {
     if (!instanceUrl) {
@@ -701,40 +870,104 @@ export async function materializeCloudWorkerProviders(input: {
     if (!tokens.hostToken || !tokens.clientToken) {
       throw new Error("worker_tokens_missing")
     }
+    cleanupHostToken = tokens.hostToken
 
     const storedFingerprint = await readStoredFingerprint({
       fetchImpl,
       instanceUrl,
       hostToken: tokens.hostToken,
     })
+    const workspaceId = await discoverWorkspaceId({ fetchImpl, instanceUrl, clientToken: tokens.clientToken })
+    const desiredProviderIds = prepared.providers.map((provider) => provider.runtimeProviderId)
     if (storedFingerprint === fingerprint) {
-      materializedFingerprintByWorker.set(input.workerId, fingerprint)
-      return { ok: true, status: "noop", fingerprint, providers: providerCount }
+      try {
+        await verifyRuntimeProviders({
+          fetchImpl,
+          instanceUrl,
+          clientToken: tokens.clientToken,
+          workspaceId,
+          providerIds: desiredProviderIds,
+        })
+        materializedFingerprintByWorker.set(input.workerId, fingerprint)
+        return { ok: true, status: "noop", fingerprint, providers: providerCount }
+      } catch {
+        clearStoredFingerprintOnFailure = true
+      }
     }
 
-    const workspaceId = await discoverWorkspaceId({ fetchImpl, instanceUrl, clientToken: tokens.clientToken })
-    const currentManagedProviderIds = await readRuntimeManagedProviderIds({
+    const currentManagedProviders = await readRuntimeManagedProviders({
       fetchImpl,
       instanceUrl,
       clientToken: tokens.clientToken,
       workspaceId,
     })
-    const providerPatch = buildRuntimeProviderPatch(prepared, currentManagedProviderIds)
-
-    await writeEnvEntries({
+    const providerPatch = buildRuntimeProviderPatch(prepared, currentManagedProviders)
+    const providerRollbackPatch = buildRuntimeProviderRollbackPatch(prepared, currentManagedProviders)
+    const envSnapshot = await readEnvSnapshot({
       fetchImpl,
       instanceUrl,
       hostToken: tokens.hostToken,
       entries: prepared.envEntries,
     })
-    await patchRuntimeProviders({
-      fetchImpl,
-      instanceUrl,
-      clientToken: tokens.clientToken,
-      workspaceId,
-      patch: providerPatch,
-    })
-    await reloadOpencode({ fetchImpl, instanceUrl, clientToken: tokens.clientToken, workspaceId })
+    let envWritten = false
+    let providerPatched = false
+
+    try {
+      await writeEnvEntries({
+        fetchImpl,
+        instanceUrl,
+        hostToken: tokens.hostToken,
+        entries: prepared.envEntries,
+      })
+      envWritten = prepared.envEntries.length > 0
+      await patchRuntimeProviders({
+        fetchImpl,
+        instanceUrl,
+        clientToken: tokens.clientToken,
+        workspaceId,
+        patch: providerPatch,
+      })
+      providerPatched = Object.keys(providerPatch).length > 0
+      await reloadOpencode({ fetchImpl, instanceUrl, clientToken: tokens.clientToken, workspaceId })
+      await verifyRuntimeProviders({
+        fetchImpl,
+        instanceUrl,
+        clientToken: tokens.clientToken,
+        workspaceId,
+        providerIds: desiredProviderIds,
+      })
+    } catch (error) {
+      if (providerPatched) {
+        await patchRuntimeProviders({
+          fetchImpl,
+          instanceUrl,
+          clientToken: tokens.clientToken,
+          workspaceId,
+          patch: providerRollbackPatch,
+        }).catch((rollbackError) => {
+          materializationLogger.warn("cloud provider rollback failed", {
+            worker_id: input.workerId,
+            organization_id: input.organizationId,
+            reason: rollbackError instanceof Error ? rollbackError.message : "runtime_config_rollback_failed",
+          })
+        })
+      }
+      if (envWritten) {
+        await restoreEnvSnapshot({
+          fetchImpl,
+          instanceUrl,
+          hostToken: tokens.hostToken,
+          snapshot: envSnapshot,
+        }).catch((rollbackError) => {
+          materializationLogger.warn("cloud provider env rollback failed", {
+            worker_id: input.workerId,
+            organization_id: input.organizationId,
+            reason: rollbackError instanceof Error ? rollbackError.message : "env_rollback_failed",
+          })
+        })
+      }
+      throw error
+    }
 
     // The fingerprint is intentionally stored inside the instance's env store:
     // it survives restarts with the rest of the sandbox state, contains only
@@ -750,6 +983,15 @@ export async function materializeCloudWorkerProviders(input: {
     materializedFingerprintByWorker.set(input.workerId, fingerprint)
     return { ok: true, status: "applied", fingerprint, providers: providerCount }
   } catch (error) {
+    if (clearStoredFingerprintOnFailure && cleanupHostToken && fingerprint) {
+      await deleteEnvEntry({
+        fetchImpl,
+        instanceUrl,
+        hostToken: cleanupHostToken,
+        key: OPENWORK_PROVIDERS_FINGERPRINT_ENV,
+        ignoreNotFound: true,
+      }).catch(() => undefined)
+    }
     const result = failureResult({
       reason: error instanceof Error ? error.message : "provider_materialization_failed",
       error,

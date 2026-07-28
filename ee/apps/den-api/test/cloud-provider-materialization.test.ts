@@ -13,6 +13,11 @@ type FetchCall = {
   headers: Record<string, string>
   body: unknown
 }
+type WorkspaceFixture = {
+  id: string
+  workspaceType?: string
+  path?: string
+}
 
 const organizationId = createDenTypeId("organization")
 const instanceUrl = "https://worker.example.test"
@@ -51,6 +56,10 @@ function parseBody(body: BodyInit | null | undefined) {
   return JSON.parse(body)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 function headersRecord(headers: HeadersInit | undefined) {
   const record: Record<string, string> = {}
   new Headers(headers).forEach((value, key) => {
@@ -70,13 +79,21 @@ function bodyEntries(body: unknown) {
     : []
 }
 
-function bodyEntryValue(body: unknown, key: string) {
-  for (const entry of bodyEntries(body)) {
-    if (entry.key === key && typeof entry.value === "string") {
-      return entry.value
-    }
+function providerPatchFromBody(body: unknown) {
+  if (!isRecord(body) || !isRecord(body.opencode) || !isRecord(body.opencode.provider)) {
+    return {}
   }
-  return null
+
+  return body.opencode.provider
+}
+
+function workspaceRouteId(path: string, suffix: string) {
+  if (!path.startsWith("/workspace/") || !path.endsWith(suffix)) {
+    return null
+  }
+
+  const encoded = path.slice("/workspace/".length, path.length - suffix.length)
+  return encoded ? decodeURIComponent(encoded) : null
 }
 
 function makeAnthropicProvider(input: {
@@ -128,12 +145,24 @@ function makeStore(providers: () => CloudProviderMaterializationProvider[]): Sto
 function makeInstance(input: {
   storedFingerprint?: string | null
   failEnvWrites?: number
+  failConfigPatches?: number
   runtimeProviders?: Record<string, unknown>
+  configReadProviders?: Record<string, unknown>
+  missingConfigReadbacks?: number
+  workspaces?: WorkspaceFixture[]
+  activeId?: string | null
 } = {}) {
   const calls: FetchCall[] = []
-  let storedFingerprint = input.storedFingerprint ?? null
+  const envValues = new Map<string, string>()
+  if (input.storedFingerprint) {
+    envValues.set(openworkProvidersFingerprintEnv, input.storedFingerprint)
+  }
   let failEnvWrites = input.failEnvWrites ?? 0
-  const runtimeProviders = input.runtimeProviders ?? {}
+  let failConfigPatches = input.failConfigPatches ?? 0
+  let missingConfigReadbacks = input.missingConfigReadbacks ?? 0
+  const runtimeProviders: Record<string, unknown> = { ...(input.runtimeProviders ?? {}) }
+  const workspaces = input.workspaces ?? [{ id: "workspace-one" }]
+  const activeId = input.activeId === undefined ? workspaces[0]?.id ?? null : input.activeId
   const fetchImpl: FetchImpl = async (url, init) => {
     const parsed = new URL(url)
     const method = init?.method ?? "GET"
@@ -145,18 +174,28 @@ function makeInstance(input: {
       body,
     })
 
-    if (method === "GET" && parsed.pathname === `/env/${openworkProvidersFingerprintEnv}`) {
-      return storedFingerprint
-        ? jsonResponse({ item: { key: openworkProvidersFingerprintEnv, value: storedFingerprint } })
+    if (method === "GET" && parsed.pathname.startsWith("/env/")) {
+      const key = decodeURIComponent(parsed.pathname.slice("/env/".length))
+      const value = envValues.get(key) ?? null
+      return value
+        ? jsonResponse({ item: { key, value } })
         : jsonResponse({ error: "env_not_found" }, 404)
     }
 
     if (method === "GET" && parsed.pathname === "/workspaces") {
-      return jsonResponse({ activeId: "workspace-one", items: [{ id: "workspace-one" }] })
+      return jsonResponse({ activeId, items: workspaces })
     }
 
-    if (method === "GET" && parsed.pathname === "/workspace/workspace-one/runtime-config") {
+    if (method === "GET" && workspaceRouteId(parsed.pathname, "/runtime-config")) {
       return jsonResponse({ runtime: { provider: runtimeProviders } })
+    }
+
+    if (method === "GET" && workspaceRouteId(parsed.pathname, "/config")) {
+      if (missingConfigReadbacks > 0) {
+        missingConfigReadbacks -= 1
+        return jsonResponse({ opencode: { provider: {} } })
+      }
+      return jsonResponse({ opencode: { provider: input.configReadProviders ?? runtimeProviders } })
     }
 
     if (method === "PUT" && parsed.pathname === "/env") {
@@ -164,18 +203,40 @@ function makeInstance(input: {
         failEnvWrites -= 1
         return jsonResponse({ error: "env_write_failed" }, 500)
       }
-      const nextFingerprint = bodyEntryValue(body, openworkProvidersFingerprintEnv)
-      if (nextFingerprint) {
-        storedFingerprint = nextFingerprint
+      for (const entry of bodyEntries(body)) {
+        if (typeof entry.key === "string" && typeof entry.value === "string") {
+          envValues.set(entry.key, entry.value)
+        }
       }
       return jsonResponse({ ok: true })
     }
 
-    if (method === "PATCH" && parsed.pathname === "/workspace/workspace-one/config") {
+    if (method === "DELETE" && parsed.pathname.startsWith("/env/")) {
+      const key = decodeURIComponent(parsed.pathname.slice("/env/".length))
+      if (!envValues.has(key)) {
+        return jsonResponse({ error: "env_not_found" }, 404)
+      }
+      envValues.delete(key)
+      return jsonResponse({ ok: true })
+    }
+
+    if (method === "PATCH" && workspaceRouteId(parsed.pathname, "/config")) {
+      if (failConfigPatches > 0) {
+        failConfigPatches -= 1
+        return jsonResponse({ error: "config_patch_failed" }, 500)
+      }
+      const providerPatch = providerPatchFromBody(body)
+      for (const [providerId, value] of Object.entries(providerPatch)) {
+        if (value === null) {
+          delete runtimeProviders[providerId]
+        } else if (isRecord(value)) {
+          runtimeProviders[providerId] = value
+        }
+      }
       return jsonResponse({ updatedAt: Date.now() })
     }
 
-    if (method === "POST" && parsed.pathname === "/workspace/workspace-one/engine/reload") {
+    if (method === "POST" && workspaceRouteId(parsed.pathname, "/engine/reload")) {
       return jsonResponse({ ok: true, reloadedAt: Date.now() })
     }
 
@@ -186,7 +247,10 @@ function makeInstance(input: {
     calls,
     fetchImpl,
     get storedFingerprint() {
-      return storedFingerprint
+      return envValues.get(openworkProvidersFingerprintEnv) ?? null
+    },
+    envValue(key: string) {
+      return envValues.get(key) ?? null
     },
   }
 }
@@ -236,17 +300,19 @@ describe("Cloud provider materialization", () => {
       `GET /env/${openworkProvidersFingerprintEnv}`,
       "GET /workspaces",
       "GET /workspace/workspace-one/runtime-config",
+      "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
       "PATCH /workspace/workspace-one/config",
       "POST /workspace/workspace-one/engine/reload",
+      "GET /workspace/workspace-one/config",
       "PUT /env",
     ])
-    expect(instance.calls[3]?.headers["x-openwork-host-token"]).toBe("host-token")
-    expect(instance.calls[3]?.body).toEqual({
+    expect(instance.calls[4]?.headers["x-openwork-host-token"]).toBe("host-token")
+    expect(instance.calls[4]?.body).toEqual({
       entries: [{ key: "ANTHROPIC_API_KEY", value: "sk-anthropic" }],
     })
-    expect(instance.calls[4]?.headers.authorization).toBe("Bearer client-token")
-    expect(instance.calls[4]?.body).toEqual({
+    expect(instance.calls[5]?.headers.authorization).toBe("Bearer client-token")
+    expect(instance.calls[5]?.body).toEqual({
       opencode: {
         provider: {
           [provider.id]: {
@@ -272,7 +338,7 @@ describe("Cloud provider materialization", () => {
   test("skips writes and reloads when the stored fingerprint is unchanged", async () => {
     const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
     const fingerprint = computeCloudProviderMaterializationFingerprint([provider])
-    const instance = makeInstance({ storedFingerprint: fingerprint })
+    const instance = makeInstance({ storedFingerprint: fingerprint, runtimeProviders: { [provider.id]: { id: "anthropic" } } })
 
     const result = await materialize({
       providers: () => [provider],
@@ -281,8 +347,91 @@ describe("Cloud provider materialization", () => {
     })
 
     expect(result).toEqual({ ok: true, status: "noop", fingerprint, providers: 1 })
-    expect(callMethods(instance.calls)).toEqual([`GET /env/${openworkProvidersFingerprintEnv}`])
+    expect(callMethods(instance.calls)).toEqual([
+      `GET /env/${openworkProvidersFingerprintEnv}`,
+      "GET /workspaces",
+      "GET /workspace/workspace-one/config",
+    ])
     expect(writeCalls(instance.calls)).toHaveLength(0)
+  })
+
+  test("retries a stored fingerprint when provider read-back is missing", async () => {
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const fingerprint = computeCloudProviderMaterializationFingerprint([provider])
+    const instance = makeInstance({ storedFingerprint: fingerprint, missingConfigReadbacks: 1 })
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe("applied")
+    expect(callMethods(instance.calls)).toEqual([
+      `GET /env/${openworkProvidersFingerprintEnv}`,
+      "GET /workspaces",
+      "GET /workspace/workspace-one/config",
+      "GET /workspace/workspace-one/runtime-config",
+      "GET /env/ANTHROPIC_API_KEY",
+      "PUT /env",
+      "PATCH /workspace/workspace-one/config",
+      "POST /workspace/workspace-one/engine/reload",
+      "GET /workspace/workspace-one/config",
+      "PUT /env",
+    ])
+    expect(instance.storedFingerprint).toBe(result.fingerprint)
+  })
+
+  test("treats missing provider read-back as materialization failure", async () => {
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance({ configReadProviders: {} })
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.reason).toBe(`provider_readback_missing_${provider.id}`)
+    }
+    expect(callMethods(instance.calls)).toEqual([
+      `GET /env/${openworkProvidersFingerprintEnv}`,
+      "GET /workspaces",
+      "GET /workspace/workspace-one/runtime-config",
+      "GET /env/ANTHROPIC_API_KEY",
+      "PUT /env",
+      "PATCH /workspace/workspace-one/config",
+      "POST /workspace/workspace-one/engine/reload",
+      "GET /workspace/workspace-one/config",
+      "PATCH /workspace/workspace-one/config",
+      "DELETE /env/ANTHROPIC_API_KEY",
+    ])
+    expect(instance.storedFingerprint).toBeNull()
+    expect(instance.envValue("ANTHROPIC_API_KEY")).toBeNull()
+  })
+
+  test("patches the local session workspace when discovery lists a remote workspace first", async () => {
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance({
+      activeId: "rem_ws_remote",
+      workspaces: [
+        { id: "rem_ws_remote", workspaceType: "remote", path: "/remote" },
+        { id: "ws_session", workspaceType: "local", path: "/tmp/openwork-runtime" },
+      ],
+    })
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(instance.calls.some((call) => call.method === "PATCH" && call.path === "/workspace/ws_session/config")).toBe(true)
+    expect(instance.calls.some((call) => call.method === "PATCH" && call.path === "/workspace/rem_ws_remote/config")).toBe(false)
   })
 
   test("reapplies exactly once when providers drift, then caches the resolve check", async () => {
@@ -320,11 +469,48 @@ describe("Cloud provider materialization", () => {
       `GET /env/${openworkProvidersFingerprintEnv}`,
       "GET /workspaces",
       "GET /workspace/workspace-one/runtime-config",
+      "GET /env/ANTHROPIC_API_KEY",
       "PUT /env",
     ])
     expect(instance.calls.some((call) => call.method === "PATCH")).toBe(false)
     expect(instance.calls.some((call) => call.path.endsWith("/engine/reload"))).toBe(false)
     expect(instance.storedFingerprint).toBeNull()
+
+    instance.calls.length = 0
+    const retried = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+    })
+    expect(retried.ok).toBe(true)
+    expect(retried.status).toBe("applied")
+    expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "POST", "PUT"])
+  })
+
+  test("rolls back credential env, skips fingerprint, and retries when config patch fails", async () => {
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance({ failConfigPatches: 1 })
+
+    const failed = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+    })
+
+    expect(failed.ok).toBe(false)
+    if (!failed.ok) {
+      expect(failed.reason).toBe("runtime_config_patch_failed_500")
+    }
+    expect(callMethods(instance.calls)).toEqual([
+      `GET /env/${openworkProvidersFingerprintEnv}`,
+      "GET /workspaces",
+      "GET /workspace/workspace-one/runtime-config",
+      "GET /env/ANTHROPIC_API_KEY",
+      "PUT /env",
+      "PATCH /workspace/workspace-one/config",
+      "DELETE /env/ANTHROPIC_API_KEY",
+    ])
+    expect(instance.calls.some((call) => call.path.endsWith("/engine/reload"))).toBe(false)
+    expect(instance.storedFingerprint).toBeNull()
+    expect(instance.envValue("ANTHROPIC_API_KEY")).toBeNull()
 
     instance.calls.length = 0
     const retried = await materialize({
