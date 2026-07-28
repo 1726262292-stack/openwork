@@ -490,16 +490,18 @@ async function requestBody(request: Request) {
   return body.byteLength > 0 ? body : undefined
 }
 
-function upstreamRequestHeaders(headers: Headers, hostToken: string) {
+function upstreamRequestHeaders(headers: Headers, clientToken: string, hostToken: string) {
   const upstream = new Headers(headers)
   upstream.delete("authorization")
+  upstream.delete("x-openwork-host-token")
   upstream.delete("cookie")
   upstream.delete("host")
   upstream.delete("connection")
   upstream.delete("content-length")
   upstream.delete("transfer-encoding")
   upstream.delete(gatewayKeyHeader)
-  upstream.set("Authorization", `Bearer ${hostToken}`)
+  upstream.set("Authorization", `Bearer ${clientToken}`)
+  upstream.set("x-openwork-host-token", hostToken)
   return upstream
 }
 
@@ -511,6 +513,7 @@ function denApiRequestHeaders(request: Request) {
     if (normalized === "host" || normalized === "content-length" || normalized === "cookie") return
     if (spoofableForwardingHeaders.has(normalized)) return
     if (normalized === gatewayKeyHeader.toLowerCase()) return
+    if (normalized === "x-openwork-host-token") return
     upstream.append(name, value)
   })
 
@@ -574,7 +577,7 @@ async function proxyToInstance(input: {
   try {
     response = await input.config.fetchImpl(buildProxyUrl(input.resolution.url, input.request.url), {
       method: input.request.method,
-      headers: upstreamRequestHeaders(input.request.headers, input.resolution.hostToken),
+      headers: upstreamRequestHeaders(input.request.headers, input.resolution.clientToken, input.resolution.hostToken),
       body: await requestBody(input.request),
       redirect: "manual",
     })
