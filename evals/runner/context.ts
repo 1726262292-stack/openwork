@@ -264,6 +264,11 @@ export class EvalContext implements FlowContext {
     this.logs.push(`[${new Date().toISOString()}] ${message}`);
   }
 
+  skip(reason: string): void {
+    this.log(`Skipped: ${reason}`);
+    this.output("skip", reason);
+  }
+
   async eval(expression: string, options: EvalOptions = {}): Promise<unknown> {
     return evaluate(this.requireClient(), expression, options);
   }

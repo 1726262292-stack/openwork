@@ -264,106 +264,30 @@ function checkpointRestoreMarkerPath() {
   return `${env.daytona.runtimeDataPath}/.openwork-restore-marker`
 }
 
-export function buildOpenWorkStartCommand(input: ProvisionInput) {
-  const verifyRuntimeStep = [
-    "if ! command -v openwork-server >/dev/null 2>&1; then echo 'openwork-server binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
-    "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
-  ].join("; ")
-  const openworkServe = [
-    "OPENWORK_DATA_DIR=",
-    shellQuote(env.daytona.runtimeDataPath),
-    " OPENWORK_SERVER_CONFIG=",
-    shellQuote(`${env.daytona.runtimeDataPath}/server.json`),
-    " OPENWORK_TOKEN=",
-    shellQuote(input.clientToken),
-    " OPENWORK_HOST_TOKEN=",
-    shellQuote(input.hostToken),
-    " OPENWORK_MANAGE_OPENCODE=",
-    shellQuote("1"),
-    " OPENWORK_OPENCODE_BIN=",
-    shellQuote("/usr/local/bin/opencode"),
-    " OPENWORK_WEB_ROOT=",
-    shellQuote("/opt/openwork/web"),
-    // The instance still serves its own SPA copy for direct/debug access, but
-    // without a bootstrap token that path is intentionally inert; the gateway
-    // is the supported entry.
-    " OPENWORK_WEB_BOOTSTRAP_TOKEN=",
-    shellQuote("0"),
-    " OPENWORK_EXTENSIONS_PLUGIN_DIR=",
-    shellQuote("/opt/openwork/opencode-plugins"),
-    " DEN_RUNTIME_PROVIDER=",
-    shellQuote("daytona"),
-    " DEN_WORKER_ID=",
-    shellQuote(input.workerId),
-    " DEN_ACTIVITY_HEARTBEAT_ENABLED=",
-    shellQuote("1"),
-    " DEN_ACTIVITY_HEARTBEAT_URL=",
-    shellQuote(workerActivityHeartbeatUrl(input.workerId)),
-    " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
-    shellQuote(input.activityToken),
-    " openwork-server",
-    ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
-    ` --host 0.0.0.0`,
-    ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
-    ` --cors '*'`,
-    ` --approval manual`,
-    ` --verbose`,
-  ].join("")
-  const stateManifest = `${env.daytona.runtimeDataPath} ${env.daytona.runtimeWorkspacePath}`
-  const checkpointDir = `${env.daytona.dataMountPath}/checkpoints`
-  const lastFlushMarker = `${env.daytona.sidecarDir}/checkpoint.last-flush`
+function checkpointStateManifest() {
+  return `${env.daytona.runtimeDataPath} ${env.daytona.runtimeWorkspacePath}`
+}
 
-  const script = `
-set -u
-mkdir -p ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)} ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.sidecarDir)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
-ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
-ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
-${verifyRuntimeStep}
-OPENWORK_STATE_MANIFEST=${shellQuote(stateManifest)}
-CHECKPOINT_DIR=${shellQuote(checkpointDir)}
+function checkpointDir() {
+  return `${env.daytona.dataMountPath}/checkpoints`
+}
+
+function checkpointLastFlushMarkerPath() {
+  return `${env.daytona.sidecarDir}/checkpoint.last-flush`
+}
+
+function checkpointEnvironmentScript() {
+  return `OPENWORK_STATE_MANIFEST=${shellQuote(checkpointStateManifest())}
+CHECKPOINT_DIR=${shellQuote(checkpointDir())}
 RESTORE_MARKER=${shellQuote(checkpointRestoreMarkerPath())}
-LAST_FLUSH_MARKER=${shellQuote(lastFlushMarker)}
+LAST_FLUSH_MARKER=${shellQuote(checkpointLastFlushMarkerPath())}
 DEN_CKPT_INTERVAL_SECONDS=\${DEN_CKPT_INTERVAL_SECONDS:-${shellQuote(String(env.daytona.checkpointIntervalSeconds))}}
-DEN_CKPT_KEEP=\${DEN_CKPT_KEEP:-${shellQuote(String(env.daytona.checkpointKeep))}}
-
-state_dirs_pristine() {
-  if [ -e "$RESTORE_MARKER" ]; then
-    return 1
-  fi
-  data_entry=$(find ${shellQuote(env.daytona.runtimeDataPath)} -mindepth 1 -print -quit 2>/dev/null || true)
-  if [ -n "$data_entry" ]; then
-    return 1
-  fi
-  workspace_entry=$(find ${shellQuote(env.daytona.runtimeWorkspacePath)} -mindepth 1 ! -path ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)} ! -path ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/*`)} -print -quit 2>/dev/null || true)
-  if [ -n "$workspace_entry" ]; then
-    return 1
-  fi
-  return 0
+DEN_CKPT_KEEP=\${DEN_CKPT_KEEP:-${shellQuote(String(env.daytona.checkpointKeep))}}`
 }
 
-hydrate_checkpoint() {
-  mkdir -p "$CHECKPOINT_DIR"
-  latest_checkpoint=$(find "$CHECKPOINT_DIR" -maxdepth 1 -type f -name 'ckpt-*.tar' -print 2>/dev/null | sort | tail -n 1 || true)
-  if [ -z "$latest_checkpoint" ]; then
-    return 0
-  fi
-  if ! state_dirs_pristine; then
-    echo "checkpoint hydrate skipped; local OpenWork state is not pristine or was already restored"
-    return 0
-  fi
-  echo "checkpoint hydrate restoring $latest_checkpoint"
-  if tar -C / -xf "$latest_checkpoint"; then
-    printf '%s\n' "$latest_checkpoint" > "$RESTORE_MARKER"
-    return 0
-  fi
-  echo "checkpoint hydrate failed for $latest_checkpoint; continuing with fresh OpenWork state" >&2
-  rm -rf ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)}
-  mkdir -p ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
-  ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
-  ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
-}
-
-checkpoint_changed() {
+function checkpointFlushFunctions(input: { failOnError: boolean }) {
+  const failureReturn = input.failOnError ? "1" : "0"
+  return `checkpoint_changed() {
   if [ ! -e "$LAST_FLUSH_MARKER" ]; then
     return 0
   fi
@@ -413,8 +337,108 @@ flush_checkpoint() {
     echo "checkpoint flush tar failed for $tmp_checkpoint" >&2
   fi
   rm -f "$tmp_checkpoint"
+  return ${failureReturn}
+}`
+}
+
+export function checkpointFlushCommand() {
+  return `set -u
+${checkpointEnvironmentScript()}
+${checkpointFlushFunctions({ failOnError: true })}
+flush_checkpoint`
+}
+
+export function buildOpenWorkStartCommand(input: ProvisionInput) {
+  const verifyRuntimeStep = [
+    "if ! command -v openwork-server >/dev/null 2>&1; then echo 'openwork-server binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
+    "if ! command -v opencode >/dev/null 2>&1; then echo 'opencode binary missing from Daytona runtime image; rebuild and republish the Daytona snapshot' >&2; exit 1; fi",
+  ].join("; ")
+  const openworkServe = [
+    "OPENWORK_DATA_DIR=",
+    shellQuote(env.daytona.runtimeDataPath),
+    " OPENWORK_SERVER_CONFIG=",
+    shellQuote(`${env.daytona.runtimeDataPath}/server.json`),
+    " OPENWORK_TOKEN=",
+    shellQuote(input.clientToken),
+    " OPENWORK_HOST_TOKEN=",
+    shellQuote(input.hostToken),
+    " OPENWORK_MANAGE_OPENCODE=",
+    shellQuote("1"),
+    " OPENWORK_OPENCODE_BIN=",
+    shellQuote("/usr/local/bin/opencode"),
+    " OPENWORK_WEB_ROOT=",
+    shellQuote("/opt/openwork/web"),
+    // The instance still serves its own SPA copy for direct/debug access, but
+    // without a bootstrap token that path is intentionally inert; the gateway
+    // is the supported entry.
+    " OPENWORK_WEB_BOOTSTRAP_TOKEN=",
+    shellQuote("0"),
+    " OPENWORK_EXTENSIONS_PLUGIN_DIR=",
+    shellQuote("/opt/openwork/opencode-plugins"),
+    " DEN_RUNTIME_PROVIDER=",
+    shellQuote("daytona"),
+    " DEN_WORKER_ID=",
+    shellQuote(input.workerId),
+    " DEN_ACTIVITY_HEARTBEAT_ENABLED=",
+    shellQuote("1"),
+    " DEN_ACTIVITY_HEARTBEAT_URL=",
+    shellQuote(workerActivityHeartbeatUrl(input.workerId)),
+    " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
+    shellQuote(input.activityToken),
+    " openwork-server",
+    ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
+    ` --host 0.0.0.0`,
+    ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
+    ` --cors '*'`,
+    ` --approval manual`,
+    ` --verbose`,
+  ].join("")
+  const script = `
+set -u
+mkdir -p ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)} ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.sidecarDir)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
+ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
+ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
+${verifyRuntimeStep}
+${checkpointEnvironmentScript()}
+
+state_dirs_pristine() {
+  if [ -e "$RESTORE_MARKER" ]; then
+    return 1
+  fi
+  data_entry=$(find ${shellQuote(env.daytona.runtimeDataPath)} -mindepth 1 -print -quit 2>/dev/null || true)
+  if [ -n "$data_entry" ]; then
+    return 1
+  fi
+  workspace_entry=$(find ${shellQuote(env.daytona.runtimeWorkspacePath)} -mindepth 1 ! -path ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)} ! -path ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/*`)} -print -quit 2>/dev/null || true)
+  if [ -n "$workspace_entry" ]; then
+    return 1
+  fi
   return 0
 }
+
+hydrate_checkpoint() {
+  mkdir -p "$CHECKPOINT_DIR"
+  latest_checkpoint=$(find "$CHECKPOINT_DIR" -maxdepth 1 -type f -name 'ckpt-*.tar' -print 2>/dev/null | sort | tail -n 1 || true)
+  if [ -z "$latest_checkpoint" ]; then
+    return 0
+  fi
+  if ! state_dirs_pristine; then
+    echo "checkpoint hydrate skipped; local OpenWork state is not pristine or was already restored"
+    return 0
+  fi
+  echo "checkpoint hydrate restoring $latest_checkpoint"
+  if tar -C / -xf "$latest_checkpoint"; then
+    printf '%s\n' "$latest_checkpoint" > "$RESTORE_MARKER"
+    return 0
+  fi
+  echo "checkpoint hydrate failed for $latest_checkpoint; continuing with fresh OpenWork state" >&2
+  rm -rf ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)}
+  mkdir -p ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
+  ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
+  ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
+}
+
+${checkpointFlushFunctions({ failOnError: false })}
 
 checkpoint_loop() {
   while true; do
@@ -1185,6 +1209,27 @@ export async function stopWorkerOnDaytona(workerId: WorkerId): Promise<StopWorke
   await sandbox.stop(env.daytona.stopTimeoutSeconds ?? env.daytona.deleteTimeoutSeconds)
 
   return { status: "stopped" }
+}
+
+export async function flushWorkerCheckpointOnDaytona(workerId: WorkerId) {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return false
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  await sandbox.refreshData()
+  const exitCode = await runSandboxShellCommand(
+    toDaytonaSandboxRuntime(sandbox),
+    `openwork-update-flush-${workerHint(workerId)}-${Date.now()}`,
+    checkpointFlushCommand(),
+    env.daytona.createTimeoutSeconds,
+  )
+
+  return exitCode === 0
 }
 
 export type DaytonaSandboxWakeRecord = {

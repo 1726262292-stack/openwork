@@ -164,6 +164,17 @@ export type DenWorkerTokens = {
   workspaceId: string | null;
 };
 
+export type DenCloudInstance = {
+  status: "provisioning" | "waking" | "ready" | "failed";
+  url: string | null;
+  imageVersion: string | null;
+  latestVersion: string | null;
+};
+
+export type DenCloudInstanceUpdateResult =
+  | { ok: true; status: "update_requested" }
+  | { ok: false; error: "already_current" | "flush_failed" };
+
 export type DenMemoryContext = {
   id: string;
   snippet: string;
@@ -1212,6 +1223,39 @@ function getWorkerTokens(payload: unknown): DenWorkerTokens | null {
   };
 }
 
+function parseCloudInstance(payload: unknown): DenCloudInstance | null {
+  if (
+    !isRecord(payload) ||
+    (payload.status !== "provisioning" && payload.status !== "waking" && payload.status !== "ready" && payload.status !== "failed") ||
+    (typeof payload.url !== "string" && payload.url !== null)
+  ) {
+    return null;
+  }
+
+  return {
+    status: payload.status,
+    url: payload.url,
+    imageVersion: typeof payload.imageVersion === "string" ? payload.imageVersion : null,
+    latestVersion: typeof payload.latestVersion === "string" ? payload.latestVersion : null,
+  };
+}
+
+function parseCloudInstanceUpdateResult(payload: unknown): DenCloudInstanceUpdateResult | null {
+  if (!isRecord(payload) || typeof payload.ok !== "boolean") {
+    return null;
+  }
+
+  if (payload.ok === true && payload.status === "update_requested") {
+    return { ok: true, status: "update_requested" };
+  }
+
+  if (payload.ok === false && (payload.error === "already_current" || payload.error === "flush_failed")) {
+    return { ok: false, error: payload.error };
+  }
+
+  return null;
+}
+
 function getMcpToken(payload: unknown): DenMcpToken | null {
   if (
     !isRecord(payload) ||
@@ -2229,6 +2273,33 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         throw new DenApiError(500, "invalid_worker_token_payload", "Worker token response was missing token values.");
       }
       return tokens;
+    },
+
+    async getCloudInstance(orgId: string): Promise<DenCloudInstance> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/cloud/instance", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      const instance = parseCloudInstance(payload);
+      if (!instance) {
+        throw new DenApiError(500, "invalid_cloud_instance_payload", "Cloud instance response was invalid.");
+      }
+      return instance;
+    },
+
+    async updateCloudInstance(orgId: string): Promise<DenCloudInstanceUpdateResult> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/cloud/instance/update", {
+        method: "POST",
+        token,
+        organizationId: orgId,
+        body: {},
+      });
+      const result = parseCloudInstanceUpdateResult(payload);
+      if (!result) {
+        throw new DenApiError(500, "invalid_cloud_update_payload", "Cloud update response was invalid.");
+      }
+      return result;
     },
 
     async listOrgLlmProviders(orgId: string): Promise<DenOrgLlmProvider[]> {

@@ -10,7 +10,7 @@ import { db } from "../../db.js"
 import { env, type DenOrgMode } from "../../env.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview } from "../../workers/daytona.js"
+import { flushWorkerCheckpointOnDaytona, getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview, stopWorkerOnDaytona } from "../../workers/daytona.js"
 import { CLOUD_INSTANCE_BACKEND, CLOUD_INSTANCE_NAME } from "../../workers/cloud-constants.js"
 import { wakeCloudWorker as defaultWakeCloudWorker } from "../../workers/cloud-lifecycle.js"
 import { appLogger } from "../../observability/logger.js"
@@ -31,6 +31,8 @@ type CloudRouteOptions = {
   inspectSandbox?: InspectSandbox
   probeSignedPreview?: ProbeSignedPreview
   wakeCloudWorker?: WakeCloudWorker
+  flushWorkerCheckpoint?: FlushWorkerCheckpoint
+  stopCloudWorker?: StopCloudWorker
   now?: () => number
 }
 
@@ -52,10 +54,17 @@ type CloudInstanceResponse = {
   status: "provisioning" | "waking" | "ready" | "failed"
   url: string | null
 }
+type CloudInstanceMemberResponse = CloudInstanceResponse & {
+  imageVersion?: string | null
+  latestVersion?: string | null
+}
 type CloudGatewayInstanceResponse = CloudInstanceResponse & {
   clientToken: string | null
   hostToken: string | null
 }
+type CloudInstanceUpdateResponse =
+  | { ok: true; status: "update_requested" }
+  | { ok: false; error: "already_current" | "flush_failed" }
 type CloudWorkerStore = {
   getCloudWorker: (input: { orgId: OrgId; userId: UserId }) => Promise<CloudWorker | null>
   insertCloudWorker: (input: { workerId: WorkerId; orgId: OrgId; userId: UserId; name: string }) => Promise<void>
@@ -78,6 +87,8 @@ type GetSandboxRecord = (workerId: CloudWorker["id"]) => Promise<CloudSandboxRec
 type InspectSandbox = (workerId: CloudWorker["id"]) => Promise<CloudSandboxInspection>
 type ProbeSignedPreview = (signedPreviewUrl: string) => Promise<boolean>
 type WakeCloudWorker = (workerId: CloudWorker["id"]) => Promise<void>
+type FlushWorkerCheckpoint = (workerId: CloudWorker["id"]) => Promise<boolean>
+type StopCloudWorker = (workerId: CloudWorker["id"]) => Promise<unknown>
 
 type UpdateResultRecord = {
   rowsAffected?: unknown
@@ -87,7 +98,20 @@ type UpdateResultRecord = {
 const cloudInstanceResponseSchema = z.object({
   status: z.enum(["provisioning", "waking", "ready", "failed"]),
   url: z.string().url().nullable(),
+  imageVersion: z.string().nullable().optional(),
+  latestVersion: z.string().nullable().optional(),
 }).meta({ ref: "CloudInstanceResponse" })
+
+const cloudInstanceUpdateResponseSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    status: z.literal("update_requested"),
+  }),
+  z.object({
+    ok: z.literal(false),
+    error: z.enum(["already_current", "flush_failed"]),
+  }),
+]).meta({ ref: "CloudInstanceUpdateResponse" })
 
 const cloudGatewayInstanceResponseSchema = z.object({
   status: z.enum(["provisioning", "waking", "ready", "failed"]),
@@ -562,6 +586,24 @@ function workerNeedsSnapshotRecycle(worker: CloudWorker) {
   return Boolean(snapshot && "image_version" in worker && worker.image_version !== snapshot)
 }
 
+function workerNeedsUserRequestedUpdate(worker: CloudWorker) {
+  const snapshot = env.daytona.snapshot
+  return Boolean(snapshot && (worker.image_version ?? null) !== snapshot)
+}
+
+function isRunningSandboxState(state: string | null) {
+  const normalized = state?.toLowerCase() ?? ""
+  return normalized === "running" || normalized === "started"
+}
+
+function memberCloudInstanceResponse(worker: CloudWorker, instance: CloudInstanceResponse): CloudInstanceMemberResponse {
+  return {
+    ...instance,
+    imageVersion: worker.image_version ?? null,
+    latestVersion: env.daytona.snapshot ?? null,
+  }
+}
+
 async function startStaleStoppedRecycle(input: {
   worker: CloudWorker
   sandboxExists: boolean
@@ -731,6 +773,51 @@ async function resolveCloudInstanceForMember(input: {
   return { worker, instance }
 }
 
+async function requestCloudInstanceUpdate(input: {
+  worker: CloudWorker | null
+  getSandboxRecord: GetSandboxRecord
+  inspectSandbox: InspectSandbox
+  flushWorkerCheckpoint: FlushWorkerCheckpoint
+  stopCloudWorker: StopCloudWorker
+}): Promise<CloudInstanceUpdateResponse> {
+  if (!input.worker) {
+    return { ok: true, status: "update_requested" }
+  }
+
+  if (!workerNeedsUserRequestedUpdate(input.worker)) {
+    return { ok: false, error: "already_current" }
+  }
+
+  const sandbox = await input.getSandboxRecord(input.worker.id)
+  if (!sandbox) {
+    return { ok: true, status: "update_requested" }
+  }
+
+  let inspection: CloudSandboxInspection = null
+  try {
+    inspection = await input.inspectSandbox(input.worker.id)
+  } catch (error) {
+    logger.warn("cloud update failed to inspect sandbox", { worker_id: input.worker.id, error })
+    return { ok: false, error: "flush_failed" }
+  }
+
+  const state = inspection?.state ?? null
+  if (isStoppedSandboxState(state) || !isRunningSandboxState(state)) {
+    return { ok: true, status: "update_requested" }
+  }
+
+  const flushed = await input.flushWorkerCheckpoint(input.worker.id).catch((error) => {
+    logger.warn("cloud update checkpoint flush failed", { worker_id: input.worker?.id, error })
+    return false
+  })
+  if (!flushed) {
+    return { ok: false, error: "flush_failed" }
+  }
+
+  await input.stopCloudWorker(input.worker.id)
+  return { ok: true, status: "update_requested" }
+}
+
 async function resolveCloudInstanceForGateway(input: {
   payload: NonNullable<OrgRouteVariables["organizationContext"]>
   user: CloudRouteUser
@@ -773,6 +860,8 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
   const inspectSandbox = options.inspectSandbox ?? inspectDaytonaSandbox
   const signedPreviewProbe = options.probeSignedPreview ?? probeSignedPreview
   const wakeCloudWorker = options.wakeCloudWorker ?? defaultWakeCloudWorker
+  const flushWorkerCheckpoint = options.flushWorkerCheckpoint ?? flushWorkerCheckpointOnDaytona
+  const stopCloudWorker = options.stopCloudWorker ?? stopWorkerOnDaytona
   const now = options.now ?? Date.now
   const gatewayKey = options.gatewayKey !== undefined ? options.gatewayKey : env.gatewayKey
   const wakingWorkers = new Set<CloudWorker["id"]>()
@@ -828,7 +917,44 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
         now,
       })
 
-      return c.json(resolved.instance)
+      return c.json(memberCloudInstanceResponse(resolved.worker, resolved.instance))
+    },
+  )
+
+  app.post(
+    "/v1/cloud/instance/update",
+    describeRoute({
+      tags: ["Cloud"],
+      summary: "Request an update for the active organization's Cloud instance",
+      description: "Flushes a running Cloud workspace checkpoint and stops the sandbox so the next resolve can recycle it onto the latest snapshot.",
+      responses: {
+        200: jsonResponse("Cloud instance update request handled.", cloudInstanceUpdateResponseSchema),
+        401: jsonResponse("The caller must be signed in to update Cloud.", unauthorizedSchema),
+        404: jsonResponse("Cloud is not available for this organization.", notFoundSchema),
+      },
+    }),
+    orgMemberRouteMiddleware,
+    async (c) => {
+      const payload = c.get("organizationContext")
+      if (!cloudAvailable(payload, options)) {
+        return c.json(cloudNotFound(), 404)
+      }
+
+      const user = c.get("user")
+      if (!hasCloudUserId(user)) {
+        return c.json({ error: "unauthorized" }, 401)
+      }
+
+      const worker = await getCloudWorker(payload.organization.id, user.id, store)
+      const result = await requestCloudInstanceUpdate({
+        worker,
+        getSandboxRecord,
+        inspectSandbox,
+        flushWorkerCheckpoint,
+        stopCloudWorker,
+      })
+
+      return c.json(result)
     },
   )
 

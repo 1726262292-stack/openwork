@@ -5,6 +5,7 @@ import type { OrganizationContext } from "../src/orgs.js"
 import type { OrgRouteVariables } from "../src/routes/org/shared.js"
 
 type CloudWorkerStatus = "provisioning" | "healthy" | "failed" | "stopped"
+type CloudInstanceStatus = "provisioning" | "waking" | "ready" | "failed"
 type CloudRoutesModule = typeof import("../src/routes/cloud/index.js")
 type CloudRouteOptions = NonNullable<Parameters<CloudRoutesModule["registerCloudRoutes"]>[1]>
 type CloudWorkerStore = NonNullable<CloudRouteOptions["cloudWorkerStore"]>
@@ -110,6 +111,19 @@ function fakeSandbox() {
   return {
     signed_preview_url: "https://preview.example.test",
     signed_preview_url_expires_at: new Date(Date.now() + 60_000),
+  }
+}
+
+function expectedCloudInstance(input: {
+  status: CloudInstanceStatus
+  url: string | null
+  imageVersion?: string | null
+}) {
+  return {
+    status: input.status,
+    url: input.url,
+    imageVersion: input.imageVersion ?? null,
+    latestVersion: "openwork-0.18.8",
   }
 }
 
@@ -455,13 +469,39 @@ describe("Cloud gateway resolve route", () => {
     const payload = await response.json()
 
     expect(response.status).toBe(200)
-    expect(payload).toEqual({ status: "ready", url: "https://preview.example.test" })
+    // The member payload may gain additive fields (imageVersion, latestVersion);
+    // this test's contract is only that tokens never serialize here.
+    expect(payload).toMatchObject({ status: "ready", url: "https://preview.example.test" })
     expect(payload).not.toHaveProperty("hostToken")
     expect(payload).not.toHaveProperty("clientToken")
   })
 })
 
 describe("Cloud instance route lifecycle states", () => {
+  test("returns worker and latest image versions on the member instance response", async () => {
+    const worker = { ...fakeWorker("healthy"), image_version: "openwork-0.18.7" }
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      ensureCloudWorker: async () => worker,
+      getSandboxRecord: async () => fakeSandbox(),
+      probeSignedPreview: async () => true,
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({
+      status: "ready",
+      url: "https://preview.example.test",
+      imageVersion: "openwork-0.18.7",
+    }))
+  })
+
   test("returns waking and starts one wake for concurrent stopped-worker requests", async () => {
     const worker = fakeWorker("stopped")
     const app = new Hono<{ Variables: OrgRouteVariables }>()
@@ -492,8 +532,8 @@ describe("Cloud instance route lifecycle states", () => {
 
     expect(first.status).toBe(200)
     expect(second.status).toBe(200)
-    await expect(first.json()).resolves.toEqual({ status: "waking", url: null })
-    await expect(second.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(first.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
+    await expect(second.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     expect(wakeExecutions).toBe(1)
 
     wakeHold.resolve()
@@ -520,7 +560,7 @@ describe("Cloud instance route lifecycle states", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     expect(wakeExecutions).toBe(0)
   })
 
@@ -552,7 +592,7 @@ describe("Cloud instance route lifecycle states", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null, imageVersion: "openwork-0.18.7" }))
     expect(store.recycleClaimAttempts).toBe(1)
     expect(worker.status).toBe("provisioning")
     expect(wakeCalls).toBe(1)
@@ -584,7 +624,7 @@ describe("Cloud instance route lifecycle states", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null, imageVersion: "openwork-0.18.8" }))
     expect(inspectCalls).toBe(0)
     expect(wakeCalls).toBe(1)
   })
@@ -609,8 +649,141 @@ describe("Cloud instance route lifecycle states", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "provisioning", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
     expect(wakeExecutions).toBe(0)
+  })
+})
+
+describe("Cloud instance update route", () => {
+  test("flushes and stops a running stale sandbox", async () => {
+    const orgId = createDenTypeId("organization")
+    const userId = createDenTypeId("user")
+    const worker = { ...storedWorker({ orgId, userId, status: "healthy" }), image_version: "openwork-0.18.7" }
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    const flushCalls: StoredCloudWorker["id"][] = []
+    const stopCalls: StoredCloudWorker["id"][] = []
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }), { orgId, userId })),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      inspectSandbox: async () => ({ state: "running" }),
+      flushWorkerCheckpoint: async (workerId) => {
+        flushCalls.push(workerId)
+        return true
+      },
+      stopCloudWorker: async (workerId) => {
+        stopCalls.push(workerId)
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance/update", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "update_requested" })
+    expect(flushCalls).toEqual([worker.id])
+    expect(stopCalls).toEqual([worker.id])
+  })
+
+  test("no-ops for a stopped stale sandbox", async () => {
+    const orgId = createDenTypeId("organization")
+    const userId = createDenTypeId("user")
+    const worker = { ...storedWorker({ orgId, userId, status: "healthy" }), image_version: "openwork-0.18.7" }
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let flushCalls = 0
+    let stopCalls = 0
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }), { orgId, userId })),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      inspectSandbox: async () => ({ state: "stopped" }),
+      flushWorkerCheckpoint: async () => {
+        flushCalls += 1
+        return true
+      },
+      stopCloudWorker: async () => {
+        stopCalls += 1
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance/update", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "update_requested" })
+    expect(flushCalls).toBe(0)
+    expect(stopCalls).toBe(0)
+  })
+
+  test("refuses to stop an already-current worker", async () => {
+    const orgId = createDenTypeId("organization")
+    const userId = createDenTypeId("user")
+    const worker = { ...storedWorker({ orgId, userId, status: "healthy" }), image_version: "openwork-0.18.8" }
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let inspectCalls = 0
+    let stopCalls = 0
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }), { orgId, userId })),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      inspectSandbox: async () => {
+        inspectCalls += 1
+        return { state: "running" }
+      },
+      flushWorkerCheckpoint: async () => true,
+      stopCloudWorker: async () => {
+        stopCalls += 1
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance/update", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "already_current" })
+    expect(inspectCalls).toBe(0)
+    expect(stopCalls).toBe(0)
+  })
+
+  test("leaves a running sandbox up when checkpoint flush fails", async () => {
+    const orgId = createDenTypeId("organization")
+    const userId = createDenTypeId("user")
+    const worker = { ...storedWorker({ orgId, userId, status: "healthy" }), image_version: "openwork-0.18.7" }
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let stopCalls = 0
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }), { orgId, userId })),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      inspectSandbox: async () => ({ state: "running" }),
+      flushWorkerCheckpoint: async () => false,
+      stopCloudWorker: async () => {
+        stopCalls += 1
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance/update", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "flush_failed" })
+    expect(stopCalls).toBe(0)
   })
 })
 
@@ -646,11 +819,11 @@ describe("Cloud instance per-user workers", () => {
     const userTwoApp = appForUser(userTwo, "grace@example.com")
 
     await expect(userOneApp.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
-      .resolves.toEqual({ status: "provisioning", url: null })
+      .resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
     await expect(userOneApp.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
-      .resolves.toEqual({ status: "provisioning", url: null })
+      .resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
     await expect(userTwoApp.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
-      .resolves.toEqual({ status: "provisioning", url: null })
+      .resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
 
     expect(store.workers.filter((worker) => !store.deletedWorkerIds.includes(worker.id))).toHaveLength(2)
     expect(new Set(store.workers.map((worker) => worker.userId)).size).toBe(2)
@@ -685,7 +858,7 @@ describe("Cloud instance per-user workers", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "provisioning", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
     const activeWorkers = store.workers.filter((worker) => !store.deletedWorkerIds.includes(worker.id))
     expect(activeWorkers).toHaveLength(1)
     expect(activeWorkers[0]?.name).toBe("Cloud — Canonical")
@@ -755,7 +928,7 @@ describe("Cloud instance failed self-heal", () => {
 
     const first = await app.request("http://den.local/v1/cloud/instance")
     expect(first.status).toBe(200)
-    await expect(first.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(first.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     await flushMicrotasks()
 
     expect(store.claimAttempts).toBe(1)
@@ -764,7 +937,7 @@ describe("Cloud instance failed self-heal", () => {
     expect(worker.status).not.toBe("failed")
 
     await expect(app.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
-      .resolves.toEqual({ status: "ready", url: "https://preview.example.test" })
+      .resolves.toEqual(expectedCloudInstance({ status: "ready", url: "https://preview.example.test" }))
   })
 
   test("claims a failed worker, kicks provisioning, then throttles another failed GET for 60 seconds", async () => {
@@ -793,7 +966,7 @@ describe("Cloud instance failed self-heal", () => {
 
     const first = await app.request("http://den.local/v1/cloud/instance")
     expect(first.status).toBe(200)
-    await expect(first.json()).resolves.toEqual({ status: "provisioning", url: null })
+    await expect(first.json()).resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
     await flushMicrotasks()
     expect(store.claimAttempts).toBe(1)
     expect(provisionCalls).toBe(1)
@@ -802,7 +975,7 @@ describe("Cloud instance failed self-heal", () => {
     now += 10_000
     const second = await app.request("http://den.local/v1/cloud/instance")
     expect(second.status).toBe(200)
-    await expect(second.json()).resolves.toEqual({ status: "failed", url: null })
+    await expect(second.json()).resolves.toEqual(expectedCloudInstance({ status: "failed", url: null }))
     await flushMicrotasks()
     expect(store.claimAttempts).toBe(1)
     expect(provisionCalls).toBe(1)
@@ -837,8 +1010,8 @@ describe("Cloud instance failed self-heal", () => {
     ])
     const payloads = await Promise.all([first.json(), second.json()])
 
-    expect(payloads).toContainEqual({ status: "provisioning", url: null })
-    expect(payloads).toContainEqual({ status: "failed", url: null })
+    expect(payloads).toContainEqual(expectedCloudInstance({ status: "provisioning", url: null }))
+    expect(payloads).toContainEqual(expectedCloudInstance({ status: "failed", url: null }))
     await flushMicrotasks()
     expect(store.claimAttempts).toBe(1)
     expect(provisionCalls).toBe(1)
@@ -873,7 +1046,7 @@ describe("Cloud instance ready liveness", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     expect(probes).toBe(1)
     expect(wakeCalls).toBe(1)
   })
@@ -906,7 +1079,7 @@ describe("Cloud instance ready liveness", () => {
     const response = await app.request("http://den.local/v1/cloud/instance")
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: "waking", url: null })
+    await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     await flushMicrotasks()
     expect(store.healthyFailures).toBe(1)
     expect(store.claimAttempts).toBe(1)
@@ -934,10 +1107,10 @@ describe("Cloud instance ready liveness", () => {
     })
 
     await expect(app.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
-      .resolves.toEqual({ status: "ready", url: "https://preview.example.test" })
+      .resolves.toEqual(expectedCloudInstance({ status: "ready", url: "https://preview.example.test" }))
     now += 1_000
     await expect(app.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
-      .resolves.toEqual({ status: "ready", url: "https://preview.example.test" })
+      .resolves.toEqual(expectedCloudInstance({ status: "ready", url: "https://preview.example.test" }))
 
     expect(probes).toBe(1)
   })
