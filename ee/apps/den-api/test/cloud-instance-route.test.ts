@@ -469,7 +469,9 @@ describe("Cloud gateway resolve route", () => {
     const payload = await response.json()
 
     expect(response.status).toBe(200)
-    expect(payload).toEqual({ status: "ready", url: "https://preview.example.test" })
+    // The member payload may gain additive fields (imageVersion, latestVersion);
+    // this test's contract is only that tokens never serialize here.
+    expect(payload).toMatchObject({ status: "ready", url: "https://preview.example.test" })
     expect(payload).not.toHaveProperty("hostToken")
     expect(payload).not.toHaveProperty("clientToken")
   })
