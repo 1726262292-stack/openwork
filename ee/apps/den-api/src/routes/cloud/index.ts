@@ -63,7 +63,7 @@ type CloudInstanceMemberResponse = CloudInstanceResponse & {
 type CloudGatewayInstanceResponse = CloudInstanceResponse & {
   clientToken: string | null
   hostToken: string | null
-  providerSync?: { status: "degraded" }
+  providerSync?: { status: "degraded"; reason?: "unsupported" }
 }
 type CloudInstanceUpdateResponse =
   | { ok: true; status: "update_requested" }
@@ -121,7 +121,10 @@ const cloudGatewayInstanceResponseSchema = z.object({
   url: z.string().url().nullable(),
   clientToken: z.string().nullable(),
   hostToken: z.string().nullable(),
-  providerSync: z.object({ status: z.literal("degraded") }).optional(),
+  providerSync: z.object({
+    status: z.literal("degraded"),
+    reason: z.literal("unsupported").optional(),
+  }).optional(),
 }).meta({ ref: "CloudGatewayInstanceResponse" })
 
 function cloudNotFound() {
@@ -856,7 +859,7 @@ async function resolveCloudInstanceForGateway(input: {
     return { status: "failed", url: null, clientToken: null, hostToken: null }
   }
 
-  let materialized = true
+  let providerSync: CloudGatewayInstanceResponse["providerSync"] | null = null
   try {
     const result = await input.materializeProviders({
       organizationId: input.payload.organization.id,
@@ -865,9 +868,13 @@ async function resolveCloudInstanceForGateway(input: {
       hostToken,
       clientToken,
     })
-    materialized = result.ok
+    if (!result.ok) {
+      providerSync = result.status === "unsupported"
+        ? { status: "degraded", reason: "unsupported" }
+        : { status: "degraded" }
+    }
   } catch (error) {
-    materialized = false
+    providerSync = { status: "degraded" }
     logger.warn("cloud gateway provider materialization warning", {
       worker_id: resolved.worker.id,
       message: error instanceof Error ? error.message : "provider_materialization_failed",
@@ -879,7 +886,7 @@ async function resolveCloudInstanceForGateway(input: {
     url: resolved.instance.url,
     clientToken,
     hostToken,
-    ...(!materialized ? { providerSync: { status: "degraded" } } : {}),
+    ...(providerSync ? { providerSync } : {}),
   }
 }
 

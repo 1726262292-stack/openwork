@@ -132,6 +132,8 @@ function makeInstance(input: {
   storedFingerprint?: string | null
   failEnvWrites?: number
   failConfigPatches?: number
+  providerRouteStatus?: number
+  runtimeVersion?: string | null
   runtimeProviders?: Record<string, unknown>
   opencodeConfigProviders?: Record<string, unknown>
   missingEngineReadbacks?: number
@@ -173,6 +175,17 @@ function makeInstance(input: {
       return jsonResponse({ provider: engineProviders ?? runtimeProviders })
     }
 
+    if (method === "GET" && parsed.pathname === "/runtime/versions") {
+      return jsonResponse({
+        services: [
+          {
+            name: "openwork-server",
+            actualVersion: input.runtimeVersion ?? null,
+          },
+        ],
+      })
+    }
+
     if (method === "PUT" && parsed.pathname === "/env") {
       if (failEnvWrites > 0) {
         failEnvWrites -= 1
@@ -196,6 +209,9 @@ function makeInstance(input: {
     }
 
     if (method === "PATCH" && parsed.pathname === "/runtime-config/providers") {
+      if (input.providerRouteStatus) {
+        return jsonResponse({ error: "runtime_provider_route_unavailable" }, input.providerRouteStatus)
+      }
       if (failConfigPatches > 0) {
         failConfigPatches -= 1
         return jsonResponse({ error: "config_patch_failed" }, 500)
@@ -491,6 +507,74 @@ describe("Cloud provider materialization", () => {
     expect(retried.ok).toBe(true)
     expect(retried.status).toBe("applied")
     expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH", "PUT"])
+  })
+
+  test("preserves credential env and skips fingerprint when the global provider route is unsupported", async () => {
+    const workerId = createDenTypeId("worker")
+    let provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance({ providerRouteStatus: 404, runtimeVersion: "openwork-0.18.8" })
+    const logs: Array<{ message: string; metadata?: Record<string, unknown> }> = []
+    const logger: Logger = {
+      warn(message, metadata) {
+        logs.push({ message, metadata })
+      },
+    }
+
+    const unsupported = await materialize({
+      workerId,
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      logger,
+    })
+
+    expect(unsupported.ok).toBe(false)
+    expect(unsupported.status).toBe("unsupported")
+    expect(callMethods(instance.calls)).toEqual([
+      `GET /env/${openworkProvidersFingerprintEnv}`,
+      "GET /opencode/config",
+      "GET /env/ANTHROPIC_API_KEY",
+      "PUT /env",
+      "PATCH /runtime-config/providers",
+      "GET /runtime/versions",
+    ])
+    expect(instance.envValue("ANTHROPIC_API_KEY")).toBe("sk-anthropic")
+    expect(instance.storedFingerprint).toBeNull()
+    expect(instance.calls.some((call) => call.method === "DELETE")).toBe(false)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatchObject({
+      message: "cloud provider materialization unsupported by worker version",
+      metadata: {
+        instance_version: "openwork-0.18.8",
+        reason: "runtime_provider_patch_failed_404",
+      },
+    })
+
+    instance.calls.length = 0
+    const repeated = await materialize({
+      workerId,
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      logger,
+    })
+
+    expect(repeated.status).toBe("unsupported")
+    expect(instance.envValue("ANTHROPIC_API_KEY")).toBe("sk-anthropic")
+    expect(instance.storedFingerprint).toBeNull()
+    expect(logs).toHaveLength(1)
+    expect(instance.calls.some((call) => call.path === "/runtime/versions")).toBe(false)
+
+    provider = makeAnthropicProvider({ apiKey: "sk-anthropic-rotated" })
+    const changed = await materialize({
+      workerId,
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      logger,
+    })
+
+    expect(changed.status).toBe("unsupported")
+    expect(instance.envValue("ANTHROPIC_API_KEY")).toBe("sk-anthropic-rotated")
+    expect(instance.storedFingerprint).toBeNull()
+    expect(logs).toHaveLength(2)
   })
 
   test("does not serialize provider keys into logs, results, or fingerprints", async () => {
