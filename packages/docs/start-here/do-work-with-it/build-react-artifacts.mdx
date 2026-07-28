@@ -213,4 +213,6 @@ Dynamic artifacts render inside an opaque-origin iframe with Suspense and error 
 
 The alpha treats agent-authored project code as trusted workspace code. The compiler rejects obvious unbounded loop forms, but the iframe is a capability boundary, not a complete CPU or memory quota: other pathological code can still consume renderer resources. Do not use this alpha to execute untrusted third-party JSX.
 
+Artifact authoring also follows OpenWork's local-workspace trust model. The filesystem adapter rejects path traversal and symlinks present during access, but it is not a hostile-process filesystem sandbox: a different process running as the same OS user could race path validation by replacing a checked directory. Keep artifact projects in a workspace you trust. This limitation does not grant generated components filesystem access.
+
 This v2 dynamic-project alpha is separate from v1 UI Artifacts. V1 artifacts remain built-in, schema-backed cards rendered by OpenWork. Opting into dynamic projects does not turn v1 cards into arbitrary React or expand their tool surface.

@@ -17,6 +17,12 @@ function isWithin(root: string, candidate: string): boolean {
 }
 
 export async function assertSafeArtifactPath(workspaceRoot: string, candidate: string): Promise<void> {
+  // This rejects traversal and symlinks that exist when a path is inspected.
+  // Node's path-based filesystem APIs do not provide descriptor-relative
+  // openat/renameat operations across every supported desktop platform, so
+  // authoring assumes the local workspace is not being concurrently mutated by
+  // a hostile same-user process. The generated component never receives
+  // filesystem access; its hard security boundary is the opaque iframe bridge.
   const workspacePath = resolve(workspaceRoot);
   const candidatePath = resolve(candidate);
   if (!isWithin(workspacePath, candidatePath)) {
