@@ -21,7 +21,13 @@ const MEMBER_PASSWORD = process.env.OPENWORK_EVAL_MEMBER_PASSWORD?.trim() || "Op
 const MARK_VERIFIED_CMD = process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() || "";
 const MOCK_PORT = Number(process.env.OPENWORK_EVAL_LIFECYCLE_MOCK_PORT || 3979);
 const MOCK_LOCAL_URL = `http://127.0.0.1:${MOCK_PORT}`;
-const MOCK_PUBLIC_URL = (process.env.OPENWORK_EVAL_LIFECYCLE_MOCK_PUBLIC_URL ?? MOCK_LOCAL_URL).trim().replace(/\/+$/, "");
+// When a public URL is provided the mock server is managed externally (e.g.
+// started on the sandbox that hosts Electron) and the flow talks to it over
+// that URL instead of spawning its own local instance.
+const MOCK_EXTERNAL_URL = process.env.OPENWORK_EVAL_LIFECYCLE_MOCK_PUBLIC_URL?.trim().replace(/\/+$/, "") ?? "";
+const MOCK_SELF_HOSTED = MOCK_EXTERNAL_URL.length === 0;
+const MOCK_PUBLIC_URL = MOCK_SELF_HOSTED ? MOCK_LOCAL_URL : MOCK_EXTERNAL_URL;
+const MOCK_CONTROL_URL = MOCK_SELF_HOSTED ? MOCK_LOCAL_URL : MOCK_EXTERNAL_URL;
 const RUN_TAG = Date.now();
 const CONNECTION_NAME = `Meeting Notes ${RUN_TAG}`;
 const WORKSPACE_PATH = `/tmp/openwork-org-connection-lifecycle-${RUN_TAG}`;
@@ -420,6 +426,7 @@ async function waitForNoExactButton(ctx: FlowContext, label: string): Promise<vo
 }
 
 function startMockServer(): void {
+  if (!MOCK_SELF_HOSTED) return;
   if (state.mockChild) return;
   const child = spawn(process.execPath, [MOCK_SERVER_SCRIPT], {
     cwd: ROOT,
@@ -457,7 +464,7 @@ async function waitForMockHealth(ctx: FlowContext): Promise<void> {
   let last: unknown = null;
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    const response = await fetch(`${MOCK_LOCAL_URL}/health`).catch(() => null);
+    const response = await fetch(`${MOCK_CONTROL_URL}/health`).catch(() => null);
     if (response?.ok) {
       const body: unknown = await response.json().catch(() => null);
       if (isRecord(body) && body.ok === true) {
@@ -472,11 +479,11 @@ async function waitForMockHealth(ctx: FlowContext): Promise<void> {
     }
     await sleep(500);
   }
-  ctx.assert(false, `Mock OAuth+MCP server not reachable at ${MOCK_LOCAL_URL}. Last: ${bodyPreview(last)} Output: ${state.mockOutput.slice(-1_000)}`);
+  ctx.assert(false, `Mock OAuth+MCP server not reachable at ${MOCK_CONTROL_URL}. Last: ${bodyPreview(last)} Output: ${state.mockOutput.slice(-1_000)}`);
 }
 
 async function readMockRequests(): Promise<MockAuthorizeRequest[]> {
-  const response = await fetch(`${MOCK_LOCAL_URL}/requests`);
+  const response = await fetch(`${MOCK_CONTROL_URL}/requests`);
   const body: unknown = await response.json();
   if (!response.ok) throw new Error(`Mock request log failed: ${response.status}`);
   return parseMockRequests(body);
@@ -492,7 +499,7 @@ async function waitForMockAuthorizeRequest(ctx: FlowContext, clickedAt: string):
   }
   ctx.assert(Boolean(authorizeRequest), "No GET /authorize reached the mock IdP after the desktop Connect click.");
   if (!authorizeRequest) throw new Error("No GET /authorize reached the mock IdP after the desktop Connect click.");
-  const params = new URL(authorizeRequest.url, MOCK_LOCAL_URL).searchParams;
+  const params = new URL(authorizeRequest.url, MOCK_CONTROL_URL).searchParams;
   ctx.assert(Boolean(params.get("state")), "Authorize request is missing signed state.");
   ctx.assert(Boolean(params.get("client_id")), "Authorize request is missing dynamic client_id.");
   ctx.assert(
@@ -577,7 +584,10 @@ export default defineFlow({
       run: async (ctx) => {
         await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000 });
         await ctx.waitFor("Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", { timeoutMs: 30_000, label: "desktop bridge" });
-        const bootstrap = { baseUrl: DEN_API_URL, apiBaseUrl: DEN_API_URL, requireSignin: false, handoff: null };
+        // The app derives its /api/den proxy base from these URLs, so both must
+        // point at the web origin (den-web proxies /api/den/* to den-api; the
+        // bare den-api origin does not serve that prefix).
+        const bootstrap = { baseUrl: DEN_WEB_URL, apiBaseUrl: DEN_WEB_URL, requireSignin: false, handoff: null };
         const written = await ctx.eval(`(async () => {
           const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
           if (!bridge) return { ok: false };
@@ -586,8 +596,8 @@ export default defineFlow({
         })()`, { awaitPromise: true });
         ctx.assert(isRecord(written) && written.ok === true, "Failed to write desktop bootstrap config.");
         await ctx.eval(`(() => {
-          localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(DEN_API_URL)});
-          localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(DEN_API_URL)});
+          localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(DEN_WEB_URL)});
+          localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(DEN_WEB_URL)});
           let prefs = {};
           try { prefs = JSON.parse(localStorage.getItem('openwork.preferences') || '{}'); } catch {}
           localStorage.setItem('openwork.preferences', JSON.stringify({ ...prefs, selectedAgent: 'openwork' }));
@@ -603,7 +613,11 @@ export default defineFlow({
         });
         const grant = readStringField(handoff.body, "grant");
         ctx.assert(handoff.response.ok && Boolean(grant), `Handoff create failed: ${handoff.response.status} ${bodyPreview(handoff.body).slice(0, 300)}`);
-        await ctx.control("auth.exchange-grant", { grant: requireStateString(grant, "desktop handoff grant"), baseUrl: DEN_API_URL });
+        await ctx.waitFor(
+          "Boolean(window.__openworkControl?.listActions?.().some((a) => a.id === 'auth.exchange-grant'))",
+          { timeoutMs: 60_000, label: "auth.exchange-grant action registered" },
+        );
+        await ctx.control("auth.exchange-grant", { grant: requireStateString(grant, "desktop handoff grant"), baseUrl: DEN_WEB_URL });
         await ctx.waitFor("Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", { timeoutMs: 45_000, label: "persisted den auth token" });
         await ctx.waitFor("Boolean((localStorage.getItem('openwork.den.activeOrgId') ?? '').trim())", { timeoutMs: 60_000, label: "active org resolved" });
         await createFreshEvalWorkspace(ctx);
