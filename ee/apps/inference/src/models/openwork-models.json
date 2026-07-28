@@ -297,52 +297,5 @@
       "output": 15,
       "cache_read": 0.3
     }
-  },
-  "anthropic/claude-fable-5": {
-    "id": "anthropic/claude-fable-5",
-    "name": "Claude Fable 5",
-    "description": "Claude model for creative writing, analysis, and controlled agent workflows",
-    "family": "claude-fable",
-    "attachment": true,
-    "reasoning": true,
-    "reasoning_options": [
-      {
-        "type": "effort",
-        "values": [
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max"
-        ]
-      }
-    ],
-    "tool_call": true,
-    "structured_output": true,
-    "temperature": false,
-    "knowledge": "2026-01-31",
-    "release_date": "2026-06-09",
-    "last_updated": "2026-06-09",
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "open_weights": false,
-    "limit": {
-      "context": 1000000,
-      "output": 128000
-    },
-    "cost": {
-      "input": 10,
-      "output": 50,
-      "cache_read": 1,
-      "cache_write": 12.5
-    }
   }
 }
