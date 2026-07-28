@@ -54,6 +54,7 @@ type CloudInstanceResponse = {
 }
 type CloudGatewayInstanceResponse = CloudInstanceResponse & {
   clientToken: string | null
+  hostToken: string | null
 }
 type CloudWorkerStore = {
   getCloudWorker: (input: { orgId: OrgId; userId: UserId }) => Promise<CloudWorker | null>
@@ -92,6 +93,7 @@ const cloudGatewayInstanceResponseSchema = z.object({
   status: z.enum(["provisioning", "waking", "ready", "failed"]),
   url: z.string().url().nullable(),
   clientToken: z.string().nullable(),
+  hostToken: z.string().nullable(),
 }).meta({ ref: "CloudGatewayInstanceResponse" })
 
 function cloudNotFound() {
@@ -744,17 +746,18 @@ async function resolveCloudInstanceForGateway(input: {
 }): Promise<CloudGatewayInstanceResponse> {
   const resolved = await resolveCloudInstanceForMember(input)
   if (resolved.instance.status !== "ready") {
-    return { status: resolved.instance.status, url: null, clientToken: null }
+    return { status: resolved.instance.status, url: null, clientToken: null, hostToken: null }
   }
 
   const tokens = await input.store.getActiveTokens(resolved.worker.id)
   const clientToken = tokenByScope(tokens, "client")
-  if (!resolved.instance.url || !clientToken) {
-    logger.error("cloud gateway ready instance missing client token", { worker_id: resolved.worker.id })
-    return { status: "failed", url: null, clientToken: null }
+  const hostToken = tokenByScope(tokens, "host")
+  if (!resolved.instance.url || !clientToken || !hostToken) {
+    logger.error("cloud gateway ready instance missing gateway token", { worker_id: resolved.worker.id })
+    return { status: "failed", url: null, clientToken: null, hostToken: null }
   }
 
-  return { status: "ready", url: resolved.instance.url, clientToken }
+  return { status: "ready", url: resolved.instance.url, clientToken, hostToken }
 }
 
 export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(

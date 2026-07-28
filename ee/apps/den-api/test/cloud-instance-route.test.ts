@@ -354,6 +354,22 @@ describe("Cloud gateway resolve route", () => {
     await expect(response.json()).resolves.toEqual({ error: "cloud_not_found" })
   })
 
+  test("returns 404 when the gateway key header is missing", async () => {
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      gatewayKey: "gateway-secret",
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/gateway/resolve")
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: "cloud_not_found" })
+  })
+
   test("returns 404 when the Cloud capability is off", async () => {
     const app = new Hono<{ Variables: OrgRouteVariables }>()
     routes.registerCloudRoutes(app, {
@@ -372,7 +388,7 @@ describe("Cloud gateway resolve route", () => {
     await expect(response.json()).resolves.toEqual({ error: "cloud_not_found" })
   })
 
-  test("returns the client token only when the instance is ready", async () => {
+  test("returns the gateway tokens only when the instance is ready", async () => {
     const provisioningWorker = fakeWorker("provisioning")
     const provisioningApp = new Hono<{ Variables: OrgRouteVariables }>()
     routes.registerCloudRoutes(provisioningApp, {
@@ -390,10 +406,10 @@ describe("Cloud gateway resolve route", () => {
     })
 
     expect(provisioning.status).toBe(200)
-    await expect(provisioning.json()).resolves.toEqual({ status: "provisioning", url: null, clientToken: null })
+    await expect(provisioning.json()).resolves.toEqual({ status: "provisioning", url: null, clientToken: null, hostToken: null })
 
     const readyWorker = fakeWorker("healthy")
-    const store = makeCloudWorkerStore({ tokens: [makeToken(readyWorker.id, "client")] })
+    const store = makeCloudWorkerStore({ tokens: [makeToken(readyWorker.id, "host"), makeToken(readyWorker.id, "client")] })
     const readyApp = new Hono<{ Variables: OrgRouteVariables }>()
     routes.registerCloudRoutes(readyApp, {
       memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
@@ -416,7 +432,32 @@ describe("Cloud gateway resolve route", () => {
       status: "ready",
       url: "https://preview.example.test",
       clientToken: "client-token",
+      hostToken: "host-token",
     })
+  })
+
+  test("does not expose the host token on the member instance response", async () => {
+    const readyWorker = fakeWorker("healthy")
+    const store = makeCloudWorkerStore({ tokens: [makeToken(readyWorker.id, "host"), makeToken(readyWorker.id, "client")] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      ensureCloudWorker: async () => readyWorker,
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      probeSignedPreview: async () => true,
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance")
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload).toEqual({ status: "ready", url: "https://preview.example.test" })
+    expect(payload).not.toHaveProperty("hostToken")
+    expect(payload).not.toHaveProperty("clientToken")
   })
 })
 
