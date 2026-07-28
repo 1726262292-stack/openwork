@@ -589,10 +589,17 @@ describe("OpenWorkExtensionsPreview semantic tool surface", () => {
     temporaryDirectories.push(directory);
     const plugin = await OpenWorkExtensionsPreview({ directory });
     const tool = plugin.tool.openwork_workspace_write_file;
+    const permissionRequests: unknown[] = [];
+    const context = {
+      directory,
+      ask: async (input: unknown) => {
+        permissionRequests.push(input);
+      },
+    };
 
     const result = JSON.parse(await tool.execute(
       { path: "status.md", content: "bounded report" },
-      { directory },
+      context,
     ));
     expect(result).toEqual({
       ok: true,
@@ -602,12 +609,18 @@ describe("OpenWorkExtensionsPreview semantic tool surface", () => {
     expect(await readFile(join(directory, "status.md"), "utf8")).toBe(
       "bounded report",
     );
+    expect(permissionRequests).toEqual([{
+      permission: SCHEDULED_TASK_SAFE_WRITE_TOOL_ID,
+      patterns: ["status.md"],
+      always: [],
+      metadata: { path: "status.md", bytes: 14 },
+    }]);
 
     await expect(
-      tool.execute({ path: "../outside.md", content: "no" }, { directory }),
+      tool.execute({ path: "../outside.md", content: "no" }, context),
     ).rejects.toThrow("traverse");
     await expect(
-      tool.execute({ path: ".opencode/config.json", content: "no" }, { directory }),
+      tool.execute({ path: ".opencode/config.json", content: "no" }, context),
     ).rejects.toThrow("control directories");
   });
 });

@@ -1,4 +1,11 @@
-import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+} from "node:fs/promises";
 import {
   dirname,
   isAbsolute,
@@ -995,22 +1002,49 @@ async function writeWorkspaceTextArtifact(
   ) {
     throw new Error("The artifact path escapes the workspace.");
   }
-  const existing = await lstat(candidate).catch(() => null);
-  if (existing?.isSymbolicLink()) {
-    throw new Error("Scheduled tasks cannot write through symbolic links.");
-  }
-  if (existing) {
-    const canonicalExisting = await realpath(candidate);
-    if (!pathIsInside(canonicalRoot, canonicalExisting) || !existing.isFile()) {
-      throw new Error("The artifact target is not a regular workspace file.");
-    }
+  const target = resolve(canonicalParent, segments.at(-1)!);
+  const existing = await lstat(target).catch(() => null);
+  if (existing && !existing.isFile() && !existing.isSymbolicLink()) {
+    throw new Error("The artifact target is not a regular workspace file.");
   }
 
-  await writeFile(candidate, args.content, { encoding: "utf8" });
+  if (!context.ask) {
+    throw new Error("The OpenCode permission boundary is unavailable.");
+  }
+  const artifactPath = segments.join("/");
+  const bytes = new TextEncoder().encode(args.content).byteLength;
+  await context.ask({
+    permission: SCHEDULED_TASK_SAFE_WRITE_TOOL_ID,
+    patterns: [artifactPath],
+    always: [],
+    metadata: { path: artifactPath, bytes },
+  });
+
+  const temporaryPath = resolve(
+    canonicalParent,
+    `.openwork-write-${crypto.randomUUID()}.tmp`,
+  );
+  let temporaryCreated = false;
+  try {
+    const handle = await open(temporaryPath, "wx", 0o600);
+    temporaryCreated = true;
+    try {
+      await handle.writeFile(args.content, { encoding: "utf8" });
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temporaryPath, target);
+    temporaryCreated = false;
+  } finally {
+    if (temporaryCreated) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
+  }
   return {
     ok: true,
-    path: segments.join("/"),
-    bytes: new TextEncoder().encode(args.content).byteLength,
+    path: artifactPath,
+    bytes,
   };
 }
 
