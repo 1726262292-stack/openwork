@@ -468,6 +468,7 @@ async function resolveFailedCloudInstance(input: {
   worker: CloudWorker
   continueProvisioning: typeof continueCloudProvisioning
   getSandboxRecord: GetSandboxRecord
+  startWake: (workerId: CloudWorker["id"]) => void
   store: CloudWorkerStore
   now: () => number
 }): Promise<CloudInstanceResponse> {
@@ -479,12 +480,22 @@ async function resolveFailedCloudInstance(input: {
 
   failedHealAttempts.set(input.worker.id, now)
   const sandbox = await input.getSandboxRecord(input.worker.id)
+  if (sandbox) {
+    const claimed = await input.store.claimFailedWorker(input.worker.id)
+    if (!claimed) {
+      return { status: "failed", url: null }
+    }
+
+    input.startWake(input.worker.id)
+    return { status: "waking", url: null }
+  }
+
   const started = await startFailedCloudHeal(input)
   if (!started) {
     return { status: "failed", url: null }
   }
 
-  return { status: sandbox ? "waking" : "provisioning", url: null }
+  return { status: "provisioning", url: null }
 }
 
 async function readyFromSignedPreview(input: {

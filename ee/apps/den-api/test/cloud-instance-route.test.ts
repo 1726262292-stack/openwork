@@ -603,6 +603,49 @@ describe("Cloud instance per-user workers", () => {
 })
 
 describe("Cloud instance failed self-heal", () => {
+  test("adopts an existing stopped sandbox for a failed worker instead of provisioning a duplicate", async () => {
+    const worker = storedWorker({ status: "failed" })
+    const store = makeCloudWorkerStore({
+      initialWorkers: [worker],
+      tokens: [makeToken(worker.id, "host"), makeToken(worker.id, "client"), makeToken(worker.id, "activity")],
+    })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let provisionCalls = 0
+    let wakeCalls = 0
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      ensureCloudWorker: async () => worker,
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => fakeSandbox(),
+      inspectSandbox: async () => ({ state: "stopped" }),
+      probeSignedPreview: async () => true,
+      continueProvisioning: async () => {
+        provisionCalls += 1
+      },
+      wakeCloudWorker: async () => {
+        wakeCalls += 1
+        worker.status = "healthy"
+      },
+    })
+
+    const first = await app.request("http://den.local/v1/cloud/instance")
+    expect(first.status).toBe(200)
+    await expect(first.json()).resolves.toEqual({ status: "waking", url: null })
+    await flushMicrotasks()
+
+    expect(store.claimAttempts).toBe(1)
+    expect(provisionCalls).toBe(0)
+    expect(wakeCalls).toBe(1)
+    expect(worker.status).not.toBe("failed")
+
+    await expect(app.request("http://den.local/v1/cloud/instance").then((response) => response.json()))
+      .resolves.toEqual({ status: "ready", url: "https://preview.example.test" })
+  })
+
   test("claims a failed worker, kicks provisioning, then throttles another failed GET for 60 seconds", async () => {
     const worker = storedWorker({ status: "failed" })
     const store = makeCloudWorkerStore({
