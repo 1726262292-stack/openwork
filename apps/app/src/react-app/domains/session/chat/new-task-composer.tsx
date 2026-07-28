@@ -13,11 +13,7 @@ import {
   resolvePastedTextPlaceholders,
   type PastedTextChip,
 } from "@/react-app/domains/session/surface/composer/pasted-text";
-import {
-  EMPTY_CONNECT_CAPABILITY_INVENTORY,
-  listAssignedConnectCapabilities,
-  type ConnectCapabilityInventory,
-} from "@/react-app/domains/session/surface/connect-capability-inventory";
+import { loadSessionConnectCapabilities } from "@/react-app/domains/connections/cloud-inventory-cache";
 
 /**
  * Workspace-scoped wiring for the new-task composer. Everything here is
@@ -81,42 +77,12 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
   const [mcpStatuses, setMcpStatuses] = useState<McpStatusMap>({});
   const [mcpStatus, setMcpStatus] = useState<string | null>(null);
   const [pastedText, setPastedText] = useState<PastedTextChip[]>([]);
-  const connectInventoryCacheRef = useRef<{ scope: string; promise: Promise<ConnectCapabilityInventory> } | null>(null);
   const context = props.context;
   const workspaceId = context?.workspaceId ?? null;
 
-  const loadConnectCapabilityInventory = async (): Promise<ConnectCapabilityInventory> => {
-    const settings = readDenSettings();
-    const token = settings.authToken?.trim() ?? "";
-    const organizationId = settings.activeOrgId?.trim() ?? "";
-    if (!token || !organizationId) return EMPTY_CONNECT_CAPABILITY_INVENTORY;
-
-    const scope = `${settings.baseUrl}\n${organizationId}`;
-    if (connectInventoryCacheRef.current?.scope === scope) {
-      try {
-        return await connectInventoryCacheRef.current.promise;
-      } catch {
-        connectInventoryCacheRef.current = null;
-        return EMPTY_CONNECT_CAPABILITY_INVENTORY;
-      }
-    }
-
-    const client = createDenClient({ baseUrl: settings.baseUrl, token });
-    const promise = listAssignedConnectCapabilities({ client, organizationId });
-    connectInventoryCacheRef.current = { scope, promise };
-    try {
-      return await promise;
-    } catch {
-      if (connectInventoryCacheRef.current?.promise === promise) {
-        connectInventoryCacheRef.current = null;
-      }
-      return EMPTY_CONNECT_CAPABILITY_INVENTORY;
-    }
-  };
-
   const listSkills = context && workspaceId
     ? async (): Promise<SkillCard[]> => {
-        const connectPromise = loadConnectCapabilityInventory();
+        const connectPromise = loadSessionConnectCapabilities();
         const response = await context.client.listSkills(workspaceId, { includeGlobal: true });
         const localSkills = (response.items ?? []).map((skill) => ({
           name: skill.name,
@@ -135,7 +101,7 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
 
   const listMcp = context && workspaceId
     ? async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
-        const connectPromise = loadConnectCapabilityInventory();
+        const connectPromise = loadSessionConnectCapabilities();
         const response = await context.client.listMcp(workspaceId);
         const localServers = (response.items ?? []).map((entry) => ({
           name: entry.name,

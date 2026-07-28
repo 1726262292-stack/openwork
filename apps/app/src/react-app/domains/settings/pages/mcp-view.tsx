@@ -13,6 +13,8 @@ import {
   ExternalLink,
   FolderOpen,
   Globe,
+  LayoutGrid,
+  List,
   Loader2,
   MonitorSmartphone,
   Plug2,
@@ -27,7 +29,7 @@ import { isBuiltInOpenWorkExtension, getMcpServerName, type McpDirectoryInfo } f
 import { evaluateEnablement } from "../../../../app/enablement";
 import type { EnablementResult } from "../../../../app/extensions";
 import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
-import { ExtensionCard } from "../../../design-system/extension-card";
+import { ExtensionCard, type ExtensionLayout } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import {
   isOrgMcpConnectionItem,
@@ -59,6 +61,7 @@ import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
@@ -68,8 +71,10 @@ import {
   isOpenWorkExtensionEnabled,
   isOpenWorkExtensionHidden,
   OPENWORK_EXTENSION_STATE_CHANGED,
+  readExtensionLayout,
   setOpenWorkExtensionEnabled,
   setOpenWorkExtensionHidden,
+  writeExtensionLayout,
 } from "../extension-state";
 import {
   initialMcpViewLocalState,
@@ -108,6 +113,8 @@ export type McpViewProps = {
   /** MCP capabilities assigned through OpenWork Connect. */
   availableConnectMcpServers?: McpServerEntry[];
   availableConnectMcpStatuses?: McpStatusMap;
+  /** Organization inventory is still being fetched and nothing is cached yet. */
+  inventoryLoading?: boolean;
   /** Installed organization extensions to render alongside runtime extensions. */
   installedPlugins?: CloudImportedPlugin[];
   /** Uninstall a skill by name. */
@@ -144,7 +151,7 @@ export type McpViewProps = {
   /** Install a Claude Code plugin bundle from a GitHub URL. */
   installClaudePlugin?: (url: string) => Promise<{ ok: boolean; message: string }>;
   /** Connected org-level External MCP Connections rendered in My Extensions. */
-  installedOrgMcpItems?: ExtensionItem[];
+  orgMcpItems?: ExtensionItem[];
   orgMcpDisconnectingId?: string | null;
   disconnectOrgMcp?: (connectionId: string) => void;
   initialFilter?: ExtensionInventoryFilter;
@@ -344,6 +351,7 @@ export function McpView(props: McpViewProps) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionInventoryFilter>(props.initialFilter ?? "all");
   const [showHidden, setShowHidden] = useState(false);
+  const [layout, setLayout] = useState<ExtensionLayout>(readExtensionLayout);
   const [claudeImportOpen, setClaudeImportOpen] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
@@ -387,7 +395,7 @@ export function McpView(props: McpViewProps) {
   const installedSkills = props.installedSkills ?? [];
   const availableConnectMcpServers = props.availableConnectMcpServers ?? [];
   const installedPlugins = props.installedPlugins ?? [];
-  const installedOrgMcpItems = props.installedOrgMcpItems ?? [];
+  const orgMcpItems = props.orgMcpItems ?? [];
   const detailPresentation = useRoutedDetail ? "page" : "dialog";
   const setInventoryFilter = (nextFilter: ExtensionInventoryFilter) => {
     setFilter(nextFilter);
@@ -434,7 +442,7 @@ export function McpView(props: McpViewProps) {
       skills: installedSkills,
       connectMcps: availableConnectMcpServers,
       plugins: installedPlugins,
-      orgMcpItems: installedOrgMcpItems,
+      orgMcpItems,
     });
     setDetailTarget(resolved);
     if (resolved?.kind === "skill") {
@@ -457,7 +465,7 @@ export function McpView(props: McpViewProps) {
     installedSkills,
     availableConnectMcpServers,
     installedPlugins,
-    installedOrgMcpItems,
+    orgMcpItems,
   ]);
 
   useEffect(() => {
@@ -927,6 +935,13 @@ export function McpView(props: McpViewProps) {
           >
             {showHidden ? "Showing hidden" : hiddenOrPolicyCount > 0 ? `Show hidden (${hiddenOrPolicyCount})` : "Show hidden"}
           </Button>
+          <ExtensionLayoutToggle
+            layout={layout}
+            onChange={(next) => {
+              setLayout(next);
+              writeExtensionLayout(next);
+            }}
+          />
         </div>
       </div>
 
@@ -963,6 +978,9 @@ export function McpView(props: McpViewProps) {
           })
         }
         availableConnectMcpStatuses={props.availableConnectMcpStatuses ?? {}}
+        loading={props.inventoryLoading === true}
+        layout={layout}
+        filter={filter}
         installedPlugins={
           installedPlugins.filter((plugin) => {
             if (!showHidden && isOpenWorkExtensionHidden(`plugin:${plugin.pluginId}`)) return false;
@@ -975,8 +993,8 @@ export function McpView(props: McpViewProps) {
               .includes(q);
           })
         }
-        installedOrgMcpItems={
-          installedOrgMcpItems.filter((item) => {
+        orgMcpItems={
+          orgMcpItems.filter((item) => {
             if (!isOrgMcpConnectionItem(item)) return false;
             if (!matchesExtensionFilter(filter, "connection")) return false;
             if (!search.trim()) return true;
@@ -1154,14 +1172,44 @@ type InventoryCard = {
   node: ReactNode;
 };
 
+function ExtensionLayoutToggle(props: {
+  layout: ExtensionLayout;
+  onChange: (layout: ExtensionLayout) => void;
+}) {
+  const options: { layout: ExtensionLayout; label: string; icon: ReactNode }[] = [
+    { layout: "grid", label: t("extensions.layout_grid"), icon: <LayoutGrid size={13} /> },
+    { layout: "list", label: t("extensions.layout_list"), icon: <List size={13} /> },
+  ];
+  return (
+    <div className="flex items-center gap-1">
+      {options.map((option) => (
+        <Button
+          key={option.layout}
+          variant={props.layout === option.layout ? "secondary" : "outline"}
+          size="xs"
+          aria-pressed={props.layout === option.layout}
+          aria-label={option.label}
+          title={option.label}
+          onClick={() => props.onChange(option.layout)}
+        >
+          {option.icon}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function McpQuickConnectSection(props: {
   skillCount: number;
   entries: McpDirectoryInfo[];
   installedSkills?: SkillItem[];
   availableConnectMcpServers?: McpServerEntry[];
   availableConnectMcpStatuses: McpStatusMap;
+  loading: boolean;
+  layout: ExtensionLayout;
+  filter: ExtensionInventoryFilter;
   installedPlugins?: CloudImportedPlugin[];
-  installedOrgMcpItems?: ExtensionItem[];
+  orgMcpItems?: ExtensionItem[];
   organizationName?: string | null;
   busy: boolean;
   connectingName: string | null;
@@ -1204,6 +1252,7 @@ function McpQuickConnectSection(props: {
       group,
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={entry.name}
           description={entry.description}
           iconSlug={entry.iconSlug}
@@ -1234,6 +1283,7 @@ function McpQuickConnectSection(props: {
       group: "ready",
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={skill.name}
           description={skill.description ?? "Installed skill"}
           taxonomy="skill"
@@ -1256,6 +1306,7 @@ function McpQuickConnectSection(props: {
       group: ready ? "ready" : "needs_signin",
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={entry.name}
           description={
             entry.pluginName
@@ -1284,6 +1335,7 @@ function McpQuickConnectSection(props: {
       group: "ready",
       node: (
         <ExtensionCard
+          layout={props.layout}
           name={plugin.name}
           description={plugin.description ?? `Organization extension with ${fileCount} installed file${fileCount === 1 ? "" : "s"}.`}
           taxonomy="plugin"
@@ -1297,7 +1349,7 @@ function McpQuickConnectSection(props: {
     });
   }
 
-  for (const item of (props.installedOrgMcpItems ?? []).filter(isOrgMcpConnectionItem)) {
+  for (const item of (props.orgMcpItems ?? []).filter(isOrgMcpConnectionItem)) {
     const connection = item.orgMcpConnection;
     const canDisconnect = canDisconnectNativeProviderAccount(connection);
     const disconnecting = props.orgMcpDisconnectingId === connection.id;
@@ -1308,6 +1360,7 @@ function McpQuickConnectSection(props: {
       node: (
         <div className="space-y-2">
           <ExtensionCard
+            layout={props.layout}
             name={item.name}
             description={item.description ?? "Shared by your organization."}
             taxonomy="connection"
@@ -1342,11 +1395,26 @@ function McpQuickConnectSection(props: {
 
   return (
     <div className="space-y-6">
-      {grouped.length === 0 ? (
+      {grouped.length === 0 && props.loading ? (
+        <div className={props.layout === "list" ? "flex flex-col gap-2" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"}>
+          {[0, 1, 2].map((index) => (
+            <Skeleton
+              key={index}
+              className={props.layout === "list" ? "h-[52px] rounded-lg" : "h-[104px] rounded-xl"}
+            />
+          ))}
+        </div>
+      ) : grouped.length === 0 ? (
         <div className="rounded-xl border border-dashed border-dls-border px-5 py-10 text-center">
           <Unplug size={24} className="mx-auto mb-3 text-dls-secondary/30" />
           <div className="text-sm font-medium text-dls-secondary">No extensions found</div>
-          <div className="mt-1 text-xs text-dls-secondary/60">Try a different search or filter, or add an MCP server.</div>
+          <div className="mt-1 text-xs text-dls-secondary/60">
+            {props.filter === "connection"
+              ? props.organizationName?.trim()
+                ? t("extensions.empty_connections", { org: props.organizationName.trim() })
+                : t("extensions.empty_connections_signed_out")
+              : "Try a different search or filter, or add an MCP server."}
+          </div>
         </div>
       ) : (
         grouped.map(({ group, cards: groupCards }) => (
@@ -1356,7 +1424,7 @@ function McpQuickConnectSection(props: {
               count={groupCards.length}
               hint={group === "available" ? t("extensions.group_ready_to_set_up_hint") : undefined}
             />
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3">
+            <div className={props.layout === "list" ? "flex flex-col gap-2" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"}>
               {groupCards.map((card) => (
                 <div key={card.key}>{card.node}</div>
               ))}
