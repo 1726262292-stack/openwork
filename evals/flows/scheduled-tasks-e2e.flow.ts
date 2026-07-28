@@ -72,7 +72,7 @@ async function serverRead(ctx: FlowContext, path: string): Promise<unknown> {
 async function serverDownload(
   ctx: FlowContext,
   path: string,
-): Promise<{ status: number; text: string; disposition: string }> {
+): Promise<{ status: number; text: string }> {
   return ctx.eval(`(async () => {
     const override = localStorage.getItem("openwork.server.urlOverride");
     const port = localStorage.getItem("openwork.server.port");
@@ -85,12 +85,10 @@ async function serverDownload(
     return {
       status: response.status,
       text: await response.text(),
-      disposition: response.headers.get("content-disposition") || "",
     };
   })()`, { awaitPromise: true }) as Promise<{
     status: number;
     text: string;
-    disposition: string;
   }>;
 }
 
@@ -391,6 +389,10 @@ export default defineFlow({
               recordValue(artifact, "id"),
               "manual artifactId",
             );
+            ctx.assert(
+              recordValue(artifact, "name") === "scheduled-task-eval-report.md",
+              "The immutable receipt must preserve the reviewed artifact filename.",
+            );
 
             const transcript = await serverRead(
               ctx,
@@ -426,10 +428,6 @@ export default defineFlow({
             const downloaded = await serverDownload(ctx, artifactPath);
             ctx.assert(downloaded.status === 200, "The exact receipt artifact must download.");
             ctx.assert(downloaded.text.trim().length > 0, "The downloaded artifact must not be empty.");
-            ctx.assert(
-              downloaded.disposition.includes("scheduled-task-eval-report.md"),
-              "Artifact download must preserve its reviewed filename.",
-            );
             await ctx.trustedClick(
               `[data-scheduled-task-artifact="${state.manualArtifactId}"]`,
             );
