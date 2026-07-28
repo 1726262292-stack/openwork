@@ -186,6 +186,12 @@ import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useEngineReload } from "./use-engine-reload";
 import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
+import { CloudWorkspaceBootTakeover, useCloudWorkspaceStatus } from "./cloud-workspace-overlay";
+import {
+  cloudWorkspaceStatusHasReadyContent,
+  mapCloudWorkspaceMainContentDecision,
+  shouldRefetchCloudWorkspaceOnReadyTransition,
+} from "./cloud-workspace-status";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
@@ -507,6 +513,19 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
+  const cloudWorkspace = useCloudWorkspaceStatus();
+  const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
+  useEffect(() => {
+    const previousStatus = previousCloudWorkspaceStatusRef.current;
+    previousCloudWorkspaceStatusRef.current = cloudWorkspace.viewModel.variant;
+    if (!shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus,
+      nextStatus: cloudWorkspace.viewModel.variant,
+      gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
+    })) return;
+    refreshInFlightRef.current = false;
+    void refreshRouteState();
+  }, [cloudWorkspace.gatewayMode, cloudWorkspace.viewModel.variant, cloudWorkspace.visible, refreshInFlightRef, refreshRouteState]);
   const cloudMcpProviderModel = useMemo(() => local.prefs.defaultModel
     ? {
         provider: local.prefs.defaultModel.providerID,
@@ -1349,6 +1368,19 @@ export function SessionRoute() {
     submitWithCloudMcpReadiness,
     token,
   ]);
+  const cloudWorkspaceMainContentDecision = mapCloudWorkspaceMainContentDecision({
+    status: cloudWorkspace.viewModel.variant,
+    hasWorkspaces: Boolean(surfaceProps),
+    gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
+  });
+  const cloudWorkspaceReadyForRouteErrors =
+    !cloudWorkspace.gatewayMode ||
+    !cloudWorkspace.visible ||
+    cloudWorkspaceStatusHasReadyContent(cloudWorkspace.viewModel.variant);
+  const cloudWorkspaceMainContentTakeover = cloudWorkspaceMainContentDecision === "takeover" ? (
+    <CloudWorkspaceBootTakeover decision={cloudWorkspaceMainContentDecision} />
+  ) : null;
+  const gatedRouteNotFoundMessage = cloudWorkspaceReadyForRouteErrors ? routeNotFoundMessage : null;
 
   // Workspace-scoped wiring for the empty-state hero's full composer. Unlike
   // `surfaceProps` this exists without a selected session, so the hero offers
@@ -2615,7 +2647,8 @@ export function SessionRoute() {
         reloadError: reloadCoordinator.reloadError,
         openWorkConnectState: sessionMcpMaintenance,
       }}
-      notFoundMessage={routeNotFoundMessage}
+      notFoundMessage={gatedRouteNotFoundMessage}
+      mainContentTakeover={cloudWorkspaceMainContentTakeover}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
     <OpenWorkModelsStartupDialog
