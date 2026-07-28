@@ -13,10 +13,11 @@ type ResolvePayload = {
   status: InstanceStatus
   url: string | null
   clientToken: string | null
+  hostToken: string | null
 }
 
 type InstanceResolution =
-  | { kind: "ready"; url: string; clientToken: string }
+  | { kind: "ready"; url: string; clientToken: string; hostToken: string }
   | { kind: "not_ready"; status: NonReadyStatus }
   | { kind: "error"; statusCode: number; error: string }
 
@@ -133,11 +134,12 @@ function readResolvePayload(value: unknown): ResolvePayload | null {
   const status = readStatus(value.status)
   const url = typeof value.url === "string" ? value.url : value.url === null ? null : undefined
   const clientToken = typeof value.clientToken === "string" ? value.clientToken : value.clientToken === null ? null : undefined
-  if (!status || url === undefined || clientToken === undefined) {
+  const hostToken = typeof value.hostToken === "string" ? value.hostToken : value.hostToken === null ? null : undefined
+  if (!status || url === undefined || clientToken === undefined || hostToken === undefined) {
     return null
   }
 
-  return { status, url, clientToken }
+  return { status, url, clientToken, hostToken }
 }
 
 function isUsableUpstreamUrl(value: string) {
@@ -154,11 +156,11 @@ function parseResolvedInstance(payload: ResolvePayload): InstanceResolution {
     return { kind: "not_ready", status: payload.status }
   }
 
-  if (!payload.url || !payload.clientToken || !isUsableUpstreamUrl(payload.url)) {
+  if (!payload.url || !payload.clientToken || !payload.hostToken || !isUsableUpstreamUrl(payload.url)) {
     return { kind: "error", statusCode: 502, error: "gateway_resolve_invalid_ready_instance" }
   }
 
-  return { kind: "ready", url: payload.url, clientToken: payload.clientToken }
+  return { kind: "ready", url: payload.url, clientToken: payload.clientToken, hostToken: payload.hostToken }
 }
 
 function readBearerAuthorization(headers: Headers) {
@@ -488,7 +490,7 @@ async function requestBody(request: Request) {
   return body.byteLength > 0 ? body : undefined
 }
 
-function upstreamRequestHeaders(headers: Headers, clientToken: string) {
+function upstreamRequestHeaders(headers: Headers, hostToken: string) {
   const upstream = new Headers(headers)
   upstream.delete("authorization")
   upstream.delete("cookie")
@@ -497,7 +499,7 @@ function upstreamRequestHeaders(headers: Headers, clientToken: string) {
   upstream.delete("content-length")
   upstream.delete("transfer-encoding")
   upstream.delete(gatewayKeyHeader)
-  upstream.set("Authorization", `Bearer ${clientToken}`)
+  upstream.set("Authorization", `Bearer ${hostToken}`)
   return upstream
 }
 
@@ -572,7 +574,7 @@ async function proxyToInstance(input: {
   try {
     response = await input.config.fetchImpl(buildProxyUrl(input.resolution.url, input.request.url), {
       method: input.request.method,
-      headers: upstreamRequestHeaders(input.request.headers, input.resolution.clientToken),
+      headers: upstreamRequestHeaders(input.request.headers, input.resolution.hostToken),
       body: await requestBody(input.request),
       redirect: "manual",
     })
