@@ -10,6 +10,7 @@ import { db } from "../../db.js"
 import { env, type DenOrgMode } from "../../env.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { materializeCloudWorkerProviders } from "../../llm/cloud-provider-materialization.js"
 import { flushWorkerCheckpointOnDaytona, getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview, stopWorkerOnDaytona } from "../../workers/daytona.js"
 import { CLOUD_INSTANCE_BACKEND, CLOUD_INSTANCE_NAME } from "../../workers/cloud-constants.js"
 import { wakeCloudWorker as defaultWakeCloudWorker } from "../../workers/cloud-lifecycle.js"
@@ -33,6 +34,7 @@ type CloudRouteOptions = {
   wakeCloudWorker?: WakeCloudWorker
   flushWorkerCheckpoint?: FlushWorkerCheckpoint
   stopCloudWorker?: StopCloudWorker
+  materializeProviders?: typeof materializeCloudWorkerProviders
   now?: () => number
 }
 
@@ -61,6 +63,7 @@ type CloudInstanceMemberResponse = CloudInstanceResponse & {
 type CloudGatewayInstanceResponse = CloudInstanceResponse & {
   clientToken: string | null
   hostToken: string | null
+  providerSync?: { status: "degraded" }
 }
 type CloudInstanceUpdateResponse =
   | { ok: true; status: "update_requested" }
@@ -118,6 +121,7 @@ const cloudGatewayInstanceResponseSchema = z.object({
   url: z.string().url().nullable(),
   clientToken: z.string().nullable(),
   hostToken: z.string().nullable(),
+  providerSync: z.object({ status: z.literal("degraded") }).optional(),
 }).meta({ ref: "CloudGatewayInstanceResponse" })
 
 function cloudNotFound() {
@@ -414,6 +418,7 @@ async function createCloudWorker(input: {
 
   void input.continueProvisioning({
     workerId,
+    orgId: input.orgId,
     name: input.name,
     hostToken,
     clientToken,
@@ -465,6 +470,7 @@ function rememberHealthyPreview(workerId: WorkerId, url: string, now: number) {
 
 async function startFailedCloudHeal(input: {
   worker: CloudWorker
+  orgId: OrgId
   continueProvisioning: typeof continueCloudProvisioning
   store: CloudWorkerStore
 }) {
@@ -487,6 +493,7 @@ async function startFailedCloudHeal(input: {
 
     await input.continueProvisioning({
       workerId: input.worker.id,
+      orgId: input.orgId,
       name: input.worker.name,
       hostToken,
       clientToken,
@@ -503,6 +510,7 @@ async function startFailedCloudHeal(input: {
 
 async function resolveFailedCloudInstance(input: {
   worker: CloudWorker
+  orgId: OrgId
   continueProvisioning: typeof continueCloudProvisioning
   getSandboxRecord: GetSandboxRecord
   startWake: (workerId: CloudWorker["id"]) => void
@@ -635,6 +643,7 @@ async function startStaleStoppedRecycle(input: {
 
 async function recoverUnhealthyCloudSandbox(input: {
   worker: CloudWorker
+  orgId: OrgId
   continueProvisioning: typeof continueCloudProvisioning
   inspectSandbox: InspectSandbox
   startWake: (workerId: CloudWorker["id"]) => void
@@ -659,6 +668,7 @@ async function recoverUnhealthyCloudSandbox(input: {
 
 async function resolveCloudInstance(input: {
   worker: CloudWorker
+  orgId: OrgId
   continueProvisioning: typeof continueCloudProvisioning
   refreshSignedPreview: typeof refreshDaytonaSignedPreview
   getSandboxRecord: GetSandboxRecord
@@ -760,6 +770,7 @@ async function resolveCloudInstanceForMember(input: {
   })
   const instance = await resolveCloudInstance({
     worker,
+    orgId: input.payload.organization.id,
     continueProvisioning: input.continueProvisioning,
     refreshSignedPreview: input.refreshSignedPreview,
     getSandboxRecord: input.getSandboxRecord,
@@ -829,6 +840,7 @@ async function resolveCloudInstanceForGateway(input: {
   inspectSandbox: InspectSandbox
   probeSignedPreview: ProbeSignedPreview
   startWake: (workerId: CloudWorker["id"]) => void
+  materializeProviders: typeof materializeCloudWorkerProviders
   now: () => number
 }): Promise<CloudGatewayInstanceResponse> {
   const resolved = await resolveCloudInstanceForMember(input)
@@ -844,7 +856,31 @@ async function resolveCloudInstanceForGateway(input: {
     return { status: "failed", url: null, clientToken: null, hostToken: null }
   }
 
-  return { status: "ready", url: resolved.instance.url, clientToken, hostToken }
+  let materialized = true
+  try {
+    const result = await input.materializeProviders({
+      organizationId: input.payload.organization.id,
+      workerId: resolved.worker.id,
+      instanceUrl: resolved.instance.url,
+      hostToken,
+      clientToken,
+    })
+    materialized = result.ok
+  } catch (error) {
+    materialized = false
+    logger.warn("cloud gateway provider materialization warning", {
+      worker_id: resolved.worker.id,
+      message: error instanceof Error ? error.message : "provider_materialization_failed",
+    })
+  }
+
+  return {
+    status: "ready",
+    url: resolved.instance.url,
+    clientToken,
+    hostToken,
+    ...(!materialized ? { providerSync: { status: "degraded" } } : {}),
+  }
 }
 
 export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
@@ -852,7 +888,9 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
   options: CloudRouteOptions = {},
 ) {
   const orgMemberRouteMiddleware = options.memberRoute ?? orgMemberRoute()
-  const continueProvisioning = options.continueProvisioning ?? continueCloudProvisioning
+  const materializeProviders = options.materializeProviders ?? materializeCloudWorkerProviders
+  const continueProvisioning: typeof continueCloudProvisioning = options.continueProvisioning
+    ?? ((input, continueOptions = {}) => continueCloudProvisioning(input, { ...continueOptions, materializeProviders }))
   const refreshSignedPreview = options.refreshSignedPreview ?? refreshDaytonaSignedPreview
   const store = options.cloudWorkerStore ?? databaseCloudWorkerStore
   const ensureWorker = options.ensureCloudWorker ?? ensureCloudWorker
@@ -1000,6 +1038,7 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
         inspectSandbox,
         probeSignedPreview: signedPreviewProbe,
         startWake,
+        materializeProviders,
         now,
       })
 
