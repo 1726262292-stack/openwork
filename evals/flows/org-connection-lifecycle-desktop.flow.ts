@@ -407,6 +407,13 @@ async function waitForNotConnectedDetail(ctx: FlowContext): Promise<void> {
 }
 
 async function clickExactButton(ctx: FlowContext, label: string): Promise<void> {
+  // Lifecycle buttons disable briefly while a connect/disconnect settles, so
+  // wait for the enabled button instead of failing on a race.
+  await ctx.waitFor(
+    `Boolean([...document.querySelectorAll('button')]
+      .find((el) => (el.textContent ?? '').trim() === ${JSON.stringify(label)} && !el.disabled))`,
+    { timeoutMs: 30_000, label: `enabled button: ${label}` },
+  );
   const clicked = await ctx.eval(`(() => {
     const button = [...document.querySelectorAll('button')]
       .find((el) => (el.textContent ?? '').trim() === ${JSON.stringify(label)} && !el.disabled);
@@ -502,9 +509,13 @@ async function waitForMockAuthorizeRequest(ctx: FlowContext, clickedAt: string):
   const params = new URL(authorizeRequest.url, MOCK_CONTROL_URL).searchParams;
   ctx.assert(Boolean(params.get("state")), "Authorize request is missing signed state.");
   ctx.assert(Boolean(params.get("client_id")), "Authorize request is missing dynamic client_id.");
+  // New connections use the deployment-wide shared callback (connection routing
+  // travels in the signed state); legacy rows keep the per-connection path.
+  const redirectUri = params.get("redirect_uri") ?? "";
   ctx.assert(
-    (params.get("redirect_uri") ?? "").includes(requireStateString(state.connectionId, "connection id")),
-    "Authorize redirect_uri was not scoped to this connection.",
+    redirectUri.includes("/v1/mcp-connections/")
+      && (redirectUri.includes("/oauth/callback") || redirectUri.includes(requireStateString(state.connectionId, "connection id"))),
+    `Authorize redirect_uri was not an OpenWork MCP connection callback: ${redirectUri}`,
   );
 }
 
@@ -701,6 +712,18 @@ export default defineFlow({
       run: async (ctx) => {
         await ctx.prove("The connected detail page now offers both Reconnect and Disconnect", {
           voiceover: vo[3],
+          action: async () => {
+            // Bring the lifecycle action row into view and focus it so this
+            // frame is visibly about the actions (and not a byte-for-byte
+            // duplicate of the connected summary in frame 3).
+            await ctx.eval(`(() => {
+              const button = [...document.querySelectorAll('button')]
+                .find((el) => (el.textContent ?? '').trim() === 'Reconnect');
+              button?.scrollIntoView({ block: 'center' });
+              button?.focus({ focusVisible: true });
+              return Boolean(button);
+            })()`);
+          },
           assert: async () => {
             const hasActions = await ctx.eval(`(() => {
               const labels = new Set([...document.querySelectorAll('button')]
@@ -716,6 +739,10 @@ export default defineFlow({
             claim: "The connected detail page exposes Reconnect and Disconnect lifecycle actions.",
             requireText: ["Reconnect", "Disconnect"],
             rejectText: ["Something went wrong"],
+            // The connected detail page fits one viewport, so a page capture
+            // would be byte-identical to frame 3. Capture the sandbox desktop
+            // instead (real window on a real display) when available.
+            sandboxCapture: Boolean(process.env.OPENWORK_EVAL_DAYTONA_SANDBOX?.trim()),
           },
         });
       },
