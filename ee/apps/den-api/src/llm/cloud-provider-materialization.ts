@@ -447,65 +447,6 @@ async function requestOk(input: {
   }
 }
 
-function workspaceItemId(item: JsonRecord) {
-  return readString(item.id)
-}
-
-function isManagedEngineWorkspaceItem(item: JsonRecord) {
-  const workspaceType = readString(item.workspaceType)
-  const path = readString(item.path)
-  return workspaceType !== "remote" && Boolean(path)
-}
-
-function readWorkspaceId(payload: JsonRecord) {
-  const activeId = readString(payload.activeId)
-  const rawItems = Array.isArray(payload.items)
-    ? payload.items
-    : Array.isArray(payload.workspaces)
-      ? payload.workspaces
-      : []
-  const items = rawItems.filter(isRecord)
-  const managedWorkspace = items.find(isManagedEngineWorkspaceItem)
-  if (managedWorkspace) {
-    return workspaceItemId(managedWorkspace)
-  }
-
-  if (activeId && items.some((item) => workspaceItemId(item) === activeId)) {
-    return activeId
-  }
-
-  for (const item of items) {
-    const id = workspaceItemId(item)
-    if (id) {
-      return id
-    }
-  }
-
-  return activeId
-}
-
-async function discoverWorkspaceId(input: {
-  fetchImpl: FetchImpl
-  instanceUrl: string
-  clientToken: string
-}) {
-  const payload = await requestJson({
-    fetchImpl: input.fetchImpl,
-    label: "workspace_discovery",
-    url: `${input.instanceUrl}/workspaces`,
-    init: {
-      method: "GET",
-      headers: bearerHeaders(input.clientToken),
-    },
-  })
-  const workspaceId = readWorkspaceId(payload)
-  if (!workspaceId) {
-    throw new Error("workspace_discovery_missing_workspace")
-  }
-
-  return workspaceId
-}
-
 async function readStoredFingerprint(input: {
   fetchImpl: FetchImpl
   instanceUrl: string
@@ -531,19 +472,17 @@ async function readRuntimeManagedProviders(input: {
   fetchImpl: FetchImpl
   instanceUrl: string
   clientToken: string
-  workspaceId: string
 }) {
   const payload = await requestJson({
     fetchImpl: input.fetchImpl,
-    label: "runtime_config_read",
-    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/runtime-config`,
+    label: "engine_config_read",
+    url: `${input.instanceUrl}/opencode/config`,
     init: {
       method: "GET",
       headers: bearerHeaders(input.clientToken),
     },
   })
-  const runtime = isRecord(payload.runtime) ? payload.runtime : null
-  const provider = runtime && isRecord(runtime.provider) ? runtime.provider : null
+  const provider = isRecord(payload.provider) ? payload.provider : null
   const managed: JsonRecord = {}
   if (!provider) {
     return managed
@@ -709,39 +648,17 @@ async function restoreEnvSnapshot(input: {
 async function patchRuntimeProviders(input: {
   fetchImpl: FetchImpl
   instanceUrl: string
-  clientToken: string
-  workspaceId: string
+  hostToken: string
   patch: JsonRecord
 }) {
-  if (Object.keys(input.patch).length === 0) {
-    return
-  }
-
   await requestOk({
     fetchImpl: input.fetchImpl,
-    label: "runtime_config_patch",
-    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/config`,
+    label: "runtime_provider_patch",
+    url: `${input.instanceUrl}/runtime-config/providers`,
     init: {
       method: "PATCH",
-      headers: bearerHeaders(input.clientToken),
-      body: JSON.stringify({ opencode: { provider: input.patch } }),
-    },
-  })
-}
-
-async function reloadOpencode(input: {
-  fetchImpl: FetchImpl
-  instanceUrl: string
-  clientToken: string
-  workspaceId: string
-}) {
-  await requestOk({
-    fetchImpl: input.fetchImpl,
-    label: "opencode_reload",
-    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/engine/reload`,
-    init: {
-      method: "POST",
-      headers: bearerHeaders(input.clientToken),
+      headers: hostTokenHeaders(input.hostToken),
+      body: JSON.stringify({ provider: input.patch }),
     },
   })
 }
@@ -750,7 +667,6 @@ async function verifyRuntimeProviders(input: {
   fetchImpl: FetchImpl
   instanceUrl: string
   clientToken: string
-  workspaceId: string
   providerIds: string[]
 }) {
   if (input.providerIds.length === 0) {
@@ -760,14 +676,13 @@ async function verifyRuntimeProviders(input: {
   const payload = await requestJson({
     fetchImpl: input.fetchImpl,
     label: "provider_readback",
-    url: `${input.instanceUrl}/workspace/${encodeURIComponent(input.workspaceId)}/config`,
+    url: `${input.instanceUrl}/opencode/config`,
     init: {
       method: "GET",
       headers: bearerHeaders(input.clientToken),
     },
   })
-  const opencode = isRecord(payload.opencode) ? payload.opencode : null
-  const provider = opencode && isRecord(opencode.provider) ? opencode.provider : null
+  const provider = isRecord(payload.provider) ? payload.provider : null
   for (const providerId of input.providerIds) {
     if (!provider || !Object.prototype.hasOwnProperty.call(provider, providerId)) {
       throw new Error(`provider_readback_missing_${providerId}`)
@@ -877,7 +792,6 @@ export async function materializeCloudWorkerProviders(input: {
       instanceUrl,
       hostToken: tokens.hostToken,
     })
-    const workspaceId = await discoverWorkspaceId({ fetchImpl, instanceUrl, clientToken: tokens.clientToken })
     const desiredProviderIds = prepared.providers.map((provider) => provider.runtimeProviderId)
     if (storedFingerprint === fingerprint) {
       try {
@@ -885,7 +799,6 @@ export async function materializeCloudWorkerProviders(input: {
           fetchImpl,
           instanceUrl,
           clientToken: tokens.clientToken,
-          workspaceId,
           providerIds: desiredProviderIds,
         })
         materializedFingerprintByWorker.set(input.workerId, fingerprint)
@@ -899,7 +812,6 @@ export async function materializeCloudWorkerProviders(input: {
       fetchImpl,
       instanceUrl,
       clientToken: tokens.clientToken,
-      workspaceId,
     })
     const providerPatch = buildRuntimeProviderPatch(prepared, currentManagedProviders)
     const providerRollbackPatch = buildRuntimeProviderRollbackPatch(prepared, currentManagedProviders)
@@ -920,20 +832,17 @@ export async function materializeCloudWorkerProviders(input: {
         entries: prepared.envEntries,
       })
       envWritten = prepared.envEntries.length > 0
+      providerPatched = true
       await patchRuntimeProviders({
         fetchImpl,
         instanceUrl,
-        clientToken: tokens.clientToken,
-        workspaceId,
+        hostToken: tokens.hostToken,
         patch: providerPatch,
       })
-      providerPatched = Object.keys(providerPatch).length > 0
-      await reloadOpencode({ fetchImpl, instanceUrl, clientToken: tokens.clientToken, workspaceId })
       await verifyRuntimeProviders({
         fetchImpl,
         instanceUrl,
         clientToken: tokens.clientToken,
-        workspaceId,
         providerIds: desiredProviderIds,
       })
     } catch (error) {
@@ -941,8 +850,7 @@ export async function materializeCloudWorkerProviders(input: {
         await patchRuntimeProviders({
           fetchImpl,
           instanceUrl,
-          clientToken: tokens.clientToken,
-          workspaceId,
+          hostToken: tokens.hostToken,
           patch: providerRollbackPatch,
         }).catch((rollbackError) => {
           materializationLogger.warn("cloud provider rollback failed", {
