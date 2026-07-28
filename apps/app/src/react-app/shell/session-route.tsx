@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 import type {
   AgentPartInput,
@@ -91,6 +91,11 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
+import {
+  ScheduledTasksControlActions,
+  ScheduledTasksPage,
+} from "@/react-app/domains/scheduled-tasks/scheduled-tasks-page";
+import { ScheduledTaskNotificationListener } from "@/react-app/domains/scheduled-tasks/scheduled-task-notification-listener";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
@@ -188,7 +193,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { legacySessionRoute, workspaceScheduledTasksRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { SettingsSurface } from "./settings-route";
@@ -440,6 +445,10 @@ function singlePickedDirectory(selection: string | string[] | null) {
 
 export function SessionRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeParams = useParams<{ taskId?: string }>();
+  const scheduledTasksRouteActive = /^\/workspace\/[^/]+\/scheduled-tasks(?:\/|$)/.test(location.pathname);
+  const scheduledTaskId = scheduledTasksRouteActive ? routeParams.taskId?.trim() || null : null;
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
@@ -504,6 +513,7 @@ export function SessionRoute() {
     runRemoteWorkspaceConnectionCheck,
   } = useWorkspaceRouteState({
     developerMode,
+    workspaceRoute: scheduledTasksRouteActive ? "scheduled-tasks" : "session",
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -606,6 +616,17 @@ export function SessionRoute() {
         return id ? [id] : [];
       }),
     [selectedWorkspaceId, sessionsByWorkspaceId],
+  );
+  const scheduledTaskNotificationTargets = useMemo(
+    () => workspaces.flatMap((workspace) => {
+      const endpoint = endpointForWorkspace(workspace);
+      return endpoint ? [{
+        routeWorkspaceId: workspace.id,
+        workspaceId: endpoint.workspaceId,
+        client: endpoint.client,
+      }] : [];
+    }),
+    [endpointForWorkspace, workspaces],
   );
 
   const remoteAccessRestart = useRemoteAccessRestart({
@@ -2313,6 +2334,19 @@ export function SessionRoute() {
         onSessionDeleted={handleRuntimeSessionDeleted}
       />
     ) : null}
+    {scheduledTaskNotificationTargets.map((target) => (
+      <ScheduledTaskNotificationListener
+        key={`${target.client.baseUrl}:${target.workspaceId}`}
+        client={target.client}
+        workspaceId={target.workspaceId}
+        routeWorkspaceId={target.routeWorkspaceId}
+      />
+    ))}
+    <ScheduledTasksControlActions
+      client={selectedWorkspaceEndpoint?.client ?? client}
+      workspaceId={selectedWorkspaceEndpoint?.workspaceId || selectedWorkspaceId}
+      routeWorkspaceId={selectedWorkspaceId}
+    />
     <SessionPage
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
@@ -2401,6 +2435,20 @@ export function SessionRoute() {
           }}
         />
       }
+      primaryTitle={scheduledTasksRouteActive ? t("scheduled_tasks.title") : undefined}
+      primarySlot={scheduledTasksRouteActive ? (
+        <ScheduledTasksPage
+          routeWorkspaceId={selectedWorkspaceId}
+          workspaceId={selectedWorkspaceEndpoint?.workspaceId || selectedWorkspaceId}
+          workspaceRoot={selectedWorkspaceRoot}
+          taskId={scheduledTaskId}
+          client={selectedWorkspaceEndpoint?.client ?? client}
+          workspaces={workspaces.map((workspace) => ({
+            id: workspace.id,
+            label: workspace.displayNameResolved,
+          }))}
+        />
+      ) : undefined}
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
       onSessionTabsChange={(tabs) => {
@@ -2417,6 +2465,10 @@ export function SessionRoute() {
         newTaskDisabled: !canCreateTask,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
+        scheduledTasksActive: scheduledTasksRouteActive,
+        onOpenScheduledTasks: (workspaceId) => {
+          navigate(workspaceScheduledTasksRoute(workspaceId));
+        },
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
@@ -2448,7 +2500,9 @@ export function SessionRoute() {
           // If we remember what the user last opened here and that session
           // still exists in our local list, navigate. Otherwise stay put.
           const remembered = readLastSessionFor(workspaceId);
-          if (remembered && remembered !== selectedSessionId) {
+          if (scheduledTasksRouteActive) {
+            navigate(workspaceScheduledTasksRoute(workspaceId));
+          } else if (remembered && remembered !== selectedSessionId) {
             const known = sessionsByWorkspaceId[workspaceId];
             if (known?.some((session) => session?.id === remembered)) {
               navigateToWorkspaceSession(workspaceId, remembered);

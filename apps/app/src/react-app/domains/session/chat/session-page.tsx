@@ -143,6 +143,8 @@ export type SessionPageSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  scheduledTasksActive?: boolean;
+  onOpenScheduledTasks?: (workspaceId: string) => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
@@ -215,6 +217,9 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** Settings content rendered inside the right pane when the settings rail icon is active. */
   settingsSlot?: React.ReactNode;
+  /** Workspace-scoped first-class surface rendered in place of the conversation. */
+  primarySlot?: React.ReactNode;
+  primaryTitle?: string;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
@@ -780,6 +785,7 @@ export function SessionPage(props: SessionPageProps) {
   const messageCountVisible = props.selectedSessionId ? 1 : 0;
   const showWorkspaceSetupEmptyState = props.workspaces.length === 0 && !props.selectedSessionId;
   const showStartupSkeleton =
+    !props.primarySlot &&
     !props.selectedSessionId &&
     !props.clientConnected &&
     props.startupPhase !== "sessionIndexReady" &&
@@ -832,6 +838,7 @@ export function SessionPage(props: SessionPageProps) {
   // rendered chat with a loading pane (and leaving it there when a refresh
   // hangs) is never correct.
   const showSessionLoadingState =
+    !props.primarySlot &&
     Boolean(props.selectedSessionId) &&
     props.sessionLoadingById(props.selectedSessionId) &&
     !showWorkspaceSetupEmptyState &&
@@ -1033,6 +1040,8 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
+          scheduledTasksActive={props.sidebar.scheduledTasksActive}
+          onOpenScheduledTasks={props.sidebar.onOpenScheduledTasks}
           conversationHistory={{
             canGoBack: canGoBackInConversationHistory,
             canGoForward: canGoForwardInConversationHistory,
@@ -1069,7 +1078,9 @@ export function SessionPage(props: SessionPageProps) {
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[13px] font-medium text-dls-text">
-                {showWorkspaceSetupEmptyState
+                {props.primaryTitle
+                  ? props.primaryTitle
+                  : showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
@@ -1087,7 +1098,7 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              {findButtonSessionId ? (
+              {!props.primarySlot && findButtonSessionId ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -1165,6 +1176,11 @@ export function SessionPage(props: SessionPageProps) {
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
             <div className="relative h-full min-w-0 overflow-hidden bg-dls-surface mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+              {props.primarySlot ? (
+                <div className="h-full overflow-y-auto" data-workspace-primary-slot>
+                  {props.primarySlot}
+                </div>
+              ) : null}
               {showStartupSkeleton ? (
                 <div className="px-6 py-14" role="status" aria-live="polite">
                   <div className="mx-auto max-w-2xl space-y-6">
@@ -1219,7 +1235,7 @@ export function SessionPage(props: SessionPageProps) {
                 )
               ) : null}
 
-              {!showDelayedSessionLoadingState && canRenderReactSurface ? (
+              {!props.primarySlot && !showDelayedSessionLoadingState && canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
                   <ResizablePanelGroup
                     key={canRenderSplitSurface ? "workbench-split" : "workbench-single"}
@@ -1290,7 +1306,7 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {!showDelayedSessionLoadingState && !canRenderReactSurface && !showStartupSkeleton ? (
+              {!props.primarySlot && !showDelayedSessionLoadingState && !canRenderReactSurface && !showStartupSkeleton ? (
                 <div className={`mx-auto max-w-[800px] px-6 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-10"}`}>
                   {props.notFoundMessage ? (
                     <div className="px-6 py-16 text-center">

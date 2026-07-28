@@ -63,11 +63,13 @@ import {
   preserveWorkspaceRouteSession,
   removeWorkspaceRouteSession,
   sessionIdForLegacyWorkspaceInference,
+  workspaceScheduledTasksRoute,
   workspaceSessionRoute,
 } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   developerMode: boolean;
+  workspaceRoute?: "session" | "scheduled-tasks";
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -103,7 +105,7 @@ function withRouteRefreshTimeout<T>(promise: Promise<T>, label: string): Promise
 }
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
-  const { developerMode, onServerSettingsChanged, onHostInfo } = input;
+  const { developerMode, onServerSettingsChanged, onHostInfo, workspaceRoute = "session" } = input;
   const navigate = useNavigate();
   const local = useLocal();
   const denAuth = useDenAuth();
@@ -119,6 +121,13 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
     navigate(workspaceSessionRoute(id, sessionId), options);
   }, [navigate]);
+  const normalizeWorkspaceRoute = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
+    if (workspaceRoute === "scheduled-tasks") {
+      navigate(workspaceScheduledTasksRoute(workspaceId), options);
+      return;
+    }
+    navigateToWorkspaceSession(workspaceId, sessionId, options);
+  }, [navigate, navigateToWorkspaceSession, workspaceRoute]);
 
   const { markRouteReady: markBootRouteReady } = useBootState();
   const [loading, setLoading] = useState(true);
@@ -740,17 +749,17 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         ? legacySelectedWorkspaceId
         : workspaces[0]?.id || "";
       if (fallbackWorkspaceId) {
-        navigateToWorkspaceSession(fallbackWorkspaceId, selectedSessionId, { replace: true });
+        normalizeWorkspaceRoute(fallbackWorkspaceId, selectedSessionId, { replace: true });
       }
       return;
     }
     if (!routeWorkspaceId && selectedWorkspaceId) {
-      navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
+      normalizeWorkspaceRoute(selectedWorkspaceId, selectedSessionId, { replace: true });
     }
   }, [
     loading,
     legacySelectedWorkspaceId,
-    navigateToWorkspaceSession,
+    normalizeWorkspaceRoute,
     routeWorkspaceId,
     selectedSessionId,
     selectedWorkspaceId,
