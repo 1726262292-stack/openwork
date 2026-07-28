@@ -129,6 +129,7 @@ export interface FlowContext {
 
   eval(expression: string, options?: EvalOptions): Promise<unknown>;
   assert(condition: unknown, message: string): void;
+  skip(reason: string): void;
   log(message: string): void;
   output(name: string, text: unknown): OutputEvidence;
   prove(name: string, options?: ProveOptions): Promise<void>;
