@@ -194,6 +194,15 @@ export default defineFlow({
           return context.screen.workspaceId || context.resources
             .find((resource) => resource.kind === "workspace")?.ref.replace(/^workspace:/, "") || "";
         })()`);
+        if (workspaceId) {
+          const workspaces = await serverRead(ctx, "/workspaces");
+          const activeWorkspace = arrayValue(workspaces, "items").find(
+            (workspace) => recordValue(workspace, "id") === workspaceId,
+          );
+          const activePath =
+            recordValue(activeWorkspace, "path") ?? recordValue(activeWorkspace, "directory");
+          if (activePath !== workspacePath) workspaceId = "";
+        }
         if (!workspaceId) {
           const welcomeInput = 'input[placeholder="/workspace/my-project"]';
           const onWelcome = await ctx.eval(
