@@ -1844,7 +1844,7 @@ export default {
   "ui_artifacts.preferences_title": "UI artifacts",
   "ui_artifacts.preferences_section_desc": "Chat-native cards that turn connected tool data into concise, visual answers.",
   "ui_artifacts.preferences_toggle": "UI artifacts (Alpha)",
-  "ui_artifacts.preferences_toggle_desc": "Suggest and render native cards for successful OpenWork Cloud capability calls. Synced to your active organization membership.",
+  "ui_artifacts.preferences_toggle_desc": "Suggest and render native cards for successful capability calls. Synced to your active organization when signed in and saved on this device otherwise.",
   "ui_artifacts.kind.workspace_brief": "Workspace brief",
   "ui_artifacts.kind.workspace_brief_desc": "A complete chat-native dashboard with your day, attention items, progress, and quick actions.",
   "ui_artifacts.kind.calendar_view": "Calendar",

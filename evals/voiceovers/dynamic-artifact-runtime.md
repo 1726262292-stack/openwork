@@ -45,3 +45,5 @@ This demo uses the deterministic Launch Radar project so every frame proves the 
 21. "I also disable the workspace Artifact Builder skill. The injected instructions disappear from future agent context, while Launch Radar stays listed and existing pinned artifacts continue to render and interact."
 
 22. "Generated React projects coexist with OpenWork's standard native answer artifacts as separate catalogs. Workspace brief, calendars, widgets, communication, inbox, attention, and approval cards keep their own validated lifecycle."
+
+23. "The master UI artifacts switch also works without a cloud account. Signed-out workspaces save the choice on this device and restore it after reload, while signed-in workspaces keep the same control synchronized to their active organization."

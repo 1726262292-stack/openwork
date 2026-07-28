@@ -1325,5 +1325,95 @@ export default {
         });
       },
     },
+    {
+      name: "Frame 23 — keep artifact preferences usable without cloud",
+      run: async (ctx) => {
+        await ctx.prove("The master artifact switch persists locally when signed out and continues to synchronize with an organization when signed in", {
+          voiceover: vo[22],
+          action: async () => {
+            await ctx.navigateHash("/settings/preferences");
+            await ctx.waitForText("UI artifacts (Alpha)", { timeoutMs: 30_000 });
+            const selector = '[role="switch"][aria-label="UI artifacts (Alpha)"]';
+            const signedOut = await ctx.eval(`(
+              !localStorage.getItem("openwork.den.authToken") &&
+              !localStorage.getItem("openwork.den.activeOrgId")
+            )`);
+            ctx.assert(signedOut, "This local-preference proof requires a signed-out workspace.");
+
+            if (await ctx.eval(`document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-checked") === "true"`)) {
+              await ctx.trustedClick(selector, { timeoutMs: 30_000 });
+              await ctx.waitFor(
+                `document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-checked") === "false"`,
+                { timeoutMs: 30_000, label: "UI artifacts disabled locally" },
+              );
+            }
+            await ctx.trustedClick(selector, { timeoutMs: 30_000 });
+            await ctx.waitFor(
+              `(() => {
+                const raw = localStorage.getItem("openwork.preferences");
+                const prefs = raw ? JSON.parse(raw) : {};
+                return document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-checked") === "true" &&
+                  prefs.featureFlags?.uiArtifacts === true;
+              })()`,
+              { timeoutMs: 30_000, label: "UI artifacts enabled in local preferences" },
+            );
+
+            await ctx.eval("location.reload()");
+            await ctx.waitFor("Boolean(window.__openworkControl)", {
+              timeoutMs: 60_000,
+              label: "control API after preference reload",
+            });
+            await ctx.navigateHash(state.sessionRoute);
+            await ctx.waitFor(
+              `window.__openworkControl.snapshot().route === ${JSON.stringify(state.sessionRoute)}`,
+              { timeoutMs: 60_000, label: "stable workspace session after preference reload" },
+            );
+            await waitForReadyAttachment(ctx);
+            await ctx.navigateHash("/settings/preferences");
+            await ctx.waitForText("UI artifacts (Alpha)", { timeoutMs: 30_000 });
+            await ctx.waitFor(
+              `(() => {
+                const text = document.body.innerText;
+                return window.__openworkControl.snapshot().route.includes("/settings/preferences") &&
+                  document.querySelector(${JSON.stringify(selector)})?.getAttribute("aria-checked") === "true" &&
+                  !text.includes("Preparing workspace") &&
+                  !text.includes("Failed to fetch");
+              })()`,
+              { timeoutMs: 60_000, label: "local UI artifact preference restored in stable settings after reload" },
+            );
+            await ctx.eval(`document.querySelector(${JSON.stringify(selector)})
+              ?.scrollIntoView({ block: "center", inline: "nearest" })`);
+          },
+          assert: async () => {
+            const proof = await ctx.eval(`(() => {
+              const raw = localStorage.getItem("openwork.preferences");
+              const prefs = raw ? JSON.parse(raw) : {};
+              return {
+                checked: document.querySelector('[role="switch"][aria-label="UI artifacts (Alpha)"]')
+                  ?.getAttribute("aria-checked") === "true",
+                stored: prefs.featureFlags?.uiArtifacts === true,
+                signedOut: !localStorage.getItem("openwork.den.authToken") &&
+                  !localStorage.getItem("openwork.den.activeOrgId"),
+              };
+            })()`);
+            ctx.assert(proof.signedOut, "The workspace is no longer signed out.");
+            ctx.assert(proof.checked, "The master UI artifacts switch did not remain enabled.");
+            ctx.assert(proof.stored, "The enabled state was not saved in local preferences.");
+            await ctx.expectText("saved on this device otherwise");
+            await ctx.expectText("Workspace brief");
+          },
+          screenshot: {
+            name: "dynamic-artifact-local-preference",
+            requireText: [
+              "UI artifacts (Alpha)",
+              "saved on this device otherwise",
+              "Workspace brief",
+            ],
+            rejectText: ["Something went wrong", "Failed to fetch", "Preparing workspace"],
+            hashIncludes: "/settings/preferences",
+          },
+        });
+      },
+    },
   ],
 };

@@ -41,15 +41,16 @@ function readCloudUiArtifactPreferences() {
   return promise;
 }
 
-async function writeCloudUiArtifactPreferences(update: UiArtifactPreferencesUpdate) {
+function writeCloudUiArtifactPreferences(update: UiArtifactPreferencesUpdate) {
   const current = currentDenArtifactClient();
-  if (!current) throw new Error("Sign in to OpenWork Cloud before enabling UI artifacts.");
-  const result = await current.client.updateUiArtifactPreferences(current.orgId, update);
-  uiArtifactPreferenceSync = {
-    key: current.key,
-    promise: Promise.resolve(result),
-  };
-  return result;
+  if (!current) return null;
+  return current.client.updateUiArtifactPreferences(current.orgId, update).then((result) => {
+    uiArtifactPreferenceSync = {
+      key: current.key,
+      promise: Promise.resolve(result),
+    };
+    return result;
+  });
 }
 
 export function useUiArtifactPreferencesSnapshot() {
@@ -113,13 +114,7 @@ export function useFeatureFlagsPreferences() {
     let disposed = false;
     const sync = () => {
       const request = readCloudUiArtifactPreferences();
-      if (!request) {
-        applyCloudPreferences({
-          enabled: false,
-          enabledArtifactIds: [...UI_ARTIFACT_KINDS],
-        });
-        return;
-      }
+      if (!request) return;
       void request.then((cloud) => {
         if (!disposed) applyCloudPreferences(cloud);
       }).catch(() => {
@@ -154,7 +149,9 @@ export function useFeatureFlagsPreferences() {
         uiArtifacts: nextEnabled,
       },
     }));
-    void writeCloudUiArtifactPreferences(update)
+    const request = writeCloudUiArtifactPreferences(update);
+    if (!request) return;
+    void request
       .then(applyCloudPreferences)
       .catch(() => {
         setPrefs((previous) => ({
@@ -180,10 +177,12 @@ export function useFeatureFlagsPreferences() {
       ...previous,
       uiArtifacts: { enabledArtifactIds: nextArtifactIds },
     }));
-    void writeCloudUiArtifactPreferences({
+    const request = writeCloudUiArtifactPreferences({
       enabled: uiArtifactsEnabled,
       enabledArtifactIds: nextArtifactIds,
-    })
+    });
+    if (!request) return;
+    void request
       .then(applyCloudPreferences)
       .catch(() => {
         setPrefs((previous) => ({
