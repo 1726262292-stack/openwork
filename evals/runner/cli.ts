@@ -3,12 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveCdpBaseUrl } from "./cdp.ts";
 import { denStackDown, ensureDenStack } from "./den-stack.ts";
+import { applyManifestToEnv, readEnvManifest } from "./env-manifest.ts";
 import { missingEnv, loadFlows, runFlow } from "./runner.ts";
 import { renderMarkdown } from "./reporters/markdown.ts";
 import { renderFrameIndex } from "./reporters/fraimz-html.ts";
 import { postPrComment } from "./reporters/pr.ts";
 import { scaffoldFlow } from "./voiceover.ts";
 import type { EvalMode, EvalReport, FlowStatus } from "./flow.ts";
+import type { EnvManifest } from "./env-manifest.ts";
+import type { Host } from "./hosts/types.ts";
 
 const RUNNER_DIR = dirname(fileURLToPath(import.meta.url));
 const FLOWS_DIR = process.env.OPENWORK_EVAL_FLOWS_DIR?.trim() || join(RUNNER_DIR, "..", "flows");
@@ -28,6 +31,7 @@ interface CliArgs {
   pr: true | string | null;
   help: boolean;
   mode: EvalMode;
+  envName: string | null;
 }
 
 function readRequiredValue(argv: string[], index: number, flag: string): string {
@@ -50,6 +54,7 @@ export function parseArgs(argv: string[]): CliArgs {
     pr: null,
     help: false,
     mode: "demo",
+    envName: null,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -73,6 +78,9 @@ export function parseArgs(argv: string[]): CliArgs {
         throw new Error(`Unknown --mode value: ${mode}. Supported: automation, demo.`);
       }
       args.mode = mode;
+      index += 1;
+    } else if (value === "--env") {
+      args.envName = readRequiredValue(argv, index, value);
       index += 1;
     } else if (value === "--stack-down") args.stackDown = true;
     else if (value === "scaffold") {
@@ -121,7 +129,7 @@ function incrementSummary(summary: Record<FlowStatus, number>, status: FlowStatu
 }
 
 function printHelp(): void {
-  console.log("Usage: node evals/runner/run.mjs [--mode automation|demo] [--list | --all | --flow <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--out <dir>] [--pr [number]] [--stack den | --stack-down]");
+  console.log("Usage: node evals/runner/run.mjs [--mode automation|demo] [--list | --all | --flow <id> ... | scaffold <id> [--force]] [--cdp-url <url>] [--env <name>] [--out <dir>] [--pr [number]] [--stack den | --stack-down]");
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -145,6 +153,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     }
     console.log("Fill in each frame's action/assert, then run: pnpm fraimz --flow " + args.scaffold);
     return;
+  }
+
+  let manifest: EnvManifest | null = null;
+  if (args.envName) {
+    manifest = await readEnvManifest(args.envName);
+    if (!manifest) throw new Error(`Env manifest not found: ${args.envName}`);
+    applyManifestToEnv(manifest, process.env);
   }
 
   if (args.stack === "den") {
@@ -197,10 +212,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     flows: [],
     summary: { passed: 0, failed: 0, skipped: 0 },
   };
+  const hosts: Map<string, Host> | undefined = manifest ? new Map<string, Host>() : undefined;
 
   for (const flow of selected) {
     console.log(`▶ ${flow.id} — ${flow.title}`);
-    const result = await runFlow(flow, { cdpBaseUrl, outDir, env: process.env, mode: args.mode });
+    const result = await runFlow(flow, { cdpBaseUrl, outDir, env: process.env, mode: args.mode, hosts, manifest });
     report.flows.push(result);
     incrementSummary(report.summary, result.status);
     for (const step of result.steps) {

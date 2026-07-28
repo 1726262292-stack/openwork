@@ -3,9 +3,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { connect, debuggerUrlFor, pickAppTarget } from "./cdp.ts";
 import { EvalContext } from "./context.ts";
+import { SurfaceRegistry } from "./surfaces.ts";
 import { checkVoiceoverCoverage, loadVoiceoverParagraphs } from "./voiceover.ts";
 import type { EvalMode, Evidence, FlowDefinition, FlowResult, LoadedFlow, StepResult } from "./flow.ts";
 import type { CdpClient } from "./cdp.ts";
+import type { EnvManifest } from "./env-manifest.ts";
+import type { Host } from "./hosts/types.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -15,7 +18,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function isFlowDefinition(value: unknown): value is FlowDefinition {
+export function isFlowDefinition(value: unknown): value is FlowDefinition {
   if (!isRecord(value)) return false;
   if (typeof value.id !== "string" || typeof value.title !== "string") return false;
   if (value.kind !== undefined && value.kind !== "user-facing" && value.kind !== "internal") return false;
@@ -86,9 +89,11 @@ export interface RunFlowOptions {
   outDir: string;
   env: NodeJS.ProcessEnv;
   mode: EvalMode;
+  hosts?: Map<string, Host>;
+  manifest?: EnvManifest | null;
 }
 
-export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, mode }: RunFlowOptions): Promise<FlowResult> {
+export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, mode, hosts, manifest = null }: RunFlowOptions): Promise<FlowResult> {
   const result: FlowResult = {
     id: flow.id,
     title: flow.title,
@@ -116,7 +121,21 @@ export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, m
     const target = await pickAppTarget(cdpBaseUrl);
     client = await connect(debuggerUrlFor(cdpBaseUrl, target));
   }
-  const ctx = new EvalContext({ client, outDir, flowId: flow.id, env, cdpBaseUrl });
+  let ctx: EvalContext | null = null;
+  const pendingRegistryLogs: string[] = [];
+  const registry = hosts
+    ? new SurfaceRegistry({
+      hosts,
+      defaultHostKind: manifest?.defaultHostKind ?? "local",
+      manifest,
+      onLog: (msg) => {
+        if (ctx) ctx.log(msg);
+        else pendingRegistryLogs.push(msg);
+      },
+    })
+    : null;
+  ctx = new EvalContext({ client, outDir, flowId: flow.id, env, cdpBaseUrl, surfaces: registry });
+  for (const line of pendingRegistryLogs) ctx.log(line);
 
   try {
     // Force light mode by default so screenshot evidence is readable. Flows
@@ -179,6 +198,7 @@ export async function runFlow(flow: FlowDefinition, { cdpBaseUrl, outDir, env, m
       await appendVoiceoverCoverageStep(flow, result);
     }
   } finally {
+    if (registry) await registry.disposeAll();
     result.screenshots = ctx.screenshots;
     result.evidenceFrames = ctx.evidenceFrames;
     result.logs = ctx.logs;

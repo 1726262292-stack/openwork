@@ -1,5 +1,6 @@
 import type { CdpClient, CdpTarget } from "./cdp.ts";
 import type { PrettyOptions } from "./pretty.ts";
+import type { Surface, SurfaceFacade } from "./surfaces.ts";
 
 export type { PrettyOptions } from "./pretty.ts";
 
@@ -40,6 +41,7 @@ export interface FrameEvidence extends EvidenceMetadata {
   status: "passed" | "failed";
   file: string;
   name: string;
+  surface?: string | null;
   claim: string | null;
   voiceover: string | null;
   url: unknown;
@@ -126,6 +128,8 @@ export interface FlowContext {
   logs: string[];
   screenshots: string[];
   evidenceFrames: FrameEvidenceInput[];
+  state: Record<string, unknown>;
+  surfaces: SurfaceFacade;
 
   eval(expression: string, options?: EvalOptions): Promise<unknown>;
   assert(condition: unknown, message: string): void;
@@ -148,6 +152,7 @@ export interface FlowContext {
   expectNoText(text: string): Promise<AssertionEvidence>;
   expectHashIncludes(fragment: string): Promise<void>;
   screenshot(name: string, options?: ScreenshotOptions): Promise<string>;
+  on<T>(surface: string | Surface, fn: () => Promise<T>): Promise<T>;
   switchToNewTab(options?: SwitchToNewTabOptions): Promise<CdpTarget>;
   switchBack(): Promise<void>;
   reconnect(options?: ReconnectOptions): Promise<CdpTarget>;

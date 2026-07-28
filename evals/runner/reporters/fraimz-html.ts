@@ -63,6 +63,7 @@ export function renderFrameIndex(report: EvalReport): string {
     .kind-user { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
     .kind-internal { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
     .kind-legacy { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+    .surface-chip { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; font-size: 12px; font-weight: 700; }
     .assertions, .validations { margin: 8px 0 0; padding-left: 20px; }
     .assertions li, .validations li { margin: 5px 0; }
     figure { margin: 0; overflow: hidden; border: 1px solid #ddd; border-radius: 12px; background: white; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
@@ -156,11 +157,12 @@ function renderEvidence(evidence: Evidence[], mode: EvalMode): string {
         : mode === "demo"
           ? `<div class="voiceover-missing">No voiceover for this frame. Every fraimz frame should narrate what the user sees.</div>`
           : "";
+      const surface = item.surface ? `<span class="surface-chip">Surface: ${escapeHtml(item.surface)}</span>` : "";
       return `<figure>
         ${voiceover}
         <a href="${escapeHtml(item.file)}"><img src="${escapeHtml(item.file)}" alt="${escapeHtml(item.claim ?? item.name ?? item.file)}" /></a>
         <figcaption>
-          <strong>${escapeHtml(item.name ?? item.file)}</strong>${item.claim ? `<br />Claim: ${escapeHtml(item.claim)}` : ""}
+          <strong>${escapeHtml(item.name ?? item.file)}</strong>${surface}${item.claim ? `<br />Claim: ${escapeHtml(item.claim)}` : ""}
           ${item.url ? `<br /><span class="muted">URL: ${escapeHtml(item.url)}</span>` : ""}
           <ul class="validations">${validations}</ul>
         </figcaption>
