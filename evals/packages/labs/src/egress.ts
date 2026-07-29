@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { execFile, spawnSync } from "node:child_process";
+import { randomUUID, X509Certificate } from "node:crypto";
 import { readFile, rm, writeFile, mkdtemp, mkdir } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -369,6 +369,7 @@ export function parseClientHelloVersions(buffer: Buffer): ClientHelloParseResult
 function pkiPaths(dir: string) {
   return {
     rootKey: path.join(dir, "root.key.pem"),
+    rootCsr: path.join(dir, "root.csr.pem"),
     rootPem: path.join(dir, "root.pem"),
     intermediateKey: path.join(dir, "intermediate.key.pem"),
     intermediateCsr: path.join(dir, "intermediate.csr.pem"),
@@ -378,6 +379,7 @@ function pkiPaths(dir: string) {
     leafCsr: path.join(dir, "leaf.csr.pem"),
     leafPem: path.join(dir, "leaf.pem"),
     fullChain: path.join(dir, "fullchain.pem"),
+    rootExt: path.join(dir, "root.ext"),
     intermediateExt: path.join(dir, "intermediate.ext"),
     leafExt: path.join(dir, "leaf.ext"),
   };
@@ -393,26 +395,19 @@ export function opensslCertificateCommands(input: OpenSslCommandInput): OpenSslC
     : "/CN=OpenWork Egress Lab Intermediate CA";
   return [
     { label: "root-key", args: ["genrsa", "-out", files.rootKey, "2048"] },
+    { label: "root-csr", args: ["req", "-new", "-key", files.rootKey, "-out", files.rootCsr, "-subj", rootSubject] },
     {
+      // Self-sign via `x509 -req -extfile` instead of `req -x509 -addext`.
+      // OpenSSL 1.1.1 applies `-addext` to the CSR's requested extensions and
+      // does not copy them into the self-signed certificate, so the root was
+      // emitted with no basicConstraints (CA:FALSE) and clients could not build
+      // the chain (UNABLE_TO_GET_ISSUER_CERT_LOCALLY). OpenSSL 3.x applies them,
+      // which is why this only broke on runners shipping 1.1.1 (macos-14).
+      // `-extfile` is honored identically by 1.1.1, 3.x and LibreSSL.
       label: "root-cert",
       args: [
-        "req",
-        "-x509",
-        "-new",
-        "-nodes",
-        "-key",
-        files.rootKey,
-        "-sha256",
-        "-days",
-        "7",
-        "-out",
-        files.rootPem,
-        "-subj",
-        rootSubject,
-        "-addext",
-        "basicConstraints=critical,CA:TRUE,pathlen:1",
-        "-addext",
-        "keyUsage=critical,keyCertSign,cRLSign",
+        "x509", "-req", "-in", files.rootCsr, "-signkey", files.rootKey,
+        "-sha256", "-days", "7", "-out", files.rootPem, "-extfile", files.rootExt,
       ],
     },
     { label: "intermediate-key", args: ["genrsa", "-out", files.intermediateKey, "2048"] },
@@ -484,6 +479,15 @@ export function opensslFlavor(env: NodeJS.ProcessEnv = process.env): Promise<Ope
   });
 }
 
+function rootExtFile(): string {
+  return [
+    "basicConstraints=critical,CA:TRUE,pathlen:1",
+    "keyUsage=critical,keyCertSign,cRLSign",
+    "subjectKeyIdentifier=hash",
+    "",
+  ].join("\n");
+}
+
 function intermediateExtFile(): string {
   return [
     "basicConstraints=critical,CA:TRUE,pathlen:0",
@@ -518,9 +522,26 @@ function execOpenSsl(args: string[], cwd: string): Promise<void> {
   });
 }
 
+/**
+ * Fail loudly when the local openssl emitted a non-CA certificate. Without this
+ * the defect surfaces much later as an opaque TLS error in whichever test
+ * happens to verify a chain.
+ */
+function assertGeneratedCa(label: "root" | "intermediate", pem: string): void {
+  const certificate = new X509Certificate(pem);
+  if (certificate.ca) return;
+  const version = spawnSync("openssl", ["version"], { encoding: "utf8" });
+  throw new Error([
+    `Egress lab ${label} certificate was generated without basicConstraints CA:TRUE.`,
+    `openssl: ${String(version.stdout || version.stderr).trim() || "unknown"}`,
+    `subject: ${certificate.subject}`,
+  ].join(" "));
+}
+
 async function generateCertificateMaterial(input: { hostname: string; aiaUrl: string | null; corporateIssuer: boolean }): Promise<CertificateMaterial> {
   const dir = await mkdtemp(path.join(tmpdir(), "openwork-egress-lab-"));
   const files = pkiPaths(dir);
+  await writeFile(files.rootExt, rootExtFile(), "utf8");
   await writeFile(files.intermediateExt, intermediateExtFile(), "utf8");
   await writeFile(files.leafExt, leafExtFile(input.hostname, input.aiaUrl), "utf8");
   for (const command of opensslCertificateCommands({ dir, hostname: input.hostname, aiaUrl: input.aiaUrl, corporateIssuer: input.corporateIssuer })) {
@@ -528,6 +549,8 @@ async function generateCertificateMaterial(input: { hostname: string; aiaUrl: st
   }
   const leaf = await readFile(files.leafPem, "utf8");
   const intermediate = await readFile(files.intermediatePem, "utf8");
+  assertGeneratedCa("root", await readFile(files.rootPem, "utf8"));
+  assertGeneratedCa("intermediate", intermediate);
   const fullChain = `${leaf.trim()}\n${intermediate.trim()}\n`;
   await writeFile(files.fullChain, fullChain, "utf8");
   return {

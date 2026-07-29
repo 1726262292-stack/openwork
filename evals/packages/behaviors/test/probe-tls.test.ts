@@ -14,19 +14,17 @@ test("probeTls and diagnoseTls identify a TLS 1.3-only stall without the eval fr
     host: "127.0.0.1",
     port: Number(url.port),
     servername: url.hostname,
-    // This behavior test isolates protocol negotiation. PKI validation has
-    // separate lab coverage and varies across runner OpenSSL builds.
-    rejectUnauthorized: false,
+    // Chain verification is back on: the lab root is now generated with an
+    // explicit basicConstraints extension, so it is a real CA on every openssl
+    // build (1.1.1 silently emitted CA:FALSE before).
+    ca: lab.rootPem,
   });
 
   const message = JSON.stringify(facts);
   assert.equal(facts.tls12.handshakeOk, true, message);
   assert.equal(facts.tls12.stalled, false, message);
-  if (facts.tls12.chainVerified) {
-    assert.equal(facts.tls12.protocol, "TLSv1.2", message);
-  } else {
-    assert.equal(facts.tls12.protocol === null || facts.tls12.protocol === "TLSv1.2", true, message);
-  }
+  assert.equal(facts.tls12.chainVerified, true, message);
+  assert.equal(facts.tls12.protocol, "TLSv1.2", message);
   assert.equal(facts.tls13.stalled, true, message);
   assert.equal(facts.tls13.errorCode, "ETIMEDOUT", message);
   assert.equal(diagnoseTls(facts).code, "tls_handshake_stall_tls13_only", message);
