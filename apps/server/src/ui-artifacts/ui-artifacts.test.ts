@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { uiArtifactProjectManifestSchema } from "@openwork/types/ui-artifact-project";
 import { FilesystemArtifactProjectRepository } from "./filesystem-repository.js";
 import { createArtifactProjectService } from "./index.js";
 import { SafeJsonSchemaDataValidator } from "./json-schema-validator.js";
@@ -31,9 +32,7 @@ function manifest(): string {
     },
     presentation: {
       placement: "both",
-      preferredWidth: "wide",
-      preferredHeight: 420,
-      resizable: true,
+      shape: "collection",
     },
     intents: [{
       id: "launch.watch",
@@ -81,6 +80,33 @@ async function createLaunchRadar(root: string, options: { enableBuilder?: boolea
 }
 
 describe("dynamic artifact projects", () => {
+  test("enforces host-owned chat shapes and their action budgets", () => {
+    const collection = JSON.parse(manifest()) as Record<string, unknown>;
+    expect(uiArtifactProjectManifestSchema.safeParse(collection).success).toBe(true);
+
+    const arbitraryDimensions = {
+      ...collection,
+      presentation: {
+        placement: "both",
+        preferredWidth: "full",
+        preferredHeight: 2_000,
+        resizable: true,
+      },
+    };
+    expect(uiArtifactProjectManifestSchema.safeParse(arbitraryDimensions).success).toBe(false);
+
+    const declaredIntent = (collection.intents as Array<Record<string, unknown>>)[0]!;
+    const metricWithTwoActions = {
+      ...collection,
+      presentation: { placement: "both", shape: "metric" },
+      intents: [
+        declaredIntent,
+        { ...declaredIntent, id: "launch.watch-second" },
+      ],
+    };
+    expect(uiArtifactProjectManifestSchema.safeParse(metricWithTwoActions).success).toBe(false);
+  });
+
   test("persists fixed files and reloads the same revision", async () => {
     await withWorkspace(async (root) => {
       const { snapshot } = await createLaunchRadar(root);
@@ -354,6 +380,9 @@ describe("dynamic artifact projects", () => {
       expect(skill.name).toBe("openwork-react-artifact-builder");
       expect(skill.content.startsWith("---\nname: openwork-react-artifact-builder\n")).toBe(true);
       expect(skill.content).toContain("# React Artifact Builder");
+      expect(skill.content).toContain("You are not designing a web page");
+      expect(skill.content).toContain("presentation.shape");
+      expect(skill.content).toContain("Show no more than 5 visible rows");
       expect(skill.content).toContain("never bypass, rewrite, or silently toggle the setting");
       expect(skill.settingsRevision).toBe(skillEnabled.settingsRevision);
       const receipt = await service.publish(SLUG, {

@@ -1,14 +1,14 @@
 import * as React from "react"
 import { Braces, Pencil, RefreshCw } from "lucide-react"
-import type {
-  UiArtifactAttachment,
-  UiArtifactInstanceState,
+import {
+  UI_ARTIFACT_SHAPE_SPECS,
+  type UiArtifactAttachment,
+  type UiArtifactInstanceState,
 } from "@openwork/types/ui-artifact-project"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useMessageList } from "@/components/chat/message-list-provider"
-import { cn } from "@/lib/utils"
 import { useUiStateStore } from "@/react-app/shell/ui-state-store"
 import { createDynamicArtifactRendererHost } from "@/react-app/domains/session/ui-artifacts/dynamic-artifact-client-adapter"
 import { dynamicArtifactStateSummary } from "@/react-app/domains/session/ui-artifacts/dynamic-artifact-attachment"
@@ -75,16 +75,15 @@ export function DynamicUiArtifactCard({ attachment }: { attachment: UiArtifactAt
     selectProject({ workspaceId, slug: stableAttachment.slug, attachment: stableAttachment })
     setSidePanelState(sessionId, "ui-artifacts")
   }
+  const shape = UI_ARTIFACT_SHAPE_SPECS[stableAttachment.presentation.shape]
 
   return (
     <article
-      className={cn(
-        "overflow-hidden rounded-2xl border border-border bg-card shadow-xs",
-        stableAttachment.presentation.preferredWidth === "wide" && "mx-[-1rem] md:mx-[-3rem]",
-        stableAttachment.presentation.preferredWidth === "full" && "mx-[-2rem] md:mx-[-6rem]",
-      )}
+      className="w-full overflow-hidden rounded-2xl border border-border bg-card shadow-xs"
+      style={{ maxWidth: shape.maxWidth }}
       data-ui-artifact-project={stableAttachment.slug}
       data-ui-artifact-project-revision={stableAttachment.projectRevision}
+      data-ui-artifact-shape={stableAttachment.presentation.shape}
       data-ui-artifact-frame-state={runtimeFrameState}
       data-ui-artifact-state-revision={stateRevision}
       data-ui-artifact-state-summary={summary}
@@ -100,9 +99,12 @@ export function DynamicUiArtifactCard({ attachment }: { attachment: UiArtifactAt
             <Badge variant="outline" className="font-mono text-[10px]">
               {shortRevision(stableAttachment.projectRevision)}
             </Badge>
+            <Badge variant="secondary" className="capitalize">
+              {stableAttachment.presentation.shape}
+            </Badge>
           </div>
           {stableAttachment.description ? (
-            <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {stableAttachment.description}
             </p>
           ) : null}
@@ -111,15 +113,24 @@ export function DynamicUiArtifactCard({ attachment }: { attachment: UiArtifactAt
           <Button
             type="button"
             variant="ghost"
-            size="xs"
+            size="icon-xs"
             onClick={() => setRefreshToken((value) => value + 1)}
+            aria-label="Refresh artifact"
+            title="Refresh artifact"
           >
             <RefreshCw className="size-3.5" aria-hidden="true" />
-            Refresh
+            <span className="sr-only">Refresh</span>
           </Button>
-          <Button type="button" variant="outline" size="xs" onClick={openEditor}>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-xs"
+            onClick={openEditor}
+            aria-label="Open artifact editor"
+            title="Open artifact editor"
+          >
             <Pencil className="size-3.5" aria-hidden="true" />
-            Open editor
+            <span className="sr-only">Open editor</span>
           </Button>
         </div>
       </header>

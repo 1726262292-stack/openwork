@@ -138,6 +138,8 @@ function bootRuntime(initial: UiArtifactHostBridgeEnvelope, port: MessagePort) {
     port.close()
     return
   }
+  document.documentElement.dataset.openworkArtifactShape = attachment.presentation.shape
+  rootElement.dataset.openworkArtifactShape = attachment.presentation.shape
 
   let inboundSeq = initial.seq
   let outboundSeq = 0
@@ -322,18 +324,6 @@ function bootRuntime(initial: UiArtifactHostBridgeEnvelope, port: MessagePort) {
   style.textContent = build.styles
   document.head.append(style)
 
-  const resizeObserver = new ResizeObserver(() => {
-    const height = Math.ceil(Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight,
-    ))
-    send({
-      type: "artifact.resize",
-      payload: { height: Math.min(2_000, Math.max(80, height)) },
-    })
-  })
-  resizeObserver.observe(document.documentElement)
-
   const onError = (event: ErrorEvent) => reportError(event.error ?? event.message)
   const onUnhandledRejection = (event: PromiseRejectionEvent) => reportError(event.reason)
   window.addEventListener("error", onError)
@@ -341,11 +331,11 @@ function bootRuntime(initial: UiArtifactHostBridgeEnvelope, port: MessagePort) {
 
   window.addEventListener("pagehide", () => {
     disposed = true
-    resizeObserver.disconnect()
     port.removeEventListener("message", onPortMessage)
     port.close()
     root.unmount()
     URL.revokeObjectURL(bundleUrl)
+    delete document.documentElement.dataset.openworkArtifactShape
     delete globalThis.__OPENWORK_ARTIFACT_REACT__
     for (const pending of pendingIntents.values()) {
       clearTimeout(pending.timeout)

@@ -60,8 +60,7 @@ function defaultManifest(slug: string): string {
     },
     presentation: {
       placement: "both",
-      preferredWidth: "standard",
-      resizable: true,
+      shape: "summary",
     },
     intents: [],
   }, null, 2);
@@ -72,16 +71,20 @@ function defaultProjectFiles(slug: string): UiArtifactProjectFiles {
     "artifact.json": defaultManifest(slug),
     "src/App.tsx": [
       "export default function Artifact({ data }) {",
-      "  return <main><h2>{String(data?.title ?? \"Untitled artifact\")}</h2></main>",
+      "  return <main className=\"artifact\"><strong>{String(data?.label ?? \"Ready\")}</strong><p>{String(data?.message ?? \"Customize this summary.\")}</p></main>",
       "}",
       "",
     ].join("\n"),
-    "styles.css": "main { font-family: system-ui, sans-serif; padding: 1rem; }\n",
-    "data.json": JSON.stringify({ title: "Untitled artifact" }, null, 2) + "\n",
+    "styles.css": "* { box-sizing: border-box; } body { margin: 0; } .artifact { width: 100%; height: 100%; overflow: hidden; padding: 1rem; font-family: system-ui, sans-serif; } .artifact p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }\n",
+    "data.json": JSON.stringify({ label: "Ready", message: "Customize this compact summary." }, null, 2) + "\n",
     "data.schema.json": JSON.stringify({
       type: "object",
-      properties: { title: { type: "string" } },
-      additionalProperties: true,
+      required: ["label", "message"],
+      properties: {
+        label: { type: "string", maxLength: 80 },
+        message: { type: "string", maxLength: 240 },
+      },
+      additionalProperties: false,
     }, null, 2) + "\n",
   };
 }

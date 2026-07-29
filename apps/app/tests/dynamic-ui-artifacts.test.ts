@@ -28,9 +28,7 @@ const ATTACHMENT = {
   instanceId: "launch-radar-test",
   presentation: {
     placement: "both",
-    preferredWidth: "wide",
-    preferredHeight: 430,
-    resizable: true,
+    shape: "collection",
   },
   buildPath: `/workspace/workspace-test/ui-artifacts/launch-radar/builds/${DIGEST}`,
   stateRevision: "c".repeat(64),

@@ -17,6 +17,27 @@ export const UI_ARTIFACT_MAX_INTENT_PROMPT_BYTES = 12_000
 export const UI_ARTIFACT_MAX_BUNDLE_BYTES = 512_000
 export const UI_ARTIFACT_MAX_BUILDER_SKILL_BYTES = 16_000
 export const UI_ARTIFACT_BUILDER_SKILL_NAME = "openwork-react-artifact-builder"
+export const UI_ARTIFACT_SHAPES = ["metric", "summary", "collection"] as const
+export const UI_ARTIFACT_SHAPE_SPECS = {
+  metric: {
+    frameHeight: 160,
+    maxWidth: 480,
+    maxVisibleItems: 4,
+    maxActions: 1,
+  },
+  summary: {
+    frameHeight: 240,
+    maxWidth: 640,
+    maxVisibleItems: 4,
+    maxActions: 2,
+  },
+  collection: {
+    frameHeight: 360,
+    maxWidth: 720,
+    maxVisibleItems: 5,
+    maxActions: 2,
+  },
+} as const
 
 export const UI_ARTIFACT_PROJECT_FILES = [
   "artifact.json",
@@ -104,11 +125,12 @@ export const uiArtifactAgentSkillSchema = z.object({
 }).strict()
 export type UiArtifactAgentSkill = z.infer<typeof uiArtifactAgentSkillSchema>
 
+export const uiArtifactShapeSchema = z.enum(UI_ARTIFACT_SHAPES)
+export type UiArtifactShape = z.infer<typeof uiArtifactShapeSchema>
+
 export const uiArtifactPresentationV2Schema = z.object({
-  placement: z.enum(["inline", "panel", "both"]),
-  preferredWidth: z.enum(["compact", "standard", "wide", "full"]),
-  preferredHeight: z.number().int().min(120).max(2_000).optional(),
-  resizable: z.boolean(),
+  placement: z.enum(["inline", "both"]),
+  shape: uiArtifactShapeSchema,
 }).strict()
 export type UiArtifactPresentationV2 = z.infer<typeof uiArtifactPresentationV2Schema>
 
@@ -140,7 +162,16 @@ export const uiArtifactProjectManifestSchema = z.object({
   }).strict(),
   presentation: uiArtifactPresentationV2Schema,
   intents: z.array(uiArtifactIntentDeclarationSchema).max(32),
-}).strict()
+}).strict().superRefine((value, context) => {
+  const actionLimit = UI_ARTIFACT_SHAPE_SPECS[value.presentation.shape].maxActions
+  if (value.intents.length > actionLimit) {
+    context.addIssue({
+      code: "custom",
+      message: `${value.presentation.shape} artifacts may declare at most ${actionLimit} intent${actionLimit === 1 ? "" : "s"}`,
+      path: ["intents"],
+    })
+  }
+})
 export type UiArtifactProjectManifest = z.infer<typeof uiArtifactProjectManifestSchema>
 
 export const uiArtifactProjectFilesSchema = z.object({
@@ -377,12 +408,6 @@ export const uiArtifactFrameBridgeEnvelopeSchema = z.discriminatedUnion("type", 
   bridgeBaseSchema.extend({
     type: z.literal("artifact.intent"),
     payload: uiArtifactIntentRequestSchema,
-  }).strict(),
-  bridgeBaseSchema.extend({
-    type: z.literal("artifact.resize"),
-    payload: z.object({
-      height: z.number().int().min(80).max(2_000),
-    }).strict(),
   }).strict(),
   bridgeBaseSchema.extend({
     type: z.literal("artifact.error"),

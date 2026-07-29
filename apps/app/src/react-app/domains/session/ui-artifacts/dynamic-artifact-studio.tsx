@@ -127,14 +127,12 @@ function createStarterArtifactFiles(slug: string, title: string, description: st
     data: { value: "data.json", schema: "data.schema.json" },
     presentation: {
       placement: "both",
-      preferredWidth: "standard",
-      preferredHeight: 320,
-      resizable: true,
+      shape: "summary",
     },
     intents: [],
   }
   const source = `type ArtifactProps = {
-  data: { title: string; message: string }
+  data: { label: string; message: string }
   state: { count?: number } | null
   runtime: { replaceState(next: { count: number }): void }
 }
@@ -143,12 +141,17 @@ export default function Artifact({ data, state, runtime }: ArtifactProps) {
   const count = state?.count ?? 0
   return (
     <main className="artifact">
-      <p className="eyebrow">GENERATED ARTIFACT</p>
-      <h1>{data.title}</h1>
-      <p>{data.message}</p>
-      <button onClick={() => runtime.replaceState({ count: count + 1 })}>
-        Interactions {count}
-      </button>
+      <div>
+        <p className="eyebrow">REUSABLE SUMMARY</p>
+        <strong>{data.label}</strong>
+        <p className="message">{data.message}</p>
+      </div>
+      <div className="footer">
+        <span>{count} interaction{count === 1 ? "" : "s"}</span>
+        <button onClick={() => runtime.replaceState({ count: count + 1 })}>
+          Update
+        </button>
+      </div>
     </main>
   )
 }
@@ -156,18 +159,20 @@ export default function Artifact({ data, state, runtime }: ArtifactProps) {
   const styles = `:root { font-family: ui-sans-serif, system-ui, sans-serif; color-scheme: light dark; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-.artifact { min-height: 280px; padding: 32px; background: linear-gradient(145deg, #111827, #312e81); color: white; }
+.artifact { display: flex; width: 100%; height: 100%; flex-direction: column; justify-content: space-between; overflow: hidden; padding: 20px; background: linear-gradient(145deg, #111827, #312e81); color: white; }
 .eyebrow { color: #c4b5fd; font-size: 11px; font-weight: 800; letter-spacing: .18em; }
-h1 { margin: 8px 0; font-size: 28px; }
-button { margin-top: 20px; border: 1px solid #a5b4fc; border-radius: 999px; padding: 9px 16px; background: #4338ca; color: white; cursor: pointer; }
+strong { display: block; margin-top: 8px; overflow: hidden; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.message { display: -webkit-box; margin: 8px 0 0; overflow: hidden; color: #ddd6fe; font-size: 13px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #c4b5fd; font-size: 11px; }
+button { border: 1px solid #a5b4fc; border-radius: 999px; padding: 7px 13px; background: #4338ca; color: white; cursor: pointer; }
 `
-  const data = { title, message: description.trim() || "Ask your agent to shape this artifact around your work." }
+  const data = { label: "Ready to customize", message: description.trim() || "Ask your agent to shape this compact artifact around your work." }
   const schema = {
     type: "object",
-    required: ["title", "message"],
+    required: ["label", "message"],
     properties: {
-      title: { type: "string" },
-      message: { type: "string" },
+      label: { type: "string", maxLength: 80 },
+      message: { type: "string", maxLength: 240 },
     },
     additionalProperties: false,
   }

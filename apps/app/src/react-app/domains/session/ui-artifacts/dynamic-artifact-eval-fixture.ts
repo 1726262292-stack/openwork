@@ -21,9 +21,7 @@ const manifest = {
   },
   presentation: {
     placement: "both",
-    preferredWidth: "wide",
-    preferredHeight: 430,
-    resizable: true,
+    shape: "collection",
   },
   intents: [{
     id: "launch.explain",
@@ -67,18 +65,17 @@ export default function LaunchRadar({ data, state, runtime }: LaunchRadarProps) 
 
   return (
     <main className="launch-radar">
-      <header>
-        <div>
-          <p className="eyebrow">MISSION CONTROL</p>
-          <h1>Launch Radar</h1>
+      <section className="primary">
+        <div className="primary-heading">
+          <div>
+            <p className="eyebrow">NEXT WINDOW · {primary.window}</p>
+            <h2>{primary.name}</h2>
+          </div>
+          <div className="readiness">
+            <strong>{primary.readiness}%</strong>
+            <span>ready</span>
+          </div>
         </div>
-        <span className="live-indicator">LIVE</span>
-      </header>
-      <section className="hero">
-        <div className="orbit" aria-hidden="true"><span /></div>
-        <p className="window">{primary.window}</p>
-        <h2>{primary.name}</h2>
-        <p>{primary.readiness}% ready for launch</p>
         <button
           className="watch-button"
           onClick={() => runtime.replaceState({ watching: primary.id })}
@@ -86,15 +83,18 @@ export default function LaunchRadar({ data, state, runtime }: LaunchRadarProps) 
           {watching === primary.id ? "Watching Apollo" : "Watch launch"}
         </button>
       </section>
-      <div className="launch-grid">
-        {data.launches.map((launch) => (
-          <article key={launch.id} style={{ "--mission-tone": launch.tone }}>
-            <span>{launch.window}</span>
+      <ol className="launch-list">
+        {data.launches.slice(0, 5).map((launch) => (
+          <li key={launch.id} style={{ "--mission-tone": launch.tone }}>
+            <span className="tone" aria-hidden="true" />
             <strong>{launch.name}</strong>
+            <span className="window">{launch.window}</span>
             <meter min="0" max="100" value={launch.readiness} />
-          </article>
+            <span className="percent">{launch.readiness}%</span>
+          </li>
         ))}
-      </div>
+      </ol>
+      {data.launches.length > 5 ? <p className="remainder">+ {data.launches.length - 5} more</p> : null}
       <button
         className="agent-button"
         onClick={() => runtime.invoke("launch.explain", { mission: primary.name })}
@@ -117,43 +117,53 @@ const styles = `:root {
 body { margin: 0; min-width: 0; }
 button { font: inherit; }
 .launch-radar {
-  min-height: 390px;
-  padding: 22px;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  gap: 10px;
   overflow: hidden;
+  padding: 16px;
   background:
-    radial-gradient(circle at 50% 40%, rgba(77, 208, 225, .18), transparent 32%),
+    radial-gradient(circle at 90% 0%, rgba(77, 208, 225, .16), transparent 34%),
     linear-gradient(145deg, #0a1020 0%, #070b16 60%, #111936 100%);
 }
-header { display: flex; align-items: flex-start; justify-content: space-between; }
-.eyebrow { margin: 0 0 4px; color: #67e8f9; font-size: 11px; font-weight: 800; letter-spacing: .2em; }
-h1, h2, p { margin-top: 0; }
-h1 { margin-bottom: 0; font-size: 25px; }
-.live-indicator { color: #86efac; font-size: 11px; font-weight: 800; letter-spacing: .12em; }
-.hero { position: relative; display: grid; justify-items: center; padding: 28px 0 22px; text-align: center; }
-.orbit { position: absolute; top: 8px; width: 210px; height: 210px; border: 1px solid rgba(103, 232, 249, .18); border-radius: 999px; }
-.orbit::before, .orbit::after { content: ""; position: absolute; inset: 22px; border: 1px solid rgba(129, 140, 248, .2); border-radius: inherit; }
-.orbit::after { inset: 48px; }
-.orbit span { position: absolute; top: 37px; right: 20px; width: 8px; height: 8px; border-radius: 50%; background: #67e8f9; box-shadow: 0 0 18px #67e8f9; }
-.window { margin-bottom: 6px; color: #94a3b8; font-size: 12px; }
-.hero h2 { z-index: 1; margin-bottom: 5px; font-size: 29px; }
-.hero > p:not(.window) { z-index: 1; margin-bottom: 18px; color: #cbd5e1; font-size: 13px; }
+.primary {
+  display: grid;
+  gap: 9px;
+  border: 1px solid rgba(103, 232, 249, .24);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(15, 23, 42, .72);
+}
+.primary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.eyebrow { margin: 0 0 3px; overflow: hidden; color: #67e8f9; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-overflow: ellipsis; white-space: nowrap; }
+h2, p { margin: 0; }
+h2 { overflow: hidden; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.readiness { display: grid; flex: none; text-align: right; }
+.readiness strong { font-size: 18px; }
+.readiness span { color: #94a3b8; font-size: 10px; }
 .watch-button {
-  z-index: 2;
-  min-width: 150px;
+  width: 100%;
   border: 1px solid rgba(103, 232, 249, .55);
-  border-radius: 999px;
-  padding: 10px 18px;
+  border-radius: 9px;
+  padding: 7px 12px;
   background: rgba(8, 145, 178, .28);
   color: #ecfeff;
+  font-size: 12px;
   font-weight: 750;
   cursor: pointer;
 }
-.launch-grid { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
-.launch-grid article { display: grid; gap: 5px; border: 1px solid color-mix(in srgb, var(--mission-tone) 38%, transparent); border-radius: 12px; padding: 10px; background: rgba(15, 23, 42, .75); }
-.launch-grid span { color: #94a3b8; font-size: 10px; }
-.launch-grid strong { font-size: 12px; }
-meter { width: 100%; accent-color: var(--mission-tone); }
-.agent-button { display: block; margin: 14px auto 0; border: 0; background: transparent; color: #a5b4fc; font-size: 11px; cursor: pointer; }
+.launch-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.launch-list li { display: grid; grid-template-columns: 6px minmax(70px, 1fr) minmax(76px, auto) minmax(70px, 1fr) 34px; align-items: center; gap: 8px; min-height: 42px; border-bottom: 1px solid rgba(148, 163, 184, .14); }
+.launch-list li:last-child { border-bottom: 0; }
+.tone { width: 6px; height: 6px; border-radius: 50%; background: var(--mission-tone); box-shadow: 0 0 10px var(--mission-tone); }
+.launch-list strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.window, .percent { color: #94a3b8; font-size: 10px; white-space: nowrap; }
+.percent { text-align: right; }
+meter { width: 100%; min-width: 0; height: 8px; accent-color: var(--mission-tone); }
+.remainder { color: #94a3b8; font-size: 10px; }
+.agent-button { display: block; margin: auto auto 0; border: 0; background: transparent; color: #a5b4fc; font-size: 11px; cursor: pointer; }
 `
 
 const data = {

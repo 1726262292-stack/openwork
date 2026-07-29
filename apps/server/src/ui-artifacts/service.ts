@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   UI_ARTIFACT_BUILDER_SKILL_NAME,
   UI_ARTIFACT_MAX_INTENT_PROMPT_BYTES,
+  UI_ARTIFACT_SHAPE_SPECS,
   uiArtifactAgentSkillSchema,
   uiArtifactBuildSchema,
   uiArtifactIntentRequestSchema,
@@ -36,7 +37,7 @@ import type {
 } from "./ports.js";
 
 const ARTIFACT_BUILDER_SKILL_DESCRIPTION =
-  "Build, validate, publish, and safely evolve reusable React artifacts in the current OpenWork workspace.";
+  "Build, validate, publish, and safely evolve bounded chat-native React artifacts in the current OpenWork workspace.";
 
 const ARTIFACT_BUILDER_SKILL_CONTENT = `---
 name: ${UI_ARTIFACT_BUILDER_SKILL_NAME}
@@ -58,6 +59,27 @@ Create exactly these workspace files under \`.opencode/openwork/artifacts/<slug>
 - \`data.schema.json\`
 
 The manifest uses protocol \`openwork.ui-artifact-project\`, schema version 2, API version 1, runtime kind \`react\`, and entry \`src/App.tsx\`. Use lowercase kebab-case slugs. Declare every intent with explicit arguments, effects, and confirmation.
+
+## Chat-card shape contract
+
+You are not designing a web page, landing page, full dashboard, or scrolling application. You are designing one small, self-contained artifact box that must sit comfortably inside a chat message. The OpenWork host already provides the outer card, title, description, revision, refresh control, and editor control; never duplicate that page chrome inside the component.
+
+Every manifest must use \`presentation.placement\` \`inline\` or \`both\` and choose exactly one host-enforced \`presentation.shape\`:
+
+- \`metric\`: ${UI_ARTIFACT_SHAPE_SPECS.metric.frameHeight}px high and at most ${UI_ARTIFACT_SHAPE_SPECS.metric.maxWidth}px wide. Show one primary result and no more than ${UI_ARTIFACT_SHAPE_SPECS.metric.maxVisibleItems} short values with ${UI_ARTIFACT_SHAPE_SPECS.metric.maxActions} action.
+- \`summary\`: ${UI_ARTIFACT_SHAPE_SPECS.summary.frameHeight}px high and at most ${UI_ARTIFACT_SHAPE_SPECS.summary.maxWidth}px wide. Show one concise answer with no more than ${UI_ARTIFACT_SHAPE_SPECS.summary.maxVisibleItems} compact content blocks and ${UI_ARTIFACT_SHAPE_SPECS.summary.maxActions} actions.
+- \`collection\`: ${UI_ARTIFACT_SHAPE_SPECS.collection.frameHeight}px high and at most ${UI_ARTIFACT_SHAPE_SPECS.collection.maxWidth}px wide. Show no more than ${UI_ARTIFACT_SHAPE_SPECS.collection.maxVisibleItems} visible rows and ${UI_ARTIFACT_SHAPE_SPECS.collection.maxActions} actions. Summarize overflow as \`+ N more\` instead of growing or scrolling.
+
+Choose the smallest shape that communicates the answer. The host owns the exact dimensions; artifacts cannot resize themselves.
+At runtime the selected value is exposed as \`data-openwork-artifact-shape\` on both the document root and React root, so CSS may adapt density for that declared shape without measuring or resizing the frame.
+
+Design content against the selected budget before writing JSX:
+
+- Make the component root exactly \`width: 100%; height: 100%; overflow: hidden\` and use \`box-sizing: border-box\`.
+- Never use viewport units, document-level navigation, sidebars, hero sections, footers, large empty decoration, nested scroll regions, or minimum heights that can exceed the shape.
+- Keep labels short, truncate single-line values, line-clamp prose to two lines, and keep controls compact.
+- Slice data to the shape's visible-item limit and render an explicit remainder count. Do not map an unbounded collection into the visible box.
+- Preserve essential meaning at narrow chat widths. Use responsive wrapping or a single column rather than horizontal overflow.
 
 ## Authoring rules
 

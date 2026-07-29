@@ -124,8 +124,9 @@ export function buildDynamicArtifactSrcDoc(assetUrl: string) {
     <style>
       :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
       * { box-sizing: border-box; }
-      html, body, #root { width: 100%; min-height: 100%; margin: 0; }
-      body { overflow: hidden; background: transparent; color: CanvasText; }
+      html, body, #root { width: 100%; height: 100%; max-height: 100%; margin: 0; overflow: hidden; }
+      #root { contain: layout paint; }
+      body { background: transparent; color: CanvasText; }
       .openwork-artifact-loading { display: grid; min-height: 160px; place-content: center; gap: 8px; }
       .openwork-artifact-loading span { width: 120px; height: 10px; border-radius: 999px; background: color-mix(in srgb, CanvasText 12%, transparent); }
       .openwork-artifact-loading span:nth-child(2) { width: 180px; }

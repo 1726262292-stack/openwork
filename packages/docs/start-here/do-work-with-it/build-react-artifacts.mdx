@@ -7,7 +7,7 @@ description: "Ask an agent to create an interactive UI that stays editable and r
 Dynamic React artifacts are an alpha feature. Their project and runtime contracts can still change.
 </Warning>
 
-OpenWork can turn a description into a real interactive React component, render it in chat, and keep its source in your workspace so you or an agent can enhance it later.
+OpenWork can turn a description into a compact interactive React component, render it as a bounded card in chat, and keep its source in your workspace so you or an agent can enhance it later.
 
 To start:
 
@@ -82,9 +82,7 @@ The manifest declares the component entry point, its data files, presentation pr
   },
   "presentation": {
     "placement": "both",
-    "preferredWidth": "wide",
-    "preferredHeight": 520,
-    "resizable": true
+    "shape": "collection"
   },
   "intents": [
     {
@@ -109,6 +107,16 @@ The manifest declares the component entry point, its data files, presentation pr
   ]
 }
 ```
+
+The shape is a hard host-owned presentation budget, not a resize hint:
+
+| Shape | Fixed frame | Content budget | Use it for |
+| --- | --- | --- | --- |
+| `metric` | 160px high, up to 480px wide | One result, up to four short values, one action | Status, KPI, balance, progress |
+| `summary` | 240px high, up to 640px wide | Up to four compact blocks and two actions | Briefs, recommendations, comparisons |
+| `collection` | 360px high, up to 720px wide | Up to five visible rows and two actions | Agendas, inboxes, task lists |
+
+An artifact is not a web page. OpenWork already renders its title, description, revision, refresh control, and editor control around the isolated component. Generated JSX should not add navigation, a sidebar, page chrome, a hero section, or a second artifact title. The component root must fill the fixed frame and hide overflow. Long text is truncated or clamped, and collections render at most the shape budget plus a `+ N more` summary; the card never grows into a scrolling mini-site. The sandbox exposes the declared value as `data-openwork-artifact-shape` on its document and React roots when shape-specific CSS density is useful.
 
 An intent is prompt-only. Calling it asks the OpenWork host to prepare a visible prompt for the user; it does not give the artifact a tool handle or let it silently perform the action. Undeclared intent IDs are rejected.
 
@@ -137,6 +145,8 @@ type ArtifactProps = {
 
 export default function App({ data, state, runtime }: ArtifactProps) {
   const watched = state.watched ?? []
+  const visible = data.launches.slice(0, 5)
+  const remaining = data.launches.length - visible.length
 
   function toggleWatched(id: string) {
     runtime.replaceState({
@@ -148,8 +158,7 @@ export default function App({ data, state, runtime }: ArtifactProps) {
 
   return (
     <main className="radar">
-      <h1>Launch radar</h1>
-      {data.launches.map((launch) => (
+      {visible.map((launch) => (
         <article key={launch.id} className={`launch risk-${launch.risk}`}>
           <strong>{launch.name}</strong>
           <button type="button" onClick={() => toggleWatched(launch.id)}>
@@ -165,12 +174,15 @@ export default function App({ data, state, runtime }: ArtifactProps) {
           </button>
         </article>
       ))}
+      {remaining > 0 ? <p className="remainder">+ {remaining} more</p> : null}
     </main>
   )
 }
 ```
 
 Use `runtime.replaceState(next)` for bounded, persisted local interaction state. Use `runtime.invoke(intentId, payload)` only with an intent declared in `artifact.json`.
+
+The corresponding stylesheet should make `.radar` exactly `width: 100%; height: 100%; overflow: hidden`. Avoid viewport units, nested scroll regions, and content-driven minimum heights.
 
 ### `styles.css`, `data.json`, and `data.schema.json`
 

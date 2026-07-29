@@ -2,6 +2,7 @@ import * as React from "react"
 import { AlertTriangle, LoaderCircle } from "lucide-react"
 import {
   UI_ARTIFACT_PROJECT_SCHEMA_VERSION,
+  UI_ARTIFACT_SHAPE_SPECS,
   uiArtifactHostBridgeEnvelopeSchema,
   uiArtifactInstanceStateSchema,
   uiArtifactIntentResultSchema,
@@ -29,8 +30,6 @@ import runtimeAssetUrl from "./dynamic-artifact-frame-runtime.tsx?worker&url"
 
 const BRIDGE_PROTOCOL = "openwork.ui-artifact-bridge"
 const MAX_MESSAGES_PER_SECOND = 48
-const MIN_FRAME_HEIGHT = 120
-const MAX_FRAME_HEIGHT = 2_000
 
 type FrameState = "error" | "loading" | "ready"
 
@@ -112,8 +111,7 @@ function DynamicArtifactSandboxFrameInner(props: DynamicArtifactSandboxFrameProp
   const [frameState, setFrameState] = React.useState<FrameState>("loading")
   const [error, setError] = React.useState<string | null>(null)
   const [iframeGeneration, setIframeGeneration] = React.useState(0)
-  const preferredHeight = props.attachment.presentation.preferredHeight ?? 320
-  const [height, setHeight] = React.useState(preferredHeight)
+  const height = UI_ARTIFACT_SHAPE_SPECS[props.attachment.presentation.shape].frameHeight
   const runtimeUrl = React.useMemo(
     () => {
       const url = new URL(runtimeAssetUrl, window.location.href)
@@ -139,7 +137,6 @@ function DynamicArtifactSandboxFrameInner(props: DynamicArtifactSandboxFrameProp
     setFrameState("loading")
     setIframeGeneration(0)
     iframeInitializedRef.current = false
-    setHeight(preferredHeight)
 
     void props.host.load().then(async ({ build: buildValue, state: stateValue }) => {
       if (cancelled) {
@@ -157,6 +154,8 @@ function DynamicArtifactSandboxFrameInner(props: DynamicArtifactSandboxFrameProp
         build.data.manifest.slug !== props.attachment.slug ||
         build.data.build.projectRevision !== props.attachment.projectRevision ||
         build.data.build.buildDigest !== props.attachment.buildDigest ||
+        build.data.manifest.presentation.placement !== props.attachment.presentation.placement ||
+        build.data.manifest.presentation.shape !== props.attachment.presentation.shape ||
         props.attachment.workspaceId !== props.workspaceId ||
         state.data.projectRevision !== props.attachment.projectRevision ||
         state.data.workspaceId !== props.workspaceId ||
@@ -181,7 +180,6 @@ function DynamicArtifactSandboxFrameInner(props: DynamicArtifactSandboxFrameProp
       cancelled = true
     }
   }, [
-    preferredHeight,
     props.attachment.buildDigest,
     props.attachment.instanceId,
     props.attachment.projectRevision,
@@ -307,14 +305,6 @@ function DynamicArtifactSandboxFrameInner(props: DynamicArtifactSandboxFrameProp
         return
       }
 
-      if (message.type === "artifact.resize") {
-        if (!props.attachment.presentation.resizable) {
-          return
-        }
-        setHeight(Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, message.payload.height)))
-        return
-      }
-
       if (message.type === "artifact.error") {
         setFrameState("error")
         setError(sanitizeDynamicArtifactError(message.payload.message))
@@ -418,6 +408,7 @@ function DynamicArtifactSandboxFrameInner(props: DynamicArtifactSandboxFrameProp
     <div
       className={cn("relative overflow-hidden rounded-xl border border-border bg-background", props.className)}
       data-ui-artifact-frame-state={frameState}
+      data-ui-artifact-frame-shape={props.attachment.presentation.shape}
       style={{ height }}
     >
       {frameState === "loading" ? (
