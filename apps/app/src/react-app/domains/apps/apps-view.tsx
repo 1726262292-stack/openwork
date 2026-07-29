@@ -14,6 +14,7 @@ import {
   lifecycleGuidance,
   lifecyclePhase,
   type AppPreview,
+  type AppRequirement,
   type AppsClient,
 } from "./apps-client";
 import {
@@ -43,6 +44,9 @@ export interface AppsViewProps {
 
 export function AppsView({ client, onEditEnvironment, now = () => Date.now() }: AppsViewProps) {
   const [installed, setInstalled] = React.useState<InstalledAppRecord[]>([]);
+  const [requirements, setRequirements] = React.useState<Record<string, AppRequirement[] | undefined>>(
+    {},
+  );
   const [flow, setFlow] = React.useState<InstallStep>(initialInstallState);
   const [url, setUrl] = React.useState("");
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -50,6 +54,7 @@ export function AppsView({ client, onEditEnvironment, now = () => Date.now() }: 
   const refresh = React.useCallback(async () => {
     const result = await client.list();
     setInstalled(result.items);
+    setRequirements(result.requirements ?? {});
   }, [client]);
 
   React.useEffect(() => {
@@ -207,6 +212,8 @@ export function AppsView({ client, onEditEnvironment, now = () => Date.now() }: 
             <InstalledAppRow
               key={record.app_id}
               record={record}
+              requirements={requirements[record.app_id] ?? []}
+              onEditEnvironment={onEditEnvironment}
               busy={busy === record.app_id}
               onEnable={() => void act(record.app_id, () => client.enable(record.app_id))}
               onDisable={() => void act(record.app_id, () => client.disable(record.app_id))}
@@ -355,6 +362,8 @@ function TrustReview({
 
 function InstalledAppRow({
   record,
+  requirements,
+  onEditEnvironment,
   busy,
   onEnable,
   onDisable,
@@ -364,6 +373,8 @@ function InstalledAppRow({
   onUninstall,
 }: {
   record: InstalledAppRecord;
+  requirements: AppRequirement[];
+  onEditEnvironment: (key: string) => void;
   busy: boolean;
   onEnable: () => void;
   onDisable: () => void;
@@ -412,6 +423,61 @@ function InstalledAppRow({
             </Button>
           </AlertDescription>
         </Alert>
+      ) : null}
+
+      {/*
+        What this app still needs, in the app author's own words. Shown whenever
+        anything is outstanding — not only in the `needs_setup` phase — because
+        an optional requirement that is unset is why a feature is quietly
+        missing, and that is worth saying before the user goes looking.
+      */}
+      {requirements.some((requirement) => !requirement.configured) ? (
+        <div className="border-border/60 flex flex-col gap-2 rounded-md border border-dashed p-2">
+          <span className="text-xs font-medium">What this app needs</span>
+          {requirements.map((requirement) => (
+            <div key={requirement.key} className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col">
+                <span className="text-xs">
+                  {requirement.label}
+                  <span className="text-muted-foreground">
+                    {" — "}
+                    {requirement.configured
+                      ? "set"
+                      : requirement.required
+                        ? "needed before this app can run"
+                        : "optional"}
+                  </span>
+                </span>
+                {requirement.description ? (
+                  <span className="text-muted-foreground text-xs">{requirement.description}</span>
+                ) : null}
+                {requirement.docsUrl ? (
+                  <a
+                    className="text-muted-foreground text-xs underline"
+                    href={requirement.docsUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    Where to get this
+                  </a>
+                ) : null}
+              </div>
+              {requirement.configured ? null : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => onEditEnvironment(requirement.key)}
+                >
+                  Set it
+                </Button>
+              )}
+            </div>
+          ))}
+          <span className="text-muted-foreground text-xs">
+            OpenWork keeps these values. This app is only told whether they are set.
+          </span>
+        </div>
       ) : null}
 
       {record.granted_permissions.length > 0 ? (

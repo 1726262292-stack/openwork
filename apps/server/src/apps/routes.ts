@@ -83,7 +83,13 @@ export function registerAppRoutes(options: RegisterAppRoutesOptions): void {
 
   addRoute(routes, "GET", "/apps", "host", async () => {
     const installed = await store.list();
-    return jsonResponse({ items: installed, rejected: store.rejectedOnLoad });
+    // Requirements travel with the list so Preferences can explain a
+    // "needs setup" state rather than only naming it, without a request per app.
+    const requirements: Record<string, unknown> = {};
+    for (const record of installed) {
+      requirements[record.app_id] = await installer.requirements(record);
+    }
+    return jsonResponse({ items: installed, requirements, rejected: store.rejectedOnLoad });
   });
 
   addRoute(routes, "GET", "/apps/:id", "host", async (ctx) => {

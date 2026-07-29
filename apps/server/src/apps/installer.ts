@@ -47,6 +47,17 @@ import { InstalledAppStore } from "./store.js";
 // user actions after that, which is why installing an app cannot start its
 // microphone.
 
+/** One thing an installed app needs from the user, and whether it has it. */
+export type AppRequirement = {
+  key: string;
+  label: string;
+  required: boolean;
+  configured: boolean;
+  /** The app author's explanation of what this unlocks. */
+  description?: string;
+  docsUrl?: string;
+};
+
 export type PermissionSummary = {
   permission: AppPermission;
   risk: AppPermissionRisk;
@@ -809,6 +820,31 @@ export class AppInstaller {
     if (text === null) return null;
     const validation = validateManifest(text);
     return validation.ok ? validation.manifest : null;
+  }
+
+  /**
+   * What an installed app still needs before it can do everything it declares.
+   *
+   * Returned for the whole list so Preferences can explain a `needs setup`
+   * state instead of only naming it. `description` and `docs_url` are the app
+   * author's own words: the host knows a key is missing, but only the author
+   * knows what it unlocks.
+   */
+  async requirements(record: InstalledAppRecord): Promise<AppRequirement[]> {
+    const manifest = await this.#readInstalledManifest(record);
+    if (!manifest) return [];
+    const configured = new Set(await this.#listEnvKeys());
+    return [
+      ...manifest.environment.required.map((entry) => ({ entry, required: true })),
+      ...manifest.environment.optional.map((entry) => ({ entry, required: false })),
+    ].map(({ entry, required }) => ({
+      key: entry.key,
+      label: entry.label,
+      required,
+      configured: configured.has(entry.key),
+      ...(entry.description === undefined ? {} : { description: entry.description }),
+      ...(entry.docs_url === undefined ? {} : { docsUrl: entry.docs_url }),
+    }));
   }
 
   /**

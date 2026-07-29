@@ -48,6 +48,22 @@ export type AppPreview = {
   installed: { version: string; delta: PermissionDelta } | null;
 };
 
+/**
+ * One thing an installed app needs from the user, and whether it has it.
+ *
+ * `description` and `docsUrl` are the app author's own words. The host knows a
+ * key is missing; only the author knows what it unlocks, so a setup state that
+ * only names the key is a state the user cannot act on.
+ */
+export type AppRequirement = {
+  key: string;
+  label: string;
+  required: boolean;
+  configured: boolean;
+  description?: string;
+  docsUrl?: string;
+};
+
 export type AppsTransport = {
   request<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T>;
 };
@@ -55,7 +71,11 @@ export type AppsTransport = {
 export function createAppsClient(transport: AppsTransport) {
   return {
     list: () =>
-      transport.request<{ items: InstalledAppRecord[]; rejected: string[] }>("/apps"),
+      transport.request<{
+        items: InstalledAppRecord[];
+        requirements: Record<string, AppRequirement[] | undefined>;
+        rejected: string[];
+      }>("/apps"),
 
     get: (appId: string) =>
       transport.request<{ record: InstalledAppRecord; manifest: AppManifest | null }>(
