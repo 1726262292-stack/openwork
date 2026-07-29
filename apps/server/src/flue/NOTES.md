@@ -23,3 +23,21 @@
 - Known gaps (next iterations): durability via Flue durable admission (force-quit recovery), tool-use
   surfacing beyond tool_start parts, permission gating, abort wiring in UI, session titles,
   `bun test` picks up compiled `dist/*.test.js` copies when dist exists (clean dist before suite).
+
+## Catalog bridge (2026-07-29)
+
+- The Flue facade now resolves the same model catalog URL as the OpenCode engine (`resolveOpencodeModelsUrl()`), fetches `<base>/api.json`, validates providers/models, then materializes only credential-resolvable or runtime-managed providers next to the deterministic `flue/default` provider.
+- Catalog `npm` to Flue/Pi api-kind mapping:
+  | catalog `npm` | Flue `reg.api` |
+  | --- | --- |
+  | `@openrouter/ai-sdk-provider` | `openai-completions` |
+  | `@ai-sdk/openai-compatible` | `openai-completions` |
+  | `@ai-sdk/anthropic` | `anthropic-messages` |
+  | `@ai-sdk/openai` | `openai-responses` |
+  | `@ai-sdk/azure` | `azure-openai-responses` |
+  | `@ai-sdk/amazon-bedrock` | `bedrock-converse-stream` |
+- Unknown `npm` values are registered as `openai-completions` only when the provider id/name/npm/base URL contains an OpenAI-compatible marker (`openai`, `openrouter`, `openwork`, or `compatible`); otherwise the provider is skipped with a diagnostic reason.
+- Cache/fallback behavior: one process-wide in-flight catalog fetch, 3.5s timeout, 10 minute memory TTL, and a workspace-local disk cache at `.opencode/openwork/flue-catalog-cache.json`. If network load fails, the facade logs once without secrets, then falls back to disk cache, runtime provider map only, and finally `flue/default`.
+- Credential precedence: user env store provider lookup first, then `process.env`, trying every catalog/runtime `env[]` name. Providers with required env names and no resolved credential are not registered and are not returned as connected. `OPENWORK_INFERENCE_BASE_URL` from env store/process overrides the hosted `openwork` base URL and is normalized to include `/api/v1`.
+- Runtime provider map precedence: `readEffectiveRuntimeOpencodeConfig()` is merged over the catalog; runtime `options.baseURL` wins over catalog `api`, runtime model maps replace catalog model maps when present, `whitelist`/`blacklist` filter the final model map, and `disabled_providers` drops runtime-managed providers.
+- Still missing: an `auth.set`-equivalent vault for credentials beyond the user env store, OAuth-backed provider auth, and the Zen/free-tier materialization path.

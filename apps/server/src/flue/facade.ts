@@ -15,7 +15,7 @@ import {
   type SessionEnv,
   type ShellResult,
 } from "@flue/runtime";
-import { createFlueContext, resolveModel } from "@flue/runtime/internal";
+import { createFlueContext, hasRegisteredProvider, resetProviderRuntime, resolveModel } from "@flue/runtime/internal";
 import {
   engineEventSchema,
   sessionInfoSchema,
@@ -51,6 +51,12 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
+import {
+  FLUE_CATALOG_CACHE_FILE,
+  FlueCatalogBridge,
+  flueProviderListResponseSchema,
+  type FlueCatalogMaterialization,
+} from "./catalog.js";
 
 type FlueContext = ReturnType<typeof createFlueContext>;
 type FlueHarness = Awaited<ReturnType<FlueContext["initializeRootHarness"]>>;
@@ -132,60 +138,6 @@ const FLUE_PROVIDER: Provider = {
   models: { [FLUE_MODEL_ID]: FLUE_MODEL },
 };
 
-function makeRealModel(providerID: string, id: string, name: string): Model {
-  return {
-    id,
-    providerID,
-    api: { id: "chat", url: "", npm: "@earendil-works/pi-ai" },
-    name,
-    family: providerID,
-    capabilities: {
-      temperature: true,
-      reasoning: false,
-      attachment: false,
-      toolcall: true,
-      input: { text: true, audio: false, image: false, video: false, pdf: false },
-      output: { text: true, audio: false, image: false, video: false, pdf: false },
-    interleaved: false,
-    },
-    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-    limit: { context: 200_000, output: 32_768 },
-    status: "active",
-    options: {},
-    headers: {},
-    release_date: "2026-01-01",
-  };
-}
-
-function makeEnvProvider(id: string, name: string, env: string[], models: Array<[string, string]>): Provider {
-  const modelMap: Record<string, Model> = {};
-  for (const [modelId, label] of models) modelMap[modelId] = makeRealModel(id, modelId, label);
-  return { id, name, source: "custom", env, options: {}, models: modelMap };
-}
-
-function buildProviderList(): ProviderListResponse {
-  const all: Provider[] = [FLUE_PROVIDER];
-  const connected: string[] = [FLUE_PROVIDER_ID];
-  let defaultSelection: Record<string, string> = { [FLUE_PROVIDER_ID]: FLUE_MODEL_ID };
-  if (process.env.OPENAI_API_KEY) {
-    all.push(makeEnvProvider("openai", "OpenAI (Flue)", ["OPENAI_API_KEY"], [
-      ["gpt-5-nano", "GPT-5 Nano"],
-      ["gpt-4.1-mini", "GPT-4.1 Mini"],
-    ]));
-    connected.push("openai");
-    defaultSelection = { openai: "gpt-5-nano" };
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    all.push(makeEnvProvider("anthropic", "Anthropic (Flue)", ["ANTHROPIC_API_KEY"], [
-      ["claude-haiku-4-5", "Claude Haiku 4.5"],
-      ["claude-sonnet-4-6", "Claude Sonnet 4.6"],
-    ]));
-    connected.push("anthropic");
-    defaultSelection = { anthropic: "claude-haiku-4-5" };
-  }
-  return { all, default: defaultSelection, connected };
-}
-
 const DEFAULT_CONFIG: EngineConfig = {
   model: FLUE_MODEL_SPEC,
   default_agent: DEFAULT_AGENT,
@@ -246,21 +198,22 @@ function installFlueObserver(): void {
 }
 
 function ensureFauxProvider(): FauxProviderRegistration {
-  if (fauxProvider) return fauxProvider;
-  const provider = registerFauxProvider({
-    api: "openwork-flue-faux",
-    provider: FLUE_PROVIDER_ID,
-    models: [{ id: FLUE_MODEL_ID, name: "Flue deterministic model", contextWindow: 128_000, maxTokens: 16_384 }],
-    tokensPerSecond: 0,
-    tokenSize: { min: 2, max: 2 },
-  });
+  if (!fauxProvider) {
+    fauxProvider = registerFauxProvider({
+      api: "openwork-flue-faux",
+      provider: FLUE_PROVIDER_ID,
+      models: [{ id: FLUE_MODEL_ID, name: "Flue deterministic model", contextWindow: 128_000, maxTokens: 16_384 }],
+      tokensPerSecond: 0,
+      tokenSize: { min: 2, max: 2 },
+    });
+  }
+  if (hasRegisteredProvider(FLUE_PROVIDER_ID)) return fauxProvider;
   registerProvider(FLUE_PROVIDER_ID, {
-    api: provider.api,
+    api: fauxProvider.api,
     baseUrl: "http://localhost:0",
     models: { [FLUE_MODEL_ID]: { contextWindow: 128_000, maxTokens: 16_384 } },
   });
-  fauxProvider = provider;
-  return provider;
+  return fauxProvider;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -357,6 +310,10 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
 
 function stateFilePath(workspace: WorkspaceInfo): string {
   return join(workspace.path, STATE_FILE);
+}
+
+function catalogCachePath(workspace: WorkspaceInfo): string {
+  return join(workspace.path, FLUE_CATALOG_CACHE_FILE);
 }
 
 function sessionModel(input?: PromptModelInput): { providerID: string; modelID: string; variant?: string } {
@@ -844,6 +801,7 @@ class FlueWorkspaceFacade {
   readonly workspacePath: string;
   private readonly instanceId: string;
   private readonly statePath: string;
+  private readonly catalogBridge: FlueCatalogBridge;
   private readonly listeners = new Set<EventListener>();
   private readonly inFlight = new Map<string, InFlightPrompt>();
   private readonly activeCalls = new Map<string, CallHandle<PromptResponse>>();
@@ -856,6 +814,7 @@ class FlueWorkspaceFacade {
     this.workspacePath = workspace.path;
     this.instanceId = `openwork-flue:${workspace.id}`;
     this.statePath = stateFilePath(workspace);
+    this.catalogBridge = new FlueCatalogBridge({ cachePath: catalogCachePath(workspace) });
     facadeByInstanceId.set(this.instanceId, this);
   }
 
@@ -875,8 +834,8 @@ class FlueWorkspaceFacade {
     if (method === "GET" && path === "/event") return this.eventStream(request.signal);
     if (method === "GET" && path === "/config") return jsonResponse(DEFAULT_CONFIG);
     if (method === "PATCH" && path === "/config") return jsonResponse(DEFAULT_CONFIG);
-    if (method === "GET" && path === "/config/providers") return jsonResponse(buildProviderList());
-    if (method === "GET" && path === "/provider") return jsonResponse(buildProviderList());
+    if (method === "GET" && path === "/config/providers") return jsonResponse(parseWire(flueProviderListResponseSchema, await this.providerList(), "provider list"));
+    if (method === "GET" && path === "/provider") return jsonResponse(parseWire(flueProviderListResponseSchema, await this.providerList(), "provider list"));
     if (method === "GET" && path === "/provider/auth") return jsonResponse({});
     if (method === "GET" && path === "/agent") return jsonResponse(DEFAULT_AGENT_LIST);
     if (method === "GET" && path === "/project") return jsonResponse(this.projectList());
@@ -916,6 +875,26 @@ class FlueWorkspaceFacade {
       return await this.handleSessionRequest(method, subpath, sessionId, request, url);
     }
     throw new ApiError(404, "not_found", "Not found");
+  }
+
+  private async providerList(input: { allowNetwork?: boolean } = {}): Promise<ProviderListResponse> {
+    const materialization = await this.catalogBridge.materializeForWorkspace({
+      config: this.config,
+      workspaceId: this.workspace.id,
+      deterministicProvider: FLUE_PROVIDER,
+      processEnv: process.env,
+      allowNetwork: input.allowNetwork,
+    });
+    this.applyProviderMaterialization(materialization);
+    return materialization.providerList;
+  }
+
+  private applyProviderMaterialization(materialization: FlueCatalogMaterialization): void {
+    resetProviderRuntime();
+    ensureFauxProvider();
+    for (const provider of materialization.registrations) {
+      registerProvider(provider.providerId, provider.registration);
+    }
   }
 
   listSessions(input: { roots?: boolean; start?: number; search?: string; limit?: number } = {}): Session[] {
@@ -1120,6 +1099,9 @@ class FlueWorkspaceFacade {
   }
 
   private async startFluePrompt(sessionId: string, text: string, input: PromptRunInput): Promise<{ handle: CallHandle<PromptResponse> }> {
+    if (promptModelSpec(input.model) !== FLUE_MODEL_SPEC) {
+      await this.providerList({ allowNetwork: false });
+    }
     const harness = await this.ensureHarness();
     let session;
     try {
