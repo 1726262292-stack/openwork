@@ -34,7 +34,14 @@ mariadbd --version
 export OPENWORK_EVAL_MARK_VERIFIED_CMD="$H/mariadb/bin/mariadb --protocol=tcp -h 127.0.0.1 -P 3306 -uroot openwork_den -e \"UPDATE \\\`user\\\` SET email_verified = 1 WHERE email = '{email}'\""
 
 echo "==> Legacy baseline: org-connection-lifecycle-desktop through the den stack"
-pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-lifecycle-desktop 2>&1 | tee "$LOG_DIR/legacy-lifecycle.log"
+# Known caveat when the legacy flow runs INSIDE the sandbox: Frame 4 requests a
+# sandbox-display capture (driven from outside via the daytona CLI), so its
+# evidence validation can fail here even though the journey itself passes.
+if pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-lifecycle-desktop 2>&1 | tee "$LOG_DIR/legacy-lifecycle.log"; then
+  echo "LEGACY BASELINE: PASSED"
+else
+  echo "LEGACY BASELINE: FAILED (see legacy-lifecycle.log; expected in-sandbox at Frame 4 sandbox-capture)"
+fi
 
 echo "==> New spec lane against the same live stack"
 export OPENWORK_EVAL_DEN_API_URL="http://127.0.0.1:8790"
