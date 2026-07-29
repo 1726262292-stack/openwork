@@ -62,6 +62,7 @@ type SyncEntry = {
 
 const idleStatus: SessionStatus = { type: "idle" };
 const syncs = new Map<string, SyncEntry>();
+const workspaceSyncDisposeGraceMs = 2_000;
 const retainedSessionTtlMs = 10 * 60_000;
 const idleRetainedSessionTtlMs = 10_000;
 
@@ -1186,11 +1187,15 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   if (input.onSessionUpdated) existing.sessionUpdatedListeners.delete(input.onSessionUpdated);
   if (input.onSessionDeleted) existing.sessionDeletedListeners.delete(input.onSessionDeleted);
   if (input.onSessionStatus) existing.sessionStatusListeners.delete(input.onSessionStatus);
-  existing.refs -= 1;
+  existing.refs = Math.max(0, existing.refs - 1);
   if (existing.refs > 0) return;
-  if (existing.retainedSessionTimers.size === 0) {
-    disposeWorkspaceSync(key, existing);
-  }
+  if (existing.retainedSessionTimers.size > 0 || existing.disposeTimer) return;
+  existing.disposeTimer = setTimeout(() => {
+    existing.disposeTimer = null;
+    if (existing.refs === 0 && existing.retainedSessionTimers.size === 0) {
+      disposeWorkspaceSync(key, existing);
+    }
+  }, workspaceSyncDisposeGraceMs);
 }
 
 export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionSnapshot) {
