@@ -289,7 +289,10 @@ describe("Flue catalog bridge", () => {
     expect(registrationFor(materialization, "anthropic")?.registration.api).toBe("anthropic-messages");
     expect(registrationFor(materialization, "openai")?.registration.api).toBe("openai-responses");
     expect(registrationFor(materialization, "azure")?.registration.api).toBe("azure-openai-responses");
-    expect(registrationFor(materialization, "bedrock")?.registration.api).toBe("bedrock-converse-stream");
+    expect(registrationFor(materialization, "bedrock")).toBeUndefined();
+    expect(providerIds(materialization)).toContain("bedrock");
+    expect(materialization.providerList.connected).not.toContain("bedrock");
+    expect(materialization.skipped).toContainEqual({ providerId: "bedrock", reason: "unsupported_credential_scheme" });
     expect(registrationFor(materialization, "compatible")?.registration.api).toBe("openai-completions");
   });
 

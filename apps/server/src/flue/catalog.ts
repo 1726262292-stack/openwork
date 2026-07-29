@@ -221,11 +221,13 @@ type ProviderCandidate = {
 let memoryCatalog: MemoryCatalog | null = null;
 let catalogFetchInFlight: Promise<FlueCatalogParseResult> | null = null;
 let loggedCatalogFailure = false;
+let loggedMaterializationFailure = false;
 
 export function resetFlueCatalogCacheForTest(): void {
   memoryCatalog = null;
   catalogFetchInFlight = null;
   loggedCatalogFailure = false;
+  loggedMaterializationFailure = false;
 }
 
 export function catalogApiJsonUrl(baseUrl: string): string {
@@ -398,6 +400,13 @@ function resolveOpenWorkBaseUrl(candidate: ProviderCandidate, envStore: EnvMap, 
   return candidate.api;
 }
 
+function defaultBaseUrlForProvider(candidate: ProviderCandidate, apiKind: FlueApiKind): string | null {
+  if (apiKind === "anthropic-messages") return "https://api.anthropic.com";
+  if (apiKind === "openai-responses") return "https://api.openai.com/v1";
+  if (candidate.npm === "@ai-sdk/mistral") return "https://api.mistral.ai/v1";
+  return null;
+}
+
 function hasOpenAiCompatibilityMarker(value: string | null): boolean {
   const normalized = value?.toLowerCase() ?? "";
   return normalized.includes("openai")
@@ -434,7 +443,7 @@ function registrationModels(models: FlueCatalogModel[]): Record<string, { contex
   return out;
 }
 
-function engineModel(input: { provider: ProviderCandidate; model: FlueCatalogModel; apiKind: FlueApiKind; baseUrl: string | null }): Model {
+function engineModel(input: { provider: ProviderCandidate; model: FlueCatalogModel; apiKind: string; baseUrl: string | null }): Model {
   return {
     id: input.model.id,
     providerID: input.provider.id,
@@ -463,7 +472,7 @@ function engineModel(input: { provider: ProviderCandidate; model: FlueCatalogMod
   };
 }
 
-function engineProvider(input: { provider: ProviderCandidate; apiKind: FlueApiKind; baseUrl: string | null }): Provider {
+function engineProvider(input: { provider: ProviderCandidate; apiKind: string; baseUrl: string | null }): Provider {
   const models: Record<string, Model> = {};
   for (const model of input.provider.models) {
     models[model.id] = engineModel({ provider: input.provider, model, apiKind: input.apiKind, baseUrl: input.baseUrl });
@@ -497,6 +506,29 @@ function disabledProviderSet(config: RuntimeOpencodeConfig): Set<string> {
   return providerIds;
 }
 
+function deterministicOnlyMaterialization(input: {
+  runtimeConfig: RuntimeOpencodeConfig;
+  deterministicProvider: Provider;
+  skipped: FlueCatalogSkip[];
+}): FlueCatalogMaterialization {
+  const disabled = disabledProviderSet(input.runtimeConfig).has(input.deterministicProvider.id);
+  const providers = disabled ? [] : [input.deterministicProvider];
+  return {
+    providerList: {
+      all: providers,
+      default: defaultModelMap(providers),
+      connected: providers.map((provider) => provider.id),
+    },
+    registrations: [],
+    skipped: [
+      ...input.skipped,
+      ...(disabled ? [{ providerId: input.deterministicProvider.id, reason: "disabled" }] : []),
+      { providerId: "__materialization__", reason: "materialization_failed" },
+    ],
+    catalogSource: "deterministic-only",
+  };
+}
+
 export function materializeFlueCatalog(input: {
   catalogProviders: FlueCatalogProvider[];
   catalogSkips?: FlueCatalogSkip[];
@@ -514,21 +546,29 @@ export function materializeFlueCatalog(input: {
   const runtimeCatalogIds = new Set<string>();
   const skipped: FlueCatalogSkip[] = [...input.catalogSkips ?? []];
   for (const [providerKey, rawProvider] of Object.entries(runtimeProviderMap(input.runtimeConfig))) {
-    const provider = normalizeRuntimeProvider(providerKey, rawProvider);
-    if (provider) {
-      runtimeById.set(provider.id, provider);
-      runtimeCatalogIds.add(provider.catalogId);
+    try {
+      const provider = normalizeRuntimeProvider(providerKey, rawProvider);
+      if (provider) {
+        runtimeById.set(provider.id, provider);
+        runtimeCatalogIds.add(provider.catalogId);
+      }
+      else skipped.push({ providerId: providerKey, reason: "malformed" });
+    } catch {
+      skipped.push({ providerId: providerKey, reason: "materialization_failed" });
     }
-    else skipped.push({ providerId: providerKey, reason: "malformed" });
   }
 
   const disabled = disabledProviderSet(input.runtimeConfig);
   const vaultCredentials = input.vaultCredentials ?? {};
   const candidateIds = new Set<string>();
   for (const provider of input.catalogProviders) {
-    if (runtimeCatalogIds.has(provider.id)) continue;
-    if (resolveProviderCredentialWithVault(vaultCredentials[provider.id], provider.env, input.envStore, input.processEnv).value) {
-      candidateIds.add(provider.id);
+    try {
+      if (runtimeCatalogIds.has(provider.id)) continue;
+      if (resolveProviderCredentialWithVault(vaultCredentials[provider.id], provider.env, input.envStore, input.processEnv).value) {
+        candidateIds.add(provider.id);
+      }
+    } catch {
+      skipped.push({ providerId: provider.id, reason: "materialization_failed" });
     }
   }
   for (const providerId of runtimeById.keys()) candidateIds.add(providerId);
@@ -538,59 +578,73 @@ export function materializeFlueCatalog(input: {
   const registrations: FlueProviderRegistration[] = [];
   const sortedCandidateIds = [...candidateIds].sort((left, right) => left.localeCompare(right));
   for (const providerId of sortedCandidateIds) {
-    const runtimeProvider = runtimeById.get(providerId);
-    const catalogProvider = catalogById.get(runtimeProvider?.catalogId ?? providerId);
-    const candidate = mergeProvider(providerId, catalogProvider, runtimeProvider);
-    if (disabled.has(providerId)) {
-      skipped.push({ providerId, reason: "disabled" });
-      continue;
-    }
-    const modelsById = providerModelsById(candidate.models);
-    candidate.models = [...modelsById.values()].sort((left, right) => left.id.localeCompare(right.id));
-    if (candidate.models.length === 0) {
-      if (runtimeProvider) skipped.push({ providerId, reason: "malformed" });
-      continue;
-    }
+    try {
+      const runtimeProvider = runtimeById.get(providerId);
+      const catalogProvider = catalogById.get(runtimeProvider?.catalogId ?? providerId);
+      const candidate = mergeProvider(providerId, catalogProvider, runtimeProvider);
+      if (disabled.has(providerId)) {
+        skipped.push({ providerId, reason: "disabled" });
+        continue;
+      }
+      const modelsById = providerModelsById(candidate.models);
+      candidate.models = [...modelsById.values()].sort((left, right) => left.id.localeCompare(right.id));
+      if (candidate.models.length === 0) {
+        if (runtimeProvider) skipped.push({ providerId, reason: "malformed" });
+        continue;
+      }
 
-    const credential = resolveProviderCredentialWithVault(
-      vaultCredentials[providerId],
-      candidate.env,
-      input.envStore,
-      input.processEnv,
-    );
-    if (candidate.env.length > 0 && !credential.value) {
-      if (!candidate.fromRuntime) {
+      const credential = resolveProviderCredentialWithVault(
+        vaultCredentials[providerId],
+        candidate.env,
+        input.envStore,
+        input.processEnv,
+      );
+      if (candidate.env.length > 0 && !credential.value && !candidate.fromRuntime) {
         skipped.push({ providerId, reason: "no_credential" });
         continue;
       }
-    }
-    if (candidate.env.length === 0 && !candidate.fromRuntime) {
-      skipped.push({ providerId, reason: "no_credential" });
-      continue;
-    }
+      if (candidate.env.length === 0 && !candidate.fromRuntime) {
+        skipped.push({ providerId, reason: "no_credential" });
+        continue;
+      }
 
-    const baseUrl = resolveOpenWorkBaseUrl(candidate, input.envStore, input.processEnv);
-    const apiKind = apiKindForProvider({ id: candidate.id, name: candidate.name, npm: candidate.npm, baseUrl });
-    if (!apiKind.ok) {
-      skipped.push({ providerId, reason: "unmappable_npm" });
-      continue;
-    }
+      const configuredBaseUrl = resolveOpenWorkBaseUrl(candidate, input.envStore, input.processEnv);
+      const apiKind = apiKindForProvider({ id: candidate.id, name: candidate.name, npm: candidate.npm, baseUrl: configuredBaseUrl });
+      if (!apiKind.ok) {
+        if (candidate.fromRuntime) {
+          listedProviders.push(engineProvider({ provider: candidate, apiKind: "unsupported", baseUrl: configuredBaseUrl }));
+        }
+        skipped.push({ providerId, reason: "unmappable_npm" });
+        continue;
+      }
 
-    const provider = engineProvider({ provider: candidate, apiKind: apiKind.apiKind, baseUrl });
-    listedProviders.push(provider);
-    if (candidate.env.length > 0 && !credential.value) {
-      skipped.push({ providerId, reason: "no_credential" });
-      continue;
-    }
+      const baseUrl = configuredBaseUrl ?? defaultBaseUrlForProvider(candidate, apiKind.apiKind);
+      const provider = engineProvider({ provider: candidate, apiKind: apiKind.apiKind, baseUrl });
+      listedProviders.push(provider);
+      if (apiKind.apiKind === "bedrock-converse-stream") {
+        skipped.push({ providerId, reason: "unsupported_credential_scheme" });
+        continue;
+      }
+      if (!baseUrl) {
+        skipped.push({ providerId, reason: "missing_base_url" });
+        continue;
+      }
+      if (candidate.env.length > 0 && !credential.value) {
+        skipped.push({ providerId, reason: "no_credential" });
+        continue;
+      }
 
-    const registration: HttpProviderRegistration = {
-      api: apiKind.apiKind,
-      ...(baseUrl ? { baseUrl } : {}),
-      ...(credential.value ? { apiKey: credential.value } : {}),
-      models: registrationModels(candidate.models),
-    };
-    registrations.push({ providerId, registration });
-    connectedProviders.push(provider);
+      const registration: HttpProviderRegistration = {
+        api: apiKind.apiKind,
+        baseUrl,
+        ...(credential.value ? { apiKey: credential.value } : {}),
+        models: registrationModels(candidate.models),
+      };
+      registrations.push({ providerId, registration });
+      connectedProviders.push(provider);
+    } catch {
+      skipped.push({ providerId, reason: "materialization_failed" });
+    }
   }
 
   const deterministicDisabled = disabled.has(input.deterministicProvider.id);
@@ -670,6 +724,14 @@ function logCatalogFailure(reason: string): void {
   console.warn("[flue-catalog] model catalog unavailable; using cached/runtime/deterministic fallback", { reason });
 }
 
+function logMaterializationFailure(): void {
+  if (loggedMaterializationFailure) return;
+  loggedMaterializationFailure = true;
+  console.warn("[flue-catalog] provider materialization failed; using deterministic fallback", {
+    reason: "materialization_failed",
+  });
+}
+
 async function defaultReadEnvStore(): Promise<EnvMap> {
   return EnvService.readForProviderLookup();
 }
@@ -708,6 +770,15 @@ export class FlueCatalogBridge {
     return this.lastDiagnostics;
   }
 
+  updateDiagnostics(materialization: FlueCatalogMaterialization): void {
+    this.lastDiagnostics = {
+      catalogSource: materialization.catalogSource,
+      connectedProviderIds: materialization.providerList.connected,
+      registeredProviderIds: materialization.registrations.map((registration) => registration.providerId),
+      skipped: materialization.skipped,
+    };
+  }
+
   async materializeForWorkspace(input: {
     config: ServerConfig;
     workspaceId: string;
@@ -738,28 +809,33 @@ export class FlueCatalogBridge {
     deterministicProvider: Provider;
     allowNetwork?: boolean;
   }): Promise<FlueCatalogMaterialization> {
-    const catalog = await this.loadCatalog(input.allowNetwork ?? true);
-    const materialization = materializeFlueCatalog({
-      catalogProviders: catalog.providers,
-      catalogSkips: catalog.skipped,
-      catalogSource: catalog.source,
-      runtimeConfig: input.runtimeConfig,
-      envStore: input.envStore,
-      processEnv: input.processEnv,
-      vaultCredentials: input.vaultCredentials,
-      deterministicProvider: input.deterministicProvider,
-    });
-    if (materialization.catalogSource === "empty") {
-      materialization.catalogSource = materialization.providerList.all.some(
-        (provider) => provider.id !== input.deterministicProvider.id,
-      ) ? "runtime-only" : "deterministic-only";
+    let materialization: FlueCatalogMaterialization;
+    try {
+      const catalog = await this.loadCatalog(input.allowNetwork ?? true);
+      materialization = materializeFlueCatalog({
+        catalogProviders: catalog.providers,
+        catalogSkips: catalog.skipped,
+        catalogSource: catalog.source,
+        runtimeConfig: input.runtimeConfig,
+        envStore: input.envStore,
+        processEnv: input.processEnv,
+        vaultCredentials: input.vaultCredentials,
+        deterministicProvider: input.deterministicProvider,
+      });
+      if (materialization.catalogSource === "empty") {
+        materialization.catalogSource = materialization.providerList.all.some(
+          (provider) => provider.id !== input.deterministicProvider.id,
+        ) ? "runtime-only" : "deterministic-only";
+      }
+    } catch {
+      logMaterializationFailure();
+      materialization = deterministicOnlyMaterialization({
+        runtimeConfig: input.runtimeConfig,
+        deterministicProvider: input.deterministicProvider,
+        skipped: [],
+      });
     }
-    this.lastDiagnostics = {
-      catalogSource: materialization.catalogSource,
-      connectedProviderIds: materialization.providerList.connected,
-      registeredProviderIds: materialization.registrations.map((registration) => registration.providerId),
-      skipped: materialization.skipped,
-    };
+    this.updateDiagnostics(materialization);
     console.info("[flue-catalog] materialized", {
       source: materialization.catalogSource,
       registered: materialization.registrations.length,

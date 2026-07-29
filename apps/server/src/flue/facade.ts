@@ -915,6 +915,7 @@ class FlueWorkspaceFacade {
   private saveQueue: Promise<void> = Promise.resolve();
   private state: FluePersistedState = { sessions: [] };
   private harness: FlueHarness | null = null;
+  private loggedProviderMaterializationFailure = false;
 
   constructor(private readonly config: ServerConfig, private readonly workspace: WorkspaceInfo) {
     this.workspacePath = workspace.path;
@@ -1007,15 +1008,43 @@ class FlueWorkspaceFacade {
   }
 
   private async providerList(input: { allowNetwork?: boolean } = {}): Promise<ProviderListResponse> {
-    const materialization = await this.catalogBridge.materializeForWorkspace({
-      config: this.config,
-      workspaceId: this.workspace.id,
-      deterministicProvider: FLUE_PROVIDER,
-      processEnv: process.env,
-      allowNetwork: input.allowNetwork,
-    });
-    this.applyProviderMaterialization(materialization);
-    return materialization.providerList;
+    let materialization: FlueCatalogMaterialization | null = null;
+    try {
+      materialization = await this.catalogBridge.materializeForWorkspace({
+        config: this.config,
+        workspaceId: this.workspace.id,
+        deterministicProvider: FLUE_PROVIDER,
+        processEnv: process.env,
+        allowNetwork: input.allowNetwork,
+      });
+      this.applyProviderMaterialization(materialization);
+      return materialization.providerList;
+    } catch {
+      if (!this.loggedProviderMaterializationFailure) {
+        this.loggedProviderMaterializationFailure = true;
+        console.warn("[flue-catalog] provider runtime application failed; using deterministic fallback", {
+          reason: "materialization_failed",
+        });
+      }
+      const deterministicEnabled = materialization?.providerList.all.some((provider) => provider.id === FLUE_PROVIDER_ID) ?? true;
+      try {
+        resetProviderRuntime();
+        if (deterministicEnabled) ensureFauxProvider();
+      } catch {
+        // Provider data must not make the provider-list endpoint unavailable.
+      }
+      const fallback: ProviderListResponse = deterministicEnabled
+        ? { all: [FLUE_PROVIDER], default: { [FLUE_PROVIDER_ID]: FLUE_MODEL_ID }, connected: [FLUE_PROVIDER_ID] }
+        : { all: [], default: {}, connected: [] };
+      if (materialization) {
+        materialization.providerList = fallback;
+        materialization.registrations = [];
+        materialization.skipped.push({ providerId: "__materialization__", reason: "materialization_failed" });
+        materialization.catalogSource = "deterministic-only";
+        this.catalogBridge.updateDiagnostics(materialization);
+      }
+      return fallback;
+    }
   }
 
   private async providerAuthMethods(): Promise<Record<string, Array<{ type: "api"; label: string }>>> {
@@ -1030,8 +1059,28 @@ class FlueWorkspaceFacade {
   private applyProviderMaterialization(materialization: FlueCatalogMaterialization): void {
     resetProviderRuntime();
     if (materialization.providerList.all.some((provider) => provider.id === FLUE_PROVIDER_ID)) ensureFauxProvider();
+    const failures: Array<{ providerId: string; reason: string }> = [];
+    const registrations: FlueCatalogMaterialization["registrations"] = [];
     for (const provider of materialization.registrations) {
-      registerProvider(provider.providerId, provider.registration);
+      try {
+        registerProvider(provider.providerId, provider.registration);
+        registrations.push(provider);
+      } catch {
+        failures.push({ providerId: provider.providerId, reason: "registration_failed" });
+      }
+    }
+    if (failures.length > 0) {
+      const failedProviderIds = new Set(failures.map((failure) => failure.providerId));
+      materialization.registrations = registrations;
+      materialization.providerList.connected = materialization.providerList.connected.filter(
+        (providerId) => !failedProviderIds.has(providerId),
+      );
+      for (const providerId of failedProviderIds) delete materialization.providerList.default[providerId];
+      materialization.skipped.push(...failures);
+      this.catalogBridge.updateDiagnostics(materialization);
+      console.warn("[flue-catalog] provider registration failed; providers left listed but disconnected", {
+        skipped: failures,
+      });
     }
   }
 

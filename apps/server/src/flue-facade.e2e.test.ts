@@ -16,6 +16,16 @@ const roots: string[] = [];
 const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
 const previousMistralApiKey = process.env.MISTRAL_API_KEY;
 const previousConnectedMistralApiKey = process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY;
+const providerEnvNames = [
+  "ANTHROPIC_API_KEY",
+  "PROBE_PICKER_EVAL_API_KEY",
+  "OPENROUTER_API_KEY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_REGION",
+  "AWS_BEARER_TOKEN_BEDROCK",
+];
+const previousProviderEnv = new Map(providerEnvNames.map((name) => [name, process.env[name]]));
 
 afterEach(async () => {
   while (stops.length) await stops.pop()?.();
@@ -27,6 +37,11 @@ afterEach(async () => {
   else process.env.MISTRAL_API_KEY = previousMistralApiKey;
   if (previousConnectedMistralApiKey === undefined) delete process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY;
   else process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY = previousConnectedMistralApiKey;
+  for (const name of providerEnvNames) {
+    const previous = previousProviderEnv.get(name);
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
 });
 
 function auth(token: string) {
@@ -171,6 +186,29 @@ function readNumberField(value: unknown, key: string): number {
   if (!isRecord(value)) return Number.NaN;
   const field = value[key];
   return typeof field === "number" ? field : Number.NaN;
+}
+
+function providerFromList(value: unknown, providerId: string): Record<string, unknown> | null {
+  if (!isRecord(value) || !Array.isArray(value.all)) return null;
+  for (const provider of value.all) {
+    if (isRecord(provider) && provider.id === providerId) return provider;
+  }
+  return null;
+}
+
+function stringListField(value: unknown, key: string): string[] {
+  if (!isRecord(value) || !Array.isArray(value[key])) return [];
+  return value[key].filter((item): item is string => typeof item === "string");
+}
+
+function materializationSkips(logs: unknown[][]): unknown[] {
+  const skips: unknown[] = [];
+  for (const log of logs) {
+    for (const value of log) {
+      if (isRecord(value) && Array.isArray(value.skipped)) skips.push(...value.skipped);
+    }
+  }
+  return skips;
 }
 
 function sessionIdFromCreateResponse(value: unknown): string {
@@ -436,6 +474,142 @@ describe("Flue opencode-wire facade", () => {
     });
     expect(hasRegisteredProvider("mistral")).toBe(false);
     expect(hasRegisteredProvider("lpr_disabled")).toBe(false);
+  });
+
+  test("serves real Den catalog records while isolating unsupported and unmappable providers", async () => {
+    process.env.ANTHROPIC_API_KEY = "anthropic-runtime-map-test-key";
+    process.env.PROBE_PICKER_EVAL_API_KEY = "probe-runtime-map-test-key";
+    process.env.OPENROUTER_API_KEY = "openrouter-runtime-map-test-key";
+    for (const name of ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BEARER_TOKEN_BEDROCK"]) {
+      delete process.env[name];
+    }
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      provider: {
+        lpr_anthropic: {
+          id: "anthropic",
+          name: "Anthropic Test",
+          env: ["ANTHROPIC_API_KEY"],
+          models: {
+            "claude-fable-5": {
+              id: "claude-fable-5",
+              name: "Claude Fable 5",
+              family: "claude",
+              release_date: "2026-07-01",
+            },
+          },
+          npm: "@ai-sdk/anthropic",
+        },
+        lpr_bedrock: {
+          id: "amazon-bedrock",
+          name: "Bedrock Test",
+          env: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BEARER_TOKEN_BEDROCK"],
+          models: {
+            "au.anthropic.claude-opus-4-6-v1": {
+              id: "au.anthropic.claude-opus-4-6-v1",
+              name: "Claude Opus 4.6",
+              family: "claude",
+              release_date: "2026-02-01",
+            },
+          },
+          npm: "@ai-sdk/amazon-bedrock",
+        },
+        lpr_probe: {
+          id: "probe-picker-eval",
+          name: "Probe Picker Eval",
+          env: ["PROBE_PICKER_EVAL_API_KEY"],
+          models: {
+            "gpt-5-mini": { id: "gpt-5-mini", name: "GPT-5 mini", family: "gpt-5", release_date: "2025-08-07" },
+            "gpt-5.2-chat": { id: "gpt-5.2-chat", name: "GPT-5.2 Chat", family: "gpt-5", release_date: "2025-12-11" },
+          },
+          npm: "@ai-sdk/openai-compatible",
+          api: "http://127.0.0.1:18092/v1",
+        },
+        lpr_openrouter: {
+          id: "openrouter",
+          name: "OpenRouter (sandbox)",
+          env: ["OPENROUTER_API_KEY"],
+          models: {
+            "z-ai/glm-5.2": { id: "z-ai/glm-5.2", name: "GLM-5.2", family: "glm", release_date: "2026-06-01" },
+          },
+          npm: "@ai-sdk/openai-compatible",
+          api: "https://openrouter.ai/api/v1",
+        },
+        lpr_unmappable: {
+          id: "unknown-first-party",
+          name: "Unknown First Party",
+          env: ["UNKNOWN_FIRST_PARTY_API_KEY"],
+          models: { model: { id: "model", name: "Unknown Model" } },
+          npm: "@unknown/first-party-sdk",
+        },
+      },
+    }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const infoLogs: unknown[][] = [];
+    const originalInfo = console.info;
+    console.info = (...data: unknown[]) => infoLogs.push(data);
+    try {
+      const response = await fetch(`${base}/workspace/ws_1/opencode/provider?directory=${encodeURIComponent(workspaceRoot)}`, {
+        headers: auth(token),
+      });
+      const text = await response.text();
+      expect({ status: response.status, body: text }).toMatchObject({ status: 200 });
+      const body: unknown = JSON.parse(text);
+      expect(providerFromList(body, "lpr_anthropic")).toMatchObject({
+        id: "lpr_anthropic",
+        env: ["ANTHROPIC_API_KEY"],
+        models: {
+          "claude-fable-5": {
+            providerID: "lpr_anthropic",
+            api: { id: "anthropic-messages", url: "https://api.anthropic.com" },
+          },
+        },
+      });
+      expect(providerFromList(body, "lpr_bedrock")).toMatchObject({
+        id: "lpr_bedrock",
+        models: { "au.anthropic.claude-opus-4-6-v1": { providerID: "lpr_bedrock" } },
+      });
+      expect(providerFromList(body, "lpr_probe")).toMatchObject({
+        id: "lpr_probe",
+        models: {
+          "gpt-5-mini": { providerID: "lpr_probe", api: { url: "http://127.0.0.1:18092/v1" } },
+          "gpt-5.2-chat": { providerID: "lpr_probe", api: { url: "http://127.0.0.1:18092/v1" } },
+        },
+      });
+      expect(providerFromList(body, "lpr_openrouter")).toMatchObject({
+        id: "lpr_openrouter",
+        models: {
+          "z-ai/glm-5.2": { providerID: "lpr_openrouter", api: { url: "https://openrouter.ai/api/v1" } },
+        },
+      });
+      expect(providerFromList(body, "lpr_unmappable")).toMatchObject({ id: "lpr_unmappable" });
+      expect(stringListField(body, "connected")).toEqual(["flue", "lpr_anthropic", "lpr_openrouter", "lpr_probe"]);
+      expect(isRecord(body) ? body.default : null).toMatchObject({
+        flue: "default",
+        lpr_anthropic: "claude-fable-5",
+        lpr_openrouter: "z-ai/glm-5.2",
+        lpr_probe: "gpt-5-mini",
+      });
+      expect(materializationSkips(infoLogs)).toEqual(expect.arrayContaining([
+        { providerId: "lpr_bedrock", reason: "unsupported_credential_scheme" },
+        { providerId: "lpr_unmappable", reason: "unmappable_npm" },
+      ]));
+
+      delete process.env.ANTHROPIC_API_KEY;
+      const withoutCredential = await readJson(await fetch(`${base}/workspace/ws_1/opencode/provider`, { headers: auth(token) }));
+      expect(providerFromList(withoutCredential, "lpr_anthropic")).not.toBeNull();
+      expect(stringListField(withoutCredential, "connected")).not.toContain("lpr_anthropic");
+    } finally {
+      console.info = originalInfo;
+    }
   });
 
   test("owns the auth wire, applies Den-imported credentials live, and never echoes or writes the key", async () => {
