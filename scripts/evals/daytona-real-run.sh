@@ -12,7 +12,9 @@ pnpm --dir evals install
 
 # Sandbox exec sessions have private /tmp namespaces; the artifacts volume is
 # the only log destination visible to other sessions (and over HTTP :8090).
-LOG_DIR="${OPENWORK_REAL_RUN_LOG_DIR:-/daytona-artifacts/real-run}"
+# Default to the workspace so logs are readable from any exec session and over
+# the results HTTP server; the artifacts volume restricts cross-session reads.
+LOG_DIR="${OPENWORK_REAL_RUN_LOG_DIR:-/workspace/evals/results/real-run}"
 mkdir -p "$LOG_DIR"
 exec > >(tee "$LOG_DIR/real-run.log") 2>&1
 
