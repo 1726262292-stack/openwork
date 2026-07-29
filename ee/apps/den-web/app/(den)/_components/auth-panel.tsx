@@ -457,7 +457,7 @@ export function AuthPanel({
     try {
       const { response, payload } = await requestJson(`/v1/auth/login-options?email=${encodeURIComponent(trimmedEmail)}`, { method: "GET" }, 12000);
       if (!response.ok) {
-        setLoginOptionError(getErrorMessage(payload, `Could not check sign-in options (${response.status}).`));
+        setLoginOptionError(getErrorMessage(payload, response.status === 403 ? "We could not verify this sign-in attempt. Please refresh and try again." : `Could not check sign-in options (${response.status}).`));
         return;
       }
 
