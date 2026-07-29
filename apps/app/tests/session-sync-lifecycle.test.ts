@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 
 type SyncInput = {
   workspaceId: string;
@@ -15,31 +15,9 @@ type Subscription = {
 
 const subscriptions: Subscription[] = [];
 
-mock.module("../src/app/lib/opencode", () => ({
-  createClient: (
-    baseUrl: string,
-    _directory: string | undefined,
-    options: { token: string },
-  ) => ({
-    event: {
-      subscribe: async (_body: undefined, request: { signal: AbortSignal }) => {
-        let end = () => {};
-        const ended = new Promise<void>((resolve) => {
-          end = resolve;
-        });
-        request.signal.addEventListener("abort", end, { once: true });
-        async function* stream() {
-          await ended;
-        }
-        subscriptions.push({ baseUrl, token: options.token, signal: request.signal, end });
-        return { stream: stream() };
-      },
-    },
-  }),
-}));
-
 const {
   __disposeWorkspaceSessionSyncForTest,
+  __setWorkspaceSessionSyncSubscriptionFactoryForTest,
   ensureWorkspaceSessionSync,
 } = await import("../src/react-app/domains/session/sync/session-sync");
 
@@ -56,6 +34,19 @@ function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function createSubscription(baseUrl: string, token: string, signal: AbortSignal) {
+  let end = () => {};
+  const ended = new Promise<void>((resolve) => {
+    end = resolve;
+  });
+  signal.addEventListener("abort", end, { once: true });
+  async function* stream() {
+    await ended;
+  }
+  subscriptions.push({ baseUrl, token, signal, end });
+  return stream();
+}
+
 async function waitForSubscriptions(count: number) {
   const deadline = Date.now() + 2_000;
   while (subscriptions.length < count && Date.now() < deadline) {
@@ -68,6 +59,7 @@ afterEach(() => {
   for (const syncInput of inputs) __disposeWorkspaceSessionSyncForTest(syncInput);
   inputs.length = 0;
   subscriptions.length = 0;
+  __setWorkspaceSessionSyncSubscriptionFactoryForTest(null);
   setSystemTime();
   Object.defineProperty(globalThis, "setInterval", {
     configurable: true,
@@ -78,6 +70,7 @@ afterEach(() => {
 
 describe("workspace session sync lifecycle", () => {
   test("reuses an active stream when only the token changes", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
     const first = input("https://one.example/opencode", "token-old");
     const second = input("https://one.example/opencode", "token-new");
 
@@ -95,6 +88,7 @@ describe("workspace session sync lifecycle", () => {
   });
 
   test("uses the updated token after a stream reconnects", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
     const first = input("https://one.example/opencode", "token-old");
     const second = input("https://one.example/opencode", "token-new");
     const releaseFirst = ensureWorkspaceSessionSync(first);
@@ -110,6 +104,7 @@ describe("workspace session sync lifecycle", () => {
   });
 
   test("keeps the same workspace id separate across base URLs", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
     const first = input("https://one.example/opencode", "token-one");
     const second = input("https://two.example/opencode", "token-two");
     const releaseFirst = ensureWorkspaceSessionSync(first);
@@ -127,6 +122,7 @@ describe("workspace session sync lifecycle", () => {
   });
 
   test("dispose aborts the active stream and cancels a pending retry", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
     const activeInput = input("https://one.example/opencode", "token");
     ensureWorkspaceSessionSync(activeInput);
     await waitForSubscriptions(1);
@@ -146,6 +142,7 @@ describe("workspace session sync lifecycle", () => {
   });
 
   test("the stale-stream watchdog aborts and retries", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
     Object.defineProperty(globalThis, "setInterval", {
       configurable: true,
       writable: true,

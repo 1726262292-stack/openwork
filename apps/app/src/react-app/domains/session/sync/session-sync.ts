@@ -65,6 +65,20 @@ const syncs = new Map<string, SyncEntry>();
 const retainedSessionTtlMs = 10 * 60_000;
 const idleRetainedSessionTtlMs = 10_000;
 
+type SyncSubscriptionFactory = (
+  baseUrl: string,
+  openworkToken: string,
+  signal: AbortSignal,
+) => Promise<AsyncIterable<unknown>>;
+
+const defaultSyncSubscriptionFactory: SyncSubscriptionFactory = async (baseUrl, openworkToken, signal) => {
+  const client = createClient(baseUrl, undefined, { token: openworkToken, mode: "openwork" });
+  const subscription = await client.event.subscribe(undefined, { signal });
+  return subscription.stream;
+};
+
+let syncSubscriptionFactory = defaultSyncSubscriptionFactory;
+
 export const snapshotKey = (workspaceId: string, sessionId: string) =>
   ["react-session-snapshot", workspaceId, sessionId] as const;
 export const transcriptKey = (workspaceId: string, sessionId: string) =>
@@ -1082,11 +1096,10 @@ function startSync(input: SyncOptions, entry: SyncEntry) {
     const connectionController = new AbortController();
     activeConnectionController = connectionController;
     try {
-      const client = createClient(input.baseUrl, undefined, { token: entry.openworkToken, mode: "openwork" });
-      const sub = await client.event.subscribe(undefined, { signal: connectionController.signal });
+      const stream = await syncSubscriptionFactory(input.baseUrl, entry.openworkToken, connectionController.signal);
       retryDelayMs = 1_000;
       lastEventAt = Date.now();
-      for await (const raw of sub.stream) {
+      for await (const raw of stream) {
         if (controller.signal.aborted || connectionController.signal.aborted) return;
         lastEventAt = Date.now();
         const event = normalizeEvent(raw);
@@ -1318,4 +1331,8 @@ export function __applySessionSyncEventForTest(input: SyncOptions, event: Openco
   const entry = syncs.get(syncKey(input));
   if (!entry) return;
   applyEvent(entry, input.workspaceId, event);
+}
+
+export function __setWorkspaceSessionSyncSubscriptionFactoryForTest(factory: SyncSubscriptionFactory | null) {
+  syncSubscriptionFactory = factory ?? defaultSyncSubscriptionFactory;
 }
