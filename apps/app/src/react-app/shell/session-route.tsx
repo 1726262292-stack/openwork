@@ -177,6 +177,7 @@ import { filterProviderList } from "@/app/utils/providers";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
+import { useWorkspaceEngine } from "@/react-app/domains/workspace/use-workspace-engine";
 import { useShellConfig } from "./shell-config";
 import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useEngineReload } from "./use-engine-reload";
@@ -510,6 +511,10 @@ export function SessionRoute() {
     onHostInfo: setOpenworkServerHostInfoState,
   });
   const cloudWorkspace = useCloudWorkspaceStatus();
+  const workspaceEngineQuery = useWorkspaceEngine(
+    selectedWorkspaceEndpoint?.client ?? null,
+    selectedWorkspaceEndpoint?.workspaceId ?? null,
+  );
   const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
   useEffect(() => {
     const previousStatus = previousCloudWorkspaceStatusRef.current;
@@ -2369,6 +2374,7 @@ export function SessionRoute() {
       openworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
       headerStatus={canCreateTask ? t("status.connected") : (modelUnavailableMessage ?? t("session.loading_detail"))}
+      engineIndicator={workspaceEngineQuery.data?.engine === "flue" ? t("settings.workspace_engine_indicator_flue") : null}
       busyHint={organizationModelsEmpty ? t("models.organization_models_empty") : effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}

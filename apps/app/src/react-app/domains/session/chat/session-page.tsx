@@ -55,6 +55,7 @@ import {
 import { ShareWorkspaceModal } from "../../workspace/share-workspace-modal";
 import { SessionEmptyHero } from "./session-empty-hero";
 import type { NewTaskComposerContext } from "./new-task-composer";
+import { Badge } from "@/components/ui/badge";
 import type { SessionCloudMcpMaintenanceState } from "../../connections/use-session-mcp-maintenance";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
@@ -179,6 +180,7 @@ export type SessionPageProps = {
   openworkServerToken?: string | null;
   developerMode: boolean;
   headerStatus: string;
+  engineIndicator?: string | null;
   busyHint: string | null;
   startupPhase: BootPhase;
   providerConnectedIds: string[];
@@ -1077,6 +1079,11 @@ export function SessionPage(props: SessionPageProps) {
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
+              {props.engineIndicator ? (
+                <Badge variant="outline" className="border-amber-7/40 bg-amber-3 text-amber-11">
+                  {props.engineIndicator}
+                </Badge>
+              ) : null}
               {props.developerMode ? (
                 <span className="hidden text-[12px] text-dls-secondary lg:inline">
                   {props.headerStatus}
