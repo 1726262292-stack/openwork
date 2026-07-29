@@ -91,6 +91,18 @@ updates directly to `dev`. That is expected under branch protection. Get that PR
 reviewed and squash/rebase-merged, then rerun the release workflow with the same
 tag so the AUR publish step can observe that packaging is already up to date.
 
+When the workflow opens an AUR packaging PR, immediately inform the user with
+the PR URL and the next required action. Then use the `question` tool to ask
+exactly:
+
+> Has the PR been merged?
+
+Offer `Yes` and `No` options. Continue the release only when the user answers
+`Yes`. If the user answers `No`, do not proceed; wait a few minutes, check the
+PR merge status with `gh pr view <pr-url> --json merged,state`, and ask the same
+question again. Repeat this sleep/check/question loop until the PR is merged or
+the user explicitly stops the release.
+
 ---
 
 ## Verify
