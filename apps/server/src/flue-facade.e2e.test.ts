@@ -2,10 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { hasRegisteredProvider, resolveModel } from "@flue/runtime/internal";
 import type { Provider } from "@openwork/engine-protocol";
 
 import { FLUE_CATALOG_CACHE_FILE, FlueCatalogBridge, resetFlueCatalogCacheForTest } from "./flue/catalog.js";
+import { setFlueFauxResponsesForTest } from "./flue/facade.js";
 import { openworkRuntimeConfigFilePath, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import { writeGlobalRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
@@ -79,6 +81,85 @@ function startMockOpencode() {
   });
   stops.push(() => server.stop(true));
   return { server, requests };
+}
+
+function startMockMcpServer() {
+  const authorizationValues: string[] = [];
+  const toolCalls: string[] = [];
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(request) {
+      const authorization = request.headers.get("authorization");
+      if (authorization) authorizationValues.push(authorization);
+      if (request.method === "DELETE") {
+        return new Response(null, { status: 200 });
+      }
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const payload: unknown = await request.json();
+      if (!isRecord(payload) || typeof payload.method !== "string") {
+        return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } }, { status: 400 });
+      }
+      if (payload.method === "notifications/initialized") return new Response(null, { status: 202 });
+      const id = payload.id ?? null;
+      if (payload.method === "initialize") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: "2025-03-26",
+            capabilities: { tools: {} },
+            serverInfo: { name: "openwork-flue-test", version: "1.0.0" },
+          },
+        }, { headers: { "Mcp-Session-Id": "flue-test-session" } });
+      }
+      if (payload.method === "tools/list") {
+        return Response.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            tools: [
+              {
+                name: "search_capabilities",
+                description: "Search connected capabilities.",
+                inputSchema: {
+                  type: "object",
+                  properties: { query: { type: "string" } },
+                  required: ["query"],
+                },
+              },
+              {
+                name: "execute_capability",
+                description: "Execute a connected capability.",
+                inputSchema: {
+                  type: "object",
+                  properties: { name: { type: "string" } },
+                  required: ["name"],
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (payload.method === "tools/call") {
+        const params = isRecord(payload.params) ? payload.params : {};
+        const name = readStringField(params, "name");
+        toolCalls.push(name);
+        return Response.json({
+          jsonrpc: "2.0",
+          id,
+          result: { content: [{ type: "text", text: `mock result from ${name}` }] },
+        });
+      }
+      return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+    },
+  });
+  stops.push(() => server.stop(true));
+  return {
+    url: `http://127.0.0.1:${server.port}/mcp`,
+    authorizationValues,
+    toolCalls,
+  };
 }
 
 async function startOpenworkServer(workspaceRoot: string, opencodeBaseUrl: string) {
@@ -234,6 +315,18 @@ function messageInfo(value: unknown, role: "user" | "assistant"): Record<string,
   if (!Array.isArray(value)) return null;
   for (const message of value) {
     if (isRecord(message) && isRecord(message.info) && message.info.role === role) return message.info;
+  }
+  return null;
+}
+
+function completedToolPart(value: unknown, toolName: string): Record<string, unknown> | null {
+  if (!Array.isArray(value)) return null;
+  for (const message of value) {
+    if (!isRecord(message) || !Array.isArray(message.parts)) continue;
+    for (const part of message.parts) {
+      if (!isRecord(part) || part.type !== "tool" || part.tool !== toolName || !isRecord(part.state)) continue;
+      if (part.state.status === "completed") return part;
+    }
   }
   return null;
 }
@@ -736,5 +829,161 @@ describe("Flue opencode-wire facade", () => {
     const nullRemovedProviderBody = await nullRemovedProviderResponse.text();
     expect(nullRemovedProviderResponse.status).toBe(200);
     expect(nullRemovedProviderBody).not.toContain('"connected":["flue","den-import"]');
+  });
+
+  test("connects, projects, invokes, isolates, and refreshes runtime MCP servers over the served wire", async () => {
+    const mcpToken = "Bearer flue-mcp-secret-token";
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const mcp = startMockMcpServer();
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    const initialMcp = {
+      "openwork-cloud": {
+        type: "remote",
+        url: mcp.url,
+        headers: { Authorization: mcpToken },
+        oauth: false,
+        enabled: true,
+      },
+      local: { type: "local", command: ["node", "local-mcp.js"], enabled: true },
+      unreachable: { type: "remote", url: "http://127.0.0.1:1/mcp", enabled: true, timeout: 250 },
+    } satisfies Record<string, Record<string, unknown>>;
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({ mcp: initialMcp }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const warningLogs: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...data: unknown[]) => warningLogs.push(data);
+    try {
+      const statusResponse = await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) });
+      const statusText = await statusResponse.text();
+      expect(statusResponse.status).toBe(200);
+      expect(JSON.parse(statusText)).toEqual({
+        local: { status: "failed", error: "unsupported_transport_stdio" },
+        "openwork-cloud": { status: "connected" },
+        unreachable: { status: "failed", error: "connection_failed" },
+      });
+      expect(statusText).not.toContain(mcpToken);
+
+      const idsResponse = await fetch(`${base}/w/ws_1/opencode/experimental/tool/ids`, { headers: auth(token) });
+      const idsText = await idsResponse.text();
+      expect(idsResponse.status).toBe(200);
+      expect(JSON.parse(idsText)).toEqual([
+        "openwork-cloud_execute_capability",
+        "openwork-cloud_search_capabilities",
+      ]);
+      expect(idsText).not.toContain(mcpToken);
+
+      const toolsResponse = await fetch(
+        `${base}/w/ws_1/opencode/experimental/tool?provider=flue&model=default`,
+        { headers: auth(token) },
+      );
+      const toolsText = await toolsResponse.text();
+      expect(toolsResponse.status).toBe(200);
+      expect(JSON.parse(toolsText)).toEqual([
+        {
+          id: "openwork-cloud_execute_capability",
+          description: 'MCP tool "execute_capability" from server "openwork-cloud". Execute a connected capability.',
+          parameters: {
+            type: "object",
+            properties: { name: { type: "string" } },
+            required: ["name"],
+          },
+        },
+        {
+          id: "openwork-cloud_search_capabilities",
+          description: 'MCP tool "search_capabilities" from server "openwork-cloud". Search connected capabilities.',
+          parameters: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+          },
+        },
+      ]);
+      expect(toolsText).not.toContain(mcpToken);
+
+      const providerResponse = await fetch(`${base}/w/ws_1/opencode/provider`, { headers: auth(token) });
+      expect(providerResponse.status).toBe(200);
+
+      const created = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ title: "Flue MCP tool call" }),
+      }));
+      const sessionId = sessionIdFromCreateResponse(created);
+      setFlueFauxResponsesForTest([
+        fauxAssistantMessage([
+          fauxToolCall("mcp__openwork-cloud__search_capabilities", { query: "calendar" }),
+        ], { stopReason: "toolUse" }),
+        fauxAssistantMessage([fauxText("The cloud capability is available.")]),
+      ]);
+      const promptResponse = await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(sessionId)}/prompt_async`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({
+          model: { providerID: "flue", modelID: "default" },
+          parts: [{ type: "text", text: "Search cloud capabilities." }],
+        }),
+      });
+      expect(promptResponse.status).toBe(204);
+      const messages = await waitForCompletedMessages(base, token, sessionId);
+      const toolPart = completedToolPart(messages, "mcp__openwork-cloud__search_capabilities");
+      expect(toolPart).toMatchObject({ state: { status: "completed" } });
+      expect(readStringField(toolPart?.state, "output")).toContain("mock result from search_capabilities");
+      expect(mcp.toolCalls).toContain("search_capabilities");
+
+      const dynamicAdd = await fetch(`${base}/w/ws_1/opencode/mcp`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ name: "dynamic", config: { type: "remote", url: mcp.url, enabled: true } }),
+      });
+      expect(dynamicAdd.status).toBe(200);
+      expect(await dynamicAdd.json()).toMatchObject({ dynamic: { status: "connected" } });
+      await fetch(`${base}/w/ws_1/opencode/mcp`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ name: "dynamic", config: { type: "remote", url: mcp.url, enabled: true } }),
+      });
+      const dynamicIds = await readJson(await fetch(`${base}/w/ws_1/opencode/experimental/tool/ids`, { headers: auth(token) }));
+      expect(dynamicIds).toEqual(expect.arrayContaining(["dynamic_search_capabilities"]));
+
+      const disconnect = await fetch(`${base}/w/ws_1/opencode/mcp/dynamic/disconnect`, {
+        method: "POST",
+        headers: auth(token),
+      });
+      expect({ status: disconnect.status, body: await disconnect.json() }).toEqual({ status: 200, body: true });
+      const disconnectedStatus = await readJson(await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) }));
+      expect(disconnectedStatus).toMatchObject({ dynamic: { status: "disabled" } });
+      const connect = await fetch(`${base}/w/ws_1/opencode/mcp/dynamic/connect`, {
+        method: "POST",
+        headers: auth(token),
+      });
+      expect({ status: connect.status, body: await connect.json() }).toEqual({ status: 200, body: true });
+
+      await writeGlobalRuntimeOpencodeConfig(config, () => ({
+        mcp: {
+          ...initialMcp,
+          "runtime-added": { type: "remote", url: mcp.url, enabled: true },
+        },
+      }));
+      const refreshedIds = await readJson(await fetch(`${base}/w/ws_1/opencode/experimental/tool/ids`, { headers: auth(token) }));
+      expect(refreshedIds).toEqual(expect.arrayContaining([
+        "runtime-added_execute_capability",
+        "runtime-added_search_capabilities",
+      ]));
+
+      expect(mcp.authorizationValues).toContain(mcpToken);
+      expect(JSON.stringify(warningLogs)).not.toContain(mcpToken);
+      const stateFileContent = await readFile(join(workspaceRoot, ".opencode", "openwork", "flue-state.json"), "utf8");
+      expect(stateFileContent).not.toContain(mcpToken);
+    } finally {
+      setFlueFauxResponsesForTest([]);
+      console.warn = originalWarn;
+    }
   });
 });

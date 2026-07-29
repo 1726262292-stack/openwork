@@ -1,19 +1,30 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider, type FauxProviderRegistration } from "@earendil-works/pi-ai/compat";
 import {
+  fauxAssistantMessage,
+  getApiProvider,
+  registerFauxProvider,
+  type FauxProviderRegistration,
+  type FauxResponseStep,
+} from "@earendil-works/pi-ai/compat";
+import {
+  connectMcpServer,
   defineAgent,
   observe,
   registerProvider,
   type CallHandle,
   type FileStat,
   type FlueObservation,
+  type McpServerConnection,
+  type McpTransport,
   type PromptResponse,
   type SandboxFactory,
   type SessionEnv,
   type ShellResult,
+  type ToolDefinition,
 } from "@flue/runtime";
 import { createFlueContext, hasRegisteredProvider, resetProviderRuntime, resolveModel } from "@flue/runtime/internal";
 import {
@@ -31,6 +42,7 @@ import type {
   EngineEvent,
   GlobalHealthResponse,
   LspStatus,
+  McpStatus,
   McpStatusMap,
   Message,
   MessageWithParts,
@@ -49,6 +61,7 @@ import type {
 } from "@openwork/engine-protocol";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
+import { readEffectiveRuntimeOpencodeConfig, runtimeMcpMap } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
 import {
@@ -98,11 +111,30 @@ type InFlightPrompt = {
 
 type EventListener = (event: EngineEvent) => void;
 
+type FlueMcpTool = {
+  id: string;
+  definition: ToolDefinition;
+  parameters: unknown;
+};
+
+type FlueMcpConnection = {
+  fingerprint: string;
+  connection: McpServerConnection;
+  tools: FlueMcpTool[];
+};
+
+type DynamicMcpEntry = {
+  config: Record<string, unknown>;
+  effectiveFingerprint: string | null;
+};
+
 const FLUE_PROVIDER_ID = "flue";
 const FLUE_MODEL_ID = "default";
 const FLUE_MODEL_SPEC = `${FLUE_PROVIDER_ID}/${FLUE_MODEL_ID}`;
 const DEFAULT_AGENT = "openwork";
 const STATE_FILE = join(".opencode", "openwork", "flue-state.json");
+const DEFAULT_MCP_TIMEOUT_MS = 5_000;
+const MAX_MCP_TIMEOUT_MS = 30_000;
 
 const ZERO_TOKENS = {
   input: 0,
@@ -191,6 +223,7 @@ const configFacades = new WeakMap<ServerConfig, Map<string, FlueWorkspaceFacade>
 const facadeByInstanceId = new Map<string, FlueWorkspaceFacade>();
 let observerInstalled = false;
 let fauxProvider: FauxProviderRegistration | null = null;
+let fauxResponsesForTest: FauxResponseStep[] | null = null;
 
 function installFlueObserver(): void {
   if (observerInstalled) return;
@@ -203,7 +236,7 @@ function installFlueObserver(): void {
 }
 
 function ensureFauxProvider(): FauxProviderRegistration {
-  if (!fauxProvider) {
+  if (!fauxProvider || !getApiProvider(fauxProvider.api)) {
     fauxProvider = registerFauxProvider({
       api: "openwork-flue-faux",
       provider: FLUE_PROVIDER_ID,
@@ -221,6 +254,10 @@ function ensureFauxProvider(): FauxProviderRegistration {
   return fauxProvider;
 }
 
+export function setFlueFauxResponsesForTest(responses: FauxResponseStep[]): void {
+  fauxResponsesForTest = responses;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -231,6 +268,75 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function mcpConfigFingerprint(config: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(config)).digest("hex");
+}
+
+function mcpTransport(config: Record<string, unknown>): McpTransport {
+  if (config.transport === "sse") return "sse";
+  if (config.transport === "streamable-http") return "streamable-http";
+  const url = stringValue(config.url);
+  if (!url) return "streamable-http";
+  try {
+    return new URL(url).pathname.replace(/\/+$/, "").endsWith("/sse") ? "sse" : "streamable-http";
+  } catch {
+    return "streamable-http";
+  }
+}
+
+function mcpTimeoutMs(config: Record<string, unknown>): number {
+  const configured = numberValue(config.timeout) ?? numberValue(config.timeoutMs);
+  if (configured === null || configured <= 0) return DEFAULT_MCP_TIMEOUT_MS;
+  return Math.min(Math.max(Math.round(configured), 100), MAX_MCP_TIMEOUT_MS);
+}
+
+function mcpHeaders(config: Record<string, unknown>): Record<string, string> | undefined {
+  if (!isRecord(config.headers)) return undefined;
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(config.headers)) {
+    if (typeof value === "string") headers[name] = value;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function sanitizeMcpToolNamePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_-]/g, "_").replace(/^_+|_+$/g, "") || "unnamed";
+}
+
+function flueMcpToolParameters(tool: ToolDefinition): unknown {
+  for (const symbol of Object.getOwnPropertySymbols(tool)) {
+    if (symbol.description !== "flue.preparedToolAdapter") continue;
+    const adapter: unknown = Reflect.get(tool, symbol);
+    if (isRecord(adapter) && Object.hasOwn(adapter, "parameters")) return adapter.parameters;
+  }
+  return { type: "object", properties: {} };
+}
+
+function projectMcpTools(serverName: string, tools: ToolDefinition[]): FlueMcpTool[] {
+  const prefix = `mcp__${sanitizeMcpToolNamePart(serverName)}__`;
+  return tools.flatMap((definition) => {
+    if (!definition.name.startsWith(prefix)) return [];
+    const toolName = definition.name.slice(prefix.length);
+    if (!toolName) return [];
+    return [{
+      id: `${serverName}_${toolName}`,
+      definition,
+      parameters: flueMcpToolParameters(definition),
+    }];
+  });
+}
+
+function mcpConnectionFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (error instanceof DOMException && error.name === "AbortError") return "connection_timeout";
+  if (message.includes("timeout") || message.includes("timed out")) return "connection_timeout";
+  if (message.includes("401") || message.includes("403") || message.includes("unauthorized") || message.includes("forbidden")) {
+    return "authentication_failed";
+  }
+  if (message.includes("json") || message.includes("parse") || message.includes("schema")) return "invalid_server_response";
+  return "connection_failed";
 }
 
 function decodePathSegment(value: string): string {
@@ -913,9 +1019,17 @@ class FlueWorkspaceFacade {
   private readonly activeCalls = new Map<string, CallHandle<PromptResponse>>();
   private loadPromise: Promise<void> | null = null;
   private saveQueue: Promise<void> = Promise.resolve();
+  private mcpQueue: Promise<void> = Promise.resolve();
   private state: FluePersistedState = { sessions: [] };
   private harness: FlueHarness | null = null;
+  private readonly mcpConnections = new Map<string, FlueMcpConnection>();
+  private readonly mcpStatuses = new Map<string, McpStatus>();
+  private readonly dynamicMcpEntries = new Map<string, DynamicMcpEntry>();
+  private readonly effectiveMcpFingerprints = new Map<string, string>();
+  private readonly desiredMcpFingerprints = new Map<string, string>();
+  private readonly disconnectedMcpNames = new Set<string>();
   private loggedProviderMaterializationFailure = false;
+  private loggedMcpRuntimeFailure = false;
 
   constructor(private readonly config: ServerConfig, private readonly workspace: WorkspaceInfo) {
     this.workspacePath = workspace.path;
@@ -934,6 +1048,11 @@ class FlueWorkspaceFacade {
     await this.ready();
     const path = normalizedOpencodePath(proxyPath);
     const method = request.method.toUpperCase();
+    if (method === "POST" && path === "/instance/dispose") {
+      await this.disposeMcpState();
+      return jsonResponse(true);
+    }
+    await this.syncMcpFromRuntime();
     if (method === "GET" && path === "/global/health") {
       const health: GlobalHealthResponse = { healthy: true, version: "flue-compat-v1" };
       return jsonResponse(health);
@@ -974,7 +1093,21 @@ class FlueWorkspaceFacade {
     if (method === "GET" && path === "/command") return jsonResponse(this.commandList());
     if (method === "GET" && path === "/lsp") return jsonResponse(this.lspStatus());
     if (method === "GET" && path === "/mcp") return jsonResponse(this.mcpStatus());
-    if (method === "POST" && path === "/mcp") return jsonResponse(this.mcpStatus());
+    if (method === "POST" && path === "/mcp") {
+      const body = await readJsonBody(request);
+      const name = stringValue(body.name);
+      if (!name || !isRecord(body.config)) throw new ApiError(400, "invalid_payload", "MCP name and config are required");
+      await this.addMcp(name, body.config);
+      return jsonResponse(this.mcpStatus());
+    }
+    const mcpMatch = path.match(/^\/mcp\/([^/]+)\/(connect|disconnect)$/);
+    if (method === "POST" && mcpMatch?.[1] && mcpMatch[2]) {
+      const name = decodePathSegment(mcpMatch[1]).trim();
+      if (!name) throw new ApiError(400, "invalid_payload", "MCP name is required");
+      if (mcpMatch[2] === "connect") await this.connectMcp(name);
+      else await this.disconnectMcp(name);
+      return jsonResponse(true);
+    }
     if (method === "GET" && path === "/question") return jsonResponse([]);
     if (method === "GET" && path === "/permission") return jsonResponse([]);
     if (method === "GET" && path === "/experimental/tool") return jsonResponse(this.toolList());
@@ -1297,7 +1430,12 @@ class FlueWorkspaceFacade {
       session = await harness.sessions.create(sessionId);
     }
     if (modelSpec === FLUE_MODEL_SPEC) {
-      ensureFauxProvider().appendResponses([fauxAssistantMessage(flueResponseText(text))]);
+      const provider = ensureFauxProvider();
+      if (fauxResponsesForTest) {
+        provider.setResponses(fauxResponsesForTest);
+        fauxResponsesForTest = null;
+      }
+      if (provider.getPendingResponseCount() === 0) provider.appendResponses([fauxAssistantMessage(flueResponseText(text))]);
     }
     return { handle: session.prompt(text, { model: modelSpec }) };
   }
@@ -1351,6 +1489,7 @@ class FlueWorkspaceFacade {
   }
 
   private async ensureHarness(defaultModelSpec: string): Promise<FlueHarness> {
+    await this.syncMcpFromRuntime();
     if (this.harness) return this.harness;
     const workspace = this.workspace;
     const sandbox = await createLocalSandbox(workspace.path);
@@ -1358,6 +1497,7 @@ class FlueWorkspaceFacade {
       model: defaultModelSpec,
       cwd: workspace.path,
       sandbox,
+      tools: this.connectedMcpTools().map((tool) => tool.definition),
       instructions: "You are OpenWork running through the in-process Flue compatibility facade.",
     }));
     const context = createFlueContext({
@@ -1468,8 +1608,184 @@ class FlueWorkspaceFacade {
     return [];
   }
 
+  private syncMcpFromRuntime(forceNames: string[] = []): Promise<void> {
+    const next = this.mcpQueue.then(() => this.reconcileMcpFromRuntime(new Set(forceNames)));
+    this.mcpQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async reconcileMcpFromRuntime(forceNames: Set<string>): Promise<void> {
+    let effectiveMap: Record<string, Record<string, unknown>>;
+    try {
+      effectiveMap = runtimeMcpMap(await readEffectiveRuntimeOpencodeConfig(this.config, this.workspace.id));
+      this.loggedMcpRuntimeFailure = false;
+    } catch {
+      if (!this.loggedMcpRuntimeFailure) {
+        this.loggedMcpRuntimeFailure = true;
+        console.warn("[flue-mcp] runtime MCP config could not be read", { reason: "runtime_config_unavailable" });
+      }
+      return;
+    }
+
+    const nextEffectiveFingerprints = new Map<string, string>();
+    for (const [name, config] of Object.entries(effectiveMap)) {
+      nextEffectiveFingerprints.set(name, mcpConfigFingerprint(config));
+    }
+    for (const [name, entry] of this.dynamicMcpEntries) {
+      const currentEffective = nextEffectiveFingerprints.get(name) ?? null;
+      if (currentEffective !== entry.effectiveFingerprint) this.dynamicMcpEntries.delete(name);
+    }
+    this.effectiveMcpFingerprints.clear();
+    for (const [name, fingerprint] of nextEffectiveFingerprints) this.effectiveMcpFingerprints.set(name, fingerprint);
+
+    const desiredMap: Record<string, Record<string, unknown>> = { ...effectiveMap };
+    for (const [name, entry] of this.dynamicMcpEntries) desiredMap[name] = entry.config;
+    let harnessChanged = false;
+
+    for (const name of [...this.desiredMcpFingerprints.keys()]) {
+      if (Object.hasOwn(desiredMap, name)) continue;
+      harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+      this.mcpStatuses.delete(name);
+      this.desiredMcpFingerprints.delete(name);
+      this.disconnectedMcpNames.delete(name);
+    }
+
+    const connectionTasks: Promise<void>[] = [];
+    for (const [name, config] of Object.entries(desiredMap)) {
+      const fingerprint = mcpConfigFingerprint(config);
+      const previousFingerprint = this.desiredMcpFingerprints.get(name);
+      if (previousFingerprint !== fingerprint) this.disconnectedMcpNames.delete(name);
+      this.desiredMcpFingerprints.set(name, fingerprint);
+
+      if (this.disconnectedMcpNames.has(name) || config.enabled === false) {
+        harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+        this.mcpStatuses.set(name, { status: "disabled" });
+        continue;
+      }
+      if (config.type === "local") {
+        harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+        this.mcpStatuses.set(name, { status: "failed", error: "unsupported_transport_stdio" });
+        continue;
+      }
+      if (!this.isValidRemoteMcpConfig(config)) {
+        harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+        this.mcpStatuses.set(name, { status: "failed", error: "invalid_remote_config" });
+        continue;
+      }
+
+      const existing = this.mcpConnections.get(name);
+      const shouldForce = forceNames.has(name);
+      if (existing?.fingerprint === fingerprint && !shouldForce) {
+        this.mcpStatuses.set(name, { status: "connected" });
+        continue;
+      }
+      if (previousFingerprint === fingerprint && this.mcpStatuses.get(name)?.status === "failed" && !shouldForce) continue;
+
+      connectionTasks.push((async () => {
+        try {
+          const headers = mcpHeaders(config);
+          const connection = await connectMcpServer(name, {
+            url: stringValue(config.url) ?? "",
+            transport: mcpTransport(config),
+            ...(headers ? { headers } : {}),
+            timeoutMs: mcpTimeoutMs(config),
+          });
+          const previous = this.mcpConnections.get(name);
+          this.mcpConnections.set(name, {
+            fingerprint,
+            connection,
+            tools: projectMcpTools(name, connection.tools),
+          });
+          this.mcpStatuses.set(name, { status: "connected" });
+          harnessChanged = true;
+          if (previous) await previous.connection.close().catch(() => undefined);
+        } catch (error) {
+          const reason = mcpConnectionFailureCode(error);
+          harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+          this.mcpStatuses.set(name, { status: "failed", error: reason });
+          console.warn("[flue-mcp] MCP connection failed", { name, reason });
+        }
+      })());
+    }
+    await Promise.all(connectionTasks);
+    if (harnessChanged) this.harness = null;
+  }
+
+  private isValidRemoteMcpConfig(config: Record<string, unknown>): boolean {
+    if (config.type !== "remote") return false;
+    const url = stringValue(config.url);
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  private async addMcp(name: string, config: Record<string, unknown>): Promise<void> {
+    if (!/^[A-Za-z0-9_][A-Za-z0-9_-]*$/.test(name)) throw new ApiError(400, "invalid_mcp_name", "Invalid MCP name");
+    if (config.type === "local") {
+      if (!Array.isArray(config.command) || config.command.length === 0 || config.command.some((part) => typeof part !== "string" || !part.trim())) {
+        throw new ApiError(400, "invalid_mcp_config", "Local MCP requires a command array");
+      }
+    } else if (!this.isValidRemoteMcpConfig(config)) {
+      throw new ApiError(400, "invalid_mcp_config", "Remote MCP requires a valid http(s) URL");
+    }
+    this.dynamicMcpEntries.set(name, {
+      config,
+      effectiveFingerprint: this.effectiveMcpFingerprints.get(name) ?? null,
+    });
+    this.disconnectedMcpNames.delete(name);
+    await this.syncMcpFromRuntime([name]);
+  }
+
+  private async connectMcp(name: string): Promise<void> {
+    if (!this.desiredMcpFingerprints.has(name)) throw new ApiError(404, "mcp_not_found", "MCP server not found");
+    this.disconnectedMcpNames.delete(name);
+    await this.syncMcpFromRuntime([name]);
+  }
+
+  private async disconnectMcp(name: string): Promise<void> {
+    if (this.desiredMcpFingerprints.has(name)) {
+      this.disconnectedMcpNames.add(name);
+      this.mcpStatuses.set(name, { status: "disabled" });
+    }
+    if (await this.closeMcpConnection(name)) this.harness = null;
+  }
+
+  private async closeMcpConnection(name: string): Promise<boolean> {
+    const current = this.mcpConnections.get(name);
+    if (!current) return false;
+    this.mcpConnections.delete(name);
+    await current.connection.close().catch(() => undefined);
+    return true;
+  }
+
+  private connectedMcpTools(): FlueMcpTool[] {
+    return [...this.mcpConnections.values()]
+      .flatMap((entry) => entry.tools)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private async disposeMcpState(): Promise<void> {
+    const next = this.mcpQueue.then(async () => {
+      const connections = [...this.mcpConnections.values()];
+      this.mcpConnections.clear();
+      await Promise.all(connections.map((entry) => entry.connection.close().catch(() => undefined)));
+      this.mcpStatuses.clear();
+      this.dynamicMcpEntries.clear();
+      this.effectiveMcpFingerprints.clear();
+      this.desiredMcpFingerprints.clear();
+      this.disconnectedMcpNames.clear();
+      this.harness = null;
+    });
+    this.mcpQueue = next.catch(() => undefined);
+    await next;
+  }
+
   private mcpStatus(): McpStatusMap {
-    return {};
+    return Object.fromEntries([...this.mcpStatuses.entries()].sort(([left], [right]) => left.localeCompare(right)));
   }
 
   private projectList(): Project[] {
@@ -1478,11 +1794,15 @@ class FlueWorkspaceFacade {
   }
 
   private toolList(): ToolList {
-    return [];
+    return this.connectedMcpTools().map((tool) => ({
+      id: tool.id,
+      description: tool.definition.description,
+      parameters: tool.parameters,
+    }));
   }
 
   private toolIds(): ToolIds {
-    return [];
+    return this.connectedMcpTools().map((tool) => tool.id);
   }
 
   private async load(): Promise<void> {
@@ -1493,6 +1813,7 @@ class FlueWorkspaceFacade {
     } catch {
       this.state = { sessions: [] };
     }
+    await this.syncMcpFromRuntime();
   }
 
   private save(): Promise<void> {
