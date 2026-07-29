@@ -20,12 +20,17 @@ export interface Surface {
   client: CdpClient;
 }
 
-export async function attachSurface(handle: SurfaceHandle, opts: { timeoutMs?: number } = {}): Promise<Surface> {
+export interface AttachedSurface extends Surface, AsyncDisposable {
+  stop(): Promise<void>;
+}
+
+export async function attachSurface(handle: SurfaceHandle, opts: { timeoutMs?: number } = {}): Promise<AttachedSurface> {
   await waitForCdp(handle.cdpUrl, { timeoutMs: opts.timeoutMs ?? 30_000 });
   const target: CdpTarget = handle.kind === "electron"
     ? await pickAppTarget(handle.cdpUrl)
     : await firstPageTarget(handle.cdpUrl);
   const client = await connect(debuggerUrlFor(handle.cdpUrl, target));
   await client.send("Page.enable").catch(() => undefined);
-  return { handle, client };
+  const stop = async (): Promise<void> => client.close();
+  return { handle, client, stop, [Symbol.asyncDispose]: stop };
 }

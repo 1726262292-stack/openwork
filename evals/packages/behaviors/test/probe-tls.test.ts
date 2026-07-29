@@ -1,0 +1,22 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { startEgressLab } from "@openwork/labs";
+import { diagnoseTls } from "@openwork/matchers";
+import { probeTls } from "../src/diagnostics.ts";
+
+test("probeTls and diagnoseTls identify a TLS 1.3-only stall without the eval framework", async () => {
+  await using lab = await startEgressLab({ profile: "tls12-only" });
+  const url = new URL(lab.url);
+  const facts = await probeTls({
+    host: url.hostname,
+    port: Number(url.port),
+    servername: url.hostname,
+    ca: lab.rootPem,
+  });
+
+  assert.equal(facts.tls12.ok, true);
+  assert.equal(facts.tls12.protocol, "TLSv1.2");
+  assert.equal(facts.tls13.stalled, true);
+  assert.equal(facts.tls13.errorCode, "ETIMEDOUT");
+  assert.equal(diagnoseTls(facts).code, "tls_handshake_stall_tls13_only");
+});

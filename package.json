@@ -60,6 +60,8 @@
     "fraimz": "node evals/runner/run.mjs --mode demo",
     "evals:typecheck": "tsc -p evals",
     "evals:test": "node --test evals/runner/*.test.ts evals/packages/*/test/*.test.ts",
+    "evals:spec": "vitest run --config evals/vitest.config.ts --project pr",
+    "evals:spec:nightly": "vitest run --config evals/vitest.config.ts",
     "owt": "node evals/runner/run-owt.mjs",
     "bump:patch": "pnpm --filter @openwork/app bump:patch",
     "bump:minor": "pnpm --filter @openwork/app bump:minor",
@@ -72,9 +74,12 @@
     "release:ship:watch": "node scripts/release/ship.mjs --watch"
   },
   "devDependencies": {
+    "@openwork/behaviors": "workspace:*",
+    "@openwork/matchers": "workspace:*",
     "@types/node": "^24.0.0",
     "turbo": "^2.5.5",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
   },
   "packageManager": "pnpm@11.4.0"
 }
