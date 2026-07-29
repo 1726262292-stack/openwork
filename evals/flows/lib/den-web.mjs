@@ -102,6 +102,29 @@ export async function signInViaBrowser(ctx, email, password) {
     })()`,
     { timeoutMs: 30_000, label: "signed-in dashboard or organization chooser" },
   );
+
+  const chooserVisible = await ctx.eval(
+    "Boolean(document.querySelector('[data-testid=\"org-chooser-root\"]'))",
+  );
+  if (chooserVisible) {
+    const selected = await ctx.eval(`(() => {
+      const list = document.querySelector('[data-testid="org-chooser-list"]');
+      if (!list) return false;
+      const button = list.querySelector('button:not([disabled])');
+      button?.click();
+      return Boolean(button);
+    })()`);
+    ctx.assert(selected, "No selectable organization found.");
+    await ctx.waitFor(
+      `(() => {
+        const text = document.body?.innerText ?? '';
+        return location.pathname.startsWith('/dashboard')
+          && !document.querySelector('[data-testid="org-chooser-root"]')
+          && text.includes('Dashboard');
+      })()`,
+      { timeoutMs: 60_000, label: "selected organization dashboard" },
+    );
+  }
 }
 
 export async function openAdminConnections(ctx) {
