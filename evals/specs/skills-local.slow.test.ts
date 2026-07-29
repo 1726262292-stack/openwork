@@ -1,10 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { attachSurface } from "@openwork/cdp";
-import { fraimz } from "@openwork/fraimz";
+import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
   clickText,
   ensureFreshWorkspace,
+  ensureReadyWorkspace,
   evalIn,
   go,
   measureLoadedSkills,
@@ -21,31 +22,31 @@ const title = cdpUrl
   : "skills local skipped: set OPENWORK_EVAL_CDP_URL to attach a running app";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
-async function createSession(app: Awaited<ReturnType<typeof attachSurface>>): Promise<void> {
-  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
-    timeoutMs: 60_000,
-    label: "session.create_task enabled",
-  });
-  await evalIn(app, `window.__openworkControl.execute("session.create_task", null)`, { awaitPromise: true });
-  await waitFor(app, `window.location.hash.includes("/session/")`, { timeoutMs: 60_000, label: "created session route" });
-}
-
-test.skipIf(!cdpUrl)(title, async ({ annotate }) => {
+test.skipIf(!cdpUrl)(title, async () => {
   await using app = await attachSurface({
     name: "running-app",
     kind: "electron",
     hostKind: "attached",
     cdpUrl,
   });
-  const frame = fraimz((message, attachment) => annotate(message, typeof attachment === "string" ? attachment : undefined));
+  await using roll = photoRoll("skills-local");
+  await ensureReadyWorkspace(app, { path: repoRoot });
   const workspaceId = await ensureFreshWorkspace(app, { path: repoRoot });
   await go(app, `/workspace/${workspaceId}/session`);
-  await createSession(app);
+  await ensureReadyWorkspace(app, { path: repoRoot });
 
   try {
     const capabilities = await readComposerCapabilities(app);
     expect(capabilities.sections).toEqual(["Agents", "Commands", "Skills", "Extensions"]);
-    await frame(app, "skills-1-composer-capability-sections");
+    {
+      const shot = await screenshot(app);
+      const seen = await validate(shot, [
+        "The composer capability menu visibly shows Agents, Commands, Skills, and Extensions",
+        "No loading failure or 'Something went wrong' crash message is visible",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+      await roll.add(shot, seen);
+    }
 
     const firstLoad = await measureLoadedSkills(app);
     expect(firstLoad.rowCount).toBeGreaterThanOrEqual(10);
@@ -53,21 +54,48 @@ test.skipIf(!cdpUrl)(title, async ({ annotate }) => {
     expect(firstLoad.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
     expect(firstLoad.skills.some((skill) => skill.name === "/browser-automation" && skill.local)).toBe(true);
     expect(firstLoad.loadingCommandsVisible).toBe(false);
-    await frame(app, "skills-2-local-skills-fast");
+    {
+      const shot = await screenshot(app);
+      const seen = await validate(shot, [
+        "The Skills list visibly includes the local browser-automation skill",
+        "No Loading commands state or 'Something went wrong' crash message is visible",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+      await roll.add(shot, seen);
+    }
 
     const extensions = await readLoadedExtensions(app);
     expect(extensions.some((label) => label.includes("OpenWork Browser"))).toBe(true);
     expect(await evalIn(app, `document.body.innerText.includes("Loading commands")`)).toBe(false);
-    await frame(app, "skills-3-extensions-settled");
+    {
+      const shot = await screenshot(app);
+      const seen = await validate(shot, [
+        "The Extensions list visibly includes OpenWork Browser",
+        "No Loading commands state or 'Something went wrong' crash message is visible",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+      await roll.add(shot, seen);
+    }
 
     await clickText(app, "New session", { timeoutMs: 30_000 });
-    await waitFor(app, `window.location.hash.includes("/session/")`, { timeoutMs: 30_000, label: "new session route" });
+    await waitFor(app, `/^#\\/workspace\\/[^/?#]+\\/session\\/ses_[^/?#]+/.test(window.location.hash)`, {
+      timeoutMs: 30_000,
+      label: "new session id route",
+    });
     const coldLoad = await measureLoadedSkills(app);
     expect(coldLoad.rowCount).toBeGreaterThanOrEqual(10);
     expect(coldLoad.elapsedMs).toBeLessThan(3_000);
     expect(coldLoad.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
     expect(await evalIn(app, "window.location.hash")).toEqual(expect.stringContaining("/session/"));
-    await frame(app, "skills-4-cold-session-fast");
+    {
+      const shot = await screenshot(app);
+      const seen = await validate(shot, [
+        "A newly created session visibly shows the local browser-automation skill",
+        "No Loading commands state or 'Something went wrong' crash message is visible",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+      await roll.add(shot, seen);
+    }
 
     const slowCloud = await measureSkillsWithSlowCloud(app);
     expect(slowCloud.denRequestCount).toBeGreaterThanOrEqual(1);
@@ -76,7 +104,15 @@ test.skipIf(!cdpUrl)(title, async ({ annotate }) => {
     expect(slowCloud.rowCount).toBeGreaterThanOrEqual(10);
     expect(slowCloud.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
     expect(slowCloud.loadingCommandsVisible).toBe(false);
-    await frame(app, "skills-5-fast-while-cloud-hangs");
+    {
+      const shot = await screenshot(app);
+      const seen = await validate(shot, [
+        "Local skills including browser-automation remain visibly available while cloud loading is delayed",
+        "No Loading commands state or 'Something went wrong' crash message is visible",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+      await roll.add(shot, seen);
+    }
   } finally {
     await resetSkillsCloudState(app);
   }

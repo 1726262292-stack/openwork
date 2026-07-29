@@ -1,14 +1,16 @@
 import { expect, onTestFinished, test } from "vitest";
 import { attachSurface } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
-import { fraimz } from "@openwork/fraimz";
+import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
   denFetch,
   ensureFreshWorkspace,
+  ensureReadyWorkspace,
   evalIn,
   go,
   readAvailableModels,
   readComposerState,
+  readCurrentOrganizationMemberId,
   readModelRecoveryState,
   retryOrganizationModels,
   seedUnavailableModel,
@@ -83,7 +85,10 @@ async function ensureSession(app: Surface, path: string): Promise<string> {
     label: "session.create_task enabled",
   });
   await executeControl(app, "session.create_task");
-  await waitFor(app, `window.location.hash.includes("/session/")`, { timeoutMs: 60_000, label: "created model test session" });
+  await waitFor(app, `/^#\\/workspace\\/[^/?#]+\\/session\\/ses_[^/?#]+/.test(window.location.hash)`, {
+    timeoutMs: 60_000,
+    label: "created model test session id route",
+  });
   return workspaceId;
 }
 
@@ -102,10 +107,7 @@ async function createManagedSession(app: Surface, path: string): Promise<void> {
     label: "workspace.create enabled for managed model test",
   });
   await executeControl(app, "workspace.create", { path });
-  await waitFor(app, `/^#\\/workspace\\/[^/?#]+\\/session\\/ses_[^/?#]+/.test(window.location.hash)`, {
-    timeoutMs: 120_000,
-    label: "managed model workspace session route",
-  });
+  await ensureReadyWorkspace(app, { path });
   await waitForText(app, "Run task", { timeoutMs: 60_000 });
 }
 
@@ -164,15 +166,7 @@ async function deleteProofProviders(admin: DenSession, state: ManagedModelState)
 }
 
 async function configureManagedEmpty(admin: DenSession, state: ManagedModelState): Promise<void> {
-  const orgBody = record(await denRequest(admin, "/v1/org"));
-  const organization = record(orgBody.organization);
-  const members = records(organization.members);
-  const owner = members.find((member) => {
-    const user = record(member.user);
-    return member.role === "owner" || stringField(user.email).toLowerCase() === admin.email.toLowerCase();
-  });
-  state.ownerMemberId = stringField(owner?.id);
-  if (!state.ownerMemberId) throw new Error(`Could not find ${admin.email}'s organization membership.`);
+  state.ownerMemberId = await readCurrentOrganizationMemberId(admin);
 
   const policiesBody = record(await denRequest(admin, "/v1/desktop-policies"));
   const policies = records(policiesBody.desktopPolicies);
@@ -238,15 +232,25 @@ async function restoreManagedState(admin: DenSession, state: ManagedModelState):
   }
 }
 
-test.skipIf(!cdpUrl)(appTitle, async ({ annotate }) => {
+test.skipIf(!cdpUrl)(appTitle, async () => {
   await using app = await attachSurface({ name: "running-app", kind: "electron", hostKind: "attached", cdpUrl });
-  const frame = fraimz((message, attachment) => annotate(message, typeof attachment === "string" ? attachment : undefined));
-  await ensureSession(app, `/tmp/openwork-models-available-${Date.now()}`);
+  await using roll = photoRoll("models-available");
+  const workspacePath = `/tmp/openwork-models-available-${Date.now()}`;
+  await ensureReadyWorkspace(app, { path: workspacePath });
+  await ensureSession(app, workspacePath);
 
   const models = await readAvailableModels(app);
   expect(models.length).toBeGreaterThan(0);
   expect(models.some((model) => model.selectable)).toBe(true);
-  await frame(app, "models-1-populated");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The Models picker visibly contains selectable models",
+      "No empty-model failure or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   const model = models.find((candidate) => candidate.selectable);
   expect(model).toBeTruthy();
@@ -254,7 +258,15 @@ test.skipIf(!cdpUrl)(appTitle, async ({ annotate }) => {
   const selected = await selectModel(app, model.id);
   expect(selected.id).toBe(model.id);
   expect(selected.selected).toBe(true);
-  await frame(app, "models-2-selected");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The composer is visibly ready after a model is selected",
+      "No unavailable-model warning or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   const seeded = await seedUnavailableModel(app);
   expect(seeded.unavailableModelId).toBeTruthy();
@@ -263,7 +275,15 @@ test.skipIf(!cdpUrl)(appTitle, async ({ annotate }) => {
   await waitForText(app, seeded.unavailableModelId, { timeoutMs: 30_000 });
   let recovery = await readModelRecoveryState(app);
   expect(recovery.warningVisible).toBe(true);
-  await frame(app, "models-3-unavailable-block");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "A Model no longer available warning visibly blocks use of the disappeared model",
+      "No unrelated generic error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   await waitForText(app, "Models", { timeoutMs: 30_000 });
   await waitForText(app, "Done", { timeoutMs: 30_000 });
@@ -271,7 +291,15 @@ test.skipIf(!cdpUrl)(appTitle, async ({ annotate }) => {
   recovery = await readModelRecoveryState(app);
   expect(recovery.pickerOpen).toBe(true);
   expect(recovery.guidanceVisible).toBe(true);
-  await frame(app, "models-4-recovery-guidance");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The open Models picker visibly explains that a different model must be selected",
+      "No unrelated generic error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   await selectModel(app, seeded.availableModelId);
   await setComposerText(app, "Model recovery can continue.");
@@ -281,10 +309,18 @@ test.skipIf(!cdpUrl)(appTitle, async ({ annotate }) => {
   expect(recovery.warningVisible).toBe(false);
   expect(composer.draftText).toContain("Model recovery can continue.");
   expect(composer.runTaskEnabled).toBe(true);
-  await frame(app, "models-5-recovered-composer-ready");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The recovered composer visibly contains the Model recovery can continue draft",
+      "No unavailable-model warning or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 });
 
-test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async ({ annotate }) => {
+test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async () => {
   const den: DenRef = {
     apiUrl,
     webUrl: (process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim() || apiUrl.replace("127.0.0.1", "localhost")).replace(/\/+$/, ""),
@@ -305,9 +341,11 @@ test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async ({ annotate }) => {
   await configureManagedEmpty(admin, state);
 
   await using app = await attachSurface({ name: "running-app", kind: "electron", hostKind: "attached", cdpUrl });
-  const frame = fraimz((message, attachment) => annotate(message, typeof attachment === "string" ? attachment : undefined));
+  await using roll = photoRoll("models-managed-recovery");
   await signInDesktopAs(app, den, admin);
-  await createManagedSession(app, `/tmp/openwork-managed-models-${Date.now()}`);
+  const workspacePath = `/tmp/openwork-managed-models-${Date.now()}`;
+  await ensureReadyWorkspace(app, { path: workspacePath });
+  await createManagedSession(app, workspacePath);
   await waitForText(app, emptyMessage, { timeoutMs: 120_000 });
 
   let recovery = await readModelRecoveryState(app);
@@ -318,7 +356,15 @@ test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async ({ annotate }) => {
   expect(recovery.noticeHeight).toBeLessThanOrEqual(30);
   expect(recovery.noticeWhiteSpace).toBe("nowrap");
   expect((await readComposerState(app)).runTaskVisible).toBe(true);
-  await frame(app, "models-6-managed-empty-retry");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "A compact organization-model empty notice with a Retry action is visible above the composer",
+      "No Connect a provider action or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   await createProofProvider(admin, state);
   expect((await readModelRecoveryState(app)).emptyMessageVisible).toBe(true);
@@ -340,5 +386,13 @@ test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async ({ annotate }) => {
   expect(composer.draftText).toContain(readyDraft);
   expect(await evalIn(app, `document.body.innerText.includes("GPT-5.4") || document.body.innerText.includes(${JSON.stringify(modelId)})`)).toBe(true);
   expect(await evalIn(app, `document.body.innerText.includes("Refreshing…")`)).toBe(false);
-  await frame(app, "models-7-managed-recovered-without-restart");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "GPT-5.4 and the Ready with the assigned model draft are visibly available without an app restart",
+      "No empty-model notice, Refreshing state, or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 });
