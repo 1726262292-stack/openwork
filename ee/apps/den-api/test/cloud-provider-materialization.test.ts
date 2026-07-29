@@ -130,6 +130,7 @@ function makeStore(providers: () => CloudProviderMaterializationProvider[]): Sto
 
 function makeInstance(input: {
   storedFingerprint?: string | null
+  envValues?: Record<string, string>
   failEnvWrites?: number
   failConfigPatches?: number
   providerRouteStatus?: number
@@ -137,9 +138,10 @@ function makeInstance(input: {
   runtimeProviders?: Record<string, unknown>
   opencodeConfigProviders?: Record<string, unknown>
   missingEngineReadbacks?: number
+  rejectReservedEnvWrites?: boolean
 } = {}) {
   const calls: FetchCall[] = []
-  const envValues = new Map<string, string>()
+  const envValues = new Map(Object.entries(input.envValues ?? {}))
   if (input.storedFingerprint) {
     envValues.set(openworkProvidersFingerprintEnv, input.storedFingerprint)
   }
@@ -190,6 +192,22 @@ function makeInstance(input: {
       if (failEnvWrites > 0) {
         failEnvWrites -= 1
         return jsonResponse({ error: "env_write_failed" }, 500)
+      }
+      if (input.rejectReservedEnvWrites) {
+        const persistableInternalKeys = new Set([
+          "OPENWORK_API_KEY",
+          "OPENWORK_MODELS_API_KEY",
+          "OPENWORK_INFERENCE_BASE_URL",
+          "OPENWORK_MODELS_BASE_URL",
+        ])
+        const hasReservedEntry = bodyEntries(body).some((entry) => (
+          typeof entry.key === "string"
+          && /^(OPENWORK_|OPENCODE_)/.test(entry.key)
+          && !persistableInternalKeys.has(entry.key)
+        ))
+        if (hasReservedEntry) {
+          return jsonResponse({ code: "reserved_env_key" }, 400)
+        }
       }
       for (const entry of bodyEntries(body)) {
         if (typeof entry.key === "string" && typeof entry.value === "string") {
@@ -271,6 +289,39 @@ async function materialize(input: {
 }
 
 describe("Cloud provider materialization", () => {
+  test("does not rewrite matching provider state after the den-api cache is lost", async () => {
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const runtimeProvider = {
+      id: "anthropic",
+      name: "Anthropic",
+      env: ["ANTHROPIC_API_KEY"],
+      models: {
+        "claude-fable-5": {
+          id: "claude-fable-5",
+          name: "claude-fable-5",
+          tool_call: true,
+        },
+      },
+      npm: "@ai-sdk/anthropic",
+      api: "https://api.anthropic.com/v1",
+    }
+    const instance = makeInstance({
+      envValues: { ANTHROPIC_API_KEY: "sk-anthropic" },
+      runtimeProviders: { [provider.id]: runtimeProvider },
+      rejectReservedEnvWrites: true,
+    })
+    const workerId = createDenTypeId("worker")
+
+    await materialize({ workerId, providers: () => [provider], fetchImpl: instance.fetchImpl, force: true })
+    instance.calls.length = 0
+
+    const second = await materialize({ workerId, providers: () => [provider], fetchImpl: instance.fetchImpl, force: true })
+
+    expect(second.status).toBe("noop")
+    expect(instance.calls.filter((call) => call.method === "PUT" && call.path === "/env")).toHaveLength(0)
+    expect(instance.calls.filter((call) => call.method === "PATCH" && call.path === "/runtime-config/providers")).toHaveLength(0)
+  })
+
   test("writes a models.dev provider block, credential env, and reloads OpenCode", async () => {
     const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
     const instance = makeInstance()
