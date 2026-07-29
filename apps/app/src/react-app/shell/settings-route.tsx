@@ -73,7 +73,6 @@ import "@/react-app/domains/settings/ollama-config";
 import "@/react-app/domains/settings/computer-use-config";
 import "@/react-app/domains/settings/browser-extension-config";
 import "@/react-app/domains/settings/openwork-voice-config";
-import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isOpenWorkExtensionEnabled, OPENWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
@@ -86,9 +85,12 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { CloudAccountView } from "@/react-app/domains/settings/pages/cloud-account-view";
 import {
   EMPTY_CONNECT_CAPABILITY_INVENTORY,
-  listAssignedConnectCapabilities,
   type ConnectCapabilityInventory,
 } from "@/react-app/domains/session/surface/connect-capability-inventory";
+import {
+  loadConnectCapabilities,
+  readCachedConnectCapabilities,
+} from "@/react-app/domains/connections/cloud-inventory-cache";
 import { createOpaqueDiagnosticsScopeKey } from "@/react-app/domains/settings/pages/agent-context-diagnostics-section";
 import { CloudProvidersView } from "@/react-app/domains/settings/pages/cloud-providers-view";
 import { MemoryView } from "@/react-app/domains/settings/pages/memory-view";
@@ -303,15 +305,18 @@ export function parseSettingsPath(pathname: string): {
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "skills":
       return { tab: "extensions", redirectPath: "extensions/skills", extensionsSection: "skills" };
+    case "mcp":
+      return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
     case "cloud-marketplaces":
       return { tab: "extensions", redirectPath: "extensions", extensionsSection: "all" };
     case "den":
     case "cloud-workers":
       return { tab: "cloud-account", redirectPath: "cloud-account" };
     case "extensions":
-      if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
-      if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
-      if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
+      if (tail === "mcp") return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
+      if (tail === "apps" || tail === "connections" || tail === "mcps" || tail === "skills" || tail === "plugins") {
+        return { tab: "extensions", redirectPath: null, extensionsSection: tail };
+      }
       if (tail) {
         return {
           tab: "extensions",
@@ -477,7 +482,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [localProviderBusy, setLocalProviderBusy] = useState(false);
   const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
-  const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
   const [imageExtensionError, setImageExtensionError] = useState<string | null>(null);
@@ -765,37 +769,53 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     openLink: (url) => platform.openLink(url),
   });
   const cloudSession = useCloudSession();
-  const [connectCapabilities, setConnectCapabilities] = useState<ConnectCapabilityInventory>(
-    EMPTY_CONNECT_CAPABILITY_INVENTORY,
+  const connectScope = useMemo(
+    () => ({
+      baseUrl: cloudSession.baseUrl,
+      organizationId: cloudSession.activeOrganization?.id?.trim() ?? "",
+    }),
+    [cloudSession.activeOrganization?.id, cloudSession.baseUrl],
   );
+  const [connectCapabilities, setConnectCapabilities] = useState<ConnectCapabilityInventory>(
+    () => readCachedConnectCapabilities(connectScope) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY,
+  );
+  const [connectCapabilitiesLoading, setConnectCapabilitiesLoading] = useState(false);
   const connectCapabilitiesRequestRef = useRef(0);
-  const refreshConnectCapabilities = useCallback(async () => {
+  const refreshConnectCapabilities = useCallback(async (options?: { force?: boolean }) => {
     const requestId = connectCapabilitiesRequestRef.current + 1;
     connectCapabilitiesRequestRef.current = requestId;
-    const organizationId = cloudSession.activeOrganization?.id?.trim() ?? "";
-    if (!cloudSession.isSignedIn || !organizationId) {
+    if (!cloudSession.isSignedIn || !connectScope.organizationId) {
       setConnectCapabilities(EMPTY_CONNECT_CAPABILITY_INVENTORY);
+      setConnectCapabilitiesLoading(false);
       return;
     }
+    // Paint what the app already fetched, then revalidate behind it.
+    const cached = readCachedConnectCapabilities(connectScope);
+    if (cached) setConnectCapabilities(cached);
+    setConnectCapabilitiesLoading(!cached);
     try {
-      const inventory = await listAssignedConnectCapabilities({
+      const inventory = await loadConnectCapabilities({
         client: cloudSession.client,
-        organizationId,
+        scope: connectScope,
+        maxAgeMs: options?.force ? 0 : undefined,
       });
       if (connectCapabilitiesRequestRef.current === requestId) {
         setConnectCapabilities(inventory);
       }
     } catch {
-      if (connectCapabilitiesRequestRef.current === requestId) {
+      if (connectCapabilitiesRequestRef.current === requestId && !cached) {
         setConnectCapabilities(EMPTY_CONNECT_CAPABILITY_INVENTORY);
       }
+    } finally {
+      if (connectCapabilitiesRequestRef.current === requestId) setConnectCapabilitiesLoading(false);
     }
-  }, [cloudSession.activeOrganization?.id, cloudSession.client, cloudSession.isSignedIn]);
+  }, [cloudSession.client, cloudSession.isSignedIn, connectScope]);
 
+  // Not gated on the Extensions tab: the inventory should be warm before the
+  // user gets there, and the fetch is deduped by the shared cloud cache.
   useEffect(() => {
-    if (route.tab !== "extensions") return;
     void refreshConnectCapabilities();
-  }, [refreshConnectCapabilities, route.tab]);
+  }, [refreshConnectCapabilities]);
 
   const hasOpenWorkCloudProvider = useMemo(
     () =>
@@ -1032,27 +1052,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    const client = selectedWorkspaceEndpoint?.client ?? openworkClient;
-    if (!client) {
-      setGoogleWorkspaceConnected(false);
-      return;
-    }
-
-    let cancelled = false;
-    void client.googleWorkspaceStatus()
-      .then((result) => {
-        if (!cancelled) setGoogleWorkspaceConnected(result.connected === true);
-      })
-      .catch(() => {
-        if (!cancelled) setGoogleWorkspaceConnected(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [openworkClient, selectedWorkspaceEndpoint]);
 
   useEffect(() => {
     if (!openworkClient) {
@@ -1798,8 +1797,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     mcpServers: connectionsSnapshot.mcpServers,
     mcpConnectingName: connectionsSnapshot.mcpConnectingName,
     onComputerUsePermissionsChange: setComputerUsePermissions,
-    googleWorkspaceConnected,
-    setGoogleWorkspaceConnected,
     restartLocalServer: restartExtensionLocalServer,
     connectMcp: async (entry) => {
       await connectionsStore.connectMcp(entry);
@@ -1848,10 +1845,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }),
     [connectionsSnapshot.mcpServers, enablementContext, extensionController, extensionsSnapshot, extensionsStore, orgMcpConnections.connections, quickConnectCatalog],
   );
-  const installedOrgMcpConnectionItems = useMemo(
-    () => extensionItems.orgMcpConnectionItems.filter((item) => item.installState === "installed"),
-    [extensionItems.orgMcpConnectionItems],
-  );
+  // Every connection the organization provisioned for this member, connected
+  // or not: one that still needs the member's sign-in is the whole reason the
+  // "Needs your attention" group exists, so it must not be filtered out here.
+  const orgMcpConnectionItems = extensionItems.orgMcpConnectionItems;
   const organizationConnectionsProbe = resolveOrganizationConnectionsProbe({
     signedIn: cloudSession.isSignedIn,
     activeOrganizationId: cloudSession.activeOrganization?.id,
@@ -2311,7 +2308,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshPlugins();
               void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
               void orgMcpConnections.refresh();
-              void refreshConnectCapabilities();
+              void refreshConnectCapabilities({ force: true });
             }}
             mcpView={({ initialFilter, onFilterChange, detailId, onDetailIdChange }) => (
               <McpView
@@ -2355,15 +2352,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   ),
                 ]}
                 availableConnectMcpServers={connectCapabilities.mcpServers.filter(
-                  (entry) => !installedOrgMcpConnectionItems.some((item) =>
+                  (entry) => !orgMcpConnectionItems.some((item) =>
                     item.name.localeCompare(entry.name, undefined, { sensitivity: "accent" }) === 0
                   ),
                 )}
                 availableConnectMcpStatuses={connectCapabilities.mcpStatuses}
+                inventoryLoading={connectCapabilitiesLoading || (orgMcpConnections.loading && !orgMcpConnections.loaded)}
                 installedPlugins={extensionItems.installedCloudPlugins}
-                installedOrgMcpItems={installedOrgMcpConnectionItems}
+                orgMcpItems={orgMcpConnectionItems}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
+                orgMcpConnectingId={orgMcpConnections.connectingId}
+                connectOrgMcp={(connectionId) => { void orgMcpConnections.connect(connectionId); }}
+                reconnectOrgMcp={(connectionId) => { void orgMcpConnections.connect(connectionId, { forceFreshAuthorization: true }); }}
                 orgMcpDisconnectingId={orgMcpConnections.disconnectingId}
                 disconnectOrgMcp={(connectionId) => { void orgMcpConnections.disconnect(connectionId); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}

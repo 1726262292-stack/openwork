@@ -97,7 +97,7 @@ import {
 } from "@/lib/tool-activity"
 import { faviconUrlForHref } from "@/lib/favicon"
 import { cn } from "@/lib/utils"
-import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
+import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCompleted, getMessageCreated, formatMessageTimestamp, splitTurnAtAnswer, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl } from "./utils"
 import type { AnyToolPart } from "@/lib/tool-aggregate"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
@@ -922,18 +922,24 @@ function MessageGroup({
   while (stepCount < items.length && !getRenderableMessage(items[stepCount].message)) {
     stepCount += 1
   }
-  const stepItems = items.slice(0, stepCount)
-  const proseItems = items.slice(stepCount)
-  // How long the turn spent working, from the first step to the message
-  // carrying the answer. Server timestamps, so this survives a reload.
+  let stepItems = items.slice(0, stepCount)
+  let proseItems = items.slice(stepCount)
+  // OpenCode delivers a whole turn as one assistant message with steps and
+  // the answer interleaved in its parts. Split the first prose message so
+  // its leading steps fold with the rest instead of pinning the run open.
+  const firstProse = proseItems[0]
+  if (firstProse && firstProse.message.role === "assistant" && !isSessionErrorMessage(firstProse.message)) {
+    const split = splitTurnAtAnswer(firstProse.message)
+    if (split) {
+      stepItems = [...stepItems, { index: firstProse.index, message: split.steps }]
+      proseItems = [{ index: firstProse.index, message: split.answer }, ...proseItems.slice(1)]
+    }
+  }
+  // How long the turn spent working, from the first step to when the answer
+  // finished (or started, for older history without a completed timestamp).
+  // Server timestamps, so this survives a reload.
   const stepsStartedAt = stepItems.length > 0 ? getMessageCreated(stepItems[0].message) : null
-  const stepsEndedAt = getMessageCreated(lastItem.message)
-  const stepRunLabel =
-    stepsStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > stepsStartedAt
-      ? `Worked for ${formatToolCallDuration(stepsEndedAt - stepsStartedAt)}`
-      : stepItems.length === 1
-        ? "1 step"
-        : `${stepItems.length} steps`
+  const stepsEndedAt = getMessageCompleted(lastItem.message) ?? getMessageCreated(lastItem.message)
 
   // The answer message's own thinking belongs to the work, not the answer, so
   // a collapsed run shows it and the message below renders text only.
@@ -946,15 +952,26 @@ function MessageGroup({
       )
       : []
   )
+  // An aggregate line counts each call it absorbed: it reads as one row but
+  // stands for that much work, and folding should key off the work done.
   const stepRowCount =
     stepItems.reduce(
       (total, item) =>
         total +
         (item.message.role === "assistant" && !isSessionErrorMessage(item.message)
-          ? getAssistantRenderGroups(item.message.parts, showThinking).length
+          ? getAssistantRenderGroups(item.message.parts, showThinking).reduce(
+            (rows, group) => rows + (group.kind === "tool-aggregate" ? group.parts.length : 1),
+            0
+          )
           : 1),
       0
     ) + proseReasoning.length
+  const stepRunLabel =
+    stepsStartedAt !== null && stepsEndedAt !== null && stepsEndedAt > stepsStartedAt
+      ? `Worked for ${formatToolCallDuration(stepsEndedAt - stepsStartedAt)}`
+      : stepRowCount === 1
+        ? "1 step"
+        : `${stepRowCount} steps`
   // A short finished run reads fine as a list, so only long ones fold away.
   const collapseSteps =
     !isLiveGroup && stepItems.length > 0 && stepRowCount > COLLAPSED_STEP_RUN_MIN_ROWS

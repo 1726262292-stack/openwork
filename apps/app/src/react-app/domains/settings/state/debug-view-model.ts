@@ -15,7 +15,6 @@ import {
   pickFile,
   revealDesktopItemInDir,
   resetOpenworkState,
-  sandboxDebugProbe as sandboxDebugProbeCmd,
   updaterEnvironment as updaterEnvironmentCmd,
   workspaceBootstrap as workspaceBootstrapCmd,
   type AppBuildInfo,
@@ -23,7 +22,6 @@ import {
   type EngineInfo,
   type NukeManifestPreview,
   type OpenworkServerInfo,
-  type SandboxDebugProbeResult,
 } from "../../../../app/lib/desktop";
 import { createDenClient, readDenSettings } from "../../../../app/lib/den";
 import {
@@ -277,9 +275,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const [runtimeConfigStatus, setRuntimeConfigStatus] = useState<OpenworkRuntimeConfigStatus | null>(null);
   const [runtimeConfigStatusError, setRuntimeConfigStatusError] = useState<string | null>(null);
   const [runtimeDebugStatus, setRuntimeDebugStatus] = useState<string | null>(null);
-  const [sandboxProbeBusy, setSandboxProbeBusy] = useState(false);
-  const [sandboxProbeResult, setSandboxProbeResult] = useState<SandboxDebugProbeResult | null>(null);
-  const [sandboxProbeStatus, setSandboxProbeStatus] = useState<string | null>(null);
   const [opencodeRestarting, setOpencodeRestarting] = useState(false);
   const [openworkServerRestarting, setOpenworkServerRestarting] = useState(false);
   const [opencodeServiceStatus, setOpencodeServiceStatus] = useState<{
@@ -672,26 +667,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     }
   }, [electronAlphaUpdaterChannel]);
 
-  const onRunSandboxDebugProbe = useCallback(async () => {
-    if (!isDesktopRuntime()) return;
-    setSandboxProbeBusy(true);
-    setSandboxProbeStatus(null);
-    try {
-      const result = (await sandboxDebugProbeCmd()) as SandboxDebugProbeResult | null;
-      setSandboxProbeResult(result);
-      setSandboxProbeStatus(
-        result!.ready
-          ? t("settings.sandbox_probe_success")
-          : (result!.error ?? t("settings.sandbox_error")),
-      );
-      pushDeveloperLog(`sandbox probe ready=${String(result!.ready)}`);
-    } catch (error) {
-      setSandboxProbeStatus(error instanceof Error ? error.message : safeStringify(error));
-    } finally {
-      setSandboxProbeBusy(false);
-    }
-  }, [pushDeveloperLog]);
-
   const [startupStatus, setStartupStatus] = useState<string | null>(null);
 
   const onStopHost = useCallback(async () => {
@@ -1072,10 +1047,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       electronAlphaUpdaterChannel,
       onSetElectronAlphaUpdaterChannel,
       onCheckElectronAlphaUpdates,
-      sandboxProbeBusy,
-      sandboxProbeResult,
-      sandboxProbeStatus,
-      onRunSandboxDebugProbe,
       onStopHost,
       onResetStartupPreference,
       engineSource,
@@ -1178,7 +1149,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       onResetStartupPreference,
       onRestartOpencode,
       onRestartOpenworkServer,
-      onRunSandboxDebugProbe,
       onSetElectronAlphaUpdaterChannel,
       onSetElectronMigrationSha512,
       onSetElectronMigrationUrl,
@@ -1212,9 +1182,6 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       runtimeDebugStatus,
       runtimeSummary,
       runtimeWorkspaceId,
-      sandboxProbeBusy,
-      sandboxProbeResult,
-      sandboxProbeStatus,
       serviceRestartError,
     ],
   );

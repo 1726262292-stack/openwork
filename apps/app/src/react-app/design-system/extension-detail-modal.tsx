@@ -24,7 +24,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { ExtensionKind } from "@/app/constants";
+import {
+  extensionTaxonomyLabel,
+  type ExtensionTaxonomy,
+} from "../domains/settings/extension-taxonomy";
 import { MarkdownBlock } from "../domains/session/surface/markdown";
 import { resolveExtensionIconUrl } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
@@ -36,7 +39,9 @@ export type ExtensionDetailModalProps = {
   description: string;
   iconSlug?: string;
   iconSrc?: string;
-  kind?: ExtensionKind;
+  taxonomy?: ExtensionTaxonomy;
+  /** Show the local stdio wrapper setup used by the OpenWork UI MCP. */
+  uiControl?: boolean;
   connected?: boolean;
   connectedLabel?: string;
   disconnectedLabel?: string;
@@ -74,10 +79,13 @@ export type ExtensionDetailModalProps = {
   /** Connect handler. */
   onConnect?: () => void;
   connectLabel?: string;
+  onReconnect?: () => void;
+  reconnectLabel?: string;
   connectingLabel?: string;
   /** Uninstall/disconnect handler. Shown when connected. */
   onUninstall?: () => void;
   uninstallLabel?: string;
+  closeOnUninstall?: boolean;
   /** Hide from the normal catalog view. */
   onHide?: () => void;
   /** Show again in the normal catalog view. */
@@ -92,20 +100,12 @@ export type ExtensionDetailModalProps = {
   backLabel?: string;
 };
 
-const kindLabel: Record<ExtensionKind, string> = {
-  mcp: "App",
-  plugin: "Plugin",
-  skill: "Skill",
-  "ui-control": "UI Control",
-  extension: "OpenWork Extension",
-};
-
-const kindDesc: Record<ExtensionKind, string> = {
+const taxonomyDesc: Record<ExtensionTaxonomy, string> = {
+  app: "Runs on this device and gives your agent tools it can use here.",
+  connection: "An account your agent can act in, once it is signed in.",
   mcp: "Connects as a Model Context Protocol server, giving your agent access to external tools and data.",
-  plugin: "Extends OpenWork with additional capabilities managed by your organization.",
   skill: "A reusable workflow that your agent can execute on demand.",
-  "ui-control": "Lets another MCP client inspect and drive this OpenWork desktop UI through a local stdio wrapper.",
-  extension: "An OpenWork extension that adds tools, providers, or integrations to your workspace.",
+  plugin: "Extends OpenWork with additional capabilities managed by your organization.",
 };
 
 const uiControlClientConfig = `{
@@ -188,7 +188,8 @@ export function ExtensionDetailModal({
   description,
   iconSlug,
   iconSrc,
-  kind = "mcp",
+  taxonomy = "mcp",
+  uiControl = false,
   connected = false,
   connectedLabel,
   disconnectedLabel,
@@ -210,9 +211,12 @@ export function ExtensionDetailModal({
   onReveal,
   onConnect,
   connectLabel = "Connect",
+  onReconnect,
+  reconnectLabel = "Reconnect",
   connectingLabel = "Connecting...",
   onUninstall,
   uninstallLabel,
+  closeOnUninstall = true,
   onHide,
   onShow,
   configSlot,
@@ -242,7 +246,7 @@ export function ExtensionDetailModal({
           ) : (
             <ExtensionMeshAvatar
               name={name}
-              category={kind}
+              category={taxonomy}
               className="size-9 rounded-lg shadow-inner"
             />
           )}
@@ -259,7 +263,7 @@ export function ExtensionDetailModal({
           <>
             <h2 className="text-lg font-semibold leading-none tracking-tight text-foreground">{name}</h2>
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <span>{kindLabel[kind]}</span>
+              <span>{extensionTaxonomyLabel(taxonomy)}</span>
               {preview ? (
                 <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">
                   Preview
@@ -276,7 +280,7 @@ export function ExtensionDetailModal({
           <>
             <DialogTitle>{name}</DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-2">
-              <span>{kindLabel[kind]}</span>
+              <span>{extensionTaxonomyLabel(taxonomy)}</span>
               {preview ? (
                 <span className="rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">
                   Preview
@@ -353,7 +357,7 @@ export function ExtensionDetailModal({
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Type</span>
-              <span className="font-medium text-card-foreground">{kindLabel[kind]}</span>
+              <span className="font-medium text-card-foreground">{extensionTaxonomyLabel(taxonomy)}</span>
             </div>
 
             {url ? (
@@ -366,7 +370,7 @@ export function ExtensionDetailModal({
               </div>
             ) : null}
 
-            {kind === "ui-control" ? (
+            {uiControl ? (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Launch</span>
                 <span className="max-w-[300px] truncate font-mono text-xs text-card-foreground">{(launchCommand ?? fallbackUiControlCommand).join(" ")}</span>
@@ -398,10 +402,10 @@ export function ExtensionDetailModal({
               <span className="text-muted-foreground">Status</span>
               <span className={cn("font-medium", connected ? "text-green-11" : "text-muted-foreground")}>
                 {connected
-                  ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? "Installed" : "Connected")
+                  ? connectedLabel ?? (taxonomy === "skill" || taxonomy === "plugin" ? "Installed" : "Connected")
                   : connecting
                     ? connectingLabel
-                    : disconnectedLabel ?? (kind === "skill" || kind === "plugin" ? "Not installed" : "Not connected")}
+                    : disconnectedLabel ?? (taxonomy === "skill" || taxonomy === "plugin" ? "Not installed" : "Not connected")}
               </span>
             </div>
 
@@ -434,9 +438,9 @@ export function ExtensionDetailModal({
         </CardContent>
       </Card>
 
-      {kind === "ui-control" ? <UiControlConnectionDetails launchCommand={launchCommand} environment={environment} /> : null}
+      {uiControl ? <UiControlConnectionDetails launchCommand={launchCommand} environment={environment} /> : null}
 
-      {kind === "skill" && trigger ? (
+      {taxonomy === "skill" && trigger ? (
         <Card variant="outline" size="sm">
           <CardHeader>
             <CardTitle>Trigger</CardTitle>
@@ -449,7 +453,7 @@ export function ExtensionDetailModal({
         </Card>
       ) : null}
 
-      {kind === "skill" && contentPreview ? (() => {
+      {taxonomy === "skill" && contentPreview ? (() => {
         const skillBody = stripSkillFrontmatter(contentPreview);
 
         if (!skillBody) {
@@ -468,14 +472,14 @@ export function ExtensionDetailModal({
         );
       })() : null}
 
-      {showEnablementCard && ((kind !== "skill" && kind !== "ui-control") || (!trigger && !contentPreview && kind !== "ui-control")) ? (
+      {showEnablementCard && ((taxonomy !== "skill" && !uiControl) || (!trigger && !contentPreview && !uiControl)) ? (
         <Card variant="outline" size="sm">
           <CardHeader>
             <CardTitle>What this enables</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-sm leading-relaxed text-muted-foreground">
-              {kindDesc[kind]}
+              {taxonomyDesc[taxonomy]}
             </div>
           </CardContent>
         </Card>
@@ -522,16 +526,34 @@ export function ExtensionDetailModal({
             Close
           </Button>
         )}
+        {connected && onReconnect ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReconnect}
+            disabled={connecting}
+          >
+            {connecting ? (
+              <>
+                <Loader2 data-icon="inline-start" className="animate-spin" />
+                {connectingLabel}
+              </>
+            ) : (
+              reconnectLabel
+            )}
+          </Button>
+        ) : null}
         {connected && onUninstall ? (
           <Button
             variant="destructive"
             size="sm"
+            disabled={connecting}
             onClick={() => {
               onUninstall();
-              onClose();
+              if (closeOnUninstall) onClose();
             }}
           >
-            {uninstallLabel ?? (kind === "skill" ? "Uninstall" : "Disconnect")}
+            {uninstallLabel ?? (taxonomy === "skill" ? "Uninstall" : "Disconnect")}
           </Button>
         ) : null}
         {!connected && onConnect ? (

@@ -102,9 +102,9 @@ describe("extension item projection", () => {
     }
   });
 
-  test("keeps unconnected built-ins out of My Extensions quick connect", () => {
+  test("lists built-ins that are not set up yet, but never uninstalled directory entries", () => {
     const result = buildExtensionItems({
-      quickConnect: [connectedBuiltIn, availableBuiltIn],
+      quickConnect: [connectedBuiltIn, availableBuiltIn, notionQuickConnect],
       mcpServers: [],
       installedSkills: [],
       importedCloudPlugins: {},
@@ -115,6 +115,7 @@ describe("extension item projection", () => {
 
     expect(result.installedMcpEntries.map((entry) => entry.name)).toEqual(["OpenWork Browser"]);
     expect(result.builtInItems.map((item) => item.name)).toEqual(["OpenWork Browser", "Computer Use"]);
+    expect(result.quickConnectEntries.map((entry) => entry.name)).toEqual(["OpenWork Browser", "Computer Use"]);
   });
 
   test("projects per-member org MCP grants as Marketplace items until connected", () => {
@@ -192,7 +193,7 @@ describe("extension item projection", () => {
     expect(result.installedMcpEntries.map((entry) => entry.name)).toEqual(["Notion"]);
   });
 
-  test("does not dedupe static Quick Connect for unfinished shared org MCPs", () => {
+  test("hides an unfinished shared org MCP instead of offering it as something to add", () => {
     const result = buildExtensionItems({
       quickConnect: [notionQuickConnect],
       mcpServers: [],
@@ -205,7 +206,7 @@ describe("extension item projection", () => {
     });
 
     expect(result.orgMcpConnectionItems).toEqual([]);
-    expect(result.quickConnectEntries.map((entry) => entry.name)).toEqual(["Notion"]);
+    expect(result.quickConnectEntries).toEqual([]);
   });
 });
 

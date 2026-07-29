@@ -2,8 +2,10 @@ import { installConfigSchema, installExperienceConfigSchema } from "@openwork/in
 import { connectLinkClaimsSchema } from "@openwork/connect-link"
 import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable, OrganizationTable } from "@openwork-ee/den-db/schema"
+import { createReadStream } from "node:fs"
 import type { MiddlewareHandler } from "hono"
 import type { Hono } from "hono"
+import { stream } from "hono/streaming"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
@@ -20,13 +22,14 @@ import {
 import { env } from "../../env.js"
 import { hashInstallLinkToken, mintOrganizationInstallLink } from "../../install-links.js"
 import { jsonValidator, orgRoleRoute, publicRoute, queryValidator } from "../../middleware/index.js"
-import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
 import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
 import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
   cloudDesktopReleaseAssetName,
   enterpriseDesktopReleaseAssetName,
   installerReleaseAssetUrl,
+  resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
 import { checkRateLimit, enforceRateLimit } from "../../utils/rate-limit.js"
 import type { OrgRouteVariables } from "./shared.js"
@@ -99,6 +102,7 @@ function managedDesktopDistribution(): ManagedDesktopDistribution {
 }
 
 export type InstallExperienceDependencies = {
+  resolveConfiguredArtifact: typeof resolveConfiguredInstallerArtifact
   resolveDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
   resolveCloudDirectUrl: (platform: InstallPlatform, releaseTag: string) => string
   mintConnectGrant: typeof mintDesktopConnectGrant
@@ -108,6 +112,7 @@ export type InstallExperienceDependencies = {
 }
 
 const defaultInstallerDependencies: InstallExperienceDependencies = {
+  resolveConfiguredArtifact: resolveConfiguredInstallerArtifact,
   resolveDirectUrl: (platform, releaseTag) => {
     const fileName = enterpriseDesktopReleaseAssetName(platform, releaseTag)
     return fileName ? installerReleaseAssetUrl(fileName, { releaseTag }) : OPENWORK_DOWNLOAD_URL
@@ -120,6 +125,16 @@ const defaultInstallerDependencies: InstallExperienceDependencies = {
   previewConnectGrant: previewDesktopConnectGrant,
   inspectConnectGrant: inspectDesktopConnectGrant,
   consumeConnectGrant: consumeDesktopConnectGrant,
+}
+
+function contentDisposition(filename: string) {
+  return `attachment; filename="${filename.replace(/["\\]/g, "-")}"`
+}
+
+function installerContentType(platform: InstallPlatform) {
+  if (platform.startsWith("mac-")) return "application/x-apple-diskimage"
+  if (platform === "win-x64") return "application/vnd.microsoft.portable-executable"
+  return "application/vnd.appimage"
 }
 
 function organizationMetadataInput(value: unknown): Record<string, unknown> | string | null {
@@ -483,6 +498,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       summary: "Download managed OpenWork desktop",
       description: "Redirects hosted Cloud deployments to the sign-in-required Cloud app and private single-org deployments to the activation-required Enterprise app.",
       responses: {
+        200: textResponse("Mounted desktop artifact returned successfully."),
         302: emptyResponse("Den redirected the browser to the signed desktop asset for this deployment."),
         400: jsonResponse("The install-link token or platform was invalid.", invalidRequestSchema),
         404: jsonResponse("The install link was missing, expired, or revoked.", installLinkNotFoundSchema),
@@ -516,6 +532,19 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         : enterpriseDesktopReleaseAssetName(platform, resolved.installerReleaseTag)
       if (!fileName) {
         return c.json({ error: "invalid_request", details: [{ message: "Unsupported desktop platform." }] }, 400)
+      }
+
+      const configuredArtifact = await installer.resolveConfiguredArtifact(fileName)
+      if (configuredArtifact) {
+        c.header("content-type", installerContentType(platform))
+        c.header("content-length", String(configuredArtifact.size))
+        c.header("content-disposition", contentDisposition(fileName))
+        c.header("cache-control", "private, max-age=300")
+        return stream(c, async (body) => {
+          for await (const chunk of createReadStream(configuredArtifact.filePath)) {
+            await body.write(chunk)
+          }
+        })
       }
 
       const directUrl = distribution === "cloud"

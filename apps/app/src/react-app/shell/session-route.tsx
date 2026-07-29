@@ -47,6 +47,7 @@ import {
   type WorkspaceList,
 } from "@/app/lib/desktop";
 import type {
+  ComposerAttachment,
   ComposerDraft,
   ComposerPart,
   ModelOption,
@@ -107,7 +108,7 @@ import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { getSessionModelSelection, useSessionModelStore } from "@/react-app/domains/session/surface/session-model-store";
-import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
+import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
 import { connectSkillPrompt, parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
@@ -123,7 +124,6 @@ import {
 } from "@/react-app/domains/connections/provider-auth/provider-policy";
 import {
   isOrganizationModelsEmpty,
-  refreshOrganizationModels,
   shouldAutoOpenUnavailableModelPicker,
 } from "@/react-app/domains/connections/provider-auth/managed-models-recovery";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
@@ -139,9 +139,6 @@ import { useRemoteAccessRestart } from "@/react-app/domains/workspace/remote-acc
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
-import { OpenWorkModelsStartupDialog } from "@/react-app/domains/cloud/openwork-models-startup-dialog";
-import { OPENWORK_MODEL_PREVIEWS } from "@/react-app/domains/cloud/openwork-models-promo";
-import { useOpenWorkModelsStartupPromo } from "@/react-app/domains/cloud/use-openwork-models-startup-promo";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -185,6 +182,12 @@ import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useEngineReload } from "./use-engine-reload";
 import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
+import { CloudWorkspaceBootTakeover, useCloudWorkspaceStatus } from "./cloud-workspace-overlay";
+import {
+  cloudWorkspaceStatusHasReadyContent,
+  mapCloudWorkspaceMainContentDecision,
+  shouldRefetchCloudWorkspaceOnReadyTransition,
+} from "./cloud-workspace-status";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
 import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
@@ -506,6 +509,19 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
+  const cloudWorkspace = useCloudWorkspaceStatus();
+  const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
+  useEffect(() => {
+    const previousStatus = previousCloudWorkspaceStatusRef.current;
+    previousCloudWorkspaceStatusRef.current = cloudWorkspace.viewModel.variant;
+    if (!shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus,
+      nextStatus: cloudWorkspace.viewModel.variant,
+      gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
+    })) return;
+    refreshInFlightRef.current = false;
+    void refreshRouteState();
+  }, [cloudWorkspace.gatewayMode, cloudWorkspace.viewModel.variant, cloudWorkspace.visible, refreshInFlightRef, refreshRouteState]);
   const cloudMcpProviderModel = useMemo(() => local.prefs.defaultModel
     ? {
         provider: local.prefs.defaultModel.providerID,
@@ -747,6 +763,7 @@ export function SessionRoute() {
     snapshot: sessionProviderAuthSnapshot,
     cloudProviderSyncReady,
     cloudProviderList,
+    refreshCloudProviderSync,
   } = useSessionProviderAuth({
     opencodeClient,
     opencodeBaseUrl,
@@ -820,11 +837,8 @@ export function SessionRoute() {
     sessionProviderAuthSnapshot.importedCloudProviders,
   ]);
   const refreshOrganizationModelAccess = useCallback(async () => {
-    await refreshOrganizationModels({
-      runCloudProviderSync: sessionProviderAuthStore.runCloudProviderSync,
-      refreshProviders: () => sessionProviderAuthStore.refreshProviders({ force: true }),
-    });
-  }, [sessionProviderAuthStore]);
+    await refreshCloudProviderSync("manual");
+  }, [refreshCloudProviderSync]);
   const refreshOpenWorkModels = useCallback(async () => {
     await refreshOrganizationModelAccess();
   }, [refreshOrganizationModelAccess]);
@@ -947,13 +961,6 @@ export function SessionRoute() {
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
-
-  const openWorkModelsPromo = useOpenWorkModelsStartupPromo({
-    clientReady: Boolean(opencodeClient),
-    workspaceId: selectedWorkspaceId,
-    providerConnectedIds,
-    openWorkModelsEntitled,
-  });
 
   const {
     activePermission,
@@ -1123,6 +1130,7 @@ export function SessionRoute() {
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       modelUnavailableMessage,
+      organizationModelsEmpty,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       openWorkModelsEntitled,
       onRefreshOrganizationModels: refreshOrganizationModelAccess,
@@ -1143,8 +1151,8 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions" | "providers") => {
+        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/extensions");
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string): Promise<CloudMcpSubmissionResult> => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1328,6 +1336,7 @@ export function SessionRoute() {
     cloudMcpSubmissionState,
     modelLabel,
     modelUnavailableMessage,
+    organizationModelsEmpty,
     modelVariantLabel,
     modelVariantValue,
     navigate,
@@ -1348,6 +1357,19 @@ export function SessionRoute() {
     submitWithCloudMcpReadiness,
     token,
   ]);
+  const cloudWorkspaceMainContentDecision = mapCloudWorkspaceMainContentDecision({
+    status: cloudWorkspace.viewModel.variant,
+    hasWorkspaces: Boolean(surfaceProps),
+    gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
+  });
+  const cloudWorkspaceReadyForRouteErrors =
+    !cloudWorkspace.gatewayMode ||
+    !cloudWorkspace.visible ||
+    cloudWorkspaceStatusHasReadyContent(cloudWorkspace.viewModel.variant);
+  const cloudWorkspaceMainContentTakeover = cloudWorkspaceMainContentDecision === "takeover" ? (
+    <CloudWorkspaceBootTakeover decision={cloudWorkspaceMainContentDecision} />
+  ) : null;
+  const gatedRouteNotFoundMessage = cloudWorkspaceReadyForRouteErrors ? routeNotFoundMessage : null;
 
   // Workspace-scoped wiring for the empty-state hero's full composer. Unlike
   // `surfaceProps` this exists without a selected session, so the hero offers
@@ -1362,6 +1384,7 @@ export function SessionRoute() {
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       modelUnavailable: selectedModelUnavailable,
       modelUnavailableMessage,
+      organizationModelsEmpty,
       onRefreshOrganizationModels: refreshOrganizationModelAccess,
       modelPickerOpen: modelPicker.compactOpen,
       onModelPickerOpenChange: (open: boolean) => {
@@ -1407,8 +1430,8 @@ export function SessionRoute() {
       },
       isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
       isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : "/settings/general");
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => {
+        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : "/settings/extensions");
       },
     };
   }, [
@@ -1424,6 +1447,7 @@ export function SessionRoute() {
     modelVariantValue,
     opencodeClient,
     openWorkModelsEntitled,
+    organizationModelsEmpty,
     refreshOrganizationModelAccess,
     selectedAgent,
     selectedModelUnavailable,
@@ -1837,8 +1861,20 @@ export function SessionRoute() {
       return;
     }
 
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
-  }, [restrictionNotice, sessionProviderAuthStore]);
+    // Pre-workspace (chat-first) there is no opencode client yet, so the
+    // modal cannot load auth methods — fall back to the AI Providers page.
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" }).catch(() => {
+      handleOpenSettings("/settings/ai");
+    });
+  }, [handleOpenSettings, restrictionNotice, sessionProviderAuthStore]);
+
+  // "Your API keys → Connect" in the compact model picker (and anything else
+  // outside this route's prop tree) requests the provider auth modal here.
+  useEffect(() => {
+    const handler = () => handleOpenProviderAuth();
+    window.addEventListener(openProviderAuthEvent, handler);
+    return () => window.removeEventListener(openProviderAuthEvent, handler);
+  }, [handleOpenProviderAuth]);
 
   const paletteSessionOptions = useMemo(
     () => buildCommandPaletteSessions(workspaces, sessionsByWorkspaceId, selectedWorkspaceId),
@@ -2163,10 +2199,16 @@ export function SessionRoute() {
           captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
           const firstTaskPrompt = options?.firstTaskPrompt?.trim();
           if (firstTaskPrompt) {
-            saveSessionDraft(targetWorkspaceId, session.id, { text: firstTaskPrompt, mode: "prompt" });
+            const firstTaskAttachments = options?.firstTaskAttachments ?? [];
+            // Attachment chips only survive in-memory (File objects), so the
+            // persisted fallback draft drops their tokens.
+            saveSessionDraft(targetWorkspaceId, session.id, { text: firstTaskPrompt.replace(/\[attachment [^\]]+\]/g, "").trim(), mode: "prompt" });
             // The composer reads its draft from the composer state store, not
             // the persisted draft store — seed both so the prompt shows up.
             useComposerStateStore.getState().setDraft(session.id, firstTaskPrompt);
+            if (firstTaskAttachments.length) {
+              useComposerStateStore.getState().setAttachments(session.id, firstTaskAttachments);
+            }
             // One-step run: the session surface sends the seeded draft itself.
             markComposerAutoSend(session.id);
           }
@@ -2196,7 +2238,7 @@ export function SessionRoute() {
    * workspace under the user's home folder instead of asking where to put
    * it. Falls back to the create-workspace modal off desktop.
    */
-  const handleChatFirstTask = useCallback((prompt: string) => {
+  const handleChatFirstTask = useCallback((prompt: string, attachments?: ComposerAttachment[]) => {
     void (async () => {
       if (!isDesktopRuntime()) {
         handleOpenCreateWorkspace();
@@ -2212,7 +2254,7 @@ export function SessionRoute() {
         handleOpenCreateWorkspace();
         return;
       }
-      await handleCreateWorkspace("starter", folder, { firstTaskPrompt: prompt });
+      await handleCreateWorkspace("starter", folder, { firstTaskPrompt: prompt, firstTaskAttachments: attachments ?? [] });
     })();
   }, [handleCreateWorkspace, handleOpenCreateWorkspace]);
 
@@ -2467,7 +2509,7 @@ export function SessionRoute() {
             }
           });
         },
-        onCreateTaskWithPrompt: (workspaceId, prompt) => {
+        onCreateTaskWithPrompt: (workspaceId, prompt, attachments) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
             if (!workspace) return;
@@ -2485,12 +2527,21 @@ export function SessionRoute() {
               if (workspaceId === selectedWorkspaceId) {
                 void sessionProviderAuthStore.runCloudProviderSync("new_chat");
               }
-              saveSessionDraft(workspaceId, session.id, { text: prompt, mode: "prompt" });
-              // The composer reads its draft from the composer state store,
-              // not the persisted draft store — seed both.
-              useComposerStateStore.getState().setDraft(session.id, prompt);
-              // One-step run: the session surface sends the seeded draft itself.
-              markComposerAutoSend(session.id);
+              const firstTaskPrompt = prompt.trim();
+              if (firstTaskPrompt) {
+                const firstTaskAttachments = attachments ?? [];
+                // Attachment chips only survive in-memory (File objects), so the
+                // persisted fallback draft drops their tokens.
+                saveSessionDraft(workspaceId, session.id, { text: firstTaskPrompt.replace(/\[attachment [^\]]+\]/g, "").trim(), mode: "prompt" });
+                // The composer reads its draft from the composer state store,
+                // not the persisted draft store — seed both.
+                useComposerStateStore.getState().setDraft(session.id, firstTaskPrompt);
+                if (firstTaskAttachments.length) {
+                  useComposerStateStore.getState().setAttachments(session.id, firstTaskAttachments);
+                }
+                // One-step run: the session surface sends the seeded draft itself.
+                markComposerAutoSend(session.id);
+              }
               writeActiveWorkspaceId(workspaceId || null);
               writeLastSessionFor(workspaceId, session.id);
               rememberPendingCreatedSession(workspaceId, session.id);
@@ -2599,15 +2650,9 @@ export function SessionRoute() {
         reloadError: reloadCoordinator.reloadError,
         openWorkConnectState: sessionMcpMaintenance,
       }}
-      notFoundMessage={routeNotFoundMessage}
+      notFoundMessage={gatedRouteNotFoundMessage}
+      mainContentTakeover={cloudWorkspaceMainContentTakeover}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
-    />
-    <OpenWorkModelsStartupDialog
-      open={openWorkModelsPromo.open}
-      isSignedIn={denAuth.isSignedIn}
-      models={OPENWORK_MODEL_PREVIEWS}
-      onSubscribe={openWorkModelsPromo.subscribe}
-      onContinueWithout={openWorkModelsPromo.continueWithout}
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}

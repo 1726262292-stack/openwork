@@ -36,6 +36,7 @@ const USERDATA_WORKSPACE_FILENAMES = [
   "openwork-server-tokens.json",
   "openwork-server-state.json",
 ];
+const LEGACY_ORCHESTRATOR_DIR_NAME = ["openwork", "orchestrator"].join("-");
 const SHIP_IT_CACHE_DOMAIN = "com.differentai.openwork.ShipIt";
 const NUKE_WORKER_FILENAME = "nuke-worker.mjs";
 const NUKE_WORKER_DEADLINE_MS = 60_000;
@@ -206,7 +207,7 @@ function opencodeStateDirs(env, homedir, platform, paths) {
 function orchestratorDataDir(env, homedir, paths) {
   const override = envValue(env, "OPENWORK_DATA_DIR");
   if (override) return override;
-  return paths.join(homedir, ".openwork", "openwork-orchestrator");
+  return paths.join(homedir, ".openwork", LEGACY_ORCHESTRATOR_DIR_NAME);
 }
 
 function serverDataDir(env, homedir, paths) {

@@ -1,0 +1,135 @@
+import { evaluate } from "@openwork/cdp";
+import type { EvaluateOptions, Surface } from "@openwork/cdp";
+
+const DEFAULT_TIMEOUT_MS = 20_000;
+const POLL_INTERVAL_MS = 250;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function messageText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function evalIn(app: Surface, expression: string, opts: EvaluateOptions = {}): Promise<unknown> {
+  return evaluate(app.client, expression, opts);
+}
+
+export async function waitFor(
+  app: Surface,
+  expression: string,
+  { timeoutMs = DEFAULT_TIMEOUT_MS, label = expression }: { timeoutMs?: number; label?: string } = {},
+): Promise<unknown> {
+  const startedAt = Date.now();
+  let lastError: unknown = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const value = await evalIn(app, expression);
+      if (value) return value;
+      lastError = null;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}${lastError ? ` (last error: ${messageText(lastError)})` : ""}.`);
+}
+
+export async function waitForText(app: Surface, text: string, opts: { timeoutMs?: number } = {}): Promise<void> {
+  await waitFor(app, `document.body.innerText.includes(${JSON.stringify(text)})`, {
+    timeoutMs: opts.timeoutMs,
+    label: `visible text ${JSON.stringify(text)}`,
+  });
+}
+
+export async function hasText(app: Surface, text: string): Promise<boolean> {
+  return Boolean(await evalIn(app, `document.body.innerText.includes(${JSON.stringify(text)})`));
+}
+
+export async function visibleText(app: Surface): Promise<string> {
+  const text = await evalIn(app, "document.body.innerText");
+  if (typeof text !== "string") throw new Error("CDP did not return document.body.innerText as a string.");
+  return text;
+}
+
+export async function clickText(
+  app: Surface,
+  text: string,
+  { selector = "button, [role=button], a", timeoutMs = DEFAULT_TIMEOUT_MS }: { selector?: string; timeoutMs?: number } = {},
+): Promise<unknown> {
+  return waitFor(app, `(() => {
+    const candidates = document.querySelectorAll(${JSON.stringify(selector)});
+    for (const element of candidates) {
+      const label = (element.textContent ?? '').trim();
+      if (label.includes(${JSON.stringify(text)})) {
+        element.scrollIntoView({ block: 'center' });
+        element.click();
+        return label;
+      }
+    }
+    return null;
+  })()`, { timeoutMs, label: `clickable element with text ${JSON.stringify(text)}` });
+}
+
+export async function clickButton(app: Surface, label: string, opts: { timeoutMs?: number } = {}): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  await waitFor(app, `Boolean([...document.querySelectorAll('button')]
+    .find((element) => (element.textContent ?? '').trim() === ${JSON.stringify(label)} && !element.disabled))`, {
+    timeoutMs,
+    label: `enabled button: ${label}`,
+  });
+  const clicked = await evalIn(app, `(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find((element) => (element.textContent ?? '').trim() === ${JSON.stringify(label)} && !element.disabled);
+    button?.scrollIntoView({ block: 'center' });
+    button?.click();
+    return Boolean(button);
+  })()`);
+  if (clicked !== true) throw new Error(`Could not click ${label}.`);
+}
+
+export async function waitForButtonGone(app: Surface, label: string, opts: { timeoutMs?: number } = {}): Promise<void> {
+  await waitFor(app, `!Boolean([...document.querySelectorAll('button')]
+    .find((element) => (element.textContent ?? '').trim() === ${JSON.stringify(label)}))`, {
+    timeoutMs: opts.timeoutMs ?? 90_000,
+    label: `button removed: ${label}`,
+  });
+}
+
+export async function fill(app: Surface, selector: string, value: string, opts: { timeoutMs?: number } = {}): Promise<void> {
+  await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(selector)}))`, {
+    timeoutMs: opts.timeoutMs,
+    label: `input ${selector}`,
+  });
+  await evalIn(app, `(() => {
+    const input = document.querySelector(${JSON.stringify(selector)});
+    const setter = Object.getOwnPropertyDescriptor(
+      input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+      'value',
+    ).set;
+    setter.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+}
+
+export async function go(app: Surface, hashPath: string): Promise<void> {
+  const hash = hashPath.startsWith("#") ? hashPath : `#${hashPath}`;
+  await evalIn(app, `(() => { window.location.hash = ${JSON.stringify(hash)}; return true; })()`);
+}
+
+export async function currentHash(app: Surface): Promise<string> {
+  const hash = await evalIn(app, "window.location.hash");
+  if (typeof hash !== "string") throw new Error("CDP did not return window.location.hash as a string.");
+  return hash;
+}
+
+export async function enabledButtons(app: Surface): Promise<string[]> {
+  const labels = await evalIn(app, `[...document.querySelectorAll('button')]
+    .filter((element) => !element.disabled)
+    .map((element) => (element.textContent ?? '').trim())
+    .filter(Boolean)`);
+  if (!Array.isArray(labels) || !labels.every((label) => typeof label === "string")) {
+    throw new Error("CDP did not return enabled button labels as strings.");
+  }
+  return labels;
+}
