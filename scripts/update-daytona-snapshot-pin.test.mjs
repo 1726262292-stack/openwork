@@ -73,11 +73,18 @@ test("a different pin makes exactly one documented PUT and reports the transitio
 })
 
 test("a non-2xx response fails with the status and response body", async () => {
-  const fetchImpl = async () =>
-    new Response("upstream exploded", {
+  const fetchImpl = async (_url, options) => {
+    if (options.method === "GET") {
+      return jsonResponse({
+        key: "DAYTONA_SNAPSHOT",
+        value: "openwork-0.18.9",
+      })
+    }
+    return new Response("upstream exploded", {
       status: 503,
       statusText: "Service Unavailable",
     })
+  }
 
   await assert.rejects(
     updateDaytonaSnapshotPin({
