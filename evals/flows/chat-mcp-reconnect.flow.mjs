@@ -3,7 +3,6 @@ import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
-import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "chat-mcp-reconnect";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -387,7 +386,7 @@ async function createFreshTask(ctx) {
 }
 
 async function sendPrompt(ctx, prompt) {
-  await setComposerText(ctx, prompt);
+  await ctx.control("composer.set_text", { text: prompt });
   await ctx.waitFor(
     "window.__openworkControl.listActions().some((entry) => entry.id === 'composer.send' && entry.disabled === false)",
     { timeoutMs: 30_000, label: "enabled send action" },

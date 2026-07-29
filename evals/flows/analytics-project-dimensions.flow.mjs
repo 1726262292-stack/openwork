@@ -16,7 +16,6 @@
  * OPENWORK_EVAL_DEN_API_URL=... OPENWORK_EVAL_DEN_TOKEN=... pnpm fraimz --flow analytics-project-dimensions --cdp-url <electron-cdp>
  */
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
-import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "analytics-project-dimensions";
 const PROJECT_LABEL = "Atlas Billing";
@@ -378,10 +377,10 @@ export default {
             );
             await ctx.control("session.create_task");
             await ctx.waitFor(
-              `Boolean(document.querySelector('[contenteditable="true"]'))`,
+              `window.__openworkControl.listActions().some((action) => action.id === "composer.set_text")`,
               { timeoutMs: 60_000, label: "composer actions registered" },
             );
-            await setComposerText(ctx, "Reply with exactly: ATLAS-OK");
+            await ctx.control("composer.set_text", { text: "Reply with exactly: ATLAS-OK" });
             await ctx.waitFor(
               `window.__openworkControl.listActions().some((action) => action.id === "composer.send" && !action.disabled)`,
               { timeoutMs: 60_000, label: "composer.send enabled" },

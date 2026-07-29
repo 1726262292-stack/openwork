@@ -1,5 +1,4 @@
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
-import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "cloud-mcp-submit-readiness";
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
@@ -161,7 +160,7 @@ async function beginSavedSessionRestore(ctx) {
     const status = await readAuthDelay(ctx);
     if (status.calls >= 1 && status.pending === status.calls) {
       await ctx.waitFor(
-        "Boolean(document.querySelector('[contenteditable=\"true\"]'))",
+        "window.__openworkControl?.listActions?.().some((action) => action.id === 'composer.set_text' && !action.disabled)",
         { timeoutMs: 15_000, label: "composer remains available during saved Cloud session validation" },
       );
       return;
@@ -199,7 +198,7 @@ async function setSignedOutForSubmission(ctx) {
     label: "control API after signed-out restart",
   });
   await ctx.waitFor(
-    "Boolean(document.querySelector('[contenteditable=\"true\"]'))",
+    "window.__openworkControl?.listActions?.().some((action) => action.id === 'composer.set_text' && !action.disabled)",
     { timeoutMs: 15_000, label: "composer available after signed-out restart" },
   );
 }
@@ -403,7 +402,7 @@ export default {
           voiceover: vo[0],
           action: async () => {
             await beginSavedSessionRestore(ctx);
-            await setComposerText(ctx, ORIGINAL_PROMPT);
+            await ctx.control("composer.set_text", { text: ORIGINAL_PROMPT });
             const clicked = await ctx.eval(`(() => {
               const button = [...document.querySelectorAll('button')].find((entry) => entry.title === "Run task");
               button?.click();
@@ -416,7 +415,7 @@ export default {
             );
             if (await ctx.hasText("Power your first task")) {
               await dismissModelUpsells(ctx);
-              await setComposerText(ctx, ORIGINAL_PROMPT);
+              await ctx.control("composer.set_text", { text: ORIGINAL_PROMPT });
               const retried = await ctx.waitFor(`(() => {
                 const button = [...document.querySelectorAll('button')].find((entry) => entry.title === "Run task");
                 if (!button || button.disabled) return false;
@@ -426,7 +425,7 @@ export default {
               ctx.assert(retried, "Could not resubmit after the first-task model choice.");
             }
             await ctx.waitForText("Preparing connected service tools…", { timeoutMs: 5_000 });
-            await setComposerText(ctx, EDITED_PROMPT);
+            await ctx.control("composer.set_text", { text: EDITED_PROMPT });
             await ctx.eval(`(() => {
               const button = [...document.querySelectorAll('button')].find((entry) => entry.title === "Preparing connected service tools…");
               button?.click();
@@ -498,7 +497,7 @@ export default {
             await ctx.waitFor("window.location.hash.includes('/session/ses_')", { timeoutMs: 45_000, label: "fresh signed-out task session" });
             const before = await transcriptCount(ctx);
             await setSignedOutForSubmission(ctx);
-            await setComposerText(ctx, SIGNED_OUT_PROMPT);
+            await ctx.control("composer.set_text", { text: SIGNED_OUT_PROMPT });
             const clicked = await ctx.eval(`(() => {
               const button = [...document.querySelectorAll('button')].find((entry) => entry.title === "Run task");
               button?.click();

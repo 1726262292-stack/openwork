@@ -1,7 +1,7 @@
 import type { Surface } from "@openwork/cdp";
 import type { DenRef, DenSession } from "./den.ts";
 import { createDesktopHandoffGrant } from "./den.ts";
-import { currentHash, evalIn, go, waitFor } from "./desktop.ts";
+import { control, currentHash, evalIn, go, waitFor } from "./desktop.ts";
 import { ensureReadyWorkspace } from "./onboarding.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,17 +18,6 @@ function workspaceSetup(value: unknown): { ok: boolean; workspaceId: string | nu
   };
 }
 
-async function control(app: Surface, action: string, args?: unknown): Promise<unknown> {
-  const result = await evalIn(
-    app,
-    `window.__openworkControl.execute(${JSON.stringify(action)}, ${JSON.stringify(args ?? null)})`,
-    { awaitPromise: true },
-  );
-  if (!isRecord(result) || result.ok !== true) {
-    throw new Error(`Desktop control action ${action} failed: ${isRecord(result) ? String(result.error ?? "unknown") : "unknown"}`);
-  }
-  return result.result;
-}
 
 export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSession): Promise<void> {
   await waitFor(app, "Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API" });

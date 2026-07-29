@@ -4,7 +4,6 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
 import { XLSX_FILENAME, XLSX_FIXTURE, XLSX_SENTINEL } from "../fixtures/ooxml-office-fixtures.mjs";
-import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "xlsx-chat-attachments";
 const PROVIDER_ID = "xlsx-attachments-mock";
@@ -502,7 +501,7 @@ export default {
             await assertMockSelected(ctx);
             const attached = await attachXlsxFile(ctx);
             ctx.assert(attached?.ok, `Could not attach XLSX file: ${attached?.reason ?? "unknown"}`);
-            await setComposerText(ctx, PROMPT);
+            await ctx.control("composer.set_text", { text: PROMPT });
             await ctx.waitFor(`document.body.innerText.includes(${JSON.stringify(XLSX_FILENAME)}) && document.body.innerText.includes(${JSON.stringify(PROMPT)})`, { timeoutMs: 30_000, label: "XLSX chip and prompt" });
           },
           assert: async () => {
@@ -598,7 +597,7 @@ export default {
             await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after session reload" });
             await ctx.navigateHash(`/workspace/${ctx.workspaceId}/session/${ctx.sessionId}`);
             await ctx.waitFor(sentXlsxCardExpr(), { timeoutMs: 45_000, label: "restored XLSX sent card" });
-            await setComposerText(ctx, FOLLOW_UP);
+            await ctx.control("composer.set_text", { text: FOLLOW_UP });
             await ctx.control("composer.send");
             const replayProof = await pollProof(ctx, (item) => item.replayResponse && item.replayOfficeHistoryOk && item.replay?.normalizedTextOnly, 90_000, "successful replay follow-up with normalized XLSX history");
             ctx.output("XLSX mock proof after replay", JSON.stringify(replayProof, null, 2));

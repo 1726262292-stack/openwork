@@ -1,5 +1,5 @@
 import type { Surface } from "@openwork/cdp";
-import { evalIn, waitFor } from "./desktop.ts";
+import { control, evalIn, waitFor } from "./desktop.ts";
 
 export interface ComposerState {
   draftText: string;
@@ -62,6 +62,23 @@ export async function readComposerState(app: Surface): Promise<ComposerState> {
 }
 
 export async function writeComposerText(app: Surface, text: string): Promise<void> {
+  // The product ships a control action for exactly this ("Type into the composer",
+  // registered by the session surface, so it only appears once a composer is
+  // mounted). Prefer it: it types visibly the way a user does. The direct
+  // contenteditable paste below stays as a fallback for surfaces that do not
+  // register the action.
+  const hasControl = await evalIn(app, `Boolean(window.__openworkControl?.listActions?.()
+    .find((entry) => entry.id === "composer.set_text" && entry.disabled === false))`).catch(() => false);
+  if (hasControl === true) {
+    await control(app, "composer.set_text", { text });
+    await waitFor(app, `(() => {
+      const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
+        ?? document.querySelector('[contenteditable="true"]');
+      return Boolean(editor && (editor.innerText ?? "").includes(${JSON.stringify(text)}));
+    })()`, { timeoutMs: 30_000, label: "composer draft text via control" });
+    return;
+  }
+
   await waitFor(app, `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
     ?? document.querySelector('[contenteditable="true"]'))`, {
     timeoutMs: 30_000,

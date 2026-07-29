@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
-import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "composer-model-refresh-recovery";
 const EMPTY_MESSAGE = "Your organization hasn't published any models for you yet.";
@@ -313,7 +312,7 @@ export default {
               `document.body.innerText.includes("GPT-5.4") || document.body.innerText.includes(${JSON.stringify(MODEL_ID)})`,
               { timeoutMs: 120_000, label: "assigned GPT-5.4 model" },
             );
-            await setComposerText(ctx, READY_DRAFT);
+            await ctx.control("composer.set_text", { text: READY_DRAFT });
             await ctx.waitForText(READY_DRAFT, { timeoutMs: 30_000 });
           },
           assert: async () => {
