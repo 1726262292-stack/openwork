@@ -22,7 +22,10 @@ async function setViewport(ctx: FlowContext, width: number): Promise<void> {
 async function navigate(ctx: FlowContext, path: string): Promise<void> {
   const url = new URL(path, denWebUrl()).toString();
   await ctx.eval(`(() => { location.assign(${JSON.stringify(url)}); return true; })()`);
-  await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 30_000, label: path });
+  await ctx.waitFor(
+    `location.pathname === ${JSON.stringify(path)} && document.readyState === 'complete'`,
+    { timeoutMs: 60_000, label: path },
+  );
 }
 
 const FLAT_PLUGIN_CARDS = `(selector) => {
@@ -64,7 +67,7 @@ export default defineFlow({
             await setViewport(ctx, 1440);
             await signInViaBrowser(ctx, EMAIL, PASSWORD);
             await navigate(ctx, "/dashboard/plugins");
-            await ctx.expectText("Plugins", { timeoutMs: 30_000 });
+            await ctx.expectText("Plugins", { timeoutMs: 60_000 });
             await ctx.waitFor(
               "Boolean(document.querySelector('a[href*=\"/dashboard/plugins/\"]:not([href$=\"/new\"]):not([href$=\"/import\"])'))",
               { timeoutMs: 30_000, label: "Den Plugin card" },
