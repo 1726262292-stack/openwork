@@ -131,11 +131,59 @@ const FLUE_PROVIDER: Provider = {
   models: { [FLUE_MODEL_ID]: FLUE_MODEL },
 };
 
-const PROVIDER_LIST: ProviderListResponse = {
-  all: [FLUE_PROVIDER],
-  default: { [FLUE_PROVIDER_ID]: FLUE_MODEL_ID },
-  connected: [FLUE_PROVIDER_ID],
-};
+function makeRealModel(providerID: string, id: string, name: string): Model {
+  return {
+    id,
+    providerID,
+    api: { id: "chat", url: "", npm: "@earendil-works/pi-ai" },
+    name,
+    family: providerID,
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+    interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 200_000, output: 32_768 },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2026-01-01",
+  };
+}
+
+function makeEnvProvider(id: string, name: string, env: string[], models: Array<[string, string]>): Provider {
+  const modelMap: Record<string, Model> = {};
+  for (const [modelId, label] of models) modelMap[modelId] = makeRealModel(id, modelId, label);
+  return { id, name, source: "custom", env, options: {}, models: modelMap };
+}
+
+function buildProviderList(): ProviderListResponse {
+  const all: Provider[] = [FLUE_PROVIDER];
+  const connected: string[] = [FLUE_PROVIDER_ID];
+  let defaultSelection: Record<string, string> = { [FLUE_PROVIDER_ID]: FLUE_MODEL_ID };
+  if (process.env.OPENAI_API_KEY) {
+    all.push(makeEnvProvider("openai", "OpenAI (Flue)", ["OPENAI_API_KEY"], [
+      ["gpt-5-nano", "GPT-5 Nano"],
+      ["gpt-4.1-mini", "GPT-4.1 Mini"],
+    ]));
+    connected.push("openai");
+    defaultSelection = { openai: "gpt-5-nano" };
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    all.push(makeEnvProvider("anthropic", "Anthropic (Flue)", ["ANTHROPIC_API_KEY"], [
+      ["claude-haiku-4-5", "Claude Haiku 4.5"],
+      ["claude-sonnet-4-6", "Claude Sonnet 4.6"],
+    ]));
+    connected.push("anthropic");
+    defaultSelection = { anthropic: "claude-haiku-4-5" };
+  }
+  return { all, default: defaultSelection, connected };
+}
 
 const DEFAULT_CONFIG: EngineConfig = {
   model: FLUE_MODEL_SPEC,
@@ -826,8 +874,8 @@ class FlueWorkspaceFacade {
     if (method === "GET" && path === "/event") return this.eventStream(request.signal);
     if (method === "GET" && path === "/config") return jsonResponse(DEFAULT_CONFIG);
     if (method === "PATCH" && path === "/config") return jsonResponse(DEFAULT_CONFIG);
-    if (method === "GET" && path === "/config/providers") return jsonResponse(PROVIDER_LIST);
-    if (method === "GET" && path === "/provider") return jsonResponse(PROVIDER_LIST);
+    if (method === "GET" && path === "/config/providers") return jsonResponse(buildProviderList());
+    if (method === "GET" && path === "/provider") return jsonResponse(buildProviderList());
     if (method === "GET" && path === "/provider/auth") return jsonResponse({});
     if (method === "GET" && path === "/agent") return jsonResponse(DEFAULT_AGENT_LIST);
     if (method === "GET" && path === "/project") return jsonResponse(this.projectList());
