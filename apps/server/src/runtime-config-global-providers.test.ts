@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -99,7 +99,7 @@ describe("global runtime providers", () => {
     const globalRuntime = await readGlobalRuntimeOpencodeConfig(config);
     expect(runtimeProviderMap(globalRuntime)).toEqual({ lpr_openrouter: openrouter });
 
-    const path = await writeOpenworkRuntimeConfigFile(config, "ws_1");
+    const { path } = await writeOpenworkRuntimeConfigFile(config, "ws_1");
     expect(path).toBe(openworkRuntimeConfigFilePath(config));
     const raw = await readFile(path, "utf8");
     const parsed: unknown = JSON.parse(raw);
@@ -177,6 +177,16 @@ describe("global runtime providers", () => {
       lpr_anthropic: provider,
     });
 
+    await writeFile(openworkRuntimeConfigFilePath(config), "{}", "utf8");
+    const staleFileAttempt = await fetch(`${base}/runtime-config/providers`, {
+      method: "PATCH",
+      headers: hostHeaders(),
+      body: JSON.stringify({ provider: { lpr_anthropic: provider } }),
+    });
+    expect(staleFileAttempt.status).toBe(200);
+    expect(await readJsonObject(staleFileAttempt)).toMatchObject({ ok: true, changed: false, reload: "reloaded" });
+    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(3);
+
     const removalAttempt = await fetch(`${base}/runtime-config/providers`, {
       method: "PATCH",
       headers: hostHeaders(),
@@ -184,7 +194,7 @@ describe("global runtime providers", () => {
     });
     expect(removalAttempt.status).toBe(200);
     expect(await readJsonObject(removalAttempt)).toMatchObject({ ok: true, changed: true, reload: "reloaded" });
-    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(3);
+    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(4);
 
     const readback = await fetch(`${base}/opencode/config`, { headers: clientHeaders() });
     expect(readback.status).toBe(200);
