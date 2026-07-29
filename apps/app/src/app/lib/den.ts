@@ -1047,12 +1047,18 @@ export async function ensureDenActiveOrganization(options?: { forceServerSync?: 
     null;
 
   if (!targetOrg) {
-    writeDenSettings({
-      ...settings,
-      activeOrgId: null,
-      activeOrgSlug: null,
-      activeOrgName: null,
-    }, { persistBootstrap: false });
+    // Only forget the persisted org when the server authoritatively reports the
+    // user has none. If it sent org entries we failed to parse (e.g. a role
+    // vocabulary this build predates), keep the stored org: dropping it here
+    // used to strand the user on "Select an organization" with nothing to pick.
+    if (response.rawOrgCount === 0) {
+      writeDenSettings({
+        ...settings,
+        activeOrgId: null,
+        activeOrgSlug: null,
+        activeOrgName: null,
+      }, { persistBootstrap: false });
+    }
     return null;
   }
 
@@ -1117,6 +1123,21 @@ function getToken(payload: unknown): string | null {
   return payload.token.trim() || null;
 }
 
+export function normalizeDenOrgRole(roleValue: unknown): DenOrgSummary["role"] {
+  if (typeof roleValue !== "string") {
+    return "member";
+  }
+
+  const roles = roleValue.split(",").map((role) => role.trim()).filter(Boolean);
+  if (roles.includes("owner")) {
+    return "owner";
+  }
+  if (roles.includes("super-admin") || roles.includes("admin")) {
+    return "admin";
+  }
+  return "member";
+}
+
 function getOrgList(payload: unknown): DenOrgSummary[] {
   if (!isRecord(payload) || !Array.isArray(payload.orgs)) {
     return [];
@@ -1127,8 +1148,7 @@ function getOrgList(payload: unknown): DenOrgSummary[] {
     if (
       typeof entry.id !== "string" ||
       typeof entry.name !== "string" ||
-      typeof entry.slug !== "string" ||
-      (entry.role !== "owner" && entry.role !== "admin" && entry.role !== "member")
+      typeof entry.slug !== "string"
     ) {
       return [];
     }
@@ -1138,7 +1158,7 @@ function getOrgList(payload: unknown): DenOrgSummary[] {
         id: entry.id,
         name: entry.name,
         slug: entry.slug,
-        role: entry.role,
+        role: normalizeDenOrgRole(entry.role),
       } satisfies DenOrgSummary,
     ];
   });
@@ -2194,7 +2214,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       return { user: getUser(payload), token: getToken(payload) };
     },
 
-    async listOrgs(): Promise<{ orgs: DenOrgSummary[]; activeOrgId: string | null; activeOrgSlug: string | null; defaultOrgId: string | null }> {
+    async listOrgs(): Promise<{ orgs: DenOrgSummary[]; rawOrgCount: number; activeOrgId: string | null; activeOrgSlug: string | null; defaultOrgId: string | null }> {
       const payload = await requestJson<unknown>(baseUrls, "/v1/me/orgs", {
         method: "GET",
         token,
@@ -2209,6 +2229,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
 
       return {
         orgs: getOrgList(payload),
+        rawOrgCount: isRecord(payload) && Array.isArray(payload.orgs) ? payload.orgs.length : 0,
         activeOrgId,
         activeOrgSlug,
         defaultOrgId: activeOrgId,
