@@ -392,12 +392,21 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   };
 
   const mirrorOpenWorkModelsVoiceEnv = async (provider: DenOrgLlmProviderConnection, apiKey: string) => {
-    if (provider.source !== "openwork" || !apiKey.trim()) return;
+    const trimmedKey = apiKey.trim();
+    if (!trimmedKey) return;
     const openworkClient = options.openworkServer.getSnapshot().openworkServerClient;
     if (!openworkClient) return;
-    const baseUrl = readCloudProviderBaseUrl(provider);
-    const entries = [{ key: "OPENWORK_API_KEY", value: apiKey.trim() }];
-    if (baseUrl) entries.push({ key: "OPENWORK_INFERENCE_BASE_URL", value: baseUrl });
+    const entries = getCloudProviderEnv(provider.providerConfig)
+      .slice(0, 1)
+      .map((key) => ({ key, value: trimmedKey }));
+    if (provider.source === "openwork") {
+      if (!entries.some((entry) => entry.key === "OPENWORK_API_KEY")) {
+        entries.unshift({ key: "OPENWORK_API_KEY", value: trimmedKey });
+      }
+      const baseUrl = readCloudProviderBaseUrl(provider);
+      if (baseUrl) entries.push({ key: "OPENWORK_INFERENCE_BASE_URL", value: baseUrl });
+    }
+    if (entries.length === 0) return;
     await openworkClient.upsertUserEnv(entries);
   };
 

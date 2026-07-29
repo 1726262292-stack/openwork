@@ -26,9 +26,11 @@ import type { ServerConfig } from "./types.js";
 import { runtimeStorageDir } from "./runtime-db.js";
 import {
   onRuntimeOpencodeConfigWrite,
-  readRuntimeOpencodeConfig,
+  isEngineGlobalRuntimeConfigId,
+  readEffectiveRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
   runtimeMcpMap,
+  runtimeProviderMap,
   runtimePluginList,
   type RuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
@@ -88,7 +90,7 @@ export async function buildOpenworkRuntimeConfigObject(
   config?: ServerConfig,
   workspaceId?: string,
 ): Promise<Record<string, unknown>> {
-  const runtimeConfig = config && workspaceId ? await readRuntimeOpencodeConfig(config, workspaceId) : {};
+  const runtimeConfig = config && workspaceId ? await readEffectiveRuntimeOpencodeConfig(config, workspaceId) : {};
   return buildOpenworkRuntimeConfigObjectFromSnapshot(runtimeConfig);
 }
 
@@ -96,6 +98,7 @@ export function buildOpenworkRuntimeConfigObjectFromSnapshot(
   runtimeConfig: RuntimeOpencodeConfig,
 ): Record<string, unknown> {
   const disabledProviders = runtimeDisabledProviderList(runtimeConfig);
+  const provider = runtimeProviderMap(runtimeConfig);
   return {
     ...runtimeConfig,
     default_agent: runtimeConfig.default_agent ?? "openwork",
@@ -129,6 +132,7 @@ export function buildOpenworkRuntimeConfigObjectFromSnapshot(
     ],
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: runtimeMcpMap(runtimeConfig),
+    ...(Object.keys(provider).length ? { provider } : {}),
   };
 }
 
@@ -191,7 +195,7 @@ export async function writeOpenworkRuntimeConfigFile(config: ServerConfig, works
  */
 export function keepOpenworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
-    if (writtenWorkspaceId !== workspaceId) return;
+    if (writtenWorkspaceId !== workspaceId && !isEngineGlobalRuntimeConfigId(writtenWorkspaceId)) return;
     void writeOpenworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
   });
 }

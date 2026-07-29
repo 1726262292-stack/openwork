@@ -231,7 +231,9 @@ function createChatTranscriptEvalMessages(sessionId: string) {
           text: "Your plan is drafted — details in [OpenWork](https://openworklabs.com). Search token: chat-transcript-proof.",
         },
       ],
-      metadata: { opencode: { created: now + 1 } },
+      // `completed` makes the finished turn fold behind a real
+      // "Worked for 1m 35s" line, like server-synced turns do.
+      metadata: { opencode: { created: now + 1, completed: now + 95_001 } },
     },
   ];
 
@@ -253,6 +255,7 @@ export type SessionSurfaceProps = {
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
+  organizationModelsEmpty?: boolean;
   selectedModel: ModelRef;
   /** providerID → modelID → provider model, for per-session variant options. */
   providerCatalog?: ProviderCatalog;
@@ -1951,6 +1954,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableMessage={props.modelUnavailableMessage}
+        organizationModelsEmpty={props.organizationModelsEmpty}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={modelPickerOpen}
         selectedModel={sessionModel.selectedModel}

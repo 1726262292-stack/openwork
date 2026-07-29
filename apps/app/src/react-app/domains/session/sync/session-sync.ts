@@ -809,7 +809,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "message.updated") {
     const props = (event.properties ?? {}) as {
-      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; time?: { created?: number } };
+      info?: { id?: string; role?: UIMessage["role"] | string; sessionID?: string; time?: { created?: number; completed?: number } };
     };
     const info = props.info;
     if (!info?.id || !info.sessionID || (info.role !== "user" && info.role !== "assistant" && info.role !== "system")) {
@@ -818,10 +818,13 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     useSessionActivityStore.getState().markMessageRole(workspaceId, info.sessionID, info.id, info.role);
     if (!isTrackedSession(entry, info.sessionID)) return;
     const created = info.time?.created;
+    const completed = info.time?.completed;
     const next = {
       id: info.id,
       role: info.role,
-      ...(typeof created === "number" ? { metadata: { opencode: { created } } } : {}),
+      ...(typeof created === "number"
+        ? { metadata: { opencode: { created, ...(typeof completed === "number" ? { completed } : {}) } } }
+        : {}),
       parts: [],
     } satisfies UIMessage;
     queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, info.sessionID), (current = []) =>
