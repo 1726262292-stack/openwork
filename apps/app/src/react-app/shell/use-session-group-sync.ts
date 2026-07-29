@@ -150,6 +150,12 @@ export function useSessionGroupSync(input: UseSessionGroupSyncInput): void {
 
   useEffect(() => {
     let cancelled = false;
+    const eventWorkspaceKeys: string[] = [];
+    for (const workspace of workspacesRef.current) {
+      const endpoint = endpointForWorkspaceRef.current(workspace);
+      if (endpoint) eventWorkspaceKeys.push(`${endpoint.baseUrl}:${endpoint.workspaceId}`);
+    }
+    eventPollerRef.current.setWorkspaces(eventWorkspaceKeys);
 
     const syncWorkspace = async (workspace: RouteWorkspace, migrateLocal: boolean) => {
       const endpoint = endpointForWorkspaceRef.current(workspace);
