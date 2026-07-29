@@ -255,6 +255,7 @@ export type SessionSurfaceProps = {
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
+  organizationModelsEmpty?: boolean;
   selectedModel: ModelRef;
   /** providerID → modelID → provider model, for per-session variant options. */
   providerCatalog?: ProviderCatalog;
@@ -1953,6 +1954,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableMessage={props.modelUnavailableMessage}
+        organizationModelsEmpty={props.organizationModelsEmpty}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={modelPickerOpen}
         selectedModel={sessionModel.selectedModel}
