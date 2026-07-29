@@ -739,17 +739,43 @@ async function diagnoseTlsLab(lab: EgressLabHandle): Promise<DiagnosticVerdict> 
   };
 }
 
+export interface DeniedHostFacts {
+  status: number;
+  text: string;
+  errorCode: string | null;
+  host: string | null;
+}
+
+export async function readDeniedHostFacts(
+  lab: EgressLabHandle,
+  targetUrl = "https://github.com/different-ai/openwork/releases/latest",
+): Promise<DeniedHostFacts> {
+  const url = new URL("/fetch", lab.url);
+  url.searchParams.set("url", targetUrl);
+  const response = await fetch(url);
+  const text = await response.text();
+  let body: unknown = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  return {
+    status: response.status,
+    text,
+    errorCode: isRecord(body) && typeof body.error === "string" ? body.error : null,
+    host: isRecord(body) && typeof body.host === "string" ? body.host : null,
+  };
+}
+
 async function diagnoseDenyLab(lab: EgressLabHandle): Promise<DiagnosticVerdict> {
   // Exact-match lookup (not a substring test) so the denied host is unambiguous.
   const host = lab.deniedHosts.find((entry) => entry === "github.com") ?? lab.deniedHosts[0] ?? "github.com";
-  const url = new URL("/fetch", lab.url);
-  url.searchParams.set("url", `https://${host}/different-ai/openwork/releases/latest`);
-  const response = await fetch(url);
-  const body = await response.text();
-  const text = response.status === 451
+  const facts = await readDeniedHostFacts(lab, `https://${host}/different-ai/openwork/releases/latest`);
+  const text = facts.status === 451
     ? `BLOCKED HOST / PROXY DENY: ${host} is blocked by the selective-deny profile; docs/enterprise/outbound-access.json names the required host and its blocked effect.`
-    : `DENY VERDICT INCONCLUSIVE: expected ${host} to be blocked, got HTTP ${response.status}.`;
-  return { profile: lab.profile, text, evidence: [`status=${response.status}`, body].join("\n"), source: "lab-corroboration", available: true };
+    : `DENY VERDICT INCONCLUSIVE: expected ${host} to be blocked, got HTTP ${facts.status}.`;
+  return { profile: lab.profile, text, evidence: [`status=${facts.status}`, facts.text].join("\n"), source: "lab-corroboration", available: true };
 }
 
 async function diagnoseBlipLab(lab: EgressLabHandle): Promise<DiagnosticVerdict> {
