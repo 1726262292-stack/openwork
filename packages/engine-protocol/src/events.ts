@@ -11,7 +11,7 @@ import type {
   Session,
   SessionStatus,
   Todo,
-} from "./types";
+} from "./types.js";
 
 export type EngineEventBase<TType extends string, TProperties> = {
   id: string;

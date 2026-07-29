@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { engineEventTypes, type EngineEvent, type EngineGlobalEventEnvelope } from "./events";
+import { engineEventTypes, type EngineEvent, type EngineGlobalEventEnvelope } from "./events.js";
 
 const sessionTimeSchema = z
   .object({

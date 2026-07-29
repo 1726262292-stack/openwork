@@ -28,9 +28,9 @@ import type {
   SessionShellInput,
   SessionUpdateInput,
   ToolListInput,
-} from "./adapter";
-import type { EngineEvent, EngineGlobalEventEnvelope } from "./events";
-import { engineEventEnvelopeSchema } from "./schemas";
+} from "./adapter.js";
+import type { EngineEvent, EngineGlobalEventEnvelope } from "./events.js";
+import { engineEventEnvelopeSchema } from "./schemas.js";
 import type {
   Agent,
   AssistantMessage,
@@ -57,7 +57,7 @@ import type {
   ToolIds,
   ToolList,
   VcsInfo,
-} from "./types";
+} from "./types.js";
 
 export type EngineFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 

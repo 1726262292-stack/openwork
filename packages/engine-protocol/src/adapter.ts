@@ -1,4 +1,4 @@
-import type { EngineEvent } from "./events";
+import type { EngineEvent } from "./events.js";
 import type {
   Agent,
   AgentPartInput,
@@ -35,7 +35,7 @@ import type {
   ToolIds,
   ToolList,
   VcsInfo,
-} from "./types";
+} from "./types.js";
 
 export type MaybePromise<T> = T | Promise<T>;
 

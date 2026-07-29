@@ -47,7 +47,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "0.80.10",
+    "@flue/runtime": "1.0.0-beta.9",
     "@opencode-ai/sdk": "^1.17.11",
+    "@openwork/engine-protocol": "workspace:*",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.1",
     "jsonc-parser": "^3.2.1",
