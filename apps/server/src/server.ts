@@ -2035,15 +2035,18 @@ function createRoutes(
       provider: mergeRuntimeProviderUpdate(current.provider, providerPatch),
     }));
 
-    await writeOpenworkRuntimeConfigFile(config, workspace.id);
-    await reloadOpencodeEngine(config, workspace, engineMcpServerState);
+    const fileResult = await writeOpenworkRuntimeConfigFile(config, workspace.id);
+    const shouldReload = result.changed || fileResult.changed;
+    if (shouldReload) {
+      await reloadOpencodeEngine(config, workspace, engineMcpServerState);
+    }
 
     return jsonResponse({
       ok: true,
       changed: result.changed,
       provider: runtimeProviderMap(result.config),
       runtimeConfigPath: openworkRuntimeConfigFilePath(config),
-      reload: "reloaded",
+      reload: shouldReload ? "reloaded" : "skipped",
     });
   });
 
