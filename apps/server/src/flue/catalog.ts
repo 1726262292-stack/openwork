@@ -13,6 +13,11 @@ import {
 } from "../runtime-opencode-config-store.js";
 import { externalFetch } from "../server-fetch.js";
 import type { ServerConfig } from "../types.js";
+import {
+  readFlueProviderCredentials,
+  type FlueProviderCredential,
+  type FlueProviderCredentialMap,
+} from "./credential-vault.js";
 
 export const FLUE_CATALOG_CACHE_FILE = join(".opencode", "openwork", "flue-catalog-cache.json");
 
@@ -175,6 +180,7 @@ export type FlueCatalogBridgeOptions = {
   resolveModelsUrl?: () => Promise<string>;
   fetchCatalog?: CatalogFetch;
   readEnvStore?: () => Promise<EnvMap>;
+  readVaultCredentials?: (config: ServerConfig) => Promise<FlueProviderCredentialMap>;
   readRuntimeConfig?: (config: ServerConfig, workspaceId: string) => Promise<RuntimeOpencodeConfig>;
   now?: () => number;
   fetchTimeoutMs?: number;
@@ -364,6 +370,17 @@ export function resolveProviderCredential(envNames: string[], envStore: EnvMap, 
   return { envName: null, value: null };
 }
 
+export function resolveProviderCredentialWithVault(
+  vaultCredential: FlueProviderCredential | undefined,
+  envNames: string[],
+  envStore: EnvMap,
+  processEnv: EnvMap,
+): CredentialResolution {
+  const vaultValue = vaultCredential?.key.trim();
+  if (vaultValue) return { envName: null, value: vaultValue };
+  return resolveProviderCredential(envNames, envStore, processEnv);
+}
+
 export function normalizeOpenWorkInferenceBaseUrl(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) return "";
@@ -484,6 +501,7 @@ export function materializeFlueCatalog(input: {
   runtimeConfig: RuntimeOpencodeConfig;
   envStore: EnvMap;
   processEnv: EnvMap;
+  vaultCredentials?: FlueProviderCredentialMap;
   deterministicProvider: Provider;
 }): FlueCatalogMaterialization {
   const catalogById = new Map<string, FlueCatalogProvider>();
@@ -498,9 +516,10 @@ export function materializeFlueCatalog(input: {
   }
 
   const disabled = disabledProviderSet(input.runtimeConfig);
+  const vaultCredentials = input.vaultCredentials ?? {};
   const candidateIds = new Set<string>();
   for (const provider of input.catalogProviders) {
-    if (resolveProviderCredential(provider.env, input.envStore, input.processEnv).value) {
+    if (resolveProviderCredentialWithVault(vaultCredentials[provider.id], provider.env, input.envStore, input.processEnv).value) {
       candidateIds.add(provider.id);
     }
   }
@@ -525,7 +544,12 @@ export function materializeFlueCatalog(input: {
       continue;
     }
 
-    const credential = resolveProviderCredential(candidate.env, input.envStore, input.processEnv);
+    const credential = resolveProviderCredentialWithVault(
+      vaultCredentials[providerId],
+      candidate.env,
+      input.envStore,
+      input.processEnv,
+    );
     if (candidate.env.length > 0 && !credential.value) {
       if (!candidate.fromRuntime) {
         skipped.push({ providerId, reason: "no_credential" });
@@ -655,6 +679,7 @@ export class FlueCatalogBridge {
   private readonly resolveModelsUrl: () => Promise<string>;
   private readonly fetchCatalog: CatalogFetch;
   private readonly readEnvStore: () => Promise<EnvMap>;
+  private readonly readVaultCredentials: (config: ServerConfig) => Promise<FlueProviderCredentialMap>;
   private readonly readRuntimeConfig: (config: ServerConfig, workspaceId: string) => Promise<RuntimeOpencodeConfig>;
   private readonly now: () => number;
   private readonly fetchTimeoutMs: number;
@@ -665,6 +690,7 @@ export class FlueCatalogBridge {
     this.resolveModelsUrl = options.resolveModelsUrl ?? resolveOpencodeModelsUrl;
     this.fetchCatalog = options.fetchCatalog ?? defaultFetchCatalog;
     this.readEnvStore = options.readEnvStore ?? defaultReadEnvStore;
+    this.readVaultCredentials = options.readVaultCredentials ?? readFlueProviderCredentials;
     this.readRuntimeConfig = options.readRuntimeConfig ?? defaultReadRuntimeConfig;
     this.now = options.now ?? Date.now;
     this.fetchTimeoutMs = options.fetchTimeoutMs ?? CATALOG_FETCH_TIMEOUT_MS;
@@ -681,13 +707,15 @@ export class FlueCatalogBridge {
     processEnv?: EnvMap;
     allowNetwork?: boolean;
   }): Promise<FlueCatalogMaterialization> {
-    const [runtimeConfig, envStore] = await Promise.all([
+    const [runtimeConfig, envStore, vaultCredentials] = await Promise.all([
       this.readRuntimeConfig(input.config, input.workspaceId).catch(() => ({})),
       this.readEnvStore().catch(() => ({})),
+      this.readVaultCredentials(input.config).catch(() => ({})),
     ]);
     return this.materialize({
       runtimeConfig,
       envStore,
+      vaultCredentials,
       processEnv: input.processEnv ?? process.env,
       deterministicProvider: input.deterministicProvider,
       allowNetwork: input.allowNetwork,
@@ -698,6 +726,7 @@ export class FlueCatalogBridge {
     runtimeConfig: RuntimeOpencodeConfig;
     envStore: EnvMap;
     processEnv: EnvMap;
+    vaultCredentials?: FlueProviderCredentialMap;
     deterministicProvider: Provider;
     allowNetwork?: boolean;
   }): Promise<FlueCatalogMaterialization> {
@@ -709,6 +738,7 @@ export class FlueCatalogBridge {
       runtimeConfig: input.runtimeConfig,
       envStore: input.envStore,
       processEnv: input.processEnv,
+      vaultCredentials: input.vaultCredentials,
       deterministicProvider: input.deterministicProvider,
     });
     if (materialization.catalogSource === "empty") {

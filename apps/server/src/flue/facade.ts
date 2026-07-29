@@ -57,6 +57,11 @@ import {
   flueProviderListResponseSchema,
   type FlueCatalogMaterialization,
 } from "./catalog.js";
+import {
+  removeFlueProviderCredential,
+  writeFlueProviderCredential,
+  type FlueProviderCredential,
+} from "./credential-vault.js";
 
 type FlueContext = ReturnType<typeof createFlueContext>;
 type FlueHarness = Awaited<ReturnType<FlueContext["initializeRootHarness"]>>;
@@ -306,6 +311,23 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
   } catch {
     throw new ApiError(400, "invalid_json", "Invalid JSON body");
   }
+}
+
+async function readJsonValue(request: Request): Promise<unknown> {
+  const text = await request.text();
+  if (!text.trim()) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiError(400, "invalid_json", "Invalid JSON body");
+  }
+}
+
+function apiCredential(value: unknown): FlueProviderCredential {
+  if (!isRecord(value) || value.type !== "api" || typeof value.key !== "string" || !value.key.trim()) {
+    throw new ApiError(400, "invalid_payload", "API auth requires a non-empty key");
+  }
+  return { type: "api", key: value.key.trim() };
 }
 
 function stateFilePath(workspace: WorkspaceInfo): string {
@@ -923,7 +945,30 @@ class FlueWorkspaceFacade {
     if (method === "PATCH" && path === "/config") return jsonResponse(DEFAULT_CONFIG);
     if (method === "GET" && path === "/config/providers") return jsonResponse(parseWire(flueProviderListResponseSchema, await this.providerList(), "provider list"));
     if (method === "GET" && path === "/provider") return jsonResponse(parseWire(flueProviderListResponseSchema, await this.providerList(), "provider list"));
-    if (method === "GET" && path === "/provider/auth") return jsonResponse({});
+    if (method === "GET" && path === "/provider/auth") return jsonResponse(await this.providerAuthMethods());
+    const authMatch = path.match(/^\/auth\/([^/]+)$/);
+    if (authMatch?.[1]) {
+      const providerId = decodePathSegment(authMatch[1]).trim();
+      if (!providerId) throw new ApiError(400, "invalid_payload", "Provider id is required");
+      if (method === "PUT") {
+        const value = await readJsonValue(request);
+        if (value === null) await removeFlueProviderCredential(this.config, providerId);
+        else await writeFlueProviderCredential(this.config, providerId, apiCredential(value));
+        await this.providerList({ allowNetwork: false });
+        return jsonResponse(true);
+      }
+      if (method === "DELETE") {
+        await removeFlueProviderCredential(this.config, providerId);
+        await this.providerList({ allowNetwork: false });
+        return jsonResponse(true);
+      }
+    }
+    if (method === "POST" && /^\/provider\/[^/]+\/oauth\/(?:authorize|callback)$/.test(path)) {
+      return jsonResponse({
+        code: "flue_oauth_unsupported",
+        message: "OAuth is unsupported on the Flue engine",
+      }, 501);
+    }
     if (method === "GET" && path === "/agent") return jsonResponse(DEFAULT_AGENT_LIST);
     if (method === "GET" && path === "/project") return jsonResponse(this.projectList());
     if (method === "GET" && path === "/path") return jsonResponse(this.pathInfo());
@@ -974,6 +1019,15 @@ class FlueWorkspaceFacade {
     });
     this.applyProviderMaterialization(materialization);
     return materialization.providerList;
+  }
+
+  private async providerAuthMethods(): Promise<Record<string, Array<{ type: "api"; label: string }>>> {
+    const providers = (await this.providerList({ allowNetwork: false })).all;
+    const methods: Record<string, Array<{ type: "api"; label: string }>> = {};
+    for (const provider of providers) {
+      if (provider.env.length > 0) methods[provider.id] = [{ type: "api", label: "API key" }];
+    }
+    return methods;
   }
 
   private applyProviderMaterialization(materialization: FlueCatalogMaterialization): void {

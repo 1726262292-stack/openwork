@@ -19,6 +19,7 @@ import {
   parseFlueCatalogPayload,
   resetFlueCatalogCacheForTest,
   resolveProviderCredential,
+  resolveProviderCredentialWithVault,
   type FlueCatalogMaterialization,
 } from "./catalog.js";
 
@@ -323,6 +324,26 @@ describe("Flue catalog bridge", () => {
     expect(normalizeOpenWorkInferenceBaseUrl("https://already.example.test/api/v1/")).toBe("https://already.example.test/api/v1");
   });
 
+  test("resolves credentials from the vault before env store and process env", () => {
+    const parsed = parseFlueCatalogPayload(credentialCatalogFixture());
+    const materialization = materializeFlueCatalog({
+      catalogProviders: parsed.providers,
+      runtimeConfig: {},
+      vaultCredentials: { store: { type: "api", key: "vault-secret" } },
+      envStore: { SHARED_KEY: "store-secret" },
+      processEnv: { SHARED_KEY: "process-secret" },
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expect(resolveProviderCredentialWithVault(
+      { type: "api", key: "vault-secret" },
+      ["SHARED_KEY"],
+      { SHARED_KEY: "store-secret" },
+      { SHARED_KEY: "process-secret" },
+    )).toEqual({ envName: null, value: "vault-secret" });
+    expect(registrationFor(materialization, "store")?.registration.apiKey).toBe("vault-secret");
+  });
+
   test("omits a disabled catalog provider before credential resolution and registration", () => {
     const parsed = parseFlueCatalogPayload(catalogFixture());
     const materialization = materializeFlueCatalog({
@@ -335,6 +356,21 @@ describe("Flue catalog bridge", () => {
 
     expectProviderAbsent(materialization, "openwork");
     expect(materialization.skipped).toContainEqual({ providerId: "openwork", reason: "disabled" });
+  });
+
+  test("disabled providers still win over a vault credential", () => {
+    const parsed = parseFlueCatalogPayload(catalogFixture());
+    const materialization = materializeFlueCatalog({
+      catalogProviders: parsed.providers,
+      runtimeConfig: { disabled_providers: ["anthropic"] },
+      vaultCredentials: { anthropic: { type: "api", key: "vault-secret" } },
+      envStore: {},
+      processEnv: {},
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expectProviderAbsent(materialization, "anthropic");
+    expect(materialization.skipped).toContainEqual({ providerId: "anthropic", reason: "disabled" });
   });
 
   test("applies runtime map precedence, baseURL override, model filters, and disabled providers", () => {
@@ -444,6 +480,29 @@ describe("Flue catalog bridge", () => {
     expect(registrationFor(materialization, "anthropic")).toBeUndefined();
     expect(materialization.skipped).toContainEqual({ providerId: "anthropic", reason: "no_credential" });
     expect(flueProviderListResponseSchema.parse(materialization.providerList)).toEqual(materialization.providerList);
+  });
+
+  test("connects a Den-imported runtime provider through its vault credential", () => {
+    const parsed = parseFlueCatalogPayload(catalogFixture());
+    const materialization = materializeFlueCatalog({
+      catalogProviders: parsed.providers,
+      runtimeConfig: {
+        provider: {
+          anthropic: {
+            id: "anthropic",
+            name: "Managed Anthropic",
+          },
+        },
+      },
+      vaultCredentials: { anthropic: { type: "api", key: "den-import-secret" } },
+      envStore: {},
+      processEnv: {},
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expect(materialization.providerList.connected).toContain("anthropic");
+    expect(materialization.providerList.default.anthropic).toBe("claude-sonnet-4-6");
+    expect(registrationFor(materialization, "anthropic")?.registration.apiKey).toBe("den-import-secret");
   });
 
   test("applies global disabled_providers to workspace effective config", async () => {

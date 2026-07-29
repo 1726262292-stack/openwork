@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { hasRegisteredProvider, resolveModel } from "@flue/runtime/internal";
+import type { Provider } from "@openwork/engine-protocol";
 
+import { FLUE_CATALOG_CACHE_FILE, FlueCatalogBridge, resetFlueCatalogCacheForTest } from "./flue/catalog.js";
+import { openworkRuntimeConfigFilePath, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
+import { writeGlobalRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -12,6 +17,7 @@ const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
 
 afterEach(async () => {
   while (stops.length) await stops.pop()?.();
+  resetFlueCatalogCacheForTest();
   while (roots.length) await rm(roots.pop() ?? "", { recursive: true, force: true });
   if (previousRuntimeDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
   else process.env.OPENWORK_RUNTIME_DB = previousRuntimeDb;
@@ -82,7 +88,58 @@ async function startOpenworkServer(workspaceRoot: string, opencodeBaseUrl: strin
   };
   const server = await startServer(config);
   stops.push(() => server.stop());
-  return { base: `http://127.0.0.1:${server.port}`, token: config.token };
+  return { base: `http://127.0.0.1:${server.port}`, token: config.token, config };
+}
+
+function deterministicProvider(): Provider {
+  return {
+    id: "flue",
+    name: "Flue",
+    source: "custom",
+    env: [],
+    options: {},
+    models: {},
+  };
+}
+
+async function seedEmptyCatalog(workspaceRoot: string): Promise<void> {
+  const bridge = new FlueCatalogBridge({
+    cachePath: join(workspaceRoot, FLUE_CATALOG_CACHE_FILE),
+    resolveModelsUrl: async () => "https://models.example.test",
+    fetchCatalog: async () => ({
+      ok: true,
+      status: 200,
+      async json(): Promise<unknown> {
+        return {};
+      },
+    }),
+  });
+  await bridge.materialize({
+    runtimeConfig: {},
+    envStore: {},
+    processEnv: {},
+    deterministicProvider: deterministicProvider(),
+  });
+}
+
+async function configureDenRuntimeProvider(config: ServerConfig): Promise<void> {
+  await writeGlobalRuntimeOpencodeConfig(config, () => ({
+    provider: {
+      "den-import": {
+        id: "den-import",
+        name: "Den Imported Provider",
+        npm: "@ai-sdk/openai-compatible",
+        env: ["DEN_IMPORT_API_KEY"],
+        api: "http://127.0.0.1:1/v1",
+        models: {
+          "den-model": {
+            name: "Den Model",
+            limit: { context: 4_096, output: 512 },
+          },
+        },
+      },
+    },
+  }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -245,5 +302,131 @@ describe("Flue opencode-wire facade", () => {
       items: [{ id: sessionId, title: "Flue dolphins", directory: workspaceRoot }],
     });
     await expect(waitForAssistantText(base, token, sessionId)).resolves.toBe("Flue received: Research dolphins.");
+  });
+
+  test("owns the auth wire, applies Den-imported credentials live, and never echoes or writes the key", async () => {
+    const rawKey = "flue-vault-leak-regression-key";
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await configureDenRuntimeProvider(config);
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const setResponse = await fetch(`${base}/workspace/ws_1/opencode/auth/den-import`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ type: "api", key: rawKey }),
+    });
+    const setBody = await setResponse.text();
+    expect({ status: setResponse.status, body: setBody }).toEqual({ status: 200, body: "true" });
+    expect(setBody).not.toContain(rawKey);
+
+    const providerResponse = await fetch(`${base}/workspace/ws_1/opencode/provider`, { headers: auth(token) });
+    const providerBody = await providerResponse.text();
+    expect(providerResponse.status).toBe(200);
+    expect(providerBody).toContain('"connected":["flue","den-import"]');
+    expect(providerBody).toContain('"den-import":"den-model"');
+    expect(providerBody).not.toContain(rawKey);
+    expect(hasRegisteredProvider("den-import")).toBe(true);
+    expect(resolveModel("den-import/den-model")).toMatchObject({
+      id: "den-model",
+      provider: "den-import",
+      api: "openai-completions",
+      baseUrl: "http://127.0.0.1:1/v1",
+    });
+
+    const authMethodsResponse = await fetch(`${base}/workspace/ws_1/opencode/provider/auth`, { headers: auth(token) });
+    const authMethodsBody = await authMethodsResponse.text();
+    expect(authMethodsResponse.status).toBe(200);
+    expect(JSON.parse(authMethodsBody)).toEqual({
+      "den-import": [{ type: "api", label: "API key" }],
+    });
+    expect(authMethodsBody).not.toContain(rawKey);
+
+    const created = await readJson(await fetch(`${base}/workspace/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "Den imported model" }),
+    }));
+    const sessionId = sessionIdFromCreateResponse(created);
+    const promptResponse = await fetch(`${base}/workspace/ws_1/opencode/session/${encodeURIComponent(sessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({
+        model: { providerID: "den-import", modelID: "den-model" },
+        parts: [{ type: "text", text: "Use the Den model." }],
+      }),
+    });
+    expect(promptResponse.status).toBe(204);
+    const messageResponse = await fetch(`${base}/workspace/ws_1/opencode/session/${encodeURIComponent(sessionId)}/message`, {
+      headers: auth(token),
+    });
+    const messageBody = await messageResponse.text();
+    expect(messageResponse.status).toBe(200);
+    expect(messageBody).toContain('"providerID":"den-import"');
+    expect(messageBody).toContain('"modelID":"den-model"');
+    expect(messageBody).not.toContain(rawKey);
+
+    const runtimeConfigPath = await writeOpenworkRuntimeConfigFile(config, "ws_1");
+    const runtimeConfigFileContent = await readFile(runtimeConfigPath, "utf8");
+    const runtimeConfigResponse = await fetch(`${base}/workspace/ws_1/runtime-config`, {
+      headers: auth(token),
+    });
+    const runtimeConfigResponseBody = await runtimeConfigResponse.text();
+    const stateFileContent = await readFile(join(workspaceRoot, ".opencode", "openwork", "flue-state.json"), "utf8");
+    const catalogCacheContent = await readFile(join(workspaceRoot, FLUE_CATALOG_CACHE_FILE), "utf8");
+    expect(runtimeConfigPath).toBe(openworkRuntimeConfigFilePath(config));
+    expect(runtimeConfigResponse.status).toBe(200);
+    expect(runtimeConfigFileContent).not.toContain(rawKey);
+    expect(runtimeConfigResponseBody).not.toContain(rawKey);
+    expect(stateFileContent).not.toContain(rawKey);
+    expect(catalogCacheContent).not.toContain(rawKey);
+
+    for (const suffix of ["authorize", "callback"]) {
+      const oauthResponse = await fetch(`${base}/workspace/ws_1/opencode/provider/den-import/oauth/${suffix}`, {
+        method: "POST",
+        headers: jsonHeaders(token),
+        body: JSON.stringify({ method: 0 }),
+      });
+      expect({ status: oauthResponse.status, body: await oauthResponse.json() }).toEqual({
+        status: 501,
+        body: {
+          code: "flue_oauth_unsupported",
+          message: "OAuth is unsupported on the Flue engine",
+        },
+      });
+    }
+
+    const removeResponse = await fetch(`${base}/workspace/ws_1/opencode/auth/den-import`, {
+      method: "DELETE",
+      headers: auth(token),
+    });
+    expect({ status: removeResponse.status, body: await removeResponse.text() }).toEqual({ status: 200, body: "true" });
+    const removedProviderResponse = await fetch(`${base}/workspace/ws_1/opencode/provider`, { headers: auth(token) });
+    const removedProviderBody = await removedProviderResponse.text();
+    expect(removedProviderResponse.status).toBe(200);
+    expect(removedProviderBody).not.toContain('"connected":["flue","den-import"]');
+    expect(hasRegisteredProvider("den-import")).toBe(false);
+
+    await fetch(`${base}/workspace/ws_1/opencode/auth/den-import`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ type: "api", key: rawKey }),
+    });
+    const nullRemoval = await fetch(`${base}/workspace/ws_1/opencode/auth/den-import`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: "null",
+    });
+    expect({ status: nullRemoval.status, body: await nullRemoval.text() }).toEqual({ status: 200, body: "true" });
+    const nullRemovedProviderResponse = await fetch(`${base}/workspace/ws_1/opencode/provider`, { headers: auth(token) });
+    const nullRemovedProviderBody = await nullRemovedProviderResponse.text();
+    expect(nullRemovedProviderResponse.status).toBe(200);
+    expect(nullRemovedProviderBody).not.toContain('"connected":["flue","den-import"]');
   });
 });
