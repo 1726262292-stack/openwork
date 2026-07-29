@@ -11,6 +11,7 @@ import {
   FolderLock,
   Info,
   Paintbrush,
+  Blocks,
   Puzzle,
   RefreshCcw,
   ShieldCheck,
@@ -82,6 +83,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return BrainCircuit;
     case "extensions":
       return Puzzle;
+    case "apps":
+      return Blocks;
     case "environment":
       return Terminal;
     case "advanced":
@@ -121,6 +124,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
       return t("memory.tab_label");
     case "extensions":
       return t("settings.tab_extensions");
+    case "apps":
+      return "Apps";
     case "environment":
       return t("settings.tab_environment");
     case "advanced":
@@ -162,6 +167,8 @@ export function getSettingsTabDescription(tab: SettingsTab) {
       return t("memory.tab_description");
     case "extensions":
       return t("settings.tab_description_extensions");
+    case "apps":
+      return "Install applications from a GitHub repository";
     case "environment":
       return t("settings.tab_description_environment");
     case "advanced":
@@ -182,7 +189,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  return ["preferences", "permissions", "extensions", "advanced"];
+  return ["preferences", "permissions", "extensions", "apps", "advanced"];
 }
 
 export function getGlobalSettingsTabs(
