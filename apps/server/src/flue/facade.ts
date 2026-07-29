@@ -331,9 +331,15 @@ function promptModelSpec(input?: PromptModelInput): string {
   return `${model.providerID}/${model.modelID}`;
 }
 
-function providerListHasModel(providerList: ProviderListResponse, model: PromptModelInput): boolean {
+export function promptModelAvailabilityError(providerList: ProviderListResponse, model: PromptModelInput): ApiError | null {
   const provider = providerList.all.find((item) => item.id === model.providerID);
-  return Boolean(provider?.models[model.modelID]);
+  if (!provider?.models[model.modelID]) {
+    return new ApiError(400, "model_not_found", `Model ${model.providerID}/${model.modelID} is not available`);
+  }
+  if (!providerList.connected.includes(model.providerID)) {
+    return new ApiError(400, "provider_no_credential", `Provider ${model.providerID} has no credential`);
+  }
+  return null;
 }
 
 function emptyAssistantTokens() {
@@ -426,7 +432,7 @@ function makeAssistantMessage(input: {
   return { info, parts: [part] };
 }
 
-function completeAssistantMessage(message: MessageWithParts, text: string, completedAt: number, response?: PromptResponse): MessageWithParts {
+export function completeAssistantMessage(message: MessageWithParts, text: string, completedAt: number, response?: PromptResponse): MessageWithParts {
   if (message.info.role !== "assistant") return message;
   const model = response?.model;
   const usage = response?.usage;
@@ -453,6 +459,82 @@ function completeAssistantMessage(message: MessageWithParts, text: string, compl
       return { ...part, text, time: { ...(part.time ?? { start: completedAt }), end: completedAt } };
     }),
   };
+}
+
+function toolResultText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result === undefined) return "";
+  try {
+    return JSON.stringify(result) ?? String(result);
+  } catch {
+    return String(result);
+  }
+}
+
+type ObservedToolEvent = Extract<FlueObservation, { type: "tool_start" | "tool" }>;
+
+export function applyObservedToolEvent(input: {
+  message: MessageWithParts;
+  event: ObservedToolEvent;
+  sessionID: string;
+  now: number;
+  partId: () => string;
+  onUpdated: (part: Part) => void;
+}): void {
+  const { event, message, now } = input;
+  if (event.type === "tool_start") {
+    const part: Part = {
+      id: input.partId(),
+      sessionID: input.sessionID,
+      messageID: message.info.id,
+      type: "tool",
+      callID: event.toolCallId,
+      tool: event.toolName,
+      state: {
+        status: "running",
+        input: isRecord(event.args) ? event.args : {},
+        time: { start: now },
+      },
+    };
+    message.parts.push(part);
+    input.onUpdated(part);
+    return;
+  }
+
+  const existing = message.parts.find((part) => part.type === "tool" && part.callID === event.toolCallId);
+  const start = existing?.type === "tool" && "time" in existing.state
+    ? existing.state.time.start
+    : now - event.durationMs;
+  const toolInput = existing?.type === "tool" ? existing.state.input : {};
+  const state: Extract<Part, { type: "tool" }>["state"] = event.isError
+    ? {
+        status: "error",
+        input: toolInput,
+        error: toolResultText(event.result),
+        time: { start, end: start + event.durationMs },
+      }
+    : {
+        status: "completed",
+        input: toolInput,
+        output: toolResultText(event.result),
+        title: event.toolName,
+        metadata: {},
+        time: { start, end: start + event.durationMs },
+      };
+  const part: Part = existing?.type === "tool"
+    ? { ...existing, tool: event.toolName, state }
+    : {
+        id: input.partId(),
+        sessionID: input.sessionID,
+        messageID: message.info.id,
+        type: "tool",
+        callID: event.toolCallId,
+        tool: event.toolName,
+        state,
+      };
+  if (existing) message.parts[message.parts.indexOf(existing)] = part;
+  else message.parts.push(part);
+  input.onUpdated(part);
 }
 
 function erroredAssistantMessage(message: MessageWithParts, error: unknown, completedAt: number): MessageWithParts {
@@ -1012,29 +1094,27 @@ class FlueWorkspaceFacade {
   }
 
   handleObservedFlueEvent(event: FlueObservation): void {
-    if (event.type !== "tool_start" || typeof event.session !== "string") return;
+    if ((event.type !== "tool_start" && event.type !== "tool") || typeof event.session !== "string") return;
     const inFlight = this.inFlight.get(event.session);
     if (!inFlight) return;
     const record = this.records().find((item) => item.session.id === event.session);
     if (!record) return;
     const message = record.messages.find((item) => item.info.id === inFlight.assistantMessageId);
     if (!message) return;
-    const part: Part = {
-      id: `prt_${shortId()}`,
-      sessionID: event.session,
-      messageID: inFlight.assistantMessageId,
-      type: "tool",
-      callID: event.toolCallId,
-      tool: event.toolName,
-      state: {
-        status: "running",
-        input: isRecord(event.args) ? event.args : {},
-        time: { start: Date.now() },
-      },
-    };
-    message.parts.push(part);
+    const sessionID = event.session;
+    applyObservedToolEvent({
+      message,
+      event,
+      sessionID,
+      now: Date.now(),
+      partId: () => `prt_${shortId()}`,
+      onUpdated: (part) => this.emit({
+        id: this.eventId(),
+        type: "message.part.updated",
+        properties: { sessionID, part, time: Date.now() },
+      }),
+    });
     void this.save().catch(() => undefined);
-    this.emit({ id: this.eventId(), type: "message.part.updated", properties: { sessionID: event.session, part, time: Date.now() } });
   }
 
   private async handleSessionRequest(method: string, subpath: string, sessionId: string, request: Request, url: URL): Promise<Response> {
@@ -1107,9 +1187,8 @@ class FlueWorkspaceFacade {
     const model = sessionModel(input.model);
     const modelSpec = promptModelSpec(input.model);
     const providerList = await this.providerList({ allowNetwork: false });
-    if (!providerListHasModel(providerList, model)) {
-      throw new ApiError(400, "model_not_found", `Model ${modelSpec} is not available`);
-    }
+    const availabilityError = promptModelAvailabilityError(providerList, model);
+    if (availabilityError) throw availabilityError;
     const harness = await this.ensureHarness(modelSpec);
     let session;
     try {

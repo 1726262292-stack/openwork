@@ -184,6 +184,7 @@ type MemoryCatalog = {
   expiresAt: number;
   providers: FlueCatalogProvider[];
   skipped: FlueCatalogSkip[];
+  source: "url";
 };
 
 type ApiKindResult = {
@@ -303,7 +304,7 @@ function normalizeRuntimeProvider(providerKey: string, rawProvider: unknown): Fl
 export function parseFlueCatalogPayload(payload: unknown): FlueCatalogParseResult {
   const recordResult = z.record(z.string(), z.unknown()).safeParse(payload);
   if (!recordResult.success) {
-    return { providers: [], skipped: [{ providerId: "__catalog__", reason: "invalid_catalog_payload" }] };
+    return { providers: [], skipped: [{ providerId: "__catalog__", reason: "malformed" }] };
   }
 
   const providers: FlueCatalogProvider[] = [];
@@ -311,7 +312,7 @@ export function parseFlueCatalogPayload(payload: unknown): FlueCatalogParseResul
   for (const [providerKey, rawProvider] of Object.entries(recordResult.data)) {
     const provider = normalizeProvider(providerKey, rawProvider);
     if (provider) providers.push(provider);
-    else skipped.push({ providerId: providerKey, reason: "malformed_catalog_provider" });
+    else skipped.push({ providerId: providerKey, reason: "malformed" });
   }
   providers.sort((left, right) => left.id.localeCompare(right.id));
   return { providers, skipped };
@@ -493,15 +494,20 @@ export function materializeFlueCatalog(input: {
   for (const [providerKey, rawProvider] of Object.entries(runtimeProviderMap(input.runtimeConfig))) {
     const provider = normalizeRuntimeProvider(providerKey, rawProvider);
     if (provider) runtimeById.set(provider.id, provider);
-    else skipped.push({ providerId: providerKey, reason: "malformed_runtime_provider" });
+    else skipped.push({ providerId: providerKey, reason: "malformed" });
   }
 
   const disabled = disabledProviderSet(input.runtimeConfig);
   const candidateIds = new Set<string>();
-  for (const provider of input.catalogProviders) candidateIds.add(provider.id);
+  for (const provider of input.catalogProviders) {
+    if (resolveProviderCredential(provider.env, input.envStore, input.processEnv).value) {
+      candidateIds.add(provider.id);
+    }
+  }
   for (const providerId of runtimeById.keys()) candidateIds.add(providerId);
 
-  const realProviders: Provider[] = [];
+  const listedProviders: Provider[] = [];
+  const connectedProviders: Provider[] = [];
   const registrations: FlueProviderRegistration[] = [];
   const sortedCandidateIds = [...candidateIds].sort((left, right) => left.localeCompare(right));
   for (const providerId of sortedCandidateIds) {
@@ -509,30 +515,39 @@ export function materializeFlueCatalog(input: {
     const runtimeProvider = runtimeById.get(providerId);
     const candidate = mergeProvider(providerId, catalogProvider, runtimeProvider);
     if (disabled.has(providerId)) {
-      skipped.push({ providerId, reason: "disabled_provider" });
+      skipped.push({ providerId, reason: "disabled" });
       continue;
     }
     const modelsById = providerModelsById(candidate.models);
     candidate.models = [...modelsById.values()].sort((left, right) => left.id.localeCompare(right.id));
     if (candidate.models.length === 0) {
-      if (runtimeProvider) skipped.push({ providerId, reason: "no_models" });
+      if (runtimeProvider) skipped.push({ providerId, reason: "malformed" });
       continue;
     }
 
     const credential = resolveProviderCredential(candidate.env, input.envStore, input.processEnv);
     if (candidate.env.length > 0 && !credential.value) {
-      skipped.push({ providerId, reason: "missing_credential" });
-      continue;
+      if (!candidate.fromRuntime) {
+        skipped.push({ providerId, reason: "no_credential" });
+        continue;
+      }
     }
     if (candidate.env.length === 0 && !candidate.fromRuntime) {
-      skipped.push({ providerId, reason: "no_credential_names" });
+      skipped.push({ providerId, reason: "no_credential" });
       continue;
     }
 
     const baseUrl = resolveOpenWorkBaseUrl(candidate, input.envStore, input.processEnv);
     const apiKind = apiKindForProvider({ id: candidate.id, name: candidate.name, npm: candidate.npm, baseUrl });
     if (!apiKind.ok) {
-      skipped.push({ providerId, reason: apiKind.reason });
+      skipped.push({ providerId, reason: "unmappable_npm" });
+      continue;
+    }
+
+    const provider = engineProvider({ provider: candidate, apiKind: apiKind.apiKind, baseUrl });
+    listedProviders.push(provider);
+    if (candidate.env.length > 0 && !credential.value) {
+      skipped.push({ providerId, reason: "no_credential" });
       continue;
     }
 
@@ -543,17 +558,18 @@ export function materializeFlueCatalog(input: {
       models: registrationModels(candidate.models),
     };
     registrations.push({ providerId, registration });
-    realProviders.push(engineProvider({ provider: candidate, apiKind: apiKind.apiKind, baseUrl }));
+    connectedProviders.push(provider);
   }
 
   const deterministicDisabled = disabled.has(input.deterministicProvider.id);
-  if (deterministicDisabled) skipped.push({ providerId: input.deterministicProvider.id, reason: "disabled_provider" });
-  const providers = deterministicDisabled ? realProviders : [input.deterministicProvider, ...realProviders];
+  if (deterministicDisabled) skipped.push({ providerId: input.deterministicProvider.id, reason: "disabled" });
+  const all = deterministicDisabled ? listedProviders : [input.deterministicProvider, ...listedProviders];
+  const connected = deterministicDisabled ? connectedProviders : [input.deterministicProvider, ...connectedProviders];
   return {
     providerList: {
-      all: providers,
-      default: defaultModelMap(providers),
-      connected: providers.map((provider) => provider.id),
+      all,
+      default: defaultModelMap(connected),
+      connected: connected.map((provider) => provider.id),
     },
     registrations,
     skipped,
@@ -695,19 +711,31 @@ export class FlueCatalogBridge {
       processEnv: input.processEnv,
       deterministicProvider: input.deterministicProvider,
     });
+    if (materialization.catalogSource === "empty") {
+      materialization.catalogSource = materialization.providerList.all.some(
+        (provider) => provider.id !== input.deterministicProvider.id,
+      ) ? "runtime-only" : "deterministic-only";
+    }
     this.lastDiagnostics = {
       catalogSource: materialization.catalogSource,
       connectedProviderIds: materialization.providerList.connected,
       registeredProviderIds: materialization.registrations.map((registration) => registration.providerId),
       skipped: materialization.skipped,
     };
+    console.info("[flue-catalog] materialized", {
+      source: materialization.catalogSource,
+      registered: materialization.registrations.length,
+      listed: materialization.providerList.all.length,
+      connected: materialization.providerList.connected.length,
+      skipped: materialization.skipped.map((item) => ({ providerId: item.providerId, reason: item.reason })),
+    });
     return materialization;
   }
 
   private async loadCatalog(allowNetwork: boolean): Promise<CatalogLoadResult> {
     const now = this.now();
     if (memoryCatalog && (allowNetwork ? memoryCatalog.expiresAt > now : true)) {
-      return { providers: memoryCatalog.providers, skipped: memoryCatalog.skipped, source: "memory" };
+      return { providers: memoryCatalog.providers, skipped: memoryCatalog.skipped, source: memoryCatalog.source };
     }
 
     if (allowNetwork) {
@@ -717,9 +745,10 @@ export class FlueCatalogBridge {
           providers: remote.providers,
           skipped: remote.skipped,
           expiresAt: this.now() + CATALOG_CACHE_TTL_MS,
+          source: "url",
         };
         await this.writeDiskCatalog(remote.providers).catch(() => undefined);
-        return { ...remote, source: "network" };
+        return { ...remote, source: "url" };
       } catch (error) {
         logCatalogFailure(describeError(error));
       }
@@ -756,7 +785,7 @@ export class FlueCatalogBridge {
       const parsed: unknown = JSON.parse(raw);
       const cache = diskCacheSchema.safeParse(parsed);
       if (!cache.success) return null;
-      return { providers: cache.data.providers, skipped: [], source: "disk" };
+      return { providers: cache.data.providers, skipped: [], source: "disk-cache" };
     } catch {
       return null;
     }

@@ -20,13 +20,15 @@
   chains the engine-protocol build.
 - Flue transitive deps (`@google/genai`, `@mongodb-js/zstd`, `node-liblzma`) need explicit
   `allowBuilds: false` entries in pnpm-workspace.yaml or pnpm 11's verify-deps loop fails installs.
-- Known gaps (next iterations): durability via Flue durable admission (force-quit recovery), tool-use
-  surfacing beyond tool_start parts, permission gating, abort wiring in UI, session titles,
+- Tool observations are bridged from `observe()`: `tool_start` creates a running wire part and `tool`
+  transitions it to the protocol's completed/error state (or creates a final orphan part), including timings.
+- Known gaps (next iterations): durability via Flue durable admission (force-quit recovery), permission
+  gating, abort wiring in UI, session titles,
   `bun test` picks up compiled `dist/*.test.js` copies when dist exists (clean dist before suite).
 
 ## Catalog bridge (2026-07-29)
 
-- The Flue facade now resolves the same model catalog URL as the OpenCode engine (`resolveOpencodeModelsUrl()`), fetches `<base>/api.json`, validates providers/models, then materializes only credential-resolvable or runtime-managed providers next to the deterministic `flue/default` provider.
+- The Flue facade now resolves the same model catalog URL as the OpenCode engine (`resolveOpencodeModelsUrl()`), fetches `<base>/api.json`, validates providers/models, then materializes credential-resolvable catalog providers and runtime-managed providers next to the deterministic `flue/default` provider.
 - Catalog `npm` to Flue/Pi api-kind mapping:
   | catalog `npm` | Flue `reg.api` |
   | --- | --- |
@@ -38,6 +40,7 @@
   | `@ai-sdk/amazon-bedrock` | `bedrock-converse-stream` |
 - Unknown `npm` values are registered as `openai-completions` only when the provider id/name/npm/base URL contains an OpenAI-compatible marker (`openai`, `openrouter`, `openwork`, or `compatible`); otherwise the provider is skipped with a diagnostic reason.
 - Cache/fallback behavior: one process-wide in-flight catalog fetch, 3.5s timeout, 10 minute memory TTL, and a workspace-local disk cache at `.opencode/openwork/flue-catalog-cache.json`. If network load fails, the facade logs once without secrets, then falls back to disk cache, runtime provider map only, and finally `flue/default`.
-- Credential precedence: user env store provider lookup first, then `process.env`, trying every catalog/runtime `env[]` name. Providers with required env names and no resolved credential are not registered and are not returned as connected. `OPENWORK_INFERENCE_BASE_URL` from env store/process overrides the hosted `openwork` base URL and is normalized to include `/api/v1`.
+- Credential precedence: user env store provider lookup first, then `process.env`, trying every catalog/runtime `env[]` name. Runtime-map providers with required env names and no resolved credential remain visible in provider-list `all`, but are omitted from `connected`/`default` and are not registered; selecting one fails with `provider_no_credential` rather than falling back. Unconfigured, uncredentialed catalog entries remain omitted. `OPENWORK_INFERENCE_BASE_URL` from env store/process overrides the hosted `openwork` base URL and is normalized to include `/api/v1`.
+- Each catalog materialization logs one structured diagnostic with source (`url`, `disk-cache`, `runtime-only`, or `deterministic-only`), registered/listed/connected counts, and skipped provider ids/reasons; credentials and credential values are never logged.
 - Runtime provider map precedence: `readEffectiveRuntimeOpencodeConfig()` is merged over the catalog; runtime `options.baseURL` wins over catalog `api`, runtime model maps replace catalog model maps when present, and `whitelist`/`blacklist` filter the final model map. Effective `disabled_providers` (global row plus workspace row, unique union) is then applied as the final provider-id filter before credential resolution, Flue `registerProvider()`, and provider-list response building; it also removes the deterministic `flue/default` provider.
 - Still missing: an `auth.set`-equivalent vault for credentials beyond the user env store, OAuth-backed provider auth, and the Zen/free-tier materialization path.

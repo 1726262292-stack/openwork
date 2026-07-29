@@ -275,7 +275,7 @@ describe("Flue catalog bridge", () => {
       deterministicProvider: deterministicProvider(),
     });
 
-    expect(parsed.skipped).toEqual([{ providerId: "malformed", reason: "malformed_catalog_provider" }]);
+    expect(parsed.skipped).toEqual([{ providerId: "malformed", reason: "malformed" }]);
     expect(registrationFor(materialization, "openwork")?.registration).toEqual({
       api: "openai-completions",
       baseUrl: "https://inference.openworklabs.com/api/v1",
@@ -334,7 +334,7 @@ describe("Flue catalog bridge", () => {
     });
 
     expectProviderAbsent(materialization, "openwork");
-    expect(materialization.skipped).toContainEqual({ providerId: "openwork", reason: "disabled_provider" });
+    expect(materialization.skipped).toContainEqual({ providerId: "openwork", reason: "disabled" });
   });
 
   test("applies runtime map precedence, baseURL override, model filters, and disabled providers", () => {
@@ -389,7 +389,7 @@ describe("Flue catalog bridge", () => {
       models: { "runtime/openwork-model": { contextWindow: 77_000, maxTokens: 7_700 } },
     });
     expectProviderAbsent(materialization, "disabled-provider");
-    expect(materialization.skipped).toContainEqual({ providerId: "disabled-provider", reason: "disabled_provider" });
+    expect(materialization.skipped).toContainEqual({ providerId: "disabled-provider", reason: "disabled" });
   });
 
   test("removes the deterministic provider when flue is disabled", () => {
@@ -419,6 +419,31 @@ describe("Flue catalog bridge", () => {
     expect(providerIds(materialization)).toContain("openwork");
     expect(materialization.providerList.connected).toContain("openwork");
     expect(materialization.providerList.default.openwork).toBe("moonshotai/kimi-k2.7-code");
+  });
+
+  test("lists an uncredentialed runtime provider without connecting or defaulting it", () => {
+    const parsed = parseFlueCatalogPayload(catalogFixture());
+    const materialization = materializeFlueCatalog({
+      catalogProviders: parsed.providers,
+      runtimeConfig: {
+        provider: {
+          anthropic: {
+            id: "anthropic",
+            name: "Managed Anthropic",
+          },
+        },
+      },
+      envStore: {},
+      processEnv: {},
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expect(providerIds(materialization)).toContain("anthropic");
+    expect(materialization.providerList.connected).not.toContain("anthropic");
+    expect(materialization.providerList.default.anthropic).toBeUndefined();
+    expect(registrationFor(materialization, "anthropic")).toBeUndefined();
+    expect(materialization.skipped).toContainEqual({ providerId: "anthropic", reason: "no_credential" });
+    expect(flueProviderListResponseSchema.parse(materialization.providerList)).toEqual(materialization.providerList);
   });
 
   test("applies global disabled_providers to workspace effective config", async () => {
@@ -499,7 +524,7 @@ describe("Flue catalog bridge", () => {
       processEnv: {},
       deterministicProvider: deterministicProvider(),
     });
-    expect(fromDisk.catalogSource).toBe("disk");
+    expect(fromDisk.catalogSource).toBe("disk-cache");
     expect(fromDisk.providerList.connected).toContain("openwork");
 
     resetFlueCatalogCacheForTest();
@@ -528,7 +553,7 @@ describe("Flue catalog bridge", () => {
       processEnv: {},
       deterministicProvider: deterministicProvider(),
     });
-    expect(fromRuntime.catalogSource).toBe("empty");
+    expect(fromRuntime.catalogSource).toBe("runtime-only");
     expect(fromRuntime.providerList.connected).toEqual(["flue", "runtime"]);
 
     resetFlueCatalogCacheForTest();
@@ -544,7 +569,7 @@ describe("Flue catalog bridge", () => {
       processEnv: {},
       deterministicProvider: deterministicProvider(),
     });
-    expect(deterministic.catalogSource).toBe("empty");
+    expect(deterministic.catalogSource).toBe("deterministic-only");
     expect(deterministic.providerList.connected).toEqual(["flue"]);
   });
 
