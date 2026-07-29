@@ -8,8 +8,9 @@ import {
   outboundManifestFromUnknown,
   parseClientHelloVersions,
   resolveEgressProfileConfig,
-} from "./labs/egress.ts";
-import { matchVerdictExpectations, productDiagnosticsPrecondition } from "./journeys/diagnostics.ts";
+} from "../src/egress.ts";
+import { productDiagnosticsPrecondition } from "@openwork/behaviors";
+import { matchVerdictExpectations } from "@openwork/matchers";
 
 function hi(value: number): number {
   return (value >> 8) & 0xff;

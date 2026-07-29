@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { electronProfilePaths, electronSurfaceEnv, resolveChromeBinary } from "./hosts/local.ts";
+import { electronProfilePaths, electronSurfaceEnv, resolveChromeBinary } from "../src/local.ts";
 
 const ENV_KEYS = [
   "APPDATA",
