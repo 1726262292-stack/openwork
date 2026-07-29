@@ -1,7 +1,7 @@
 {
   "name": "@openwork/app",
   "private": true,
-  "version": "0.18.10",
+  "version": "0.18.11",
   "type": "module",
   "scripts": {
     "test": "bun test --isolate tests/",
