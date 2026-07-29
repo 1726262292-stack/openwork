@@ -115,11 +115,14 @@ test("spawnElectron starts isolated Daytona Electron profiles and writes bootstr
 
   assert.equal(first.meta?.cdpPort, "9825");
   assert.equal(second.meta?.cdpPort, "9830");
+  assert.match(first.profileDir ?? "", /\/workspace\/\.openwork-daytona\/profiles\/owner-\d{17}\/electron-userdata$/);
+  assert.match(second.profileDir ?? "", /\/workspace\/\.openwork-daytona\/profiles\/member-\d{17}\/electron-userdata$/);
   assert.deepEqual(polled, ["https://cdp-9825.example.test/json/list", "https://cdp-9830.example.test/json/list"]);
 
   const bootstrapCall = findCall(calls, "base64 -d");
   assert.equal(Buffer.from(base64AfterEcho(bootstrapCall), "base64").toString("utf8"), `${JSON.stringify(bootstrap, null, 2)}\n`);
-  assert(argsText(bootstrapCall).includes("/workspace/.openwork-daytona/profiles/owner/bootstrap.json"));
+  assert(argsText(bootstrapCall).includes("/workspace/.openwork-daytona/profiles/owner-"));
+  assert(argsText(bootstrapCall).includes("/bootstrap.json"));
 
   const startCalls = calls.filter((call) => argsText(call).includes("/workspace/.devcontainer/start-daytona-electron.sh"));
   assert.equal(startCalls.length, 2);
@@ -129,16 +132,35 @@ test("spawnElectron starts isolated Daytona Electron profiles and writes bootstr
   assert(firstStart.includes("OPENWORK_ELECTRON_REMOTE_DEBUG_PORT="));
   assert(firstStart.includes("9825"));
   assert(firstStart.includes("OPENWORK_ELECTRON_USERDATA="));
-  assert(firstStart.includes("/workspace/.openwork-daytona/profiles/owner/electron-userdata"));
+  assert(firstStart.includes("/workspace/.openwork-daytona/profiles/owner-"));
+  assert(firstStart.includes("/electron-userdata"));
   assert(firstStart.includes("OPENWORK_DESKTOP_BOOTSTRAP_PATH="));
-  assert(firstStart.includes("/workspace/.openwork-daytona/profiles/owner/bootstrap.json"));
+  assert(firstStart.includes("/workspace/.openwork-daytona/profiles/owner-"));
+  assert(firstStart.includes("/bootstrap.json"));
   assert(firstStart.includes("DAYTONA_ELECTRON_LOG="));
   assert(firstStart.includes("/tmp/electron-owner.log"));
   assert(firstStart.includes("--detach"));
   assert(secondStart.includes("OPENWORK_ELECTRON_REMOTE_DEBUG_PORT="));
   assert(secondStart.includes("9830"));
   assert(secondStart.includes("OPENWORK_ELECTRON_USERDATA="));
-  assert(secondStart.includes("/workspace/.openwork-daytona/profiles/member/electron-userdata"));
+  assert(secondStart.includes("/workspace/.openwork-daytona/profiles/member-"));
+  assert(secondStart.includes("/electron-userdata"));
+});
+
+test("spawnElectron skips reserved Daytona CDP ports", async () => {
+  const { exec } = createFakeExec((port) => `https://cdp-${port}.example.test`);
+  const host = createDaytonaHost({
+    sandboxId: "openwork-test-electron-reserved",
+    log: () => undefined,
+    exec,
+    repoRoot: "/repo",
+    reservedElectronPorts: [9825],
+    waitForCdp: successfulPolls(),
+  });
+
+  const handle = await host.spawnElectron("fresh");
+
+  assert.equal(handle.meta?.cdpPort, "9830");
 });
 
 test("spawnChrome launches Chromium with Daytona CDP flags and allocates a second port", async () => {
@@ -164,8 +186,11 @@ test("spawnChrome launches Chromium with Daytona CDP flags and allocates a secon
   const firstLaunch = argsText(launchCalls[0]);
   const secondLaunch = argsText(launchCalls[1]);
   assert(firstLaunch.includes("command -v chromium || command -v google-chrome || command -v google-chrome-stable"));
+  assert(firstLaunch.includes("--headless=new"));
+  assert(firstLaunch.includes("--window-size=1280,900"));
   assert(firstLaunch.includes("--no-sandbox"));
   assert(firstLaunch.includes("--disable-dev-shm-usage"));
+  assert(firstLaunch.includes("--use-gl=swiftshader"));
   assert(firstLaunch.includes("--remote-debugging-address=0.0.0.0"));
   assert(firstLaunch.includes("--remote-debugging-port=9222"));
   assert(firstLaunch.includes("--user-data-dir="));

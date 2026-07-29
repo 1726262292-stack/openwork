@@ -179,6 +179,10 @@ function denPrecondition(stageDen: DenServiceOptions): (ctx: FlowContext) => Pro
       }
       return false;
     } catch (error) {
+      if (stageDen.orgMode === "multi_org" && ctx.env.OPENWORK_EVAL_DEN_MULTI_ORG?.trim()) {
+        ctx.log(`Runtime config probe failed at ${runtimeConfigUrl(webUrl)}; honoring OPENWORK_EVAL_DEN_MULTI_ORG fallback: ${messageText(error)}`);
+        return false;
+      }
       return `Scenario needs a Den stack runtime config at ${runtimeConfigUrl(webUrl)}: ${messageText(error)}`;
     }
   };

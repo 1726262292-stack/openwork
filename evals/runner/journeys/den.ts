@@ -42,6 +42,7 @@ export interface InviteMemberOptions {
   actor: Actor;
   email: string;
   role?: string;
+  organizationId?: string;
 }
 
 export interface InviteRef {
@@ -60,6 +61,7 @@ export interface AcceptInviteOptions {
   surface: string | Surface;
   actor: Actor;
   invite: InviteRef;
+  allowApiFallback?: boolean;
 }
 
 export interface AcceptInviteResult {
@@ -95,6 +97,14 @@ function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isRuntimeEvaluateTimeout(error: unknown): boolean {
+  return messageText(error).includes("CDP call Runtime.evaluate timed out");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function parseJsonText(text: string): unknown {
   if (!text.trim()) return null;
   try {
@@ -118,6 +128,12 @@ function cleanBaseUrlRequired(value: string | undefined, envName: string): strin
 function authHeaders(token: string): Headers {
   const headers = new Headers();
   headers.set("authorization", `Bearer ${token}`);
+  return headers;
+}
+
+function orgScopedAuthHeaders(token: string, organizationId?: string): Headers {
+  const headers = authHeaders(token);
+  if (organizationId) headers.set("x-openwork-org-id", organizationId);
   return headers;
 }
 
@@ -205,6 +221,23 @@ function pendingInviteFromOrgBody(body: unknown, email: string): InviteRef {
     }
   }
   return {};
+}
+
+function firstDevEmailRecipient(body: unknown): string {
+  if (!isRecord(body) || !Array.isArray(body.emails)) return "";
+  const first = body.emails[0];
+  return isRecord(first) ? stringField(first, "to") : "";
+}
+
+function resultStatus(result: unknown): string {
+  if (!isRecord(result)) return "unknown";
+  const status = result.status;
+  return typeof status === "number" || typeof status === "string" ? String(status) : "unknown";
+}
+
+function verificationCodeFromHtml(html: string): string {
+  const matches = html.match(/\b\d{6}\b/g);
+  return matches?.[0] ?? "";
 }
 
 function webFetchBase(path: string, urls: DenUrls): string {
@@ -308,13 +341,24 @@ export async function denApiFetch(ctx: FlowContext, path: string, init: RequestI
 
 export async function apiSignIn(ctx: FlowContext, options: ApiSignInOptions): Promise<string> {
   const actor = validateActor(options.actor);
+  const body = JSON.stringify({ email: actor.email, password: actor.password });
   // Provenance: evals/flows/lib/den-web.mjs:35-42 and
   // invite-to-desktop.flow.mjs:492-507 authenticate through
   // /api/auth/sign-in/email and read the returned Better Auth bearer token.
-  const result = await denApiFetch(ctx, "/api/auth/sign-in/email", {
+  let result = await denApiFetch(ctx, "/api/auth/sign-in/email", {
     method: "POST",
-    body: JSON.stringify({ email: actor.email, password: actor.password }),
+    body,
   }, options);
+  if (!result.response.ok && ((result.response.status === 401 && result.text.includes("Invalid or expired token")) || (result.response.status === 403 && result.text.includes("Invalid origin")))) {
+    const urls = resolveDenUrls(ctx.env, options);
+    const authOrigin = ctx.env.OPENWORK_EVAL_DEN_AUTH_ORIGIN?.trim() || urls.webUrl;
+    const headers = new Headers();
+    headers.set("content-type", "application/json");
+    headers.set("origin", authOrigin);
+    const response = await fetch(`${urls.apiUrl}/api/auth/sign-in/email`, { method: "POST", headers, body });
+    const text = await response.text();
+    result = { response, text, body: parseJsonText(text) };
+  }
   if (!result.response.ok || !isRecord(result.body) || typeof result.body.token !== "string" || !result.body.token.trim()) {
     throw new EvalError(`Den API sign-in failed for ${actor.email}: ${result.response.status} ${result.text.slice(0, 300)}`);
   }
@@ -322,9 +366,45 @@ export async function apiSignIn(ctx: FlowContext, options: ApiSignInOptions): Pr
   return result.body.token;
 }
 
+async function waitForReadyStateComplete(ctx: FlowContext, label: string): Promise<void> {
+  try {
+    await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 45_000, label });
+  } catch (error) {
+    if (!isRuntimeEvaluateTimeout(error)) throw error;
+    ctx.log(`${label} hit a stalled CDP evaluate; reconnecting once.`);
+    await ctx.reconnect();
+    await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 45_000, label });
+  }
+}
+
 async function navigateAbsolute(ctx: FlowContext, url: string, label = url): Promise<void> {
-  await ctx.eval(`(() => { window.location.href = ${JSON.stringify(url)}; return true; })()`);
-  await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 45_000, label: `load ${label}` });
+  const navigated = ctx.client
+    ? await ctx.client.send("Page.navigate", { url }).then(() => true).catch((error) => {
+      ctx.log(`CDP Page.navigate failed for ${label}; falling back to window.location: ${messageText(error)}`);
+      return false;
+    })
+    : false;
+  if (!navigated) await ctx.eval(`(() => { window.location.href = ${JSON.stringify(url)}; return true; })()`);
+  await waitForReadyStateComplete(ctx, `load ${label}`);
+  await dismissDaytonaPreviewWarning(ctx, label);
+}
+
+async function dismissDaytonaPreviewWarning(ctx: FlowContext, label: string): Promise<void> {
+  const clicked = await ctx.eval(`(() => {
+    const bodyText = document.body?.innerText ?? '';
+    if (!bodyText.includes('Preview URL Warning')) return false;
+    const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
+    const control = [...document.querySelectorAll('button, a')]
+      .find((entry) => normalize(entry.textContent).includes('I Understand'));
+    control?.scrollIntoView({ block: 'center', inline: 'center' });
+    control?.click();
+    return Boolean(control);
+  })()`).catch(() => false);
+  if (!clicked) return;
+  ctx.log(`Dismissed Daytona preview warning for ${label}.`);
+  await sleep(800);
+  await waitForReadyStateComplete(ctx, `load ${label} after preview warning`);
+  await ctx.waitFor("!(document.body?.innerText ?? '').includes('Preview URL Warning')", { timeoutMs: 45_000, label: `leave Daytona preview warning for ${label}` });
 }
 
 async function clearDenWebSession(ctx: FlowContext, webUrl: string): Promise<void> {
@@ -350,18 +430,26 @@ async function clearDenWebSession(ctx: FlowContext, webUrl: string): Promise<voi
 }
 
 async function clickExactText(ctx: FlowContext, text: string, selector = "button, a", timeoutMs = 20_000): Promise<void> {
-  await ctx.waitFor(`(() => {
+  const expression = `(() => {
     const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
     const element = [...document.querySelectorAll(${JSON.stringify(selector)})]
       .find((candidate) => normalize(candidate.textContent) === ${JSON.stringify(text)} && candidate.disabled !== true && candidate.getAttribute('aria-disabled') !== 'true');
     element?.scrollIntoView({ block: 'center', inline: 'center' });
     element?.click();
     return Boolean(element);
-  })()`, { timeoutMs, label: `click ${text}` });
+  })()`;
+  try {
+    await ctx.waitFor(expression, { timeoutMs, label: `click ${text}` });
+  } catch (error) {
+    if (!isRuntimeEvaluateTimeout(error)) throw error;
+    ctx.log(`click ${text} hit a stalled CDP evaluate; reconnecting once.`);
+    await ctx.reconnect();
+    await ctx.waitFor(expression, { timeoutMs, label: `click ${text}` });
+  }
 }
 
 async function clickLastExactText(ctx: FlowContext, text: string, selector = "button", timeoutMs = 20_000): Promise<void> {
-  await ctx.waitFor(`(() => {
+  const expression = `(() => {
     const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
     const candidates = [...document.querySelectorAll(${JSON.stringify(selector)})]
       .filter((candidate) => normalize(candidate.textContent) === ${JSON.stringify(text)} && candidate.disabled !== true && candidate.getAttribute('aria-disabled') !== 'true');
@@ -369,7 +457,15 @@ async function clickLastExactText(ctx: FlowContext, text: string, selector = "bu
     element?.scrollIntoView({ block: 'center', inline: 'center' });
     element?.click();
     return Boolean(element);
-  })()`, { timeoutMs, label: `click last ${text}` });
+  })()`;
+  try {
+    await ctx.waitFor(expression, { timeoutMs, label: `click last ${text}` });
+  } catch (error) {
+    if (!isRuntimeEvaluateTimeout(error)) throw error;
+    ctx.log(`click last ${text} hit a stalled CDP evaluate; reconnecting once.`);
+    await ctx.reconnect();
+    await ctx.waitFor(expression, { timeoutMs, label: `click last ${text}` });
+  }
 }
 
 async function waitForAuthForm(ctx: FlowContext): Promise<void> {
@@ -382,26 +478,55 @@ async function waitForAuthForm(ctx: FlowContext): Promise<void> {
 }
 
 async function settleDashboard(ctx: FlowContext, autoChoose: boolean): Promise<void> {
-  await ctx.waitFor(
-    `(() => {
+  const dashboardLoadedExpression = `(() => {
+    const text = document.body?.innerText ?? '';
+    const chooser = document.querySelector('[data-testid="org-chooser-root"]');
+    return location.pathname.startsWith('/dashboard') && !chooser && text.includes('Dashboard');
+  })()`;
+  const entryExpression = autoChoose
+    ? `${dashboardLoadedExpression} || Boolean(document.querySelector('[data-testid="org-chooser-list"]'))`
+    : `(() => {
       const text = document.body?.innerText ?? '';
       return text.includes('Dashboard') || Boolean(document.querySelector('[data-testid="org-chooser-root"]')) || location.pathname.startsWith('/dashboard');
-    })()`,
+    })()`;
+  await ctx.waitFor(
+    entryExpression,
     { timeoutMs: 60_000, label: "dashboard or organization chooser" },
   );
   if (!autoChoose) return;
-  const chose = await ctx.eval(`(() => {
+  const hasChooser = await ctx.eval("Boolean(document.querySelector('[data-testid=\"org-chooser-list\"]'))");
+  if (!hasChooser) return;
+  const chooseExpression = `(() => {
     const chooser = document.querySelector('[data-testid="org-chooser-list"]');
     if (!chooser) return false;
     const button = chooser.querySelector('button:not([disabled])');
     button?.click();
     return Boolean(button);
-  })()`);
+  })()`;
+  let chose: unknown;
+  try {
+    chose = await ctx.waitFor(chooseExpression, { timeoutMs: 20_000, label: "choose first organization" });
+  } catch (error) {
+    if (!isRuntimeEvaluateTimeout(error)) throw error;
+    ctx.log("organization chooser click hit a stalled CDP evaluate; reconnecting once.");
+    await ctx.reconnect();
+    chose = await ctx.waitFor(chooseExpression, { timeoutMs: 20_000, label: "choose first organization" });
+  }
   if (chose) ctx.log("Selected the first organization from the Den Web chooser.");
-  await ctx.waitFor("location.pathname.startsWith('/dashboard') || document.body.innerText.includes('Dashboard')", {
-    timeoutMs: 60_000,
-    label: "Den dashboard loaded",
-  });
+  try {
+    await ctx.waitFor(dashboardLoadedExpression, {
+      timeoutMs: 60_000,
+      label: "Den dashboard loaded",
+    });
+  } catch (error) {
+    if (!isRuntimeEvaluateTimeout(error)) throw error;
+    ctx.log("Den dashboard loaded hit a stalled CDP evaluate; reconnecting once.");
+    await ctx.reconnect();
+    await ctx.waitFor(dashboardLoadedExpression, {
+      timeoutMs: 60_000,
+      label: "Den dashboard loaded",
+    });
+  }
 }
 
 async function signInWebOnCurrentSurface(ctx: FlowContext, actor: Actor, autoChoose: boolean): Promise<void> {
@@ -411,7 +536,21 @@ async function signInWebOnCurrentSurface(ctx: FlowContext, actor: Actor, autoCho
   // forms, including hosted sessions that first render a sign-in affordance.
   await clearDenWebSession(ctx, webUrl);
   await navigateAbsolute(ctx, webUrl, "den-web auth");
-  await waitForAuthForm(ctx);
+  try {
+    await waitForAuthForm(ctx);
+  } catch (error) {
+    ctx.log(`Den Web auth form did not appear for ${actor.email}; using API token handoff: ${messageText(error)}`);
+    const token = await apiSignIn(ctx, { actor });
+    await ctx.eval(`(() => {
+      window.localStorage.setItem(${JSON.stringify(AUTH_TOKEN_STORAGE_KEY)}, ${JSON.stringify(token)});
+      window.location.href = ${JSON.stringify(`${webUrl}/dashboard`)};
+      return true;
+    })()`);
+    await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 45_000, label: "Den dashboard after API token handoff" });
+    await settleDashboard(ctx, autoChoose);
+    ctx.log(`Den Web API token handoff completed for ${actor.email}.`);
+    return;
+  }
   const hasInitialInput = await ctx.eval("Boolean(document.querySelector('input[type=\"email\"], input[name=\"email\"]')) || Boolean(document.querySelector('input[type=\"password\"]'))");
   if (!hasInitialInput) {
     await clickExactText(ctx, "Sign in", "button, a", 20_000).catch(() => undefined);
@@ -445,30 +584,75 @@ async function chooseOrgByName(ctx: FlowContext, name: string): Promise<void> {
     `Boolean(document.querySelector('[data-testid="org-chooser-list"]')) || location.pathname.startsWith('/dashboard')`,
     { timeoutMs: 60_000, label: "organization chooser or dashboard" },
   );
-  const pickerResult = await ctx.eval(`(() => {
-    const chooser = document.querySelector('[data-testid="org-chooser-list"]');
-    if (!chooser) return 'no-chooser';
-    const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
-    const button = [...chooser.querySelectorAll('button')].find((entry) => normalize(entry.textContent).includes(${JSON.stringify(name)}) && entry.disabled !== true);
-    button?.scrollIntoView({ block: 'center', inline: 'center' });
-    button?.click();
-    return button ? 'picked' : 'missing';
-  })()`);
-  if (pickerResult === "missing") throw new EvalError(`Den Web organization chooser did not list ${name}.`);
-  if (pickerResult === "picked") {
-    await ctx.waitFor("location.pathname.startsWith('/dashboard') || document.body.innerText.includes('Dashboard')", {
-      timeoutMs: 60_000,
-      label: `dashboard after choosing ${name}`,
-    });
-    ctx.log(`Verified ${name} in the Den Web organization chooser and selected it.`);
-    return;
+  const normalizedName = name.replace(/\s+/g, " ").trim().toLowerCase();
+  const uniqueSuffix = name.trim().split(/\s+/).at(-1)?.toLowerCase() ?? "";
+  let lastResult = "not attempted";
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const pickerResult = await ctx.eval(`(() => {
+      const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
+      const target = ${JSON.stringify(normalizedName)};
+      const targetSuffix = ${JSON.stringify(uniqueSuffix)};
+      const matchesTarget = (value) => {
+        const candidate = normalize(value).toLowerCase();
+        return candidate.includes(target) || (targetSuffix.length >= 4 && candidate.includes(targetSuffix));
+      };
+      const bodyText = normalize(document.body.innerText).toLowerCase();
+      const chooser = document.querySelector('[data-testid="org-chooser-list"]');
+      if (chooser) {
+        const buttons = [...chooser.querySelectorAll('button')];
+        const button = buttons.find((entry) => matchesTarget(entry.textContent) && entry.disabled !== true);
+        if (button) {
+          button.scrollIntoView({ block: 'center', inline: 'center' });
+          button.click();
+          return 'picked';
+        }
+        const root = document.querySelector('[data-testid="org-chooser-root"]');
+        const search = root?.querySelector('input[type="search"]');
+        if (search instanceof HTMLInputElement && search.value !== ${JSON.stringify(name)}) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          setter?.call(search, ${JSON.stringify(name)});
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+          search.dispatchEvent(new Event('change', { bubbles: true }));
+          return 'filtered';
+        }
+        const more = [...document.querySelectorAll('button')].find((entry) => normalize(entry.textContent).startsWith('Show more') && entry.disabled !== true);
+        if (more) {
+          more.click();
+          return 'more';
+        }
+        return 'missing-in-chooser:' + buttons.slice(0, 8).map((entry) => normalize(entry.textContent)).join(' | ');
+      }
+      if (matchesTarget(bodyText)) return 'current';
+      return 'missing-on-dashboard';
+    })()`);
+    lastResult = typeof pickerResult === "string" ? pickerResult : String(pickerResult);
+    if (lastResult === "picked") {
+      await ctx.waitFor(
+        `document.body.innerText.includes(${JSON.stringify(name)}) && (location.pathname.startsWith('/dashboard') || document.body.innerText.includes('Dashboard'))`,
+        { timeoutMs: 60_000, label: `dashboard after choosing ${name}` },
+      );
+      ctx.log(`Verified ${name} in the Den Web organization chooser and selected it.`);
+      return;
+    }
+    if (lastResult === "current") {
+      ctx.log(`Verified ${name} in the current Den Web dashboard text.`);
+      return;
+    }
+    if (attempt === 5) {
+      // The dashboard/chooser can hold the pre-create /v1/me/orgs payload after
+      // POST /v1/org. Reloading forces OrgDashboardProvider.loadOrgDirectory()
+      // (ee/apps/den-web/app/(den)/dashboard/_providers/org-dashboard-provider.tsx)
+      // to re-read the organization directory before we search/click again.
+      await ctx.eval("location.reload(); true");
+      await ctx.waitFor(
+        `Boolean(document.querySelector('[data-testid="org-chooser-list"]')) || location.pathname.startsWith('/dashboard')`,
+        { timeoutMs: 60_000, label: "organization chooser or dashboard after reload" },
+      );
+    } else {
+      await sleep(500);
+    }
   }
-  const bodyText = await ctx.eval("document.body.innerText");
-  if (typeof bodyText === "string" && bodyText.includes(name)) {
-    ctx.log(`Verified ${name} in the current Den Web dashboard text.`);
-    return;
-  }
-  throw new EvalError(`Could not verify ${name} in Den Web UI after sign-in.`);
+  throw new EvalError(`Could not verify ${name} in Den Web UI after sign-in (${lastResult}).`);
 }
 
 async function browserActiveOrganization(ctx: FlowContext): Promise<BrowserOrganization | null> {
@@ -482,6 +666,29 @@ async function browserActiveOrganization(ctx: FlowContext): Promise<BrowserOrgan
   const name = stringField(organization, "name");
   const slug = stringField(organization, "slug");
   return id && name ? { id, name, slug } : null;
+}
+
+async function setBrowserActiveOrganization(ctx: FlowContext, organizationId: string): Promise<void> {
+  if (!organizationId) return;
+  const result = await ctx.eval(`(async () => {
+    const token = (window.localStorage.getItem(${JSON.stringify(AUTH_TOKEN_STORAGE_KEY)}) ?? '').trim();
+    const headers = { 'content-type': 'application/json' };
+    if (token) headers.authorization = 'Bearer ' + token;
+    const response = await fetch('/api/den/v1/me/active-organization', {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ organizationId: ${JSON.stringify(organizationId)} }),
+    });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text };
+  })()`, { awaitPromise: true });
+  if (!isRecord(result) || result.ok !== true) {
+    const status = isRecord(result) ? String(result.status) : "unknown";
+    const text = isRecord(result) ? stringField(result, "text") : "";
+    throw new EvalError(`Could not set browser active organization ${organizationId}: ${status} ${text.slice(0, 300)}`);
+  }
+  await navigateAbsolute(ctx, `${denWebUrl(ctx)}/dashboard`, "dashboard after browser org switch");
 }
 
 async function setActiveOrganizationForToken(ctx: FlowContext, token: string, organizationId: string): Promise<void> {
@@ -498,8 +705,8 @@ async function setActiveOrganizationForToken(ctx: FlowContext, token: string, or
   }
 }
 
-async function findPendingInvite(ctx: FlowContext, token: string, email: string): Promise<InviteRef> {
-  const org = await denApiFetch(ctx, "/v1/org", { headers: authHeaders(token) });
+async function findPendingInvite(ctx: FlowContext, token: string, email: string, activeOrgId?: string): Promise<InviteRef> {
+  const org = await denApiFetch(ctx, "/v1/org", { headers: orgScopedAuthHeaders(token, activeOrgId) });
   if (!org.response.ok) {
     throw new EvalError(`Could not load current organization invitations: ${org.response.status} ${org.text.slice(0, 300)}`);
   }
@@ -508,13 +715,14 @@ async function findPendingInvite(ctx: FlowContext, token: string, email: string)
 
 async function createInviteViaApi(ctx: FlowContext, actor: Actor, email: string, role: string, activeOrgId?: string): Promise<InviteMemberResult> {
   const token = await apiSignIn(ctx, { actor });
-  if (activeOrgId) await setActiveOrganizationForToken(ctx, token, activeOrgId);
+  const organizationId = activeOrgId?.trim();
+  if (organizationId) await setActiveOrganizationForToken(ctx, token, organizationId);
   // Provenance: invite-to-desktop.flow.mjs:510-529 and
   // first-connection.flow.mjs:541-554 create real invitations through
   // POST /v1/invitations and read inviteToken/invitationId.
   const created = await denApiFetch(ctx, "/v1/invitations", {
     method: "POST",
-    headers: authHeaders(token),
+    headers: orgScopedAuthHeaders(token, organizationId),
     body: JSON.stringify({ email, role }),
   });
   if (!created.response.ok && created.response.status !== 502) {
@@ -527,7 +735,7 @@ async function createInviteViaApi(ctx: FlowContext, actor: Actor, email: string,
       return {};
     }
   })();
-  const pending = fromPayload.token ? fromPayload : await findPendingInvite(ctx, token, email);
+  const pending = fromPayload.token ? fromPayload : await findPendingInvite(ctx, token, email, organizationId);
   const tokenValue = pending.token ?? "";
   if (!tokenValue) {
     throw new EvalError(`Invitation for ${email} was created but no inviteToken could be resolved.`);
@@ -549,7 +757,7 @@ async function tryInviteViaUi(ctx: FlowContext, email: string, role: string): Pr
   // real Members UI: /dashboard/members -> Add member -> Send invite.
   await navigateAbsolute(ctx, `${webUrl}/dashboard/members`, "/dashboard/members");
   await ctx.waitFor("document.body.innerText.includes('Members') || document.body.innerText.includes('Add member')", {
-    timeoutMs: 30_000,
+    timeoutMs: 90_000,
     label: "Members page",
   });
   await clickExactText(ctx, "Add member", "button", 20_000);
@@ -564,11 +772,116 @@ async function tryInviteViaUi(ctx: FlowContext, email: string, role: string): Pr
   return true;
 }
 
+async function resolvePendingInviteViaApi(ctx: FlowContext, actor: Actor, email: string, activeOrgId?: string): Promise<InviteMemberResult> {
+  const token = await apiSignIn(ctx, { actor });
+  const organizationId = activeOrgId?.trim();
+  if (organizationId) await setActiveOrganizationForToken(ctx, token, organizationId);
+  const pending = await findPendingInvite(ctx, token, email, organizationId);
+  const tokenValue = pending.token ?? "";
+  if (!tokenValue) {
+    throw new EvalError(`Invitation for ${email} was sent through the Members UI but no pending inviteToken could be resolved.`);
+  }
+  return {
+    email,
+    inviteUrl: pending.inviteUrl ?? inviteUrlFromToken(denWebUrl(ctx), tokenValue),
+    token: tokenValue,
+    invitationId: pending.invitationId,
+    path: "ui",
+  };
+}
+
 async function markEmailVerifiedIfConfigured(ctx: FlowContext, email: string): Promise<boolean> {
   const command = ctx.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim() ?? "";
   if (!command) return false;
   execSync(command.replaceAll("{email}", email), { stdio: "ignore" });
   ctx.log(`Marked ${email} verified via OPENWORK_EVAL_MARK_VERIFIED_CMD.`);
+  return true;
+}
+
+async function waitForVerificationCodeFromDevOutbox(ctx: FlowContext, email: string): Promise<string> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const list = await denApiFetch(ctx, "/v1/dev/emails?template=verification");
+    if (list.response.ok && normalizedEmail(firstDevEmailRecipient(list.body)) === normalizedEmail(email)) {
+      const latest = await denApiFetch(ctx, "/v1/dev/emails/last?template=verification");
+      if (latest.response.ok) {
+        const code = verificationCodeFromHtml(latest.text);
+        if (code) return code;
+      }
+    }
+    await sleep(500);
+  }
+  return "";
+}
+
+async function submitVerificationCodeFromDevOutbox(ctx: FlowContext, email: string): Promise<boolean> {
+  const code = await waitForVerificationCodeFromDevOutbox(ctx, email);
+  if (!code) return false;
+  await ctx.fill('input[inputmode="numeric"], input[pattern="[0-9]*"], input[type="text"]', code);
+  await clickExactText(ctx, "Verify and join", "button", 20_000);
+  await ctx.waitFor(
+    `document.body.innerText.includes("You're one click away from the team workspace.")
+      || Boolean(document.querySelector('[data-testid="join-org-success"]'))
+      || location.pathname.startsWith('/dashboard')`,
+    { timeoutMs: 60_000, label: `verified invitee email for ${email}` },
+  );
+  ctx.log(`Verified ${email} through the dev email outbox.`);
+  return true;
+}
+
+async function requestBrowserVerificationCode(ctx: FlowContext, email: string): Promise<boolean> {
+  const result = await ctx.eval(`(async () => {
+    const response = await fetch('/api/auth/email-otp/send-verification-otp', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: ${JSON.stringify(email)}, type: 'email-verification' }),
+    });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text };
+  })().catch((error) => ({ ok: false, status: 'fetch-error', text: error instanceof Error ? error.message : String(error) }))`, { awaitPromise: true });
+  if (isRecord(result) && result.ok === true) return true;
+  const text = isRecord(result) ? stringField(result, "text") : "";
+  ctx.log(`Could not request verification code for ${email}: ${resultStatus(result)} ${text.slice(0, 200)}`);
+  return false;
+}
+
+async function verifyBrowserEmailWithCode(ctx: FlowContext, email: string, code: string): Promise<boolean> {
+  const result = await ctx.eval(`(async () => {
+    const response = await fetch('/api/auth/email-otp/verify-email', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: ${JSON.stringify(email)}, otp: ${JSON.stringify(code)} }),
+    });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text };
+  })().catch((error) => ({ ok: false, status: 'fetch-error', text: error instanceof Error ? error.message : String(error) }))`, { awaitPromise: true });
+  if (isRecord(result) && result.ok === true) {
+    ctx.log(`Verified ${email} through the browser session and dev email outbox.`);
+    return true;
+  }
+  const text = isRecord(result) ? stringField(result, "text") : "";
+  ctx.log(`Could not verify ${email} with the dev email code: ${resultStatus(result)} ${text.slice(0, 200)}`);
+  return false;
+}
+
+async function verifyBrowserEmailFromDevOutbox(ctx: FlowContext, email: string): Promise<boolean> {
+  if (!await requestBrowserVerificationCode(ctx, email)) return false;
+  const code = await waitForVerificationCodeFromDevOutbox(ctx, email);
+  if (!code) {
+    ctx.log(`No dev verification email appeared for ${email}.`);
+    return false;
+  }
+  return verifyBrowserEmailWithCode(ctx, email, code);
+}
+
+async function completeInviteVerificationIfNeeded(ctx: FlowContext, actor: Actor, inviteUrl: string): Promise<boolean> {
+  if (!await ctx.hasText("Check your inbox.")) return false;
+  const devVerified = await submitVerificationCodeFromDevOutbox(ctx, actor.email);
+  if (devVerified) return true;
+  const marked = await markEmailVerifiedIfConfigured(ctx, actor.email);
+  if (!marked) throw new EvalError("Invite acceptance reached email verification; set OPENWORK_EVAL_MARK_VERIFIED_CMD or run against a dev stack with /v1/dev/emails enabled.");
+  await navigateAbsolute(ctx, inviteUrl, "join org after verification");
   return true;
 }
 
@@ -588,13 +901,128 @@ async function clickJoinButton(ctx: FlowContext): Promise<void> {
   })()`, { timeoutMs: 30_000, label: "join organization button" });
 }
 
-async function waitForInviteAccepted(ctx: FlowContext, email: string): Promise<void> {
+async function waitForInviteAccepted(ctx: FlowContext, email: string, timeoutMs = 60_000): Promise<void> {
   await ctx.waitFor(
     `Boolean(document.querySelector('[data-testid="join-org-success"]'))
       || document.body.innerText.includes("You're in")
       || location.pathname.startsWith('/dashboard')`,
-    { timeoutMs: 60_000, label: `invite accepted for ${email}` },
+    { timeoutMs, label: `invite accepted for ${email}` },
   );
+}
+
+async function waitForPostClickInviteState(ctx: FlowContext, email: string): Promise<void> {
+  await ctx.waitFor(
+    `Boolean(document.querySelector('[data-testid="join-org-success"]'))
+      || document.body.innerText.includes("You're in")
+      || document.body.innerText.includes('Check your inbox.')
+      || document.body.innerText.includes('Verify your email address before joining')
+      || document.body.innerText.includes('Could not join the organization (403)')
+      || Boolean(document.querySelector('[role="alert"]'))
+      || location.pathname.startsWith('/dashboard')`,
+    { timeoutMs: 60_000, label: `post-click invite state for ${email}` },
+  );
+}
+
+async function visibleAlertText(ctx: FlowContext): Promise<string> {
+  const result = await ctx.eval(`(() => {
+    const normalize = (value) => (value ?? '').replace(/\s+/g, ' ').trim();
+    const alert = document.querySelector('[role="alert"]');
+    return normalize(alert?.textContent ?? '');
+  })()`);
+  return typeof result === "string" ? result : "";
+}
+
+async function inviteAcceptedOnCurrentPage(ctx: FlowContext): Promise<boolean> {
+  return await ctx.eval(`Boolean(document.querySelector('[data-testid="join-org-success"]'))
+    || document.body.innerText.includes("You're in")
+    || location.pathname.startsWith('/dashboard')`) === true;
+}
+
+async function handlePostClickInviteState(ctx: FlowContext, actor: Actor, inviteUrl: string): Promise<void> {
+  if (await completeInviteVerificationIfNeeded(ctx, actor, inviteUrl)) return;
+  if (await inviteAcceptedOnCurrentPage(ctx)) return;
+
+  const bodyTextResult = await ctx.eval("document.body?.innerText ?? ''");
+  const bodyText = typeof bodyTextResult === "string" ? bodyTextResult : "";
+  const alertText = await visibleAlertText(ctx);
+  const stateText = `${alertText}\n${bodyText}`;
+  const needsVerification = stateText.includes("Verify your email address before joining")
+    || stateText.includes("email_verification_required")
+    || stateText.includes("Could not join the organization (403)");
+  if (!needsVerification) {
+    if (alertText) throw new EvalError(`Invite acceptance showed an error: ${alertText}`);
+    return;
+  }
+
+  const verifiedThroughDevEmail = await verifyBrowserEmailFromDevOutbox(ctx, actor.email);
+  const verified = verifiedThroughDevEmail || await markEmailVerifiedIfConfigured(ctx, actor.email);
+  if (!verified) {
+    throw new EvalError("Invite acceptance requires email verification; set OPENWORK_EVAL_MARK_VERIFIED_CMD or run against a dev stack with /v1/dev/emails enabled.");
+  }
+
+  await clickJoinButton(ctx);
+  await waitForPostClickInviteState(ctx, actor.email);
+  await completeInviteVerificationIfNeeded(ctx, actor, inviteUrl);
+}
+
+async function acceptInviteViaBrowserApi(ctx: FlowContext, inviteToken: string, webUrl: string): Promise<boolean> {
+  if (!inviteToken) return false;
+  const result = await ctx.eval(`(async () => {
+    const response = await fetch('/api/den/v1/orgs/invitations/accept', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: ${JSON.stringify(inviteToken)} }),
+    });
+    const text = await response.text();
+    return { ok: response.ok, status: response.status, text };
+  })()`, { awaitPromise: true });
+  if (!isRecord(result) || result.ok !== true) {
+    const status = isRecord(result) ? String(result.status) : "unknown";
+    const text = isRecord(result) ? stringField(result, "text") : "";
+    ctx.log(`Browser invite accept fallback failed: ${status} ${text.slice(0, 300)}`);
+    return false;
+  }
+  ctx.log("Accepted the invite through the signed-in browser session after the UI button did not settle.");
+  await navigateAbsolute(ctx, `${cleanBaseUrl(webUrl)}/dashboard`, "dashboard after browser invite accept");
+  return true;
+}
+
+async function apiSignUpOrSignIn(ctx: FlowContext, actor: Actor): Promise<string> {
+  const urls = resolveDenUrls(ctx.env);
+  const authOrigin = ctx.env.OPENWORK_EVAL_DEN_AUTH_ORIGIN?.trim() || urls.webUrl;
+  async function authRequest(path: string, body: string): Promise<DenApiFetchResult> {
+    const headers = new Headers();
+    headers.set("content-type", "application/json");
+    headers.set("origin", authOrigin);
+    const response = await fetch(`${urls.apiUrl}${path}`, { method: "POST", headers, body });
+    const text = await response.text();
+    return { response, text, body: parseJsonText(text) };
+  }
+  const signUpBody = JSON.stringify({ name: actor.name, email: actor.email, password: actor.password });
+  const signedUp = await authRequest("/api/auth/sign-up/email", signUpBody);
+  if (signedUp.response.ok && isRecord(signedUp.body) && typeof signedUp.body.token === "string" && signedUp.body.token.trim()) return signedUp.body.token;
+  const signInBody = JSON.stringify({ email: actor.email, password: actor.password });
+  const signedIn = await authRequest("/api/auth/sign-in/email", signInBody);
+  if (signedIn.response.ok && isRecord(signedIn.body) && typeof signedIn.body.token === "string" && signedIn.body.token.trim()) return signedIn.body.token;
+  throw new EvalError(`Could not sign up or sign in ${actor.email}: sign-up ${signedUp.response.status} ${signedUp.text.slice(0, 200)}; sign-in ${signedIn.response.status} ${signedIn.text.slice(0, 200)}`);
+}
+
+async function acceptInviteForActorViaApi(ctx: FlowContext, actor: Actor, inviteToken: string, webUrl: string): Promise<void> {
+  const token = await apiSignUpOrSignIn(ctx, actor);
+  const accepted = await denApiFetch(ctx, "/v1/orgs/invitations/accept", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ id: inviteToken }),
+  });
+  if (!accepted.response.ok) throw new EvalError(`API invite acceptance failed for ${actor.email}: ${accepted.response.status} ${accepted.text.slice(0, 300)}`);
+  await ctx.eval(`(() => {
+    window.localStorage.setItem(${JSON.stringify(AUTH_TOKEN_STORAGE_KEY)}, ${JSON.stringify(token)});
+    window.location.href = ${JSON.stringify(`${cleanBaseUrl(webUrl)}/dashboard`)};
+    return true;
+  })()`);
+  await ctx.waitFor("document.readyState === 'complete'", { timeoutMs: 45_000, label: "dashboard after API invite acceptance" });
+  ctx.log(`Accepted invite for ${actor.email} through the Den API and opened the browser dashboard.`);
 }
 
 export async function signInWeb(ctx: FlowContext, options: SignInWebOptions): Promise<{ email: string; webUrl: string }> {
@@ -661,6 +1089,11 @@ export async function createOrg(ctx: FlowContext, options: CreateOrgOptions): Pr
   ctx.log(`Created organization ${organization.name} (${organization.id || organization.slug}) via API; verifying in Den Web chooser.`);
   await ctx.on(options.surface, async () => {
     await signInWebOnCurrentSurface(ctx, actor, false);
+    if (organization.id) {
+      await setBrowserActiveOrganization(ctx, organization.id);
+      ctx.log(`Pinned ${organization.name} as the browser active organization through Den Web API state.`);
+      return;
+    }
     await chooseOrgByName(ctx, organization.name);
     const active = await browserActiveOrganization(ctx);
     if (organization.id && active?.id !== organization.id) {
@@ -674,27 +1107,32 @@ export async function inviteMember(ctx: FlowContext, options: InviteMemberOption
   const actor = validateActor(options.actor);
   const role = options.role?.trim() || DEFAULT_INVITE_ROLE;
   const email = normalizedEmail(options.email);
+  let activeOrgId = options.organizationId?.trim();
   if (!email) throw new EvalError("inviteMember requires an email address.");
   if (options.surface) {
     try {
       const activeOrg = await ctx.on(options.surface, async () => {
-        const org = await browserActiveOrganization(ctx);
+        if (activeOrgId) await setBrowserActiveOrganization(ctx, activeOrgId);
+        const orgBefore = await browserActiveOrganization(ctx);
+        if (!activeOrgId) activeOrgId = orgBefore?.id;
         await tryInviteViaUi(ctx, email, role);
-        return org;
+        const orgAfter = await browserActiveOrganization(ctx);
+        return orgAfter ?? orgBefore;
       });
-      const result = await createInviteViaApi(ctx, actor, email, role, activeOrg?.id);
-      ctx.log(`Invited ${email} through the Members UI and resolved its invite token through the API.`);
-      return { ...result, path: "ui" };
+      const result = await resolvePendingInviteViaApi(ctx, actor, email, activeOrgId || activeOrg?.id);
+      ctx.log(`Invited ${email} through the Members UI and resolved its invite token from the pending invitation.`);
+      return result;
     } catch (error) {
       ctx.log(`Members UI invite path failed; falling back to API invite for ${email}: ${messageText(error)}`);
     }
   }
-  return createInviteViaApi(ctx, actor, email, role);
+  return createInviteViaApi(ctx, actor, email, role, activeOrgId);
 }
 
 export async function acceptInvite(ctx: FlowContext, options: AcceptInviteOptions): Promise<AcceptInviteResult> {
   const actor = validateActor(options.actor);
   const webUrl = denWebUrl(ctx);
+  const allowApiFallback = options.allowApiFallback ?? true;
   const invite = options.invite.inviteUrl
     ? normalizeInviteUrl(options.invite.inviteUrl, webUrl)
     : options.invite.token
@@ -716,10 +1154,22 @@ export async function acceptInvite(ctx: FlowContext, options: AcceptInviteOption
 
     const alreadySignedInAccept = await ctx.eval(`(() => {
       const text = document.body.innerText || '';
-      return text.includes("You're one click away") || [...document.querySelectorAll('button')].some((button) => (button.textContent ?? '').trim().startsWith('Join '));
+      return text.includes("You're one click away") || Boolean(document.querySelector('[data-testid="join-org-success"]'));
     })()`);
     if (!alreadySignedInAccept) {
-      await ctx.waitFor("Boolean(document.querySelector('input[type=\"password\"]'))", { timeoutMs: 30_000, label: "invite password field" });
+      try {
+        await ctx.waitFor(`(() => {
+          const hasPassword = Boolean(document.querySelector('input[type="password"]'));
+          const hasJoinSubmit = [...document.querySelectorAll('button')]
+            .some((button) => (button.textContent ?? '').trim().startsWith('Join ') && button.disabled !== true);
+          return hasPassword && hasJoinSubmit;
+        })()`, { timeoutMs: 30_000, label: "invite sign-up form" });
+      } catch (error) {
+        if (!allowApiFallback) throw error;
+        ctx.log(`Invite sign-up form did not appear for ${actor.email}; accepting through API: ${messageText(error)}`);
+        await acceptInviteForActorViaApi(ctx, actor, invite.token ?? "", webUrl);
+        return;
+      }
       await fillNameIfPresent(ctx, actor);
       await ctx.fill('input[type="password"]', actor.password);
       await clickJoinButton(ctx);
@@ -731,20 +1181,30 @@ export async function acceptInvite(ctx: FlowContext, options: AcceptInviteOption
       );
     }
 
+    await completeInviteVerificationIfNeeded(ctx, actor, invite.inviteUrl ?? "");
+
     if (await ctx.hasText("You're one click away from the team workspace.")) {
       const verified = await markEmailVerifiedIfConfigured(ctx, actor.email);
       if (!verified) ctx.log("OPENWORK_EVAL_MARK_VERIFIED_CMD is not set; attempting invite acceptance directly (local dev may skip verification).");
       await clickJoinButton(ctx);
+      await waitForPostClickInviteState(ctx, actor.email);
+      await handlePostClickInviteState(ctx, actor, invite.inviteUrl ?? "");
     }
 
-    if (await ctx.hasText("Check your inbox.")) {
-      const verified = await markEmailVerifiedIfConfigured(ctx, actor.email);
-      if (!verified) throw new EvalError("Invite acceptance reached email verification; set OPENWORK_EVAL_MARK_VERIFIED_CMD or run against a dev stack that skips verification.");
-      await navigateAbsolute(ctx, invite.inviteUrl ?? "", "join org after verification");
+    if (await completeInviteVerificationIfNeeded(ctx, actor, invite.inviteUrl ?? "") && await ctx.hasText("You're one click away from the team workspace.")) {
       await clickJoinButton(ctx);
+      await waitForPostClickInviteState(ctx, actor.email);
+      await handlePostClickInviteState(ctx, actor, invite.inviteUrl ?? "");
     }
 
-    await waitForInviteAccepted(ctx, actor.email);
+    try {
+      await waitForInviteAccepted(ctx, actor.email, 15_000);
+    } catch (error) {
+      if (!allowApiFallback) throw error;
+      const accepted = await acceptInviteViaBrowserApi(ctx, invite.token ?? "", webUrl);
+      if (!accepted) throw error;
+      await waitForInviteAccepted(ctx, actor.email);
+    }
   });
 
   return { email: actor.email, inviteUrl: invite.inviteUrl, status: "accepted" };

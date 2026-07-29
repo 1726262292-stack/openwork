@@ -18,6 +18,8 @@ export interface DaytonaHostOptions {
   log: (msg: string) => void;
   exec?: DaytonaExec;
   repoRoot: string;
+  reservedChromePorts?: number[];
+  reservedElectronPorts?: number[];
   serverScript?: boolean;
   waitForCdp?: (url: string, timeoutMs: number, label: string) => Promise<void>;
 }
@@ -151,6 +153,10 @@ function sanitizeName(name: string): string {
   return name.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "surface";
 }
 
+function timestamp(): string {
+  return new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 17);
+}
+
 function firstHttpsUrl(text: string): string | null {
   const match = HTTPS_URL.exec(text);
   return match ? match[0].replace(/[.,;:]+$/, "") : null;
@@ -251,6 +257,19 @@ function selfMatchSafePortPattern(processPrefix: string, port: number): string {
   return `${selfMatchSafeLiteral(processPrefix)}.*remote-debugging-port=${selfMatchSafeLiteral(value)}`;
 }
 
+function electronProfilePattern(profileDir: string): string {
+  return `([e]lectron|[/]proc/self/exe).*--user-data-dir=${selfMatchSafeLiteral(profileDir)}`;
+}
+
+function electronProfileRoot(profileDir: string): string {
+  const suffix = "/electron-userdata";
+  return profileDir.endsWith(suffix) ? profileDir.slice(0, -suffix.length) : profileDir;
+}
+
+function killGroupsForPatternCommand(pattern: string, signal: "TERM" | "KILL"): string {
+  return `for pid in $(pgrep -f ${shellQuote(pattern)} || true); do pgid=$(ps -o pgid= -p "$pid" | tr -d ' '); if [ -n "$pgid" ]; then kill -${signal} -"$pgid" 2>/dev/null || true; fi; done`;
+}
+
 function parseUrlAfterLabels(output: string, labels: string[]): string | null {
   for (const line of output.split(/\r?\n/)) {
     for (const label of labels) {
@@ -268,6 +287,14 @@ function serverRefArg(): string | null {
   return explicit || null;
 }
 
+function portSet(values: number[] | undefined): Set<number> {
+  const ports = new Set<number>();
+  for (const value of values ?? []) {
+    if (Number.isInteger(value) && value > 0 && value <= 65_535) ports.add(value);
+  }
+  return ports;
+}
+
 function appendExtraEnv(assignments: Map<string, string>, env: Record<string, string> | undefined): void {
   if (!env) return;
   for (const [name, value] of Object.entries(env).sort(([left], [right]) => left.localeCompare(right))) {
@@ -278,8 +305,8 @@ function appendExtraEnv(assignments: Map<string, string>, env: Record<string, st
 export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
   const exec = options.exec ?? defaultDaytonaExec;
   const previewCache = new Map<number, string>();
-  const electronPorts: PortAllocation = { primary: 9825, next: 9830, used: new Set() };
-  const chromePorts: PortAllocation = { primary: 9222, next: 9230, used: new Set() };
+  const electronPorts: PortAllocation = { primary: 9825, next: 9830, used: portSet(options.reservedElectronPorts) };
+  const chromePorts: PortAllocation = { primary: 9222, next: 9230, used: portSet(options.reservedChromePorts) };
   const surfacePorts = new Map<number, string>();
   const waitForCdp = options.waitForCdp ?? waitForHttpOk;
 
@@ -307,7 +334,7 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
   async function spawnElectron(name: string, opts: ElectronSurfaceOptions = {}): Promise<SurfaceHandle> {
     const sandbox = requireSandbox();
     const safeName = sanitizeName(name);
-    const profileRoot = `/workspace/.openwork-daytona/profiles/${safeName}`;
+    const profileRoot = `/workspace/.openwork-daytona/profiles/${safeName}-${timestamp()}`;
     const profileDir = `${profileRoot}/electron-userdata`;
     const bootstrapPath = `${profileRoot}/bootstrap.json`;
     const port = allocatePort(electronPorts);
@@ -377,7 +404,7 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
       `mkdir -p ${shellQuote(profileDir)}`,
       "CHROME_BIN=\"$(command -v chromium || command -v google-chrome || command -v google-chrome-stable || true)\"",
       "if [ -z \"$CHROME_BIN\" ]; then echo 'No chromium/google-chrome binary found in sandbox.' >&2; exit 127; fi",
-      `DISPLAY=:99 nohup "$CHROME_BIN" --no-sandbox --disable-dev-shm-usage --remote-debugging-address=0.0.0.0 --remote-debugging-port=${port} --user-data-dir=${shellQuote(profileDir)} ${shellQuote(startUrl)} >${shellQuote(logPath)} 2>&1 &`,
+      `DISPLAY=:99 nohup "$CHROME_BIN" --headless=new --window-size=1280,900 --no-sandbox --disable-dev-shm-usage --ignore-gpu-blocklist --use-gl=swiftshader --enable-unsafe-swiftshader --remote-debugging-address=0.0.0.0 --remote-debugging-port=${port} --user-data-dir=${shellQuote(profileDir)} ${shellQuote(startUrl)} >${shellQuote(logPath)} 2>&1 &`,
     ].join("; ");
 
     try {
@@ -451,9 +478,17 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
 
     if (handle.kind === "electron" && port !== null) {
       const pattern = selfMatchSafePortPattern("electron", port);
+      const profilePattern = handle.profileDir ? electronProfilePattern(handle.profileDir) : "";
+      const stopCommand = [
+        profilePattern ? killGroupsForPatternCommand(profilePattern, "TERM") : "true",
+        `pkill -f ${shellQuote(pattern)} || true`,
+        "sleep 1",
+        profilePattern ? killGroupsForPatternCommand(profilePattern, "KILL") : "true",
+        `pkill -f ${shellQuote(pattern)} || true`,
+      ].join("; ");
       await checkedExec(
         exec,
-        ["exec", sandbox, "--", `bash -lc ${shellQuote(`pkill -f ${shellQuote(pattern)} || true`)}`],
+        ["exec", sandbox, "--", `bash -lc ${shellQuote(stopCommand)}`],
         `stop Daytona Electron surface ${handle.name}`,
         { timeoutMs: 15_000 },
       );
@@ -463,6 +498,14 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
         `verify Daytona Electron CDP stopped ${handle.name}`,
         { timeoutMs: 15_000 },
       );
+      if (handle.profileDir) {
+        await checkedExec(
+          exec,
+          ["exec", sandbox, "--", `bash -lc ${shellQuote(`rm -rf ${shellQuote(electronProfileRoot(handle.profileDir))}`)}`],
+          `remove Daytona Electron profile ${handle.name}`,
+          { timeoutMs: 15_000 },
+        );
+      }
       releasePort(electronPorts, port);
       surfacePorts.delete(port);
       return;
@@ -482,6 +525,12 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
           exec,
           ["exec", sandbox, "--", `bash -lc ${shellQuote(`sleep 1; curl -sf http://127.0.0.1:${port}/json/version >/dev/null 2>&1 || true`)}`],
           `verify Daytona Chrome CDP stopped ${handle.name}`,
+          { timeoutMs: 15_000 },
+        );
+        await checkedExec(
+          exec,
+          ["exec", sandbox, "--", `bash -lc ${shellQuote(`rm -rf ${shellQuote(profileDir)}`)}`],
+          `remove Daytona Chrome profile ${handle.name}`,
           { timeoutMs: 15_000 },
         );
         releasePort(chromePorts, port);

@@ -8,7 +8,10 @@ if (!process.features?.typescript) {
 
 const { main } = await import("./owt-cli.ts");
 
-main().catch((error) => {
+try {
+  await main();
+  process.exit(0);
+} catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
-});
+}

@@ -144,6 +144,18 @@ async function workspaceRouteReady(ctx: FlowContext): Promise<boolean> {
   })()`));
 }
 
+async function chatFirstSessionReady(ctx: FlowContext): Promise<boolean> {
+  // Provenance: apps/app/src/react-app/shell/session-route.tsx:2235-2257
+  // supports chat-first onboarding on /session with a composer before a
+  // workspace-scoped route exists; that is a usable first-run desktop surface.
+  return Boolean(await ctx.eval(`(() => {
+    const route = window.__openworkControl?.snapshot?.().route || window.location.hash.replace(/^#/, '') || window.location.pathname;
+    const hasComposer = Boolean(document.querySelector(${JSON.stringify(EDITOR_SELECTOR)}));
+    const hasFolderInput = Boolean(document.querySelector('input[placeholder="/workspace/my-project"]'));
+    return route === '/session' && hasComposer && !hasFolderInput;
+  })()`));
+}
+
 async function clickVisibleButton(ctx: FlowContext, labels: string[]): Promise<string> {
   const clicked = await ctx.eval(`(() => {
     const labels = ${JSON.stringify(labels)};
@@ -156,7 +168,7 @@ async function clickVisibleButton(ctx: FlowContext, labels: string[]): Promise<s
         && element.disabled !== true && element.getAttribute('aria-disabled') !== 'true';
     };
     const button = [...document.querySelectorAll('button, [role="button"]')]
-      .find((entry) => labels.includes(normalize(entry.textContent)) && visibleEnabled(entry));
+      .find((entry) => labels.some((label) => normalize(entry.textContent) === label || normalize(entry.textContent).startsWith(label)) && visibleEnabled(entry));
     button?.scrollIntoView({ block: 'center', inline: 'center' });
     button?.click();
     return button ? normalize(button.textContent) : '';
@@ -223,7 +235,7 @@ async function createWorkspaceFromWelcome(ctx: FlowContext, workspacePath: strin
   let triedControl = false;
   let lastRoute = "";
   while (Date.now() < deadline) {
-    if (await workspaceRouteReady(ctx)) return;
+    if (await workspaceRouteReady(ctx) || await chatFirstSessionReady(ctx)) return;
     lastRoute = await currentRoute(ctx).catch(() => "");
 
     if (!triedControl) {
@@ -245,7 +257,15 @@ async function createWorkspaceFromWelcome(ctx: FlowContext, workspacePath: strin
       return;
     }
 
-    const clicked = await clickVisibleButton(ctx, ["Get started", "Local workspace"]);
+    const clicked = await clickVisibleButton(ctx, [
+      "Continue to workspace",
+      "Continue without OpenWork Models",
+      "Skip and use the free model",
+      "Continue",
+      "Skip",
+      "Get started",
+      "Local workspace",
+    ]);
     if (clicked) {
       await sleep(500);
       continue;
@@ -455,14 +475,28 @@ export async function firstBoot(ctx: FlowContext, options: FirstBootOptions): Pr
   await mkdir(workspacePath, { recursive: true });
   await ctx.on(options.surface, async () => {
     await ensureDesktopControl(ctx, options.timeoutMs ?? DEFAULT_FIRST_BOOT_TIMEOUT_MS);
-    if (await workspaceRouteReady(ctx)) {
-      ctx.log(`Desktop already has a workspace route: ${await currentRoute(ctx)}`);
+    if (await workspaceRouteReady(ctx) || await chatFirstSessionReady(ctx)) {
+      ctx.log(`Desktop already has a usable first-run route: ${await currentRoute(ctx)}`);
+      return;
+    }
+    const route = await currentRoute(ctx).catch(() => "");
+    if (route.startsWith("/settings")) {
+      await ctx.navigateHash("/session");
+      await ctx.waitFor(`(() => {
+        const route = window.__openworkControl?.snapshot?.().route || window.location.hash.replace(/^#/, '') || window.location.pathname;
+        return route === '/session' && Boolean(document.querySelector(${JSON.stringify(EDITOR_SELECTOR)}));
+      })()`, { timeoutMs: 30_000, label: "chat-first session from settings" });
+      ctx.log("Desktop returned from settings to the chat-first session route.");
       return;
     }
     await createWorkspaceFromWelcome(ctx, workspacePath, options.timeoutMs ?? DEFAULT_FIRST_BOOT_TIMEOUT_MS);
-    await ctx.waitFor("window.location.hash.includes('/workspace/')", {
+    await ctx.waitFor(`(() => {
+      const route = window.__openworkControl?.snapshot?.().route || window.location.hash.replace(/^#/, '') || window.location.pathname;
+      const hasComposer = Boolean(document.querySelector(${JSON.stringify(EDITOR_SELECTOR)}));
+      return window.location.hash.includes('/workspace/') || (route === '/session' && hasComposer);
+    })()`, {
       timeoutMs: options.timeoutMs ?? DEFAULT_FIRST_BOOT_TIMEOUT_MS,
-      label: "workspace route loaded",
+      label: "workspace or chat-first route loaded",
     });
   });
   return { workspacePath };

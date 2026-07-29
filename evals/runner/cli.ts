@@ -160,11 +160,29 @@ export function resolveHostPlacement(manifest: EnvManifest | null, env: NodeJS.P
   };
 }
 
+function daytonaReservedPorts(manifest: EnvManifest | null, kind: "chrome" | "electron"): number[] {
+  if (!manifest) return [];
+  const ports: number[] = [];
+  for (const handle of Object.values(manifest.surfaces)) {
+    const rawPort = handle.hostKind === "daytona" && handle.kind === kind ? handle.meta?.cdpPort : undefined;
+    if (!rawPort || !/^\d+$/.test(rawPort)) continue;
+    const port = Number.parseInt(rawPort, 10);
+    if (port > 0 && port <= 65_535) ports.push(port);
+  }
+  return ports;
+}
+
 export function createEvalHosts({ manifest, env, repoRoot, log }: { manifest: EnvManifest | null; env: NodeJS.ProcessEnv; repoRoot: string; log: (msg: string) => void }): EvalHosts {
   const placement = resolveHostPlacement(manifest, env);
   const hosts = new Map<string, Host>([["local", createLocalHost({ repoRoot, log })]]);
   if (placement.daytonaSandboxId) {
-    hosts.set("daytona", createDaytonaHost({ sandboxId: placement.daytonaSandboxId, log, repoRoot }));
+    hosts.set("daytona", createDaytonaHost({
+      sandboxId: placement.daytonaSandboxId,
+      log,
+      repoRoot,
+      reservedChromePorts: daytonaReservedPorts(manifest, "chrome"),
+      reservedElectronPorts: daytonaReservedPorts(manifest, "electron"),
+    }));
   }
   return { hosts, defaultHostKind: placement.defaultHostKind };
 }
