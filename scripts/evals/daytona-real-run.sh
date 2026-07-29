@@ -32,7 +32,20 @@ mariadbd --version
 
 # Member bootstrap (invitation flow) needs a way to mark the invited email
 # verified; point it at the same native MariaDB the den stack runs on.
-export OPENWORK_EVAL_MARK_VERIFIED_CMD="$H/mariadb/bin/mariadb --protocol=tcp -h 127.0.0.1 -P 3306 -uroot openwork_den -e \"UPDATE \\\`user\\\` SET email_verified = 1 WHERE email = '{email}'\""
+cat > "$H/mark-verified.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+email="${1:?email is required}"
+escaped_email="${email//\'/\'\'}"
+{
+  printf "SET @openwork_eval_email = '%s';\n" "$escaped_email"
+  cat <<'SQL'
+UPDATE `user` SET email_verified = 1 WHERE email = @openwork_eval_email;
+SQL
+} | "$HOME/mariadb/bin/mariadb" --protocol=tcp -h 127.0.0.1 -P 3306 -uroot openwork_den
+SH
+chmod +x "$H/mark-verified.sh"
+export OPENWORK_EVAL_MARK_VERIFIED_CMD="bash $H/mark-verified.sh {email}"
 
 echo "==> Legacy baseline: org-connection-lifecycle-desktop through the den stack"
 # Known caveat when the legacy flow runs INSIDE the sandbox: Frame 4 requests a

@@ -1,7 +1,8 @@
 import type { Surface } from "@openwork/cdp";
 import type { DenRef, DenSession } from "./den.ts";
 import { createDesktopHandoffGrant } from "./den.ts";
-import { currentHash, evalIn, fill, go, waitFor } from "./desktop.ts";
+import { currentHash, evalIn, go, waitFor } from "./desktop.ts";
+import { ensureReadyWorkspace } from "./onboarding.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,56 +67,8 @@ export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSess
   });
 }
 
-async function ensureWorkspaceReady(app: Surface, path: string): Promise<void> {
-  const deadline = Date.now() + 90_000;
-  while (Date.now() < deadline) {
-    const state = await evalIn(app, `(() => {
-      const text = document.body.innerText;
-      const hasFolderInput = Boolean(document.querySelector('input[placeholder="/workspace/my-project"]'));
-      const hasWorkspaceRoute = window.location.hash.includes('/workspace/') && !text.includes('Choose your organization') && !hasFolderInput;
-      const onboarding = text.includes('Choose your organization') || text.includes('Continue to workspace') || text.includes('Loading available resources');
-      const canCreate = !onboarding && window.__openworkControl?.listActions?.().find((action) => action.id === 'workspace.create')?.disabled === false;
-      return { hasFolderInput, hasWorkspaceRoute, canCreate };
-    })()`);
-    if (isRecord(state) && (state.hasWorkspaceRoute === true || state.canCreate === true)) break;
-    if (isRecord(state) && state.hasFolderInput === true) {
-      await fill(app, 'input[placeholder="/workspace/my-project"]', path);
-      await waitFor(app, `(() => {
-        const button = [...document.querySelectorAll('button')].find((element) => (element.textContent ?? '').includes('Use this folder'));
-        button?.click();
-        return Boolean(button);
-      })()`, { timeoutMs: 20_000, label: "Use this folder" });
-      await sleep(750);
-      continue;
-    }
-    await evalIn(app, `(() => {
-      const labels = ['Continue with organization', 'Continue to workspace', 'Continue'];
-      const button = [...document.querySelectorAll('button')]
-        .filter((element) => !element.disabled)
-        .find((element) => labels.includes((element.textContent ?? '').trim()));
-      button?.scrollIntoView({ block: 'center' });
-      button?.click();
-      return Boolean(button);
-    })()`);
-    await sleep(1_000);
-  }
-  await waitFor(app, `(() => {
-    const text = document.body.innerText;
-    const hasFolderInput = Boolean(document.querySelector('input[placeholder="/workspace/my-project"]'));
-    const hasWorkspaceRoute = window.location.hash.includes('/workspace/') && !text.includes('Choose your organization') && !hasFolderInput;
-    const onboarding = text.includes('Choose your organization') || text.includes('Continue to workspace') || text.includes('Loading available resources');
-    const canCreate = !onboarding && window.__openworkControl?.listActions?.().find((action) => action.id === 'workspace.create')?.disabled === false;
-    return hasWorkspaceRoute || canCreate;
-  })()`, { timeoutMs: 10_000, label: "workspace route or create action" });
-  await evalIn(app, `(() => {
-    const button = [...document.querySelectorAll('button')].find((element) => (element.textContent ?? '').trim() === 'Continue without OpenWork Models');
-    button?.click();
-    return true;
-  })()`);
-}
-
 export async function ensureFreshWorkspace(app: Surface, input: { path: string }): Promise<string> {
-  await ensureWorkspaceReady(app, input.path);
+  await ensureReadyWorkspace(app, input);
   await waitFor(app, "Boolean(localStorage.getItem('openwork.server.port') && localStorage.getItem('openwork.server.token') && localStorage.getItem('openwork.server.hostToken'))", {
     timeoutMs: 30_000,
     label: "OpenWork server auth for workspace setup",
@@ -159,7 +112,7 @@ export async function ensureFreshWorkspace(app: Surface, input: { path: string }
   await go(app, `/workspace/${workspaceId}/session`);
   await sleep(2_000);
   if ((await currentHash(app)).includes("/onboarding")) {
-    await ensureWorkspaceReady(app, input.path);
+    await ensureReadyWorkspace(app, input);
     await go(app, `/workspace/${workspaceId}/session`);
   }
   await waitFor(app, "window.location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "fresh eval workspace selected" });
@@ -178,7 +131,7 @@ export async function ensureFreshWorkspace(app: Surface, input: { path: string }
       };
     })()`);
     if (isRecord(last) && last.onOnboarding === true) {
-      await ensureWorkspaceReady(app, input.path);
+      await ensureReadyWorkspace(app, input);
       continue;
     }
     if (isRecord(last) && typeof last.hash === "string" && last.hash.includes("/settings/extensions") && last.hasExtensions === true) {

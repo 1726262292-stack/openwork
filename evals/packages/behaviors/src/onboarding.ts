@@ -1,5 +1,13 @@
 import type { Surface } from "@openwork/cdp";
-import { evalIn, fill, waitFor, waitForText } from "./desktop.ts";
+import { clickButton, evalIn, fill, go, waitFor, waitForText } from "./desktop.ts";
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const COMPOSER_INPUT_SELECTOR = [
+  'textarea[placeholder="Describe your task…"]',
+  'textarea[placeholder="Describe your task..."]',
+  '[contenteditable="true"][aria-placeholder="Describe your task…"]',
+  '[contenteditable="true"][aria-placeholder="Describe your task..."]',
+].join(", ");
 
 export interface OnboardingResetFacts {
   deletedWorkspaceIds: string[];
@@ -13,6 +21,11 @@ export interface LocalWorkspaceFacts {
   path: string;
   route: string;
   entrypoint: "manual-folder" | "workspace-modal";
+}
+
+export interface ReadyWorkspaceFacts {
+  workspaceId: string;
+  route: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,6 +49,135 @@ function parseWorkspaceFacts(value: unknown): LocalWorkspaceFacts {
     throw new Error(`Workspace creation returned malformed facts: ${JSON.stringify(value)}`);
   }
   return { id: value.id, name: value.name, path: value.path, route: value.route, entrypoint };
+}
+
+function parseReadyWorkspaceFacts(value: unknown): ReadyWorkspaceFacts | null {
+  if (!isRecord(value) || value.ready !== true || typeof value.workspaceId !== "string" || typeof value.route !== "string") {
+    return null;
+  }
+  return { workspaceId: value.workspaceId, route: value.route };
+}
+
+async function readReadyWorkspaceFacts(app: Surface): Promise<ReadyWorkspaceFacts | null> {
+  const value = await evalIn(app, `(() => {
+    const route = window.location.hash;
+    const match = /^#?\\/workspace\\/([^/?#]+)\\/session\\/?$/.exec(route);
+    const composerVisible = document.body.innerText.includes("What do you need done?")
+      && Boolean(document.querySelector(${JSON.stringify(COMPOSER_INPUT_SELECTOR)}));
+    return {
+      ready: Boolean(match && composerVisible),
+      workspaceId: match?.[1] ?? "",
+      route,
+    };
+  })()`);
+  return parseReadyWorkspaceFacts(value);
+}
+
+async function submitFolder(app: Surface, path: string): Promise<void> {
+  await fill(app, 'input[placeholder="/workspace/my-project"]', path);
+  await clickButton(app, "Use this folder", { timeoutMs: 20_000 });
+}
+
+export async function ensureReadyWorkspace(
+  app: Surface,
+  opts: { path?: string } = {},
+): Promise<ReadyWorkspaceFacts> {
+  const path = opts.path?.trim() || process.cwd();
+  await waitFor(app, "Boolean(window.__openworkControl)", {
+    timeoutMs: 120_000,
+    label: "desktop control API for ready workspace",
+  });
+
+  let folderSubmitted = false;
+  const deadline = Date.now() + 150_000;
+  while (Date.now() < deadline) {
+    const ready = await readReadyWorkspaceFacts(app);
+    if (ready) return ready;
+
+    const state = await evalIn(app, `(() => {
+      const route = window.location.hash;
+      const text = document.body.innerText;
+      const labels = [...document.querySelectorAll("button")]
+        .filter((button) => !button.disabled)
+        .map((button) => (button.textContent ?? "").trim());
+      const workspaceMatch = /\\/workspace\\/([^/?#]+)/.exec(route);
+      const continueLabel = ["Continue with organization", "Continue to workspace", "Continue"]
+        .find((label) => labels.includes(label)) ?? "";
+      return {
+        route,
+        workspaceId: workspaceMatch?.[1] ?? "",
+        atSessionRoot: /^#?\\/workspace\\/[^/?#]+\\/session\\/?$/.test(route),
+        hasFolderInput: Boolean(document.querySelector('input[placeholder="/workspace/my-project"]')),
+        useWithoutCloud: labels.includes("Use Without Cloud"),
+        skipModel: labels.includes("Skip and use the free model"),
+        skipAttribution: text.includes("How did you hear about OpenWork?") && labels.includes("Skip"),
+        continueWithoutModels: labels.includes("Continue without OpenWork Models"),
+        continueLabel,
+        onboarding: text.includes("Choose your organization")
+          || text.includes("Continue to workspace")
+          || text.includes("Loading available resources")
+          || route.includes("/onboarding"),
+        canCreate: window.__openworkControl?.listActions?.()
+          .some((action) => action.id === "workspace.create" && action.disabled === false) === true,
+      };
+    })()`);
+    if (!isRecord(state)) throw new Error("Workspace readiness state was not an object.");
+
+    if (state.hasFolderInput === true) {
+      if (!folderSubmitted) {
+        await submitFolder(app, path);
+        folderSubmitted = true;
+      }
+      await sleep(750);
+      continue;
+    }
+    if (state.useWithoutCloud === true) {
+      await clickButton(app, "Use Without Cloud");
+      await sleep(500);
+      continue;
+    }
+    if (state.skipModel === true) {
+      await clickButton(app, "Skip and use the free model");
+      await sleep(500);
+      continue;
+    }
+    if (state.skipAttribution === true) {
+      await clickButton(app, "Skip");
+      await sleep(1_000);
+      continue;
+    }
+    if (state.continueWithoutModels === true) {
+      await clickButton(app, "Continue without OpenWork Models");
+      await sleep(500);
+      continue;
+    }
+    if (typeof state.continueLabel === "string" && state.continueLabel) {
+      await clickButton(app, state.continueLabel);
+      await sleep(1_000);
+      continue;
+    }
+    if (typeof state.workspaceId === "string" && state.workspaceId && state.onboarding !== true && state.atSessionRoot !== true) {
+      await go(app, `/workspace/${state.workspaceId}/session`);
+      await sleep(750);
+      continue;
+    }
+    if (state.canCreate === true && typeof state.workspaceId === "string" && !state.workspaceId) {
+      const result = await evalIn(
+        app,
+        `window.__openworkControl.execute("workspace.create", ${JSON.stringify({ path })})`,
+        { awaitPromise: true },
+      );
+      if (!isRecord(result) || result.ok !== true) {
+        throw new Error(`Desktop workspace.create failed: ${JSON.stringify(result)}`);
+      }
+      await sleep(750);
+      continue;
+    }
+    await sleep(750);
+  }
+
+  const diagnostic = await evalIn(app, `({ route: window.location.hash, text: document.body.innerText.slice(0, 500) })`);
+  throw new Error(`Workspace did not reach the session composer: ${JSON.stringify(diagnostic)}`);
 }
 
 export async function resetOnboarding(app: Surface): Promise<OnboardingResetFacts> {
@@ -118,22 +260,26 @@ export async function createLocalWorkspaceViaUi(
   input: { path: string; name?: string },
 ): Promise<LocalWorkspaceFacts> {
   await waitFor(app, "location.hash.includes('/welcome')", { timeoutMs: 30_000, label: "welcome route" });
-  const manualFolderVisible = await evalIn(app, 'Boolean(document.querySelector(\'input[placeholder="/workspace/my-project"]\'))');
+  let manualFolderVisible = await evalIn(app, 'Boolean(document.querySelector(\'input[placeholder="/workspace/my-project"]\'))') === true;
+  if (!manualFolderVisible) {
+    const useWithoutCloudVisible = await evalIn(app, `Boolean([...document.querySelectorAll("button")]
+      .find((button) => (button.textContent ?? "").trim() === "Use Without Cloud" && !button.disabled))`);
+    if (useWithoutCloudVisible === true) {
+      await clickButton(app, "Use Without Cloud");
+      await waitFor(app, 'Boolean(document.querySelector(\'input[placeholder="/workspace/my-project"]\'))', {
+        timeoutMs: 15_000,
+        label: "local workspace folder input",
+      });
+      manualFolderVisible = true;
+    }
+  }
   let entrypoint: LocalWorkspaceFacts["entrypoint"];
 
-  if (manualFolderVisible === true) {
-    // Current dev Electron exposes this documented CDP-only field because its
-    // welcome CTA opens a native folder picker. The modal branch below retains
-    // the older Get started -> Local workspace -> Create Workspace journey.
+  if (manualFolderVisible) {
+    // Current dev Electron exposes this field after Use Without Cloud. The
+    // modal branch below retains the older local-workspace journey.
     entrypoint = "manual-folder";
-    await fill(app, 'input[placeholder="/workspace/my-project"]', input.path);
-    await waitFor(app, `(() => {
-      const button = [...document.querySelectorAll("button")]
-        .find((candidate) => (candidate.textContent ?? "").trim() === "Use this folder" && !candidate.disabled);
-      if (!button) return false;
-      button.click();
-      return true;
-    })()`, { timeoutMs: 15_000, label: "Use this folder" });
+    await submitFolder(app, input.path);
   } else {
     entrypoint = "workspace-modal";
     await waitFor(app, `(() => {
