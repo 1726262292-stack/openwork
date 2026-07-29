@@ -289,11 +289,13 @@ export function inviteUrlFromToken(webUrl: string, token: string): string {
 }
 
 export function decodeHtmlAttribute(value: string): string {
+  // Decode `&amp;` last so composite sequences like `&amp;quot;` decode once
+  // (to `&quot;`), never twice (lgtm: double-unescaping).
   return value
-    .replaceAll("&amp;", "&")
     .replaceAll("&#x2F;", "/")
     .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'");
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
 }
 
 export function normalizeInviteUrl(rawInviteUrl: string, webUrl: string): InviteRef {
@@ -378,13 +380,16 @@ async function waitForReadyStateComplete(ctx: FlowContext, label: string): Promi
 }
 
 async function navigateAbsolute(ctx: FlowContext, url: string, label = url): Promise<void> {
+  // Normalize through the URL parser so only a well-formed absolute URL is
+  // ever navigated to (and interpolated into the eval fallback below).
+  const safeUrl = new URL(url).toString();
   const navigated = ctx.client
-    ? await ctx.client.send("Page.navigate", { url }).then(() => true).catch((error) => {
+    ? await ctx.client.send("Page.navigate", { url: safeUrl }).then(() => true).catch((error) => {
       ctx.log(`CDP Page.navigate failed for ${label}; falling back to window.location: ${messageText(error)}`);
       return false;
     })
     : false;
-  if (!navigated) await ctx.eval(`(() => { window.location.href = ${JSON.stringify(url)}; return true; })()`);
+  if (!navigated) await ctx.eval(`(() => { window.location.href = ${JSON.stringify(safeUrl)}; return true; })()`);
   await waitForReadyStateComplete(ctx, `load ${label}`);
   await dismissDaytonaPreviewWarning(ctx, label);
 }

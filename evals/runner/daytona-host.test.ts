@@ -196,7 +196,7 @@ test("spawnChrome launches Chromium with Daytona CDP flags and allocates a secon
   assert(firstLaunch.includes("--user-data-dir="));
   assert(firstLaunch.includes("/tmp/daytona-chrome-browser"));
   assert(secondLaunch.includes("--remote-debugging-port=9230"));
-  assert(secondLaunch.includes("https://app.example.test"));
+  assert(/https:\/\/app\.example\.test(["'\s]|$)/.test(secondLaunch));
 });
 
 test("disposeSurface uses self-match-safe pkill patterns in separate execs", async () => {

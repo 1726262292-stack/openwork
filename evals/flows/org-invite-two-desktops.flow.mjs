@@ -163,7 +163,8 @@ async function returnToWorkspace(ctx, surface, key) {
 
 async function navigateDenMembers(ctx) {
   const webUrl = cleanBaseUrl(requiredEnv(ctx, "OPENWORK_EVAL_DEN_WEB_URL"));
-  await ctx.eval(`(() => { window.location.href = ${JSON.stringify(`${webUrl}/dashboard/members`)}; return true; })()`);
+  // Structured CDP navigation: no code construction from env-derived URLs.
+  await ctx.client.send("Page.navigate", { url: new URL("/dashboard/members", `${webUrl}/`).toString() });
   await waitForWithCdpReconnect(ctx, "document.readyState === 'complete'", { timeoutMs: 45_000, label: "load Den members page" });
   await waitForWithCdpReconnect(ctx, "document.body.innerText.includes('Members') || document.body.innerText.includes('Add member')", {
     timeoutMs: 45_000,
@@ -174,7 +175,8 @@ async function navigateDenMembers(ctx) {
 async function showDenOrganizationList(ctx) {
   const webUrl = cleanBaseUrl(requiredEnv(ctx, "OPENWORK_EVAL_DEN_WEB_URL"));
   const orgName = stateString(ctx, "orgName");
-  await ctx.eval(`(() => { window.location.href = ${JSON.stringify(`${webUrl}/organization`)}; return true; })()`);
+  // Structured CDP navigation: no code construction from env-derived URLs.
+  await ctx.client.send("Page.navigate", { url: new URL("/organization", `${webUrl}/`).toString() });
   await waitForWithCdpReconnect(ctx, "document.readyState === 'complete'", { timeoutMs: 45_000, label: "load Den organization list" });
   await waitForWithCdpReconnect(ctx, "document.body.innerText.includes('Organizations')", { timeoutMs: 45_000, label: "Den organization list" });
   await ctx.eval(`(() => {
