@@ -47,6 +47,17 @@ SH
 chmod +x "$H/mark-verified.sh"
 export OPENWORK_EVAL_MARK_VERIFIED_CMD="bash $H/mark-verified.sh {email}"
 
+# Provider keys for vision validation live on the secrets volume when mounted.
+if compgen -G "/daytona-secrets/*.env" > /dev/null; then
+  set -a
+  for secret_file in /daytona-secrets/*.env; do . "$secret_file"; done
+  set +a
+  echo "==> Sourced provider secrets from /daytona-secrets"
+fi
+
+if [ "${OPENWORK_REAL_RUN_SKIP_LEGACY:-0}" = "1" ]; then
+  echo "==> Skipping legacy baseline (OPENWORK_REAL_RUN_SKIP_LEGACY=1)"
+else
 echo "==> Legacy baseline: org-connection-lifecycle-desktop through the den stack"
 # Known caveat when the legacy flow runs INSIDE the sandbox: Frame 4 requests a
 # sandbox-display capture (driven from outside via the daytona CLI), so its
@@ -55,6 +66,7 @@ if pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-
   echo "LEGACY BASELINE: PASSED"
 else
   echo "LEGACY BASELINE: FAILED (see legacy-lifecycle.log; expected in-sandbox at Frame 4 sandbox-capture)"
+fi
 fi
 
 echo "==> New spec lane against the same live stack"
