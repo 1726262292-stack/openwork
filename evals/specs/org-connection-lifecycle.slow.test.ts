@@ -23,10 +23,10 @@ import type { Surface } from "@openwork/cdp";
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
 const cdpUrl = process.env.OPENWORK_EVAL_CDP_URL?.trim() ?? "";
-const title = !apiUrl
-  ? "organization connection lifecycle skipped: set OPENWORK_EVAL_DEN_API_URL"
-  : !cdpUrl
-    ? "organization connection lifecycle skipped: set OPENWORK_EVAL_CDP_URL"
+const title = !cdpUrl
+  ? "organization connection lifecycle skipped: set OPENWORK_EVAL_CDP_URL"
+  : !apiUrl
+    ? "organization connection lifecycle skipped: set OPENWORK_EVAL_DEN_API_URL"
     : "member connects, reconnects, and disconnects an organization OAuth connection";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
