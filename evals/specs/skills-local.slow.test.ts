@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { attachSurface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
   clickText,
+  deleteEvalSession,
   ensureFreshWorkspace,
   ensureReadyWorkspace,
   evalIn,
@@ -32,6 +33,12 @@ test.skipIf(!cdpUrl)(title, async () => {
   await using roll = photoRoll("skills-local");
   await ensureReadyWorkspace(app, { path: repoRoot });
   const workspaceId = await ensureFreshWorkspace(app, { path: repoRoot });
+  let createdSessionId = "";
+  onTestFinished(async () => {
+    if (!createdSessionId) return;
+    await using cleanupApp = await attachSurface({ name: "skills-local-cleanup", kind: "electron", hostKind: "attached", cdpUrl });
+    await deleteEvalSession(cleanupApp, workspaceId, createdSessionId);
+  });
   await go(app, `/workspace/${workspaceId}/session`);
   await ensureReadyWorkspace(app, { path: repoRoot });
 
@@ -82,6 +89,10 @@ test.skipIf(!cdpUrl)(title, async () => {
       timeoutMs: 30_000,
       label: "new session id route",
     });
+    const sessionRoute = await evalIn(app, "window.location.hash");
+    if (typeof sessionRoute !== "string") throw new Error("New session route was not a string.");
+    createdSessionId = /\/session\/(ses_[^/?#]+)/.exec(sessionRoute)?.[1] ?? "";
+    if (!createdSessionId) throw new Error(`New session route had no session ID: ${sessionRoute}`);
     const coldLoad = await measureLoadedSkills(app);
     expect(coldLoad.rowCount).toBeGreaterThanOrEqual(10);
     expect(coldLoad.elapsedMs).toBeLessThan(3_000);

@@ -7,6 +7,7 @@ import {
   currentHash,
   deleteConnection,
   deleteConnectionsNamed,
+  deleteEvalWorkspace,
   enabledButtons,
   ensureFreshWorkspace,
   ensureReadyWorkspace,
@@ -110,10 +111,16 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async () => {
     cdpUrl,
   });
   await using roll = photoRoll("org-connection-lifecycle");
+  let workspaceId = "";
+  onTestFinished(async () => {
+    if (!workspaceId) return;
+    await using cleanupApp = await attachSurface({ name: "org-connection-lifecycle-cleanup", kind: "electron", hostKind: "attached", cdpUrl });
+    await deleteEvalWorkspace(cleanupApp, workspaceId);
+  });
   await signInDesktopAs(app, den, member);
   const workspacePath = `/tmp/openwork-org-connection-lifecycle-${Date.now()}`;
   await ensureReadyWorkspace(app, { path: workspacePath });
-  await ensureFreshWorkspace(app, { path: workspacePath });
+  workspaceId = await ensureFreshWorkspace(app, { path: workspacePath });
 
   await waitForConnectionCard(app, connection.name);
   await waitForText(app, "NEEDS YOUR SIGN-IN", { timeoutMs: 30_000 });

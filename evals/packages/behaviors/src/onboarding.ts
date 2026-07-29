@@ -1,5 +1,6 @@
 import type { Surface } from "@openwork/cdp";
 import { clickButton, evalIn, fill, go, waitFor, waitForText } from "./desktop.ts";
+import { recoverInvalidModelSelection } from "./models.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const COMPOSER_INPUT_SELECTOR = [
@@ -26,6 +27,7 @@ export interface LocalWorkspaceFacts {
 export interface ReadyWorkspaceFacts {
   workspaceId: string;
   route: string;
+  recovered: string[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,26 +53,48 @@ function parseWorkspaceFacts(value: unknown): LocalWorkspaceFacts {
   return { id: value.id, name: value.name, path: value.path, route: value.route, entrypoint };
 }
 
-function parseReadyWorkspaceFacts(value: unknown): ReadyWorkspaceFacts | null {
+function parseReadyWorkspaceFacts(value: unknown, recovered: string[]): ReadyWorkspaceFacts | null {
   if (!isRecord(value) || value.ready !== true || typeof value.workspaceId !== "string" || typeof value.route !== "string") {
     return null;
   }
-  return { workspaceId: value.workspaceId, route: value.route };
+  return { workspaceId: value.workspaceId, route: value.route, recovered: [...recovered] };
 }
 
-async function readReadyWorkspaceFacts(app: Surface): Promise<ReadyWorkspaceFacts | null> {
+async function readReadyWorkspaceFacts(app: Surface, recovered: string[]): Promise<ReadyWorkspaceFacts | null> {
   const value = await evalIn(app, `(() => {
     const route = window.location.hash;
+    const text = document.body.innerText;
     const match = /^#?\\/workspace\\/([^/?#]+)\\/session\\/?$/.exec(route);
-    const composerVisible = document.body.innerText.includes("What do you need done?")
+    const composerVisible = text.includes("What do you need done?")
       && Boolean(document.querySelector(${JSON.stringify(COMPOSER_INPUT_SELECTOR)}));
+    const invalidModel = text.includes("Model no longer available")
+      || text.includes("The selected provider/model was not found in OpenCode provider catalog");
+    const reconnectDen = text.includes("Reconnect Den to continue.");
     return {
-      ready: Boolean(match && composerVisible),
+      ready: Boolean(match && composerVisible && !invalidModel && !reconnectDen),
       workspaceId: match?.[1] ?? "",
       route,
     };
   })()`);
-  return parseReadyWorkspaceFacts(value);
+  return parseReadyWorkspaceFacts(value, recovered);
+}
+
+function recordRecovery(recovered: string[], repair: string): void {
+  if (!recovered.includes(repair)) recovered.push(repair);
+}
+
+async function retryDenConnection(app: Surface): Promise<void> {
+  await waitFor(app, `(() => {
+    const notices = [
+      document.querySelector('[data-testid="cloud-mcp-new-task-failure"]'),
+      document.querySelector('[data-testid="cloud-mcp-submission-failure"]'),
+    ];
+    const button = notices.flatMap((notice) => [...(notice?.querySelectorAll("button") ?? [])])
+      .find((candidate) => (candidate.textContent ?? "").trim() === "Retry" && !candidate.disabled);
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`, { timeoutMs: 30_000, label: "visible Den reconnect Retry" });
 }
 
 async function submitFolder(app: Surface, path: string): Promise<void> {
@@ -89,9 +113,10 @@ export async function ensureReadyWorkspace(
   });
 
   let folderSubmitted = false;
+  const recovered: string[] = [];
   const deadline = Date.now() + 150_000;
   while (Date.now() < deadline) {
-    const ready = await readReadyWorkspaceFacts(app);
+    const ready = await readReadyWorkspaceFacts(app, recovered);
     if (ready) return ready;
 
     const state = await evalIn(app, `(() => {
@@ -113,6 +138,9 @@ export async function ensureReadyWorkspace(
         skipAttribution: text.includes("How did you hear about OpenWork?") && labels.includes("Skip"),
         continueWithoutModels: labels.includes("Continue without OpenWork Models"),
         continueLabel,
+        invalidModel: text.includes("Model no longer available")
+          || text.includes("The selected provider/model was not found in OpenCode provider catalog"),
+        reconnectDen: text.includes("Reconnect Den to continue."),
         onboarding: text.includes("Choose your organization")
           || text.includes("Continue to workspace")
           || text.includes("Loading available resources")
@@ -123,36 +151,54 @@ export async function ensureReadyWorkspace(
     })()`);
     if (!isRecord(state)) throw new Error("Workspace readiness state was not an object.");
 
+    if (state.invalidModel === true) {
+      await recoverInvalidModelSelection(app);
+      recordRecovery(recovered, "invalid-model");
+      await sleep(750);
+      continue;
+    }
+    if (state.reconnectDen === true) {
+      await retryDenConnection(app);
+      recordRecovery(recovered, "den-reconnect");
+      await sleep(1_500);
+      continue;
+    }
     if (state.hasFolderInput === true) {
       if (!folderSubmitted) {
         await submitFolder(app, path);
         folderSubmitted = true;
       }
+      recordRecovery(recovered, "onboarding");
       await sleep(750);
       continue;
     }
     if (state.useWithoutCloud === true) {
       await clickButton(app, "Use Without Cloud");
+      recordRecovery(recovered, "onboarding");
       await sleep(500);
       continue;
     }
     if (state.skipModel === true) {
       await clickButton(app, "Skip and use the free model");
+      recordRecovery(recovered, "onboarding");
       await sleep(500);
       continue;
     }
     if (state.skipAttribution === true) {
       await clickButton(app, "Skip");
+      recordRecovery(recovered, "onboarding");
       await sleep(1_000);
       continue;
     }
     if (state.continueWithoutModels === true) {
       await clickButton(app, "Continue without OpenWork Models");
+      recordRecovery(recovered, "onboarding");
       await sleep(500);
       continue;
     }
     if (typeof state.continueLabel === "string" && state.continueLabel) {
       await clickButton(app, state.continueLabel);
+      recordRecovery(recovered, "onboarding");
       await sleep(1_000);
       continue;
     }
@@ -170,6 +216,7 @@ export async function ensureReadyWorkspace(
       if (!isRecord(result) || result.ok !== true) {
         throw new Error(`Desktop workspace.create failed: ${JSON.stringify(result)}`);
       }
+      recordRecovery(recovered, "onboarding");
       await sleep(750);
       continue;
     }

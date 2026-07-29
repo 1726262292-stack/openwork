@@ -1,7 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { attachSurface } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
@@ -83,6 +83,20 @@ test.skipIf(!cdpUrl)(title, async () => {
     cdpUrl,
   });
   await using roll = photoRoll("first-run-local");
+  let workspacePath = "";
+  onTestFinished(async () => {
+    try {
+      await using cleanupApp = await attachSurface({
+        name: "first-run-local-cleanup",
+        kind: "electron",
+        hostKind: "attached",
+        cdpUrl,
+      });
+      await resetOnboarding(cleanupApp);
+    } finally {
+      if (workspacePath) await rm(workspacePath, { recursive: true, force: true });
+    }
+  });
 
   const reset = await resetOnboarding(app);
   expect(reset.route).toContain("/welcome");
@@ -98,7 +112,7 @@ test.skipIf(!cdpUrl)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  const workspacePath = await mkdtemp(join(tmpdir(), "openwork-first-run-local-"));
+  workspacePath = await mkdtemp(join(tmpdir(), "openwork-first-run-local-"));
   const workspace = await createLocalWorkspaceViaUi(app, { path: workspacePath });
   expect(workspace.path).toBe(workspacePath);
   expect(workspace.id).toBeTruthy();

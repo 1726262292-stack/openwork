@@ -129,3 +129,52 @@ export async function ensureFreshWorkspace(app: Surface, input: { path: string }
   }
   throw new Error(`Extensions connections route never became ready: ${JSON.stringify(last)}`);
 }
+
+export async function deleteEvalSession(app: Surface, workspaceId: string, sessionId: string): Promise<void> {
+  await go(app, `/workspace/${workspaceId}/session/${sessionId}`);
+  await waitFor(app, "window.__openworkControl?.listActions?.().some((action) => action.id === 'session.delete' && action.disabled === false)", {
+    timeoutMs: 30_000,
+    label: "session.delete enabled for eval cleanup",
+  });
+  await control(app, "session.delete", { sessionId, confirmed: true });
+}
+
+export async function deleteEvalWorkspace(app: Surface, workspaceId: string): Promise<void> {
+  await waitFor(app, "Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", {
+    timeoutMs: 30_000,
+    label: "desktop bridge for eval workspace cleanup",
+  });
+  const result = await evalIn(app, `(async () => {
+    const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    const hostToken = localStorage.getItem("openwork.server.hostToken");
+    if (!bridge || !port || !token || !hostToken) return { ok: false, error: "workspace cleanup bridge or server auth missing" };
+    const response = await fetch("http://127.0.0.1:" + port + "/workspaces/" + encodeURIComponent(${JSON.stringify(workspaceId)}), {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + token, "X-OpenWork-Host-Token": hostToken },
+    });
+    if (!response.ok && response.status !== 404) {
+      return { ok: false, error: "workspace delete returned " + response.status + ": " + await response.text() };
+    }
+    await bridge("workspaceForget", ${JSON.stringify(workspaceId)}).catch(() => null);
+    if (localStorage.getItem("openwork.react.activeWorkspace") === ${JSON.stringify(workspaceId)}) {
+      localStorage.removeItem("openwork.react.activeWorkspace");
+    }
+    let sessions = {};
+    try { sessions = JSON.parse(localStorage.getItem("openwork.react.sessionByWorkspace") || "{}"); } catch {}
+    if (!sessions || typeof sessions !== "object" || Array.isArray(sessions)) sessions = {};
+    delete sessions[${JSON.stringify(workspaceId)}];
+    localStorage.setItem("openwork.react.sessionByWorkspace", JSON.stringify(sessions));
+    location.hash = "#/session";
+    setTimeout(() => location.reload(), 0);
+    return { ok: true };
+  })()`, { awaitPromise: true });
+  if (!isRecord(result) || result.ok !== true) {
+    throw new Error(`Eval workspace cleanup failed: ${JSON.stringify(result)}`);
+  }
+  await waitFor(app, "Boolean(window.__openworkControl)", {
+    timeoutMs: 60_000,
+    label: "control API after eval workspace cleanup",
+  });
+}

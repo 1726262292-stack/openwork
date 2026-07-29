@@ -4,6 +4,7 @@ import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
   denFetch,
+  deleteEvalWorkspace,
   ensureFreshWorkspace,
   ensureReadyWorkspace,
   evalIn,
@@ -12,6 +13,7 @@ import {
   readComposerState,
   readCurrentOrganizationMemberId,
   readModelRecoveryState,
+  recoverInvalidModelSelection,
   retryOrganizationModels,
   seedUnavailableModel,
   selectModel,
@@ -78,8 +80,9 @@ async function executeControl(app: Surface, action: string, args?: unknown): Pro
   return value.result;
 }
 
-async function ensureSession(app: Surface, path: string): Promise<string> {
+async function ensureSession(app: Surface, path: string, workspaceIds: string[]): Promise<string> {
   const workspaceId = await ensureFreshWorkspace(app, { path });
+  if (!workspaceIds.includes(workspaceId)) workspaceIds.push(workspaceId);
   await go(app, `/workspace/${workspaceId}/session`);
   await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
     timeoutMs: 60_000,
@@ -97,14 +100,29 @@ async function setComposerText(app: Surface, text: string): Promise<void> {
   await writeComposerText(app, text);
 }
 
-async function createManagedSession(app: Surface, path: string): Promise<void> {
+async function createManagedSession(app: Surface, path: string, workspaceIds: string[]): Promise<string> {
   await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "workspace.create" && !action.disabled)`, {
     timeoutMs: 60_000,
     label: "workspace.create enabled for managed model test",
   });
+  const previousRoute = await evalIn(app, "window.location.hash");
+  const previousWorkspaceId = typeof previousRoute === "string"
+    ? /\/workspace\/([^/?#]+)/.exec(previousRoute)?.[1] ?? ""
+    : "";
   await executeControl(app, "workspace.create", { path });
-  await ensureReadyWorkspace(app, { path });
+  await waitFor(app, `(() => {
+    const match = /\\/workspace\\/([^/?#]+)/.exec(window.location.hash);
+    return Boolean(match?.[1] && match[1] !== ${JSON.stringify(previousWorkspaceId)});
+  })()`, { timeoutMs: 60_000, label: "managed model workspace route" });
+  const createdRoute = await evalIn(app, "window.location.hash");
+  const createdWorkspaceId = typeof createdRoute === "string"
+    ? /\/workspace\/([^/?#]+)/.exec(createdRoute)?.[1] ?? ""
+    : "";
+  if (!createdWorkspaceId) throw new Error(`Managed model workspace route had no workspace ID: ${JSON.stringify(createdRoute)}`);
+  if (!workspaceIds.includes(createdWorkspaceId)) workspaceIds.push(createdWorkspaceId);
+  const ready = await ensureReadyWorkspace(app, { path });
   await waitForText(app, "Run task", { timeoutMs: 60_000 });
+  return ready.workspaceId;
 }
 
 async function denRequest(
@@ -233,7 +251,39 @@ test.skipIf(!cdpUrl)(appTitle, async () => {
   await using roll = photoRoll("models-available");
   const workspacePath = `/tmp/openwork-models-available-${Date.now()}`;
   await ensureReadyWorkspace(app, { path: workspacePath });
-  await ensureSession(app, workspacePath);
+  const workspaceIds: string[] = [];
+  let restoreModelId = "";
+  onTestFinished(async () => {
+    await using cleanupApp = await attachSurface({ name: "models-available-cleanup", kind: "electron", hostKind: "attached", cdpUrl });
+    try {
+      const invalidBeforeCleanup = await evalIn(cleanupApp, `(() => {
+        const text = document.body.innerText;
+        return text.includes("Model no longer available")
+          || text.includes("The selected provider/model was not found in OpenCode provider catalog");
+      })()`);
+      if (invalidBeforeCleanup === true) {
+        const restored = await recoverInvalidModelSelection(cleanupApp, restoreModelId);
+        if (restoreModelId) expect(restored?.id).toBe(restoreModelId);
+      }
+      expect(await evalIn(cleanupApp, `(() => {
+        const text = document.body.innerText;
+        return text.includes("Model no longer available")
+          || text.includes("The selected provider/model was not found in OpenCode provider catalog");
+      })()`)).toBe(false);
+      if (restoreModelId) {
+        expect(await evalIn(cleanupApp, `(() => {
+          try {
+            return JSON.parse(localStorage.getItem("openwork.preferences") || "{}").defaultModel?.modelID;
+          } catch {
+            return "";
+          }
+        })()`)).toBe(restoreModelId);
+      }
+    } finally {
+      for (const workspaceId of workspaceIds) await deleteEvalWorkspace(cleanupApp, workspaceId);
+    }
+  });
+  await ensureSession(app, workspacePath, workspaceIds);
 
   const models = await readAvailableModels(app);
   expect(models.length).toBeGreaterThan(0);
@@ -265,6 +315,7 @@ test.skipIf(!cdpUrl)(appTitle, async () => {
   }
 
   const seeded = await seedUnavailableModel(app);
+  restoreModelId = seeded.availableModelId;
   expect(seeded.unavailableModelId).toBeTruthy();
   expect(seeded.availableModelId).toBeTruthy();
   await waitForText(app, "Model no longer available", { timeoutMs: 30_000 });
@@ -337,16 +388,37 @@ test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async () => {
     defaultPolicy: null,
     adminExceptionPolicies: [],
   };
+  let desktopStateChanged = false;
+  const workspaceIds: string[] = [];
   await selectOrganization(admin, state);
-  onTestFinished(async () => restoreManagedState(admin, state));
+  onTestFinished(async () => {
+    try {
+      await restoreManagedState(admin, state);
+    } finally {
+      if (desktopStateChanged) {
+        await using cleanupApp = await attachSurface({ name: "models-managed-cleanup", kind: "electron", hostKind: "attached", cdpUrl });
+        try {
+          await ensureReadyWorkspace(cleanupApp);
+          expect(await evalIn(cleanupApp, `(() => {
+            const text = document.body.innerText;
+            return text.includes("Model no longer available")
+              || text.includes("The selected provider/model was not found in OpenCode provider catalog");
+          })()`)).toBe(false);
+        } finally {
+          for (const workspaceId of workspaceIds) await deleteEvalWorkspace(cleanupApp, workspaceId);
+        }
+      }
+    }
+  });
   await configureManagedEmpty(admin, state);
 
   await using app = await attachSurface({ name: "running-app", kind: "electron", hostKind: "attached", cdpUrl });
   await using roll = photoRoll("models-managed-recovery");
   await signInDesktopAs(app, den, admin);
+  desktopStateChanged = true;
   const workspacePath = `/tmp/openwork-managed-models-${Date.now()}`;
   await ensureReadyWorkspace(app, { path: workspacePath });
-  await createManagedSession(app, workspacePath);
+  await createManagedSession(app, workspacePath, workspaceIds);
   await waitForText(app, emptyMessage, { timeoutMs: 120_000 });
 
   let recovery = await readModelRecoveryState(app);

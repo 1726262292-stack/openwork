@@ -195,6 +195,44 @@ export async function selectModel(app: Surface, name: string): Promise<ModelFact
   };
 }
 
+export async function recoverInvalidModelSelection(
+  app: Surface,
+  preferredModelId?: string,
+): Promise<ModelFacts | null> {
+  const models = await readAvailableModels(app);
+  const model = models.find((candidate) => candidate.selectable && candidate.id === preferredModelId)
+    ?? models.find((candidate) => candidate.selectable);
+  if (model) {
+    const selected = await selectModel(app, model.id);
+    await waitFor(app, `(() => {
+      const text = document.body.innerText;
+      return !text.includes("Model no longer available")
+        && !text.includes("The selected provider/model was not found in OpenCode provider catalog");
+    })()`, { timeoutMs: 30_000, label: "invalid selected model cleared" });
+    return selected;
+  }
+
+  await evalIn(app, `(() => {
+    let preferences = {};
+    try { preferences = JSON.parse(localStorage.getItem("openwork.preferences") || "{}"); } catch {}
+    delete preferences.defaultModel;
+    delete preferences.modelVariant;
+    localStorage.setItem("openwork.preferences", JSON.stringify(preferences));
+    setTimeout(() => location.reload(), 0);
+    return true;
+  })()`);
+  await waitFor(app, "Boolean(window.__openworkControl)", {
+    timeoutMs: 60_000,
+    label: "control API after clearing invalid selected model",
+  });
+  await waitFor(app, `(() => {
+    const text = document.body.innerText;
+    return !text.includes("Model no longer available")
+      && !text.includes("The selected provider/model was not found in OpenCode provider catalog");
+  })()`, { timeoutMs: 30_000, label: "invalid selected model absent after reset" });
+  return null;
+}
+
 export async function readModelRecoveryState(app: Surface): Promise<ModelRecoveryFacts> {
   const value = await evalIn(app, `(() => {
     const text = document.body.innerText;
