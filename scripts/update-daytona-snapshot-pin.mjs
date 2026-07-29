@@ -177,12 +177,31 @@ function optionValue(args, index, option) {
   return value
 }
 
+export const USAGE = `Update or check the Daytona sandbox snapshot pin (DAYTONA_SNAPSHOT) in a Render env group.
+
+Usage:
+  node scripts/update-daytona-snapshot-pin.mjs --env-group-id <id> --snapshot <name> [--dry-run]
+  node scripts/update-daytona-snapshot-pin.mjs --env-group-id <id> --snapshot <name> --compare
+
+Options:
+  --env-group-id <id>  Render env group holding DAYTONA_SNAPSHOT (e.g. evg-...).
+  --snapshot <name>    Desired snapshot name (e.g. openwork-0.18.11).
+  --dry-run            Print the request that would be sent; write nothing.
+  --compare            Read-only drift check; exits non-zero when the pin differs.
+  -h, --help           Show this help.
+
+Environment:
+  RENDER_API_KEY       Required (except with --help).
+
+This mutates which image every cloud sandbox boots. Prefer --dry-run or --compare first.`
+
 export function parseArgs(args) {
   const options = {
     envGroupId: "",
     snapshotName: "",
     dryRun: false,
     compare: false,
+    help: false,
   }
 
   for (let index = 0; index < args.length; index += 1) {
@@ -197,9 +216,15 @@ export function parseArgs(args) {
       options.dryRun = true
     } else if (argument === "--compare") {
       options.compare = true
+    } else if (argument === "--help" || argument === "-h") {
+      options.help = true
     } else {
       throw new Error(`Unknown argument: ${argument}`)
     }
+  }
+
+  if (options.help) {
+    return options
   }
 
   if (options.dryRun && options.compare) {
@@ -211,6 +236,10 @@ export function parseArgs(args) {
 
 export async function main(args, environment = process.env) {
   const options = parseArgs(args)
+  if (options.help) {
+    console.log(USAGE)
+    return { status: "help" }
+  }
   const input = {
     envGroupId: options.envGroupId,
     snapshotName: options.snapshotName,
