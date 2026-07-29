@@ -1,5 +1,6 @@
 export * from "./den.ts";
 export * from "./desktop.ts";
+export * from "./diagnostics.ts";
 export * from "./mcp.ts";
 
 import { acceptInvite, apiSignIn, createOrg, inviteMember, signInWeb, signUpWeb } from "./den.ts";
