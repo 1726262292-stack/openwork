@@ -65,6 +65,21 @@ import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } 
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
+import { CandidateStore } from "./apps/candidates.js";
+import { AppInstaller } from "./apps/installer.js";
+import { registerAppRoutes } from "./apps/routes.js";
+import { GithubSource } from "./apps/source-github.js";
+import { InstalledAppStore } from "./apps/store.js";
+
+type AppPlatform = {
+  installer: AppInstaller;
+  store: InstalledAppStore;
+  onLifecycleChange: (
+    appId: string,
+    reason: "disabled" | "revoked" | "uninstalled" | "updated",
+  ) => void;
+};
+import { PACKAGE_LIMITS } from "@openwork/app-contract";
 import {
   markOpenworkCloudMcpStale,
   reconcilePersistedOpenworkCloudMcp,
@@ -830,7 +845,36 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
+  // The OpenWork Apps platform. Long-lived alongside the other services: the
+  // installed registry, the candidate cache, and the GitHub source adapter all
+  // outlive any single request.
+  const appStore = new InstalledAppStore();
+  const appCandidates = new CandidateStore();
+  const appInstaller = new AppInstaller({
+    store: appStore,
+    candidates: appCandidates,
+    source: new GithubSource({
+      fetch: (url, init) => externalFetch(url, init),
+      maxAssetBytes: PACKAGE_LIMITS.maxArchiveBytes,
+    }),
+    host: {
+      openworkVersion: SERVER_VERSION,
+      os: process.platform === "win32" ? "win32" : process.platform === "linux" ? "linux" : "darwin",
+      arch: process.arch === "x64" ? "x64" : "arm64",
+    },
+    // Only the key names cross this boundary. Values never leave EnvService.
+    listEnvKeys: async () => (await env.list()).map((entry) => entry.key),
+  });
   const logger = createServerLogger(config);
+  // The desktop shell owns the app runtime, so the server announces that an app
+  // should stop rather than assuming it has. Teardown is the shell's job; this
+  // is the signal that it is required.
+  const onAppLifecycleChange = (
+    appId: string,
+    reason: "disabled" | "revoked" | "uninstalled" | "updated",
+  ) => {
+    logger.log("info", "openwork app lifecycle change", { appId, reason });
+  };
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   const refreshWorkspaceReloadBaseline = (workspaceId: string, reasons?: ReloadReason[]) =>
     watcherHandle.refreshWorkspace(workspaceId, reasons);
@@ -847,6 +891,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     env,
     restartReloadWatchers,
     engineMcpServerState,
+    { installer: appInstaller, store: appStore, onLifecycleChange: onAppLifecycleChange },
   );
 
   const serverOptions: {
@@ -1508,6 +1553,7 @@ function createRoutes(
   env: EnvService,
   onWorkspacesChanged: () => void,
   engineMcpServerState: EngineMcpServerState,
+  apps: AppPlatform,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1585,6 +1631,15 @@ function createRoutes(
         engineMcpServerState,
       ),
     serverMetadata: { serverVersion: SERVER_VERSION, expectedOpencodeVersion: OPENCODE_VERSION },
+  });
+
+  registerAppRoutes({
+    routes,
+    jsonResponse,
+    readJsonBody,
+    installer: apps.installer,
+    store: apps.store,
+    onLifecycleChange: apps.onLifecycleChange,
   });
 
   addRoute(routes, "POST", "/workspace/:id/diagnostics/agent-context", "client", async (ctx) => {
