@@ -2358,6 +2358,14 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       );
     },
 
+    async disconnectMyMcpConnectionAccount(orgId: string, connectionId: string): Promise<void> {
+      await requestJson<unknown>(
+        baseUrls,
+        `/v1/mcp-connections/${encodeURIComponent(connectionId)}/disconnect-my-account`,
+        { method: "POST", token, organizationId: orgId },
+      );
+    },
+
     async listOrgMarketplaces(orgId: string): Promise<DenOrgMarketplace[]> {
       const payload = await requestJson<unknown>(
         baseUrls,
