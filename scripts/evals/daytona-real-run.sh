@@ -29,6 +29,10 @@ fi
 export PATH="$H/mariadb/bin:$H/mariadb/scripts:$PATH"
 mariadbd --version
 
+# Member bootstrap (invitation flow) needs a way to mark the invited email
+# verified; point it at the same native MariaDB the den stack runs on.
+export OPENWORK_EVAL_MARK_VERIFIED_CMD="$H/mariadb/bin/mariadb --protocol=tcp -h 127.0.0.1 -P 3306 -uroot openwork_den -e \"UPDATE \\\`user\\\` SET email_verified = 1 WHERE email = '{email}'\""
+
 echo "==> Legacy baseline: org-connection-lifecycle-desktop through the den stack"
 pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-lifecycle-desktop 2>&1 | tee "$LOG_DIR/legacy-lifecycle.log"
 
