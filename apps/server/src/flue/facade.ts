@@ -331,6 +331,11 @@ function promptModelSpec(input?: PromptModelInput): string {
   return `${model.providerID}/${model.modelID}`;
 }
 
+function providerListHasModel(providerList: ProviderListResponse, model: PromptModelInput): boolean {
+  const provider = providerList.all.find((item) => item.id === model.providerID);
+  return Boolean(provider?.models[model.modelID]);
+}
+
 function emptyAssistantTokens() {
   return {
     input: 0,
@@ -891,7 +896,7 @@ class FlueWorkspaceFacade {
 
   private applyProviderMaterialization(materialization: FlueCatalogMaterialization): void {
     resetProviderRuntime();
-    ensureFauxProvider();
+    if (materialization.providerList.all.some((provider) => provider.id === FLUE_PROVIDER_ID)) ensureFauxProvider();
     for (const provider of materialization.registrations) {
       registerProvider(provider.providerId, provider.registration);
     }
@@ -998,7 +1003,7 @@ class FlueWorkspaceFacade {
         });
     } catch (error) {
       queueMicrotask(() => {
-        const complete = promptModelSpec(input.model) === FLUE_MODEL_SPEC
+        const complete = promptModelSpec(input.model) === FLUE_MODEL_SPEC && !(error instanceof ApiError)
           ? this.finishPrompt(sessionId, assistant.info.id, fallbackPromptResponse(text))
           : this.failPrompt(sessionId, assistant.info.id, error);
         void complete.finally(() => this.inFlight.delete(sessionId));
@@ -1099,20 +1104,23 @@ class FlueWorkspaceFacade {
   }
 
   private async startFluePrompt(sessionId: string, text: string, input: PromptRunInput): Promise<{ handle: CallHandle<PromptResponse> }> {
-    if (promptModelSpec(input.model) !== FLUE_MODEL_SPEC) {
-      await this.providerList({ allowNetwork: false });
+    const model = sessionModel(input.model);
+    const modelSpec = promptModelSpec(input.model);
+    const providerList = await this.providerList({ allowNetwork: false });
+    if (!providerListHasModel(providerList, model)) {
+      throw new ApiError(400, "model_not_found", `Model ${modelSpec} is not available`);
     }
-    const harness = await this.ensureHarness();
+    const harness = await this.ensureHarness(modelSpec);
     let session;
     try {
       session = await harness.sessions.get(sessionId);
     } catch {
       session = await harness.sessions.create(sessionId);
     }
-    if (promptModelSpec(input.model) === FLUE_MODEL_SPEC) {
+    if (modelSpec === FLUE_MODEL_SPEC) {
       ensureFauxProvider().appendResponses([fauxAssistantMessage(flueResponseText(text))]);
     }
-    return { handle: session.prompt(text, { model: promptModelSpec(input.model) }) };
+    return { handle: session.prompt(text, { model: modelSpec }) };
   }
 
   private async finishPrompt(sessionId: string, assistantMessageId: string, response: PromptResponse): Promise<void> {
@@ -1163,13 +1171,12 @@ class FlueWorkspaceFacade {
     });
   }
 
-  private async ensureHarness(): Promise<FlueHarness> {
+  private async ensureHarness(defaultModelSpec: string): Promise<FlueHarness> {
     if (this.harness) return this.harness;
-    ensureFauxProvider();
     const workspace = this.workspace;
     const sandbox = await createLocalSandbox(workspace.path);
     const agent = defineAgent<Record<string, unknown>>(() => ({
-      model: FLUE_MODEL_SPEC,
+      model: defaultModelSpec,
       cwd: workspace.path,
       sandbox,
       instructions: "You are OpenWork running through the in-process Flue compatibility facade.",

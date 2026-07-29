@@ -3,7 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Provider } from "@openwork/engine-protocol";
-import type { RuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import {
+  ENGINE_GLOBAL_RUNTIME_CONFIG_ID,
+  readEffectiveRuntimeOpencodeConfig,
+  writeRuntimeOpencodeConfig,
+  type RuntimeOpencodeConfig,
+} from "../runtime-opencode-config-store.js";
+import type { ServerConfig } from "../types.js";
 import {
   FlueCatalogBridge,
   apiKindForProvider,
@@ -17,6 +23,7 @@ import {
 } from "./catalog.js";
 
 const roots: string[] = [];
+const WORKSPACE_ID = "ws_flue_catalog";
 
 afterEach(async () => {
   resetFlueCatalogCacheForTest();
@@ -55,6 +62,39 @@ function deterministicProvider(): Provider {
       },
     },
   };
+}
+
+function serverConfig(root: string): ServerConfig {
+  return {
+    host: "127.0.0.1",
+    port: 0,
+    token: "token",
+    hostToken: "host-token",
+    configPath: join(root, "server.json"),
+    approval: { mode: "auto", timeoutMs: 0 },
+    corsOrigins: [],
+    workspaces: [{ id: WORKSPACE_ID, name: "Test", path: root, preset: "starter", workspaceType: "local" }],
+    authorizedRoots: [root],
+    readOnly: false,
+    startedAt: Date.now(),
+    tokenSource: "generated",
+    hostTokenSource: "generated",
+    logFormat: "pretty",
+    logRequests: false,
+  };
+}
+
+async function withRuntimeWorkspace(fn: (input: { config: ServerConfig; workspaceId: string }) => Promise<void>): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "openwork-flue-runtime-config-"));
+  roots.push(root);
+  const previousDb = process.env.OPENWORK_RUNTIME_DB;
+  process.env.OPENWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  try {
+    await fn({ config: serverConfig(root), workspaceId: WORKSPACE_ID });
+  } finally {
+    if (previousDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
+    else process.env.OPENWORK_RUNTIME_DB = previousDb;
+  }
 }
 
 function catalogFixture(): Record<string, unknown> {
@@ -183,6 +223,17 @@ function registrationFor(materialization: FlueCatalogMaterialization, providerId
   return materialization.registrations.find((registration) => registration.providerId === providerId);
 }
 
+function providerIds(materialization: FlueCatalogMaterialization): string[] {
+  return materialization.providerList.all.map((provider) => provider.id);
+}
+
+function expectProviderAbsent(materialization: FlueCatalogMaterialization, providerId: string): void {
+  expect(registrationFor(materialization, providerId)).toBeUndefined();
+  expect(providerIds(materialization)).not.toContain(providerId);
+  expect(materialization.providerList.connected).not.toContain(providerId);
+  expect(materialization.providerList.default[providerId]).toBeUndefined();
+}
+
 function jsonCatalogResponse(payload: unknown) {
   return {
     ok: true,
@@ -272,6 +323,20 @@ describe("Flue catalog bridge", () => {
     expect(normalizeOpenWorkInferenceBaseUrl("https://already.example.test/api/v1/")).toBe("https://already.example.test/api/v1");
   });
 
+  test("omits a disabled catalog provider before credential resolution and registration", () => {
+    const parsed = parseFlueCatalogPayload(catalogFixture());
+    const materialization = materializeFlueCatalog({
+      catalogProviders: parsed.providers,
+      runtimeConfig: { disabled_providers: [" openwork ", ""] },
+      envStore: { OPENWORK_API_KEY: "ow-key" },
+      processEnv: {},
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expectProviderAbsent(materialization, "openwork");
+    expect(materialization.skipped).toContainEqual({ providerId: "openwork", reason: "disabled_provider" });
+  });
+
   test("applies runtime map precedence, baseURL override, model filters, and disabled providers", () => {
     const parsed = parseFlueCatalogPayload(catalogFixture());
     const runtimeConfig: RuntimeOpencodeConfig = {
@@ -323,8 +388,68 @@ describe("Flue catalog bridge", () => {
       apiKey: "runtime-secret",
       models: { "runtime/openwork-model": { contextWindow: 77_000, maxTokens: 7_700 } },
     });
-    expect(registrationFor(materialization, "disabled-provider")).toBeUndefined();
-    expect(materialization.providerList.connected).not.toContain("disabled-provider");
+    expectProviderAbsent(materialization, "disabled-provider");
+    expect(materialization.skipped).toContainEqual({ providerId: "disabled-provider", reason: "disabled_provider" });
+  });
+
+  test("removes the deterministic provider when flue is disabled", () => {
+    const materialization = materializeFlueCatalog({
+      catalogProviders: [],
+      runtimeConfig: { disabled_providers: ["flue"] },
+      envStore: {},
+      processEnv: {},
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expect(materialization.providerList).toEqual({ all: [], default: {}, connected: [] });
+    expectProviderAbsent(materialization, "flue");
+  });
+
+  test("leaves providers outside disabled_providers available", () => {
+    const parsed = parseFlueCatalogPayload(catalogFixture());
+    const materialization = materializeFlueCatalog({
+      catalogProviders: parsed.providers,
+      runtimeConfig: { disabled_providers: ["anthropic"] },
+      envStore: { OPENWORK_API_KEY: "ow-key" },
+      processEnv: {},
+      deterministicProvider: deterministicProvider(),
+    });
+
+    expect(registrationFor(materialization, "openwork")?.registration.apiKey).toBe("ow-key");
+    expect(providerIds(materialization)).toContain("openwork");
+    expect(materialization.providerList.connected).toContain("openwork");
+    expect(materialization.providerList.default.openwork).toBe("moonshotai/kimi-k2.7-code");
+  });
+
+  test("applies global disabled_providers to workspace effective config", async () => {
+    await withRuntimeWorkspace(async ({ config, workspaceId }) => {
+      await writeRuntimeOpencodeConfig(config, ENGINE_GLOBAL_RUNTIME_CONFIG_ID, () => ({
+        disabled_providers: ["openwork"],
+      }));
+      await writeRuntimeOpencodeConfig(config, workspaceId, () => ({
+        disabled_providers: ["anthropic"],
+      }));
+
+      const runtimeConfig = await readEffectiveRuntimeOpencodeConfig(config, workspaceId);
+      expect(runtimeConfig.disabled_providers).toEqual(["openwork", "anthropic"]);
+
+      const parsed = parseFlueCatalogPayload(catalogFixture());
+      const materialization = materializeFlueCatalog({
+        catalogProviders: parsed.providers,
+        runtimeConfig,
+        envStore: {
+          OPENWORK_API_KEY: "ow-key",
+          ANTHROPIC_API_KEY: "anthropic-key",
+          OPENAI_API_KEY: "openai-key",
+        },
+        processEnv: {},
+        deterministicProvider: deterministicProvider(),
+      });
+
+      expectProviderAbsent(materialization, "openwork");
+      expectProviderAbsent(materialization, "anthropic");
+      expect(providerIds(materialization)).toContain("openai");
+    });
   });
 
   test("provider list output validates and keeps the deterministic provider", () => {

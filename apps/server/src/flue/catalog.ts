@@ -467,6 +467,15 @@ function defaultModelMap(providers: Provider[]): Record<string, string> {
   return out;
 }
 
+function disabledProviderSet(config: RuntimeOpencodeConfig): Set<string> {
+  const providerIds = new Set<string>();
+  for (const providerId of runtimeDisabledProviderList(config)) {
+    const trimmed = providerId.trim();
+    if (trimmed) providerIds.add(trimmed);
+  }
+  return providerIds;
+}
+
 export function materializeFlueCatalog(input: {
   catalogProviders: FlueCatalogProvider[];
   catalogSkips?: FlueCatalogSkip[];
@@ -487,7 +496,7 @@ export function materializeFlueCatalog(input: {
     else skipped.push({ providerId: providerKey, reason: "malformed_runtime_provider" });
   }
 
-  const disabled = new Set(runtimeDisabledProviderList(input.runtimeConfig));
+  const disabled = disabledProviderSet(input.runtimeConfig);
   const candidateIds = new Set<string>();
   for (const provider of input.catalogProviders) candidateIds.add(provider.id);
   for (const providerId of runtimeById.keys()) candidateIds.add(providerId);
@@ -498,11 +507,11 @@ export function materializeFlueCatalog(input: {
   for (const providerId of sortedCandidateIds) {
     const catalogProvider = catalogById.get(providerId);
     const runtimeProvider = runtimeById.get(providerId);
+    const candidate = mergeProvider(providerId, catalogProvider, runtimeProvider);
     if (disabled.has(providerId)) {
       skipped.push({ providerId, reason: "disabled_provider" });
       continue;
     }
-    const candidate = mergeProvider(providerId, catalogProvider, runtimeProvider);
     const modelsById = providerModelsById(candidate.models);
     candidate.models = [...modelsById.values()].sort((left, right) => left.id.localeCompare(right.id));
     if (candidate.models.length === 0) {
@@ -537,7 +546,9 @@ export function materializeFlueCatalog(input: {
     realProviders.push(engineProvider({ provider: candidate, apiKind: apiKind.apiKind, baseUrl }));
   }
 
-  const providers = [input.deterministicProvider, ...realProviders];
+  const deterministicDisabled = disabled.has(input.deterministicProvider.id);
+  if (deterministicDisabled) skipped.push({ providerId: input.deterministicProvider.id, reason: "disabled_provider" });
+  const providers = deterministicDisabled ? realProviders : [input.deterministicProvider, ...realProviders];
   return {
     providerList: {
       all: providers,
