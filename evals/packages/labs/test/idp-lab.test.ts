@@ -12,7 +12,7 @@ import {
   normalizeMockIdpConfig,
   subjectWithKnobs,
   validateSsoConfiguration,
-} from "./labs/idp.ts";
+} from "../src/idp.ts";
 
 test("mock IdP config normalization trims issuer, domain, and credentials", () => {
   const config = normalizeMockIdpConfig({

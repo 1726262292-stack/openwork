@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
 
-import { createDaytonaHost } from "./hosts/daytona.ts";
-import type { DaytonaExec } from "./hosts/daytona.ts";
-import type { SurfaceHandle } from "./hosts/types.ts";
+import { createDaytonaHost } from "../src/daytona.ts";
+import type { DaytonaExec } from "../src/daytona.ts";
+import type { SurfaceHandle } from "../src/types.ts";
 import type { Server } from "node:http";
 
 interface ExecCall {
