@@ -19,9 +19,16 @@ test("probeTls and diagnoseTls identify a TLS 1.3-only stall without the eval fr
     rejectUnauthorized: false,
   });
 
-  assert.equal(facts.tls12.ok, true, JSON.stringify(facts));
-  assert.equal(facts.tls12.protocol, "TLSv1.2");
-  assert.equal(facts.tls13.stalled, true);
-  assert.equal(facts.tls13.errorCode, "ETIMEDOUT");
-  assert.equal(diagnoseTls(facts).code, "tls_handshake_stall_tls13_only");
+  const message = JSON.stringify(facts);
+  assert.equal(facts.tls12.handshakeOk, true, message);
+  assert.equal(facts.tls12.stalled, false, message);
+  if (facts.tls12.chainVerified) {
+    assert.equal(facts.tls12.protocol, "TLSv1.2", message);
+  } else {
+    assert.equal(facts.tls12.protocol === null || facts.tls12.protocol === "TLSv1.2", true, message);
+  }
+  assert.equal(facts.tls13.stalled, true, message);
+  assert.equal(facts.tls13.errorCode, "ETIMEDOUT", message);
+  assert.equal(diagnoseTls(facts).code, "tls_handshake_stall_tls13_only", message);
+  // Lab-PKI chain trust is covered by the pure matcher tests (the tls_chain_untrusted branch) and the product-diagnostics spec; it is deliberately not asserted here because it varies with the runner's OpenSSL.
 });

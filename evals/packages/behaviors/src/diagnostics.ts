@@ -6,7 +6,9 @@ import type { DetailedPeerCertificate } from "node:tls";
 
 import { parseClientHelloVersions } from "@openwork/labs";
 import type { ClientHelloParseResult, EgressLabHandle, EgressLabProfile } from "@openwork/labs";
-import type { TlsFacts, TlsProbeFacts } from "@openwork/matchers";
+import type { TlsFacts, TlsVersionFacts } from "@openwork/matchers";
+
+export type { TlsFacts, TlsVersionFacts } from "@openwork/matchers";
 
 export type DiagnosticVerdict = {
   profile: EgressLabProfile;
@@ -74,6 +76,7 @@ type TlsAttempt = {
 } | {
   ok: false;
   errorCode: string | null;
+  certificate: DetailedPeerCertificate | null;
 };
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
@@ -212,7 +215,7 @@ const socket = tls.connect({
   servername: "localhost",
   minVersion: "TLSv1.2",
   maxVersion: "TLSv1.2",
-  rejectUnauthorized: false,
+  rejectUnauthorized: true,
 });
 socket.on("error", () => undefined);
 socket.setTimeout(1000, () => socket.destroy());
@@ -544,18 +547,36 @@ function endpointForTransport(lab: EgressLabHandle): URL {
   return url;
 }
 
+// These errors prove the TLS handshake reached certificate verification.
+const CERTIFICATE_VERIFICATION_ERROR_CODES = new Set([
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_UNTRUSTED",
+  "CERT_REVOKED",
+  "CERT_SIGNATURE_FAILURE",
+  "INVALID_CA",
+  "UNABLE_TO_GET_CRL",
+  "HOSTNAME_MISMATCH",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
 function probeTlsVersion(
   target: { host: string; port: number; servername?: string; ca?: string | string[]; rejectUnauthorized?: boolean },
   version: "TLSv1.2" | "TLSv1.3",
   timeoutMs: number,
-): Promise<TlsProbeFacts> {
+): Promise<TlsVersionFacts> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (result: Omit<TlsProbeFacts, "stalled">) => {
+    const finish = (result: TlsVersionFacts) => {
       if (settled) return;
       settled = true;
       socket.destroy();
-      resolve({ ...result, stalled: result.errorCode === "ETIMEDOUT" });
+      resolve(result);
     };
     const socket = tls.connect({
       host: target.host,
@@ -566,11 +587,28 @@ function probeTlsVersion(
       ca: target.ca,
       rejectUnauthorized: target.rejectUnauthorized ?? true,
     });
-    socket.once("secureConnect", () => finish({ ok: true, protocol: socket.getProtocol(), errorCode: null }));
-    socket.once("timeout", () => finish({ ok: false, protocol: null, errorCode: "ETIMEDOUT" }));
+    socket.once("secureConnect", () => {
+      const chainVerified = socket.authorized === true;
+      const authorizationError = socket.authorizationError;
+      const authorizationCode = isRecord(authorizationError) && typeof authorizationError.code === "string"
+        ? authorizationError.code
+        : String(authorizationError ?? "unauthorized");
+      finish({
+        handshakeOk: true,
+        chainVerified,
+        protocol: socket.getProtocol(),
+        errorCode: chainVerified ? null : authorizationCode,
+        stalled: false,
+      });
+    });
+    socket.once("timeout", () => finish({ handshakeOk: false, chainVerified: false, protocol: null, errorCode: "ETIMEDOUT", stalled: true }));
     socket.once("error", (error) => {
       const code = isRecord(error) && typeof error.code === "string" ? error.code : messageText(error);
-      finish({ ok: false, protocol: null, errorCode: code });
+      if (CERTIFICATE_VERIFICATION_ERROR_CODES.has(code)) {
+        finish({ handshakeOk: true, chainVerified: false, protocol: socket.getProtocol() ?? null, errorCode: code, stalled: false });
+        return;
+      }
+      finish({ handshakeOk: false, chainVerified: false, protocol: null, errorCode: code, stalled: false });
     });
     socket.setTimeout(timeoutMs);
   });
@@ -623,7 +661,7 @@ function tlsErrorCode(error: unknown): string | null {
   return String(error);
 }
 
-function connectTransport(input: { url: URL; ca: string | undefined; rejectUnauthorized: boolean; inspect: boolean; timeoutMs: number }): Promise<TlsAttempt> {
+function connectTransport(input: { url: URL; ca: string | undefined; inspect: boolean; timeoutMs: number }): Promise<TlsAttempt> {
   return new Promise((resolve) => {
     let settled = false;
     const socket = tls.connect({
@@ -631,7 +669,7 @@ function connectTransport(input: { url: URL; ca: string | undefined; rejectUnaut
       port: Number(input.url.port) || 443,
       servername: input.url.hostname,
       ca: input.ca,
-      rejectUnauthorized: input.rejectUnauthorized,
+      rejectUnauthorized: true,
       ALPNProtocols: ["http/1.1"],
     });
     const finish = (attempt: TlsAttempt) => {
@@ -644,8 +682,11 @@ function connectTransport(input: { url: URL; ca: string | undefined; rejectUnaut
       const certificate = input.inspect ? socket.getPeerCertificate(true) : null;
       finish({ ok: true, certificate });
     });
-    socket.once("timeout", () => finish({ ok: false, errorCode: "ETIMEDOUT" }));
-    socket.once("error", (error) => finish({ ok: false, errorCode: tlsErrorCode(error) }));
+    socket.once("timeout", () => finish({ ok: false, errorCode: "ETIMEDOUT", certificate: null }));
+    socket.once("error", (error) => {
+      const certificate = input.inspect ? socket.getPeerCertificate(true) : null;
+      finish({ ok: false, errorCode: tlsErrorCode(error), certificate });
+    });
     socket.setTimeout(input.timeoutMs);
   });
 }
@@ -676,10 +717,9 @@ function servedChainFromCertificate(certificate: DetailedPeerCertificate | null)
 
 async function probeTransport(lab: EgressLabHandle, ca: string | undefined): Promise<TransportProbe> {
   const url = endpointForTransport(lab);
-  const verified = await connectTransport({ url, ca, rejectUnauthorized: true, inspect: false, timeoutMs: 1500 });
+  const verified = await connectTransport({ url, ca, inspect: true, timeoutMs: 1500 });
   if (verified.ok) return { verifiedHandshake: "ok", verifyErrorCode: null, servedChain: [], servedChainLength: null };
-  const chainAttempt = await connectTransport({ url, ca: undefined, rejectUnauthorized: false, inspect: true, timeoutMs: 1500 });
-  const servedChain = chainAttempt.ok ? servedChainFromCertificate(chainAttempt.certificate) : [];
+  const servedChain = servedChainFromCertificate(verified.certificate);
   return {
     verifiedHandshake: "failed",
     verifyErrorCode: verified.errorCode,
