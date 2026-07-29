@@ -110,7 +110,7 @@ describe("global runtime providers", () => {
     expect(storageEntries.filter((entry) => entry.includes("runtime-opencode-config.json.")).length).toBe(0);
   });
 
-  test("global provider route requires the host token and reaches the engine-visible config", async () => {
+  test("global provider route reloads only when the effective engine config changes", async () => {
     const root = await createTempRoot();
     const engineRequests: string[] = [];
     const config = serverConfig(root);
@@ -150,14 +150,47 @@ describe("global runtime providers", () => {
       body: JSON.stringify({ provider: { lpr_anthropic: provider } }),
     });
     expect(hostAttempt.status).toBe(200);
-    expect(await readJsonObject(hostAttempt)).toMatchObject({ ok: true, reload: "reloaded" });
-    expect(engineRequests).toContain("POST /instance/dispose");
+    expect(await readJsonObject(hostAttempt)).toMatchObject({ ok: true, changed: true, reload: "reloaded" });
+    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(1);
+
+    const identicalAttempt = await fetch(`${base}/runtime-config/providers`, {
+      method: "PATCH",
+      headers: hostHeaders(),
+      body: JSON.stringify({ provider: { lpr_anthropic: provider } }),
+    });
+    expect(identicalAttempt.status).toBe(200);
+    expect(await readJsonObject(identicalAttempt)).toMatchObject({ ok: true, changed: false, reload: "skipped" });
+    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(1);
+
+    await rm(openworkRuntimeConfigFilePath(config));
+    const missingFileAttempt = await fetch(`${base}/runtime-config/providers`, {
+      method: "PATCH",
+      headers: hostHeaders(),
+      body: JSON.stringify({ provider: { lpr_anthropic: provider } }),
+    });
+    expect(missingFileAttempt.status).toBe(200);
+    expect(await readJsonObject(missingFileAttempt)).toMatchObject({ ok: true, changed: false, reload: "reloaded" });
+    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(2);
+    const restoredFile: unknown = JSON.parse(await readFile(openworkRuntimeConfigFilePath(config), "utf8"));
+    if (!isRecord(restoredFile)) throw new Error("Expected restored runtime config object");
+    expect(providerFromPayload(restoredFile)).toEqual({
+      lpr_anthropic: provider,
+    });
+
+    const removalAttempt = await fetch(`${base}/runtime-config/providers`, {
+      method: "PATCH",
+      headers: hostHeaders(),
+      body: JSON.stringify({ provider: { lpr_anthropic: null } }),
+    });
+    expect(removalAttempt.status).toBe(200);
+    expect(await readJsonObject(removalAttempt)).toMatchObject({ ok: true, changed: true, reload: "reloaded" });
+    expect(engineRequests.filter((request) => request === "POST /instance/dispose")).toHaveLength(3);
 
     const readback = await fetch(`${base}/opencode/config`, { headers: clientHeaders() });
     expect(readback.status).toBe(200);
-    expect(providerFromPayload(await readJsonObject(readback))).toMatchObject({ lpr_anthropic: provider });
+    expect(providerFromPayload(await readJsonObject(readback))).toEqual({});
 
     const globalRuntime = await readGlobalRuntimeOpencodeConfig(config);
-    expect(runtimeProviderMap(globalRuntime)).toEqual({ lpr_anthropic: provider });
+    expect(runtimeProviderMap(globalRuntime)).toEqual({});
   });
 });
