@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ steps.resolve.outputs.release_tag }}
+          ref: refs/tags/${{ steps.resolve.outputs.release_tag }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -170,6 +170,15 @@ jobs:
           echo "Publishing Daytona snapshot: ${DAYTONA_SNAPSHOT_NAME}"
           ./scripts/create-daytona-openwork-snapshot.sh "${DAYTONA_SNAPSHOT_NAME}"
 
+      - name: Checkout snapshot pin automation
+        if: steps.publish.outcome == 'success' && vars.DAYTONA_CLOUD_ENV_GROUP_ID != ''
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .snapshot-pin-automation
+          sparse-checkout: scripts/update-daytona-snapshot-pin.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Update production snapshot pin
         if: steps.publish.outcome == 'success'
         shell: bash
@@ -194,7 +203,7 @@ jobs:
             exit 1
           fi
 
-          result="$(node scripts/update-daytona-snapshot-pin.mjs \
+          result="$(node .snapshot-pin-automation/scripts/update-daytona-snapshot-pin.mjs \
             --env-group-id "$DAYTONA_CLOUD_ENV_GROUP_ID" \
             --snapshot "$DAYTONA_SNAPSHOT_NAME")"
           echo "$result"
