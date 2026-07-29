@@ -7,32 +7,32 @@
     ".": {
       "types": "./src/index.ts",
       "development": "./src/index.ts",
-      "default": "./src/index.ts"
+      "default": "./dist/index.js"
     },
     "./types": {
       "types": "./src/types.ts",
       "development": "./src/types.ts",
-      "default": "./src/types.ts"
+      "default": "./dist/types.js"
     },
     "./events": {
       "types": "./src/events.ts",
       "development": "./src/events.ts",
-      "default": "./src/events.ts"
+      "default": "./dist/events.js"
     },
     "./schemas": {
       "types": "./src/schemas.ts",
       "development": "./src/schemas.ts",
-      "default": "./src/schemas.ts"
+      "default": "./dist/schemas.js"
     },
     "./adapter": {
       "types": "./src/adapter.ts",
       "development": "./src/adapter.ts",
-      "default": "./src/adapter.ts"
+      "default": "./dist/adapter.js"
     },
     "./client": {
       "types": "./src/client.ts",
       "development": "./src/client.ts",
-      "default": "./src/client.ts"
+      "default": "./dist/client.js"
     }
   },
   "files": [

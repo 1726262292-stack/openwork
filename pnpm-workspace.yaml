@@ -19,6 +19,8 @@ catalogs:
 linkWorkspacePackages: true
 preferWorkspacePackages: true
 allowBuilds:
+  '@google/genai': false
+  '@mongodb-js/zstd': false
   "@sentry/cli": true
   "@whiskeysockets/baileys": true
   better-sqlite3: true
@@ -26,6 +28,7 @@ allowBuilds:
   electron-winstaller: true
   esbuild: true
   msw: false
+  node-liblzma: false
   node-pty: true
   protobufjs: true
   sharp: true
