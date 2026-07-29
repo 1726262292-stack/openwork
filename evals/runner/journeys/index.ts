@@ -1,6 +1,7 @@
 export * from "./den.ts";
 export * from "./desktop.ts";
 export * from "./diagnostics.ts";
+export * from "./gateway.ts";
 export * from "./mcp.ts";
 export * from "./sso.ts";
 export * from "./update.ts";
