@@ -338,7 +338,9 @@ async function adoptedSurface(args: UpArgs, host: Host, spec: AdoptSurfaceSpec):
       kind: spec.kind,
       hostKind: "local",
       cdpUrl: `http://127.0.0.1:${spec.port}`,
-      meta: { adopted: "1" },
+      // cdpPort feeds the host's reserved-port sets so freshly spawned
+      // surfaces can never collide with an adopted instance's port.
+      meta: { adopted: "1", cdpPort: String(spec.port) },
     };
   }
   const sandboxId = daytonaSandboxFor(args);
@@ -350,7 +352,7 @@ async function adoptedSurface(args: UpArgs, host: Host, spec: AdoptSurfaceSpec):
     hostKind: "daytona",
     cdpUrl: await host.previewUrl(spec.port),
     sandboxId,
-    meta: { adopted: "1" },
+    meta: { adopted: "1", cdpPort: String(spec.port) },
   };
 }
 

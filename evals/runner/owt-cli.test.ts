@@ -195,7 +195,7 @@ test("owt up adopts existing Daytona surfaces without spawning", async () => {
       hostKind: "daytona",
       cdpUrl: "https://preview-9825.example.test",
       sandboxId: "sandbox-9",
-      meta: { adopted: "1" },
+      meta: { adopted: "1", cdpPort: "9825" },
     });
     assert(printed.some((line) => line === "electron alex-desktop CDP: https://preview-9825.example.test"));
   } finally {

@@ -138,7 +138,7 @@ test("spawnElectron starts isolated Daytona Electron profiles and writes bootstr
   assert(firstStart.includes("/workspace/.openwork-daytona/profiles/owner-"));
   assert(firstStart.includes("/bootstrap.json"));
   assert(firstStart.includes("DAYTONA_ELECTRON_LOG="));
-  assert(firstStart.includes("/tmp/electron-owner.log"));
+  assert(/\/tmp\/electron-owner-\d+/.test(firstStart));
   assert(firstStart.includes("--detach"));
   assert(secondStart.includes("OPENWORK_ELECTRON_REMOTE_DEBUG_PORT="));
   assert(secondStart.includes("9830"));

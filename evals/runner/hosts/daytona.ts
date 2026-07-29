@@ -334,11 +334,14 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
   async function spawnElectron(name: string, opts: ElectronSurfaceOptions = {}): Promise<SurfaceHandle> {
     const sandbox = requireSandbox();
     const safeName = sanitizeName(name);
-    const profileRoot = `/workspace/.openwork-daytona/profiles/${safeName}-${timestamp()}`;
+    const spawnStamp = timestamp();
+    const profileRoot = `/workspace/.openwork-daytona/profiles/${safeName}-${spawnStamp}`;
     const profileDir = `${profileRoot}/electron-userdata`;
     const bootstrapPath = `${profileRoot}/bootstrap.json`;
     const port = allocatePort(electronPorts);
-    const logPath = `/tmp/electron-${safeName}.log`;
+    // Per-spawn log so the integrity check below can never read a previous
+    // run's lines.
+    const logPath = `/tmp/electron-${safeName}-${spawnStamp}.log`;
 
     try {
       await checkedExec(exec, ["exec", sandbox, "--", "mkdir", "-p", shellQuote(profileDir)], `mkdir Daytona Electron profile ${profileDir}`, { timeoutMs: 30_000 });
@@ -375,6 +378,27 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
       // can route before cold Electron CDP is actually responsive; give remote
       // sandboxes a longer preflight here so attach remains a normal fast probe.
       await waitForCdp(`${cleanBaseUrl(cdpUrl)}/json/list`, ELECTRON_CDP_WAIT_MS, `Electron CDP ${name}`);
+      // Spawn integrity: the port serving CDP must belong to THIS spawn, not a
+      // pre-existing instance. electron-dev.mjs logs the resolved CDP port; if
+      // it differs from the one we exported, the bind failed (port collision)
+      // and attaching would silently drive the wrong app.
+      const spawnLog = await checkedExec(
+        exec,
+        ["exec", sandbox, "--", "tail", "-c", "4000", logPath],
+        `read Daytona Electron log ${logPath}`,
+        { timeoutMs: 30_000 },
+      );
+      const exposed = /Electron CDP exposed at http:\/\/127\.0\.0\.1:(\d+)/.exec(spawnLog.stdout);
+      if (exposed && exposed[1] !== String(port)) {
+        throw new Error(
+          `Daytona Electron surface ${name} resolved CDP port ${exposed[1]} instead of ${port} (port collision?). Log tail:\n${spawnLog.stdout.slice(-1200)}`,
+        );
+      }
+      if (spawnLog.stdout.includes("Cannot start http server for devtools")) {
+        throw new Error(
+          `Daytona Electron surface ${name} could not bind its devtools port ${port}. Log tail:\n${spawnLog.stdout.slice(-1200)}`,
+        );
+      }
       surfacePorts.set(port, `electron:${name} CDP`);
       return {
         name,
