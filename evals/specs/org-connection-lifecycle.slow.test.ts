@@ -3,6 +3,7 @@ import { attachSurface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { startMockMcp } from "@openwork/labs";
 import {
+  clearDesktopDenSession,
   clickButton,
   currentHash,
   deleteConnection,
@@ -112,12 +113,18 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async () => {
   });
   await using roll = photoRoll("org-connection-lifecycle");
   let workspaceId = "";
+  let desktopStateChanged = false;
   onTestFinished(async () => {
-    if (!workspaceId) return;
+    if (!desktopStateChanged) return;
     await using cleanupApp = await attachSurface({ name: "org-connection-lifecycle-cleanup", kind: "electron", hostKind: "attached", cdpUrl });
-    await deleteEvalWorkspace(cleanupApp, workspaceId);
+    try {
+      if (workspaceId) await deleteEvalWorkspace(cleanupApp, workspaceId);
+    } finally {
+      await clearDesktopDenSession(cleanupApp);
+    }
   });
   await signInDesktopAs(app, den, member);
+  desktopStateChanged = true;
   const workspacePath = `/tmp/openwork-org-connection-lifecycle-${Date.now()}`;
   await ensureReadyWorkspace(app, { path: workspacePath });
   workspaceId = await ensureFreshWorkspace(app, { path: workspacePath });

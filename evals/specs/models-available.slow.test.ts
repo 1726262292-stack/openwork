@@ -3,6 +3,7 @@ import { attachSurface } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
+  clearDesktopDenSession,
   denFetch,
   deleteEvalWorkspace,
   ensureFreshWorkspace,
@@ -405,7 +406,11 @@ test.skipIf(!cdpUrl || !apiUrl)(managedTitle, async () => {
               || text.includes("The selected provider/model was not found in OpenCode provider catalog");
           })()`)).toBe(false);
         } finally {
-          for (const workspaceId of workspaceIds) await deleteEvalWorkspace(cleanupApp, workspaceId);
+          try {
+            for (const workspaceId of workspaceIds) await deleteEvalWorkspace(cleanupApp, workspaceId);
+          } finally {
+            await clearDesktopDenSession(cleanupApp);
+          }
         }
       }
     }

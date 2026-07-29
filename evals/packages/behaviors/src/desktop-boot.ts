@@ -178,3 +178,20 @@ export async function deleteEvalWorkspace(app: Surface, workspaceId: string): Pr
     label: "control API after eval workspace cleanup",
   });
 }
+
+export async function clearDesktopDenSession(app: Surface): Promise<void> {
+  await evalIn(app, `(() => {
+    for (const key of [
+      "openwork.den.authToken",
+      "openwork.den.activeOrgId",
+      "openwork.den.activeOrgSlug",
+      "openwork.den.activeOrgName",
+    ]) localStorage.removeItem(key);
+    setTimeout(() => location.reload(), 0);
+    return true;
+  })()`);
+  await waitFor(app, "Boolean(window.__openworkControl)", {
+    timeoutMs: 60_000,
+    label: "control API after clearing desktop Den session",
+  });
+}
