@@ -19,6 +19,7 @@ import {
   signInDesktopAs,
   waitFor,
   waitForText,
+  writeComposerText,
 } from "@openwork/behaviors";
 import type { DenRef, DenSession } from "@openwork/behaviors";
 
@@ -93,12 +94,7 @@ async function ensureSession(app: Surface, path: string): Promise<string> {
 }
 
 async function setComposerText(app: Surface, text: string): Promise<void> {
-  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "composer.set_text" && !action.disabled)`, {
-    timeoutMs: 30_000,
-    label: "composer.set_text enabled",
-  });
-  await executeControl(app, "composer.set_text", { text });
-  await waitForText(app, text, { timeoutMs: 30_000 });
+  await writeComposerText(app, text);
 }
 
 async function createManagedSession(app: Surface, path: string): Promise<void> {
@@ -285,6 +281,11 @@ test.skipIf(!cdpUrl)(appTitle, async () => {
     await roll.add(shot, seen);
   }
 
+  await executeControl(app, "session.model_picker.open");
+  await waitFor(app, `Boolean(document.querySelector('[data-slot="dialog-content"]'))`, {
+    timeoutMs: 30_000,
+    label: "opened Models picker dialog",
+  });
   await waitForText(app, "Models", { timeoutMs: 30_000 });
   await waitForText(app, "Done", { timeoutMs: 30_000 });
   await waitForText(app, guidance, { timeoutMs: 30_000 });

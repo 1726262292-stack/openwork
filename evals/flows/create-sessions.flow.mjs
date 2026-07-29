@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setComposerText } from "./lib/composer.mjs";
 
 const REQUEST = "Create 3 new sessions that look into dolphins, bananas, and apple pies.";
 const state = {
@@ -223,11 +224,7 @@ export default {
                 { timeoutMs: 10_000, label: "OpenWork Models promo dismissed" },
               );
             }
-            await ctx.waitFor(
-              "window.__openworkControl.listActions().some((entry) => entry.id === 'composer.set_text' && entry.disabled === false)",
-              { timeoutMs: 30_000, label: "composer set-text action" },
-            );
-            await ctx.control("composer.set_text", { text: REQUEST });
+            await setComposerText(ctx, REQUEST);
             await ctx.waitFor(
               "window.__openworkControl.listActions().some((entry) => entry.id === 'composer.send' && entry.disabled === false)",
               { timeoutMs: 30_000, label: "enabled send action" },

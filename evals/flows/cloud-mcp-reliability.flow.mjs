@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 
 // Narration is loaded from the approved script (evals/voiceovers/cloud-mcp-reliability.md).
 // The runner fails this flow if the narration drifts from that script.
@@ -1661,7 +1662,7 @@ export default {
             await ctx.waitFor("window.location.hash.includes('/session/ses_')", { timeoutMs: 45_000, label: "fresh task session" });
             state.chatStartedAt = new Date().toISOString();
             const prompt = `Please run the reliability check in my connected service named ${CONNECTION_BASE_NAME}. Reply with the exact marker it returns.`;
-            await ctx.control("composer.set_text", { text: prompt });
+            await setComposerText(ctx, prompt);
             await ctx.waitFor(
               "window.__openworkControl?.listActions?.().find((item) => item.id === 'composer.send' && !item.disabled)",
               { timeoutMs: 30_000, label: "composer.send enabled" },

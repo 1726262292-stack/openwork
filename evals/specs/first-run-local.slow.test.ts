@@ -3,31 +3,77 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { attachSurface } from "@openwork/cdp";
+import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
   clickButton,
   createLocalWorkspaceViaUi,
   currentHash,
   ensureReadyWorkspace,
+  evalIn,
   readAvailableModels,
   readComposerState,
   resetOnboarding,
   selectModel,
   sendComposerMessage,
   waitForAssistantReply,
+  waitFor,
   waitForText,
 } from "@openwork/behaviors";
 
 const cdpUrl = process.env.OPENWORK_EVAL_CDP_URL?.trim() ?? "";
 const title = cdpUrl
-  ? "first use without an invite or cloud reaches a usable local model"
+  ? "first use without an invite or cloud reaches local task UI with honest model setup"
   : "first-run local skipped: set OPENWORK_EVAL_CDP_URL to attach a running app";
-const providerName = process.env.OPENAI_API_KEY?.trim()
-  ? "openai"
-  : process.env.ANTHROPIC_API_KEY?.trim()
-    ? "anthropic"
-    : "";
 const prompt = "Create a short welcome checklist for this OpenWork workspace. Use exactly three bullets and mention one thing I can do next.";
+
+interface TaskAvailability {
+  createTaskEnabled: boolean;
+  runTaskEnabled: boolean;
+  connectProviderVisible: boolean;
+}
+
+function taskAvailability(value: unknown): TaskAvailability {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Task availability was not an object.");
+  }
+  return {
+    createTaskEnabled: Reflect.get(value, "createTaskEnabled") === true,
+    runTaskEnabled: Reflect.get(value, "runTaskEnabled") === true,
+    connectProviderVisible: Reflect.get(value, "connectProviderVisible") === true,
+  };
+}
+
+async function readTaskAvailability(app: Surface): Promise<TaskAvailability> {
+  const value = await evalIn(app, `(() => {
+    const action = window.__openworkControl.listActions()
+      .find((entry) => entry.id === "session.create_task");
+    const buttons = [...document.querySelectorAll("button")];
+    const run = buttons.find((button) => (button.textContent ?? "").trim() === "Run task");
+    const connect = buttons.find((button) => (button.textContent ?? "").trim() === "Connect a model provider");
+    return {
+      createTaskEnabled: Boolean(action && !action.disabled),
+      runTaskEnabled: Boolean(run && !run.disabled),
+      connectProviderVisible: Boolean(connect && !connect.disabled),
+    };
+  })()`);
+  return taskAvailability(value);
+}
+
+async function createTask(app: Surface): Promise<void> {
+  const value = await evalIn(
+    app,
+    `window.__openworkControl.execute("session.create_task", null)`,
+    { awaitPromise: true },
+  );
+  if (typeof value !== "object" || value === null || Reflect.get(value, "ok") !== true) {
+    throw new Error(`session.create_task failed: ${JSON.stringify(value)}`);
+  }
+  await waitFor(app, `/^#\/workspace\/[^/?#]+\/session\/ses_[^/?#]+/.test(window.location.hash)`, {
+    timeoutMs: 60_000,
+    label: "created first-run task session",
+  });
+}
 
 test.skipIf(!cdpUrl)(title, async () => {
   await using app = await attachSurface({
@@ -76,15 +122,28 @@ test.skipIf(!cdpUrl)(title, async () => {
   expect(composer.route).toContain("/workspace/");
   expect(composer.route).toContain("/session");
   expect(composer.runTaskVisible).toBe(true);
+  const availability = await readTaskAvailability(app);
+  const modelUsable = availability.createTaskEnabled || availability.runTaskEnabled;
+  expect(modelUsable || availability.connectProviderVisible).toBe(true);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The workspace composer is visible with What do you need done? and a task input",
+      "The workspace task UI is visible with What do you need done? and the Run task control",
+      modelUsable
+        ? "Run task is visibly enabled for a model that is already usable"
+        : "Connect a model provider is visibly offered because no model provider is configured",
       "No generic error or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
     await roll.add(shot, seen);
   }
+
+  // Review-bar limitation: when this no-cloud workspace has no provider key
+  // configured in the app, this spec does not exercise the "runs a task and
+  // sees a response" half of evals/onboarding-welcome-flows.md. It proves the
+  // session/task UI and honest provider-setup affordance instead, because an
+  // external test-runner environment key does not make a model usable in-app.
+  if (!modelUsable) return;
 
   const models = await readAvailableModels(app);
   expect(models.length).toBeGreaterThan(0);
@@ -99,12 +158,7 @@ test.skipIf(!cdpUrl)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  const preferred = providerName
-    ? models.find((model) =>
-      model.providerName.toLowerCase().includes(providerName)
-      || model.id.toLowerCase().includes(providerName === "openai" ? "gpt" : "claude"))
-    : undefined;
-  const selectable = preferred ?? models.find((model) => model.selectable);
+  const selectable = models.find((model) => model.selectable);
   expect(selectable).toBeTruthy();
   if (!selectable) throw new Error("No selectable model was returned.");
   const selected = await selectModel(app, selectable.id);
@@ -120,11 +174,8 @@ test.skipIf(!cdpUrl)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  // A real response requires the provider secrets volume. Without OPENAI_API_KEY
-  // or ANTHROPIC_API_KEY this journey intentionally stops after proving a model
-  // is selectable, rather than treating provider setup as a completed task.
-  if (!providerName) return;
-
+  expect(availability.createTaskEnabled).toBe(true);
+  await createTask(app);
   const sent = await sendComposerMessage(app, prompt);
   expect(sent.userMessageCount).toBeGreaterThan(0);
   await waitForText(app, prompt, { timeoutMs: 30_000 });

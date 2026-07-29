@@ -1,4 +1,5 @@
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 
 // Narration is loaded from the approved script (evals/voiceovers/primitives-80-20.md).
 // The runner fails this flow if the narration drifts from that script.
@@ -157,7 +158,6 @@ async function waitForSessionRoute(ctx, sessionId) {
 }
 
 async function waitForComposer(ctx) {
-  await waitForAction(ctx, "composer.set_text");
   await ctx.waitFor("Boolean(document.querySelector('[contenteditable=\"true\"]'))", {
     timeoutMs: 30_000,
     label: "composer editor",
@@ -295,7 +295,7 @@ async function ensureMarkdownProofSession(ctx) {
   await ctx.control("session.create_task");
   const sessionId = await waitForSelectedSessionId(ctx, previousSessionId, "markdown proof session id");
   await waitForComposer(ctx);
-  await ctx.control("composer.set_text", { text: MARKDOWN_PROMPT });
+  await setComposerText(ctx, MARKDOWN_PROMPT);
   await ctx.waitFor(`document.body.innerText.includes(${json("Primitive Markdown Proof")})`, {
     timeoutMs: 10_000,
     label: "markdown prompt visible in composer",
@@ -346,7 +346,7 @@ async function assertBootState(ctx, state) {
 
 async function sendPromptAndWait(ctx, prompt, response) {
   await waitForComposer(ctx);
-  await ctx.control("composer.set_text", { text: prompt });
+  await setComposerText(ctx, prompt);
   await ctx.waitFor(`document.body.innerText.includes(${json(prompt)})`, {
     timeoutMs: 10_000,
     label: "prompt visible in composer",

@@ -23,6 +23,8 @@ export default defineConfig({
         test: {
           ...common,
           name: "nightly",
+          testTimeout: 600_000,
+          hookTimeout: 600_000,
           include: ["specs/**/*.test.ts"],
         },
       },

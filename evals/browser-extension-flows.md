@@ -72,13 +72,18 @@ Steps:
    ```
 2. Type and send the prompt:
    ```
-   browser_eval({ browser_url: CDP_URL, target_id: APP_TARGET,
-     expression: `(async () => {
-       const ctrl = window.__openworkControl;
-       await ctrl.execute('composer.set_text', { text: 'Use the OpenWork Browser extension to navigate to https://example.com and tell me the page title' });
+    browser_eval({ browser_url: CDP_URL, target_id: APP_TARGET,
+      expression: `(async () => {
+       const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
+       editor.focus();
+       const data = new DataTransfer();
+       data.setData('text/plain', 'Use the OpenWork Browser extension to navigate to https://example.com and tell me the page title');
+       editor.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
        await new Promise(r => setTimeout(r, 500));
-       return JSON.stringify(await ctrl.execute('composer.send'));
-     })()` })
+       const run = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Run task' && !button.disabled);
+       run.click();
+       return true;
+      })()` })
    ```
 3. Wait 30s for the task to complete.
 4. Take a screenshot and check the transcript.

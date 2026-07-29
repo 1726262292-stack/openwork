@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 
 // Narration is loaded from the approved script (evals/voiceovers/gmail-reply-draft-integrity.md).
 // The runner fails this flow if the narration drifts from that script.
@@ -508,7 +509,7 @@ export default {
           voiceover: vo[0],
           // "I'm in OpenWork, and Sarah's thread about the Q3 launch has been going back "
           action: async () => {
-            await ctx.control("composer.set_text", { text: PROMPT });
+            await setComposerText(ctx, PROMPT);
             await ctx.waitFor(
               "window.__openworkControl?.listActions?.().find((a) => a.id === 'composer.send')?.disabled === false",
               { timeoutMs: 15_000, label: "composer.send enabled" },

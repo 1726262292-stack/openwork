@@ -1,4 +1,5 @@
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "openwork-connect-status";
 const vo = await loadVoiceoverParagraphs(FLOW_ID);
@@ -296,7 +297,7 @@ export default {
           voiceover: vo[1],
           action: async () => {
             await closeAccountMenu(ctx);
-            await ctx.control("composer.set_text", { text: PROMPT });
+            await setComposerText(ctx, PROMPT);
             const clicked = await ctx.eval(`(() => {
               const button = [...document.querySelectorAll("button")].find((entry) => entry.title === "Run task");
               button?.click();
@@ -306,7 +307,7 @@ export default {
             await new Promise((resolve) => setTimeout(resolve, 500));
             if (await ctx.hasText("Power your first task")) {
               await dismissModelUpsells(ctx);
-              await ctx.control("composer.set_text", { text: PROMPT });
+              await setComposerText(ctx, PROMPT);
               const retried = await ctx.waitFor(`(() => {
                 const button = [...document.querySelectorAll("button")].find((entry) => entry.title === "Run task");
                 if (!button || button.disabled) return false;

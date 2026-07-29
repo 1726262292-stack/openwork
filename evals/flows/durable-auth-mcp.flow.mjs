@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 import {
   denApiFetch,
   mcpAgentCall,
@@ -519,11 +520,11 @@ async function ensureLocalDraft(ctx) {
     }
     ctx.assert(created, "OpenWork did not create a local task after the engine restart.");
   }
-  await ctx.waitFor("window.__openworkControl?.listActions?.().find((action) => action.id === 'composer.set_text')?.disabled === false", {
+  await ctx.waitFor("Boolean(document.querySelector('[contenteditable=\"true\"]'))", {
     timeoutMs: 60_000,
     label: "local draft composer",
   });
-  await ctx.control("composer.set_text", { text: LOCAL_DRAFT });
+  await setComposerText(ctx, LOCAL_DRAFT);
   await ctx.waitFor(`document.body.innerText.includes(${JSON.stringify(LOCAL_DRAFT)})`, {
     timeoutMs: 15_000,
     label: "local draft text",

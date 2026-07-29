@@ -29,18 +29,6 @@ function stringField(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-async function executeControl(app: Surface, action: string, args?: unknown): Promise<unknown> {
-  const result = await evalIn(
-    app,
-    `window.__openworkControl.execute(${JSON.stringify(action)}, ${JSON.stringify(args ?? null)})`,
-    { awaitPromise: true },
-  );
-  if (!isRecord(result) || result.ok !== true) {
-    throw new Error(`Desktop control action ${action} failed: ${isRecord(result) ? String(result.error ?? "unknown") : "unknown"}`);
-  }
-  return result.result;
-}
-
 export async function readComposerState(app: Surface): Promise<ComposerState> {
   const value = await evalIn(app, `(() => {
     const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
@@ -73,23 +61,50 @@ export async function readComposerState(app: Surface): Promise<ComposerState> {
   };
 }
 
-export async function sendComposerMessage(app: Surface, text: string): Promise<ComposerState> {
-  await waitFor(app, `window.__openworkControl?.listActions().some((entry) => entry.id === "composer.set_text" && entry.disabled === false)`, {
+export async function writeComposerText(app: Surface, text: string): Promise<void> {
+  await waitFor(app, `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
+    ?? document.querySelector('[contenteditable="true"]'))`, {
     timeoutMs: 30_000,
-    label: "composer.set_text enabled",
+    label: "composer contenteditable",
   });
-  const before = await readComposerState(app);
-  await executeControl(app, "composer.set_text", { text });
+  const pasted = await evalIn(app, `(() => {
+    const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
+      ?? document.querySelector('[contenteditable="true"]');
+    if (!editor) return false;
+    editor.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const data = new DataTransfer();
+    data.setData("text/plain", ${JSON.stringify(text)});
+    editor.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    return true;
+  })()`);
+  if (pasted !== true) throw new Error("Could not paste text into the composer contenteditable.");
   await waitFor(app, `(() => {
     const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')
       ?? document.querySelector('[contenteditable="true"]');
     return Boolean(editor && (editor.innerText ?? "").includes(${JSON.stringify(text)}));
   })()`, { timeoutMs: 30_000, label: "composer draft text" });
-  await waitFor(app, `window.__openworkControl?.listActions().some((entry) => entry.id === "composer.send" && entry.disabled === false)`, {
+}
+
+export async function sendComposerMessage(app: Surface, text: string): Promise<ComposerState> {
+  const before = await readComposerState(app);
+  await writeComposerText(app, text);
+  await waitFor(app, `Boolean([...document.querySelectorAll("button")]
+    .find((button) => (button.textContent ?? "").trim() === "Run task" && !button.disabled))`, {
     timeoutMs: 30_000,
-    label: "composer.send enabled",
+    label: "enabled Run task button",
   });
-  await executeControl(app, "composer.send");
+  const clicked = await evalIn(app, `(() => {
+    const button = [...document.querySelectorAll("button")]
+      .find((entry) => (entry.textContent ?? "").trim() === "Run task" && !entry.disabled);
+    button?.click();
+    return Boolean(button);
+  })()`);
+  if (clicked !== true) throw new Error("Could not click the enabled Run task button.");
   await waitFor(app, `document.querySelectorAll('[data-message-role="user"]').length > ${before.userMessageCount}`, {
     timeoutMs: 60_000,
     label: "sent user message",

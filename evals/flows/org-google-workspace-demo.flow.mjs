@@ -22,6 +22,7 @@
 
 import { execSync } from "node:child_process";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 
 const vo = await loadVoiceoverParagraphs("org-google-workspace-demo");
 
@@ -524,7 +525,7 @@ export default {
             await ctx.waitFor("window.location.hash.includes('/session/ses_')", { timeoutMs: 30_000, label: "fresh task session" });
             await ctx.waitFor("Boolean(document.querySelector('[contenteditable=\"true\"][data-lexical-editor=\"true\"]'))", { timeoutMs: 30_000, label: "composer" });
             const prompt = `Use the OpenWork Cloud Control connection: call search_capabilities with query "gmail draft", then call execute_capability on the Gmail draft capability. For the body arguments use: to = customer@example.com, subject = ${DRAFT_SUBJECT}, body = Thanks for the call today. Reply with the draft id the tool returned.`;
-            await ctx.control("composer.set_text", { text: prompt });
+            await setComposerText(ctx, prompt);
             await ctx.waitFor(
               "window.__openworkControl?.listActions?.().find((a) => a.id === 'composer.send')?.disabled === false",
               { timeoutMs: 15_000, label: "composer.send enabled" },

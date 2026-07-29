@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 
 const FLOW_ID = "chat-attachment-workspace-path";
 const FILENAME = "image-only scan.pdf";
@@ -157,7 +158,7 @@ export default {
             await ctx.control("session.create_task");
             await activeSessionId(ctx);
             await pastePdfAttachment(ctx);
-            await ctx.control("composer.set_text", { text: PROMPT });
+            await setComposerText(ctx, PROMPT);
           },
           assert: async () => {
             await ctx.waitForText(FILENAME, { timeoutMs: 10_000 });

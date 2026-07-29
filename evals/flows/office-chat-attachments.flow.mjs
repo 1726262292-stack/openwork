@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadVoiceoverParagraphs } from "../runner/voiceover.mjs";
+import { setComposerText } from "./lib/composer.mjs";
 import {
   DOCX_FILENAME,
   DOCX_SENTINEL,
@@ -778,7 +779,7 @@ export default {
           action: async () => {
             const attached = await attachOfficeFiles(ctx);
             ctx.assert(attached?.ok, `Could not attach Office files: ${attached?.reason ?? "unknown"}`);
-            await ctx.control("composer.set_text", { text: PROMPT });
+            await setComposerText(ctx, PROMPT);
             await ctx.waitFor(
               `(() => {
                 const text = document.body.innerText;
@@ -941,7 +942,7 @@ export default {
             const restoredCards = await ctx.waitFor(sentAttachmentCardsExpr(), { timeoutMs: 45_000, label: "restored Office sent cards" });
             record(ctx, restoredCards.docx && restoredCards.pptx, "Reload restored both sent Office cards with badges and Download actions");
             record(ctx, restoredCards.downloadButtons >= 2, "Reloaded Office sent cards keep DOCX/PPTX Download actions", JSON.stringify({ downloadButtons: restoredCards.downloadButtons }));
-            await ctx.control("composer.set_text", { text: FOLLOW_UP });
+            await setComposerText(ctx, FOLLOW_UP);
             await ctx.control("composer.send");
             const replayProof = await pollProof(ctx, (item) => item.replayResponse && item.replayOfficeHistoryOk && item.replay?.normalizedTextOnly, 90_000, "successful replay follow-up with normalized Office history");
             ctx.output("Office mock proof after replay", JSON.stringify(replayProof, null, 2));

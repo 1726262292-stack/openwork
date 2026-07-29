@@ -13,6 +13,7 @@
  */
 
 import { execSync } from "node:child_process";
+import { setComposerText } from "./lib/composer.mjs";
 
 const DEN_API_URL = (process.env.OPENWORK_EVAL_DEN_API_URL ?? "").trim().replace(/\/+$/, "");
 const DEN_WEB_URL = (process.env.OPENWORK_EVAL_DEN_WEB_URL ?? DEN_API_URL.replace("127.0.0.1", "localhost")).trim().replace(/\/+$/, "");
@@ -571,7 +572,7 @@ export default {
             await ctx.waitFor("window.location.hash.includes('/session/ses_')", { timeoutMs: 30_000, label: "fresh task session" });
             await ctx.waitFor("Boolean(document.querySelector('[contenteditable=\"true\"][data-lexical-editor=\"true\"]'))", { timeoutMs: 30_000, label: "composer" });
             const prompt = `Use the OpenWork Cloud Control connection: call search_capabilities with query "echo", then call execute_capability with the exact match name and body {"text":"${ECHO_TEXT}"}. Reply with the exact text the tool returned.`;
-            await ctx.control("composer.set_text", { text: prompt });
+            await setComposerText(ctx, prompt);
             await ctx.waitFor(
               "window.__openworkControl?.listActions?.().find((a) => a.id === 'composer.send')?.disabled === false",
               { timeoutMs: 15_000, label: "composer.send enabled" },
