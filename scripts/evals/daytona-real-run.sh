@@ -9,6 +9,12 @@
 set -euo pipefail
 cd /workspace
 
+# Sandbox exec sessions have private /tmp namespaces; the artifacts volume is
+# the only log destination visible to other sessions (and over HTTP :8090).
+LOG_DIR="${OPENWORK_REAL_RUN_LOG_DIR:-/daytona-artifacts/real-run}"
+mkdir -p "$LOG_DIR"
+exec > >(tee "$LOG_DIR/real-run.log") 2>&1
+
 H="$HOME"
 MARIADB_VERSION="11.4.5"
 if [ ! -x "$H/mariadb/bin/mariadbd" ]; then
@@ -24,12 +30,12 @@ export PATH="$H/mariadb/bin:$H/mariadb/scripts:$PATH"
 mariadbd --version
 
 echo "==> Legacy baseline: org-connection-lifecycle-desktop through the den stack"
-pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-lifecycle-desktop 2>&1 | tee /tmp/legacy-lifecycle.log
+pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-lifecycle-desktop 2>&1 | tee "$LOG_DIR/legacy-lifecycle.log"
 
 echo "==> New spec lane against the same live stack"
 export OPENWORK_EVAL_DEN_API_URL="http://127.0.0.1:8790"
 export OPENWORK_EVAL_DEN_WEB_URL="http://localhost:3005"
 export OPENWORK_EVAL_CDP_URL="http://127.0.0.1:9825"
-pnpm vitest run --config evals/vitest.config.ts --project nightly 2>&1 | tee /tmp/specs-real.log
+pnpm vitest run --config evals/vitest.config.ts --project nightly 2>&1 | tee "$LOG_DIR/specs-real.log"
 
 echo "==> DONE"
