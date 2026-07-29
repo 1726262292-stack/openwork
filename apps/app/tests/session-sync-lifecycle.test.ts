@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterEach, describe, expect, jest, setSystemTime, test } from "bun:test";
 
 type SyncInput = {
   workspaceId: string;
@@ -17,6 +17,7 @@ const subscriptions: Subscription[] = [];
 
 const {
   __disposeWorkspaceSessionSyncForTest,
+  __hasWorkspaceSessionSyncForTest,
   __setWorkspaceSessionSyncSubscriptionFactoryForTest,
   ensureWorkspaceSessionSync,
 } = await import("../src/react-app/domains/session/sync/session-sync");
@@ -56,6 +57,7 @@ async function waitForSubscriptions(count: number) {
 }
 
 afterEach(() => {
+  jest.useRealTimers();
   for (const syncInput of inputs) __disposeWorkspaceSessionSyncForTest(syncInput);
   inputs.length = 0;
   subscriptions.length = 0;
@@ -69,6 +71,57 @@ afterEach(() => {
 });
 
 describe("workspace session sync lifecycle", () => {
+  test("reuses the stream when immediately re-ensured after release", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
+    const syncInput = input("https://one.example/opencode", "token");
+
+    const releaseFirst = ensureWorkspaceSessionSync(syncInput);
+    await waitForSubscriptions(1);
+    const firstSignal = subscriptions[0]!.signal;
+    releaseFirst();
+    const releaseSecond = ensureWorkspaceSessionSync(syncInput);
+
+    await delay(20);
+    expect(subscriptions).toHaveLength(1);
+    expect(firstSignal.aborted).toBe(false);
+    releaseSecond();
+  });
+
+  test("disposes after the release grace period when nobody re-ensures", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
+    const syncInput = input("https://one.example/opencode", "token");
+    const release = ensureWorkspaceSessionSync(syncInput);
+    await waitForSubscriptions(1);
+
+    jest.useFakeTimers();
+    release();
+    jest.advanceTimersByTime(1_999);
+    expect(subscriptions[0]!.signal.aborted).toBe(false);
+    expect(__hasWorkspaceSessionSyncForTest(syncInput)).toBe(true);
+
+    jest.advanceTimersByTime(1);
+    expect(subscriptions[0]!.signal.aborted).toBe(true);
+    expect(__hasWorkspaceSessionSyncForTest(syncInput)).toBe(false);
+  });
+
+  test("re-ensure cancels pending disposal", async () => {
+    __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
+    const syncInput = input("https://one.example/opencode", "token");
+    const releaseFirst = ensureWorkspaceSessionSync(syncInput);
+    await waitForSubscriptions(1);
+
+    jest.useFakeTimers();
+    releaseFirst();
+    jest.advanceTimersByTime(1_000);
+    const releaseSecond = ensureWorkspaceSessionSync(syncInput);
+    jest.advanceTimersByTime(2_000);
+
+    expect(subscriptions).toHaveLength(1);
+    expect(subscriptions[0]!.signal.aborted).toBe(false);
+    expect(__hasWorkspaceSessionSyncForTest(syncInput)).toBe(true);
+    releaseSecond();
+  });
+
   test("reuses an active stream when only the token changes", async () => {
     __setWorkspaceSessionSyncSubscriptionFactoryForTest(createSubscription);
     const first = input("https://one.example/opencode", "token-old");
