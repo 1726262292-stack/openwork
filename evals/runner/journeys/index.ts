@@ -2,6 +2,7 @@ export * from "./den.ts";
 export * from "./desktop.ts";
 export * from "./diagnostics.ts";
 export * from "./mcp.ts";
+export * from "./update.ts";
 
 import { acceptInvite, apiSignIn, createOrg, inviteMember, signInWeb, signUpWeb } from "./den.ts";
 import { connectDen, firstBoot, openSettings, runPrompt } from "./desktop.ts";
