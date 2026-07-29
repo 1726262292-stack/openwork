@@ -82,6 +82,21 @@ jobs:
           echo "snapshot_name=$snapshot_name" >> "$GITHUB_OUTPUT"
           echo "snapshot_region=$snapshot_region" >> "$GITHUB_OUTPUT"
 
+      - name: Verify release ref is a tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if ! git ls-remote --exit-code --tags \
+            "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            echo "::error::Ref ${RELEASE_TAG} does not exist as a tag in ${GITHUB_REPOSITORY}."
+            exit 1
+          fi
+          echo "Verified tag: ${RELEASE_TAG}"
+
       - name: Checkout release source
         uses: actions/checkout@v6
         with:
@@ -132,6 +147,7 @@ jobs:
           daytona version
 
       - name: Build and push snapshot
+        id: publish
         shell: bash
         env:
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
@@ -153,3 +169,37 @@ jobs:
 
           echo "Publishing Daytona snapshot: ${DAYTONA_SNAPSHOT_NAME}"
           ./scripts/create-daytona-openwork-snapshot.sh "${DAYTONA_SNAPSHOT_NAME}"
+
+      - name: Update production snapshot pin
+        if: steps.publish.outcome == 'success'
+        shell: bash
+        env:
+          DAYTONA_CLOUD_ENV_GROUP_ID: ${{ vars.DAYTONA_CLOUD_ENV_GROUP_ID }}
+          DAYTONA_SNAPSHOT_NAME: ${{ steps.resolve.outputs.snapshot_name }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DAYTONA_CLOUD_ENV_GROUP_ID:-}" ]; then
+            echo "::notice::DAYTONA_CLOUD_ENV_GROUP_ID is not configured; skipping production snapshot pin update."
+            {
+              echo "### Daytona snapshot pin"
+              echo
+              echo "Skipped: repository variable \`DAYTONA_CLOUD_ENV_GROUP_ID\` is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::error::Missing required secret: RENDER_API_KEY"
+            exit 1
+          fi
+
+          result="$(node scripts/update-daytona-snapshot-pin.mjs \
+            --env-group-id "$DAYTONA_CLOUD_ENV_GROUP_ID" \
+            --snapshot "$DAYTONA_SNAPSHOT_NAME")"
+          echo "$result"
+          {
+            echo "### Daytona snapshot pin"
+            echo
+            echo "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
