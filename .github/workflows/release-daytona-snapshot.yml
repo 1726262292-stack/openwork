@@ -180,6 +180,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Update production snapshot pin
+        id: pin
         if: steps.publish.outcome == 'success'
         shell: bash
         env:
@@ -211,4 +212,39 @@ jobs:
             echo "### Daytona snapshot pin"
             echo
             echo "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Redeploy den-api so the new pin takes effect
+        # Render does not redeploy services when an env group value changes, so
+        # den-api keeps serving the previous DAYTONA_SNAPSHOT until it redeploys.
+        # Without this the pin moves but `latestVersion` stays stale and no
+        # sandbox ever recycles - observed for real on v0.18.11.
+        if: steps.pin.outcome == 'success'
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_DEN_SERVICE_ID: ${{ secrets.RENDER_DEN_CONTROL_PLANE_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RENDER_DEN_SERVICE_ID:-}" ] || [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::notice::Render den-api credentials unavailable; skipping redeploy. The pin will take effect on the next den-api deploy."
+            exit 0
+          fi
+
+          response="$(curl -s -w '\n%{http_code}' -X POST \
+            "https://api.render.com/v1/services/${RENDER_DEN_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          code="$(printf '%s' "$response" | tail -1)"
+          body="$(printf '%s' "$response" | sed '$d')"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::POST /deploys returned HTTP $code: $body"
+            exit 1
+          fi
+
+          {
+            echo
+            echo "Triggered a den-api deploy so the new pin takes effect."
           } >> "$GITHUB_STEP_SUMMARY"
