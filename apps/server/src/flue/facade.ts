@@ -454,24 +454,21 @@ function makeAssistantMessage(input: {
   return { info, parts: [part] };
 }
 
-export function completeAssistantMessage(message: MessageWithParts, text: string, completedAt: number, response?: PromptResponse): MessageWithParts {
+export function completeAssistantMessage(message: MessageWithParts, text: string, completedAt: number, response: PromptResponse): MessageWithParts {
   if (message.info.role !== "assistant") return message;
-  const model = response?.model;
-  const usage = response?.usage;
   const info: Message = {
     ...message.info,
     time: { ...message.info.time, completed: completedAt },
-    ...(model ? { providerID: model.provider, modelID: model.id } : {}),
-    cost: usage?.cost.total ?? message.info.cost,
-    tokens: usage
-      ? {
-          input: usage.input,
-          output: usage.output,
-          reasoning: 0,
-          cache: { read: usage.cacheRead, write: usage.cacheWrite },
-          total: usage.totalTokens,
-        }
-      : message.info.tokens,
+    providerID: response.model.provider,
+    modelID: response.model.id,
+    cost: response.usage.cost.total,
+    tokens: {
+      input: response.usage.input,
+      output: response.usage.output,
+      reasoning: 0,
+      cache: { read: response.usage.cacheRead, write: response.usage.cacheWrite },
+      total: response.usage.totalTokens,
+    },
     finish: "stop",
   };
   return {

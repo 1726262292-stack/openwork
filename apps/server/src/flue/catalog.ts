@@ -36,6 +36,7 @@ export type FlueApiKind =
 export const NPM_API_KIND_TABLE: Array<{ npm: string; apiKind: FlueApiKind }> = [
   { npm: "@openrouter/ai-sdk-provider", apiKind: "openai-completions" },
   { npm: "@ai-sdk/openai-compatible", apiKind: "openai-completions" },
+  { npm: "@ai-sdk/mistral", apiKind: "openai-completions" },
   { npm: "@ai-sdk/anthropic", apiKind: "anthropic-messages" },
   { npm: "@ai-sdk/openai", apiKind: "openai-responses" },
   { npm: "@ai-sdk/azure", apiKind: "azure-openai-responses" },
@@ -117,6 +118,7 @@ const catalogProviderSchema = z.object({
 });
 
 const runtimeProviderSchema = catalogProviderSchema.extend({
+  catalogId: stringSchema,
   optionsBaseUrl: stringSchema.nullable(),
   whitelist: z.array(stringSchema),
   blacklist: z.array(stringSchema),
@@ -294,6 +296,7 @@ function normalizeRuntimeProvider(providerKey: string, rawProvider: unknown): Fl
   models.sort((left, right) => left.id.localeCompare(right.id));
   return {
     id: providerKey,
+    catalogId: provider.id ?? providerKey,
     name: provider.name ?? provider.id ?? providerKey,
     npm: provider.npm ?? null,
     env: normalizeStringList(provider.env),
@@ -508,10 +511,14 @@ export function materializeFlueCatalog(input: {
   for (const provider of input.catalogProviders) catalogById.set(provider.id, provider);
 
   const runtimeById = new Map<string, FlueRuntimeProvider>();
+  const runtimeCatalogIds = new Set<string>();
   const skipped: FlueCatalogSkip[] = [...input.catalogSkips ?? []];
   for (const [providerKey, rawProvider] of Object.entries(runtimeProviderMap(input.runtimeConfig))) {
     const provider = normalizeRuntimeProvider(providerKey, rawProvider);
-    if (provider) runtimeById.set(provider.id, provider);
+    if (provider) {
+      runtimeById.set(provider.id, provider);
+      runtimeCatalogIds.add(provider.catalogId);
+    }
     else skipped.push({ providerId: providerKey, reason: "malformed" });
   }
 
@@ -519,6 +526,7 @@ export function materializeFlueCatalog(input: {
   const vaultCredentials = input.vaultCredentials ?? {};
   const candidateIds = new Set<string>();
   for (const provider of input.catalogProviders) {
+    if (runtimeCatalogIds.has(provider.id)) continue;
     if (resolveProviderCredentialWithVault(vaultCredentials[provider.id], provider.env, input.envStore, input.processEnv).value) {
       candidateIds.add(provider.id);
     }
@@ -530,8 +538,8 @@ export function materializeFlueCatalog(input: {
   const registrations: FlueProviderRegistration[] = [];
   const sortedCandidateIds = [...candidateIds].sort((left, right) => left.localeCompare(right));
   for (const providerId of sortedCandidateIds) {
-    const catalogProvider = catalogById.get(providerId);
     const runtimeProvider = runtimeById.get(providerId);
+    const catalogProvider = catalogById.get(runtimeProvider?.catalogId ?? providerId);
     const candidate = mergeProvider(providerId, catalogProvider, runtimeProvider);
     if (disabled.has(providerId)) {
       skipped.push({ providerId, reason: "disabled" });

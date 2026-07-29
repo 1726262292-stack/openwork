@@ -14,6 +14,8 @@ import type { ServerConfig } from "./types.js";
 const stops: Array<() => void | Promise<void>> = [];
 const roots: string[] = [];
 const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
+const previousMistralApiKey = process.env.MISTRAL_API_KEY;
+const previousConnectedMistralApiKey = process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY;
 
 afterEach(async () => {
   while (stops.length) await stops.pop()?.();
@@ -21,6 +23,10 @@ afterEach(async () => {
   while (roots.length) await rm(roots.pop() ?? "", { recursive: true, force: true });
   if (previousRuntimeDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
   else process.env.OPENWORK_RUNTIME_DB = previousRuntimeDb;
+  if (previousMistralApiKey === undefined) delete process.env.MISTRAL_API_KEY;
+  else process.env.MISTRAL_API_KEY = previousMistralApiKey;
+  if (previousConnectedMistralApiKey === undefined) delete process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY;
+  else process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY = previousConnectedMistralApiKey;
 });
 
 function auth(token: string) {
@@ -103,6 +109,10 @@ function deterministicProvider(): Provider {
 }
 
 async function seedEmptyCatalog(workspaceRoot: string): Promise<void> {
+  await seedCatalog(workspaceRoot, {});
+}
+
+async function seedCatalog(workspaceRoot: string, payload: unknown): Promise<void> {
   const bridge = new FlueCatalogBridge({
     cachePath: join(workspaceRoot, FLUE_CATALOG_CACHE_FILE),
     resolveModelsUrl: async () => "https://models.example.test",
@@ -110,7 +120,7 @@ async function seedEmptyCatalog(workspaceRoot: string): Promise<void> {
       ok: true,
       status: 200,
       async json(): Promise<unknown> {
-        return {};
+        return payload;
       },
     }),
   });
@@ -157,6 +167,12 @@ function readStringField(value: unknown, key: string): string {
   return typeof field === "string" ? field : "";
 }
 
+function readNumberField(value: unknown, key: string): number {
+  if (!isRecord(value)) return Number.NaN;
+  const field = value[key];
+  return typeof field === "number" ? field : Number.NaN;
+}
+
 function sessionIdFromCreateResponse(value: unknown): string {
   if (!isRecord(value)) return "";
   const id = readStringField(value, "id");
@@ -174,6 +190,26 @@ function assistantTextFromSnapshot(value: unknown): string {
     }
   }
   return "";
+}
+
+function messageInfo(value: unknown, role: "user" | "assistant"): Record<string, unknown> | null {
+  if (!Array.isArray(value)) return null;
+  for (const message of value) {
+    if (isRecord(message) && isRecord(message.info) && message.info.role === role) return message.info;
+  }
+  return null;
+}
+
+async function waitForCompletedMessages(base: string, token: string, sessionId: string): Promise<unknown> {
+  for (let index = 0; index < 100; index += 1) {
+    const messages = await readJson(await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(sessionId)}/message`, {
+      headers: auth(token),
+    }));
+    const assistant = messageInfo(messages, "assistant");
+    if (assistant && isRecord(assistant.time) && typeof assistant.time.completed === "number") return messages;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return null;
 }
 
 async function waitForAssistantText(base: string, token: string, sessionId: string): Promise<string> {
@@ -302,6 +338,104 @@ describe("Flue opencode-wire facade", () => {
       items: [{ id: sessionId, title: "Flue dolphins", directory: workspaceRoot }],
     });
     await expect(waitForAssistantText(base, token, sessionId)).resolves.toBe("Flue received: Research dolphins.");
+
+    const messages = await waitForCompletedMessages(base, token, sessionId);
+    const assistant = messageInfo(messages, "assistant");
+    expect(assistant).toMatchObject({
+      role: "assistant",
+      providerID: "flue",
+      modelID: "default",
+      cost: 0,
+      finish: "stop",
+    });
+    const tokens = assistant?.tokens;
+    expect(readNumberField(tokens, "input")).toBeGreaterThan(0);
+    expect(readNumberField(tokens, "output")).toBeGreaterThan(0);
+    expect(readNumberField(tokens, "reasoning")).toBe(0);
+    expect(readNumberField(tokens, "total")).toBe(
+      readNumberField(tokens, "input")
+      + readNumberField(tokens, "output")
+      + readNumberField(isRecord(tokens) ? tokens.cache : null, "read")
+      + readNumberField(isRecord(tokens) ? tokens.cache : null, "write"),
+    );
+  });
+
+  test("lists Den runtime-map keys as provider identities with and without credentials", async () => {
+    delete process.env.MISTRAL_API_KEY;
+    process.env.OPENWORK_FLUE_E2E_MISTRAL_KEY = "runtime-map-test-key";
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedCatalog(workspaceRoot, {
+      mistral: {
+        id: "mistral",
+        name: "Mistral",
+        npm: "@ai-sdk/mistral",
+        env: ["MISTRAL_API_KEY"],
+        api: "https://api.mistral.ai/v1",
+        models: {
+          "mistral-small-latest": {
+            name: "Mistral Small",
+            limit: { context: 32_000, output: 4_096 },
+          },
+        },
+      },
+    });
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      disabled_providers: ["lpr_disabled"],
+      provider: {
+        lpr_demo: {
+          id: "mistral",
+          name: "Org Mistral (Den)",
+          env: ["MISTRAL_API_KEY"],
+          models: {
+            "mistral-small-latest": { id: "mistral-small-latest", name: "Mistral Small" },
+          },
+        },
+        lpr_connected: {
+          id: "mistral",
+          name: "Credentialed Org Mistral (Den)",
+          env: ["OPENWORK_FLUE_E2E_MISTRAL_KEY"],
+          models: {
+            "mistral-small-latest": { id: "mistral-small-latest", name: "Mistral Small" },
+          },
+        },
+        lpr_disabled: {
+          id: "mistral",
+          name: "Disabled Org Mistral (Den)",
+          env: ["MISTRAL_API_KEY"],
+          models: {
+            "mistral-small-latest": { id: "mistral-small-latest", name: "Mistral Small" },
+          },
+        },
+      },
+    }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const uncredentialed = await readJson(await fetch(`${base}/w/ws_1/opencode/provider`, { headers: auth(token) }));
+    expect(uncredentialed).toMatchObject({
+      all: [
+        { id: "flue" },
+        { id: "lpr_connected", env: ["OPENWORK_FLUE_E2E_MISTRAL_KEY"], models: { "mistral-small-latest": { providerID: "lpr_connected" } } },
+        { id: "lpr_demo", env: ["MISTRAL_API_KEY"], models: { "mistral-small-latest": { providerID: "lpr_demo" } } },
+      ],
+      connected: ["flue", "lpr_connected"],
+      default: { flue: "default", lpr_connected: "mistral-small-latest" },
+    });
+    expect(hasRegisteredProvider("lpr_demo")).toBe(false);
+    expect(hasRegisteredProvider("lpr_connected")).toBe(true);
+    expect(resolveModel("lpr_connected/mistral-small-latest")).toMatchObject({
+      id: "mistral-small-latest",
+      provider: "lpr_connected",
+      api: "openai-completions",
+      baseUrl: "https://api.mistral.ai/v1",
+    });
+    expect(hasRegisteredProvider("mistral")).toBe(false);
+    expect(hasRegisteredProvider("lpr_disabled")).toBe(false);
   });
 
   test("owns the auth wire, applies Den-imported credentials live, and never echoes or writes the key", async () => {
