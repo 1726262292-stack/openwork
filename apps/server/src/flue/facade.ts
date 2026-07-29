@@ -15,7 +15,7 @@ import {
   type SessionEnv,
   type ShellResult,
 } from "@flue/runtime";
-import { initializeRootHarness, resolveModel, type FlueContextConfig } from "@flue/runtime/internal";
+import { createFlueContext, resolveModel } from "@flue/runtime/internal";
 import {
   engineEventSchema,
   sessionInfoSchema,
@@ -52,8 +52,9 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
 
-type FlueHarness = Awaited<ReturnType<typeof initializeRootHarness>>;
-type FlueEventInputHandler = Parameters<typeof initializeRootHarness>[2];
+type FlueContext = ReturnType<typeof createFlueContext>;
+type FlueHarness = Awaited<ReturnType<FlueContext["initializeRootHarness"]>>;
+type FlueEventInputHandler = Parameters<FlueContext["subscribeEvent"]>[0];
 type FlueEventInput = Parameters<FlueEventInputHandler>[0];
 
 type FlueSessionRecord = {
@@ -1191,14 +1192,16 @@ class FlueWorkspaceFacade {
       sandbox,
       instructions: "You are OpenWork running through the in-process Flue compatibility facade.",
     }));
-    const context: FlueContextConfig = {
+    const context = createFlueContext({
       id: this.instanceId,
       agentName: DEFAULT_AGENT,
-      env: {},
+      env: process.env,
+      req: new Request(`https://openwork-flue.invalid/${encodeURIComponent(this.instanceId)}`),
       agentConfig: { resolveModel },
       createDefaultEnv: () => sandbox.createSessionEnv({ id: this.instanceId }),
-    };
-    this.harness = await initializeRootHarness(agent, context, (event) => this.handleFlueEvent(event));
+    });
+    context.subscribeEvent((event) => this.handleFlueEvent(event));
+    this.harness = await context.initializeRootHarness(agent);
     return this.harness;
   }
 
