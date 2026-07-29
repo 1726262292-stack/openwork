@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Execute the migrated eval specs against a REAL den stack + Electron inside a
+# Daytona eval sandbox (created by .devcontainer/test-on-daytona.sh).
+#
+#   daytona exec <sandbox> -- bash -lc "cd /workspace && bash scripts/evals/daytona-real-run.sh"
+#
+# Steps: user-space MariaDB (no root in sandboxes), legacy flow baseline through
+# the den stack, then the vitest spec lane against the same live stack.
+set -euo pipefail
+cd /workspace
+
+H="$HOME"
+MARIADB_VERSION="11.4.5"
+if [ ! -x "$H/mariadb/bin/mariadbd" ]; then
+  echo "==> Installing user-space MariaDB $MARIADB_VERSION"
+  if [ ! -f /tmp/mariadb.tar.gz ]; then
+    curl -sfL -o /tmp/mariadb.tar.gz "https://archive.mariadb.org/mariadb-$MARIADB_VERSION/bintar-linux-systemd-x86_64/mariadb-$MARIADB_VERSION-linux-systemd-x86_64.tar.gz"
+  fi
+  tar -xzf /tmp/mariadb.tar.gz -C "$H"
+  rm -rf "$H/mariadb"
+  mv "$H/mariadb-$MARIADB_VERSION-linux-systemd-x86_64" "$H/mariadb"
+fi
+export PATH="$H/mariadb/bin:$H/mariadb/scripts:$PATH"
+mariadbd --version
+
+echo "==> Legacy baseline: org-connection-lifecycle-desktop through the den stack"
+pnpm evals --stack den --cdp-url http://127.0.0.1:9825 --flow org-connection-lifecycle-desktop 2>&1 | tee /tmp/legacy-lifecycle.log
+
+echo "==> New spec lane against the same live stack"
+export OPENWORK_EVAL_DEN_API_URL="http://127.0.0.1:8790"
+export OPENWORK_EVAL_DEN_WEB_URL="http://localhost:3005"
+export OPENWORK_EVAL_CDP_URL="http://127.0.0.1:9825"
+pnpm vitest run --config evals/vitest.config.ts --project nightly 2>&1 | tee /tmp/specs-real.log
+
+echo "==> DONE"
