@@ -11,7 +11,10 @@ import {
 } from "react";
 
 import { THINKING_PREF_KEY } from "../../app/constants";
-import { coerceReleaseChannel } from "../../app/lib/release-channels";
+import {
+  coerceReleaseChannel,
+  isPreAlphaChannel,
+} from "../../app/lib/release-channels";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import {
   DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE,
@@ -48,6 +51,8 @@ export type LocalPreferences = {
   releaseChannel: ReleaseChannel;
   featureFlags: {
     microsandboxCreateSandbox: boolean;
+    /** Unlocks hidden canary and experimental desktop update channels. */
+    elevatedDeveloperMode: boolean;
     /**
      * Memory Bank preview. Client-only, per-device, never synced. Gates desktop
      * UI surfacing (the management panel + copy-prompt affordance); the routes
@@ -93,7 +98,11 @@ const INITIAL_PREFS: LocalPreferences = {
   defaultModel: null,
   selectedAgent: null,
   releaseChannel: "stable",
-  featureFlags: { microsandboxCreateSandbox: true, memory: false },
+  featureFlags: {
+    microsandboxCreateSandbox: true,
+    elevatedDeveloperMode: false,
+    memory: false,
+  },
   hasCompletedOnboarding: false,
   analyticsEnabled: true,
   desktopNotifications: DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE,
@@ -133,6 +142,17 @@ export function LocalProvider({ children }: LocalProviderProps) {
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
     const persisted = readPersisted(LOCAL_PREFERENCES_KEY, INITIAL_PREFS);
+    persisted.releaseChannel = coerceReleaseChannel(persisted.releaseChannel);
+    persisted.featureFlags = {
+      ...INITIAL_PREFS.featureFlags,
+      ...persisted.featureFlags,
+    };
+    if (
+      !persisted.featureFlags.elevatedDeveloperMode &&
+      isPreAlphaChannel(persisted.releaseChannel)
+    ) {
+      persisted.releaseChannel = "stable";
+    }
     persisted.desktopNotifications = isDesktopNotificationPreference(persisted.desktopNotifications)
       ? persisted.desktopNotifications
       : DEFAULT_DESKTOP_NOTIFICATION_PREFERENCE;

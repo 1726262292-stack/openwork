@@ -33,6 +33,7 @@ import {
   isAlphaUpdateAllowed,
   resolveFreshStableDesktopUpdate,
 } from "@/app/lib/version-gate";
+import { isPrereleaseChannel } from "@/app/lib/release-channels";
 import {
   DEN_HANDOFF_AUTO_CONTINUE_KEY,
   exchangeHandoffAndSignIn,
@@ -116,7 +117,7 @@ async function stageOnboardingUpdate(
 
   const channelState = await updater.getChannel();
   if (
-    channelState.channel === "alpha" &&
+    isPrereleaseChannel(channelState.channel) &&
     !isAlphaChannelAllowedByDesktopConfig(desktopConfig)
   ) {
     await updater.setChannel?.("stable");
@@ -135,7 +136,7 @@ async function stageOnboardingUpdate(
   const update = await updater.check(channelState.channel, targetVersion);
   if (!update.available || update.reason) return false;
   if (
-    channelState.channel === "alpha" &&
+    isPrereleaseChannel(channelState.channel) &&
     update.latestVersion &&
     !(await isAlphaUpdateAllowed(update.latestVersion, desktopConfig))
   ) {

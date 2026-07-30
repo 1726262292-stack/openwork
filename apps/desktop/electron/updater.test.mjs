@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  electronUpdaterFeedUrl,
+  normalizeElectronUpdaterChannel,
   preventPendingUpdaterInstall,
   registerUpdaterIpc,
   staleUpdaterStatePaths,
@@ -219,6 +221,25 @@ describe("downloaded update lifecycle", () => {
 });
 
 describe("release channel changes", () => {
+  it("resolves hidden prerelease channels to their rolling macOS feeds", () => {
+    assert.equal(
+      electronUpdaterFeedUrl("canary", "latest", "darwin"),
+      "https://github.com/different-ai/openwork/releases/download/canary-macos-latest",
+    );
+    assert.equal(
+      electronUpdaterFeedUrl("experimental", "latest", "darwin"),
+      "https://github.com/different-ai/openwork/releases/download/experimental-macos-latest",
+    );
+  });
+
+  it("falls hidden prerelease channels back to stable off macOS", () => {
+    assert.equal(normalizeElectronUpdaterChannel("canary", "latest", "linux"), "stable");
+    assert.equal(
+      normalizeElectronUpdaterChannel("experimental", "latest", "win32"),
+      "stable",
+    );
+  });
+
   it("prevents a previously downloaded update from installing on quit", () => {
     const updater = { autoInstallOnAppQuit: true };
 

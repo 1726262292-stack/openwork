@@ -792,6 +792,7 @@ export function AdvancedFeatureFlagsSection(props: AdvancedFeatureFlagsSectionPr
 interface AdvancedDeveloperSectionProps {
   busy: boolean;
   developerMode: boolean;
+  elevatedDeveloperMode: boolean;
   opencodeDevModeEnabled: boolean;
   deepLinkOpen: boolean;
   deepLinkInput: string;
@@ -818,6 +819,12 @@ export function AdvancedDeveloperSection(props: AdvancedDeveloperSectionProps) {
             <Switch
               aria-label={t("settings.developer_mode_title")}
               checked={props.developerMode}
+              className={
+                props.elevatedDeveloperMode
+                  ? "border-gold-9 bg-gold-9 data-checked:border-gold-9 data-checked:bg-gold-9 data-unchecked:border-gold-9 data-unchecked:bg-gold-9"
+                  : undefined
+              }
+              data-elevated-developer-mode={props.elevatedDeveloperMode || undefined}
               onCheckedChange={props.onToggleDeveloperMode}
             />
           </LayoutSectionItemHeaderActions>

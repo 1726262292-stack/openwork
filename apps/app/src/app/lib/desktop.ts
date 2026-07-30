@@ -1,4 +1,5 @@
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
+import type { ReleaseChannel } from "../types";
 
 export type * from "./desktop-types";
 export type {
@@ -111,22 +112,22 @@ declare global {
       };
       updater?: {
         getChannel?: () => Promise<{
-          channel: "stable" | "alpha";
+          channel: ReleaseChannel;
           feedUrl: string;
           currentVersion: string;
         }>;
-        setChannel?: (channel: "stable" | "alpha") => Promise<{
-          channel: "stable" | "alpha";
+        setChannel?: (channel: ReleaseChannel) => Promise<{
+          channel: ReleaseChannel;
           feedUrl: string;
           currentVersion: string;
         }>;
-        check?: (channel?: "stable" | "alpha", targetVersion?: string) => Promise<{
+        check?: (channel?: ReleaseChannel, targetVersion?: string) => Promise<{
           available: boolean;
           currentVersion?: string;
           latestVersion?: string | null;
           releaseDate?: string | null;
           releaseNotes?: unknown;
-          channel?: "stable" | "alpha";
+          channel?: ReleaseChannel;
           feedUrl?: string;
           reason?: string;
         }>;

@@ -168,10 +168,12 @@ export type StartupPreference = "local" | "server";
  * - "stable": default. Auto-updates from the rolling stable GitHub release.
  * - "alpha": macOS-only. Auto-updates from the rolling alpha release that
  *   every merge to `dev` publishes to.
+ * - "canary": hidden macOS-only rolling builds for early integration testing.
+ * - "experimental": hidden macOS-only rolling builds for riskier prototypes.
  *
  * See `apps/app/src/app/lib/release-channels.ts` for URL resolution.
  */
-export type ReleaseChannel = "stable" | "alpha";
+export type ReleaseChannel = "stable" | "alpha" | "canary" | "experimental";
 
 export type EngineRuntime = "direct";
 

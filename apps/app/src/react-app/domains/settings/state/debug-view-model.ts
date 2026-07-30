@@ -44,6 +44,7 @@ import {
 import { t } from "../../../../i18n";
 import type { DebugViewProps } from "../pages/debug-view";
 import type { ReleaseChannel } from "../../../../app/types";
+import { isPrereleaseChannel } from "../../../../app/lib/release-channels";
 import type { OpenworkServerStore, OpenworkServerStoreSnapshot } from "../../connections/openwork-server-store";
 
 type DebugViewModelProps = Omit<DebugViewProps, "agentContextDiagnostics">;
@@ -607,8 +608,8 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       setElectronAlphaUpdaterStatus("Electron updater channels are available only in the Electron desktop app.");
       return;
     }
-    if (channel === "alpha" && !isMacPlatform()) {
-      setElectronAlphaUpdaterStatus("Electron alpha updates are macOS-only for now.");
+    if (isPrereleaseChannel(channel) && !isMacPlatform()) {
+      setElectronAlphaUpdaterStatus("Electron prerelease updates are macOS-only for now.");
       return;
     }
     const bridge = window.__OPENWORK_ELECTRON__?.updater;
