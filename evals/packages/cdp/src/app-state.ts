@@ -108,7 +108,9 @@ const PROBE_EXPRESSION = `(() => {
     controlReady: Boolean(window.__openworkControl),
     transitional,
     surface,
-    workspaceId: surface === "welcome" ? null : workspaceId,
+    // Report the id whenever the app knows one, even while the welcome surface
+    // is showing: onboarding selects a workspace before it leaves that screen.
+    workspaceId,
     route,
     text: text.slice(0, 300),
   };
