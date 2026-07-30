@@ -24,11 +24,22 @@ if compgen -G "/daytona-secrets/*.env" > /dev/null; then
   set +a
 fi
 
-# Xvfb must be up for Electron to open a window at all.
-if ! pgrep --full Xvfb > /dev/null 2>&1; then
-  echo "==> Starting the virtual display"
+# Electron needs a live X server. A stale /tmp/.X11-unix socket is NOT proof it
+# is running: several "renderer blocked" failures were really the app exiting
+# with "Missing X server or $DISPLAY".
+display_alive() {
+  xdpyinfo -display "$DISPLAY" > /dev/null 2>&1
+}
+if ! display_alive; then
+  echo "==> Virtual display not answering on $DISPLAY; starting it"
   nohup bash .devcontainer/start-daytona-vnc.sh > /tmp/vnc.log 2>&1 &
-  for _ in $(seq 1 30); do sleep 2; pgrep --full Xvfb > /dev/null 2>&1 && break; done
+  for _ in $(seq 1 30); do sleep 2; display_alive && break; done
+fi
+if display_alive; then
+  echo "==> Display $DISPLAY is live"
+else
+  echo "==> WARNING: display $DISPLAY still not answering; Electron will exit at startup"
+  tail -20 /tmp/vnc.log 2>/dev/null || true
 fi
 
 pnpm --dir evals install
