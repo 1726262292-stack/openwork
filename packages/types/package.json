@@ -29,6 +29,14 @@
       "development": "./src/openwork-provider.ts",
       "default": "./src/openwork-provider.ts"
     },
+    "./scheduled-tasks": {
+      "types": "./src/scheduled-tasks.ts",
+      "bun": "./src/scheduled-tasks.ts",
+      "browser": "./src/scheduled-tasks.ts",
+      "node": "./dist/scheduled-tasks.js",
+      "development": "./src/scheduled-tasks.ts",
+      "default": "./dist/scheduled-tasks.js"
+    },
     "./den/desktop-app-restrictions": {
       "types": "./src/den/desktop-app-restrictions.ts",
       "development": "./src/den/desktop-app-restrictions.ts",
@@ -73,6 +81,18 @@
       "types": "./src/desktop-ipc.ts",
       "development": "./src/desktop-ipc.ts",
       "default": "./src/desktop-ipc.ts"
+    },
+    "./ui-artifact": {
+      "types": "./src/ui-artifact.ts",
+      "development": "./src/ui-artifact.ts",
+      "default": "./src/ui-artifact.ts"
+    },
+    "./ui-artifact-project": {
+      "types": "./src/ui-artifact-project.ts",
+      "development": "./src/ui-artifact-project.ts",
+      "browser": "./src/ui-artifact-project.ts",
+      "bun": "./src/ui-artifact-project.ts",
+      "default": "./dist/ui-artifact-project.js"
     },
     "./connect-link": {
       "types": "./src/connect-link.ts",

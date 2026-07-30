@@ -5,9 +5,9 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/annotate.ts",
-      "development": "./src/annotate.ts",
-      "default": "./src/annotate.ts"
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "dependencies": {

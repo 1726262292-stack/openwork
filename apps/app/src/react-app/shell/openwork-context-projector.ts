@@ -37,6 +37,16 @@ function decoded(value: string | undefined) {
 }
 
 export function screenFromRoute(route: string): OpenworkScreen {
+  const scheduledTasks = route.match(/^\/workspace\/([^/]+)\/scheduled-tasks(?:\/([^/?#]+))?/);
+  if (scheduledTasks) {
+    return {
+      kind: "scheduled-tasks",
+      route,
+      workspaceId: decoded(scheduledTasks[1]) ?? "",
+      taskId: decoded(scheduledTasks[2]),
+    };
+  }
+
   const workspaceSettings = route.match(/^\/workspace\/([^/]+)\/settings(?:\/([^/?#]+))?/);
   if (workspaceSettings) {
     return {
@@ -129,7 +139,11 @@ export function buildOpenworkContext(
   const resources: OpenworkResourceDescriptor[] = [{
     ref: `screen:${input.route}`,
     kind: "screen",
-    title: screen.kind === "settings" ? `${screen.panel} settings` : "OpenWork",
+    title: screen.kind === "settings"
+      ? `${screen.panel} settings`
+      : screen.kind === "scheduled-tasks"
+        ? "Scheduled Tasks"
+        : "OpenWork",
     provider,
     state: { kind: screen.kind, route: input.route },
   }];
@@ -168,6 +182,19 @@ export function buildOpenworkContext(
       title: `${screen.panel} settings`,
       provider,
       state: { active: true, workspaceId: screen.workspaceId ?? null },
+    });
+  }
+  if (screen.kind === "scheduled-tasks" && screen.taskId) {
+    resources.push({
+      ref: `scheduled-task:${screen.taskId}`,
+      kind: "scheduled-task",
+      title: screen.taskId,
+      provider,
+      state: {
+        active: true,
+        workspaceId: screen.workspaceId,
+        taskId: screen.taskId,
+      },
     });
   }
   if (sidePanelKind) {

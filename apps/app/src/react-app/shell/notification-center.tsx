@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
+import { workspaceScheduledTasksRoute } from "./workspace-routes";
 import {
   useNotificationStore,
   type AppNotification,
@@ -116,9 +117,11 @@ export function NotificationBell() {
       } else if (action.type === "reload-engine") {
         void reloadCoordinator.reloadWorkspaceEngine();
       } else if (action.type === "open-extensions-marketplace") {
-        navigate("/settings/extensions");
+        navigate("/extensions");
       } else if (action.type === "install-marketplace-plugin") {
-        navigate("/settings/extensions");
+        navigate("/extensions");
+      } else if (action.type === "open-scheduled-task") {
+        navigate(workspaceScheduledTasksRoute(action.workspaceId, action.taskId));
       }
     },
     [markAllRead, navigate, reloadCoordinator],

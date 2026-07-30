@@ -29,6 +29,12 @@ export const openworkScreenSchema = z.discriminatedUnion("kind", [
     panel: z.string(),
   }),
   z.object({
+    kind: z.literal("scheduled-tasks"),
+    route: z.string(),
+    workspaceId: z.string(),
+    taskId: z.string().optional(),
+  }),
+  z.object({
     kind: z.literal("other"),
     route: z.string(),
   }),
@@ -61,7 +67,7 @@ export type OpenworkPanelTab = z.infer<typeof openworkPanelTabSchema>
 
 export const openworkResourceDescriptorSchema = z.object({
   ref: z.string().trim().min(1),
-  kind: z.enum(["workspace", "session", "screen", "side-panel", "settings"]),
+  kind: z.enum(["workspace", "session", "screen", "side-panel", "settings", "scheduled-task"]),
   title: z.string(),
   provider: openworkProviderRefSchema,
   state: z.record(z.string(), z.unknown()),
@@ -91,7 +97,7 @@ export const openworkContextSnapshotSchema = z.object({
   sidePanel: z.object({
     open: z.boolean(),
     ownerSessionId: z.string().nullable(),
-    kind: z.enum(["panel", "extensions", "voice"]).nullable(),
+    kind: z.enum(["panel", "extensions", "ui-artifacts", "voice"]).nullable(),
     tabs: z.array(openworkPanelTabSchema),
     activeTabId: z.string().nullable(),
   }),

@@ -117,6 +117,34 @@ function sessionContribution(): OpenworkFeatureContribution {
   };
 }
 
+function scheduledTasksContribution(): OpenworkFeatureContribution {
+  const provider: OpenworkProviderRef = { id: "openwork-scheduled-tasks", kind: "builtin" };
+  return {
+    featureId: "scheduled-tasks",
+    provider,
+    affordances: [
+      affordance({
+        id: "scheduled-task.propose-draft",
+        kind: "command",
+        title: "Propose a scheduled task draft",
+        description: "Create a disabled Scheduled Task draft for the user to review. This cannot approve authority or enable execution.",
+        provider,
+        arguments: [
+          argument("name", "string", true, "Short name shown in Scheduled Tasks."),
+          argument("prompt", "string", true, "Exact self-contained prompt the scheduled run would receive."),
+          argument("description", "string", false, "Optional explanation of the recurring outcome."),
+          argument("workspaceId", "string", false, "Optional workspace id or name. Defaults to the current workspace."),
+          argument("schedule", "object", false, "Optional manual, daily, or weekly schedule with an IANA timezone."),
+          argument("model", "object", false, "Optional providerId, modelId, and agent selection."),
+          argument("maximumRuntimeMs", "number", false, "Optional runtime ceiling in milliseconds."),
+        ],
+        effects: writeEffects,
+      }),
+    ],
+    guidance: [],
+  };
+}
+
 function extensionContribution(): OpenworkFeatureContribution {
   const provider: OpenworkProviderRef = { id: "openwork-extensions", kind: "extension" };
   return {
@@ -144,6 +172,67 @@ function extensionContribution(): OpenworkFeatureContribution {
           argument("args", "object", false, "Extension action arguments."),
         ],
         effects: { data: "write", ui: "none", external: true },
+      }),
+    ],
+    guidance: [],
+  };
+}
+
+function artifactContribution(): OpenworkFeatureContribution {
+  const provider: OpenworkProviderRef = { id: "openwork-artifacts", kind: "builtin" };
+  return {
+    featureId: "artifacts",
+    provider,
+    affordances: [
+      affordance({
+        id: "artifact.list",
+        kind: "query",
+        title: "List reusable artifacts",
+        description: "List workspace-persisted React artifact projects and their latest immutable builds.",
+        provider,
+        arguments: [
+          argument("workspaceId", "string", false, "Optional workspace id or name."),
+        ],
+        effects: readEffects,
+      }),
+      affordance({
+        id: "artifact.read",
+        kind: "query",
+        title: "Read a reusable artifact",
+        description: "Read one artifact manifest, source files, data contract, and current revision.",
+        provider,
+        arguments: [
+          argument("artifactId", "string", true, "Artifact slug from artifact.list."),
+          argument("workspaceId", "string", false, "Optional workspace id or name."),
+        ],
+        effects: readEffects,
+      }),
+      affordance({
+        id: "artifact.build",
+        kind: "command",
+        title: "Build a reusable artifact",
+        description: "Validate and compile the current filesystem project into an immutable pinned build.",
+        provider,
+        arguments: [
+          argument("artifactId", "string", true, "Artifact slug from its artifact.json manifest."),
+          argument("workspaceId", "string", false, "Optional workspace id or name."),
+          argument("expectedProjectRevision", "string", false, "Optional sha256 project revision to prevent a stale build."),
+        ],
+        effects: writeEffects,
+      }),
+      affordance({
+        id: "artifact.publish",
+        kind: "command",
+        title: "Publish a reusable artifact to chat",
+        description: "Build a workspace artifact, initialize or reuse its state, and return a small pinned chat attachment.",
+        provider,
+        arguments: [
+          argument("artifactId", "string", true, "Artifact slug from its artifact.json manifest."),
+          argument("workspaceId", "string", false, "Optional workspace id or name."),
+          argument("instanceId", "string", false, "Optional prior instance id when deliberately evolving the same stateful artifact."),
+          argument("expectedProjectRevision", "string", false, "Optional sha256 project revision to prevent a stale publish."),
+        ],
+        effects: writeEffects,
       }),
     ],
     guidance: [],
@@ -214,12 +303,15 @@ function mcpContribution(mcp: EngineMcpDescriptor): OpenworkFeatureContribution 
 export function buildOpenworkProviderContributions(
   skills: ConnectSkillDescriptor[],
   mcps: EngineMcpDescriptor[] = [],
+  options: { artifactsEnabled?: boolean } = {},
 ): OpenworkFeatureContribution[] {
   const cloudMcp = mcps.find((mcp) => mcp.name === "openwork-cloud");
   const connect = connectContribution(skills, cloudMcp);
   return [
     sessionContribution(),
+    scheduledTasksContribution(),
     extensionContribution(),
+    ...(options.artifactsEnabled ? [artifactContribution()] : []),
     ...mcps
       .filter((mcp) => mcp.name !== "openwork-cloud")
       .map(mcpContribution),

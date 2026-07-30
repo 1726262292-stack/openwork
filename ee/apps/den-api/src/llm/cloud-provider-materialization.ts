@@ -725,16 +725,41 @@ async function patchRuntimeProviders(input: {
   hostToken: string
   patch: JsonRecord
 }) {
-  await requestOk({
-    fetchImpl: input.fetchImpl,
-    label: "runtime_provider_patch",
-    url: `${input.instanceUrl}/runtime-config/providers`,
-    init: {
-      method: "PATCH",
-      headers: hostTokenHeaders(input.hostToken),
-      body: JSON.stringify({ provider: input.patch }),
-    },
+  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/runtime-config/providers`, {
+    method: "PATCH",
+    headers: hostTokenHeaders(input.hostToken),
+    body: JSON.stringify({ provider: input.patch }),
   })
+  if (!response.ok) {
+    throw new MaterializationHttpError("runtime_provider_patch", response.status, await response.text())
+  }
+
+  // An instance older than this route answers 200 with the SPA index.html
+  // instead of 404, because the web root is the catch-all. Observed on a real
+  // worker still running openwork-server 0.18.3: the patch "succeeded", the
+  // engine ended up with zero providers, and the org saw an opaque failure
+  // instead of "this workspace needs an update". Treat a non-JSON body as an
+  // unsupported route so the caller can degrade honestly.
+  const body = await response.text()
+  if (!looksLikeJsonObject(body)) {
+    throw new MaterializationHttpError("runtime_provider_patch", UNSUPPORTED_ROUTE_STATUS, body.slice(0, 200))
+  }
+}
+
+/**
+ * Synthetic status for "this instance does not implement the route", used when
+ * the instance answers 200 with something that is not the route's JSON.
+ */
+const UNSUPPORTED_ROUTE_STATUS = 501
+
+function looksLikeJsonObject(body: string): boolean {
+  const trimmed = body.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return typeof JSON.parse(trimmed) === "object"
+  } catch {
+    return false
+  }
 }
 
 async function verifyRuntimeProviders(input: {
@@ -821,7 +846,7 @@ function unsupportedResult(input: {
 function unsupportedProviderRouteReason(error: unknown) {
   return error instanceof MaterializationHttpError
     && error.label === "runtime_provider_patch"
-    && (error.status === 404 || error.status === 405)
+    && (error.status === 404 || error.status === 405 || error.status === UNSUPPORTED_ROUTE_STATUS)
     ? error.message
     : null
 }

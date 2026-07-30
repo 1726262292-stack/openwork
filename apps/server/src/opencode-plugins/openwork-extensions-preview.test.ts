@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 
+import { SCHEDULED_TASK_SAFE_WRITE_TOOL_ID } from "../scheduled-tasks/execution.js";
 import { OpenWorkExtensionsPreview } from "./openwork-extensions-preview.js";
 import * as OpenWorkExtensionsPreviewEntry from "./openwork-extensions-preview.js";
 import {
@@ -12,6 +16,7 @@ import {
 const originalServerUrl = process.env.OPENWORK_SERVER_URL;
 const originalServerToken = process.env.OPENWORK_SERVER_TOKEN;
 const stops: Array<() => void> = [];
+const temporaryDirectories: string[] = [];
 
 const searchResultSchema = z.object({
   ok: z.literal(true),
@@ -51,6 +56,21 @@ const createResultSchema = z.object({
   })),
 });
 
+const scheduledTaskProposalResultSchema = z.object({
+  ok: z.literal(true),
+  taskId: z.string(),
+  revisionId: z.string(),
+  revision: z.number(),
+  workspaceId: z.string(),
+  name: z.string(),
+  prompt: z.string(),
+  state: z.literal("draft"),
+  enabled: z.literal(false),
+  reviewed: z.literal(false),
+  limitation: z.literal("Runs while OpenWork is running."),
+  route: z.string(),
+});
+
 const affordanceResultSchema = <T extends z.ZodTypeAny>(id: string, result: T) => z.object({
   ok: z.literal(true),
   id: z.literal(id),
@@ -62,8 +82,13 @@ const affordanceResultSchema = <T extends z.ZodTypeAny>(id: string, result: T) =
   }),
 });
 
-afterEach(() => {
+afterEach(async () => {
   while (stops.length) stops.pop()?.();
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) =>
+      rm(directory, { recursive: true, force: true }),
+    ),
+  );
   if (originalServerUrl === undefined) delete process.env.OPENWORK_SERVER_URL;
   else process.env.OPENWORK_SERVER_URL = originalServerUrl;
   if (originalServerToken === undefined) delete process.env.OPENWORK_SERVER_TOKEN;
@@ -76,7 +101,8 @@ async function transformedSystem(plugin: Awaited<ReturnType<typeof OpenWorkExten
   return output.system.join("\n");
 }
 
-function startFakeOpenWorkServer() {
+function startFakeOpenWorkServer(options: { artifactSkillEnabled?: boolean } = {}) {
+  const artifactSkillEnabled = options.artifactSkillEnabled ?? true;
   const requests: Array<{ pathname: string; search: string; authorization: string | null; method: string; body?: unknown }> = [];
 
   const workspaceOne = { id: "ws_1", name: "Main", path: "/tmp/main" };
@@ -141,6 +167,23 @@ function startFakeOpenWorkServer() {
         return Response.json({ items: [workspaceOne, workspaceTwo], workspaces: [workspaceOne, workspaceTwo] });
       }
 
+      if (url.pathname === "/workspace/ws_2/ui-artifacts/agent-skill") {
+        if (!artifactSkillEnabled) {
+          return Response.json({
+            code: "ui_artifact_builder_skill_disabled",
+            message: "The managed React Artifact Builder skill is disabled",
+          }, { status: 404 });
+        }
+        return Response.json({
+          protocol: "openwork.ui-artifact-agent-skill",
+          schemaVersion: 2,
+          name: "openwork-react-artifact-builder",
+          description: "Build and evolve reusable React artifacts.",
+          content: "---\nname: openwork-react-artifact-builder\n---\n\n# React Artifact Builder\n\nUse artifact.list before artifact.publish.",
+          settingsRevision: "a".repeat(64),
+        });
+      }
+
       if (url.pathname === "/workspace/ws_1/sessions") {
         return Response.json({ items: [sessionAlpha, sessionBeta] });
       }
@@ -157,6 +200,78 @@ function startFakeOpenWorkServer() {
           }, { status: 201 });
         }
         return Response.json({ items: [sessionArchive] });
+      }
+      if (url.pathname === "/workspace/ws_2/scheduled-tasks" && request.method === "POST") {
+        const body = z.object({
+          name: z.string(),
+          prompt: z.string(),
+          workspaceId: z.literal("ws_2"),
+          overlapPolicy: z.literal("skip"),
+        }).passthrough().parse(record.body);
+        return Response.json({
+          task: {
+            id: "task_created_1",
+            workspaceId: body.workspaceId,
+            state: "draft",
+            enabled: false,
+          },
+          revision: {
+            id: "revision_created_1",
+            revision: 1,
+            definition: body,
+          },
+        }, { status: 201 });
+      }
+
+      if (url.pathname === "/workspace/ws_2/ui-artifacts" && request.method === "GET") {
+        return Response.json({
+          items: [{
+            artifactId: "launch-radar",
+            title: "Launch radar",
+            projectRevision: "sha256:project",
+            latestBuildId: "sha256:build",
+          }],
+        });
+      }
+
+      if (url.pathname === "/workspace/ws_2/ui-artifacts/launch-radar" && request.method === "GET") {
+        return Response.json({
+          manifest: {
+            protocol: "openwork.artifact-project",
+            schemaVersion: "1",
+            artifactId: "launch-radar",
+            title: "Launch radar",
+          },
+          projectRevision: "sha256:project",
+          files: {},
+        });
+      }
+
+      if (url.pathname === "/workspace/ws_2/ui-artifacts/launch-radar/build" && request.method === "POST") {
+        return Response.json({
+          protocol: "openwork.ui-artifact-build",
+          schemaVersion: 2,
+          status: "ready",
+          slug: "launch-radar",
+          projectRevision: "sha256:project",
+          buildDigest: "sha256:build",
+        });
+      }
+
+      if (url.pathname === "/workspace/ws_2/ui-artifacts/launch-radar/publish" && request.method === "POST") {
+        return Response.json({
+          protocol: "openwork.ui-artifact-publish-receipt",
+          schemaVersion: 2,
+          attachment: {
+            protocol: "openwork.ui-artifact-attachment",
+            schemaVersion: 2,
+            slug: "launch-radar",
+            instanceId: "artifact-instance-1",
+            projectRevision: "sha256:project",
+            buildDigest: "sha256:build",
+            title: "Launch radar",
+          },
+        });
       }
 
       if (url.pathname === "/workspace/ws_1/sessions/ses_alpha") return Response.json({ item: sessionAlpha });
@@ -212,6 +327,7 @@ describe("OpenWorkExtensionsPreview session tools", () => {
   test("projects built-in, extension, and Connect providers into one agent context", async () => {
     startFakeOpenWorkServer();
     const plugin = await OpenWorkExtensionsPreview({
+      directory: "/tmp/archive",
       client: {
         mcp: {
           status: async () => ({
@@ -253,7 +369,9 @@ describe("OpenWorkExtensionsPreview session tools", () => {
 
     expect(contributions.map((contribution) => contribution.featureId)).toEqual([
       "sessions",
+      "scheduled-tasks",
       "extensions",
+      "artifacts",
       "mcp:notion",
       "connect",
     ]);
@@ -445,6 +563,96 @@ describe("OpenWorkExtensionsPreview session tools", () => {
     ]));
   });
 
+  test("routes artifact code-mode queries and publish commands through the current workspace", async () => {
+    const fake = startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
+
+    const listed = z.object({}).passthrough().parse(JSON.parse(
+      await plugin.tool.openwork_query.execute({
+        id: "artifact.list",
+        args: {},
+      }, { sessionID: "ses_origin" }),
+    ));
+    const published = z.object({}).passthrough().parse(JSON.parse(
+      await plugin.tool.openwork_execute.execute({
+        id: "artifact.publish",
+        args: {
+          artifactId: "launch-radar",
+          expectedProjectRevision: "sha256:project",
+        },
+      }, {
+        sessionID: "ses_origin",
+        messageID: "msg_origin",
+        agent: "build",
+      }),
+    ));
+
+    expect(listed).toMatchObject({
+      ok: true,
+      id: "artifact.list",
+      result: {
+        items: [{ artifactId: "launch-radar" }],
+      },
+      effects: { data: "read", ui: "none", external: false },
+    });
+    expect(published).toMatchObject({
+      ok: true,
+      id: "artifact.publish",
+      result: {
+        protocol: "openwork.ui-artifact-publish-receipt",
+        schemaVersion: 2,
+        attachment: {
+          protocol: "openwork.ui-artifact-attachment",
+          slug: "launch-radar",
+        },
+      },
+      effects: { data: "write", ui: "none", external: false },
+    });
+
+    const publishRequest = fake.requests.find((request) => (
+      request.pathname === "/workspace/ws_2/ui-artifacts/launch-radar/publish"
+    ));
+    expect(publishRequest).toMatchObject({
+      method: "POST",
+      authorization: "Bearer test-token",
+      body: {
+        expectedProjectRevision: "sha256:project",
+        provenance: {
+          createdBy: "agent",
+          agent: "build",
+          sessionId: "ses_origin",
+          messageId: "msg_origin",
+        },
+      },
+    });
+  });
+
+  test("removes artifact guidance and affordances when the managed builder skill is disabled", async () => {
+    startFakeOpenWorkServer({ artifactSkillEnabled: false });
+    const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
+    const system = await transformedSystem(plugin);
+    const context = JSON.parse(await plugin.tool.openwork_context.execute()) as {
+      context?: { contributions?: Array<{ featureId: string }>; managedSkills?: unknown[] };
+      contributions?: Array<{ featureId: string }>;
+      managedSkills?: unknown[];
+    };
+    const queried = JSON.parse(await plugin.tool.openwork_query.execute({
+      id: "artifact.list",
+      args: {},
+    }, { directory: "/tmp/archive" })) as Record<string, unknown>;
+    const contributions = context.context?.contributions ?? context.contributions ?? [];
+    const managedSkills = context.context?.managedSkills ?? context.managedSkills ?? [];
+
+    expect(system).not.toContain("React Artifact Builder");
+    expect(contributions.some((contribution) => contribution.featureId === "artifacts")).toBe(false);
+    expect(managedSkills).toEqual([]);
+    expect(queried).toMatchObject({
+      ok: false,
+      id: "artifact.list",
+      code: "unavailable",
+    });
+  });
+
   test("creates more than twenty sessions in one tool call", async () => {
     const fake = startFakeOpenWorkServer();
     const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
@@ -464,14 +672,67 @@ describe("OpenWorkExtensionsPreview session tools", () => {
     expect(parsed.result.failures).toEqual([]);
     expect(fake.requests.filter((request) => request.pathname === "/workspace/ws_2/sessions" && request.method === "POST")).toHaveLength(21);
   });
+
+  test("proposes only a disabled scheduled task draft through OpenWork", async () => {
+    const fake = startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
+
+    const output = await plugin.tool.openwork_execute.execute({
+      id: "scheduled-task.propose-draft",
+      args: {
+        name: "Daily archive summary",
+        description: "Summarize new archive decisions.",
+        prompt: "Review new decisions and write reports/archive-summary.md.",
+        schedule: {
+          kind: "daily",
+          timezone: "Europe/Berlin",
+          hour: 9,
+          minute: 0,
+        },
+      },
+    }, { sessionID: "ses_origin" });
+    const parsed = affordanceResultSchema(
+      "scheduled-task.propose-draft",
+      scheduledTaskProposalResultSchema,
+    ).parse(JSON.parse(output));
+
+    expect(parsed.result).toMatchObject({
+      taskId: "task_created_1",
+      revisionId: "revision_created_1",
+      workspaceId: "ws_2",
+      state: "draft",
+      enabled: false,
+      reviewed: false,
+      limitation: "Runs while OpenWork is running.",
+      route: "/workspace/ws_2/scheduled-tasks/task_created_1",
+    });
+    const request = fake.requests.find((candidate) => (
+      candidate.pathname === "/workspace/ws_2/scheduled-tasks"
+      && candidate.method === "POST"
+    ));
+    expect(request?.body).toMatchObject({
+      workspaceId: "ws_2",
+      overlapPolicy: "skip",
+      retryPolicy: { maximumAttempts: 1, delayMs: 0 },
+      missedRunPolicy: { kind: "skip", maximumRecoverableOccurrences: 1 },
+    });
+    expect(request?.body).not.toHaveProperty("grant");
+    expect(request?.body).not.toHaveProperty("enabled");
+  });
 });
 
 describe("OpenWorkExtensionsPreview semantic tool surface", () => {
-  test("exposes only the three semantic tools", async () => {
-    const plugin = await OpenWorkExtensionsPreview();
+  test("exposes the three semantic tools plus the bounded workspace writer", async () => {
+    startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview({ directory: "/tmp/archive" });
     const tools = Object.keys(plugin.tool).sort();
 
-    expect(tools).toEqual(["openwork_context", "openwork_execute", "openwork_query"]);
+    expect(tools).toEqual([
+      "openwork_context",
+      "openwork_execute",
+      "openwork_query",
+      SCHEDULED_TASK_SAFE_WRITE_TOOL_ID,
+    ]);
 
     const system = await transformedSystem(plugin);
     expect(system).not.toContain("## Default Skill: skill-creator");
@@ -483,5 +744,70 @@ describe("OpenWorkExtensionsPreview semantic tool surface", () => {
     expect(system).toContain("Use openwork_context");
     expect(system).toContain("session.search");
     expect(system).toContain("browser.open_url");
+    expect(system).toContain("# React Artifact Builder");
+    expect(system).toContain("artifact.publish");
+  });
+
+  test("bounds Scheduled Task writes to ordinary workspace files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openwork-bounded-write-"));
+    temporaryDirectories.push(directory);
+    const plugin = await OpenWorkExtensionsPreview({ directory });
+    const tool = plugin.tool.openwork_workspace_write_file;
+    const permissionRequests: unknown[] = [];
+    const context = {
+      directory,
+      ask: async (input: unknown) => {
+        permissionRequests.push(input);
+      },
+    };
+
+    const result = JSON.parse(await tool.execute(
+      { path: "status.md", content: "bounded report" },
+      context,
+    ));
+    expect(result).toEqual({
+      ok: true,
+      path: "status.md",
+      bytes: 14,
+    });
+    expect(await readFile(join(directory, "status.md"), "utf8")).toBe(
+      "bounded report",
+    );
+    expect(permissionRequests).toEqual([{
+      permission: SCHEDULED_TASK_SAFE_WRITE_TOOL_ID,
+      patterns: ["status.md"],
+      always: [],
+      metadata: { path: "status.md", bytes: 14 },
+    }]);
+
+    await expect(
+      tool.execute({ path: "../outside.md", content: "no" }, context),
+    ).rejects.toThrow("traverse");
+    await expect(
+      tool.execute({ path: ".opencode/config.json", content: "no" }, context),
+    ).rejects.toThrow("control directories");
+  });
+
+  test("uses the session directory instead of a broader engine worktree", async () => {
+    const worktree = await mkdtemp(join(tmpdir(), "openwork-bounded-worktree-"));
+    temporaryDirectories.push(worktree);
+    const directory = join(worktree, "nested-workspace");
+    await mkdir(directory);
+    const plugin = await OpenWorkExtensionsPreview({ directory: worktree, worktree });
+    const tool = plugin.tool.openwork_workspace_write_file;
+
+    await tool.execute(
+      { path: "status.md", content: "nested report" },
+      {
+        directory,
+        worktree,
+        ask: async () => {},
+      },
+    );
+
+    expect(await readFile(join(directory, "status.md"), "utf8")).toBe(
+      "nested report",
+    );
+    await expect(readFile(join(worktree, "status.md"), "utf8")).rejects.toThrow();
   });
 });

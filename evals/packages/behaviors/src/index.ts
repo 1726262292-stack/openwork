@@ -2,3 +2,7 @@ export * from "./den.ts";
 export * from "./desktop.ts";
 export * from "./desktop-boot.ts";
 export * from "./diagnostics.ts";
+export * from "./onboarding.ts";
+export * from "./composer.ts";
+export * from "./models.ts";
+export * from "./skills.ts";

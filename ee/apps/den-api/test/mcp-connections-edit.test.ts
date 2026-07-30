@@ -272,6 +272,93 @@ function oauthConfigurationInApiOrder(
 }
 
 describe.serial("PUT /v1/mcp-connections/:connectionId", () => {
+  test("members and admins can edit their own connections but not connections created by others", async () => {
+    const own = await createConnection({ name: "Admin-owned edit", authType: "none", credentialMode: "shared" })
+    const ownBefore = await currentConnection(own.id)
+    const ownResponse = await humanRequest({
+      connectionId: own.id,
+      body: updateBody(ownBefore, { name: "Admin-owned edit renamed" }),
+    })
+    expect(ownResponse.status).toBe(200)
+    expect(await currentConnection(own.id)).toMatchObject({ name: "Admin-owned edit renamed" })
+
+    const memberOwned = await createConnection({
+      memberId,
+      name: "Member-owned edit",
+      authType: "none",
+      credentialMode: "shared",
+    })
+    const memberBefore = await currentConnection(memberOwned.id)
+    const memberOwnResponse = await humanRequest({
+      connectionId: memberOwned.id,
+      token: memberToken,
+      body: updateBody(memberBefore, { name: "Member-owned edit renamed" }),
+    })
+    expect(memberOwnResponse.status).toBe(200)
+    expect(await currentConnection(memberOwned.id)).toMatchObject({ name: "Member-owned edit renamed" })
+
+    const peerAdminConnection = await createConnection({
+      memberId: peerAdminMemberId,
+      name: "Peer admin edit target",
+      authType: "none",
+      credentialMode: "shared",
+    })
+    const peerBefore = await currentConnection(peerAdminConnection.id)
+    const denied = await humanRequest({
+      connectionId: peerAdminConnection.id,
+      body: updateBody(peerBefore, { name: "Admin should not rename peer" }),
+    })
+    expect(denied.status).toBe(403)
+    expect(await currentConnection(peerAdminConnection.id)).toMatchObject({ name: "Peer admin edit target" })
+
+    const memberDenied = await humanRequest({
+      connectionId: peerAdminConnection.id,
+      token: memberToken,
+      body: updateBody(peerBefore, { name: "Member should not rename peer" }),
+    })
+    expect(memberDenied.status).toBe(403)
+    expect(await currentConnection(peerAdminConnection.id)).toMatchObject({ name: "Peer admin edit target" })
+
+    const peerOwnResponse = await humanRequest({
+      connectionId: peerAdminConnection.id,
+      token: peerAdminToken,
+      body: updateBody(peerBefore, { name: "Peer admin renamed own" }),
+    })
+    expect(peerOwnResponse.status).toBe(200)
+    expect(await currentConnection(peerAdminConnection.id)).toMatchObject({ name: "Peer admin renamed own" })
+  })
+
+  test("super-admins can edit connections created by other admins", async () => {
+    const adminConnection = await createConnection({ name: "Admin connector for super-admin edit", authType: "none", credentialMode: "shared" })
+    const before = await currentConnection(adminConnection.id)
+    const response = await humanRequest({
+      connectionId: adminConnection.id,
+      token: superAdminToken,
+      body: updateBody(before, { name: "Super-admin renamed admin connector" }),
+    })
+    expect(response.status).toBe(200)
+    expect(await currentConnection(adminConnection.id)).toMatchObject({ name: "Super-admin renamed admin connector" })
+  })
+
+  test("store update keeps the creator guard under the row lock", async () => {
+    const guarded = await createConnection({ name: "Guarded update", authType: "none", credentialMode: "shared" })
+    const before = await currentConnection(guarded.id)
+    const result = await connections.updateExternalMcpConnection({
+      organizationId,
+      connectionId: guarded.id,
+      expectedUpdatedAt: before.updatedAt,
+      name: "Guarded update should not change",
+      url: before.url,
+      authType: before.authType,
+      credentialMode: before.credentialMode,
+      access: { orgWide: true, memberIds: [], teamIds: [] },
+      updatedByOrgMembershipId: peerAdminMemberId,
+      createdByOrgMembershipId: peerAdminMemberId,
+    })
+    expect(result.status).toBe("not_found")
+    expect(await currentConnection(guarded.id)).toMatchObject({ name: "Guarded update" })
+  })
+
   test("rename preserves a connected shared OAuth session and client registration", async () => {
     const created = await createConnection({ name: "Shared OAuth", authType: "oauth", credentialMode: "shared" })
     const connectedAt = new Date()

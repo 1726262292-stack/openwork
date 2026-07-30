@@ -6,7 +6,7 @@
 // session-route.tsx as the final step of its decomposition; the route keeps
 // composition, handlers, and JSX.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { Session } from "@opencode-ai/sdk/v2/client";
 
 import {
@@ -63,11 +63,14 @@ import {
   preserveWorkspaceRouteSession,
   removeWorkspaceRouteSession,
   sessionIdForLegacyWorkspaceInference,
+  workspaceScheduledTasksRoute,
+  workspaceExtensionsRoute,
   workspaceSessionRoute,
 } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   developerMode: boolean;
+  workspaceRoute?: "session" | "scheduled-tasks";
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -103,13 +106,21 @@ function withRouteRefreshTimeout<T>(promise: Promise<T>, label: string): Promise
 }
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
-  const { developerMode, onServerSettingsChanged, onHostInfo } = input;
+  const { developerMode, onServerSettingsChanged, onHostInfo, workspaceRoute = "session" } = input;
   const navigate = useNavigate();
+  const location = useLocation();
   const local = useLocal();
   const denAuth = useDenAuth();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
   const selectedSessionId = params.sessionId?.trim() || null;
+  const extensionsRouteActive = /^\/(?:workspace\/[^/]+\/)?extensions(?:\/|$)/.test(location.pathname);
+  const extensionsRoutePath = extensionsRouteActive
+    ? location.pathname
+      .replace(/^\/workspace\/[^/]+\/extensions\/?/, "")
+      .replace(/^\/extensions\/?/, "")
+      .replace(/^\/+|\/+$/g, "")
+    : "";
   const workspaceInferenceSessionId = sessionIdForLegacyWorkspaceInference(routeWorkspaceId, selectedSessionId);
   const navigateToWorkspaceSession = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
     const id = workspaceId.trim();
@@ -119,6 +130,17 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
     navigate(workspaceSessionRoute(id, sessionId), options);
   }, [navigate]);
+  const normalizeWorkspaceRoute = useCallback((workspaceId: string, sessionId?: string | null, options?: { replace?: boolean }) => {
+    if (extensionsRouteActive) {
+      navigate(workspaceExtensionsRoute(workspaceId, extensionsRoutePath), options);
+      return;
+    }
+    if (workspaceRoute === "scheduled-tasks") {
+      navigate(workspaceScheduledTasksRoute(workspaceId), options);
+      return;
+    }
+    navigateToWorkspaceSession(workspaceId, sessionId, options);
+  }, [extensionsRouteActive, extensionsRoutePath, navigate, navigateToWorkspaceSession, workspaceRoute]);
 
   const { markRouteReady: markBootRouteReady } = useBootState();
   const [loading, setLoading] = useState(true);
@@ -754,17 +776,19 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         ? legacySelectedWorkspaceId
         : workspaces[0]?.id || "";
       if (fallbackWorkspaceId) {
-        navigateToWorkspaceSession(fallbackWorkspaceId, selectedSessionId, { replace: true });
+        normalizeWorkspaceRoute(fallbackWorkspaceId, selectedSessionId, { replace: true });
       }
       return;
     }
     if (!routeWorkspaceId && selectedWorkspaceId) {
-      navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
+      normalizeWorkspaceRoute(selectedWorkspaceId, selectedSessionId, { replace: true });
     }
   }, [
+    extensionsRouteActive,
+    extensionsRoutePath,
     loading,
     legacySelectedWorkspaceId,
-    navigateToWorkspaceSession,
+    normalizeWorkspaceRoute,
     routeWorkspaceId,
     selectedSessionId,
     selectedWorkspaceId,

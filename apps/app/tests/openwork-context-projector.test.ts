@@ -73,6 +73,24 @@ describe("OpenWork context projector", () => {
     expect(context.sidePanel.tabs).toEqual([]);
     expect(context.sidePanel.activeTabId).toBeNull();
   });
+
+  test("projects the UI artifact catalog as an agent-visible side panel", () => {
+    const context = buildOpenworkContext({
+      ...baseInput,
+      ui: {
+        ...baseInput.ui,
+        sidePanelState: { "session-b": "ui-artifacts" },
+      },
+    });
+
+    expect(context.sidePanel).toEqual({
+      open: true,
+      ownerSessionId: "session-b",
+      kind: "ui-artifacts",
+      tabs: [],
+      activeTabId: null,
+    });
+  });
 });
 
 const splitWorkbench: WorkbenchSnapshot = {
@@ -181,6 +199,31 @@ describe("OpenWork context projector", () => {
     expect(screenFromRoute("/settings/extensions")).toMatchObject({
       kind: "settings",
       panel: "extensions",
+    });
+    expect(screenFromRoute("/workspace/workspace-a/scheduled-tasks/task-a")).toEqual({
+      kind: "scheduled-tasks",
+      route: "/workspace/workspace-a/scheduled-tasks/task-a",
+      workspaceId: "workspace-a",
+      taskId: "task-a",
+    });
+  });
+
+  test("projects a Scheduled Task as an OpenWork-owned resource", () => {
+    const context = contextForRoute(
+      "/workspace/workspace-a/scheduled-tasks/task-a",
+    );
+
+    expect(context.screen).toMatchObject({
+      kind: "scheduled-tasks",
+      workspaceId: "workspace-a",
+      taskId: "task-a",
+    });
+    expect(
+      context.resources.find((resource) => resource.ref === "scheduled-task:task-a"),
+    ).toMatchObject({
+      kind: "scheduled-task",
+      title: "task-a",
+      state: { taskId: "task-a", workspaceId: "workspace-a" },
     });
   });
 });
