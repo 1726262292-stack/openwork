@@ -134,7 +134,9 @@ export async function createLocalWorkspaceViaUi(
     // poll patiently rather than assuming a hang.
     { timeoutMs: 240_000, label: "local OpenWork server credentials" },
   );
-  const raw = await evalIn(app, `(async () => {
+  // Poll instead of one long call: the renderer blocks intermittently while the
+  // workspace runtime boots, so a single evaluation can be caught mid-block.
+  const raw = await waitFor(app, `(async () => {
     const port = localStorage.getItem("openwork.server.port");
     const token = localStorage.getItem("openwork.server.token");
     const hostToken = localStorage.getItem("openwork.server.hostToken");
@@ -143,6 +145,7 @@ export async function createLocalWorkspaceViaUi(
     const response = await fetch("http://127.0.0.1:" + port + "/workspaces", { headers });
     const payload = await response.json().catch(() => null);
     const list = payload?.workspaces ?? payload?.items ?? [];
+    if (!Array.isArray(list) || list.length === 0) return null;
     const workspace = list.find((candidate) => candidate.path === ${JSON.stringify(input.path)}) ?? list[0];
     return {
       id: workspace?.id ?? "",
@@ -151,6 +154,6 @@ export async function createLocalWorkspaceViaUi(
       route: location.hash,
       entrypoint: ${JSON.stringify(entrypoint)},
     };
-  })()`, { awaitPromise: true, timeoutMs: 30_000 });
+  })()`, { awaitPromise: true, timeoutMs: 180_000, label: "created workspace record" });
   return parseWorkspaceFacts(raw);
 }
