@@ -69,7 +69,7 @@ async function createTask(app: Surface): Promise<void> {
   if (typeof value !== "object" || value === null || Reflect.get(value, "ok") !== true) {
     throw new Error(`session.create_task failed: ${JSON.stringify(value)}`);
   }
-  await waitFor(app, `/^#\/workspace\/[^/?#]+\/session\/ses_[^/?#]+/.test(window.location.hash)`, {
+  await waitFor(app, `window.location.hash.includes("/session/ses_")`, {
     timeoutMs: 60_000,
     label: "created first-run task session",
   });

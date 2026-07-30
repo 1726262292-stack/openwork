@@ -92,7 +92,7 @@ export async function measureLoadedSkills(app: Surface): Promise<SkillsLoadFacts
           rowCount: rows.length,
           skills: rows.map((button) => {
             const label = (button.textContent ?? "").replace(/\\s+/g, " ").trim();
-            return { name: label.split(/\\s+/)[0], label, local: label.includes("Local") };
+            return { name: (label.match(/^\\/[a-z0-9-]+/) ?? [label])[0], label, local: label.includes("Local") };
           }),
           loadingCommandsVisible: document.body.innerText.includes("Loading commands"),
         });
@@ -181,7 +181,7 @@ export async function measureSkillsWithSlowCloud(app: Surface): Promise<SlowClou
                 rowCount: rows.length,
                 skills: rows.map((button) => {
                   const label = (button.textContent ?? "").replace(/\\s+/g, " ").trim();
-                  return { name: label.split(/\\s+/)[0], label, local: label.includes("Local") };
+                  return { name: (label.match(/^\\/[a-z0-9-]+/) ?? [label])[0], label, local: label.includes("Local") };
                 }),
                 loadingCommandsVisible: document.body.innerText.includes("Loading commands"),
                 denRequestCount: window.__denFetchLog.length,
