@@ -17,7 +17,7 @@ import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 
 const optedIn = process.env.OPENWORK_EVAL_APP_SPECS === "1";
 const title = optedIn
-  ? "a desktop pointed at a TLS-broken Den says so instead of spinning"
+  ? "a desktop pointed at a TLS-intercepted Den never claims it is connected, and diagnostics name the interception"
   : "app + TLS-broken Den skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in";
 
 test.skipIf(!optedIn)(title, async () => {
