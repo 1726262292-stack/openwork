@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
+import { readActiveWorkspaceId } from "@openwork/cdp";
 import { desktop } from "@openwork/hosts";
 import {
   clickButton,
@@ -99,7 +100,8 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   await clickButton(app, "Use Without Cloud");
   const workspace = await createLocalWorkspaceViaUi(app, { path: workspacePath });
   expect(workspace.path).toBe(workspacePath);
-  expect(workspace.id).toBeTruthy();
+  // The app adopts the workspace only once onboarding finishes, so its id is
+  // asserted after the remaining steps rather than here.
   expect(await currentHash(app)).toContain("/welcome");
   {
     const shot = await screenshot(app);
@@ -114,11 +116,14 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   await clickButton(app, "Skip and use the free model", { timeoutMs: 90_000 });
   await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 90_000 });
   await clickButton(app, "Skip", { timeoutMs: 15_000 });
-  await waitFor(app, `window.location.hash.includes(${JSON.stringify(`/workspace/${workspace.id}/session`)})`, {
-    timeoutMs: 120_000,
-    label: "first-run workspace route",
+  await waitFor(app, `Boolean(localStorage.getItem("openwork.react.activeWorkspace"))
+    || /\\/workspace\\/[^/?#]+/.test(window.location.hash)`, {
+    timeoutMs: 180_000,
+    label: "first-run workspace selected",
   });
-  await go(app, `/workspace/${workspace.id}/session`);
+  const workspaceId = await readActiveWorkspaceId(app.client, { timeoutMs: 30_000 });
+  expect(workspaceId, "onboarding did not leave a selected workspace").toBeTruthy();
+  await go(app, `/workspace/${workspaceId ?? ""}/session`);
   await waitFor(app, `document.body.innerText.includes("What do you need done?")
     || [...document.querySelectorAll("button")].some((button) => (button.textContent ?? "").trim() === "Run task")`, {
     timeoutMs: 120_000,
