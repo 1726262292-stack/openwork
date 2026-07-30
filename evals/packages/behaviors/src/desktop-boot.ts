@@ -1,10 +1,35 @@
+import { readActiveWorkspaceId } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import type { DenRef, DenSession } from "./den.ts";
 import { createDesktopHandoffGrant } from "./den.ts";
-import { clickButton, control, currentHash, evalIn, go, waitFor, waitForText } from "./desktop.ts";
+import { clickButton, control, currentHash, evalIn, go, waitFor, waitForText, waitUntilInteractive } from "./desktop.ts";
 import { createLocalWorkspaceViaUi } from "./onboarding.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function messageText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function waitForDenState(
+  app: Surface,
+  den: DenRef,
+  expression: string,
+  options: { timeoutMs: number; label: string },
+): Promise<void> {
+  try {
+    await waitFor(app, expression, options);
+  } catch (error) {
+    const keys = await evalIn(
+      app,
+      "Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter(Boolean).sort()",
+      { timeoutMs: 5_000 },
+    ).catch((keysError: unknown) => [`<unavailable: ${messageText(keysError)}>`]);
+    throw new Error(
+      `${messageText(error)} Resolved Den URLs: web=${den.webUrl}, api=${den.apiUrl}. Current localStorage keys: ${JSON.stringify(keys)}.`,
+    );
+  }
+}
 
 export interface SelectedWorkspaceFacts {
   workspaceId: string;
@@ -18,11 +43,11 @@ export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSess
   });
   const grant = await createDesktopHandoffGrant(member);
   await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl });
-  await waitFor(app, "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
+  await waitForDenState(app, den, "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
     timeoutMs: 45_000,
     label: "persisted den auth token",
   });
-  await waitFor(app, "Boolean((localStorage.getItem('openwork.den.activeOrgId') ?? '').trim())", {
+  await waitForDenState(app, den, "Boolean((localStorage.getItem('openwork.den.activeOrgId') ?? '').trim())", {
     timeoutMs: 60_000,
     label: "active org resolved",
   });
@@ -69,6 +94,13 @@ async function waitForTaskUi(app: Surface, workspaceId: string): Promise<string>
   return currentHash(app);
 }
 
+/** The active workspace id from the product's own state, with the route as fallback. */
+async function resolveWorkspaceId(app: Surface): Promise<string> {
+  const fromState = await readActiveWorkspaceId(app.client, { timeoutMs: 30_000 }).catch(() => null);
+  if (fromState) return fromState;
+  return workspaceIdFromRoute(await currentHash(app));
+}
+
 export async function createAndSelectWorkspace(
   app: Surface,
   input: { path: string },
@@ -77,13 +109,13 @@ export async function createAndSelectWorkspace(
   const route = await currentHash(app);
   if (route.includes("/welcome")) {
     const workspace = await createLocalWorkspaceViaUi(app, input);
-    workspaceId = workspace.id;
+    workspaceId = workspace.id || (await resolveWorkspaceId(app));
     await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
     await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
     await clickButton(app, "Skip", { timeoutMs: 15_000 });
   } else {
     if (route.includes("/onboarding")) await completeOrganizationOnboarding(app);
-    workspaceId = workspaceIdFromRoute(await currentHash(app));
+    workspaceId = await resolveWorkspaceId(app);
     if (!workspaceId) {
       await waitFor(app, `window.__openworkControl.listActions()
         .some((action) => action.id === "workspace.create" && !action.disabled)`, {
@@ -91,13 +123,20 @@ export async function createAndSelectWorkspace(
         label: "workspace.create enabled",
       });
       await control(app, "workspace.create", input);
-      await waitFor(app, "/\\/workspace\\/[^/?#]+\\/session/.test(window.location.hash)", {
+      // The app does not always put a new workspace in the hash, so wait for its
+      // own active-workspace state to settle instead of matching a route shape.
+      await waitFor(app, `Boolean(localStorage.getItem("openwork.react.activeWorkspace"))
+        || /\\/workspace\\/[^/?#]+/.test(window.location.hash)`, {
         timeoutMs: 120_000,
-        label: "created workspace route",
+        label: "created workspace selected",
       });
-      workspaceId = workspaceIdFromRoute(await currentHash(app));
+      workspaceId = await resolveWorkspaceId(app);
     }
   }
   if (!workspaceId) throw new Error("Workspace creation did not produce a workspace ID.");
-  return { workspaceId, route: await waitForTaskUi(app, workspaceId) };
+  const taskRoute = await waitForTaskUi(app, workspaceId);
+  // The task UI can be mounted while the panel still renders placeholders, so
+  // hand back only once the app is actually interactive.
+  await waitUntilInteractive(app);
+  return { workspaceId, route: taskRoute };
 }
