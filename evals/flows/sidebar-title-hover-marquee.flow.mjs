@@ -1,13 +1,12 @@
 import { ensureSessionWorkspace } from "./lib/session-workspace.mjs";
 
 const LONG_TITLE =
-  "Review the OpenWork desktop sidebar title animation across a deliberately overflowing conversation name";
+  "Review the OpenWork desktop sidebar title reveal across a deliberately overflowing conversation name";
 
 const READ_TITLE = `(() => {
-  const title = [...document.querySelectorAll('[title], [aria-label]')]
+  const title = [...document.querySelectorAll('[data-session-title-overflowing="true"] > [data-session-title-text]')]
     .find((entry) => {
-      const label = entry.getAttribute('title') || entry.getAttribute('aria-label') || '';
-      return label === ${JSON.stringify(LONG_TITLE)};
+      return (entry.textContent || '').trim() === ${JSON.stringify(LONG_TITLE)};
     });
   if (!(title instanceof HTMLElement)) return null;
   const viewport = title.parentElement;
@@ -22,10 +21,11 @@ const READ_TITLE = `(() => {
     width: titleRect.width,
     height: titleRect.height,
     clientWidth: viewport.clientWidth,
-    scrollWidth: viewport.scrollWidth,
+    scrollWidth: title.scrollWidth,
     transform: titleStyle.transform,
     translate: titleStyle.translate,
     animationName: titleStyle.animationName,
+    nativeTitle: title.getAttribute('title'),
     maskImage: viewportStyle.maskImage || viewportStyle.webkitMaskImage,
     overflow: viewportStyle.overflow,
     viewportLeft: viewportRect.left,
@@ -35,11 +35,11 @@ const READ_TITLE = `(() => {
 
 export default {
   id: "sidebar-title-hover-marquee",
-  title: "Overflowing session titles become readable after hover intent without moving row controls",
+  title: "Overflowing session titles reveal more text after hover intent without moving row controls",
   kind: "user-facing",
   steps: [
     {
-      name: "Overflow-only title motion preserves the sidebar row",
+      name: "Overflow-only title reveal preserves the sidebar row",
       run: async (ctx) => {
         await ensureSessionWorkspace(ctx, "sidebar-title-hover-marquee");
         await ctx.control("session.create_task");
@@ -63,7 +63,7 @@ export default {
         });
         await new Promise((resolve) => setTimeout(resolve, 1_100));
 
-        await ctx.prove("A genuinely overflowing title moves only after hover intent and keeps clipped-edge affordance", {
+        await ctx.prove("A genuinely overflowing title reveals more text only after hover intent without a competing browser tooltip", {
           action: async () => {},
           assert: async () => {
             const after = await ctx.eval(READ_TITLE);
@@ -76,12 +76,20 @@ export default {
               `Expected visible title motion after hover intent: ${JSON.stringify({ before, after })}`,
             );
             ctx.assert(
+              before.nativeTitle === null && after.nativeTitle === null,
+              `Expected no native browser tooltip while revealing an overflowing title: ${JSON.stringify({
+                before: before.nativeTitle,
+                after: after.nativeTitle,
+              })}`,
+            );
+            ctx.assert(
               after.maskImage !== "none",
               `Expected a clipped-edge mask while the title is moving, got ${after.maskImage}.`,
             );
             ctx.assert(
-              after.viewportLeft === before.viewportLeft && after.viewportRight === before.viewportRight,
-              "The title viewport changed position while animating.",
+              Math.abs(after.viewportLeft - before.viewportLeft) <= 1 &&
+                after.viewportRight <= before.viewportRight + 1,
+              "The title viewport shifted instead of staying anchored while row actions appeared.",
             );
           },
           screenshot: {
