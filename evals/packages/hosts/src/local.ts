@@ -433,6 +433,10 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
       const env: NodeJS.ProcessEnv = { ...process.env, ...isolationEnv, ...opts.env };
       const launchArgs = containerLaunchArgs(env.ELECTRON_EXTRA_LAUNCH_ARGS);
       if (launchArgs !== undefined) env.ELECTRON_EXTRA_LAUNCH_ARGS = launchArgs;
+      // appendSwitch() in the main process runs too late for the SUID sandbox
+      // check (it aborts in a child before our JS switches apply), so disable
+      // the sandbox at process start the way Electron documents.
+      if (insideContainerSandbox()) env.ELECTRON_DISABLE_SANDBOX = "1";
       const logPath = join(profileRoot, "electron.log");
       log(`Starting local Electron surface ${name} (Vite :${port}, CDP :${cdpPort})...`);
       const spawned = spawnDetached(pnpmCommand(), ["dev:electron"], { cwd: options.repoRoot, env, logPath });
