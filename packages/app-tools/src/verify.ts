@@ -34,6 +34,17 @@ export type VerifyOptions = {
   expectedAppId?: string
   /** Expected version from the candidate. */
   expectedVersion?: string
+  /**
+   * Digest of the repository manifest the user actually reviewed, pinned by the
+   * install candidate.
+   *
+   * The reviewed document is the one that governs. A package that ships a
+   * different manifest — different permissions, contributions, entrypoints, or
+   * privacy disclosure — is a mismatch, not a preference, so the package must
+   * carry a byte-identical copy of what the review screen showed. Without this
+   * the review screen and the grant read two different documents.
+   */
+  expectedManifestDigest?: string
   /** When supplied, engine, App API, and platform compatibility are enforced. */
   host?: HostEnvironment
 }
@@ -150,8 +161,19 @@ export function verifyPackage(archive: Uint8Array, options: VerifyOptions = {}):
   }
   if (diagnostics.length > 0) return { ok: false, diagnostics }
 
-  if (metadata.manifest_digest !== digest(manifestBytes)) {
+  const manifestDigest = digest(manifestBytes)
+  if (metadata.manifest_digest !== manifestDigest) {
     return fail("package.manifest_mismatch", "the manifest does not match the digest in the package metadata")
+  }
+
+  // The reviewed manifest governs. Compare before parsing, so a package whose
+  // manifest disagrees with the repository cannot reach permission extraction.
+  if (options.expectedManifestDigest !== undefined && options.expectedManifestDigest !== manifestDigest) {
+    return fail(
+      "package.manifest_divergence",
+      "the manifest inside the package is not the manifest that was reviewed",
+      "The package must ship the same openwork.app.json that the repository declares at this commit.",
+    )
   }
 
   const validation = validateManifest(Buffer.from(manifestBytes).toString("utf8"))

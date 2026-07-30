@@ -446,3 +446,80 @@ describe("environment requirements", () => {
     }, "environment.duplicate_key")
   })
 })
+
+// Every URL in a manifest is attacker-controlled, and the trust screen renders
+// some of them as links. The scheme is not the manifest's to choose.
+describe("manifest URLs are https only", () => {
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "file:///etc/passwd",
+    "vbscript:msgbox(1)",
+    "http://example.com/docs",
+    " https://example.com/docs",
+    "HTTPS://example.com/docs",
+  ]) {
+    test(`docs_url rejects ${JSON.stringify(url)}`, () => {
+      expectRejected((manifest) => {
+        manifest.environment.required = [
+          { key: "OPENAI_API_KEY", label: "OpenAI API key", docs_url: url },
+        ]
+      }, "manifest.invalid_field")
+    })
+  }
+
+  test("an https docs_url is accepted", () => {
+    const manifest = compiled((draft) => {
+      draft.environment.required = [
+        {
+          key: "OPENAI_API_KEY",
+          label: "OpenAI API key",
+          docs_url: "https://platform.openai.com/api-keys",
+        },
+      ]
+    })
+    expect(manifest.environment.required[0]?.docs_url).toBe("https://platform.openai.com/api-keys")
+  })
+
+  test("a publisher url must be https too", () => {
+    expectRejected((manifest) => {
+      manifest.publisher = { name: "OpenWork Labs", url: "javascript:alert(1)" }
+    }, "manifest.invalid_field")
+  })
+})
+
+// `network.host` is the allowlist the sandbox enforces, so an entry is a grant to
+// reach something. Loopback reaches OpenWork's own server, a private range reaches
+// the user's LAN, and 169.254.169.254 reaches cloud instance metadata.
+describe("network.host cannot name the user's own machine or network", () => {
+  for (const host of [
+    "127.0.0.1",
+    "0.0.0.0",
+    "10.0.0.5",
+    "192.168.1.1",
+    "169.254.169.254",
+    "app.localhost",
+    "printer.local",
+    "metadata.internal",
+    "db.home.arpa",
+  ]) {
+    test(`rejects ${host}`, () => {
+      expectRejected((manifest) => {
+        manifest.permissions = [{ id: "network.host", reason: "Reach it.", hosts: [host] }]
+      }, "manifest.invalid_field")
+    })
+  }
+
+  test("a public hostname is still accepted", () => {
+    const manifest = compiled((draft) => {
+      draft.permissions = [
+        ...draft.permissions.filter((entry) => entry.id !== "network.host"),
+        { id: "network.host", reason: "Reach the model.", hosts: ["api.openai.com"] },
+      ]
+      draft.privacy.third_parties = [
+        { name: "OpenAI", host: "api.openai.com", purpose: "Inference." },
+      ]
+    })
+    expect(manifest.permissions.some((entry) => entry.id === "network.host")).toBe(true)
+  })
+})

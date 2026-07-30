@@ -41,6 +41,36 @@ export const githubRepositoryUrlSchema = z
     "repository must be an https github.com owner/name URL with no trailing path",
   )
 
+/**
+ * An `https:` URL, and nothing else.
+ *
+ * `z.url()` accepts every scheme the WHATWG parser understands — including
+ * `javascript:`, `data:` and `file:` — and tolerates leading whitespace. Every
+ * URL in a manifest is attacker-controlled and ends up rendered as a link on the
+ * trust screen or handed to the OS opener, so the manifest does not get to
+ * choose the scheme.
+ */
+export function httpsUrl(maxLength: number) {
+  return z
+    .string()
+    .max(maxLength)
+    // Both checks are deliberate. `z.toJSONSchema` drops refinements but keeps a
+    // pattern, so the regex is what the published schema can still enforce for a
+    // third-party editor; the refine is the authoritative check here, catching
+    // URLs the pattern admits but the parser rejects.
+    .regex(/^https:\/\/[^\s]+$/, "must be an https:// URL")
+    .refine(
+      (value) => {
+        try {
+          return new URL(value).protocol === "https:"
+        } catch {
+          return false
+        }
+      },
+      { message: "must be an https:// URL" },
+    )
+}
+
 const versionWindowSchema = z
   .object({
     min: semver,
@@ -65,7 +95,7 @@ const environmentRequirementSchema = z
       ),
     label: z.string().min(1).max(64),
     description: z.string().min(1).max(280).optional(),
-    docs_url: z.url().max(255).optional(),
+    docs_url: httpsUrl(255).optional(),
   })
   .strict()
 
@@ -147,7 +177,7 @@ const entrypointsSchema = z
 const publisherSchema = z
   .object({
     name: z.string().min(1).max(96),
-    url: z.url().max(255).optional(),
+    url: httpsUrl(255).optional(),
     /**
      * Publisher identity is unverified in v1. It is displayed as a claim from
      * the repository, never as an attested identity.

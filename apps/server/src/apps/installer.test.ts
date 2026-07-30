@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  permissionKey,
   stringifyJsonCanonical,
   type AppManifest,
   type AppPermission,
@@ -89,16 +90,29 @@ function manifest(overrides: Partial<AppManifest> = {}): AppManifest {
   };
 }
 
-function buildPackage(source: AppManifest, commit = COMMIT_A) {
+/**
+ * Pack a release.
+ *
+ * `packagedManifest` is what goes *inside* the archive, and it defaults to the
+ * repository manifest because that is the honest case. Passing a different one is
+ * how a test plays a publisher whose shipped bytes disagree with the manifest the
+ * review screen read — and that divergence is exactly what every test here used
+ * to be unable to express, because one object was packed and served.
+ */
+function buildPackage(
+  source: AppManifest,
+  commit = COMMIT_A,
+  packagedManifest: AppManifest = source,
+) {
   const files = new Map<string, Uint8Array>([
     ["assets/icon.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')],
     ["dist/index.html", Buffer.from("<!doctype html><title>Station</title>")],
   ]);
-  const manifestText = stringifyJsonCanonical(source);
+  const manifestText = stringifyJsonCanonical(packagedManifest);
   const result = packApp({
     manifestText,
     files,
-    source: { repository: REPO, release_tag: `v${source.version}`, commit },
+    source: { repository: REPO, release_tag: `v${packagedManifest.version}`, commit },
   });
   if (!result.ok) {
     throw new Error(`fixture failed to pack: ${result.diagnostics.map((d) => d.message).join("; ")}`);
@@ -223,6 +237,76 @@ async function previewAndInstall(h: Harness) {
     approvedPermissions: preview.manifest.permissions,
   });
 }
+
+// The manifest the user reviews comes from the repository at the pinned commit;
+// the manifest inside the package is a separate document the publisher controls.
+// If nothing binds them, the review screen shows one permission set and the
+// installer grants another, and every other guarantee in this file is decoration.
+describe("the reviewed manifest is the manifest that governs", () => {
+  const benign = () => manifest();
+  const hostile = () =>
+    manifest({
+      permissions: [
+        { id: "storage.app", reason: "Remember cards.", quota_bytes: 1024 },
+        { id: "audio.microphone", reason: "Listen." },
+        {
+          id: "openwork.connect.read",
+          reason: "Read mail.",
+          scopes: ["gmail.search", "slack.search"],
+        },
+        { id: "network.host", reason: "Phone home.", hosts: ["attacker.example"] },
+      ],
+      privacy: {
+        summary: "Nothing leaves the machine.",
+        data_handled: ["microphone-audio", "connected-source-content"],
+        retention: { policy: "none", description: "Nothing is kept." },
+        third_parties: [],
+      },
+    });
+
+  test("a package whose manifest declares extra permissions is refused at preview", async () => {
+    const h = await harness();
+    const repo = benign();
+    const built = buildPackage(repo, COMMIT_A, hostile());
+    h.state.manifest = repo;
+    h.state.manifestText = stringifyJsonCanonical(repo);
+    h.state.archive = built.archive;
+    h.state.assetName = built.assetName;
+
+    await expect(h.installer.preview({ repositoryUrl: REPO })).rejects.toThrow(/verification/i);
+  });
+
+  test("the divergence is reported as a manifest divergence, not a generic failure", async () => {
+    const h = await harness();
+    const repo = benign();
+    const built = buildPackage(repo, COMMIT_A, hostile());
+    h.state.manifestText = stringifyJsonCanonical(repo);
+    h.state.archive = built.archive;
+    h.state.assetName = built.assetName;
+
+    const error = await h.installer.preview({ repositoryUrl: REPO }).catch((thrown) => thrown);
+    const codes = (error.diagnostics ?? []).map((d: { code: string }) => d.code);
+    expect(codes).toContain("package.manifest_divergence");
+  });
+
+  test("a package that agrees with the repository installs normally", async () => {
+    const h = await harness();
+    const record = await previewAndInstall(h);
+    expect(record.granted_permissions.map((entry) => entry.id)).toEqual(["storage.app"]);
+  });
+
+  test("the grant equals what preview displayed, permission for permission", async () => {
+    const h = await harness();
+    const preview = await h.installer.preview({ repositoryUrl: REPO });
+    const record = await h.installer.install({
+      candidateId: preview.candidateId,
+      approvedPermissions: preview.manifest.permissions,
+    });
+    expect(record.granted_permissions.map(permissionKey).sort()).toEqual(
+      preview.permissions.map((entry) => permissionKey(entry.permission)).sort(),
+    );
+  });
+});
 
 describe("repository URL parsing", () => {
   test("it accepts what a user actually pastes", () => {

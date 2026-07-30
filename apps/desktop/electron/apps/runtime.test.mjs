@@ -236,6 +236,10 @@ function fakeElectron() {
   const windows = []
   const registered = new Set()
   const sessions = new Map()
+  /** Registered accelerator -> its callback, so tests can fire a real press. */
+  const handlers = new Map()
+  /** Mutable knobs a test can set before driving the supervisor. */
+  const control = { nextLoadError: null }
 
   const electron = {
     session: {
@@ -275,11 +279,14 @@ function fakeElectron() {
         if (registered.has(accelerator)) return false
         registered.add(accelerator)
         events.push(`register:${accelerator}`)
-        void handler
+        // Keep the callback so a test can fire the accelerator the way Electron
+        // would. Discarding it made every assertion about gesture minting vacuous.
+        handlers.set(accelerator, handler)
         return true
       },
       unregister(accelerator) {
         registered.delete(accelerator)
+        handlers.delete(accelerator)
         events.push(`unregister:${accelerator}`)
       },
     },
@@ -306,6 +313,11 @@ function fakeElectron() {
           events.push("destroy")
         },
         async loadURL(url) {
+          if (control.nextLoadError) {
+            const error = control.nextLoadError
+            control.nextLoadError = null
+            throw error
+          }
           window.loaded = url
         },
       }
@@ -319,7 +331,7 @@ function fakeElectron() {
       events.push(`stopCapture:${appId}`)
     },
   }
-  return { electron, events, windows, registered, sessions }
+  return { electron, events, windows, registered, sessions, control, handlers }
 }
 
 const PLAN = {
@@ -424,11 +436,14 @@ test("the session denies every permission except a granted microphone", async ()
   const session = fake.sessions.get(`persist:openwork-app-${APP}`)
 
   const answers = []
-  session.handlers.request({}, "media", (allowed) => answers.push(["media", allowed]))
-  session.handlers.request({}, "geolocation", (allowed) => answers.push(["geolocation", allowed]))
-  session.handlers.request({}, "notifications", (allowed) => answers.push(["notifications", allowed]))
-  session.handlers.request({}, "display-capture", (allowed) => answers.push(["display-capture", allowed]))
-  session.handlers.request({}, "clipboard-read", (allowed) => answers.push(["clipboard-read", allowed]))
+  const ask = (permission, details) =>
+    session.handlers.request({}, permission, (allowed) => answers.push([permission, allowed]), details)
+
+  ask("media", { mediaTypes: ["audio"] })
+  ask("geolocation")
+  ask("notifications")
+  ask("display-capture")
+  ask("clipboard-read")
 
   assert.deepEqual(answers, [
     ["media", true],
@@ -440,6 +455,34 @@ test("the session denies every permission except a granted microphone", async ()
   assert.equal(session.handlers.device(), false)
 })
 
+// Electron folds the microphone and the camera into one `media` permission, and
+// the vocabulary has no camera permission at all — so the microphone grant must
+// not carry video with it.
+test("a granted microphone does not also grant the camera", async () => {
+  const fake = fakeElectron()
+  const runtime = supervisor(fake)
+  await runtime.start(APP, PLAN)
+  const session = fake.sessions.get(`persist:openwork-app-${APP}`)
+
+  const decide = (details) => {
+    let allowed = null
+    session.handlers.request({}, "media", (value) => {
+      allowed = value
+    }, details)
+    return allowed
+  }
+
+  assert.equal(decide({ mediaTypes: ["audio"] }), true)
+  assert.equal(decide({ mediaTypes: ["video"] }), false)
+  assert.equal(decide({ mediaTypes: ["audio", "video"] }), false)
+  // A request Electron cannot describe may include video, so it is refused.
+  assert.equal(decide(undefined), false)
+  assert.equal(decide({ mediaType: "unknown" }), false)
+  // The check handler reports a single `mediaType` rather than an array.
+  assert.equal(session.handlers.check({}, "media", "openwork-app://x", { mediaType: "video" }), false)
+  assert.equal(session.handlers.check({}, "media", "openwork-app://x", { mediaType: "audio" }), true)
+})
+
 test("an app without the microphone permission is denied media", async () => {
   const fake = fakeElectron()
   const runtime = supervisor(fake)
@@ -448,7 +491,7 @@ test("an app without the microphone permission is denied media", async () => {
   let allowed = null
   session.handlers.request({}, "media", (value) => {
     allowed = value
-  })
+  }, { mediaTypes: ["audio"] })
   assert.equal(allowed, false)
 })
 
@@ -497,20 +540,73 @@ test("a global shortcut is the only thing that mints a gesture", async () => {
   const gestures = []
   const runtime = supervisor(fake, { onGesture: (appId, id) => gestures.push([appId, id]) })
   await runtime.start(APP, PLAN)
-  // Fire the registered accelerator's handler the way Electron would.
-  const handler = fake.electron.globalShortcut.register
-  void handler
+
+  // Nothing has been pressed yet.
+  assert.equal(gestures.length, 0)
+
+  // Fire the registered accelerator the way Electron would.
+  fake.handlers.get("CommandOrControl+Shift+Space")()
+  assert.deepEqual(gestures, [[APP, "toggle"]])
+
+  // Opening a surface is not a user gesture, so it must not mint one.
+  await runtime.openSurface(APP, SURFACE, DISPLAY)
+  assert.equal(gestures.length, 1)
+})
+
+test("an unregistered shortcut cannot mint a gesture after teardown", async () => {
+  const fake = fakeElectron()
+  const gestures = []
+  const runtime = supervisor(fake, { onGesture: (appId, id) => gestures.push([appId, id]) })
+  await runtime.start(APP, PLAN)
+  await runtime.stop(APP)
+
+  // Teardown unregisters the accelerator, so Electron would never call back.
+  assert.equal(fake.handlers.has("CommandOrControl+Shift+Space"), false)
   assert.equal(gestures.length, 0)
 })
 
-test("an external link opens in the browser instead of inside the sandbox", async () => {
+test("an external link to a granted host opens in the browser, not the sandbox", async () => {
   const fake = fakeElectron()
   const runtime = supervisor(fake)
   await runtime.start(APP, PLAN)
   await runtime.openSurface(APP, SURFACE, DISPLAY)
-  const decision = fake.windows[0].openHandler({ url: "https://example.com/docs" })
+  const decision = fake.windows[0].openHandler({ url: "https://api.openai.com/docs" })
   assert.deepEqual(decision, { action: "deny" })
-  assert.ok(fake.events.includes("external:https://example.com/docs"))
+  assert.ok(fake.events.includes("external:https://api.openai.com/docs"))
+})
+
+// Handing a URL to the user's browser is still egress on the app's behalf, so
+// `window.open` must not be a way around the host grant.
+test("an external link to an ungranted host is not opened at all", async () => {
+  const fake = fakeElectron()
+  const runtime = supervisor(fake)
+  await runtime.start(APP, PLAN)
+  await runtime.openSurface(APP, SURFACE, DISPLAY)
+
+  for (const url of [
+    "https://attacker.example/collect?q=secret",
+    "https://api.openai.com.attacker.example/x",
+    "https://API.OPENAI.COM.attacker.example/x",
+    "http://api.openai.com/insecure",
+    "file:///etc/passwd",
+    "javascript:alert(1)",
+  ]) {
+    const decision = fake.windows[0].openHandler({ url })
+    assert.deepEqual(decision, { action: "deny" })
+    assert.ok(
+      !fake.events.some((event) => event.startsWith("external:")),
+      `${url} must not reach the browser`,
+    )
+  }
+})
+
+test("an app with no network grant cannot open anything externally", async () => {
+  const fake = fakeElectron()
+  const runtime = supervisor(fake)
+  await runtime.start(APP, { ...PLAN, allowedHosts: [] })
+  await runtime.openSurface(APP, SURFACE, DISPLAY)
+  fake.windows[0].openHandler({ url: "https://api.openai.com/docs" })
+  assert.ok(!fake.events.some((event) => event.startsWith("external:")))
 })
 
 test("stopAll stops every running app", async () => {
@@ -521,4 +617,59 @@ test("stopAll stops every running app", async () => {
   const stopped = await runtime.stopAll()
   assert.deepEqual(stopped.sort(), [APP, "com.other.app"].sort())
   assert.deepEqual(runtime.runningApps(), [])
+})
+
+// Teardown must leave the session refusing everything. Clearing the handlers to
+// `null` restores Electron's grant-by-default, so anything that outlives the
+// teardown would be escalated rather than cut off.
+test("teardown leaves the session denying every permission", async () => {
+  const fake = fakeElectron()
+  const runtime = supervisor(fake)
+  await runtime.start(APP, PLAN)
+  const session = fake.sessions.get(`persist:openwork-app-${APP}`)
+
+  await runtime.stop(APP)
+
+  assert.equal(typeof session.handlers.request, "function")
+  assert.equal(typeof session.handlers.check, "function")
+
+  let allowed = null
+  session.handlers.request({}, "media", (value) => {
+    allowed = value
+  }, { mediaTypes: ["audio"] })
+  assert.equal(allowed, false)
+  assert.equal(session.handlers.check({}, "media", "openwork-app://x", { mediaType: "audio" }), false)
+  assert.equal(session.handlers.device(), false)
+})
+
+test("the session is still locked down when destroying a window throws", async () => {
+  const fake = fakeElectron()
+  const runtime = supervisor(fake)
+  await runtime.start(APP, PLAN)
+  await runtime.openSurface(APP, SURFACE, DISPLAY)
+  const session = fake.sessions.get(`persist:openwork-app-${APP}`)
+  fake.windows[0].destroy = () => {
+    throw new Error("destroy failed")
+  }
+
+  await runtime.stop(APP)
+
+  let allowed = null
+  session.handlers.request({}, "media", (value) => {
+    allowed = value
+  }, { mediaTypes: ["audio"] })
+  assert.equal(allowed, false)
+})
+
+test("a surface whose load fails leaves no window behind", async () => {
+  const fake = fakeElectron()
+  const runtime = supervisor(fake)
+  await runtime.start(APP, PLAN)
+  fake.control.nextLoadError = new Error("entrypoint missing")
+
+  await assert.rejects(() => runtime.openSurface(APP, SURFACE, DISPLAY))
+
+  // An untracked window is one no teardown path can ever reach.
+  assert.equal(await runtime.stop(APP), true)
+  assert.ok(fake.windows.every((window) => window.isDestroyed()))
 })

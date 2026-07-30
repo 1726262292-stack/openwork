@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { contributionIdSchema } from "./contributions.js"
+import { httpsUrl } from "./manifest.js"
 import { CONNECT_READ_SCOPES, type AppPermissionId } from "./permissions.js"
 
 // The capability broker contract.
@@ -173,7 +174,7 @@ const threadStartRequest = z
           .object({
             scope: z.enum(CONNECT_READ_SCOPES),
             title: z.string().min(1).max(200),
-            url: z.url().max(2048).optional(),
+            url: httpsUrl(2048).optional(),
             occurred_at: z.iso.datetime().optional(),
           })
           .strict(),
@@ -317,7 +318,7 @@ export const connectRecordSchema = z
     title: z.string().max(300),
     /** Redacted, length-bounded excerpt. Never a full message body. */
     excerpt: z.string().max(1200),
-    url: z.url().max(2048).optional(),
+    url: httpsUrl(2048).optional(),
     occurred_at: z.iso.datetime().optional(),
     author: z.string().max(160).optional(),
   })

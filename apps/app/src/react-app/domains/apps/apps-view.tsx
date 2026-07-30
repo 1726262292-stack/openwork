@@ -322,6 +322,33 @@ function TrustReview({
         <p className="text-muted-foreground text-xs">
           {preview.manifest.privacy.retention.description}
         </p>
+
+        {/*
+          The categories and recipients the app declares. Without these the screen
+          showed only prose the app wrote, so a manifest could ask for the
+          microphone while never naming what it collects or who receives it.
+        */}
+        {preview.manifest.privacy.data_handled.length > 0 ? (
+          <p className="text-muted-foreground text-xs">
+            <span className="text-foreground">Data it handles: </span>
+            {preview.manifest.privacy.data_handled.join(", ")}
+          </p>
+        ) : null}
+
+        {preview.manifest.privacy.third_parties.length > 0 ? (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-foreground text-xs">Sends data to</span>
+            {preview.manifest.privacy.third_parties.map((party) => (
+              <span key={`${party.name}/${party.host}`} className="text-muted-foreground text-xs">
+                {party.name} (<span className="font-mono">{party.host}</span>) — {party.purpose}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            It declares no third-party recipients.
+          </p>
+        )}
       </div>
 
       {preview.warnings.map((warning) => (

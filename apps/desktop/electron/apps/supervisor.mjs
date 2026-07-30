@@ -19,6 +19,57 @@ import {
 // microphone open is not a teardown, so `stop()` is written to be exhaustive and
 // is tested for exactly that.
 
+/**
+ * What a media permission request actually asked for.
+ *
+ * `setPermissionRequestHandler` reports `details.mediaTypes` (an array) and
+ * `setPermissionCheckHandler` reports `details.mediaType` (a string), so both
+ * shapes are normalised here rather than at each call site.
+ */
+function requestedMediaTypes(details) {
+  if (!details) return []
+  if (Array.isArray(details.mediaTypes)) return details.mediaTypes
+  if (typeof details.mediaType === "string") {
+    return details.mediaType === "unknown" ? [] : [details.mediaType]
+  }
+  return []
+}
+
+/**
+ * Deny by default, and never answer a broader question than the app asked.
+ *
+ * Electron folds the microphone and the camera into one `media` permission, so a
+ * handler that reads only the permission name hands the webcam to any app that
+ * asked for the microphone. There is no camera permission in the vocabulary at
+ * all, so video is refused unconditionally — and a request Electron cannot
+ * describe is refused too, because it may include video.
+ */
+export function decideAppPermission(permission, plan, details) {
+  if (plan?.allowMicrophone !== true) return false
+  if (permission !== "media" && permission !== "audioCapture") return false
+  const types = requestedMediaTypes(details)
+  if (types.length === 0) return permission === "audioCapture"
+  return types.every((type) => type === "audio")
+}
+
+/**
+ * Whether a URL may be handed to the user's browser.
+ *
+ * Opening a link externally is still egress on the app's behalf, so it is held
+ * to the same host grant as an in-sandbox request. An app with no `network.host`
+ * permission cannot use `window.open` as an unfiltered side channel.
+ */
+export function isPermittedExternalTarget(rawUrl, allowedHosts) {
+  let url
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  if (url.protocol !== "https:") return false
+  return (allowedHosts ?? []).includes(url.hostname)
+}
+
 export class AppRuntimeSupervisor {
   #electron
   #installedRoots
@@ -107,14 +158,27 @@ export class AppRuntimeSupervisor {
     // Device and capability permissions. Everything is denied unless the app's
     // manifest permission put it on this list, and the list has no entry for
     // geolocation, notifications, clipboard reads, or screen capture at all.
-    session.setPermissionRequestHandler((_contents, permission, callback) => {
-      callback(permission === "media" && plan.allowMicrophone === true)
+    session.setPermissionRequestHandler((_contents, permission, callback, details) => {
+      callback(decideAppPermission(permission, plan, details))
     })
-    session.setPermissionCheckHandler((_contents, permission) => {
-      return permission === "media" && plan.allowMicrophone === true
+    session.setPermissionCheckHandler((_contents, permission, _origin, details) => {
+      return decideAppPermission(permission, plan, details)
     })
     // Refuse device selection outright: an app may use the default microphone
     // once granted, and may not enumerate or pick hardware.
+    session.setDevicePermissionHandler?.(() => false)
+  }
+
+  /**
+   * Refuse everything on this session.
+   *
+   * Used at teardown in place of clearing the handlers. A `null` handler is not
+   * "no opinion" — it is Electron's default, which grants several permissions
+   * outright, so the deny-all state has to be written explicitly.
+   */
+  #denyAllPermissions(session) {
+    session.setPermissionRequestHandler?.((_contents, _permission, callback) => callback(false))
+    session.setPermissionCheckHandler?.(() => false)
     session.setDevicePermissionHandler?.(() => false)
   }
 
@@ -146,7 +210,9 @@ export class AppRuntimeSupervisor {
       if (!isPermittedNavigation(url, appId)) event.preventDefault()
     })
     window.webContents.setWindowOpenHandler((details) => {
-      if (/^https:\/\//.test(details.url)) this.#electron.openExternal(details.url)
+      if (isPermittedExternalTarget(details.url, state.allowedHosts)) {
+        this.#electron.openExternal(details.url)
+      }
       return { action: "deny" }
     })
     window.webContents.on("render-process-gone", (_event, details) => {
@@ -164,8 +230,18 @@ export class AppRuntimeSupervisor {
       window.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreenWorkspaces: true })
     }
 
-    await window.loadURL(`${APP_PROTOCOL}://${appId}/${surface.entrypoint}`)
+    // Track the window before the load, not after. A load that fails used to
+    // leave a live, untracked window that no teardown path could ever destroy —
+    // and an orphan in this session is exactly what teardown must be able to
+    // reach.
     state.windows.set(surface.id, window)
+    try {
+      await window.loadURL(`${APP_PROTOCOL}://${appId}/${surface.entrypoint}`)
+    } catch (error) {
+      state.windows.delete(surface.id)
+      if (!window.isDestroyed()) window.destroy()
+      throw error
+    }
     return window
   }
 
@@ -192,26 +268,37 @@ export class AppRuntimeSupervisor {
     this.#running.delete(appId)
 
     const problems = []
-    const attempt = (label, action) => {
+    const attempt = async (label, action) => {
       try {
-        action()
+        // Awaited, so a rejecting step is recorded as a problem instead of
+        // escaping as an unhandled rejection that takes the main process down
+        // while `stop()` reports success.
+        await action()
       } catch (error) {
         problems.push(`${label}: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
-    attempt("capture", () => {
+    // Lock the session down first, so every later step can fail without the app
+    // regaining authority. Clearing the handlers to `null` would restore
+    // Electron's grant-by-default, which turns a surface that outlives teardown
+    // into an escalation from "everything denied" to microphone and camera.
+    await attempt("session-handlers", () => this.#denyAllPermissions(state.session))
+
+    await attempt("capture", () => {
       state.capturing = false
       this.#electron.stopCapture?.(appId)
     })
 
     for (const accelerator of state.shortcuts) {
-      attempt(`shortcut ${accelerator}`, () => this.#electron.globalShortcut.unregister(accelerator))
+      await attempt(`shortcut ${accelerator}`, () =>
+        this.#electron.globalShortcut.unregister(accelerator),
+      )
     }
     state.shortcuts = []
 
     for (const [surfaceId, window] of state.windows) {
-      attempt(`window ${surfaceId}`, () => {
+      await attempt(`window ${surfaceId}`, () => {
         if (!window.isDestroyed()) window.destroy()
       })
     }
@@ -221,12 +308,12 @@ export class AppRuntimeSupervisor {
     // On uninstall the app must keep nothing: no cache, no storage, no service
     // worker that could run again.
     if (options.purgeStorage === true) {
-      attempt("storage", () => state.session.clearStorageData?.())
+      await attempt("storage", () => state.session.clearStorageData?.())
+      // `clearStorageData` leaves the HTTP and code caches alone, so without
+      // these an uninstalled app keeps its fetched resources and compiled script.
+      await attempt("cache", () => state.session.clearCache?.())
+      await attempt("code-cache", () => state.session.clearCodeCaches?.({ urls: [] }))
     }
-    attempt("session-handlers", () => {
-      state.session.setPermissionRequestHandler?.(null)
-      state.session.setPermissionCheckHandler?.(null)
-    })
 
     if (problems.length > 0 && options.throwOnPartial === true) {
       throw new Error(`incomplete teardown for ${appId}: ${problems.join("; ")}`)

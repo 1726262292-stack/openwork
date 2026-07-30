@@ -6,6 +6,7 @@ import {
   APP_PERMISSION_LABEL,
   APP_PERMISSION_RISK,
   diffPermissions,
+  permissionFacets,
   permissionKey,
   requiresUserGesture,
   type AppPermission,
@@ -196,5 +197,84 @@ describe("capability requests", () => {
         content: "x",
       }).success,
     ).toBe(false)
+  })
+})
+
+// The property that keeps display and enforcement honest. A parameter the trust
+// screen shows but `permissionKey` ignores is a permission the user can approve
+// in one form and receive in another — which is how a rebound global shortcut
+// used to slip through review entirely.
+describe("permission identity covers every parameter", () => {
+  const shortcut = (id: string, acc: string): AppPermission => ({
+    id: "desktop.globalShortcut",
+    reason: "toggle the panel",
+    shortcuts: [{ id, default_accelerator: acc }],
+  })
+
+  const cases: { name: string; a: AppPermission; b: AppPermission }[] = [
+    { name: "connect scopes", a: connect(["slack.search"]), b: connect(["gmail.search"]) },
+    { name: "network hosts", a: network(["a.example"]), b: network(["b.example"]) },
+    {
+      name: "shortcut id",
+      a: shortcut("toggle", "CommandOrControl+Shift+Space"),
+      b: shortcut("other", "CommandOrControl+Shift+Space"),
+    },
+    {
+      name: "shortcut accelerator",
+      a: shortcut("toggle", "CommandOrControl+Shift+Space"),
+      b: shortcut("toggle", "CommandOrControl+C"),
+    },
+    {
+      name: "always_on_top",
+      a: { id: "desktop.floatingSurface", reason: "panel", always_on_top: false },
+      b: { id: "desktop.floatingSurface", reason: "panel", always_on_top: true },
+    },
+    {
+      name: "storage quota",
+      a: { id: "storage.app", reason: "cache", quota_bytes: 1024 },
+      b: { id: "storage.app", reason: "cache", quota_bytes: 2048 },
+    },
+  ]
+
+  for (const { name, a, b } of cases) {
+    test(`a change to ${name} changes the permission key`, () => {
+      expect(permissionKey(a)).not.toBe(permissionKey(b))
+    })
+  }
+
+  test("the reason is not part of identity, so wording alone never forces review", () => {
+    expect(permissionKey({ ...network(["a.example"]), reason: "one" })).toBe(
+      permissionKey({ ...network(["a.example"]), reason: "two" }),
+    )
+  })
+
+  test("rebinding a shortcut to a different key requires review", () => {
+    const delta = diffPermissions(
+      [shortcut("toggle", "CommandOrControl+Shift+Space")],
+      [shortcut("toggle", "CommandOrControl+C")],
+    )
+    expect(delta.requiresReview).toBe(true)
+    expect(delta.entries.map((entry) => entry.change)).toEqual(["widened"])
+  })
+
+  test("narrowing a scalar parameter still does not require review", () => {
+    const delta = diffPermissions(
+      [{ id: "storage.app", reason: "cache", quota_bytes: 2048 }],
+      [{ id: "storage.app", reason: "cache", quota_bytes: 1024 }],
+    )
+    expect(delta.requiresReview).toBe(false)
+    expect(delta.entries.map((entry) => entry.change)).toEqual(["narrowed"])
+  })
+
+  test("a permission with no parameters keys on its id alone", () => {
+    const mic: AppPermission = { id: "audio.microphone", reason: "transcribe" }
+    expect(permissionFacets(mic)).toEqual([])
+    expect(permissionKey(mic)).toBe("audio.microphone")
+  })
+
+  test("facets are order-independent, so key comparison is a set comparison", () => {
+    expect(permissionKey(network(["b.example", "a.example"]))).toBe(
+      permissionKey(network(["a.example", "b.example"])),
+    )
   })
 })

@@ -22,7 +22,7 @@ import {
   type InstalledPackageRecord,
   type PermissionDelta,
 } from "@openwork/app-contract";
-import { extractVerifiedFiles, verifyPackage } from "@openwork/app-tools";
+import { digest, extractVerifiedFiles, verifyPackage } from "@openwork/app-tools";
 
 import { CandidateStore, type CandidateRecord } from "./candidates.js";
 import { appDataDir, appInstallDir } from "./paths.js";
@@ -195,9 +195,16 @@ export class AppInstaller {
     const asset = this.#source.findAsset(release, assetName);
     const archive = await this.#source.downloadAsset(asset);
 
+    // The manifest the user is about to review, pinned by digest. The package
+    // must carry a byte-identical copy, so the document that governs the grant
+    // is the same document the review screen showed. Without this, preview and
+    // install read two different manifests and the review means nothing.
+    const reviewedManifestDigest = digest(manifestText);
+
     const verified = verifyPackage(archive, {
       expectedAppId: manifest.id,
       expectedVersion: manifest.version,
+      expectedManifestDigest: reviewedManifestDigest,
       ...(compatibility.compatible ? { host: this.#host } : {}),
     });
     if (!verified.ok) {
@@ -261,7 +268,7 @@ export class AppInstaller {
       commit: release.commit,
       archiveUrl: asset.url,
       archive,
-      manifestDigest: verified.package.metadata.manifest_digest,
+      manifestDigest: reviewedManifestDigest,
       requestedPermissions: manifest.permissions,
     });
 
@@ -339,6 +346,9 @@ export class AppInstaller {
       expectedArchiveDigest: candidate.archive_digest,
       expectedAppId: candidate.app_id,
       expectedVersion: candidate.app_version,
+      // Re-assert the reviewed manifest at install time, so a swapped asset
+      // cannot introduce permissions the review screen never displayed.
+      expectedManifestDigest: candidate.manifest_digest,
       host: this.#host,
     });
     if (!verified.ok) {
@@ -421,7 +431,10 @@ export class AppInstaller {
       active: activePackage,
       previous: null,
       pending: null,
-      granted_permissions: verified.manifest.permissions,
+      // Grant exactly what the user approved, from the candidate — never from
+      // the package. The digest check above proves the two agree; reading the
+      // candidate makes that the enforced invariant rather than an assumption.
+      granted_permissions: candidate.requested_permissions,
       crash_count: 0,
       trusted_at: this.#now(),
       updated_at: this.#now(),
@@ -610,7 +623,7 @@ export class AppInstaller {
       previous: current.active,
       active: next,
       pending: null,
-      granted_permissions: verified.manifest.permissions,
+      granted_permissions: candidate.requested_permissions,
       // A new version is a new runtime. Do not carry a crash streak into it.
       crash_count: 0,
       updated_at: this.#now(),
@@ -869,12 +882,23 @@ function permissionDetail(permission: AppPermission): string | null {
     case "network.host":
       return permission.hosts.join(", ");
     case "desktop.globalShortcut":
-      return permission.shortcuts.map((entry) => entry.default_accelerator).join(", ");
+      // Name the shortcut alongside its key, so a rebind is legible on review
+      // rather than looking like the same shortcut it always was.
+      return permission.shortcuts
+        .map((entry) => `${entry.id}: ${entry.default_accelerator}`)
+        .join(", ");
     case "desktop.floatingSurface":
       return permission.always_on_top ? "stays above other windows" : "ordinary window";
     case "storage.app":
       return `up to ${Math.round(permission.quota_bytes / 1024)} KB`;
-    default:
+    // No `default`: a new parameterised permission has to decide what the review
+    // screen says about it, instead of silently rendering no detail at all.
+    case "runtime.background.continuous":
+    case "audio.microphone":
+    case "ai.realtime":
+    case "ai.inference.transient":
+    case "openwork.threads.start":
+    case "openwork.attachments.create":
       return null;
   }
 }

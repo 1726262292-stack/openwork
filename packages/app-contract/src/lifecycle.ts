@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { appIdSchema } from "./manifest.js"
+import { appIdSchema, httpsUrl } from "./manifest.js"
 import { appPermissionSchema } from "./permissions.js"
 import { commitShaSchema, digestSchema, packageProvenanceSchema } from "./package.js"
 
@@ -108,7 +108,7 @@ export const installCandidateSchema = z
     repository: z.string().min(1).max(255),
     release_tag: z.string().min(1).max(128),
     commit: commitShaSchema,
-    archive_url: z.url().max(2048),
+    archive_url: httpsUrl(2048),
     archive_digest: digestSchema,
     manifest_digest: digestSchema,
     requested_permissions: z.array(appPermissionSchema),

@@ -16,7 +16,7 @@ import {
   type PackageProvenance,
 } from "@openwork/app-contract"
 
-import { isSafeArchivePath, writeZip, type ZipInputEntry } from "./zip.js"
+import { ZipError, isSafeArchivePath, readZip, writeZip, type ZipInputEntry } from "./zip.js"
 
 export const PACK_TOOL_NAME = "@openwork/app-tools"
 export const PACK_TOOL_VERSION = "0.1.0"
@@ -191,6 +191,22 @@ export function packApp(input: PackInput): PackResult {
         error("package.invalid_metadata", "", "generated package metadata failed its own schema"),
       ],
     }
+  }
+
+  // And round-trip the archive itself through the reader, for the same reason.
+  //
+  // The reader enforces limits the writer does not — the per-entry compression
+  // ratio above all — so without this a publisher can pack a release that fails
+  // verification later on the user's machine, at preview time, before any consent
+  // and with nothing the user can do about it. Failing here names the offending
+  // file while the author can still act on it.
+  try {
+    readZip(Buffer.from(archive), PACKAGE_LIMITS)
+  } catch (thrown) {
+    if (thrown instanceof ZipError) {
+      return { ok: false, diagnostics: [error(`package.${thrown.code}`, "", thrown.message)] }
+    }
+    throw thrown
   }
 
   return {

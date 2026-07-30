@@ -424,3 +424,46 @@ describe("hardened archive reader", () => {
     expect(read[0]?.path).toBe("assets/café-ícono.svg")
   })
 })
+
+// The writer and the reader have to agree about what a valid package is. If the
+// writer can emit something the reader refuses, the failure surfaces at preview
+// time on a user's machine, before any consent, and the publisher never sees it.
+describe("the packer and the verifier agree", () => {
+  test("every packed sample verifies", () => {
+    const packed = packedSample()
+    const verified = verifyPackage(packed.archive)
+    expect(verified.ok).toBe(true)
+  })
+
+  test("a highly compressible asset is refused at pack time, not at install time", () => {
+    // A 2 MiB zero-filled asset — a seed database, a WASM module with a large
+    // static data segment — deflates far past the per-entry ratio limit.
+    const result = packSample((_manifest, files) => {
+      files.set("dist/seed.db", Buffer.alloc(2 * 1024 * 1024))
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.diagnostics.map((entry) => entry.code)).toContain("package.compression_bomb")
+    // The author needs to know which file, while they can still do something.
+    expect(result.diagnostics.some((entry) => entry.message.includes("dist/seed.db"))).toBe(true)
+  })
+
+  test("an archive with slack bytes is refused as non-canonical", () => {
+    const packed = packedSample()
+    // Append a byte after the end-of-central-directory record.
+    const padded = Buffer.concat([Buffer.from(packed.archive), Buffer.from([0])])
+    expect(() => readZip(padded, PACKAGE_LIMITS)).toThrow(ZipError)
+    expect(verifyPackage(padded).ok).toBe(false)
+  })
+
+  test("a prefix before the first entry is refused as non-canonical", () => {
+    const packed = packedSample()
+    const prefixed = Buffer.concat([Buffer.from("MZ"), Buffer.from(packed.archive)])
+    const verified = verifyPackage(prefixed)
+    expect(verified.ok).toBe(false)
+    if (verified.ok) return
+    expect(verified.diagnostics.map((entry) => entry.code)).toContain(
+      "package.non_canonical_layout",
+    )
+  })
+})

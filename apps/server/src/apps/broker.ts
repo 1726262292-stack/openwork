@@ -34,11 +34,27 @@ import type { InstalledAppStore } from "./store.js";
 
 export type GestureReason = "shortcut" | "click" | "key";
 
+/**
+ * Capabilities a generic user gesture may authorise.
+ *
+ * A shortcut press is user intent, not a choice of capability, so the host — not
+ * the app — decides what one press can pay for. Scoping the token stops an app
+ * banking a press the user made for one visible reason and redirecting it, and
+ * makes any future use-time capability opt in here rather than inheriting every
+ * outstanding gesture the moment it is added.
+ */
+export const GESTURE_CAPABILITIES: readonly CapabilityName[] = Object.freeze([
+  "threads.start",
+  "attachments.create",
+]);
+
 type IssuedGesture = {
   token: string;
   appId: string;
   expiresAt: number;
   reason: GestureReason;
+  /** Capabilities this token may authorise. */
+  capabilities: readonly CapabilityName[];
 };
 
 /**
@@ -58,20 +74,29 @@ export class UserGestureRegistry {
     this.#now = options.now ?? (() => Date.now());
   }
 
-  issue(appId: string, reason: GestureReason): IssuedGesture {
+  issue(
+    appId: string,
+    reason: GestureReason,
+    capabilities: readonly CapabilityName[] = GESTURE_CAPABILITIES,
+  ): IssuedGesture {
     const token = randomBytes(24).toString("hex");
     const gesture: IssuedGesture = {
       token,
       appId,
       expiresAt: this.#now() + this.#ttlMs,
       reason,
+      capabilities: [...capabilities],
     };
     this.#tokens.set(token, gesture);
     return gesture;
   }
 
-  /** Spend a token. Returns why it failed rather than a bare boolean. */
-  spend(appId: string, token: string): "ok" | "missing" | "expired" | "wrong_app" | "replayed" {
+  /** Spend a token for one capability. Returns why it failed rather than a bare boolean. */
+  spend(
+    appId: string,
+    token: string,
+    capability: CapabilityName,
+  ): "ok" | "missing" | "expired" | "wrong_app" | "wrong_capability" | "replayed" {
     const gesture = this.#tokens.get(token);
     if (!gesture) return this.#looksSpent(token) ? "replayed" : "missing";
     this.#tokens.delete(token);
@@ -79,6 +104,9 @@ export class UserGestureRegistry {
     const a = Buffer.from(gesture.appId);
     const b = Buffer.from(appId);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return "wrong_app";
+    // A token is spendable only on a capability the host said it covers, so a
+    // gesture cannot be banked for one action and redirected to another.
+    if (!gesture.capabilities.includes(capability)) return "wrong_capability";
     this.#spent.add(token);
     return "ok";
   }
@@ -107,23 +135,25 @@ export class UserGestureRegistry {
 /** Per-app, per-capability rate limiting. */
 export class CapabilityQuota {
   readonly #calls = new Map<string, number[]>();
-  readonly #limits: Readonly<Partial<Record<CapabilityName, number>>>;
+  readonly #limits: Readonly<Record<CapabilityName, CapabilityLimit>>;
   readonly #windowMs: number;
   readonly #now: () => number;
 
   constructor(options: {
-    limits?: Partial<Record<CapabilityName, number>>;
+    limits?: Partial<Record<CapabilityName, CapabilityLimit>>;
     windowMs?: number;
     now?: () => number;
   } = {}) {
-    this.#limits = options.limits ?? DEFAULT_CAPABILITY_LIMITS;
+    // Overrides layer over the complete default set, so a caller that names one
+    // capability cannot accidentally leave the other fourteen unbounded.
+    this.#limits = { ...DEFAULT_CAPABILITY_LIMITS, ...options.limits };
     this.#windowMs = options.windowMs ?? 60_000;
     this.#now = options.now ?? (() => Date.now());
   }
 
   check(appId: string, capability: CapabilityName): boolean {
     const limit = this.#limits[capability];
-    if (limit === undefined) return true;
+    if (limit === "unlimited") return true;
     const key = `${appId}:${capability}`;
     const now = this.#now();
     const window = (this.#calls.get(key) ?? []).filter((at) => now - at < this.#windowMs);
@@ -145,15 +175,38 @@ export class CapabilityQuota {
   }
 }
 
-export const DEFAULT_CAPABILITY_LIMITS: Partial<Record<CapabilityName, number>> = {
-  "ai.realtime.session": 6,
-  "ai.inference.run": 60,
-  "connect.query": 40,
-  "threads.start": 12,
-  "attachments.create": 12,
-  "storage.set": 120,
-  "storage.get": 600,
-};
+/**
+ * Calls per rolling window, or an explicit opt-out.
+ *
+ * `"unlimited"` has to be written down. A capability that simply had no entry
+ * used to be unlimited by omission, which is how eight of them — including
+ * microphone capture — ended up with no ceiling at all.
+ */
+export type CapabilityLimit = number | "unlimited";
+
+/**
+ * Total by construction: a new capability without a limit is a compile error,
+ * the same property that keeps `CAPABILITY_PERMISSION` and
+ * `CAPABILITY_REQUIRES_GESTURE` complete.
+ */
+export const DEFAULT_CAPABILITY_LIMITS: Readonly<Record<CapabilityName, CapabilityLimit>> =
+  Object.freeze({
+    "env.status": 60,
+    "ai.realtime.session": 6,
+    "ai.inference.run": 60,
+    "connect.capabilities": 30,
+    "connect.query": 40,
+    "threads.start": 12,
+    "attachments.create": 12,
+    "surface.present": 60,
+    "surface.dismiss": 60,
+    "status.set": 120,
+    "storage.get": 600,
+    "storage.set": 120,
+    "storage.remove": 120,
+    "audio.capture.start": 30,
+    "audio.capture.stop": 60,
+  });
 
 /**
  * Host services the broker calls once a request has been authorised.
@@ -341,7 +394,7 @@ export class CapabilityBroker {
         "gesture_token" in request && typeof request.gesture_token === "string"
           ? request.gesture_token
           : "";
-      const outcome = this.#gestures.spend(appId, token);
+      const outcome = this.#gestures.spend(appId, token, capability);
       if (outcome !== "ok") {
         await this.#audit(appId, record.active.app_version, capability, `gesture_${outcome}`);
         return failure({

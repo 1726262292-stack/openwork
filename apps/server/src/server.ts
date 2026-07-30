@@ -79,7 +79,7 @@ type AppPlatform = {
     reason: "disabled" | "revoked" | "uninstalled" | "updated",
   ) => void;
 };
-import { PACKAGE_LIMITS } from "@openwork/app-contract";
+import { INSTALL_CANDIDATE_TTL_MS, PACKAGE_LIMITS } from "@openwork/app-contract";
 import {
   markOpenworkCloudMcpStale,
   reconcilePersistedOpenworkCloudMcp,
@@ -850,6 +850,17 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   // outlive any single request.
   const appStore = new InstalledAppStore();
   const appCandidates = new CandidateStore();
+  // Every preview writes an archive into the candidate cache. Without a sweep on
+  // a timer those archives are never reclaimed, so a few previews of a large app
+  // leave hundreds of megabytes behind for the lifetime of the process. Unref'd
+  // so it never holds the process open on its own.
+  const appCandidateSweep = setInterval(
+    () => {
+      void appCandidates.sweep().catch(() => {});
+    },
+    INSTALL_CANDIDATE_TTL_MS,
+  );
+  appCandidateSweep.unref?.();
   const appInstaller = new AppInstaller({
     store: appStore,
     candidates: appCandidates,
@@ -1068,6 +1079,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     stop: async () => {
       invalidateEngineMcpServerState(config, engineMcpServerState);
       watcherHandle.close();
+      clearInterval(appCandidateSweep);
       reloadBaselineRefreshers.delete(config);
       await server.stop();
     },

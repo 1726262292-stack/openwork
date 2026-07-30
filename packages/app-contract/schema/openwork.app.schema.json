@@ -547,8 +547,8 @@
                 "type": "string"
               },
               "docs_url": {
-                "format": "uri",
                 "maxLength": 255,
+                "pattern": "^https:\\/\\/[^\\s]+$",
                 "type": "string"
               },
               "key": {
@@ -583,8 +583,8 @@
                 "type": "string"
               },
               "docs_url": {
-                "format": "uri",
                 "maxLength": 255,
+                "pattern": "^https:\\/\\/[^\\s]+$",
                 "type": "string"
               },
               "key": {
@@ -1075,8 +1075,8 @@
           "type": "string"
         },
         "url": {
-          "format": "uri",
           "maxLength": 255,
+          "pattern": "^https:\\/\\/[^\\s]+$",
           "type": "string"
         }
       },

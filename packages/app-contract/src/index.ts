@@ -19,6 +19,7 @@ export {
   CONNECT_SCOPE_PROVIDER,
   appPermissionSchema,
   diffPermissions,
+  permissionFacets,
   permissionKey,
   requiresUserGesture,
   type AppConsentStage,

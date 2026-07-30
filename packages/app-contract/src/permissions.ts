@@ -67,6 +67,27 @@ const accelerator = z
     "accelerator must be modifier+key, for example CommandOrControl+Shift+Space",
   )
 
+const IPV4_LITERAL = /^\d{1,3}(?:\.\d{1,3}){3}$/
+
+/** Names that resolve to the user's own machine or network, by convention or by RFC. */
+const RESERVED_HOST_SUFFIXES = [".localhost", ".local", ".internal", ".home.arpa", ".in-addr.arpa"]
+
+/**
+ * Hosts an app can never be granted, whatever the manifest asks for.
+ *
+ * This permission is the allowlist the sandbox enforces, so an entry here is a
+ * grant to reach something. Loopback reaches OpenWork's own server; a private
+ * range reaches the user's LAN; `169.254.169.254` reaches cloud instance
+ * metadata. IP literals are refused outright rather than range-checked — a name
+ * that happens to resolve to a private address is a DNS question a manifest
+ * cannot answer, and the sandbox re-checks the host on every request anyway.
+ */
+function isForbiddenNetworkHost(host: string): boolean {
+  if (IPV4_LITERAL.test(host)) return true
+  if (host === "localhost") return true
+  return RESERVED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))
+}
+
 // Hostnames only: no scheme, no port, no path, no wildcard. A wildcard host in
 // v1 would make the review screen unreadable and the network filter unbounded.
 const networkHost = z
@@ -77,6 +98,10 @@ const networkHost = z
     /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/,
     "host must be a lowercase fully-qualified hostname with no scheme, port, path, or wildcard",
   )
+  .refine((host) => !isForbiddenNetworkHost(host), {
+    message:
+      "host must be a public domain name, not an IP literal, loopback, or private-network name",
+  })
 
 export const appPermissionSchema = z.discriminatedUnion("id", [
   z.object({
@@ -212,21 +237,44 @@ export const APP_PERMISSION_LABEL: Readonly<Record<AppPermissionId, string>> = O
   "storage.app": "Store its own data",
 })
 
-export function permissionKey(permission: AppPermission): string {
+/**
+ * The parameters that make a permission's authority specific — everything the
+ * trust screen shows as detail beneath the label.
+ *
+ * This is the single source of a permission's identity. `permissionKey` and
+ * `widenedBeyond` both derive from it, so what the user is shown and what the
+ * host enforces cannot drift apart. There is deliberately no `default` case:
+ * adding a parameterised permission without deciding its facets is a compile
+ * error, not a silently unbound parameter the review screen displays and the
+ * comparison ignores.
+ */
+export function permissionFacets(permission: AppPermission): string[] {
   switch (permission.id) {
     case "openwork.connect.read":
-      return `${permission.id}:${[...permission.scopes].sort().join(",")}`
+      return [...permission.scopes].sort()
     case "network.host":
-      return `${permission.id}:${[...permission.hosts].sort().join(",")}`
+      return [...permission.hosts].sort()
     case "desktop.globalShortcut":
-      return `${permission.id}:${permission.shortcuts.map((s) => s.id).sort().join(",")}`
+      // The accelerator is part of the identity. A shortcut rebound to a
+      // different key combination is different authority, however the id reads.
+      return permission.shortcuts.map((s) => `${s.id}=${s.default_accelerator}`).sort()
     case "desktop.floatingSurface":
-      return `${permission.id}:always_on_top=${permission.always_on_top}`
+      return [`always_on_top=${permission.always_on_top}`]
     case "storage.app":
-      return `${permission.id}:${permission.quota_bytes}`
-    default:
-      return permission.id
+      return [String(permission.quota_bytes)]
+    case "runtime.background.continuous":
+    case "audio.microphone":
+    case "ai.realtime":
+    case "ai.inference.transient":
+    case "openwork.threads.start":
+    case "openwork.attachments.create":
+      return []
   }
+}
+
+export function permissionKey(permission: AppPermission): string {
+  const facets = permissionFacets(permission)
+  return facets.length === 0 ? permission.id : `${permission.id}:${facets.join(",")}`
 }
 
 export type PermissionDeltaEntry =
@@ -241,22 +289,23 @@ export type PermissionDelta = {
   requiresReview: boolean
 }
 
+/**
+ * Whether `next` claims authority `previous` did not have.
+ *
+ * Set-valued permissions widen by gaining a facet, so they are compared through
+ * `permissionFacets` — which is what makes a rebound global shortcut count as
+ * widening rather than as no change at all. Scalar-valued permissions widen in
+ * one direction only, so they are compared explicitly. As with the facets, there
+ * is no `default`: a new permission has to say which kind it is.
+ */
 function widenedBeyond(previous: AppPermission, next: AppPermission): boolean {
   if (previous.id !== next.id) return true
   switch (next.id) {
-    case "openwork.connect.read": {
-      const before = new Set((previous as Extract<AppPermission, { id: "openwork.connect.read" }>).scopes)
-      return next.scopes.some((scope) => !before.has(scope))
-    }
-    case "network.host": {
-      const before = new Set((previous as Extract<AppPermission, { id: "network.host" }>).hosts)
-      return next.hosts.some((host) => !before.has(host))
-    }
+    case "openwork.connect.read":
+    case "network.host":
     case "desktop.globalShortcut": {
-      const before = new Set(
-        (previous as Extract<AppPermission, { id: "desktop.globalShortcut" }>).shortcuts.map((s) => s.id),
-      )
-      return next.shortcuts.some((shortcut) => !before.has(shortcut.id))
+      const before = new Set(permissionFacets(previous))
+      return permissionFacets(next).some((facet) => !before.has(facet))
     }
     case "desktop.floatingSurface": {
       const before = previous as Extract<AppPermission, { id: "desktop.floatingSurface" }>
@@ -266,7 +315,12 @@ function widenedBeyond(previous: AppPermission, next: AppPermission): boolean {
       const before = previous as Extract<AppPermission, { id: "storage.app" }>
       return next.quota_bytes > before.quota_bytes
     }
-    default:
+    case "runtime.background.continuous":
+    case "audio.microphone":
+    case "ai.realtime":
+    case "ai.inference.transient":
+    case "openwork.threads.start":
+    case "openwork.attachments.create":
       return false
   }
 }

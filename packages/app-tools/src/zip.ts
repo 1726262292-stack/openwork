@@ -104,6 +104,7 @@ export type ZipErrorCode =
   | "compression_bomb"
   | "checksum_mismatch"
   | "header_mismatch"
+  | "non_canonical_layout"
 
 export type ZipLimits = {
   maxFiles: number
@@ -277,11 +278,24 @@ function findEndOfCentralDirectory(buffer: Buffer): number {
   throw new ZipError("invalid_archive", "end of central directory record not found")
 }
 
-function readCentralDirectory(buffer: Buffer, limits: ZipLimits): CentralEntry[] {
+/**
+ * The central directory, plus where the payload stream ends.
+ *
+ * `readZip` needs `directoryOffset` to prove the entries account for every byte
+ * before it, which is the half of the canonical-layout check that cannot be done
+ * from the directory alone.
+ */
+type CentralDirectory = {
+  entries: CentralEntry[]
+  directoryOffset: number
+}
+
+function readCentralDirectory(buffer: Buffer, limits: ZipLimits): CentralDirectory {
   const endOffset = findEndOfCentralDirectory(buffer)
   const totalEntries = buffer.readUInt16LE(endOffset + 10)
   const directorySize = buffer.readUInt32LE(endOffset + 12)
   const directoryOffset = buffer.readUInt32LE(endOffset + 16)
+  const archiveCommentLength = buffer.readUInt16LE(endOffset + 20)
 
   if (directoryOffset === ZIP64_SENTINEL || directorySize === ZIP64_SENTINEL) {
     throw new ZipError("unsupported_feature", "ZIP64 archives are not supported")
@@ -291,6 +305,23 @@ function readCentralDirectory(buffer: Buffer, limits: ZipLimits): CentralEntry[]
   }
   if (directoryOffset + directorySize > buffer.length) {
     throw new ZipError("invalid_archive", "central directory extends past end of archive")
+  }
+
+  // Canonical layout, part one: nothing sits between the directory and the end
+  // record, and there is no archive comment.
+  //
+  // An `.owapp` is produced by one deterministic writer, so every byte has a
+  // place. Slack anywhere in the container is somewhere to carry content the
+  // metadata never has to declare — which would make "the metadata closes the
+  // archive" true of the entry list but not of the file.
+  if (archiveCommentLength !== 0) {
+    throw new ZipError("non_canonical_layout", "archive carries a trailing comment")
+  }
+  if (directoryOffset + directorySize !== endOffset) {
+    throw new ZipError(
+      "non_canonical_layout",
+      "central directory does not end where the end record begins",
+    )
   }
 
   const entries: CentralEntry[] = []
@@ -309,6 +340,12 @@ function readCentralDirectory(buffer: Buffer, limits: ZipLimits): CentralEntry[]
     if (nameStart + nameLength > buffer.length) {
       throw new ZipError("invalid_archive", "truncated central directory entry name")
     }
+    if (extraLength !== 0 || commentLength !== 0) {
+      throw new ZipError(
+        "non_canonical_layout",
+        "central directory entry carries extra fields or a comment",
+      )
+    }
     entries.push({
       path: buffer.subarray(nameStart, nameStart + nameLength).toString("utf8"),
       flags: buffer.readUInt16LE(cursor + 8),
@@ -322,7 +359,10 @@ function readCentralDirectory(buffer: Buffer, limits: ZipLimits): CentralEntry[]
     })
     cursor = nameStart + nameLength + extraLength + commentLength
   }
-  return entries
+  if (cursor !== endOffset) {
+    throw new ZipError("non_canonical_layout", "central directory contains unaccounted bytes")
+  }
+  return { entries, directoryOffset }
 }
 
 /**
@@ -330,9 +370,11 @@ function readCentralDirectory(buffer: Buffer, limits: ZipLimits): CentralEntry[]
  * up memory. Returns decompressed content; nothing is written to disk here.
  */
 export function readZip(buffer: Buffer, limits: ZipLimits): ZipEntry[] {
-  const central = readCentralDirectory(buffer, limits)
+  const { entries: central, directoryOffset } = readCentralDirectory(buffer, limits)
   const seen = new Set<string>()
   const result: ZipEntry[] = []
+  /** Byte ranges each entry occupies, for the contiguity check below. */
+  const spans: { start: number; end: number }[] = []
   let totalUncompressed = 0
 
   for (const entry of central) {
@@ -402,11 +444,19 @@ export function readZip(buffer: Buffer, limits: ZipLimits): ZipEntry[] {
       throw new ZipError("header_mismatch", `compression method mismatch for ${entry.path}`)
     }
 
+    if (localExtraLength !== 0) {
+      throw new ZipError(
+        "non_canonical_layout",
+        `local header for ${entry.path} carries extra fields`,
+      )
+    }
+
     const dataStart = localOffset + LOCAL_HEADER_SIZE + localNameLength + localExtraLength
     const dataEnd = dataStart + entry.compressedSize
     if (dataEnd > buffer.length) {
       throw new ZipError("invalid_archive", `entry data out of range for ${entry.path}`)
     }
+    spans.push({ start: localOffset, end: dataEnd })
     const raw = buffer.subarray(dataStart, dataEnd)
 
     let content: Buffer
@@ -428,6 +478,28 @@ export function readZip(buffer: Buffer, limits: ZipLimits): ZipEntry[] {
     }
 
     result.push({ path: entry.path, content })
+  }
+
+  // Canonical layout, part two: the payload stream is exactly these entries, back
+  // to back, starting at byte zero and ending where the directory begins.
+  //
+  // Together with the directory checks this accounts for every byte in the file.
+  // Without it an entry can exist in the local-header stream with no central
+  // record — invisible to this reader and to the metadata closure, but present on
+  // disk and listed by streaming extractors.
+  spans.sort((a, b) => a.start - b.start)
+  let expected = 0
+  for (const span of spans) {
+    if (span.start !== expected) {
+      throw new ZipError("non_canonical_layout", "archive contains bytes no entry accounts for")
+    }
+    expected = span.end
+  }
+  if (expected !== directoryOffset) {
+    throw new ZipError(
+      "non_canonical_layout",
+      "archive contains bytes between the last entry and the central directory",
+    )
   }
 
   return result.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
