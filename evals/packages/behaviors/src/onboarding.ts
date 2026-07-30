@@ -130,7 +130,9 @@ export async function createLocalWorkspaceViaUi(
   await waitFor(
     app,
     "Boolean(localStorage.getItem('openwork.server.port') && localStorage.getItem('openwork.server.token'))",
-    { timeoutMs: 60_000, label: "local OpenWork server credentials" },
+    // A cold profile blocks the renderer thread while the workspace runtime boots;
+    // poll patiently rather than assuming a hang.
+    { timeoutMs: 240_000, label: "local OpenWork server credentials" },
   );
   const raw = await evalIn(app, `(async () => {
     const port = localStorage.getItem("openwork.server.port");
