@@ -204,6 +204,12 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   const reply = await waitForAssistantReply(app, { timeoutMs: 180_000 });
   expect(reply.assistantMessageCount).toBeGreaterThan(0);
   expect(reply.text.trim().length).toBeGreaterThan(0);
+  // The reply streams: capturing as soon as text exists catches a "Thinking…"
+  // frame, so wait until the assistant has actually settled.
+  await waitFor(app, `(() => {
+    const text = document.body?.innerText ?? "";
+    return !text.includes("Thinking") && !text.includes("Generating");
+  })()`, { timeoutMs: 180_000, label: "assistant response settled" });
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [

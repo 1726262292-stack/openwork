@@ -3,13 +3,16 @@ import { expect, test } from "vitest";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import {
+  clickButton,
   clickText,
-  seedWorkspace,
+  control,
+  enabledButtons,
   evalIn,
   measureLoadedSkills,
   measureSkillsWithSlowCloud,
   readComposerCapabilities,
   readLoadedExtensions,
+  seedWorkspace,
   waitFor,
 } from "@openwork/behaviors";
 
@@ -68,8 +71,12 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  await clickText(app, "New session", { timeoutMs: 30_000 });
-  await waitFor(app, `/^#\\/workspace\\/[^/?#]+\\/session\\/ses_[^/?#]+/.test(window.location.hash)`, {
+  // "New session" is rendered as a control rather than plain clickable text in
+  // some layouts, so use the product's own action when it is available.
+  const sessionActions = await enabledButtons(app);
+  if (sessionActions.includes("New session")) await clickButton(app, "New session", { timeoutMs: 30_000 });
+  else await control(app, "session.create_task");
+  await waitFor(app, `window.location.hash.includes("/session/ses_")`, {
     timeoutMs: 30_000,
     label: "new session id route",
   });
