@@ -19,6 +19,7 @@
     "package:electron:cloud": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.cloud.yml",
     "package:electron:enterprise": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.enterprise.yml",
     "package:electron:dir": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.yml --dir",
+    "verify:packaged-server": "node ./scripts/verify-packaged-server.mjs",
     "electron": "pnpm exec electron ./electron/main.mjs",
     "check:electron": "node ./scripts/check-electron-bridge.mjs",
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",

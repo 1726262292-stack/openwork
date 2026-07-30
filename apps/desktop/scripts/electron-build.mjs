@@ -32,7 +32,14 @@ function run(command, args, cwd, env) {
 
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
-// Build the server TS → JS so Electron can import it in-process
+// Build every workspace package the embedded server resolves through a
+// production export before packaging. Fresh CI checkouts do not contain these
+// ignored dist directories, so relying on a developer's prior package build
+// produces an app.asar that cannot start.
+for (const packageName of ["@openwork/app-contract", "@openwork/app-tools"]) {
+  run(pnpmCmd, ["--filter", packageName, "build"], repoRoot);
+}
+// Build the server TS → JS so Electron can import it in-process.
 run(pnpmCmd, ["--filter", "openwork-server", "build"], repoRoot);
 // OPENWORK_ELECTRON_BUILD tells Vite to emit relative asset paths so
 // index.html resolves /assets/* correctly when loaded via file:// from

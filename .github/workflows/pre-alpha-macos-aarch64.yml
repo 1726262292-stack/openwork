@@ -177,6 +177,10 @@ jobs:
             --arm64 \
             --publish never
 
+      - name: Verify packaged server runtime
+        if: env.MACOS_NOTARIZE == 'true'
+        run: pnpm --dir apps/desktop verify:packaged-server
+
       - name: Create immutable channel prerelease
         if: env.MACOS_NOTARIZE == 'true'
         shell: bash

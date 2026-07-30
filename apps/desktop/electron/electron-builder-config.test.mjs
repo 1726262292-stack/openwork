@@ -46,6 +46,41 @@ describe("Electron distribution configs", () => {
     }
   });
 
+  it("builds embedded-server workspace packages before the server", async () => {
+    const buildScript = await readFile(
+      path.resolve(dirname, "..", "scripts", "electron-build.mjs"),
+      "utf8",
+    );
+    const contractBuild = buildScript.indexOf('"@openwork/app-contract", "@openwork/app-tools"');
+    const workspaceBuild = buildScript.indexOf('["--filter", packageName, "build"]');
+    const serverBuild = buildScript.indexOf('["--filter", "openwork-server", "build"]');
+    assert.notEqual(contractBuild, -1);
+    assert.notEqual(workspaceBuild, -1);
+    assert.notEqual(serverBuild, -1);
+    assert.ok(contractBuild < workspaceBuild);
+    assert.ok(workspaceBuild < serverBuild);
+  });
+
+  it("gates pre-alpha publication on an import from the packaged server", async () => {
+    const packageMetadata = JSON.parse(
+      await readFile(path.resolve(dirname, "..", "package.json"), "utf8"),
+    );
+    assert.equal(
+      packageMetadata.scripts["verify:packaged-server"],
+      "node ./scripts/verify-packaged-server.mjs",
+    );
+
+    const workflow = await readFile(
+      path.resolve(dirname, "..", "..", "..", ".github", "workflows", "pre-alpha-macos-aarch64.yml"),
+      "utf8",
+    );
+    const verifyStep = workflow.indexOf("Verify packaged server runtime");
+    const releaseStep = workflow.indexOf("Create immutable channel prerelease");
+    assert.notEqual(verifyStep, -1);
+    assert.notEqual(releaseStep, -1);
+    assert.ok(verifyStep < releaseStep);
+  });
+
   it("keeps the public artifact and protocol unchanged", async () => {
     const config = await readConfig("electron-builder.yml");
     assert.equal(config.extends, "./electron-builder.base.yml");
