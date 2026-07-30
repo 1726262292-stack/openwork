@@ -21,6 +21,16 @@ exec > >(tee "$LOG_DIR/real-run.log") 2>&1
 # question kills the run before anything is logged.
 export CI=true
 export DISPLAY="${DISPLAY:-:99}"
+
+# Electron needs a live X server; a stale /tmp/.X11-unix socket is not proof.
+display_alive() { xdpyinfo -display "$DISPLAY" > /dev/null 2>&1; }
+if ! display_alive; then
+  echo "==> Virtual display not answering on $DISPLAY; starting it"
+  nohup bash .devcontainer/start-daytona-vnc.sh > /tmp/vnc.log 2>&1 &
+  for _ in $(seq 1 30); do sleep 2; display_alive && break; done
+fi
+display_alive && echo "==> Display $DISPLAY is live" || echo "==> WARNING: display $DISPLAY not answering"
+
 pnpm --dir evals install
 
 H="$HOME"

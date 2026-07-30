@@ -23,6 +23,12 @@ sleep 1
 
 export DISPLAY="${DISPLAY:-:99}"
 export OPENWORK_EVAL_APP_SPECS=1
+# Den-dependent specs read these; harmless when no Den is running.
+export OPENWORK_EVAL_DEN_API_URL="${OPENWORK_EVAL_DEN_API_URL:-http://127.0.0.1:8790}"
+export OPENWORK_EVAL_DEN_WEB_URL="${OPENWORK_EVAL_DEN_WEB_URL:-http://localhost:3005}"
+if [ -x "$HOME/mark-verified.sh" ]; then
+  export OPENWORK_EVAL_MARK_VERIFIED_CMD="bash $HOME/mark-verified.sh {email}"
+fi
 
 if compgen -G "/daytona-secrets/*.env" > /dev/null; then
   set -a
