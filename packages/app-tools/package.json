@@ -4,6 +4,7 @@
   "description": "Validation, deterministic packaging, and verification tools for OpenWork Apps.",
   "license": "MIT",
   "type": "module",
+  "private": true,
   "bin": {
     "openwork-app": "./bin/openwork-app.mjs"
   },
@@ -11,7 +12,7 @@
     ".": {
       "types": "./src/index.ts",
       "development": "./src/index.ts",
-      "default": "./dist/index.js"
+      "default": "./src/index.ts"
     }
   },
   "files": [

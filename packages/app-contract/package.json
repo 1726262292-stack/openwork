@@ -4,11 +4,12 @@
   "description": "Public contract for OpenWork Apps: manifest standard, permission vocabulary, contributions, capability schemas, lifecycle model, and the canonical validator.",
   "license": "MIT",
   "type": "module",
+  "private": true,
   "exports": {
     ".": {
       "types": "./src/index.ts",
       "development": "./src/index.ts",
-      "default": "./dist/index.js"
+      "default": "./src/index.ts"
     }
   },
   "files": [
