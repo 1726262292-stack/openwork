@@ -29,20 +29,29 @@ test.skipIf(!optedIn)(title, async () => {
   });
   await using roll = photoRoll("app-den-tls-fault");
 
-  // A fresh profile starts on the welcome surface — no workspace required.
-  expect(app.readiness.state).toBe("welcome");
+  // A fresh profile bootstrapped at a Den lands with no workspace yet — either
+  // the welcome surface or the session surface offering to create one. Both are
+  // fine here: what matters is that no workspace/model/onboarding is needed to
+  // reach the Den.
+  expect(["welcome", "no-workspace"]).toContain(app.readiness.state);
+  const beforeText = await visibleText(app);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The OpenWork welcome screen is visible with a sign-in option",
+      "An OpenWork screen offering to sign in to OpenWork Cloud is visible",
       "No error or 'Something went wrong' crash message is visible yet",
     ]);
     expect(seen.ok, seen.why).toBe(true);
     await roll.add(shot, seen);
   }
 
-  // Attempting to reach the Den is what exercises the broken edge.
-  await clickButton(app, "Sign in to OpenWork Cloud", { timeoutMs: 60_000 });
+  // Attempting to reach the Den is what exercises the broken edge. The
+  // affordance differs by surface, so use whichever the app is showing.
+  const signInLabel = ["Sign in to OpenWork Cloud", "Sync with OpenWork Cloud", "Sign in"]
+    .find((label) => beforeText.includes(label));
+  expect(signInLabel, `no sign-in affordance on screen. Visible text: ${beforeText.slice(0, 400)}`).toBeDefined();
+  if (!signInLabel) throw new Error("unreachable: no sign-in affordance");
+  await clickButton(app, signInLabel, { timeoutMs: 60_000 });
   await waitUntilInteractive(app, { timeoutMs: 180_000 });
 
   const text = await visibleText(app);
