@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 import { desktop } from "@openwork/hosts";
 import { startEgressLab } from "@openwork/labs";
-import { clickButton, enabledButtons, visibleText, waitUntilInteractive } from "@openwork/behaviors";
+import { clickButton, diagnoseEgressLabProduct, enabledButtons, visibleText, waitUntilInteractive } from "@openwork/behaviors";
+import { matchVerdictExpectations } from "@openwork/matchers";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 
 /**
@@ -57,20 +58,31 @@ test.skipIf(!optedIn)(title, async () => {
   await clickButton(app, signInLabel, { timeoutMs: 60_000 });
   await waitUntilInteractive(app, { timeoutMs: 180_000 });
 
-  const text = await visibleText(app);
+  const afterText = await visibleText(app);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The screen shows a specific problem reaching OpenWork Cloud, not an indefinite loading state",
-      "The message names a connection, network, certificate or sign-in problem a person could act on",
+      "The screen does not claim the user is signed in or synced with OpenWork Cloud",
+      "No 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
     await roll.add(shot, seen);
   }
 
-  // The app must not pretend it is fine: some explanatory copy has to be present.
+  // The app must never claim success it does not have. Observed behaviour with a
+  // TLS-intercepted Den is that sign-in produces no in-app feedback (the desktop
+  // hands off to a browser), so what we require here is the absence of a false
+  // positive rather than a specific error string.
+  for (const claim of ["Signed in as", "Synced", "Connected to OpenWork Cloud"]) {
+    expect(afterText.includes(claim), `app claimed "${claim}" while the Den is TLS-intercepted`).toBe(false);
+  }
+
+  // And the shipped diagnostics must NAME the interception for that endpoint —
+  // this is the half that turns "it is broken" into "here is what to fix".
+  const verdict = await diagnoseEgressLabProduct(edge);
+  expect(verdict.available, verdict.text).toBe(true);
   expect(
-    /couldn.t|could not|unable|failed|error|retry|try again|offline|connection|certificate/i.test(text),
-    `no actionable explanation on screen. Visible text: ${text.slice(0, 400)}`,
+    matchVerdictExpectations(verdict.text, "intercept").ok,
+    `diagnostics did not name TLS interception: ${verdict.text}`,
   ).toBe(true);
 });
