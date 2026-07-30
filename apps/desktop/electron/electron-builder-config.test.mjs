@@ -27,6 +27,13 @@ describe("Electron distribution configs", () => {
     });
   });
 
+  it("ships shared server runtime types as a production dependency", async () => {
+    const packageMetadata = JSON.parse(
+      await readFile(path.resolve(dirname, "..", "package.json"), "utf8"),
+    );
+    assert.equal(packageMetadata.dependencies["@openwork/types"], "workspace:*");
+  });
+
   it("keeps the public artifact and protocol unchanged", async () => {
     const config = await readConfig("electron-builder.yml");
     assert.equal(config.extends, "./electron-builder.base.yml");

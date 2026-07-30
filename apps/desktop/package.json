@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@openwork/paths": "workspace:*",
+    "@openwork/types": "workspace:*",
     "@opencode-ai/sdk": "^1.17.11",
     "better-sqlite3": "^11.10.0",
     "drizzle-orm": "^0.45.1",
@@ -38,7 +39,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@openwork/types": "workspace:*",
     "electron": "^35.0.0",
     "electron-builder": "^26.15.3",
     "electron-devtools-installer": "^4.0.0"
