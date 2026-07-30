@@ -113,7 +113,7 @@ import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { getSessionModelSelection, useSessionModelStore } from "@/react-app/domains/session/surface/session-model-store";
-import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
+import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
 import { connectSkillPrompt, parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
@@ -129,7 +129,6 @@ import {
 } from "@/react-app/domains/connections/provider-auth/provider-policy";
 import {
   isOrganizationModelsEmpty,
-  refreshOrganizationModels,
   shouldAutoOpenUnavailableModelPicker,
 } from "@/react-app/domains/connections/provider-auth/managed-models-recovery";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
@@ -140,14 +139,19 @@ import {
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { useSessionMcpMaintenance } from "@/react-app/domains/connections/use-session-mcp-maintenance";
 import { useCloudMcpSubmitReadiness } from "@/react-app/domains/connections/use-cloud-mcp-submit-readiness";
-import type { CloudMcpSubmissionResult } from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
+import {
+  IDLE_CLOUD_MCP_SUBMISSION_GATE_STATE,
+  type CloudMcpSubmissionResult,
+} from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
+import {
+  cloudMcpAppSubmissionBlocked,
+  cloudMcpAppSubmissionBlockedIssue,
+  deriveCloudMcpAppSubmissionState,
+} from "@/react-app/domains/connections/cloud-mcp-app-readiness";
 import { useRemoteAccessRestart } from "@/react-app/domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
-import { OpenWorkModelsStartupDialog } from "@/react-app/domains/cloud/openwork-models-startup-dialog";
-import { OPENWORK_MODEL_PREVIEWS } from "@/react-app/domains/cloud/openwork-models-promo";
-import { useOpenWorkModelsStartupPromo } from "@/react-app/domains/cloud/use-openwork-models-startup-promo";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -179,7 +183,12 @@ import { useComposerStateStore } from "@/react-app/domains/session/surface/compo
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
-import { createDenClient, readDenSettings } from "@/app/lib/den";
+import {
+  createDenClient,
+  isDenOrgAdminRole,
+  readDenSettings,
+  type DenOrgRole,
+} from "@/app/lib/den";
 import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
 import { filterProviderList } from "@/app/utils/providers";
@@ -191,9 +200,22 @@ import { useShellShortcuts } from "./use-shell-shortcuts";
 import { useEngineReload } from "./use-engine-reload";
 import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
+import { CloudWorkspaceBootTakeover, useCloudWorkspaceStatus } from "./cloud-workspace-overlay";
+import {
+  cloudWorkspaceStatusHasReadyContent,
+  mapCloudWorkspaceMainContentDecision,
+  shouldRefetchCloudWorkspaceOnReadyTransition,
+} from "./cloud-workspace-status";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceScheduledTasksRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import {
+  globalExtensionsRoute,
+  legacySessionRoute,
+  workspaceExtensionsRoute,
+  workspaceScheduledTasksRoute,
+  workspaceSessionRoute,
+  workspaceSettingsRoute,
+} from "./workspace-routes";
 import { WorkspaceProvider } from "./workspace-provider";
 import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { SettingsSurface } from "./settings-route";
@@ -456,7 +478,7 @@ export function SessionRoute() {
   const reloadCoordinator = useReloadCoordinator();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
-  const [activeOrganizationRole, setActiveOrganizationRole] = useState<"owner" | "admin" | "member" | null>(null);
+  const [activeOrganizationRole, setActiveOrganizationRole] = useState<DenOrgRole | null>(null);
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
   const [developerMode, setDeveloperMode] = useState(() => {
@@ -517,6 +539,19 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
+  const cloudWorkspace = useCloudWorkspaceStatus();
+  const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
+  useEffect(() => {
+    const previousStatus = previousCloudWorkspaceStatusRef.current;
+    previousCloudWorkspaceStatusRef.current = cloudWorkspace.viewModel.variant;
+    if (!shouldRefetchCloudWorkspaceOnReadyTransition({
+      previousStatus,
+      nextStatus: cloudWorkspace.viewModel.variant,
+      gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
+    })) return;
+    refreshInFlightRef.current = false;
+    void refreshRouteState();
+  }, [cloudWorkspace.gatewayMode, cloudWorkspace.viewModel.variant, cloudWorkspace.visible, refreshInFlightRef, refreshRouteState]);
   const cloudMcpProviderModel = useMemo(() => local.prefs.defaultModel
     ? {
         provider: local.prefs.defaultModel.providerID,
@@ -541,6 +576,14 @@ export function SessionRoute() {
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
     providerModel: cloudMcpProviderModel,
   });
+  const cloudMcpAppSubmissionState = deriveCloudMcpAppSubmissionState({
+    authStatus: denAuth.status,
+    hasSessionToken: Boolean(readDenSettings().authToken?.trim()),
+    maintenance: sessionMcpMaintenance,
+  });
+  const effectiveCloudMcpSubmissionState = cloudMcpAppSubmissionBlocked(cloudMcpAppSubmissionState)
+    ? cloudMcpAppSubmissionState
+    : cloudMcpSubmissionState;
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -769,6 +812,7 @@ export function SessionRoute() {
     snapshot: sessionProviderAuthSnapshot,
     cloudProviderSyncReady,
     cloudProviderList,
+    refreshCloudProviderSync,
   } = useSessionProviderAuth({
     opencodeClient,
     opencodeBaseUrl,
@@ -842,16 +886,13 @@ export function SessionRoute() {
     sessionProviderAuthSnapshot.importedCloudProviders,
   ]);
   const refreshOrganizationModelAccess = useCallback(async () => {
-    await refreshOrganizationModels({
-      runCloudProviderSync: sessionProviderAuthStore.runCloudProviderSync,
-      refreshProviders: () => sessionProviderAuthStore.refreshProviders({ force: true }),
-    });
-  }, [sessionProviderAuthStore]);
+    await refreshCloudProviderSync("manual");
+  }, [refreshCloudProviderSync]);
   const refreshOpenWorkModels = useCallback(async () => {
     await refreshOrganizationModelAccess();
   }, [refreshOrganizationModelAccess]);
   const organizationModelsSettingsUrl = useMemo(() => {
-    if (activeOrganizationRole !== "owner" && activeOrganizationRole !== "admin") {
+    if (!isDenOrgAdminRole(activeOrganizationRole)) {
       return undefined;
     }
     return new URL("/dashboard/custom-llm-providers", readDenSettings().baseUrl).toString();
@@ -969,13 +1010,6 @@ export function SessionRoute() {
   const canCreateTask = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
-
-  const openWorkModelsPromo = useOpenWorkModelsStartupPromo({
-    clientReady: Boolean(opencodeClient),
-    workspaceId: selectedWorkspaceId,
-    providerConnectedIds,
-    openWorkModelsEntitled,
-  });
 
   const {
     activePermission,
@@ -1102,6 +1136,22 @@ export function SessionRoute() {
     navigate(target, { state: { workspaceId, sessionId } });
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
+  const handleOpenExtensions = useCallback((path = "", workspaceId = sidebarActiveWorkspaceId) => {
+    const sessionId = workspaceId === sidebarActiveWorkspaceId ? selectedSessionId : null;
+    const extensionPath = path
+      .replace(/^\/settings\/extensions\/?/, "")
+      .replace(/^\/extensions\/?/, "")
+      .replace(/^\/+|\/+$/g, "")
+      .replace(/^mcp$/, "mcps");
+    const target = workspaceId
+      ? workspaceExtensionsRoute(workspaceId, extensionPath)
+      : globalExtensionsRoute(extensionPath);
+    writeActiveWorkspaceId(workspaceId || null);
+    navigate(target, { state: { workspaceId, sessionId } });
+  }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
+
+  const extensionsMainOpen = /^\/(?:workspace\/[^/]+\/)?extensions(?:\/|$)/.test(location.pathname);
+
   const surfaceProps = useMemo(() => {
     if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
       return null;
@@ -1145,6 +1195,7 @@ export function SessionRoute() {
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       modelUnavailableMessage,
+      organizationModelsEmpty,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       openWorkModelsEntitled,
       onRefreshOrganizationModels: refreshOrganizationModelAccess,
@@ -1165,8 +1216,12 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions" | "providers") => {
+        if (section === "providers") {
+          handleOpenSettings("/settings/ai");
+          return;
+        }
+        handleOpenExtensions(section === "skills" ? "skills" : section === "mcps" ? "mcps" : section === "plugins" ? "plugins" : "");
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string): Promise<CloudMcpSubmissionResult> => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1182,9 +1237,20 @@ export function SessionRoute() {
         const sendVariant = sessionModelSelection ? sessionModelSelection.variant : modelVariantValue;
         if (!sessionModelSelection && selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
+        // The app-level connection lifecycle owns waiting and repair. This
+        // synchronous guard only prevents keyboard, queue, auto-send, or
+        // control paths from bypassing the disabled Run Task button.
+        if (cloudMcpAppSubmissionBlocked(cloudMcpAppSubmissionState)) {
+          return {
+            outcome: "blocked",
+            issue: cloudMcpAppSubmissionBlockedIssue(cloudMcpAppSubmissionState),
+          };
+        }
+
         return submitWithCloudMcpReadiness({
-          // Temporarily bypass the pre-send Cloud MCP gate: it blocks every
-          // message, including tasks that do not use connected services.
+          // Connection readiness is established before submission. Keep the
+          // submit hook for send de-duplication/state only; it must not start
+          // a second readiness workflow after the user clicks Run Task.
           skipGate: true,
           send: async () => {
             captureAnalyticsEvent("task_message_sent", {
@@ -1251,8 +1317,9 @@ export function SessionRoute() {
           },
         });
       },
-      cloudMcpSubmissionState,
-      onOpenConnect: () => navigate("/settings/extensions"),
+      cloudMcpSubmissionState: effectiveCloudMcpSubmissionState,
+      onRetryCloudConnection: sessionMcpMaintenance.retry,
+      onOpenConnect: () => handleOpenExtensions(),
       onDraftChange: () => {
         // Draft persistence will be wired once the full React shell owns session state.
       },
@@ -1339,6 +1406,7 @@ export function SessionRoute() {
   }, [
     client,
     modelPicker.compactOpen,
+    handleOpenExtensions,
     handleOpenSettings,
     hasUsableModel,
     handleApplyEnvironmentChanges,
@@ -1347,9 +1415,11 @@ export function SessionRoute() {
     listAgents,
     listSlashCommands,
     modelBehaviorOptions,
-    cloudMcpSubmissionState,
+    cloudMcpAppSubmissionState,
+    effectiveCloudMcpSubmissionState,
     modelLabel,
     modelUnavailableMessage,
+    organizationModelsEmpty,
     modelVariantLabel,
     modelVariantValue,
     navigate,
@@ -1366,10 +1436,24 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionProviderAuthStore,
+    sessionMcpMaintenance.retry,
     sessionsByWorkspaceId,
     submitWithCloudMcpReadiness,
     token,
   ]);
+  const cloudWorkspaceMainContentDecision = mapCloudWorkspaceMainContentDecision({
+    status: cloudWorkspace.viewModel.variant,
+    hasWorkspaces: Boolean(surfaceProps),
+    gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
+  });
+  const cloudWorkspaceReadyForRouteErrors =
+    !cloudWorkspace.gatewayMode ||
+    !cloudWorkspace.visible ||
+    cloudWorkspaceStatusHasReadyContent(cloudWorkspace.viewModel.variant);
+  const cloudWorkspaceMainContentTakeover = cloudWorkspaceMainContentDecision === "takeover" ? (
+    <CloudWorkspaceBootTakeover decision={cloudWorkspaceMainContentDecision} />
+  ) : null;
+  const gatedRouteNotFoundMessage = cloudWorkspaceReadyForRouteErrors ? routeNotFoundMessage : null;
 
   // Workspace-scoped wiring for the empty-state hero's full composer. Unlike
   // `surfaceProps` this exists without a selected session, so the hero offers
@@ -1384,6 +1468,7 @@ export function SessionRoute() {
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       modelUnavailable: selectedModelUnavailable,
       modelUnavailableMessage,
+      organizationModelsEmpty,
       onRefreshOrganizationModels: refreshOrganizationModelAccess,
       modelPickerOpen: modelPicker.compactOpen,
       onModelPickerOpenChange: (open: boolean) => {
@@ -1429,12 +1514,22 @@ export function SessionRoute() {
       },
       isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
       isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins") => {
-        handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : "/settings/general");
+      // Chat-first needs a workspace before Cloud MCP can be projected into
+      // its engine. Allow that local setup step; the seeded prompt's auto-send
+      // remains held by SessionSurface until the new workspace is connected.
+      cloudMcpSubmissionState: selectedWorkspaceId
+        ? effectiveCloudMcpSubmissionState
+        : IDLE_CLOUD_MCP_SUBMISSION_GATE_STATE,
+      onRetryCloudConnection: sessionMcpMaintenance.retry,
+      onOpenConnect: () => handleOpenExtensions(),
+      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => {
+        handleOpenExtensions(section === "skills" ? "skills" : section === "mcps" ? "mcps" : section === "plugins" ? "plugins" : "");
       },
     };
   }, [
     client,
+    effectiveCloudMcpSubmissionState,
+    handleOpenExtensions,
     handleOpenSettings,
     listAgents,
     listSlashCommands,
@@ -1446,6 +1541,7 @@ export function SessionRoute() {
     modelVariantValue,
     opencodeClient,
     openWorkModelsEntitled,
+    organizationModelsEmpty,
     refreshOrganizationModelAccess,
     selectedAgent,
     selectedModelUnavailable,
@@ -1453,7 +1549,9 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionProviderAuthStore,
+    sessionMcpMaintenance.retry,
     setSelectedAgent,
+    navigate,
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
@@ -1690,6 +1788,7 @@ export function SessionRoute() {
     setSessionSearchOpen,
     terminalOpen,
     setTerminalOpen,
+    sessionNumberShortcuts,
   } = useShellShortcuts({
     canCreateTask,
     workspaceId: selectedWorkspaceId,
@@ -1859,8 +1958,20 @@ export function SessionRoute() {
       return;
     }
 
-    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
-  }, [restrictionNotice, sessionProviderAuthStore]);
+    // Pre-workspace (chat-first) there is no opencode client yet, so the
+    // modal cannot load auth methods — fall back to the AI Providers page.
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" }).catch(() => {
+      handleOpenSettings("/settings/ai");
+    });
+  }, [handleOpenSettings, restrictionNotice, sessionProviderAuthStore]);
+
+  // "Your API keys → Connect" in the compact model picker (and anything else
+  // outside this route's prop tree) requests the provider auth modal here.
+  useEffect(() => {
+    const handler = () => handleOpenProviderAuth();
+    window.addEventListener(openProviderAuthEvent, handler);
+    return () => window.removeEventListener(openProviderAuthEvent, handler);
+  }, [handleOpenProviderAuth]);
 
   const paletteSessionOptions = useMemo(
     () => buildCommandPaletteSessions(workspaces, sessionsByWorkspaceId, selectedWorkspaceId),
@@ -2348,6 +2459,7 @@ export function SessionRoute() {
       routeWorkspaceId={selectedWorkspaceId}
     />
     <SessionPage
+      sessionNumberShortcuts={sessionNumberShortcuts}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
       selectedWorkspaceDisplay={selectedWorkspace ? {
@@ -2382,6 +2494,7 @@ export function SessionRoute() {
         );
       }}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
+      onOpenExtensions={() => handleOpenExtensions()}
       onOpenProviderAuth={handleOpenProviderAuth}
       onChatFirstTask={handleChatFirstTask}
       chatFirstBusy={createWorkspaceBusy}
@@ -2669,15 +2782,18 @@ export function SessionRoute() {
         reloadError: reloadCoordinator.reloadError,
         openWorkConnectState: sessionMcpMaintenance,
       }}
-      notFoundMessage={routeNotFoundMessage}
+      notFoundMessage={gatedRouteNotFoundMessage}
+      mainContentTakeover={
+        extensionsMainOpen ? (
+          <SettingsSurface
+            standaloneExtensions
+            workspaceId={selectedWorkspaceId || undefined}
+          />
+        ) : cloudWorkspaceMainContentTakeover
+      }
+      mainContentTitle={extensionsMainOpen ? t("settings.tab_extensions") : undefined}
+      extensionsActive={extensionsMainOpen}
       onAccessibleTargetsChange={setPaletteAccessibleTargets}
-    />
-    <OpenWorkModelsStartupDialog
-      open={openWorkModelsPromo.open}
-      isSignedIn={denAuth.isSignedIn}
-      models={OPENWORK_MODEL_PREVIEWS}
-      onSubscribe={openWorkModelsPromo.subscribe}
-      onContinueWithout={openWorkModelsPromo.continueWithout}
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
@@ -2733,6 +2849,7 @@ export function SessionRoute() {
       }}
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
       onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
+      onOpenExtensions={() => handleOpenExtensions()}
       onOpenModelPicker={() => {
         modelPicker.setQuery("");
         modelPicker.setRecentProviderIds(new Set());

@@ -117,9 +117,9 @@ export function NotificationBell() {
       } else if (action.type === "reload-engine") {
         void reloadCoordinator.reloadWorkspaceEngine();
       } else if (action.type === "open-extensions-marketplace") {
-        navigate("/settings/extensions");
+        navigate("/extensions");
       } else if (action.type === "install-marketplace-plugin") {
-        navigate("/settings/extensions");
+        navigate("/extensions");
       } else if (action.type === "open-scheduled-task") {
         navigate(workspaceScheduledTasksRoute(action.workspaceId, action.taskId));
       }

@@ -13,8 +13,14 @@ import {
   resolvePastedTextPlaceholders,
   type PastedTextChip,
 } from "@/react-app/domains/session/surface/composer/pasted-text";
-import { loadSessionConnectCapabilities } from "@/react-app/domains/connections/cloud-inventory-cache";
+import {
+  loadSessionConnectCapabilities,
+  readCachedConnectCapabilities,
+  readCloudInventoryScope,
+} from "@/react-app/domains/connections/cloud-inventory-cache";
+import { EMPTY_CONNECT_CAPABILITY_INVENTORY } from "@/react-app/domains/session/surface/connect-capability-inventory";
 import { resolveAttachmentFileMetadata } from "@/react-app/domains/session/sync/attachment-file-part";
+import type { CloudMcpSubmissionGateState } from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
 
 /**
  * Workspace-scoped wiring for the new-task composer. Everything here is
@@ -28,6 +34,7 @@ export type NewTaskComposerContext = {
   selectedModel: ModelRef;
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
+  organizationModelsEmpty?: boolean;
   onRefreshOrganizationModels?: () => void | Promise<void>;
   modelPickerOpen: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
@@ -45,7 +52,10 @@ export type NewTaskComposerContext = {
   searchFiles: (query: string) => Promise<string[]>;
   isRemoteWorkspace: boolean;
   isSandboxWorkspace: boolean;
-  onOpenSettingsSection?: (section: "commands" | "skills" | "mcps" | "plugins") => void;
+  cloudMcpSubmissionState: CloudMcpSubmissionGateState;
+  onRetryCloudConnection: () => void;
+  onOpenConnect: () => void;
+  onOpenSettingsSection?: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => void;
 };
 
 export type NewTaskComposerProps = {
@@ -55,6 +65,8 @@ export type NewTaskComposerProps = {
   onRunTask: (resolvedDraft: string, attachments: ComposerAttachment[]) => void;
   /** Disable submission while a default workspace is being prepared. */
   busy: boolean;
+  submissionPreparing?: boolean;
+  submissionBlocked?: boolean;
   context: NewTaskComposerContext | null;
 };
 
@@ -79,11 +91,17 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
   const [mcpStatuses, setMcpStatuses] = useState<McpStatusMap>({});
   const [mcpStatus, setMcpStatus] = useState<string | null>(null);
   const [pastedText, setPastedText] = useState<PastedTextChip[]>([]);
+  const skillsConnectPushRef = useRef(0);
+  const mcpConnectPushRef = useRef(0);
   const context = props.context;
   const workspaceId = context?.workspaceId ?? null;
 
   const listSkills = context && workspaceId
     ? async (): Promise<SkillCard[]> => {
+        const pushId = ++skillsConnectPushRef.current;
+        // Paint cached Connect inventory instantly; the fresh fan-out lands live.
+        const scope = readCloudInventoryScope();
+        const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
         const connectPromise = loadSessionConnectCapabilities();
         const response = await context.client.listSkills(workspaceId, { includeGlobal: true });
         const localSkills = (response.items ?? []).map((skill) => ({
@@ -94,8 +112,11 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
           scope: skill.scope,
           origin: "local",
         } satisfies SkillCard));
-        const connect = await connectPromise;
-        const next = [...localSkills, ...connect.skills];
+        void connectPromise.then((connect) => {
+          if (skillsConnectPushRef.current !== pushId) return;
+          setSkills([...localSkills, ...connect.skills]);
+        });
+        const next = [...localSkills, ...cachedConnect.skills];
         setSkills(next);
         return next;
       }
@@ -103,6 +124,9 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
 
   const listMcp = context && workspaceId
     ? async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
+        const pushId = ++mcpConnectPushRef.current;
+        const scope = readCloudInventoryScope();
+        const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
         const connectPromise = loadSessionConnectCapabilities();
         const response = await context.client.listMcp(workspaceId);
         const localServers = (response.items ?? []).map((entry) => ({
@@ -111,9 +135,16 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
           source: entry.source,
           origin: entry.name === "openwork-cloud" ? "openwork-connect" : "local",
         } satisfies McpServerEntry));
-        const connect = await connectPromise;
-        const servers = [...localServers, ...connect.mcpServers];
-        const statuses = connect.mcpStatuses;
+        void connectPromise.then((connect) => {
+          if (mcpConnectPushRef.current !== pushId) return;
+          const freshServers = [...localServers, ...connect.mcpServers];
+          const freshStatus = freshServers.length ? null : "No MCP servers loaded.";
+          setMcpServers(freshServers);
+          setMcpStatuses(connect.mcpStatuses);
+          setMcpStatus(freshStatus);
+        });
+        const servers = [...localServers, ...cachedConnect.mcpServers];
+        const statuses = cachedConnect.mcpStatuses;
         const status = servers.length ? null : "No MCP servers loaded.";
         setMcpServers(servers);
         setMcpStatuses(statuses);
@@ -197,6 +228,7 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
   };
 
   const handleRunTask = () => {
+    if (props.submissionBlocked) return;
     props.onRunTask(resolvePastedTextPlaceholders(props.draft, pastedText), attachments);
   };
 
@@ -216,11 +248,14 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
       onStop={noop}
       busy={false}
       steering={false}
-      submissionPreparing={props.busy}
+      submissionPreparing={props.busy || Boolean(props.submissionPreparing)}
+      submissionBlocked={props.busy || Boolean(props.submissionBlocked)}
+      submissionInputStatusLabel={props.busy ? "Preparing your workspace…" : undefined}
       queuedCount={0}
       disabled={Boolean(context?.modelUnavailable)}
       modelUnavailable={context?.modelUnavailable}
       modelUnavailableMessage={context?.modelUnavailableMessage}
+      organizationModelsEmpty={context?.organizationModelsEmpty}
       statusLabel=""
       modelPickerOpen={context?.modelPickerOpen ?? false}
       selectedModel={context?.selectedModel ?? FALLBACK_MODEL}

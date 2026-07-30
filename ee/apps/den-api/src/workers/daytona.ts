@@ -16,6 +16,7 @@ type ProvisionInput = {
   clientToken: string
   activityToken: string
 }
+type SandboxNameInput = Pick<ProvisionInput, "workerId" | "name">
 
 type ProvisionedInstance = {
   provider: string
@@ -88,6 +89,9 @@ export type DaytonaProvisioningRuntime = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const maxSignedPreviewExpirySeconds = 60 * 60 * 24
 const signedPreviewRefreshLeadMs = 5 * 60 * 1000
+const wakeStartMaxAttempts = 3
+const wakeStartRetryBackoffMs = 250
+const wakeStartStateChangeTimeoutMs = 60_000
 const logger = appLogger.child({ component: "daytona_provisioner" })
 
 const slug = (value: string) =>
@@ -189,7 +193,7 @@ function sandboxLabels(workerId: WorkerId) {
   }
 }
 
-export function daytonaSandboxName(input: ProvisionInput) {
+export function daytonaSandboxName(input: SandboxNameInput) {
   return slug(
     `${env.daytona.sandboxNamePrefix}-${input.name}-${workerHint(input.workerId)}`,
   ).slice(0, 63)
@@ -203,14 +207,14 @@ function snapshotShortVersion(snapshot: string) {
   return slug(snapshot).slice(0, 24) || "snapshot"
 }
 
-export function daytonaSandboxNameForSnapshot(input: ProvisionInput, snapshot: string) {
+export function daytonaSandboxNameForSnapshot(input: SandboxNameInput, snapshot: string) {
   const shortVersion = snapshotShortVersion(snapshot)
   const base = daytonaSandboxName(input)
   const baseLength = Math.max(1, 63 - shortVersion.length - 1)
   return slug(`${base.slice(0, baseLength)}-${shortVersion}`).slice(0, 63)
 }
 
-function currentDaytonaSandboxName(input: ProvisionInput) {
+export function currentDaytonaSandboxName(input: SandboxNameInput) {
   const snapshot = currentDaytonaImageVersion()
   return snapshot ? daytonaSandboxNameForSnapshot(input, snapshot) : daytonaSandboxName(input)
 }
@@ -227,6 +231,64 @@ function daytonaSandboxLookupNames(input: ProvisionInput) {
 
 function isStoppedSandboxState(state: string | null) {
   return state?.toLowerCase() === "stopped"
+}
+
+function isStartedSandboxState(state: string | null) {
+  return state?.toLowerCase() === "started"
+}
+
+function daytonaErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message.toLowerCase() : ""
+}
+
+function isDaytonaStateChangeInProgressConflict(error: unknown) {
+  const message = daytonaErrorMessage(error)
+  return isDaytonaConflictError(error) && message.includes("state change") && message.includes("progress")
+}
+
+function isTransientDaytonaStartError(error: unknown) {
+  const message = daytonaErrorMessage(error)
+  if (!message) {
+    return false
+  }
+
+  return /\b5\d\d\b/.test(message)
+    || [
+      "econnreset",
+      "econnrefused",
+      "etimedout",
+      "enotfound",
+      "fetch failed",
+      "network",
+      "socket hang up",
+      "temporarily unavailable",
+      "timeout",
+    ].some((marker) => message.includes(marker))
+}
+
+async function waitForDaytonaStartConflictToSettle(sandbox: DaytonaSandboxRuntime) {
+  const startedAt = Date.now()
+  let sawTransitionState = false
+
+  while (Date.now() - startedAt < wakeStartStateChangeTimeoutMs) {
+    await sandbox.refreshData()
+
+    if (isStartedSandboxState(sandbox.state)) {
+      return "started"
+    }
+
+    if (isStoppedSandboxState(sandbox.state) && (sawTransitionState || Date.now() - startedAt >= env.daytona.pollIntervalMs)) {
+      return "stopped"
+    }
+
+    if (!isStoppedSandboxState(sandbox.state)) {
+      sawTransitionState = true
+    }
+
+    await sleep(env.daytona.pollIntervalMs)
+  }
+
+  throw new Error(`Timed out waiting for Daytona sandbox ${sandbox.id} state change to settle`)
 }
 
 function sharedVolumeName() {
@@ -262,6 +324,103 @@ function sharedVolumeMounts(workerId: WorkerId, volumeId: string) {
 
 function checkpointRestoreMarkerPath() {
   return `${env.daytona.runtimeDataPath}/.openwork-restore-marker`
+}
+
+function checkpointStateManifest() {
+  return `${env.daytona.runtimeDataPath} ${env.daytona.runtimeWorkspacePath}`
+}
+
+function checkpointDir() {
+  return `${env.daytona.dataMountPath}/checkpoints`
+}
+
+function checkpointLastFlushMarkerPath() {
+  return `${env.daytona.sidecarDir}/checkpoint.last-flush`
+}
+
+function checkpointEnvironmentScript() {
+  // The engine keeps its sessions in a SQLite database under its own data dir
+  // (opencode.db), which lives on the container overlay rather than a volume.
+  // It was missing from the checkpoint, so every recycle onto a new snapshot
+  // started the user from scratch. Resolved from $HOME in-shell so it tracks
+  // the image instead of a hardcoded /root.
+  return `ENGINE_STATE_PATH=\${OPENWORK_ENGINE_STATE_PATH:-\$HOME/.local/share/opencode}
+OPENWORK_STATE_MANIFEST="${checkpointStateManifest()} \$ENGINE_STATE_PATH"
+CHECKPOINT_DIR=${shellQuote(checkpointDir())}
+RESTORE_MARKER=${shellQuote(checkpointRestoreMarkerPath())}
+LAST_FLUSH_MARKER=${shellQuote(checkpointLastFlushMarkerPath())}
+DEN_CKPT_INTERVAL_SECONDS=\${DEN_CKPT_INTERVAL_SECONDS:-${shellQuote(String(env.daytona.checkpointIntervalSeconds))}}
+DEN_CKPT_KEEP=\${DEN_CKPT_KEEP:-${shellQuote(String(env.daytona.checkpointKeep))}}`
+}
+
+function checkpointFlushFunctions(input: { failOnError: boolean }) {
+  const failureReturn = input.failOnError ? "1" : "0"
+  return `checkpoint_changed() {
+  if [ ! -e "$LAST_FLUSH_MARKER" ]; then
+    return 0
+  fi
+  for state_path in $OPENWORK_STATE_MANIFEST; do
+    changed_entry=$(find "$state_path" -newer "$LAST_FLUSH_MARKER" -print -quit 2>/dev/null || true)
+    if [ -n "$changed_entry" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+prune_checkpoints() {
+  keep_count=$DEN_CKPT_KEEP
+  if ! [ "$keep_count" -gt 0 ] 2>/dev/null; then
+    keep_count=3
+  fi
+  checkpoint_count=0
+  find "$CHECKPOINT_DIR" -maxdepth 1 -type f -name 'ckpt-*.tar' -print 2>/dev/null | sort -r | while IFS= read -r checkpoint_path; do
+    checkpoint_count=$((checkpoint_count + 1))
+    if [ "$checkpoint_count" -gt "$keep_count" ]; then
+      rm -f "$checkpoint_path" || echo "checkpoint prune failed for $checkpoint_path" >&2
+    fi
+  done
+}
+
+flush_checkpoint() {
+  mkdir -p "$CHECKPOINT_DIR" ${shellQuote(env.daytona.sidecarDir)}
+  if ! checkpoint_changed; then
+    return 0
+  fi
+  epoch=$(date +%s)
+  tmp_checkpoint=${shellQuote(env.daytona.sidecarDir)}/ckpt-$epoch.tar
+  set --
+  for state_path in $OPENWORK_STATE_MANIFEST; do
+    set -- "$@" "\${state_path#/}"
+  done
+  # Collapse the WAL so the copied database is self-consistent and small. Best
+  # effort: a locked or absent database must never fail the flush.
+  if [ -f "$ENGINE_STATE_PATH/opencode.db" ]; then
+    node -e 'const{DatabaseSync}=require("node:sqlite");const db=new DatabaseSync(process.argv[1]);db.exec("PRAGMA wal_checkpoint(TRUNCATE)");db.close()' "$ENGINE_STATE_PATH/opencode.db" >/dev/null 2>&1 || true
+  fi
+  # Credentials are re-materialized and re-delivered on every start, so they are
+  # deliberately not persisted to the shared volume. Logs are noise.
+  if tar -C / --exclude="\${ENGINE_STATE_PATH#/}/auth.json" --exclude="\${ENGINE_STATE_PATH#/}/log" -cf "$tmp_checkpoint" "$@"; then
+    if cp "$tmp_checkpoint" "$CHECKPOINT_DIR/ckpt-$epoch.tar"; then
+      touch "$LAST_FLUSH_MARKER"
+      rm -f "$tmp_checkpoint"
+      prune_checkpoints
+      return 0
+    fi
+    echo "checkpoint flush copy failed for $CHECKPOINT_DIR/ckpt-$epoch.tar" >&2
+  else
+    echo "checkpoint flush tar failed for $tmp_checkpoint" >&2
+  fi
+  rm -f "$tmp_checkpoint"
+  return ${failureReturn}
+}`
+}
+
+export function checkpointFlushCommand() {
+  return `set -u
+${checkpointEnvironmentScript()}
+${checkpointFlushFunctions({ failOnError: true })}
+flush_checkpoint`
 }
 
 export function buildOpenWorkStartCommand(input: ProvisionInput) {
@@ -309,22 +468,13 @@ export function buildOpenWorkStartCommand(input: ProvisionInput) {
     ` --approval manual`,
     ` --verbose`,
   ].join("")
-  const stateManifest = `${env.daytona.runtimeDataPath} ${env.daytona.runtimeWorkspacePath}`
-  const checkpointDir = `${env.daytona.dataMountPath}/checkpoints`
-  const lastFlushMarker = `${env.daytona.sidecarDir}/checkpoint.last-flush`
-
   const script = `
 set -u
 mkdir -p ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(env.daytona.runtimeWorkspacePath)} ${shellQuote(env.daytona.runtimeDataPath)} ${shellQuote(env.daytona.sidecarDir)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes`)}
 ln -sfn ${shellQuote(env.daytona.workspaceMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/workspace`) }
 ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
 ${verifyRuntimeStep}
-OPENWORK_STATE_MANIFEST=${shellQuote(stateManifest)}
-CHECKPOINT_DIR=${shellQuote(checkpointDir)}
-RESTORE_MARKER=${shellQuote(checkpointRestoreMarkerPath())}
-LAST_FLUSH_MARKER=${shellQuote(lastFlushMarker)}
-DEN_CKPT_INTERVAL_SECONDS=\${DEN_CKPT_INTERVAL_SECONDS:-${shellQuote(String(env.daytona.checkpointIntervalSeconds))}}
-DEN_CKPT_KEEP=\${DEN_CKPT_KEEP:-${shellQuote(String(env.daytona.checkpointKeep))}}
+${checkpointEnvironmentScript()}
 
 state_dirs_pristine() {
   if [ -e "$RESTORE_MARKER" ]; then
@@ -363,58 +513,7 @@ hydrate_checkpoint() {
   ln -sfn ${shellQuote(env.daytona.dataMountPath)} ${shellQuote(`${env.daytona.runtimeWorkspacePath}/volumes/data`) }
 }
 
-checkpoint_changed() {
-  if [ ! -e "$LAST_FLUSH_MARKER" ]; then
-    return 0
-  fi
-  for state_path in $OPENWORK_STATE_MANIFEST; do
-    changed_entry=$(find "$state_path" -newer "$LAST_FLUSH_MARKER" -print -quit 2>/dev/null || true)
-    if [ -n "$changed_entry" ]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-prune_checkpoints() {
-  keep_count=$DEN_CKPT_KEEP
-  if ! [ "$keep_count" -gt 0 ] 2>/dev/null; then
-    keep_count=3
-  fi
-  checkpoint_count=0
-  find "$CHECKPOINT_DIR" -maxdepth 1 -type f -name 'ckpt-*.tar' -print 2>/dev/null | sort -r | while IFS= read -r checkpoint_path; do
-    checkpoint_count=$((checkpoint_count + 1))
-    if [ "$checkpoint_count" -gt "$keep_count" ]; then
-      rm -f "$checkpoint_path" || echo "checkpoint prune failed for $checkpoint_path" >&2
-    fi
-  done
-}
-
-flush_checkpoint() {
-  mkdir -p "$CHECKPOINT_DIR" ${shellQuote(env.daytona.sidecarDir)}
-  if ! checkpoint_changed; then
-    return 0
-  fi
-  epoch=$(date +%s)
-  tmp_checkpoint=${shellQuote(env.daytona.sidecarDir)}/ckpt-$epoch.tar
-  set --
-  for state_path in $OPENWORK_STATE_MANIFEST; do
-    set -- "$@" "\${state_path#/}"
-  done
-  if tar -C / -cf "$tmp_checkpoint" "$@"; then
-    if cp "$tmp_checkpoint" "$CHECKPOINT_DIR/ckpt-$epoch.tar"; then
-      touch "$LAST_FLUSH_MARKER"
-      rm -f "$tmp_checkpoint"
-      prune_checkpoints
-      return 0
-    fi
-    echo "checkpoint flush copy failed for $CHECKPOINT_DIR/ckpt-$epoch.tar" >&2
-  else
-    echo "checkpoint flush tar failed for $tmp_checkpoint" >&2
-  fi
-  rm -f "$tmp_checkpoint"
-  return 0
-}
+${checkpointFlushFunctions({ failOnError: false })}
 
 checkpoint_loop() {
   while true; do
@@ -1016,6 +1115,41 @@ async function startOpenWorkOnDaytonaSandbox(input: {
   return provisionedInstance(input.provisionInput.workerId, input.sandbox.target, input.imageVersion)
 }
 
+async function startDaytonaSandboxForWake(input: { workerId: WorkerId; sandbox: DaytonaSandboxRuntime }) {
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= wakeStartMaxAttempts; attempt += 1) {
+    try {
+      await input.sandbox.start(env.daytona.createTimeoutSeconds)
+      return
+    } catch (error) {
+      lastError = error
+
+      if (isDaytonaStateChangeInProgressConflict(error)) {
+        logger.warn("Daytona sandbox start already in progress; waiting for convergence", { worker_id: input.workerId, sandbox_id: input.sandbox.id, error })
+        const settledState = await waitForDaytonaStartConflictToSettle(input.sandbox)
+        if (settledState === "started") {
+          return
+        }
+        continue
+      }
+
+      if (!isTransientDaytonaStartError(error) || attempt === wakeStartMaxAttempts) {
+        throw error
+      }
+
+      logger.warn("transient Daytona sandbox start failure; retrying", { worker_id: input.workerId, sandbox_id: input.sandbox.id, attempt, error })
+      await sleep(wakeStartRetryBackoffMs)
+      await input.sandbox.refreshData().catch(() => undefined)
+      if (isStartedSandboxState(input.sandbox.state)) {
+        return
+      }
+    }
+  }
+
+  throw lastError ?? new Error(`Daytona sandbox ${input.sandbox.id} start failed`)
+}
+
 function shouldRecycleDaytonaSandbox(input: { workerImageVersion: string | null; sandboxState: string | null }) {
   const imageVersion = currentDaytonaImageVersion()
   return Boolean(imageVersion && input.workerImageVersion !== imageVersion && isStoppedSandboxState(input.sandboxState))
@@ -1030,7 +1164,7 @@ async function wakeExistingDaytonaSandbox(input: {
   imageVersion?: string | null
 }) {
   if (isStoppedSandboxState(input.sandbox.state)) {
-    await input.sandbox.start(env.daytona.createTimeoutSeconds)
+    await startDaytonaSandboxForWake({ workerId: input.provisionInput.workerId, sandbox: input.sandbox })
   }
 
   return startOpenWorkOnDaytonaSandbox({
@@ -1185,6 +1319,27 @@ export async function stopWorkerOnDaytona(workerId: WorkerId): Promise<StopWorke
   await sandbox.stop(env.daytona.stopTimeoutSeconds ?? env.daytona.deleteTimeoutSeconds)
 
   return { status: "stopped" }
+}
+
+export async function flushWorkerCheckpointOnDaytona(workerId: WorkerId) {
+  assertDaytonaConfig()
+
+  const record = await getDaytonaSandboxRecord(workerId)
+  if (!record) {
+    return false
+  }
+
+  const daytona = createDaytonaClient()
+  const sandbox = await daytona.get(record.sandbox_id)
+  await sandbox.refreshData()
+  const exitCode = await runSandboxShellCommand(
+    toDaytonaSandboxRuntime(sandbox),
+    `openwork-update-flush-${workerHint(workerId)}-${Date.now()}`,
+    checkpointFlushCommand(),
+    env.daytona.createTimeoutSeconds,
+  )
+
+  return exitCode === 0
 }
 
 export type DaytonaSandboxWakeRecord = {

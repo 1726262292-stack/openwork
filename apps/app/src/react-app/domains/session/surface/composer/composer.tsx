@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, Check, ChevronDown, ChevronRight, FileText, ListPlus, LoaderCircle, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, Check, ChevronDown, ChevronRight, FileText, ListPlus, LoaderCircle, Paperclip, Plug, RefreshCw, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -41,7 +41,7 @@ type MentionItem = {
   label: string;
 };
 
-type ToolMenuSettingsSection = "commands" | "skills" | "mcps" | "plugins";
+type ToolMenuSettingsSection = "commands" | "skills" | "mcps" | "plugins" | "extensions";
 type ToolMenuSection = "agents" | "commands" | "skills" | "mcps" | "extensions" | `plugin:${string}`;
 
 function isComposerExtensionAvailable(entry: McpDirectoryInfo) {
@@ -63,10 +63,13 @@ type ComposerProps = {
   busy: boolean;
   steering: boolean;
   submissionPreparing: boolean;
+  submissionBlocked: boolean;
+  submissionInputStatusLabel?: string;
   queuedCount: number;
   disabled: boolean;
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
+  organizationModelsEmpty?: boolean;
   statusLabel: string;
   modelPickerOpen: boolean;
   selectedModel: ModelRef;
@@ -293,6 +296,7 @@ export function ReactSessionComposer(props: ComposerProps) {
   let fileInput: HTMLInputElement | undefined;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [refreshingOrganizationModels, setRefreshingOrganizationModels] = useState(false);
   const [commands, setCommands] = useState<SlashCommandOption[]>([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -326,9 +330,9 @@ export function ReactSessionComposer(props: ComposerProps) {
     plugins: false,
   });
   const [commandsLoaded, setCommandsLoaded] = useState(false);
-  const [skillsLoaded, setSkillsLoaded] = useState(Boolean(props.skills));
-  const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers));
-  const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins));
+  const [skillsLoaded, setSkillsLoaded] = useState(Boolean(props.skills?.length));
+  const [mcpLoaded, setMcpLoaded] = useState(Boolean(props.mcpServers?.length));
+  const [pluginsLoaded, setPluginsLoaded] = useState(Boolean(props.importedPlugins?.length));
   const [, setExtensionStateVersion] = useState(0);
   const [agentMenuIndex, setAgentMenuIndex] = useState(0);
   const agentItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -374,6 +378,19 @@ export function ReactSessionComposer(props: ComposerProps) {
     }
   }, [props.modelPickerOpen, props.onModelPickerOpenChange, props.steering]);
 
+  const handleRefreshOrganizationModels = useCallback(async () => {
+    if (!props.onRefreshOrganizationModels || refreshingOrganizationModels) return;
+
+    setRefreshingOrganizationModels(true);
+    try {
+      await props.onRefreshOrganizationModels();
+    } catch {
+      toast.error(t("models.refresh_organization_models_failed"));
+    } finally {
+      setRefreshingOrganizationModels(false);
+    }
+  }, [props.onRefreshOrganizationModels, refreshingOrganizationModels]);
+
   // Input history recall (#2012): ArrowUp on an empty composer recalls the
   // previous sent prompt; repeated ArrowUp/ArrowDown walk the history.
   // Editing the recalled text exits recall mode, and ArrowDown past the
@@ -400,14 +417,14 @@ export function ReactSessionComposer(props: ComposerProps) {
   const handleEditorSubmit = useCallback((options: { queue: boolean }) => {
     const hasContent = props.draft.trim().length > 0 || props.attachments.length > 0;
     if (!hasContent) return;
-    if (props.submissionPreparing) return;
+    if (props.submissionPreparing || props.submissionBlocked) return;
     if (props.busy) {
       if (options.queue) void props.onQueue();
       else void props.onSteer();
       return;
     }
     void props.onSend();
-  }, [props.busy, props.draft, props.attachments, props.onSend, props.onSteer, props.onQueue, props.submissionPreparing]);
+  }, [props.busy, props.draft, props.attachments, props.onSend, props.onSteer, props.onQueue, props.submissionBlocked, props.submissionPreparing]);
 
   const slashCommandQuery = getSlashCommandQuery(props.draft);
   const slashOpenNext = slashCommandQuery !== null;
@@ -547,9 +564,9 @@ export function ReactSessionComposer(props: ComposerProps) {
       plugins: false,
     };
     setCommandsLoaded(false);
-    setSkillsLoaded(Boolean(props.skills));
-    setMcpLoaded(Boolean(props.mcpServers));
-    setPluginsLoaded(Boolean(props.importedPlugins));
+    setSkillsLoaded(Boolean(props.skills?.length));
+    setMcpLoaded(Boolean(props.mcpServers?.length));
+    setPluginsLoaded(Boolean(props.importedPlugins?.length));
   }, [toolMenuOpen]);
 
   useEffect(() => {
@@ -890,10 +907,15 @@ export function ReactSessionComposer(props: ComposerProps) {
     setToolMenuOpen(false);
   };
 
+  // Configure lands on the matching OpenWork Extensions section: skills and
+  // plugin tabs keep their scoped views, everything else opens the inventory.
   const openToolMenuSettings = () => {
-    const section: ToolMenuSettingsSection = toolMenuSection === "commands" || toolMenuSection === "skills"
-      ? toolMenuSection
-      : "plugins";
+    const section: ToolMenuSettingsSection =
+      toolMenuSection === "commands" || toolMenuSection === "skills"
+        ? toolMenuSection
+        : toolMenuSection === "agents" || toolMenuSection === "extensions"
+          ? "extensions"
+          : "plugins";
     props.onOpenSettingsSection?.(section);
   };
 
@@ -1243,99 +1265,123 @@ export function ReactSessionComposer(props: ComposerProps) {
             </div>
           ) : null}
 
-          <div className="px-4 pt-3 pb-2">
+          <div
+            className="px-4 pt-3 pb-2"
+            aria-busy={props.submissionPreparing}
+          >
             {/* Editor */}
-            <LexicalPromptEditor
-              ref={editorRef}
-              value={props.draft}
-              mentions={props.mentions}
-              pastedText={pastedTextTokens}
-              attachments={props.attachments.map((attachment) => ({
-                id: attachment.id,
-                name: attachment.name,
-                kind: isImageAttachment(attachment) ? "image" : "file",
-                previewUrl: attachment.previewUrl,
-              }))}
-              disabled={props.disabled}
-              placeholder={t("composer.placeholder")}
-              onChange={props.onDraftChange}
-              onSubmit={handleEditorSubmit}
-              onExpandPastedText={handleExpandPastedText}
-              onRemoveAttachment={props.onRemoveAttachment}
-              onPasteText={props.onPasteText}
-              onPaste={(event) => {
-                // Paste policy:
-                // 1. Actual files on the clipboard -> attach them.
-                // 2. Explicit text/uri-list (drag from Finder / browser) -> insert links.
-                // 3. Plain text -> DO NOTHING. Let Lexical's PlainTextPlugin
-                //    handle the paste natively so newlines render correctly
-                //    and no content is silently dropped. Previous behavior
-                //    hijacked pastes that merely contained absolute paths
-                //    like "/Users/..." or pastes longer than 10 lines, which
-                //    was the root cause of "paste into composer is broken".
-                const files = Array.from(event.clipboardData?.files ?? []);
-                if (files.length) {
-                  event.preventDefault();
-                  void addAttachments(files);
-                  return;
-                }
+            <div className="relative">
+              <div className={props.submissionBlocked ? "invisible" : undefined}>
+                <LexicalPromptEditor
+                  ref={editorRef}
+                  value={props.draft}
+                  mentions={props.mentions}
+                  pastedText={pastedTextTokens}
+                  attachments={props.attachments.map((attachment) => ({
+                    id: attachment.id,
+                    name: attachment.name,
+                    kind: isImageAttachment(attachment) ? "image" : "file",
+                    previewUrl: attachment.previewUrl,
+                  }))}
+                  disabled={props.disabled || props.submissionBlocked}
+                  placeholder={t("composer.placeholder")}
+                  onChange={props.onDraftChange}
+                  onSubmit={handleEditorSubmit}
+                  onExpandPastedText={handleExpandPastedText}
+                  onRemoveAttachment={props.onRemoveAttachment}
+                  onPasteText={props.onPasteText}
+                  onPaste={(event) => {
+                    // Paste policy:
+                    // 1. Actual files on the clipboard -> attach them.
+                    // 2. Explicit text/uri-list (drag from Finder / browser) -> insert links.
+                    // 3. Plain text -> DO NOTHING. Let Lexical's PlainTextPlugin
+                    //    handle the paste natively so newlines render correctly
+                    //    and no content is silently dropped. Previous behavior
+                    //    hijacked pastes that merely contained absolute paths
+                    //    like "/Users/..." or pastes longer than 10 lines, which
+                    //    was the root cause of "paste into composer is broken".
+                    const files = Array.from(event.clipboardData?.files ?? []);
+                    if (files.length) {
+                      event.preventDefault();
+                      void addAttachments(files);
+                      return;
+                    }
 
-                const uriList = event.clipboardData
-                  ? parseClipboardUriList(event.clipboardData)
-                  : [];
-                if (uriList.length) {
-                  event.preventDefault();
-                  props.onUnsupportedFileLinks(uriList);
-                  return;
-                }
+                    const uriList = event.clipboardData
+                      ? parseClipboardUriList(event.clipboardData)
+                      : [];
+                    if (uriList.length) {
+                      event.preventDefault();
+                      props.onUnsupportedFileLinks(uriList);
+                      return;
+                    }
 
-                const text = event.clipboardData?.getData("text/plain") ?? "";
+                    const text = event.clipboardData?.getData("text/plain") ?? "";
 
-                // Plain text paste display is owned by PasteChipPlugin inside
-                // the Lexical editor: text collapses when it would exceed the
-                // editor's current width and maximum height, unless the whole
-                // string is a standalone HTTP(S) URL. Text that fits, or is
-                // expanded from a chip, renders like normal text. Do NOT
-                // duplicate that here.
+                    // Plain text paste display is owned by PasteChipPlugin inside
+                    // the Lexical editor: text collapses when it would exceed the
+                    // editor's current width and maximum height, unless the whole
+                    // string is a standalone HTTP(S) URL. Text that fits, or is
+                    // expanded from a chip, renders like normal text. Do NOT
+                    // duplicate that here.
 
-                if (
-                  text.trim() &&
-                  (props.isRemoteWorkspace || props.isSandboxWorkspace) &&
-                  /file:\/\/|(^|\s)\/(Users|home|var|etc|opt|tmp|private|Volumes|Applications)\//.test(text)
-                ) {
-                  const attachedFiles = props.attachments.map((attachment) => attachment.file);
-                  toast.warning(t("composer.remote_worker_paste_warning"), {
-                    action:
-                      props.onUploadInboxFiles && attachedFiles.length > 0
-                        ? {
-                            label: t("composer.upload_to_shared_folder"),
-                            onClick: () => void props.onUploadInboxFiles?.(attachedFiles),
-                          }
-                        : undefined,
-                  });
-                  // Intentionally no preventDefault — the notice is advisory,
-                  // the paste still goes through the editor.
-                }
-              }}
-              onDragOver={(event) => {
-                if (event.dataTransfer?.files?.length) {
-                  event.preventDefault();
-                  if (!dropzoneActive) setDropzoneActive(true);
-                }
-              }}
-              onDragLeave={(event) => {
-                const nextTarget = event.relatedTarget;
-                if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
-                setDropzoneActive(false);
-              }}
-              onDrop={(event) => {
-                const files = Array.from(event.dataTransfer?.files ?? []);
-                setDropzoneActive(false);
-                if (!files.length) return;
-                event.preventDefault();
-                void addAttachments(files);
-              }}
-            />
+                    if (
+                      text.trim() &&
+                      (props.isRemoteWorkspace || props.isSandboxWorkspace) &&
+                      /file:\/\/|(^|\s)\/(Users|home|var|etc|opt|tmp|private|Volumes|Applications)\//.test(text)
+                    ) {
+                      const attachedFiles = props.attachments.map((attachment) => attachment.file);
+                      toast.warning(t("composer.remote_worker_paste_warning"), {
+                        action:
+                          props.onUploadInboxFiles && attachedFiles.length > 0
+                            ? {
+                                label: t("composer.upload_to_shared_folder"),
+                                onClick: () => void props.onUploadInboxFiles?.(attachedFiles),
+                              }
+                            : undefined,
+                      });
+                      // Intentionally no preventDefault — the notice is advisory,
+                      // the paste still goes through the editor.
+                    }
+                  }}
+                  onDragOver={(event) => {
+                    if (event.dataTransfer?.files?.length) {
+                      event.preventDefault();
+                      if (!dropzoneActive) setDropzoneActive(true);
+                    }
+                  }}
+                  onDragLeave={(event) => {
+                    const nextTarget = event.relatedTarget;
+                    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+                    setDropzoneActive(false);
+                  }}
+                  onDrop={(event) => {
+                    const files = Array.from(event.dataTransfer?.files ?? []);
+                    setDropzoneActive(false);
+                    if (!files.length) return;
+                    event.preventDefault();
+                    void addAttachments(files);
+                  }}
+                />
+              </div>
+              {props.submissionBlocked ? (
+                <div
+                  className="absolute inset-0 flex min-h-[60px] items-center justify-center gap-2 text-[13px] font-medium text-dls-secondary"
+                  data-testid="composer-connection-state"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {props.submissionPreparing ? (
+                    <>
+                      <LoaderCircle size={15} className="animate-spin" />
+                      <span>{props.submissionInputStatusLabel ?? "Connecting signed-in services…"}</span>
+                    </>
+                  ) : (
+                    <span>Reconnect Den to continue.</span>
+                  )}
+                </div>
+              ) : null}
+            </div>
 
             {/* Action row — attachments, quick actions, model controls, and send */}
             <div className="mt-2 flex flex-wrap items-end justify-between gap-2">
@@ -1705,6 +1751,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 <ModelSelect
                   open={props.modelPickerOpen}
                   value={props.selectedModel}
+                  hideValue={props.organizationModelsEmpty}
                   onOpenChange={props.onModelPickerOpenChange}
                   onChange={(model) => {
                     if (!props.steering) props.onModelChange(model);
@@ -1713,18 +1760,25 @@ export function ReactSessionComposer(props: ComposerProps) {
                   sessionId={props.sessionId}
                   openWorkModelsEntitled={props.openWorkModelsEntitled}
                 />
-                {props.modelUnavailable ? (
-                  <span className="flex items-center gap-2 text-xs font-medium text-red-10">
-                    <span>{props.modelUnavailableMessage ?? t("models.model_unavailable_short")}</span>
-                    {props.onRefreshOrganizationModels ? (
-                      <button
-                        type="button"
-                        className="rounded-full border border-red-6 px-2 py-0.5 text-[11px] text-red-11 transition-colors hover:bg-red-3"
-                        onClick={() => void props.onRefreshOrganizationModels?.()}
-                      >
-                        {t("models.refresh_organization_models")}
-                      </button>
-                    ) : null}
+                {props.modelUnavailable ? props.onRefreshOrganizationModels ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full border border-red-5 bg-red-2 px-2.5 text-[11px] font-medium text-red-11 transition-colors hover:border-red-6 hover:bg-red-3 disabled:cursor-wait disabled:opacity-70 sm:max-w-80"
+                    onClick={() => void handleRefreshOrganizationModels()}
+                    disabled={refreshingOrganizationModels}
+                    title={t("models.refresh_organization_models")}
+                  >
+                    <span className="min-w-0 truncate">
+                      {props.modelUnavailableMessage ?? t("models.model_unavailable_short")}
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1">
+                      <RefreshCw size={11} className={refreshingOrganizationModels ? "animate-spin" : ""} />
+                      {refreshingOrganizationModels ? t("models.refreshing_organization_models") : t("models.retry_organization_models")}
+                    </span>
+                  </button>
+                ) : (
+                  <span className="max-w-[20rem] truncate text-xs font-medium text-red-10">
+                    {props.modelUnavailableMessage ?? t("models.model_unavailable_short")}
                   </span>
                 ) : null}
 
@@ -1770,10 +1824,10 @@ export function ReactSessionComposer(props: ComposerProps) {
                     <div className="flex items-end">
                       <button
                         type="button"
-                        onClick={canSend ? props.onSteer : undefined}
-                        disabled={!canSend}
+                        onClick={canSend && !props.submissionBlocked ? props.onSteer : undefined}
+                        disabled={!canSend || props.submissionBlocked}
                         className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-l-full pl-4 pr-3 text-[13px] font-medium transition-colors ${
-                          canSend
+                          canSend && !props.submissionBlocked
                             ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                             : "bg-gray-4 text-gray-10"
                         }`}
@@ -1788,8 +1842,9 @@ export function ReactSessionComposer(props: ComposerProps) {
                             <button
                               type="button"
                               aria-label={t("composer.send_options")}
+                              disabled={props.submissionBlocked}
                               className={`relative inline-flex h-9 max-h-9 items-center rounded-r-full border-l pl-1.5 pr-2.5 transition-colors ${
-                                canSend
+                                canSend && !props.submissionBlocked
                                   ? "border-[color-mix(in_srgb,var(--dls-accent-fg)_25%,transparent)] bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                                   : "border-gray-6 bg-gray-4 text-gray-10"
                               }`}
@@ -1805,7 +1860,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                         />
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            disabled={!canSend}
+                            disabled={!canSend || props.submissionBlocked}
                             onClick={() => void props.onQueue()}
                             title={t("composer.queue_hint")}
                           >
@@ -1824,17 +1879,21 @@ export function ReactSessionComposer(props: ComposerProps) {
                 ) : (
                   <button
                     type="button"
-                    onClick={canSend && !props.submissionPreparing ? props.onSend : undefined}
-                    disabled={props.disabled || !canSend || props.submissionPreparing}
+                    onClick={canSend && !props.submissionBlocked ? props.onSend : undefined}
+                    disabled={props.disabled || !canSend || props.submissionBlocked}
                     className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-colors ${
-                      !canSend || props.disabled || props.submissionPreparing
+                      !canSend || props.disabled || props.submissionBlocked
                         ? "bg-gray-4 text-gray-10"
                         : "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
                     }`}
-                    title={props.submissionPreparing ? "Preparing connected service tools…" : t("composer.run_task")}
+                    title={props.submissionPreparing
+                      ? "Connecting signed-in services…"
+                      : props.submissionBlocked
+                        ? "Reconnect Den before running this task."
+                        : t("composer.run_task")}
                   >
                     {props.submissionPreparing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={15} />}
-                    <span>{props.submissionPreparing ? "Preparing connected service tools…" : t("composer.run_task")}</span>
+                    <span>{props.submissionPreparing ? "Connecting services…" : t("composer.run_task")}</span>
                   </button>
                 )}
               </div>
