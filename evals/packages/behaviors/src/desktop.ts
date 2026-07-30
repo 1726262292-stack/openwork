@@ -32,10 +32,15 @@ export async function evalIn(app: Surface, expression: string, opts: EvaluateOpt
 async function resilientRead(
   app: Surface,
   expression: string,
-  { attempts = 8, perAttemptMs = 10_000, label = expression }: { attempts?: number; perAttemptMs?: number; label?: string } = {},
+  { timeoutMs = 240_000, perAttemptMs = 10_000, label = expression }: { timeoutMs?: number; perAttemptMs?: number; label?: string } = {},
 ): Promise<unknown> {
+  // A cold profile can block its JS thread for minutes while the workspace
+  // runtime boots, so retry to a deadline rather than a fixed attempt count.
+  const deadline = Date.now() + timeoutMs;
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+  let attempts = 0;
+  while (Date.now() < deadline) {
+    attempts += 1;
     try {
       return await evalIn(app, expression, { timeoutMs: perAttemptMs });
     } catch (error) {
@@ -43,7 +48,7 @@ async function resilientRead(
       await sleep(POLL_INTERVAL_MS);
     }
   }
-  throw new Error(`Could not read ${label} after ${attempts} attempts${lastError ? `: ${messageText(lastError)}` : ""}.`);
+  throw new Error(`Could not read ${label} within ${timeoutMs}ms (${attempts} attempts)${lastError ? `: ${messageText(lastError)}` : ""}.`);
 }
 
 export async function waitFor(
