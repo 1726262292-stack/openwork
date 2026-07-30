@@ -26,7 +26,7 @@ export async function evalIn(app: Surface, expression: string, opts: EvaluateOpt
 export async function waitFor(
   app: Surface,
   expression: string,
-  { timeoutMs = DEFAULT_TIMEOUT_MS, label = expression }: { timeoutMs?: number; label?: string } = {},
+  { timeoutMs = DEFAULT_TIMEOUT_MS, label = expression, awaitPromise = false }: { timeoutMs?: number; label?: string; awaitPromise?: boolean } = {},
 ): Promise<unknown> {
   const startedAt = Date.now();
   let lastError: unknown = null;
@@ -36,7 +36,7 @@ export async function waitFor(
   const evalTimeoutMs = Math.min(Math.max(timeoutMs, 20_000), 120_000);
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const value = await evalIn(app, expression, { timeoutMs: evalTimeoutMs });
+      const value = await evalIn(app, expression, { timeoutMs: evalTimeoutMs, awaitPromise });
       if (value) return value;
       lastError = null;
     } catch (error) {

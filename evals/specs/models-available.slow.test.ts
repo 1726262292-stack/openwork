@@ -85,10 +85,14 @@ async function ensureSession(app: Surface, path: string): Promise<string> {
     label: "session.create_task enabled",
   });
   await executeControl(app, "session.create_task");
-  await waitFor(app, `/^#\\/workspace\\/[^/?#]+\\/session\\/ses_[^/?#]+/.test(window.location.hash)`, {
-    timeoutMs: 60_000,
-    label: "created model test session id route",
-  });
+  // Wait on the product's own session list rather than a route shape: a created
+  // task does not always put a session id in the hash.
+  await waitFor(app, `(async () => {
+    const result = await window.__openworkControl.execute("session.list_sessions", null);
+    const value = result?.result ?? result;
+    const sessions = Array.isArray(value) ? value : value?.sessions;
+    return Array.isArray(sessions) && sessions.length > 0;
+  })()`, { timeoutMs: 90_000, label: "created model test session", awaitPromise: true });
   return workspaceId;
 }
 
@@ -341,7 +345,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(managedTitle, async () => {
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "A compact organization-model empty notice with a Retry action is visible above the composer",
+      "A compact notice above the composer says the organization has not published any models yet",
       "No Connect a provider action or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);

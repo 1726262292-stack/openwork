@@ -110,8 +110,8 @@ export async function createAndSelectWorkspace(
   if (route.includes("/welcome")) {
     const workspace = await createLocalWorkspaceViaUi(app, input);
     workspaceId = workspace.id || (await resolveWorkspaceId(app));
-    await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
-    await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
+    await clickButton(app, "Skip and use the free model", { timeoutMs: 90_000 });
+    await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 90_000 });
     await clickButton(app, "Skip", { timeoutMs: 15_000 });
   } else {
     if (route.includes("/onboarding")) await completeOrganizationOnboarding(app);

@@ -70,8 +70,23 @@ export async function seedWorkspace(app: Surface, input: { path: string; name?: 
     }
 
     const workspaceId = created.workspaceId;
-    await evalIn(app, `window.location.hash = ${JSON.stringify(`#/workspace/${workspaceId}/session`)}`);
+    // Creating a workspace through the API skips what the UI path also does:
+    // it marks onboarding complete and lets the workspace runtime boot. Without
+    // both, specs land on the welcome panel or hit "opencode_unconfigured".
+    await evalIn(app, `(() => {
+      let prefs = {};
+      try { prefs = JSON.parse(localStorage.getItem("openwork.preferences") ?? "{}"); } catch {}
+      localStorage.setItem("openwork.preferences", JSON.stringify({ ...prefs, hasCompletedOnboarding: true }));
+      window.location.hash = ${JSON.stringify(`#/workspace/${workspaceId}/session`)};
+      return true;
+    })()`);
     await waitUntilInteractive(app);
+    // The workspace runtime configures the engine asynchronously; a spec that
+    // asserts before that lands on an "OpenCode base URL is missing" toast.
+    await waitFor(app, `(() => {
+      const text = document.body?.innerText ?? "";
+      return !text.includes("opencode_unconfigured") && !text.includes("OpenCode base URL is missing");
+    })()`, { timeoutMs: 120_000, label: "workspace engine configured" });
     return { workspaceId, path: input.path };
   }, input.path);
 }

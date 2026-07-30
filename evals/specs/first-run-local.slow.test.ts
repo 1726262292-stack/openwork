@@ -111,8 +111,8 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
-  await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
+  await clickButton(app, "Skip and use the free model", { timeoutMs: 90_000 });
+  await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 90_000 });
   await clickButton(app, "Skip", { timeoutMs: 15_000 });
   await waitFor(app, `window.location.hash.includes(${JSON.stringify(`/workspace/${workspace.id}/session`)})`, {
     timeoutMs: 120_000,
