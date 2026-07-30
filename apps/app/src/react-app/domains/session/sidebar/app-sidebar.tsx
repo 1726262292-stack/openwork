@@ -14,6 +14,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Puzzle,
   Search,
   Share2,
   Trash2,
@@ -103,6 +104,13 @@ import {
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import { AccountStatusMenu, type AccountStatusMenuProps } from "./account-status-menu";
 import { usePlatform } from "../../../kernel/platform";
+import {
+  sessionNumberAriaKeyShortcut,
+  sessionNumberShortcutDescription,
+  sessionNumberShortcutLabel,
+  sessionNumberShortcutTargetKey,
+  type SessionNumberShortcutsState,
+} from "../../../shell/session-number-shortcuts";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
   MAX_SESSIONS_PREVIEW,
@@ -138,6 +146,8 @@ import {
 } from "./sidebar-lanes";
 import { WorkspaceAvatarPicker } from "./workspace-avatar-picker";
 import { useWorkbenchStore } from "../chat/workbench-store";
+import { SidebarDestination } from "./sidebar-destination";
+import { SessionTitle } from "./session-title";
 
 /** Paper Desktop: unread #2FBE54, needs-action #E8933A (14px artboard → ~8px app). */
 const OUTCOME_DOT_UNREAD = "#2FBE54";
@@ -806,6 +816,7 @@ function SidebarSplitPill({ workspaceSessionGroups, selectedWorkspaceId, selecte
 }
 
 export type AppSidebarProps = {
+  sessionNumberShortcuts: SessionNumberShortcutsState;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   showInitialLoading?: boolean;
   selectedWorkspaceId: string;
@@ -843,6 +854,8 @@ export type AppSidebarProps = {
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
   onOpenAccountSettings?: () => void;
+  onOpenExtensions: () => void;
+  extensionsActive?: boolean;
   /** Live app status, shown inside the footer account menu. */
   status: Omit<AccountStatusMenuProps, "onOpenAccountSettings">;
 };
@@ -870,6 +883,13 @@ export function AppSidebar(props: AppSidebarProps) {
     () => new Set(),
   );
   const previousSessionStatusRef = React.useRef<Record<string, string>>({});
+  const sessionNumberShortcutByTarget = React.useMemo(
+    () => new Map(props.sessionNumberShortcuts.targets.map((target) => [
+      sessionNumberShortcutTargetKey(target.workspaceId, target.sessionId),
+      target.digit,
+    ])),
+    [props.sessionNumberShortcuts.targets],
+  );
 
   // Green unread dots: agent finished while the user was on another session.
   React.useEffect(() => {
@@ -1006,6 +1026,8 @@ export function AppSidebar(props: AppSidebarProps) {
     toggleSessionExpanded,
     expandedWorkspaceIds,
     expandedSessionIds,
+    sessionNumberShortcutOs: props.sessionNumberShortcuts.os,
+    sessionNumberShortcutByTarget,
   };
 
   const brandLogoUrl = useBrandLogoUrl();
@@ -1084,9 +1106,9 @@ export function AppSidebar(props: AppSidebarProps) {
             </Button>
           </div>
         ) : null}
-        {props.onOpenSessionSearch ? (
-          <SidebarHeader className="pb-0 pe-0">
-            <SidebarMenu>
+        <SidebarHeader className="pb-0 pe-0">
+          <SidebarMenu>
+            {props.onOpenSessionSearch ? (
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={props.onOpenSessionSearch}
@@ -1100,9 +1122,15 @@ export function AppSidebar(props: AppSidebarProps) {
                   </kbd>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarHeader>
-        ) : null}
+            ) : null}
+            <SidebarDestination
+              active={props.extensionsActive === true}
+              icon={Puzzle}
+              label={t("settings.tab_extensions")}
+              onSelect={props.onOpenExtensions}
+            />
+          </SidebarMenu>
+        </SidebarHeader>
         <SidebarSplitPill
           workspaceSessionGroups={props.workspaceSessionGroups}
           selectedWorkspaceId={props.selectedWorkspaceId}
@@ -1114,6 +1142,7 @@ export function AppSidebar(props: AppSidebarProps) {
             layoutScroll
             data-slot="sidebar-content"
             data-sidebar="content"
+            data-session-number-modifier-held={props.sessionNumberShortcuts.modifierHeld ? "true" : undefined}
             className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
           >
             {pinnedSessions.length > 0 ? (
@@ -2195,6 +2224,33 @@ type SessionMenuItemProps = {
   workspaceName?: string;
 };
 
+function SessionNumberShortcutSlot({ digit }: { digit: number | undefined }) {
+  const ctx = useSidebarContext();
+  const label = digit === undefined
+    ? null
+    : sessionNumberShortcutLabel(ctx.sessionNumberShortcutOs, digit);
+
+  return (
+    <span
+      data-session-action-slot="number-shortcut"
+      aria-hidden="true"
+      className={cn(
+        "flex h-5 shrink-0 items-center justify-center",
+        ctx.sessionNumberShortcutOs === "macos" ? "w-8" : "w-11",
+      )}
+    >
+      {label ? (
+        <kbd
+          data-session-shortcut-badge={digit}
+          className="inline-flex h-5 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/80 px-1.5 font-sans text-[10px] font-medium leading-none tracking-tight text-sidebar-foreground/70 shadow-xs"
+        >
+          {label}
+        </kbd>
+      ) : null}
+    </span>
+  );
+}
+
 function SessionMenuItem({
   session,
   tree,
@@ -2206,6 +2262,8 @@ function SessionMenuItem({
   workspaceName,
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
+  const [isTitleHovered, setIsTitleHovered] = React.useState(false);
+  const [isTitleFocused, setIsTitleFocused] = React.useState(false);
   const unreadIds = useUnreadSessionIds();
   const isSelected = ctx.selectedSessionId === session.id;
   const displayTitle = getDisplaySessionTitle(session.title);
@@ -2217,6 +2275,12 @@ function SessionMenuItem({
   const isUnread = unreadIds.has(session.id) && !isSelected;
   const isArchived = isSessionArchived(session);
   const relativeTime = formatSessionRelativeTime(session.time?.updated ?? session.time?.created);
+  const shortcutDigit = ctx.sessionNumberShortcutByTarget.get(
+    sessionNumberShortcutTargetKey(workspaceId, session.id),
+  );
+  const ariaKeyShortcuts = shortcutDigit === undefined
+    ? undefined
+    : sessionNumberAriaKeyShortcut(ctx.sessionNumberShortcutOs, shortcutDigit);
 
   const openSession = () => {
     useSessionManagementStore.getState().clearUnread(session.id);
@@ -2230,6 +2294,13 @@ function SessionMenuItem({
 
     ctx.onPrefetchSession?.(workspaceId, session.id);
   };
+
+  const handlePointerEnter = (event: React.PointerEvent) => {
+    prefetchSession();
+    if (event.pointerType === "mouse") setIsTitleHovered(true);
+  };
+
+  const titleIntent = isTitleFocused ? "focus" : isTitleHovered ? "hover" : null;
 
   const dragProps = depth === 0 ? {
     draggable: true,
@@ -2287,7 +2358,12 @@ function SessionMenuItem({
       onOpenChange={() => ctx.toggleSessionExpanded(session.id)}
       className="group/session-collapsible"
     >
-      <SidebarMenuSubItem {...dragProps} data-sidebar-session-id={session.id} data-sidebar-nest-depth={visualDepth}>
+      <SidebarMenuSubItem
+        {...dragProps}
+        data-sidebar-session-id={session.id}
+        data-sidebar-session-workspace-id={workspaceId}
+        data-sidebar-nest-depth={visualDepth}
+      >
         <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
           <CollapsibleTrigger
             render={
@@ -2298,14 +2374,20 @@ function SessionMenuItem({
                 data-session-tab-id={session.id}
                 data-session-tab-active={isSelected ? "true" : undefined}
                 onClick={openSession}
-                onPointerEnter={prefetchSession}
-                onFocus={prefetchSession}
+                onPointerEnter={handlePointerEnter}
+                onPointerLeave={() => setIsTitleHovered(false)}
+                onFocus={() => {
+                  prefetchSession();
+                  setIsTitleFocused(true);
+                }}
+                onBlur={() => setIsTitleFocused(false)}
                 aria-label={accessibleState}
+                aria-description={shortcutDigit === undefined ? undefined : sessionNumberShortcutDescription(ctx.sessionNumberShortcutOs, shortcutDigit)}
+                aria-keyshortcuts={ariaKeyShortcuts}
               >
                 {leading}
-                <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>
-                  {displayTitle}
-                </span>
+                <SessionTitle intent={titleIntent} title={displayTitle} tooltip={itemTitle} />
+                <SessionNumberShortcutSlot digit={shortcutDigit} />
                 <span className="flex size-6 shrink-0 items-center justify-center">
                   <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
                 </span>
@@ -2317,21 +2399,34 @@ function SessionMenuItem({
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
-    <SidebarMenuSubItem {...dragProps} data-sidebar-session-id={session.id} data-sidebar-nest-depth={visualDepth}>
+    <SidebarMenuSubItem
+      {...dragProps}
+      data-sidebar-session-id={session.id}
+      data-sidebar-session-workspace-id={workspaceId}
+      data-sidebar-nest-depth={visualDepth}
+    >
       <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
         <SidebarMenuSubButton
           isActive={isSelected}
           data-session-tab-id={session.id}
           data-session-tab-active={isSelected ? "true" : undefined}
           onClick={openSession}
-          onPointerEnter={prefetchSession}
-          onFocus={prefetchSession}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={() => setIsTitleHovered(false)}
+          onFocus={() => {
+            prefetchSession();
+            setIsTitleFocused(true);
+          }}
+          onBlur={() => setIsTitleFocused(false)}
           aria-label={accessibleState}
+          aria-description={shortcutDigit === undefined ? undefined : sessionNumberShortcutDescription(ctx.sessionNumberShortcutOs, shortcutDigit)}
+          aria-keyshortcuts={ariaKeyShortcuts}
           className={rowButtonClass}
           style={rowButtonStyle}
         >
           {leading}
-          <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>{displayTitle}</span>
+          <SessionTitle intent={titleIntent} title={displayTitle} tooltip={itemTitle} />
+          <SessionNumberShortcutSlot digit={shortcutDigit} />
         </SidebarMenuSubButton>
       </SessionContextMenu>
       {trailing}

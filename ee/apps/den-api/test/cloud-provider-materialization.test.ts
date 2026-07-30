@@ -149,6 +149,7 @@ function makeInstance(input: {
   envWriteRejection?: { status: number; body: unknown }
   failConfigPatches?: number
   providerRouteStatus?: number
+  providerRouteServesSpa?: boolean
   runtimeVersion?: string | null
   runtimeProviders?: Record<string, unknown>
   opencodeConfigProviders?: Record<string, unknown>
@@ -239,6 +240,14 @@ function makeInstance(input: {
     }
 
     if (method === "PATCH" && parsed.pathname === "/runtime-config/providers") {
+      if (input.providerRouteServesSpa) {
+        // Instances older than this route fall through to the SPA catch-all and
+        // answer 200 with index.html (seen on a real worker on 0.18.3).
+        return new Response("<!doctype html>\n<html lang=\"en\"><head><title>OpenWork</title></head></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        })
+      }
       if (input.providerRouteStatus) {
         return jsonResponse({ error: "runtime_provider_route_unavailable" }, input.providerRouteStatus)
       }
@@ -286,11 +295,12 @@ async function materialize(input: {
   fetchImpl: FetchImpl
   logger?: Logger
   force?: boolean
+  instanceUrl?: string
 }) {
   return materializeCloudWorkerProviders({
     organizationId,
     workerId: input.workerId ?? createDenTypeId("worker"),
-    instanceUrl,
+    instanceUrl: input.instanceUrl ?? instanceUrl,
     hostToken: "host-token",
     clientToken: "client-token",
     store: makeStore(input.providers),
@@ -317,6 +327,41 @@ describe("Cloud provider materialization", () => {
     expect(second.status).toBe("noop")
     expect(instance.calls.filter((call) => call.method === "PUT" && call.path === "/env")).toHaveLength(0)
     expect(instance.calls.filter((call) => call.method === "PATCH" && call.path === "/runtime-config/providers")).toHaveLength(0)
+  })
+
+  test("re-materializes after a recycle replaces the instance", async () => {
+    // A recycle onto a new snapshot gives the worker a brand new sandbox: only
+    // the runtime config survives (shared volume), the env store starts empty.
+    // Keying the cache by worker alone made den-api answer "cached" and never
+    // write the credential into the new instance, so every provider failed with
+    // "API key is missing" while still appearing in the picker.
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const workerId = createDenTypeId("worker")
+
+    const before = makeInstance({
+      envValues: { ANTHROPIC_API_KEY: "sk-anthropic" },
+      runtimeProviders: { [provider.id]: makeAnthropicRuntimeProvider() },
+    })
+    await materialize({ workerId, providers: () => [provider], fetchImpl: before.fetchImpl })
+
+    // Same worker, same credential fingerprint, new sandbox: config persisted on
+    // the volume, env store empty.
+    const recycled = makeInstance({
+      runtimeProviders: { [provider.id]: makeAnthropicRuntimeProvider() },
+    })
+    const result = await materialize({
+      workerId,
+      providers: () => [provider],
+      fetchImpl: recycled.fetchImpl,
+      instanceUrl: "https://worker-recycled.example.test",
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe("applied")
+    expect(recycled.calls.filter((call) => call.method === "PUT" && call.path === "/env")).toHaveLength(1)
+    expect(recycled.calls.find((call) => call.method === "PUT" && call.path === "/env")?.body).toEqual({
+      entries: [{ key: "ANTHROPIC_API_KEY", value: "sk-anthropic" }],
+    })
   })
 
   test("writes a models.dev provider block, credential env, and reloads OpenCode", async () => {
@@ -647,6 +692,26 @@ describe("Cloud provider materialization", () => {
     expect(retried.ok).toBe(true)
     expect(retried.status).toBe("applied")
     expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH"])
+  })
+
+  test("treats an instance that serves the SPA on the provider route as unsupported", async () => {
+    // A real worker still running openwork-server 0.18.3 answered PATCH
+    // /runtime-config/providers with 200 + index.html, so the patch looked like
+    // a success while the engine ended up with zero providers. The org then saw
+    // an opaque failure instead of "this workspace needs an update", and every
+    // model failed with "no API keys".
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance({ providerRouteServesSpa: true })
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe("unsupported")
+    await Promise.resolve()
   })
 
   test("preserves credential env when the global provider route is unsupported", async () => {

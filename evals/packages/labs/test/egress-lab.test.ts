@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { X509Certificate } from "node:crypto";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -5,11 +7,14 @@ import {
   createBlipSchedule,
   denyHostsFromOutboundManifest,
   opensslCertificateCommands,
+  opensslFlavor,
   outboundManifestFromUnknown,
   parseClientHelloVersions,
   resolveEgressProfileConfig,
-} from "./labs/egress.ts";
-import { matchVerdictExpectations, productDiagnosticsPrecondition } from "./journeys/diagnostics.ts";
+  startEgressLab,
+} from "../src/egress.ts";
+import { productDiagnosticsPrecondition } from "@openwork/behaviors";
+import { matchVerdictExpectations } from "@openwork/matchers";
 
 function hi(value: number): number {
   return (value >> 8) & 0xff;
@@ -97,6 +102,7 @@ test("openssl argv construction includes CA, AIA, and fullchain prerequisites", 
 
   assert.deepEqual(labels, [
     "root-key",
+    "root-csr",
     "root-cert",
     "intermediate-key",
     "intermediate-csr",
@@ -108,6 +114,18 @@ test("openssl argv construction includes CA, AIA, and fullchain prerequisites", 
   ]);
   assert.ok(commands.some((command) => command.args.includes("/CN=OpenWork Egress Lab Corporate Interception CA")));
   assert.ok(commands.some((command) => command.args.includes("-extfile")));
+  const rootCert = commands.find((command) => command.label === "root-cert");
+  assert.ok(rootCert, "root-cert command must exist");
+  assert.ok(
+    rootCert.args.includes("-extfile"),
+    "root CA extensions must come from -extfile; openssl 1.1.1 ignores `req -x509 -addext`",
+  );
+  assert.ok(!rootCert.args.includes("-addext"), "root-cert must not depend on -addext");
+});
+
+test("openssl flavor probe returns a known value", async () => {
+  const flavor = await opensslFlavor();
+  assert.ok(["openssl", "libressl", "unknown"].includes(flavor));
 });
 
 test("deny-list seeding reads installer-critical hosts from the outbound manifest", () => {
@@ -151,4 +169,16 @@ test("product diagnostics precondition skips clearly when Bun is unavailable", (
   if (!reason) throw new Error("Expected a missing-Bun skip reason");
   assert.ok(reason.includes("Bun is required"));
   assert.ok(reason.includes("product-verdict egress proofs"));
+});
+
+test("generated egress lab CA certificates carry basicConstraints on every openssl build", async () => {
+  await using lab = await startEgressLab({ profile: "tls12-only" });
+  assert.ok(lab.rootPem, "lab must expose its root PEM");
+  const root = new X509Certificate(lab.rootPem);
+  // openssl 1.1.1 silently produced a non-CA root, which broke chain building
+  // only on runners shipping 1.1.1 (macos-14).
+  assert.equal(root.ca, true, `root must be a CA (subject: ${root.subject})`);
+  assert.ok(lab.intermediatePemPath, "lab must expose its intermediate path");
+  const intermediate = new X509Certificate(readFileSync(lab.intermediatePemPath, "utf8"));
+  assert.equal(intermediate.ca, true, `intermediate must be a CA (subject: ${intermediate.subject})`);
 });

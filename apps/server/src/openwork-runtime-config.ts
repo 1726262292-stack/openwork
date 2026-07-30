@@ -8,11 +8,11 @@
  * use this.
  *
  * The engine re-reads the OPENCODE_CONFIG file from disk on every instance
- * rebuild (e.g. /instance/dispose), so the file is rewritten on every
+ * rebuild (e.g. /instance/dispose), so the file is synchronized on every
  * runtime-DB write — unlike the previous OPENCODE_CONFIG_CONTENT env var,
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -165,27 +165,37 @@ export function openworkRuntimeConfigFilePath(config: ServerConfig): string {
 // Serialize file writes per path so a slow older write can never land after
 // (and clobber) a newer one. Content is built inside the queued job so each
 // job reads the latest runtime-DB state.
-const fileWriteQueue = new Map<string, Promise<void>>();
+export interface OpenworkRuntimeConfigWriteResult {
+  path: string;
+  changed: boolean;
+}
+
+const fileWriteQueue = new Map<string, Promise<OpenworkRuntimeConfigWriteResult>>();
 
 /**
  * Rebuild the engine-visible runtime config file from the runtime DB.
  * Atomic (temp file + rename) so the engine never reads a partial file
  * mid-dispose.
  */
-export async function writeOpenworkRuntimeConfigFile(config: ServerConfig, workspaceId: string): Promise<string> {
+export async function writeOpenworkRuntimeConfigFile(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<OpenworkRuntimeConfigWriteResult> {
   const path = openworkRuntimeConfigFilePath(config);
   const job = async () => {
     const content = await buildOpenworkRuntimeConfig(config, workspaceId);
+    const current = await readFile(path, "utf8").catch(() => undefined);
+    if (current === content) return { path, changed: false };
     await mkdir(runtimeStorageDir(config), { recursive: true });
     const tmp = `${path}.${randomUUID()}.tmp`;
     await writeFile(tmp, content, "utf8");
     await rename(tmp, path);
+    return { path, changed: true };
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);
   fileWriteQueue.set(path, next);
-  await next;
-  return path;
+  return await next;
 }
 
 /**

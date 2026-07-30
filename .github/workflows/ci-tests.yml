@@ -133,6 +133,12 @@ jobs:
           pnpm --filter @openwork/app-contract run schema
           git diff --exit-code packages/app-contract/schema
 
+      - name: Install eval workspace
+        run: pnpm --dir evals install --frozen-lockfile
+
+      - name: Run eval spec lane
+        run: pnpm --dir evals run spec
+
       - name: Run app unit tests
         run: pnpm --filter @openwork/app test
 

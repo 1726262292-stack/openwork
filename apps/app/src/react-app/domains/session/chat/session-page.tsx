@@ -61,12 +61,14 @@ import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
+import type { SessionNumberShortcutsState } from "../../../shell/session-number-shortcuts";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
+import { getSidePanelSessionKey } from "../panel/side-panel-session";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -154,6 +156,7 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
+  sessionNumberShortcuts: SessionNumberShortcutsState;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -187,6 +190,7 @@ export type SessionPageProps = {
   mcpConnectedCount: number;
   onSendFeedback: () => void;
   onOpenSettings: () => void;
+  onOpenExtensions: () => void;
   sidebar: SessionPageSidebarProps;
   surface?: SessionPageSurfaceProps | null;
   history?: SessionPageHistoryControls | null;
@@ -204,6 +208,8 @@ export type SessionPageProps = {
   statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   mainContentTakeover?: React.ReactNode;
+  mainContentTitle?: string;
+  extensionsActive?: boolean;
   onOpenProviderAuth?: () => void;
   /** Chat-first: create a default workspace and start a task from the empty-state composer. */
   onChatFirstTask?: (prompt: string, attachments?: ComposerAttachment[]) => void;
@@ -311,8 +317,9 @@ export function SessionPage(props: SessionPageProps) {
   const denAuth = useDenAuth();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
+  const sidePanelSessionKey = getSidePanelSessionKey(props.selectedSessionId);
   const sessionSidePanel = useUiStateStore((state) => (
-    props.selectedSessionId ? state.sidePanelState[props.selectedSessionId] ?? null : null
+    state.sidePanelState[sidePanelSessionKey] ?? null
   ));
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
@@ -323,8 +330,8 @@ export function SessionPage(props: SessionPageProps) {
   const transcriptTargets = usePanelTabStore((state) => (
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
-  const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
-  const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
+  const sessionPanelState = useSessionPanelState(sidePanelSessionKey);
+  const activePanelTab = useActivePanelTab(sidePanelSessionKey);
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
   const [, setExtensionStateVersion] = useState(0);
   const hiddenAccessibleTargetIds = useMemo(
@@ -393,8 +400,8 @@ export function SessionPage(props: SessionPageProps) {
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
     if (panel === "voice") return;
-    setSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState]);
+    setSidePanelState(sidePanelSessionKey, panel);
+  }, [setSidePanelState, sidePanelSessionKey]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
     if (panel === "voice") {
@@ -402,8 +409,8 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
-    toggleSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState, toggleSidePanelState]);
+    toggleSidePanelState(sidePanelSessionKey, panel);
+  }, [setSidePanelState, sidePanelSessionKey, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
@@ -522,6 +529,9 @@ export function SessionPage(props: SessionPageProps) {
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
+  const openGeneralSidePanel = useCallback(() => {
+    setCurrentSidePanel("panel");
+  }, [setCurrentSidePanel]);
   const openBrowserRailPane = useCallback(() => {
     if (!hasBrowserTabs) return;
     // Opening the browser pane should land on a usable page, not an empty
@@ -571,7 +581,11 @@ export function SessionPage(props: SessionPageProps) {
   }), []);
   useControlAction(setBrowserProxyControlAction);
   const openArtifactRailPane = useCallback(() => {
-    if (!hasArtifactTargets || !props.selectedSessionId) return;
+    if (!hasArtifactTargets) {
+      setCurrentSidePanel("panel");
+      return;
+    }
+    if (!props.selectedSessionId) return;
     const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
     const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
     const currentArtifactTab = activeTab?.type === "artifact" && artifactTargetIds.has(activeTab.id) ? activeTab : null;
@@ -605,7 +619,7 @@ export function SessionPage(props: SessionPageProps) {
     if (!panelRailActive) {
       toggleCurrentSidePanel("panel");
     }
-  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
+  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, setCurrentSidePanel, toggleCurrentSidePanel]);
   const openVoiceRailPane = useCallback(() => {
     toggleCurrentSidePanel("voice");
   }, [toggleCurrentSidePanel]);
@@ -1001,6 +1015,7 @@ export function SessionPage(props: SessionPageProps) {
         style={sidebarProviderStyle}
       >
         <AppSidebar
+          sessionNumberShortcuts={props.sessionNumberShortcuts}
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
@@ -1045,6 +1060,8 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
           onOpenAccountSettings={props.onOpenSettings}
+          onOpenExtensions={props.onOpenExtensions}
+          extensionsActive={props.extensionsActive}
           status={{
             clientConnected: props.clientConnected,
             openworkServerStatus: props.openworkServerStatus,
@@ -1073,7 +1090,9 @@ export function SessionPage(props: SessionPageProps) {
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[13px] font-medium text-dls-text">
-                {showWorkspaceSetupEmptyState
+                {props.mainContentTitle
+                  ? props.mainContentTitle
+                  : showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
@@ -1091,7 +1110,7 @@ export function SessionPage(props: SessionPageProps) {
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
               {/* Revert/redo moved to per-message actions */}
-              {findButtonSessionId ? (
+              {findButtonSessionId && !hasMainContentTakeover ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -1126,7 +1145,7 @@ export function SessionPage(props: SessionPageProps) {
                         if (sidePanelOpen) {
                           closeRightPane();
                         } else {
-                          openBrowserRailPane();
+                          openGeneralSidePanel();
                         }
                       }}
                     >
@@ -1414,14 +1433,16 @@ export function SessionPage(props: SessionPageProps) {
                       sessionId={props.selectedSessionId}
                       onClose={closeRightPane}
                     />
-                  ) : activeSidePanel === "panel" && props.selectedSessionId ? (
+                  ) : activeSidePanel === "panel" ? (
                     <SidePanel
-                      sessionId={props.selectedSessionId}
+                      sessionId={sidePanelSessionKey}
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
                       onClose={closeRightPane}
+                      onOpenExtensions={props.settingsSlot ? () => setCurrentSidePanel("extensions") : undefined}
+                      onOpenVoice={voiceExtensionEnabled ? openVoiceRailPane : undefined}
                     />
                   ) : null}
                   </div>
@@ -1467,14 +1488,13 @@ export function SessionPage(props: SessionPageProps) {
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
-                panelRailActive && hasArtifactTargets && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
               onClick={openArtifactRailPane}
-              title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={panelRailActive && hasArtifactTargets}
-              disabled={!hasArtifactTargets}
+              title={`Artifacts (${artifactTargetCount})`}
+              aria-label={`Artifacts (${artifactTargetCount})`}
+              aria-pressed={panelRailActive}
             >
               <FileText size={15} />
               {artifactTargetCount > 0 ? (

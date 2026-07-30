@@ -98,7 +98,21 @@ export type MaterializeCloudWorkerProviders = typeof materializeCloudWorkerProvi
 
 const logger = appLogger.child({ component: "cloud_provider_materialization" })
 const requestTimeoutMs = 8_000
-const materializedFingerprintByWorker = new Map<WorkerId, string>()
+/**
+ * Cache of what we have already materialized, keyed by worker AND instance.
+ *
+ * Keying by worker alone was a bug: a recycle onto a new snapshot replaces the
+ * sandbox, and the new instance starts with an empty env store (only the runtime
+ * config survives, on the shared volume). With a worker-only key den-api kept
+ * answering "cached" and never wrote the credential into the new instance, so
+ * every provider failed with "API key is missing" while still showing up in the
+ * picker.
+ */
+const materializedFingerprintByWorkerInstance = new Map<string, string>()
+
+function materializationCacheKey(workerId: WorkerId, instanceUrl: string): string {
+  return `${workerId}\u0000${instanceUrl}`
+}
 const unsupportedLogFingerprintByWorker = new Map<WorkerId, string>()
 const modelConfigPassthroughKeys = [
   "family",
@@ -711,16 +725,41 @@ async function patchRuntimeProviders(input: {
   hostToken: string
   patch: JsonRecord
 }) {
-  await requestOk({
-    fetchImpl: input.fetchImpl,
-    label: "runtime_provider_patch",
-    url: `${input.instanceUrl}/runtime-config/providers`,
-    init: {
-      method: "PATCH",
-      headers: hostTokenHeaders(input.hostToken),
-      body: JSON.stringify({ provider: input.patch }),
-    },
+  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/runtime-config/providers`, {
+    method: "PATCH",
+    headers: hostTokenHeaders(input.hostToken),
+    body: JSON.stringify({ provider: input.patch }),
   })
+  if (!response.ok) {
+    throw new MaterializationHttpError("runtime_provider_patch", response.status, await response.text())
+  }
+
+  // An instance older than this route answers 200 with the SPA index.html
+  // instead of 404, because the web root is the catch-all. Observed on a real
+  // worker still running openwork-server 0.18.3: the patch "succeeded", the
+  // engine ended up with zero providers, and the org saw an opaque failure
+  // instead of "this workspace needs an update". Treat a non-JSON body as an
+  // unsupported route so the caller can degrade honestly.
+  const body = await response.text()
+  if (!looksLikeJsonObject(body)) {
+    throw new MaterializationHttpError("runtime_provider_patch", UNSUPPORTED_ROUTE_STATUS, body.slice(0, 200))
+  }
+}
+
+/**
+ * Synthetic status for "this instance does not implement the route", used when
+ * the instance answers 200 with something that is not the route's JSON.
+ */
+const UNSUPPORTED_ROUTE_STATUS = 501
+
+function looksLikeJsonObject(body: string): boolean {
+  const trimmed = body.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return typeof JSON.parse(trimmed) === "object"
+  } catch {
+    return false
+  }
 }
 
 async function verifyRuntimeProviders(input: {
@@ -807,7 +846,7 @@ function unsupportedResult(input: {
 function unsupportedProviderRouteReason(error: unknown) {
   return error instanceof MaterializationHttpError
     && error.label === "runtime_provider_patch"
-    && (error.status === 404 || error.status === 405)
+    && (error.status === 404 || error.status === 405 || error.status === UNSUPPORTED_ROUTE_STATUS)
     ? error.message
     : null
 }
@@ -906,7 +945,8 @@ export async function materializeCloudWorkerProviders(input: {
     fingerprint = prepared.fingerprint
     providerCount = prepared.providers.length
 
-    if (!input.force && materializedFingerprintByWorker.get(input.workerId) === fingerprint) {
+    const cacheKey = materializationCacheKey(input.workerId, instanceUrl)
+    if (!input.force && materializedFingerprintByWorkerInstance.get(cacheKey) === fingerprint) {
       return { ok: true, status: "cached", fingerprint, providers: providerCount }
     }
 
@@ -937,7 +977,7 @@ export async function materializeCloudWorkerProviders(input: {
       materializedProviderStateMatches(prepared, currentManagedProviders)
       && materializedEnvStateMatches(prepared.envEntries, envSnapshot)
     ) {
-      materializedFingerprintByWorker.set(input.workerId, fingerprint)
+      materializedFingerprintByWorkerInstance.set(cacheKey, fingerprint)
       return { ok: true, status: "noop", fingerprint, providers: providerCount }
     }
 
@@ -968,7 +1008,7 @@ export async function materializeCloudWorkerProviders(input: {
     } catch (error) {
       const unsupportedReason = unsupportedProviderRouteReason(error)
       if (unsupportedReason) {
-        materializedFingerprintByWorker.delete(input.workerId)
+        materializedFingerprintByWorkerInstance.delete(cacheKey)
         await logUnsupportedOnce({
           logger: materializationLogger,
           workerId: input.workerId,
@@ -1018,7 +1058,7 @@ export async function materializeCloudWorkerProviders(input: {
       throw error
     }
 
-    materializedFingerprintByWorker.set(input.workerId, fingerprint)
+    materializedFingerprintByWorkerInstance.set(cacheKey, fingerprint)
     return { ok: true, status: "applied", fingerprint, providers: providerCount }
   } catch (error) {
     const result = failureResult({
