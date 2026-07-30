@@ -24,13 +24,40 @@ export interface AttachedSurface extends Surface, AsyncDisposable {
   stop(): Promise<void>;
 }
 
-export async function attachSurface(handle: SurfaceHandle, opts: { timeoutMs?: number } = {}): Promise<AttachedSurface> {
-  await waitForCdp(handle.cdpUrl, { timeoutMs: opts.timeoutMs ?? 30_000 });
+async function connectToAppTarget(handle: SurfaceHandle): Promise<CdpClient> {
   const target: CdpTarget = handle.kind === "electron"
     ? await pickAppTarget(handle.cdpUrl)
     : await firstPageTarget(handle.cdpUrl);
   const client = await connect(debuggerUrlFor(handle.cdpUrl, target));
   await client.send("Page.enable").catch(() => undefined);
-  const stop = async (): Promise<void> => client.close();
-  return { handle, client, stop, [Symbol.asyncDispose]: stop };
+  return client;
+}
+
+export async function attachSurface(handle: SurfaceHandle, opts: { timeoutMs?: number } = {}): Promise<AttachedSurface> {
+  await waitForCdp(handle.cdpUrl, { timeoutMs: opts.timeoutMs ?? 30_000 });
+  const client = await connectToAppTarget(handle);
+  const surface: AttachedSurface = {
+    handle,
+    client,
+    stop: async () => surface.client.close(),
+    [Symbol.asyncDispose]: async () => surface.client.close(),
+  };
+  return surface;
+}
+
+/**
+ * Re-attach to the app's CURRENT page target.
+ *
+ * The desktop recreates its page target during some transitions (finishing
+ * onboarding, for example). Evaluations against the old target then hang rather
+ * than fail, which looks exactly like a blocked renderer. The legacy runner had
+ * the same escape hatch as `ctx.reconnect()`.
+ */
+export async function reattachSurface(surface: Surface): Promise<void> {
+  try {
+    surface.client.close();
+  } catch {
+    // The old client is already gone; that is the case we are recovering from.
+  }
+  surface.client = await connectToAppTarget(surface.handle);
 }
