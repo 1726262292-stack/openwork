@@ -23,6 +23,29 @@ export async function evalIn(app: Surface, expression: string, opts: EvaluateOpt
   return evaluate(app.client, expression, opts);
 }
 
+/**
+ * Read something from the page, tolerating a renderer that is briefly blocked.
+ * The app blocks its JS thread while a workspace runtime boots, so a single
+ * evaluation can be caught mid-block; retrying short calls is reliable where one
+ * long call is not. Only for IDEMPOTENT reads — never for clicks.
+ */
+async function resilientRead(
+  app: Surface,
+  expression: string,
+  { attempts = 8, perAttemptMs = 10_000, label = expression }: { attempts?: number; perAttemptMs?: number; label?: string } = {},
+): Promise<unknown> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await evalIn(app, expression, { timeoutMs: perAttemptMs });
+    } catch (error) {
+      lastError = error;
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+  throw new Error(`Could not read ${label} after ${attempts} attempts${lastError ? `: ${messageText(lastError)}` : ""}.`);
+}
+
 export async function waitFor(
   app: Surface,
   expression: string,
@@ -54,12 +77,12 @@ export async function waitForText(app: Surface, text: string, opts: { timeoutMs?
   });
 }
 
-export async function hasText(app: Surface, text: string, opts: EvaluateOptions = {}): Promise<boolean> {
-  return Boolean(await evalIn(app, `document.body.innerText.includes(${jsValue(text)})`, opts));
+export async function hasText(app: Surface, text: string): Promise<boolean> {
+  return Boolean(await resilientRead(app, `document.body.innerText.includes(${jsValue(text)})`, { label: `text ${jsValue(text)}` }));
 }
 
-export async function visibleText(app: Surface, opts: EvaluateOptions = {}): Promise<string> {
-  const text = await evalIn(app, "document.body.innerText", opts);
+export async function visibleText(app: Surface): Promise<string> {
+  const text = await resilientRead(app, "document.body.innerText", { label: "visible text" });
   if (typeof text !== "string") throw new Error("CDP did not return document.body.innerText as a string.");
   return text;
 }
@@ -132,16 +155,16 @@ export async function go(app: Surface, hashPath: string): Promise<void> {
 }
 
 export async function currentHash(app: Surface): Promise<string> {
-  const hash = await evalIn(app, "window.location.hash");
+  const hash = await resilientRead(app, "window.location.hash", { label: "location hash" });
   if (typeof hash !== "string") throw new Error("CDP did not return window.location.hash as a string.");
   return hash;
 }
 
 export async function enabledButtons(app: Surface): Promise<string[]> {
-  const labels = await evalIn(app, `[...document.querySelectorAll('button')]
+  const labels = await resilientRead(app, `[...document.querySelectorAll('button')]
     .filter((element) => !element.disabled)
     .map((element) => (element.textContent ?? '').trim())
-    .filter(Boolean)`);
+    .filter(Boolean)`, { label: "enabled buttons" });
   if (!Array.isArray(labels) || !labels.every((label) => typeof label === "string")) {
     throw new Error("CDP did not return enabled button labels as strings.");
   }
@@ -180,7 +203,7 @@ export async function waitUntilInteractive(
   let last: AppStateProbe = { controlReady: false, transitional: null, surface: null, workspaceId: null, route: "", text: "" };
   while (Date.now() < deadline) {
     try {
-      last = await probeAppState(app.client, { timeoutMs: Math.min(timeoutMs, 120_000) });
+      last = await probeAppState(app.client, { timeoutMs: 15_000 });
       if (isInteractive(last)) return last;
     } catch {
       // A navigation can destroy the execution context mid-probe.
