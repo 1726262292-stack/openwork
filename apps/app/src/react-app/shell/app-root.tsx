@@ -31,6 +31,7 @@ import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
 import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
+import { CloudWorkspaceOverlay, CloudWorkspaceStatusProvider } from "./cloud-workspace-overlay";
 import { AppMenuProvider } from "./app-menu";
 import {
   OpenworkControlProvider,
@@ -350,6 +351,7 @@ export function AppRoot() {
           <OpenworkContextPublisher />
           <DenAuthControlActions />
           <BrandThemeControlActions />
+          <CloudWorkspaceStatusProvider>
           <EnterpriseActivationGate>
           <DenSigninGate>
             <Routes>
@@ -411,6 +413,22 @@ export function AppRoot() {
                 }
               />
               <Route
+                path="/workspace/:workspaceId/extensions/*"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
+                path="/extensions/*"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
                 path="/workspace/:workspaceId/settings/*"
                 element={
                   <DevProfiler id="SettingsRoute">
@@ -434,6 +452,8 @@ export function AppRoot() {
           </DenSigninGate>
           <LoadingOverlay />
           </EnterpriseActivationGate>
+          <CloudWorkspaceOverlay />
+          </CloudWorkspaceStatusProvider>
         </OpenworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>

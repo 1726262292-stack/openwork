@@ -40,10 +40,13 @@ function makeSandbox(input: {
   id: string
   state: string
   startError?: Error
+  startErrors?: Error[]
+  refreshStates?: string[]
 }) {
   let state = input.state
   let startCalls = 0
   let deleteCalls = 0
+  let refreshCalls = 0
   const sandbox = {
     id: input.id,
     get state() {
@@ -52,11 +55,18 @@ function makeSandbox(input: {
     get target() {
       return "us-test"
     },
-    async refreshData() {},
+    async refreshData() {
+      const refreshState = input.refreshStates?.[refreshCalls]
+      refreshCalls += 1
+      if (refreshState !== undefined) {
+        state = refreshState
+      }
+    },
     async start() {
       startCalls += 1
-      if (input.startError) {
-        throw input.startError
+      const startError = input.startErrors?.[startCalls - 1] ?? input.startError
+      if (startError) {
+        throw startError
       }
       state = "started"
     },
@@ -87,6 +97,9 @@ function makeSandbox(input: {
     },
     get deleteCalls() {
       return deleteCalls
+    },
+    get refreshCalls() {
+      return refreshCalls
     },
   }
 }
@@ -374,6 +387,81 @@ describe("Daytona Cloud version-aware recycle", () => {
     expect(old.startCalls).toBe(1)
     expect(old.deleteCalls).toBe(0)
     expect(runtime.upserts[0]?.sandboxId).toBe("sbx_current")
+  })
+})
+
+describe("Daytona Cloud wake start convergence", () => {
+  test("converges when a Daytona state-change conflict is already starting the sandbox", async () => {
+    const input = provisionInput()
+    const sandbox = makeSandbox({
+      id: "sbx_conflict_start",
+      state: "stopped",
+      startError: new DaytonaConflictError("Sandbox state change in progress"),
+      refreshStates: ["stopped", "started"],
+    })
+    const runtime = makeRuntime({
+      nameResultsByName: [{ name: "sbx_conflict_start", results: [sandbox.sandbox] }],
+    })
+
+    const result = await daytona.wakeWorkerOnDaytonaWithRuntime(
+      input,
+      runtime.runtime,
+      { sandbox_id: "sbx_conflict_start", workspace_volume_id: "vol_shared", data_volume_id: "vol_shared" },
+      "openwork-0.18.8",
+    )
+
+    expect(result.status).toBe("healthy")
+    expect(sandbox.startCalls).toBe(1)
+    expect(sandbox.refreshCalls).toBe(2)
+    expect(runtime.healthChecks).toBe(1)
+    expect(runtime.upserts[0]?.sandboxId).toBe("sbx_conflict_start")
+  })
+
+  test("retries a transient Daytona 502 during start before waking the sandbox", async () => {
+    const input = provisionInput()
+    const sandbox = makeSandbox({
+      id: "sbx_transient_start",
+      state: "stopped",
+      startErrors: [new Error("Request failed with status code 502")],
+    })
+    const runtime = makeRuntime({
+      nameResultsByName: [{ name: "sbx_transient_start", results: [sandbox.sandbox] }],
+    })
+
+    const result = await daytona.wakeWorkerOnDaytonaWithRuntime(
+      input,
+      runtime.runtime,
+      { sandbox_id: "sbx_transient_start", workspace_volume_id: "vol_shared", data_volume_id: "vol_shared" },
+      "openwork-0.18.8",
+    )
+
+    expect(result.status).toBe("healthy")
+    expect(sandbox.startCalls).toBe(2)
+    expect(runtime.healthChecks).toBe(1)
+    expect(runtime.upserts[0]?.sandboxId).toBe("sbx_transient_start")
+  })
+
+  test("bounds persistent transient Daytona start failures", async () => {
+    const input = provisionInput()
+    const sandbox = makeSandbox({
+      id: "sbx_persistent_start_failure",
+      state: "stopped",
+      startError: new Error("Request failed with status code 502"),
+    })
+    const runtime = makeRuntime({
+      nameResultsByName: [{ name: "sbx_persistent_start_failure", results: [sandbox.sandbox] }],
+    })
+
+    await expect(daytona.wakeWorkerOnDaytonaWithRuntime(
+      input,
+      runtime.runtime,
+      { sandbox_id: "sbx_persistent_start_failure", workspace_volume_id: "vol_shared", data_volume_id: "vol_shared" },
+      "openwork-0.18.8",
+    )).rejects.toThrow("Request failed with status code 502")
+
+    expect(sandbox.startCalls).toBe(3)
+    expect(runtime.healthChecks).toBe(0)
+    expect(runtime.upserts).toHaveLength(0)
   })
 })
 

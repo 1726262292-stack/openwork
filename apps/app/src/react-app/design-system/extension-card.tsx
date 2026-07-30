@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, Loader2 } from "lucide-react";
 import type { EnablementResult } from "../../app/extensions";
 import { t } from "../../i18n";
 import {
@@ -99,7 +99,8 @@ function ExtensionIcon(props: {
           />
         )}
       </div>
-      {props.readiness === "ready" ? (
+      {/* In the dense list, readiness lives as a dot next to the name instead of a corner overlay. */}
+      {props.compact ? null : props.readiness === "ready" ? (
         <div className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full border-2 border-dls-surface bg-green-9">
           <CheckCircle2 size={9} className="text-white" strokeWidth={3} />
         </div>
@@ -240,27 +241,59 @@ export function ExtensionCard(props: ExtensionCardProps) {
   ) : null;
 
   if (layout === "list") {
+    // Dense single-line row. Readiness is carried by the group header and a
+    // small dot; the per-row badge only says what kind of extension this is.
     return (
       <button
         type="button"
         disabled={disabled || connecting}
         onClick={onClick}
-        className={`${shellClassName} flex items-center gap-3 rounded-lg px-3 py-2`}
+        className={`group flex w-full items-center gap-3 px-3.5 py-2 text-left transition-colors hover:bg-dls-hover ${hidden ? "opacity-60" : ""}`}
       >
         {icon}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <h4 className="min-w-0 truncate text-sm font-semibold text-dls-text">{name}</h4>
-            {badges}
-          </div>
-          <p className="truncate text-xs text-dls-secondary">
-            {disabledReason ?? description}
-          </p>
+        <div className="flex w-44 shrink-0 items-center gap-1.5">
+          <h4 className="min-w-0 truncate text-[13px] font-medium text-dls-text">{name}</h4>
+          {readiness === "ready" ? (
+            <span className="size-1.5 shrink-0 rounded-full bg-green-9" />
+          ) : readiness === "partial" ? (
+            <span className="size-1.5 shrink-0 rounded-full bg-amber-9" />
+          ) : null}
         </div>
-        {meta ? (
-          <div className="hidden shrink-0 text-[11px] text-dls-secondary sm:block">{meta}</div>
+        <div className="flex w-20 shrink-0 items-center">
+          <span className="rounded-md bg-dls-hover px-1.5 py-0.5 text-[10px] font-medium text-dls-secondary">
+            {extensionTaxonomyLabel(taxonomy)}
+          </span>
+        </div>
+        <p className="hidden min-w-0 flex-1 truncate text-xs text-dls-secondary sm:block">
+          {disabledReason ?? description}
+        </p>
+        {preview ? (
+          <span className="shrink-0 rounded-md bg-blue-3 px-1.5 py-0.5 text-[10px] font-medium text-blue-11">
+            Preview
+          </span>
         ) : null}
-        {nextAction ? <div className="shrink-0">{nextAction}</div> : null}
+        {beta ? (
+          <span className="shrink-0 rounded-md bg-amber-3 px-1.5 py-0.5 text-[10px] font-medium text-amber-11">
+            {t("common.beta")}
+          </span>
+        ) : null}
+        {meta ? (
+          <div className="hidden shrink-0 text-[11px] text-dls-secondary md:block">{meta}</div>
+        ) : null}
+        {!disabledReason && !connecting && nextActionLabel ? (
+          <span
+            className="inline-flex h-7 shrink-0 items-center rounded-lg border border-dls-border px-3 text-xs font-medium text-dls-text transition-colors group-hover:border-dls-secondary/40"
+            onClick={(event) => {
+              if (!onNextAction) return;
+              event.stopPropagation();
+              onNextAction();
+            }}
+          >
+            {nextActionLabel}
+          </span>
+        ) : (
+          <ChevronRight size={14} className="shrink-0 text-dls-secondary" />
+        )}
       </button>
     );
   }

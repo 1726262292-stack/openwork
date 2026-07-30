@@ -7,10 +7,10 @@ const EXTENSION_ENABLED_KEY_PREFIX = "openwork.extension.enabled.";
 const EXTENSION_HIDDEN_KEY_PREFIX = "openwork.extension.hidden.";
 export const OPENWORK_EXTENSION_STATE_CHANGED = "openwork:extension-state-changed";
 
-/** Whether the inventory shows tiles or dense rows. Remembered across sessions. */
+/** Whether the inventory shows tiles or dense rows. Remembered across sessions; defaults to the dense list. */
 export function readExtensionLayout(): ExtensionLayout {
-  if (typeof window === "undefined") return "grid";
-  return window.localStorage.getItem(EXTENSION_LAYOUT_KEY) === "list" ? "list" : "grid";
+  if (typeof window === "undefined") return "list";
+  return window.localStorage.getItem(EXTENSION_LAYOUT_KEY) === "grid" ? "grid" : "list";
 }
 
 export function writeExtensionLayout(layout: ExtensionLayout) {

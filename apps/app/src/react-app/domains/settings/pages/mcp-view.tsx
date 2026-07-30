@@ -32,6 +32,7 @@ import type { CloudImportedPlugin } from "../../../../app/cloud/import-state";
 import { ExtensionCard, type ExtensionLayout } from "../../../design-system/extension-card";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
 import {
+  isOrgMcpConnectionReady,
   isOrgMcpConnectionItem,
   orgMcpConnectionActionLabel,
   resolveExtensionInventoryGroup,
@@ -65,7 +66,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
-import { canDisconnectNativeProviderAccount } from "../../connections/native-provider-connections";
+import {
+  canDisconnectMemberConnection,
+  canDisconnectNativeProviderAccount,
+  canMemberAuthorizeConnection,
+} from "../../connections/native-provider-connections";
 import type { OpenworkClaudePluginPreview } from "../../../../app/lib/openwork-server";
 import {
   isOpenWorkExtensionEnabled,
@@ -152,11 +157,14 @@ export type McpViewProps = {
   installClaudePlugin?: (url: string) => Promise<{ ok: boolean; message: string }>;
   /** Connected org-level External MCP Connections rendered in My Extensions. */
   orgMcpItems?: ExtensionItem[];
+  orgMcpConnectingId?: string | null;
+  connectOrgMcp?: (connectionId: string) => void;
+  reconnectOrgMcp?: (connectionId: string) => void;
   orgMcpDisconnectingId?: string | null;
   disconnectOrgMcp?: (connectionId: string) => void;
   initialFilter?: ExtensionInventoryFilter;
   onFilterChange?: (filter: ExtensionInventoryFilter) => void;
-  /** Stable extension detail id from `/settings/extensions/:id`. */
+  /** Stable extension detail id from `/extensions/:id`. */
   detailId?: string | null;
   /** Navigate when detail opens/closes. When set, detail renders as a page. */
   onDetailIdChange?: (id: string | null) => void;
@@ -840,7 +848,11 @@ export function McpView(props: McpViewProps) {
 
       {detailOrgMcpItem && isOrgMcpConnectionItem(detailOrgMcpItem) ? (() => {
         const connection = detailOrgMcpItem.orgMcpConnection;
-        const canDisconnect = canDisconnectNativeProviderAccount(connection);
+        const ready = isOrgMcpConnectionReady(connection);
+        const canAuthorize = canMemberAuthorizeConnection(connection);
+        const canDisconnect = canDisconnectMemberConnection(connection);
+        const connectingBusy = props.orgMcpConnectingId === connection.id;
+        const disconnectingBusy = props.orgMcpDisconnectingId === connection.id;
         return (
           <ExtensionDetailModal
             open={true}
@@ -850,13 +862,20 @@ export function McpView(props: McpViewProps) {
             name={detailOrgMcpItem.name}
             description={detailOrgMcpItem.description ?? orgMcpConnectionActionLabel(connection)}
             taxonomy="connection"
-            connected={true}
+            connected={ready}
             connectedLabel={orgMcpConnectionActionLabel(connection)}
+            connecting={connectingBusy || disconnectingBusy}
+            connectingLabel={disconnectingBusy ? t("mcp.org_connection_disconnecting_action") : t("mcp.org_connection_waiting_browser")}
             beta
             url={connection.url}
             oauth={connection.authType === "oauth"}
+            connectLabel={orgMcpConnectionActionLabel(connection)}
+            reconnectLabel={t("mcp.org_connection_reconnect_action")}
+            onConnect={!ready && canAuthorize && props.connectOrgMcp ? () => props.connectOrgMcp?.(connection.id) : undefined}
+            onReconnect={ready && canAuthorize && props.reconnectOrgMcp ? () => props.reconnectOrgMcp?.(connection.id) : undefined}
             onUninstall={canDisconnect && props.disconnectOrgMcp ? () => props.disconnectOrgMcp?.(connection.id) : undefined}
             uninstallLabel={t("mcp.org_connection_disconnect_action")}
+            closeOnUninstall={false}
             showEnablementCard={false}
             configSlot={(
               <div className="flex flex-wrap gap-2">
@@ -1400,7 +1419,7 @@ function McpQuickConnectSection(props: {
           {[0, 1, 2].map((index) => (
             <Skeleton
               key={index}
-              className={props.layout === "list" ? "h-[52px] rounded-lg" : "h-[104px] rounded-xl"}
+              className={props.layout === "list" ? "h-[42px] rounded-lg" : "h-[104px] rounded-xl"}
             />
           ))}
         </div>
@@ -1424,7 +1443,14 @@ function McpQuickConnectSection(props: {
               count={groupCards.length}
               hint={group === "available" ? t("extensions.group_ready_to_set_up_hint") : undefined}
             />
-            <div className={props.layout === "list" ? "flex flex-col gap-2" : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"}>
+            {/* List mode: one quiet container per readiness group, rows divided by hairlines. */}
+            <div
+              className={
+                props.layout === "list"
+                  ? "overflow-hidden rounded-xl border border-dls-border bg-dls-surface [&>div+div]:border-t [&>div+div]:border-dls-border/60"
+                  : "grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"
+              }
+            >
               {groupCards.map((card) => (
                 <div key={card.key}>{card.node}</div>
               ))}

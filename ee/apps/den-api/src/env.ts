@@ -46,6 +46,10 @@ const EnvSchema = z.object({
   SMTP_SECURE: z.string().optional(),
   LOOPS_API_KEY: z.string().optional(),
   LOOPS_MARKETING_ENABLED: z.string().optional(),
+  LINEAR_API_KEY: z.string().optional(),
+  LINEAR_COMPLIANCE_TEAM_ID: z.string().optional(),
+  LINEAR_API_BASE: z.string().optional(),
+  LINEAR_COMPLIANCE_COMPLETED_STATE_ID: z.string().optional(),
   OPENWORK_DEV_MODE: z.string().optional(),
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
   DEN_DIAGNOSTICS_ORIGIN: z.string().optional(),
@@ -472,6 +476,12 @@ export const env = {
   loops: {
     apiKey: optionalString(parsed.LOOPS_API_KEY),
     marketingEnabled: parsed.LOOPS_MARKETING_ENABLED?.trim() === "1",
+  },
+  linear: {
+    apiKey: optionalString(parsed.LINEAR_API_KEY),
+    teamId: optionalString(parsed.LINEAR_COMPLIANCE_TEAM_ID),
+    apiBase: optionalString(parsed.LINEAR_API_BASE) ?? "https://api.linear.app/graphql",
+    completedStateId: optionalString(parsed.LINEAR_COMPLIANCE_COMPLETED_STATE_ID),
   },
   orgMode,
   singleOrg: {
