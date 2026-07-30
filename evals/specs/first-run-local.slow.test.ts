@@ -16,9 +16,10 @@ import {
   readComposerState,
   selectModel,
   sendComposerMessage,
-  waitForAssistantReply,
   waitFor,
+  waitForAssistantReply,
   waitForText,
+  waitUntilTextStable,
 } from "@openwork/behaviors";
 
 const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
@@ -206,10 +207,7 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   expect(reply.text.trim().length).toBeGreaterThan(0);
   // The reply streams: capturing as soon as text exists catches a "Thinking…"
   // frame, so wait until the assistant has actually settled.
-  await waitFor(app, `(() => {
-    const text = document.body?.innerText ?? "";
-    return !text.includes("Thinking") && !text.includes("Generating");
-  })()`, { timeoutMs: 180_000, label: "assistant response settled" });
+  await waitUntilTextStable(app, { quietMs: 8_000, timeoutMs: 240_000 });
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [

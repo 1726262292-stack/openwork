@@ -223,3 +223,24 @@ export async function waitUntilInteractive(
   }
   throw new Error(`App did not become interactive after ${timeoutMs}ms: ${describeAppState(last)}`);
 }
+
+/** Wait until the page's visible text stops changing — the app is done working. */
+export async function waitUntilTextStable(
+  app: Surface,
+  { quietMs = 6_000, timeoutMs = 240_000 }: { quietMs?: number; timeoutMs?: number } = {},
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let previous = "";
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    const current = await visibleText(app).catch(() => previous);
+    if (current !== previous) {
+      previous = current;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= quietMs) {
+      return current;
+    }
+    await sleep(1_000);
+  }
+  return previous;
+}

@@ -14,6 +14,7 @@ import {
   readLoadedExtensions,
   seedWorkspace,
   waitFor,
+  waitUntilInteractive,
 } from "@openwork/behaviors";
 
 const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
@@ -76,10 +77,9 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   const sessionActions = await enabledButtons(app);
   if (sessionActions.includes("New session")) await clickButton(app, "New session", { timeoutMs: 30_000 });
   else await control(app, "session.create_task");
-  await waitFor(app, `window.location.hash.includes("/session/ses_")`, {
-    timeoutMs: 30_000,
-    label: "new session id route",
-  });
+  // A created session does not always put its id in the hash; wait for the app
+  // to be interactive on the session surface instead.
+  await waitUntilInteractive(app, { timeoutMs: 120_000 });
   const sessionRoute = await evalIn(app, "window.location.hash");
   if (typeof sessionRoute !== "string") throw new Error("New session route was not a string.");
   const createdSessionId = /\/session\/(ses_[^/?#]+)/.exec(sessionRoute)?.[1] ?? "";
