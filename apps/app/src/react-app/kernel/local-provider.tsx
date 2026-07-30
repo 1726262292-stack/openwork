@@ -238,8 +238,12 @@ export function LocalProvider({ children }: LocalProviderProps) {
   return <LocalContext.Provider value={value}>{children}</LocalContext.Provider>;
 }
 
+export function useOptionalLocal(): LocalContextValue | undefined {
+  return use(LocalContext);
+}
+
 export function useLocal(): LocalContextValue {
-  const context = use(LocalContext);
+  const context = useOptionalLocal();
   if (!context) {
     throw new Error("Local context is missing");
   }

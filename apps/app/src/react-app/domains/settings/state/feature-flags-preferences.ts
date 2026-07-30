@@ -11,7 +11,7 @@ import {
   denSessionUpdatedEvent,
   denSettingsChangedEvent,
 } from "../../../../app/lib/den-session-events";
-import { useLocal } from "../../../kernel/local-provider";
+import { useLocal, useOptionalLocal } from "../../../kernel/local-provider";
 
 let uiArtifactPreferenceSync:
   | { key: string; promise: ReturnType<ReturnType<typeof createDenClient>["getUiArtifactPreferences"]> }
@@ -53,9 +53,9 @@ async function writeCloudUiArtifactPreferences(update: UiArtifactPreferencesUpda
 }
 
 export function useUiArtifactPreferencesSnapshot() {
-  const { prefs } = useLocal();
-  const uiArtifactsEnabled = prefs.featureFlags?.uiArtifacts === true;
-  const enabledUiArtifactIds = (prefs.uiArtifacts?.enabledArtifactIds ?? UI_ARTIFACT_KINDS)
+  const local = useOptionalLocal();
+  const uiArtifactsEnabled = local?.prefs.featureFlags?.uiArtifacts === true;
+  const enabledUiArtifactIds = (local?.prefs.uiArtifacts?.enabledArtifactIds ?? UI_ARTIFACT_KINDS)
     .flatMap((value) => {
       const parsed = uiArtifactKindSchema.safeParse(value);
       return parsed.success ? [parsed.data] : [];
