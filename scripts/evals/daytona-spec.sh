@@ -15,6 +15,12 @@ LOG="$LOG_DIR/$(printf '%s' "$SPEC" | tr '/' '-').log"
 exec > >(tee "$LOG") 2>&1
 
 export CI=true
+# Stale Electron/Vite processes from earlier runs hold ports and profiles and
+# make fresh spawns fail in confusing ways; clear them before starting.
+pkill --full "electron/main.mjs" > /dev/null 2>&1 || true
+pkill --full "electron-dev.mjs" > /dev/null 2>&1 || true
+sleep 1
+
 export DISPLAY="${DISPLAY:-:99}"
 export OPENWORK_EVAL_APP_SPECS=1
 
