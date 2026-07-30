@@ -7,8 +7,8 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
-  Cloud,
   FileText,
+  Globe,
   Home,
   LogOut,
   Menu,
@@ -30,7 +30,6 @@ import {
   getApiKeysRoute,
   getBrandAppearanceRoute,
   getBillingRoute,
-  getCloudRoute,
   getCustomLlmProvidersRoute,
   getDiagnosticsRoute,
   getDesktopPoliciesRoute,
@@ -47,6 +46,7 @@ import {
   getPluginsRoute,
   getSsoRoute,
   getScimRoute,
+  getWebRoute,
 } from "../../_lib/den-org";
 import { useOrgListWindow } from "../../_lib/use-org-list-window";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
@@ -264,8 +264,8 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getInferenceRoute(orgSlug))) {
     return "OpenWork Models";
   }
-  if (pathname.startsWith(getCloudRoute(orgSlug))) {
-    return "Cloud";
+  if (pathname.startsWith(getWebRoute(orgSlug))) {
+    return "Web";
   }
   if (pathname.startsWith(getPluginsRoute(orgSlug))) {
     return "Plugins";
@@ -283,7 +283,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
     return "Your Connections";
   }
   if (pathname.startsWith(getBillingRoute(orgSlug))) {
-    return "Stripe";
+    return "Billing";
   }
   if (pathname.startsWith(getBrandAppearanceRoute(orgSlug))) {
     return "Brand appearance";
@@ -347,15 +347,17 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       !profilePromptDismissed &&
       user.name?.trim() === DEFAULT_AUTH_NAME,
   );
+  const showFeedbackLink = runtimeConfigLoaded && runtimeConfig.orgMode === "multi_org";
   const feedbackHref = buildDenFeedbackUrl({
     pathname,
     orgSlug: activeOrg?.slug,
   });
   const mcpConnectionsEnabled = orgContext?.capabilities.mcpConnections === true;
-  // Cloud is a hosted alpha. The org payload only reports `cloud` after the
-  // server rollout helper has verified the multi-org deployment gate, so the
-  // sidebar stays hidden by default until both config and org context load.
-  const showCloud = runtimeConfigLoaded && orgContext?.capabilities.cloud === true;
+  // Web access is backed by the existing hosted cloud capability. The org
+  // payload only reports `cloud` after the server rollout helper has verified
+  // the multi-org deployment gate, so the sidebar stays hidden by default until
+  // both config and org context load.
+  const showWeb = runtimeConfigLoaded && orgContext?.capabilities.cloud === true;
 
   // Top-level rows: Dashboard, optional Your Connections, Extensions, Models,
   // Members, Analytics, Settings. Everything tool-shaped groups under
@@ -369,7 +371,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
         icon: Puzzle,
         children: [
           { href: getMarketplacesRoute(activeOrg.slug), label: "Marketplace" },
-          { href: getIntegrationsRoute(activeOrg.slug), label: "Sources" },
+          { href: getIntegrationsRoute(activeOrg.slug), label: "Sources", badge: "Alpha" },
           { href: getPluginsRoute(activeOrg.slug), label: "Plugins" },
           { href: getMcpConnectionsRoute(activeOrg.slug), label: "Connectors", badge: "Beta" },
         ],
@@ -402,7 +404,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
               { href: getDiagnosticsRoute(activeOrg.slug), label: "Diagnostics" },
               { href: getBrandAppearanceRoute(activeOrg.slug), label: "Brand appearance" },
               { href: getDesktopPoliciesRoute(activeOrg.slug), label: "Desktop Policies" },
-              { href: getBillingRoute(activeOrg.slug), label: "Stripe" },
+              { href: getBillingRoute(activeOrg.slug), label: "Billing" },
               { href: getApiKeysRoute(activeOrg.slug), label: "API Keys" },
               { href: getSsoRoute(activeOrg.slug), label: "SSO" },
               { href: getScimRoute(activeOrg.slug), label: "SCIM" },
@@ -435,11 +437,11 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           badge: "Beta",
         }]
       : []),
-    ...(showCloud
+    ...(showWeb
       ? [{
-          href: activeOrg ? getCloudRoute(activeOrg.slug) : "#",
-          label: "Cloud",
-          icon: Cloud,
+          href: activeOrg ? getWebRoute(activeOrg.slug) : "#",
+          label: "Web",
+          icon: Globe,
           badge: "Alpha",
         }]
       : []),
@@ -748,15 +750,17 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-1">
-            <a
-              href={feedbackHref}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
-            >
-              <MessageSquare className="h-4 w-4" />
-              <span className="hidden sm:inline">Feedback</span>
-            </a>
+            {showFeedbackLink ? (
+              <a
+                href={feedbackHref}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">Feedback</span>
+              </a>
+            ) : null}
             <a
               href={OPENWORK_DOCS_URL}
               target="_blank"

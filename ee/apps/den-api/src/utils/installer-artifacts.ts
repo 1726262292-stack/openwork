@@ -24,7 +24,7 @@ export function installerLatestReleaseAssetUrl(
   options: { releaseRepo?: string } = {},
 ) {
   const releaseRepo = options.releaseRepo ?? env.installerReleaseRepo
-  // GitHub latest only flips when publish-release un-drafts, which is gated on installer assets,
+  // GitHub latest only flips when publish-release un-drafts after release assets are ready,
   // so this URL cannot 404 during a release window.
   return `https://github.com/${releaseRepo}/releases/latest/download/${encodeURIComponent(fileName)}`
 }
@@ -51,21 +51,13 @@ export function enterpriseDesktopReleaseAssetName(platform: string, releaseTag: 
   return publicName?.replace(/^openwork-/, "openwork-enterprise-") ?? null
 }
 
-export function genericInstallerArtifactName(platform: string) {
-  if (platform === "mac-arm64") {
-    return "OpenWork-Installer-mac-arm64.dmg"
-  }
-  if (platform === "mac-x64") {
-    return "OpenWork-Installer-mac-x64.dmg"
-  }
-  if (platform === "win-x64") {
-    return "OpenWork-Installer-win-x64.exe"
-  }
-  return null
+export function cloudDesktopReleaseAssetName(platform: string, releaseTag: string) {
+  const publicName = desktopReleaseAssetName(platform, releaseTag)
+  return publicName?.replace(/^openwork-/, "openwork-cloud-") ?? null
 }
 
 /**
- * Resolves only an explicitly provisioned standard installer. The normal
+ * Resolves only an explicitly provisioned desktop artifact. The normal
  * internet-connected path redirects the browser to GitHub instead, so Den
  * never downloads or caches a release artifact on demand.
  */

@@ -56,10 +56,16 @@ const EnvSchema = z.object({
   SMTP_SECURE: z.string().optional(),
   LOOPS_API_KEY: z.string().optional(),
   LOOPS_MARKETING_ENABLED: z.string().optional(),
+  LINEAR_API_KEY: z.string().optional(),
+  LINEAR_COMPLIANCE_TEAM_ID: z.string().optional(),
+  LINEAR_API_BASE: z.string().optional(),
+  LINEAR_COMPLIANCE_COMPLETED_STATE_ID: z.string().optional(),
   OPENWORK_DEV_MODE: z.string().optional(),
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
   DEN_DIAGNOSTICS_ORIGIN: z.string().optional(),
   DEN_DIAGNOSTICS_BEARER_TOKEN: z.string().optional(),
+  DEN_GATEWAY_KEY: z.string().optional(),
+  DEN_GATEWAY_ORIGIN: z.string().optional(),
   DEN_GOOGLE_OAUTH_AUTHORIZE_URL: z.string().optional(),
   DEN_GOOGLE_OAUTH_TOKEN_URL: z.string().optional(),
   DEN_GOOGLE_API_BASE_URL: z.string().optional(),
@@ -152,6 +158,8 @@ const EnvSchema = z.object({
   DAYTONA_DELETE_TIMEOUT_SECONDS: positiveSecondsEnvSchema.default(120),
   DAYTONA_STOP_TIMEOUT_SECONDS: nonNegativeSecondsEnvSchema.optional(),
   DAYTONA_HEALTHCHECK_TIMEOUT_MS: positiveMsEnvSchema.default(300_000),
+  DEN_CKPT_INTERVAL_SECONDS: positiveSecondsEnvSchema.default(300),
+  DEN_CKPT_KEEP: positiveCountEnvSchema.default(3),
   INFERENCE_PROXY_BASE_URL: z.string().optional(),
   OPENROUTER_MANAGEMENT_API_KEY: z.string().optional(),
   OPENROUTER_WORKSPACE_ID: z.string().optional(),
@@ -287,6 +295,29 @@ function normalizeDiagnosticsOrigin(value: string | undefined, allowInsecureHttp
   return url.origin
 }
 
+function normalizeOptionalHttpsOrigin(envName: string, value: string | undefined) {
+  const configured = optionalString(value)
+  if (!configured) {
+    return undefined
+  }
+
+  let url: URL
+  try {
+    url = new URL(configured)
+  } catch {
+    throw new Error(`${envName} must be an absolute https origin.`)
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error(`${envName} must be an absolute https origin.`)
+  }
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
+    throw new Error(`${envName} cannot contain credentials, a path, a query string, or a fragment.`)
+  }
+
+  return url.origin
+}
+
 function normalizeAbsoluteUrlCsv(envName: string, value: string | undefined) {
   const entries = splitCsv(value)
   const invalidEntries: string[] = []
@@ -415,6 +446,8 @@ export const env = {
     origin: diagnosticsOrigin,
     bearerToken: diagnosticsBearerToken,
   },
+  gatewayKey: optionalString(parsed.DEN_GATEWAY_KEY),
+  gatewayOrigin: normalizeOptionalHttpsOrigin("DEN_GATEWAY_ORIGIN", parsed.DEN_GATEWAY_ORIGIN),
   planGatingEnabled,
   installLinksGatingEnabled,
   connectLink,
@@ -453,6 +486,12 @@ export const env = {
   loops: {
     apiKey: optionalString(parsed.LOOPS_API_KEY),
     marketingEnabled: parsed.LOOPS_MARKETING_ENABLED?.trim() === "1",
+  },
+  linear: {
+    apiKey: optionalString(parsed.LINEAR_API_KEY),
+    teamId: optionalString(parsed.LINEAR_COMPLIANCE_TEAM_ID),
+    apiBase: optionalString(parsed.LINEAR_API_BASE) ?? "https://api.linear.app/graphql",
+    completedStateId: optionalString(parsed.LINEAR_COMPLIANCE_COMPLETED_STATE_ID),
   },
   orgMode,
   singleOrg: {
@@ -590,6 +629,8 @@ export const env = {
     deleteTimeoutSeconds: parsed.DAYTONA_DELETE_TIMEOUT_SECONDS,
     stopTimeoutSeconds: parsed.DAYTONA_STOP_TIMEOUT_SECONDS,
     healthcheckTimeoutMs: parsed.DAYTONA_HEALTHCHECK_TIMEOUT_MS,
+    checkpointIntervalSeconds: parsed.DEN_CKPT_INTERVAL_SECONDS,
+    checkpointKeep: parsed.DEN_CKPT_KEEP,
     pollIntervalMs: DEN_WORKER_POLL_INTERVAL_MS,
   },
 }

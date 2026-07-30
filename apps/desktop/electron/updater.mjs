@@ -35,7 +35,7 @@ const ELECTRON_UPDATER_FEEDS = Object.freeze({
 });
 
 function normalizeElectronUpdaterChannel(value, manifestChannel = "latest") {
-  if (manifestChannel === "enterprise") return "stable";
+  if (manifestChannel !== "latest") return "stable";
   if (value === "alpha" && process.platform === "darwin") return "alpha";
   return "stable";
 }
@@ -187,14 +187,14 @@ async function applyElectronUpdaterFeed(app, updater, targetVersion = null, mani
   updater.allowDowngrade = state.channel === "stable" && !targetVersion;
   // Select the manifest through the generic provider's own `channel` option
   // rather than AppUpdater#channel: that setter is a no-op unless the instance
-  // was constructed with a channel, which would silently leave an enterprise
-  // build reading latest*.yml — i.e. updating itself into the public artifact.
+  // was constructed with a channel, which would silently leave a custom
+  // distribution reading latest*.yml and updating itself into the public app.
   // Public builds pass no channel and keep the provider's `latest` default.
   if (updater?.setFeedURL) {
     updater.setFeedURL({
       provider: "generic",
       url: state.feedUrl,
-      ...(manifestChannel === "enterprise" ? { channel: "enterprise" } : {}),
+      ...(manifestChannel !== "latest" ? { channel: manifestChannel } : {}),
     });
   }
   return state;
@@ -262,6 +262,7 @@ export function registerUpdaterIpc({
   app,
   ipcMain,
   getMainWindow,
+  loadAutoUpdater = () => import("electron-updater"),
   manifestChannel = "latest",
   shipItDefaultsDomain = SHIP_IT_DEFAULTS_DOMAIN,
 }) {
@@ -287,7 +288,7 @@ export function registerUpdaterIpc({
     if (autoUpdaterLoaded) return autoUpdaterInstance;
     autoUpdaterLoaded = true;
     try {
-      const mod = await import("electron-updater");
+      const mod = await loadAutoUpdater();
       autoUpdaterInstance = mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
       if (autoUpdaterInstance) {
         autoUpdaterInstance.autoDownload = false;
@@ -302,7 +303,9 @@ export function registerUpdaterIpc({
         // bundles (see enableSquirrelDirectContentsWrite for why).
         await enableSquirrelDirectContentsWrite(shipItDefaultsDomain);
         autoUpdaterInstance.on("error", (err) => {
-          updateDownloaded = false;
+          // Do not invalidate a staged download on arbitrary updater errors.
+          // A later transient check failure does not delete the downloaded
+          // update; quitAndInstall reports a descriptive failure if it is gone.
           console.warn("[updater] error", err);
         });
         autoUpdaterInstance.on("update-downloaded", () => {
@@ -392,7 +395,7 @@ export function registerUpdaterIpc({
     } catch (error) {
       checkedUpdateVersion = null;
       checkedUpdateTargetVersion = null;
-      updateDownloaded = false;
+      // A transient failed check must not invalidate an already-downloaded update.
       return {
         available: false,
         reason: String(error?.message ?? error),

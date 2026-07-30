@@ -46,6 +46,7 @@ import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMe
 import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { connectSkillPrompt, parseConnectSkillToken } from "./composer/connect-skill-token";
+import { createPastedTextChip, resolvePastedTextPlaceholders } from "./composer/pasted-text";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
 import { useShellConfig } from "@/react-app/shell/shell-config";
@@ -101,10 +102,12 @@ import {
   type ApplyEnvironmentChangesResult,
 } from "@/react-app/domains/settings/pages/environment-variable-provider";
 import {
-  EMPTY_CONNECT_CAPABILITY_INVENTORY,
-  listAssignedConnectCapabilities,
-  type ConnectCapabilityInventory,
-} from "./connect-capability-inventory";
+  clearCloudInventoryCache,
+  loadSessionConnectCapabilities,
+  readCachedConnectCapabilities,
+  readCloudInventoryScope,
+} from "@/react-app/domains/connections/cloud-inventory-cache";
+import { EMPTY_CONNECT_CAPABILITY_INVENTORY } from "@/react-app/domains/session/surface/connect-capability-inventory";
 import { consumeComposerAutoSend } from "./composer-auto-send";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
@@ -231,7 +234,9 @@ function createChatTranscriptEvalMessages(sessionId: string) {
           text: "Your plan is drafted — details in [OpenWork](https://openworklabs.com). Search token: chat-transcript-proof.",
         },
       ],
-      metadata: { opencode: { created: now + 1 } },
+      // `completed` makes the finished turn fold behind a real
+      // "Worked for 1m 35s" line, like server-synced turns do.
+      metadata: { opencode: { created: now + 1, completed: now + 95_001 } },
     },
   ];
 
@@ -253,6 +258,7 @@ export type SessionSurfaceProps = {
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
+  organizationModelsEmpty?: boolean;
   selectedModel: ModelRef;
   /** providerID → modelID → provider model, for per-session variant options. */
   providerCatalog?: ProviderCatalog;
@@ -263,6 +269,7 @@ export type SessionSurfaceProps = {
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => Promise<CloudMcpSubmissionResult>;
   cloudMcpSubmissionState: CloudMcpSubmissionGateState;
+  onRetryCloudConnection: () => void;
   onOpenConnect: () => void;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
@@ -291,7 +298,7 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
   providerConnectedCount?: number;
-  onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins" | "providers") => void) | undefined;
+  onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins" | "extensions" | "providers") => void) | undefined;
   onRevertToMessage?: (messageId: string, sessionId: string) => Promise<boolean>;
   onForkAtMessage?: (messageId: string | null, sessionId: string) => void;
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions, sessionId?: string) => void;
@@ -656,11 +663,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [toolMcpStatus, setToolMcpStatus] = useState<string | null>(null);
   const [toolMcpStatuses, setToolMcpStatuses] = useState<McpStatusMap>({});
   const [toolImportedPlugins, setToolImportedPlugins] = useState<CloudImportedPlugin[]>([]);
+  const skillsConnectPushRef = useRef(0);
+  const mcpConnectPushRef = useRef(0);
   const [steering, setSteering] = useState(false);
-  const connectInventoryCacheRef = useRef<{
-    scope: string;
-    promise: Promise<ConnectCapabilityInventory>;
-  } | null>(null);
   const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
   const [cloudQueueRetryVersion, setCloudQueueRetryVersion] = useState(0);
   const sending = props.cloudMcpSubmissionState.status === "sending";
@@ -788,6 +793,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
   const preparingCloudTools = props.cloudMcpSubmissionState.status === "checking" ||
     props.cloudMcpSubmissionState.status === "repairing";
+  const cloudSubmissionBlocked = props.cloudMcpSubmissionState.status !== "idle" &&
+    props.cloudMcpSubmissionState.status !== "sending";
   const chatStreaming = sending || liveStatus.type === "busy" || liveStatus.type === "retry";
 
   useEffect(() => {
@@ -1001,10 +1008,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     });
     // Expand paste placeholders in resolvedText so the model receives
     // the actual pasted content instead of "[pasted text <label>]".
-    let resolved = text;
-    for (const part of pasteParts) {
-      resolved = resolved.replace(`[pasted text ${part.label}]`, part.text);
-    }
+    let resolved = resolvePastedTextPlaceholders(text, pasteParts);
     resolved = resolved.replace(/\[attachment [^\]]+\]/g, "");
     resolved = resolved.replace(/\[connect-skill [^\]]+\]/g, (match) => {
       const token = parseConnectSkillToken(match);
@@ -1111,10 +1115,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (model.transitionState !== "idle") return;
     if (chatStreaming) return;
     if (props.modelUnavailable) return;
+    if (props.cloudMcpSubmissionState.status !== "idle") return;
     if (!draft.trim()) return;
     if (!consumeComposerAutoSend(props.sessionId)) return;
     void handleSend();
-  }, [chatStreaming, draft, handleSend, model.transitionState, props.modelUnavailable, props.sessionId]);
+  }, [chatStreaming, draft, handleSend, model.transitionState, props.cloudMcpSubmissionState.status, props.modelUnavailable, props.sessionId]);
 
   const handleSteer = useCallback(async () => {
     setSteering(true);
@@ -1122,13 +1127,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [handleSend]);
 
   const handleRetryCloudSubmission = useCallback(() => {
-    if (draft.trim() || attachments.length > 0) {
-      void handleSend();
-      return;
-    }
+    props.onRetryCloudConnection();
     cloudQueueBlockedRef.current = false;
     setCloudQueueRetryVersion((version) => version + 1);
-  }, [attachments.length, draft, handleSend]);
+  }, [props.onRetryCloudConnection]);
 
   // Queue: hold the draft locally and clear the composer. The drain effect
   // sends it once the session reports idle.
@@ -1212,6 +1214,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (drainingQueueRef.current || sendingQueued) return;
     if (cloudQueueBlockedRef.current) return;
+    if (props.cloudMcpSubmissionState.status !== "idle") return;
     if (queuedDrafts.length === 0) return;
     if (chatStreaming || liveStatus.type !== "idle") return;
     const merged = mergeDrafts(queuedDrafts);
@@ -1237,7 +1240,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         drainingQueueRef.current = false;
       }
     })();
-  }, [chatStreaming, clearQueuedDrafts, cloudQueueRetryVersion, liveStatus.type, prependQueuedDrafts, props.sessionId, queuedDrafts, sendDraft, sendingQueued]);
+  }, [chatStreaming, clearQueuedDrafts, cloudQueueRetryVersion, liveStatus.type, prependQueuedDrafts, props.cloudMcpSubmissionState.status, props.sessionId, queuedDrafts, sendDraft, sendingQueued]);
 
   useEffect(() => {
     if (props.cloudMcpSubmissionState.status !== "failed") {
@@ -1326,10 +1329,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const handlePasteText = (text: string) => {
-    const id = `paste-${Math.random().toString(36).slice(2)}`;
-    const label = `${id.slice(-4)} · ${text.split(/\r?\n/).length} lines`;
-    setComposerPasteParts(props.sessionId, [...pasteParts, { id, label, text, lines: text.split(/\r?\n/).length }]);
-    setComposerDraft(props.sessionId, `${draft}[pasted text ${label}]`);
+    const pasted = createPastedTextChip(text);
+    setComposerPasteParts(props.sessionId, [...pasteParts, pasted]);
+    setComposerDraft(props.sessionId, `${draft}[pasted text ${pasted.label}]`);
   };
 
   const handleExpandPastedText = (id: string) => {
@@ -1423,37 +1425,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }), [chatStreaming, handleAbort]);
   useControlAction(props.isControlTarget ? composerStopControlAction : null);
 
-  const loadConnectCapabilityInventory = async (): Promise<ConnectCapabilityInventory> => {
-    const settings = readDenSettings();
-    const token = settings.authToken?.trim() ?? "";
-    const organizationId = settings.activeOrgId?.trim() ?? "";
-    if (!token || !organizationId) return EMPTY_CONNECT_CAPABILITY_INVENTORY;
-
-    const scope = `${settings.baseUrl}\n${organizationId}`;
-    if (connectInventoryCacheRef.current?.scope === scope) {
-      try {
-        return await connectInventoryCacheRef.current.promise;
-      } catch {
-        connectInventoryCacheRef.current = null;
-        return EMPTY_CONNECT_CAPABILITY_INVENTORY;
-      }
-    }
-
-    const client = createDenClient({ baseUrl: settings.baseUrl, token });
-    const promise = listAssignedConnectCapabilities({ client, organizationId });
-    connectInventoryCacheRef.current = { scope, promise };
-    try {
-      return await promise;
-    } catch {
-      if (connectInventoryCacheRef.current?.promise === promise) {
-        connectInventoryCacheRef.current = null;
-      }
-      return EMPTY_CONNECT_CAPABILITY_INVENTORY;
-    }
-  };
-
   const listSkills = async (): Promise<SkillCard[]> => {
-    const connectPromise = loadConnectCapabilityInventory();
+    const pushId = ++skillsConnectPushRef.current;
+    // Paint cached Connect inventory instantly; the fresh fan-out lands live.
+    const scope = readCloudInventoryScope();
+    const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
+    const connectPromise = loadSessionConnectCapabilities();
     const response = await props.client.listSkills(props.workspaceId, { includeGlobal: true });
     const localSkills = (response.items ?? []).map((skill) => ({
       name: skill.name,
@@ -1463,15 +1440,32 @@ export function SessionSurface(props: SessionSurfaceProps) {
       scope: skill.scope,
       origin: "local",
     } satisfies SkillCard));
-    const connect = await connectPromise;
-    const next = [...localSkills, ...connect.skills];
+    void connectPromise.then((connect) => {
+      if (skillsConnectPushRef.current !== pushId) return;
+      setToolSkills([...localSkills, ...connect.skills]);
+    });
+    const next = [...localSkills, ...cachedConnect.skills];
     setToolSkills(next);
     return next;
   };
 
   const listMcp = async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
-    const connectPromise = loadConnectCapabilityInventory();
-    const response = await props.client.listMcp(props.workspaceId);
+    const pushId = ++mcpConnectPushRef.current;
+    const scope = readCloudInventoryScope();
+    const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
+    const connectPromise = loadSessionConnectCapabilities();
+    const localMcpPromise = props.client.listMcp(props.workspaceId);
+    const directory = props.workspaceRoot.trim();
+    const localStatusesPromise: Promise<McpStatusMap> = directory
+      ? (async () => {
+        try {
+          return unwrap(await opencodeClient.mcp.status({ directory })) as McpStatusMap;
+        } catch {
+          return {};
+        }
+      })()
+      : Promise.resolve({});
+    const [response, localStatuses] = await Promise.all([localMcpPromise, localStatusesPromise]);
     const localServers = (response.items ?? []).map((entry) => ({
       name: entry.name,
       config: entry.config as McpServerEntry["config"],
@@ -1479,44 +1473,44 @@ export function SessionSurface(props: SessionSurfaceProps) {
       origin: entry.name === "openwork-cloud" ? "openwork-connect" : "local",
     } satisfies McpServerEntry));
 
-    let localStatuses: McpStatusMap = {};
-    try {
-      if (props.workspaceRoot.trim()) {
-        localStatuses = unwrap(await opencodeClient.mcp.status({ directory: props.workspaceRoot.trim() })) as McpStatusMap;
-      }
-    } catch {
-      localStatuses = {};
-    }
+    void connectPromise.then((connect) => {
+      if (mcpConnectPushRef.current !== pushId) return;
+      const freshServers = [...localServers, ...connect.mcpServers];
+      const freshStatuses = { ...connect.mcpStatuses, ...localStatuses };
+      const freshStatus = freshServers.length ? null : "No MCP servers loaded.";
+      setToolMcpServers(freshServers);
+      setToolMcpStatuses(freshStatuses);
+      setToolMcpStatus(freshStatus);
 
-    const connect = await connectPromise;
-    const servers = [...localServers, ...connect.mcpServers];
-    const statuses = { ...connect.mcpStatuses, ...localStatuses };
+      // Quiet self-heal: remote OAuth connectors whose access token expired
+      // show "Sign in needed" even though the stored refresh token still
+      // works. `mcp.connect` retries the refresh grant on a fresh transport
+      // without ever opening a browser; on success the badge flips live.
+      if (directory && localServers.length) {
+        void attemptSilentMcpReauth({
+          client: opencodeClient,
+          directory,
+          servers: localServers,
+          statuses: localStatuses,
+        })
+          .then(async (attempted) => {
+            if (!attempted) return;
+            const healed = unwrap(await opencodeClient.mcp.status({ directory })) as McpStatusMap;
+            if (mcpConnectPushRef.current !== pushId) return;
+            setToolMcpStatuses({ ...connect.mcpStatuses, ...healed });
+          })
+          .catch(() => {
+            // Best-effort; the manual Sign in path is unaffected.
+          });
+      }
+    });
+
+    const servers = [...localServers, ...cachedConnect.mcpServers];
+    const statuses = { ...cachedConnect.mcpStatuses, ...localStatuses };
     const status = servers.length ? null : "No MCP servers loaded.";
     setToolMcpServers(servers);
     setToolMcpStatuses(statuses);
     setToolMcpStatus(status);
-
-    // Quiet self-heal: remote OAuth connectors whose access token expired
-    // show "Sign in needed" even though the stored refresh token still
-    // works. `mcp.connect` retries the refresh grant on a fresh transport
-    // without ever opening a browser; on success the badge flips live.
-    const directory = props.workspaceRoot.trim();
-    if (directory && localServers.length) {
-      void attemptSilentMcpReauth({
-        client: opencodeClient,
-        directory,
-        servers: localServers,
-        statuses: localStatuses,
-      })
-        .then(async (attempted) => {
-          if (!attempted) return;
-          const healed = unwrap(await opencodeClient.mcp.status({ directory })) as McpStatusMap;
-          setToolMcpStatuses({ ...connect.mcpStatuses, ...healed });
-        })
-        .catch(() => {
-          // Best-effort; the manual Sign in path is unaffected.
-        });
-    }
 
     return { servers, statuses, status };
   };
@@ -1606,7 +1600,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     const resetReconnectState = () => {
       useChatMcpReconnectStore.getState().reset();
-      connectInventoryCacheRef.current = null;
+      clearCloudInventoryCache();
       setToolSkills((current) => current.filter((skill) => skill.origin !== "openwork-connect"));
       setToolMcpServers((current) => current.filter((server) => server.origin !== "openwork-connect"));
       setToolMcpStatuses((current) => Object.fromEntries(
@@ -1984,10 +1978,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
         busy={chatStreaming}
         steering={steering}
         submissionPreparing={preparingCloudTools}
+        submissionBlocked={cloudSubmissionBlocked}
         queuedCount={queuedDrafts.length}
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableMessage={props.modelUnavailableMessage}
+        organizationModelsEmpty={props.organizationModelsEmpty}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={modelPickerOpen}
         selectedModel={sessionModel.selectedModel}

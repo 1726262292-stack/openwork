@@ -21,8 +21,8 @@ const connectViewSource = readFileSync(
   fileURLToPath(new URL("../src/react-app/domains/settings/pages/connect-view.tsx", import.meta.url)),
   "utf8",
 );
-const settingsRouteSource = readFileSync(
-  fileURLToPath(new URL("../src/react-app/shell/settings-route.tsx", import.meta.url)),
+const agentAccessSource = readFileSync(
+  fileURLToPath(new URL("../src/react-app/domains/settings/cloud/agent-access-card.tsx", import.meta.url)),
   "utf8",
 );
 
@@ -91,10 +91,10 @@ describe("Agent access card helpers", () => {
   });
 
   test("retries Agent access through the repair reconciler when connectivity returns", () => {
-    expect(connectViewSource).toContain('window.addEventListener("online", retryAfterReconnect)');
-    expect(connectViewSource).toContain('window.removeEventListener("online", retryAfterReconnect)');
-    expect(connectViewSource).toContain('mode: "repair"');
-    expect(connectViewSource).toContain('trigger: "desktop-connect-online-retry"');
+    expect(agentAccessSource).toContain('window.addEventListener("online", retryAfterReconnect)');
+    expect(agentAccessSource).toContain('window.removeEventListener("online", retryAfterReconnect)');
+    expect(agentAccessSource).toContain('mode: "repair"');
+    expect(agentAccessSource).toContain('trigger: "desktop-connect-online-retry"');
   });
 });
 
@@ -128,7 +128,7 @@ describe("Connect cloud-readiness row resolution", () => {
       },
     };
 
-    expect(settingsRouteSource).toContain("marketplaceItems={extensionItems.cloudPluginItems}");
+    expect(connectViewSource).toContain("export function buildConnectRows");
     expect(isCloudMarketplaceItem(marketplacePluginItem)).toBe(true);
     const rows = buildConnectRows({ connections: [], items: [marketplacePluginItem], role: "member" });
     expect(rows).toHaveLength(1);
@@ -141,6 +141,9 @@ describe("Connect cloud-readiness row resolution", () => {
     expect(resolveConnectRowGroup({ state: "needs_signin", hasInstructional: false, connections: [] }, "member")).toBe("needs_signin");
     expect(resolveConnectRowGroup({ state: "ready", hasInstructional: true, connections: [] }, "member")).toBe("ready");
     expect(resolveConnectRowGroup({ state: "needs_admin_setup", hasInstructional: false, connections: [] }, "admin")).toBe("needs_admin_setup");
+    expect(resolveConnectRowGroup({ state: "needs_admin_setup", hasInstructional: false, connections: [] }, "super-admin")).toBe("needs_admin_setup");
+    expect(resolveConnectRowGroup({ state: "needs_admin_setup", hasInstructional: false, connections: [] }, "qa-reviewer, super-admin")).toBe("needs_admin_setup");
+    expect(resolveConnectRowGroup({ state: "needs_admin_setup", hasInstructional: false, connections: [] }, "qa-reviewer")).toBe("excluded");
   });
 
   test("hides admin setup, desktop-only, and not-synced rows from non-admin Connect", () => {

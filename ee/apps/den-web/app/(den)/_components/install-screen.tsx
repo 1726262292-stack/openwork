@@ -11,7 +11,7 @@ import {
   rememberDesktopHandoffGrant,
 } from "../_lib/desktop-handoff";
 import { getInstallConfigErrorMessage } from "../_lib/install-errors";
-import { buildInstallDownloadHref, installerFileName, type InstallPlatform } from "../_lib/install-download";
+import { buildInstallDownloadHref, type InstallPlatform, installerFileName } from "../_lib/install-download";
 import { isMobileUserAgent } from "../_lib/platform";
 import { useDesktopHandoffStatus } from "../_lib/use-desktop-handoff-status";
 import { OnboardingShell } from "./onboarding-shell";
@@ -30,7 +30,7 @@ type InstallConfig = {
   activationUrl: string;
   activationExpiresAt: string;
   desktopVersion: string;
-  distribution: "enterprise";
+  distribution: "cloud" | "enterprise";
 };
 
 const RETURN_TO_OPENWORK_URL = "openwork://open";
@@ -48,6 +48,8 @@ function detectedInstallPlatform(detected: DetectedPlatform | null): InstallPlat
   if (detected.os === "windows") return "win-x64";
   if (detected.os === "macos" && detected.arch === "arm64") return "mac-arm64";
   if (detected.os === "macos" && detected.arch === "x64") return "mac-x64";
+  if (detected.os === "linux" && detected.arch === "arm64") return "linux-arm64";
+  if (detected.os === "linux") return "linux-x64";
   return null;
 }
 
@@ -152,7 +154,7 @@ function parseInstallConfig(value: unknown): InstallConfig | null {
     !isUrl(activationUrl)
     || Number.isNaN(Date.parse(activationExpiresAt))
     || !desktopVersion
-    || distribution !== "enterprise"
+    || (distribution !== "cloud" && distribution !== "enterprise")
   ) {
     return null;
   }
@@ -538,6 +540,40 @@ export function InstallScreen() {
             <p className="den-eyebrow">OpenWork Desktop</p>
             <h1 className="den-title-lg">This install link can't be opened.</h1>
             <p className="den-copy">{error ?? "Ask your workspace admin for a fresh install link."}</p>
+          </div>
+        </section>
+      </OnboardingShell>
+    );
+  }
+
+  if (config.distribution === "cloud") {
+    return (
+      <OnboardingShell state="install" width="full">
+        <section data-testid="install-page">
+          <div className="grid gap-6 rounded-[1.75rem] border border-[#e7eaef] bg-[#fcfcfd] p-5 text-center sm:p-6 md:p-8" data-testid="install-card">
+            <div className="grid justify-items-center gap-3">
+              <h1 className="m-0 text-[2rem] font-semibold leading-[1.04] tracking-[-0.05em] text-slate-950 sm:text-[2.4rem]">
+                Download OpenWork
+              </h1>
+              <p className="den-copy max-w-2xl">Choose the version for your computer, install it, and open OpenWork.</p>
+            </div>
+
+            {isMobile ? (
+              <div className="den-frame-inset grid gap-3 rounded-[1.5rem] p-5 text-left" data-testid="install-mobile-note">
+                <p className="m-0 text-base font-medium text-[var(--dls-text-primary)]">OpenWork Cloud runs on your computer.</p>
+                <p className="den-copy">Open this link on your Mac, Windows, or Linux machine.</p>
+                <button type="button" className="den-button-secondary w-full sm:w-auto" onClick={() => void copyCurrentLink()}>
+                  {copied ? "Copied" : "Copy install link"}
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-5 text-left">
+                <DownloadPlatformGrid groups={downloadGroups} />
+                <a className="den-button-secondary w-fit" href={RETURN_TO_OPENWORK_URL}>
+                  I already installed OpenWork
+                </a>
+              </div>
+            )}
           </div>
         </section>
       </OnboardingShell>
