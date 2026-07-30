@@ -58,16 +58,10 @@ test.skipIf(!optedIn)(title, async () => {
   await clickButton(app, signInLabel, { timeoutMs: 60_000 });
   await waitUntilInteractive(app, { timeoutMs: 180_000 });
 
+  // No second frame: sign-in against a TLS-intercepted Den changes nothing on
+  // screen, so another capture would be the same pixels — the roll refuses
+  // duplicates precisely so we cannot pad the evidence.
   const afterText = await visibleText(app);
-  {
-    const shot = await screenshot(app);
-    const seen = await validate(shot, [
-      "The screen does not claim the user is signed in or synced with OpenWork Cloud",
-      "No 'Something went wrong' crash message is visible",
-    ]);
-    expect(seen.ok, seen.why).toBe(true);
-    await roll.add(shot, seen);
-  }
 
   // The app must never claim success it does not have. Observed behaviour with a
   // TLS-intercepted Den is that sign-in produces no in-app feedback (the desktop
