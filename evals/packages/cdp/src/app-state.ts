@@ -64,9 +64,18 @@ export function parseAppStateProbe(value: unknown): AppStateProbe {
   };
 }
 
-/** The app is usable: control registered, nothing still loading, and a surface a user can act on. */
+/**
+ * The app is usable: control registered and a surface a user can act on.
+ *
+ * Transitional copy only disqualifies the workspace surfaces. The welcome screen
+ * legitimately shows progress ("Preparing workspace") for a background step
+ * while its own buttons remain perfectly clickable, and treating that as
+ * not-ready waits forever for something that is not blocking the user.
+ */
 export function isInteractive(probe: AppStateProbe): boolean {
-  return probe.controlReady && probe.transitional === null && probe.surface !== null;
+  if (!probe.controlReady || probe.surface === null) return false;
+  if (probe.surface === "welcome") return true;
+  return probe.transitional === null;
 }
 
 export function describeAppState(probe: AppStateProbe): string {
