@@ -350,23 +350,30 @@ function bootRuntime(initial: UiArtifactHostBridgeEnvelope, port: MessagePort) {
 const allowInitialize = createRateGate()
 let initialized = false
 
-window.addEventListener("message", (event: MessageEvent<unknown>) => {
-  if (
-    initialized ||
-    event.source !== window.parent ||
-    event.ports.length !== 1 ||
-    !allowInitialize() ||
-    serializedByteLength(event.data) > MAX_INITIALIZE_BYTES
-  ) {
-    return
-  }
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event: MessageEvent<unknown>) => {
+    if (
+      initialized ||
+      event.source !== window.parent ||
+      event.ports.length !== 1 ||
+      !allowInitialize() ||
+      serializedByteLength(event.data) > MAX_INITIALIZE_BYTES
+    ) {
+      return
+    }
 
-  const parsed = uiArtifactHostBridgeEnvelopeSchema.safeParse(event.data)
-  if (!parsed.success || parsed.data.type !== "host.initialize") {
-    event.ports[0]?.close()
-    return
-  }
+    const parsed = uiArtifactHostBridgeEnvelopeSchema.safeParse(event.data)
+    if (!parsed.success || parsed.data.type !== "host.initialize") {
+      event.ports[0]?.close()
+      return
+    }
 
-  initialized = true
-  bootRuntime(parsed.data, event.ports[0])
-})
+    initialized = true
+    bootRuntime(parsed.data, event.ports[0])
+  })
+}
+
+// Vite replaces `?worker&url` imports of this module with the built asset URL.
+// Bun loads the source module directly during component tests, so keep a
+// harmless default export available for that non-browser import path.
+export default ""
