@@ -396,6 +396,26 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
   const log = options.log;
   const spawnedSurfaces = new Set<SurfaceHandle>();
 
+
+// Containers (Daytona sandboxes) cannot use Chromium's SUID sandbox: the helper
+// binary in a mounted pnpm store is not root-owned, and Electron aborts with
+// "The SUID sandbox helper binary was found, but is not configured correctly".
+// The desktop honours ELECTRON_EXTRA_LAUNCH_ARGS (apps/desktop/electron/main.mjs),
+// so pass the container-safe switches when we detect a sandbox.
+function insideContainerSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
+  if ((env.DAYTONA_SANDBOX_ID ?? "").trim().length > 0) return true;
+  if ((env.OPENWORK_EVAL_CONTAINER_ELECTRON ?? "").trim() === "1") return true;
+  return existsSync("/daytona-secrets") || existsSync("/daytona-artifacts");
+}
+
+function containerLaunchArgs(existing: string | undefined): string | undefined {
+  if (!insideContainerSandbox()) return existing;
+  const needed = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--enable-unsafe-swiftshader"];
+  const present = (existing ?? "").split(/\s+/).filter((entry) => entry.length > 0);
+  for (const arg of needed) if (!present.includes(arg)) present.push(arg);
+  return present.join(" ");
+}
+
   return {
     kind: "local",
 
@@ -411,6 +431,8 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
       const appIdentifier = `com.differentai.openwork.eval.${sanitizeSlug(name)}`;
       const isolationEnv = electronSurfaceEnv(paths, { appName, appIdentifier, port, cdpPort });
       const env: NodeJS.ProcessEnv = { ...process.env, ...isolationEnv, ...opts.env };
+      const launchArgs = containerLaunchArgs(env.ELECTRON_EXTRA_LAUNCH_ARGS);
+      if (launchArgs !== undefined) env.ELECTRON_EXTRA_LAUNCH_ARGS = launchArgs;
       const logPath = join(profileRoot, "electron.log");
       log(`Starting local Electron surface ${name} (Vite :${port}, CDP :${cdpPort})...`);
       const spawned = spawnDetached(pnpmCommand(), ["dev:electron"], { cwd: options.repoRoot, env, logPath });
