@@ -115,6 +115,7 @@ jobs:
         shell: bash
         env:
           DISPLAY: ":99"
+          OPENWORK_EVAL_APP_SPECS: "1"
           OPENWORK_EVAL_CDP_URL: "http://127.0.0.1:9823"
           OPENWORK_EVAL_DEN_API_URL: ${{ secrets.OPENWORK_EVAL_DEN_API_URL }}
           OPENWORK_EVAL_DEN_TOKEN: ${{ secrets.OPENWORK_EVAL_DEN_TOKEN }}

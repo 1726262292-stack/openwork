@@ -1,19 +1,17 @@
 import { expect, onTestFinished, test } from "vitest";
-import { attachSurface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
+import { desktop } from "@openwork/hosts";
 import { startMockMcp } from "@openwork/labs";
 import {
-  clearDesktopDenSession,
   clickButton,
+  createAndSelectWorkspace,
   currentHash,
   deleteConnection,
   deleteConnectionsNamed,
-  deleteEvalWorkspace,
   enabledButtons,
-  ensureFreshWorkspace,
-  ensureReadyWorkspace,
   ensureMemberSession,
   evalIn,
+  go,
   readUsableConnection,
   signIn,
   signInDesktopAs,
@@ -25,9 +23,9 @@ import {
 import type { Surface } from "@openwork/cdp";
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
-const cdpUrl = process.env.OPENWORK_EVAL_CDP_URL?.trim() ?? "";
-const title = !cdpUrl
-  ? "organization connection lifecycle skipped: set OPENWORK_EVAL_CDP_URL"
+const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
+const title = !appSpecsEnabled
+  ? "organization connection lifecycle skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in"
   : !apiUrl
     ? "organization connection lifecycle skipped: set OPENWORK_EVAL_DEN_API_URL"
     : "member connects, reconnects, and disconnects an organization OAuth connection";
@@ -75,7 +73,7 @@ async function waitForNotConnected(app: Surface, name: string): Promise<void> {
   })()`, { timeoutMs: 60_000, label: "not connected connection detail" });
 }
 
-test.skipIf(!apiUrl || !cdpUrl)(title, async () => {
+test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
   const den = {
     apiUrl,
     webUrl: (process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim() || apiUrl.replace("127.0.0.1", "localhost")).replace(/\/+$/, ""),
@@ -105,29 +103,16 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async () => {
   onTestFinished(async () => deleteConnection(admin, connection.id));
   expect((await readUsableConnection(member, connection.id))?.connectedForMe).toBe(false);
 
-  await using app = await attachSurface({
-    name: "running-app",
-    kind: "electron",
-    hostKind: "attached",
-    cdpUrl,
-  });
+  await using app = await desktop({ name: "org-connection-lifecycle" });
   await using roll = photoRoll("org-connection-lifecycle");
-  let workspaceId = "";
-  let desktopStateChanged = false;
-  onTestFinished(async () => {
-    if (!desktopStateChanged) return;
-    await using cleanupApp = await attachSurface({ name: "org-connection-lifecycle-cleanup", kind: "electron", hostKind: "attached", cdpUrl });
-    try {
-      if (workspaceId) await deleteEvalWorkspace(cleanupApp, workspaceId);
-    } finally {
-      await clearDesktopDenSession(cleanupApp);
-    }
-  });
   await signInDesktopAs(app, den, member);
-  desktopStateChanged = true;
   const workspacePath = `/tmp/openwork-org-connection-lifecycle-${Date.now()}`;
-  await ensureReadyWorkspace(app, { path: workspacePath });
-  workspaceId = await ensureFreshWorkspace(app, { path: workspacePath });
+  const { workspaceId } = await createAndSelectWorkspace(app, { path: workspacePath });
+  await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
+  await waitFor(app, `window.location.hash.includes("/settings/extensions") && document.body.innerText.includes("Extensions")`, {
+    timeoutMs: 60_000,
+    label: "extensions connections route",
+  });
 
   await waitForConnectionCard(app, connection.name);
   await waitForText(app, "NEEDS YOUR SIGN-IN", { timeoutMs: 30_000 });

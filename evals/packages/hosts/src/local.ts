@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { constants, existsSync, openSync } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { allocateFreePort, allocateFreePorts, listTargets, waitForCdp } from "@openwork/cdp";
 import { ensureDenStack } from "../../../runner/den-stack.ts";
@@ -499,6 +499,9 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
     async disposeSurface(handle: SurfaceHandle): Promise<void> {
       if (handle.pid !== undefined) {
         await killLocalPid(handle.pid, { log });
+      }
+      if (handle.kind === "electron" && handle.profileDir) {
+        await rm(handle.profileDir, { recursive: true, force: true });
       }
       spawnedSurfaces.delete(handle);
     },

@@ -1,23 +1,17 @@
 import { expect, test } from "vitest";
-import { attachSurface } from "@openwork/cdp";
-import { ensureReadyWorkspace, evalIn, waitFor } from "@openwork/behaviors";
+import { createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
+import { desktop } from "@openwork/hosts";
 
-const cdpUrl = process.env.OPENWORK_EVAL_CDP_URL?.trim() ?? "";
-const title = cdpUrl
+const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
+const title = appSpecsEnabled
   ? "app boots with a control route and meaningful visible content"
-  : "app smoke skipped: set OPENWORK_EVAL_CDP_URL to attach a running app";
+  : "app smoke skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in";
 
-test.skipIf(!cdpUrl)(title, async () => {
-  await using app = await attachSurface({
-    name: "running-app",
-    kind: "electron",
-    hostKind: "attached",
-    cdpUrl,
-  });
+test.skipIf(!appSpecsEnabled)(title, async () => {
+  await using app = await desktop({ name: "app-smoke" });
   await using roll = photoRoll("app-smoke");
-  await waitFor(app, "Boolean(window.__openworkControl)", { timeoutMs: 30_000, label: "window.__openworkControl" });
-  const workspace = await ensureReadyWorkspace(app);
+  const workspace = await createAndSelectWorkspace(app, { path: process.cwd() });
   expect(workspace.route).toContain("/workspace/");
   expect(workspace.route).toContain("/session");
   const route = await evalIn(app, "window.__openworkControl.snapshot().route");

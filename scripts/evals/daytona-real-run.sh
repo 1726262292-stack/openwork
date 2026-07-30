@@ -75,6 +75,7 @@ echo "==> New spec lane against the same live stack"
 export OPENWORK_EVAL_DEN_API_URL="http://127.0.0.1:8790"
 export OPENWORK_EVAL_DEN_WEB_URL="http://localhost:3005"
 export OPENWORK_EVAL_CDP_URL="http://127.0.0.1:9825"
+export OPENWORK_EVAL_APP_SPECS="1"
 pnpm --dir evals run spec:nightly 2>&1 | tee "$LOG_DIR/specs-real.log"
 
 echo "==> DONE"

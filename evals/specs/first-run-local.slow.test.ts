@@ -2,18 +2,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
-import { attachSurface } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
+import { desktop } from "@openwork/hosts";
 import {
   clickButton,
   createLocalWorkspaceViaUi,
   currentHash,
-  ensureReadyWorkspace,
   evalIn,
+  go,
   readAvailableModels,
   readComposerState,
-  resetOnboarding,
   selectModel,
   sendComposerMessage,
   waitForAssistantReply,
@@ -21,10 +20,10 @@ import {
   waitForText,
 } from "@openwork/behaviors";
 
-const cdpUrl = process.env.OPENWORK_EVAL_CDP_URL?.trim() ?? "";
-const title = cdpUrl
+const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
+const title = appSpecsEnabled
   ? "first use without an invite or cloud reaches local task UI with honest model setup"
-  : "first-run local skipped: set OPENWORK_EVAL_CDP_URL to attach a running app";
+  : "first-run local skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in";
 const prompt = "Create a short welcome checklist for this OpenWork workspace. Use exactly three bullets and mention one thing I can do next.";
 
 interface TaskAvailability {
@@ -75,32 +74,16 @@ async function createTask(app: Surface): Promise<void> {
   });
 }
 
-test.skipIf(!cdpUrl)(title, async () => {
-  await using app = await attachSurface({
-    name: "running-app",
-    kind: "electron",
-    hostKind: "attached",
-    cdpUrl,
-  });
+test.skipIf(!appSpecsEnabled)(title, async () => {
+  await using app = await desktop({ name: "first-run-local" });
   await using roll = photoRoll("first-run-local");
   let workspacePath = "";
   onTestFinished(async () => {
-    try {
-      await using cleanupApp = await attachSurface({
-        name: "first-run-local-cleanup",
-        kind: "electron",
-        hostKind: "attached",
-        cdpUrl,
-      });
-      await resetOnboarding(cleanupApp);
-    } finally {
-      if (workspacePath) await rm(workspacePath, { recursive: true, force: true });
-    }
+    if (workspacePath) await rm(workspacePath, { recursive: true, force: true });
   });
 
-  const reset = await resetOnboarding(app);
-  expect(reset.route).toContain("/welcome");
-  expect(reset.welcomeVisible).toBe(true);
+  expect(app.readiness.route).toContain("/welcome");
+  expect(app.readiness.state).toBe("welcome");
   await waitForText(app, "Welcome to OpenWork");
   {
     const shot = await screenshot(app);
@@ -113,6 +96,7 @@ test.skipIf(!cdpUrl)(title, async () => {
   }
 
   workspacePath = await mkdtemp(join(tmpdir(), "openwork-first-run-local-"));
+  await clickButton(app, "Use Without Cloud");
   const workspace = await createLocalWorkspaceViaUi(app, { path: workspacePath });
   expect(workspace.path).toBe(workspacePath);
   expect(workspace.id).toBeTruthy();
@@ -130,8 +114,17 @@ test.skipIf(!cdpUrl)(title, async () => {
   await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
   await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
   await clickButton(app, "Skip", { timeoutMs: 15_000 });
-  const ready = await ensureReadyWorkspace(app, { path: workspacePath });
-  expect(ready.route).toContain(`/workspace/${workspace.id}/session`);
+  await waitFor(app, `window.location.hash.includes(${JSON.stringify(`/workspace/${workspace.id}/session`)})`, {
+    timeoutMs: 120_000,
+    label: "first-run workspace route",
+  });
+  await go(app, `/workspace/${workspace.id}/session`);
+  await waitFor(app, `document.body.innerText.includes("What do you need done?")
+    || [...document.querySelectorAll("button")].some((button) => (button.textContent ?? "").trim() === "Run task")`, {
+    timeoutMs: 120_000,
+    label: "first-run task UI",
+  });
+  expect(await currentHash(app)).toContain(`/workspace/${workspace.id}/session`);
   const composer = await readComposerState(app);
   expect(composer.route).toContain("/workspace/");
   expect(composer.route).toContain("/session");

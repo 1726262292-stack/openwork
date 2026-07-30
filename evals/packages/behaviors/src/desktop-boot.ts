@@ -1,50 +1,22 @@
 import type { Surface } from "@openwork/cdp";
 import type { DenRef, DenSession } from "./den.ts";
 import { createDesktopHandoffGrant } from "./den.ts";
-import { control, currentHash, evalIn, go, waitFor } from "./desktop.ts";
-import { ensureReadyWorkspace } from "./onboarding.ts";
+import { clickButton, control, currentHash, evalIn, go, waitFor, waitForText } from "./desktop.ts";
+import { createLocalWorkspaceViaUi } from "./onboarding.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+export interface SelectedWorkspaceFacts {
+  workspaceId: string;
+  route: string;
 }
-
-function workspaceSetup(value: unknown): { ok: boolean; workspaceId: string | null } {
-  if (!isRecord(value)) return { ok: false, workspaceId: null };
-  return {
-    ok: value.ok === true,
-    workspaceId: typeof value.workspaceId === "string" ? value.workspaceId : null,
-  };
-}
-
 
 export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSession): Promise<void> {
-  await waitFor(app, "Boolean(window.__openworkControl)", { timeoutMs: 120_000, label: "desktop control API" });
-  await waitFor(app, "Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", { timeoutMs: 30_000, label: "desktop bridge" });
-  const bootstrap = { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false, handoff: null };
-  const written = await evalIn(app, `(async () => {
-    const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
-    if (!bridge) return { ok: false };
-    await bridge('setDesktopBootstrapConfig', ${JSON.stringify(bootstrap)});
-    return { ok: true };
-  })()`, { awaitPromise: true });
-  if (!isRecord(written) || written.ok !== true) throw new Error("Failed to write desktop bootstrap config.");
-  await evalIn(app, `(() => {
-    localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(den.webUrl)});
-    localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(den.webUrl)});
-    let preferences = {};
-    try { preferences = JSON.parse(localStorage.getItem('openwork.preferences') || '{}'); } catch {}
-    localStorage.setItem('openwork.preferences', JSON.stringify({ ...preferences, selectedAgent: 'openwork' }));
-    return true;
-  })()`);
-  await evalIn(app, "location.reload()");
-  await waitFor(app, "Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after bootstrap reload" });
-  const grant = await createDesktopHandoffGrant(member);
   await waitFor(app, "Boolean(window.__openworkControl?.listActions?.().some((action) => action.id === 'auth.exchange-grant'))", {
     timeoutMs: 60_000,
     label: "auth.exchange-grant action registered",
   });
+  const grant = await createDesktopHandoffGrant(member);
   await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl });
   await waitFor(app, "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
     timeoutMs: 45_000,
@@ -54,144 +26,78 @@ export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSess
     timeoutMs: 60_000,
     label: "active org resolved",
   });
+  await waitFor(app, "window.location.hash.includes('/onboarding')", {
+    timeoutMs: 60_000,
+    label: "organization onboarding route",
+  });
 }
 
-export async function ensureFreshWorkspace(app: Surface, input: { path: string }): Promise<string> {
-  await ensureReadyWorkspace(app, input);
-  await waitFor(app, "Boolean(localStorage.getItem('openwork.server.port') && localStorage.getItem('openwork.server.token') && localStorage.getItem('openwork.server.hostToken'))", {
-    timeoutMs: 30_000,
-    label: "OpenWork server auth for workspace setup",
-  });
-  let created: unknown = null;
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    created = await evalIn(app, `(async () => {
-      try {
-        const port = localStorage.getItem('openwork.server.port');
-        const token = localStorage.getItem('openwork.server.token');
-        const hostToken = localStorage.getItem('openwork.server.hostToken');
-        const base = 'http://127.0.0.1:' + port;
-        const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-OpenWork-Host-Token': hostToken };
-        const response = await fetch(base + '/workspaces/local', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ folderPath: ${JSON.stringify(input.path)}, name: 'org-connection-lifecycle-desktop', preset: 'starter' }),
-        });
-        const text = await response.text();
-        let payload = null;
-        try { payload = JSON.parse(text); } catch {}
-        if (!response.ok) return { ok: false, status: response.status, text };
-        const workspaceId = payload?.activeId ?? payload?.workspaces?.find((workspace) => workspace.path === ${JSON.stringify(input.path)})?.id;
-        if (!workspaceId) return { ok: false, status: response.status, text: 'workspace id missing' };
-        const activate = await fetch(base + '/workspaces/' + workspaceId + '/activate?persist=true', { method: 'POST', headers });
-        if (!activate.ok) return { ok: false, status: activate.status, text: await activate.text() };
-        localStorage.setItem('openwork.react.activeWorkspace', workspaceId);
-        return { ok: true, workspaceId };
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : String(error) };
-      }
-    })()`, { awaitPromise: true });
-    const parsed = workspaceSetup(created);
-    if (parsed.ok && parsed.workspaceId) break;
-    await sleep(1_000);
-  }
-  const parsed = workspaceSetup(created);
-  if (!parsed.ok || !parsed.workspaceId) throw new Error(`Workspace setup failed: ${JSON.stringify(created)}`);
-  const workspaceId = parsed.workspaceId;
-  await go(app, `/workspace/${workspaceId}/session`);
-  await sleep(2_000);
-  if ((await currentHash(app)).includes("/onboarding")) {
-    await ensureReadyWorkspace(app, input);
-    await go(app, `/workspace/${workspaceId}/session`);
-  }
-  await waitFor(app, "window.location.hash.includes('/workspace/')", { timeoutMs: 60_000, label: "fresh eval workspace selected" });
-
-  let last: unknown = null;
-  const extensionsDeadline = Date.now() + 60_000;
-  while (Date.now() < extensionsDeadline) {
-    await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
-    await sleep(1_000);
-    last = await evalIn(app, `(() => {
-      const text = document.body.innerText;
-      return {
-        hash: window.location.hash,
-        onOnboarding: window.location.hash.includes('/onboarding') || text.includes('Continue with organization') || text.includes('Continue to workspace'),
-        hasExtensions: text.includes('Extensions'),
-      };
+async function completeOrganizationOnboarding(app: Surface): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  while ((await currentHash(app)).includes("/onboarding") && Date.now() < deadline) {
+    const label = await evalIn(app, `(() => {
+      const labels = [...document.querySelectorAll("button")]
+        .filter((button) => !button.disabled)
+        .map((button) => (button.textContent ?? "").trim());
+      return ["Continue with organization", "Continue to workspace", "Continue without OpenWork Models", "Continue"]
+        .find((candidate) => labels.includes(candidate)) ?? "";
     })()`);
-    if (isRecord(last) && last.onOnboarding === true) {
-      await ensureReadyWorkspace(app, input);
-      continue;
+    if (typeof label === "string" && label) {
+      await clickButton(app, label);
     }
-    if (isRecord(last) && typeof last.hash === "string" && last.hash.includes("/settings/extensions") && last.hasExtensions === true) {
-      return workspaceId;
+    await sleep(750);
+  }
+  if ((await currentHash(app)).includes("/onboarding")) {
+    throw new Error("Organization onboarding did not reach the workspace route.");
+  }
+}
+
+function workspaceIdFromRoute(route: string): string {
+  return /\/workspace\/([^/?#]+)/.exec(route)?.[1] ?? "";
+}
+
+async function waitForTaskUi(app: Surface, workspaceId: string): Promise<string> {
+  await go(app, `/workspace/${workspaceId}/session`);
+  await waitFor(app, `(() => {
+    const match = /^#?\\/workspace\\/([^/?#]+)\\/session\\/?$/.exec(window.location.hash);
+    const routeReady = match?.[1] === ${JSON.stringify(workspaceId)};
+    const text = document.body.innerText;
+    const runTask = [...document.querySelectorAll("button")]
+      .some((button) => (button.textContent ?? "").trim() === "Run task");
+    return routeReady && (text.includes("What do you need done?") || runTask);
+  })()`, { timeoutMs: 120_000, label: `workspace ${workspaceId} task UI` });
+  return currentHash(app);
+}
+
+export async function createAndSelectWorkspace(
+  app: Surface,
+  input: { path: string },
+): Promise<SelectedWorkspaceFacts> {
+  let workspaceId = "";
+  const route = await currentHash(app);
+  if (route.includes("/welcome")) {
+    const workspace = await createLocalWorkspaceViaUi(app, input);
+    workspaceId = workspace.id;
+    await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
+    await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
+    await clickButton(app, "Skip", { timeoutMs: 15_000 });
+  } else {
+    if (route.includes("/onboarding")) await completeOrganizationOnboarding(app);
+    workspaceId = workspaceIdFromRoute(await currentHash(app));
+    if (!workspaceId) {
+      await waitFor(app, `window.__openworkControl.listActions()
+        .some((action) => action.id === "workspace.create" && !action.disabled)`, {
+        timeoutMs: 60_000,
+        label: "workspace.create enabled",
+      });
+      await control(app, "workspace.create", input);
+      await waitFor(app, "/\\/workspace\\/[^/?#]+\\/session/.test(window.location.hash)", {
+        timeoutMs: 120_000,
+        label: "created workspace route",
+      });
+      workspaceId = workspaceIdFromRoute(await currentHash(app));
     }
   }
-  throw new Error(`Extensions connections route never became ready: ${JSON.stringify(last)}`);
-}
-
-export async function deleteEvalSession(app: Surface, workspaceId: string, sessionId: string): Promise<void> {
-  await go(app, `/workspace/${workspaceId}/session/${sessionId}`);
-  await waitFor(app, "window.__openworkControl?.listActions?.().some((action) => action.id === 'session.delete' && action.disabled === false)", {
-    timeoutMs: 30_000,
-    label: "session.delete enabled for eval cleanup",
-  });
-  await control(app, "session.delete", { sessionId, confirmed: true });
-}
-
-export async function deleteEvalWorkspace(app: Surface, workspaceId: string): Promise<void> {
-  await waitFor(app, "Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", {
-    timeoutMs: 30_000,
-    label: "desktop bridge for eval workspace cleanup",
-  });
-  const result = await evalIn(app, `(async () => {
-    const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
-    const port = localStorage.getItem("openwork.server.port");
-    const token = localStorage.getItem("openwork.server.token");
-    const hostToken = localStorage.getItem("openwork.server.hostToken");
-    if (!bridge || !port || !token || !hostToken) return { ok: false, error: "workspace cleanup bridge or server auth missing" };
-    const response = await fetch("http://127.0.0.1:" + port + "/workspaces/" + encodeURIComponent(${JSON.stringify(workspaceId)}), {
-      method: "DELETE",
-      headers: { Authorization: "Bearer " + token, "X-OpenWork-Host-Token": hostToken },
-    });
-    if (!response.ok && response.status !== 404) {
-      return { ok: false, error: "workspace delete returned " + response.status + ": " + await response.text() };
-    }
-    await bridge("workspaceForget", ${JSON.stringify(workspaceId)}).catch(() => null);
-    if (localStorage.getItem("openwork.react.activeWorkspace") === ${JSON.stringify(workspaceId)}) {
-      localStorage.removeItem("openwork.react.activeWorkspace");
-    }
-    let sessions = {};
-    try { sessions = JSON.parse(localStorage.getItem("openwork.react.sessionByWorkspace") || "{}"); } catch {}
-    if (!sessions || typeof sessions !== "object" || Array.isArray(sessions)) sessions = {};
-    delete sessions[${JSON.stringify(workspaceId)}];
-    localStorage.setItem("openwork.react.sessionByWorkspace", JSON.stringify(sessions));
-    location.hash = "#/session";
-    setTimeout(() => location.reload(), 0);
-    return { ok: true };
-  })()`, { awaitPromise: true });
-  if (!isRecord(result) || result.ok !== true) {
-    throw new Error(`Eval workspace cleanup failed: ${JSON.stringify(result)}`);
-  }
-  await waitFor(app, "Boolean(window.__openworkControl)", {
-    timeoutMs: 60_000,
-    label: "control API after eval workspace cleanup",
-  });
-}
-
-export async function clearDesktopDenSession(app: Surface): Promise<void> {
-  await evalIn(app, `(() => {
-    for (const key of [
-      "openwork.den.authToken",
-      "openwork.den.activeOrgId",
-      "openwork.den.activeOrgSlug",
-      "openwork.den.activeOrgName",
-    ]) localStorage.removeItem(key);
-    setTimeout(() => location.reload(), 0);
-    return true;
-  })()`);
-  await waitFor(app, "Boolean(window.__openworkControl)", {
-    timeoutMs: 60_000,
-    label: "control API after clearing desktop Den session",
-  });
+  if (!workspaceId) throw new Error("Workspace creation did not produce a workspace ID.");
+  return { workspaceId, route: await waitForTaskUi(app, workspaceId) };
 }
