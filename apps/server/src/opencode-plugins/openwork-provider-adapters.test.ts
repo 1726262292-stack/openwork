@@ -104,11 +104,14 @@ describe("OpenWork provider adapters", () => {
       "mcp:notion",
       "connect",
     ]);
-    expect(contributions[3]).toMatchObject({
+    expect(contributions.find((contribution) => contribution.featureId === "mcp:notion")).toMatchObject({
       provider: { id: "notion", kind: "mcp" },
       affordances: [],
     });
-    expect(contributions[4]?.affordances.map((affordance) => affordance.id)).toEqual([
+    expect(
+      contributions.find((contribution) => contribution.featureId === "connect")
+        ?.affordances.map((affordance) => affordance.id),
+    ).toEqual([
       "connect.capabilities.search",
       "connect.capability.execute",
     ]);

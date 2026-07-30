@@ -150,7 +150,7 @@ describe("dynamic artifact projects", () => {
       const first = await service.build(SLUG, { expectedProjectRevision: snapshot.projectRevision });
       const changed = await service.putFile(SLUG, {
         file: "data.json",
-        content: JSON.stringify({ title: "Changed" }),
+        content: JSON.stringify({ label: "Changed", message: "Customize this compact summary." }),
         expectedRevision: snapshot.projectRevision,
       });
       const second = await service.build(SLUG, { expectedProjectRevision: changed.projectRevision });
@@ -158,7 +158,7 @@ describe("dynamic artifact projects", () => {
 
       expect(second.build.projectRevision).not.toBe(first.build.projectRevision);
       expect(pinned.build.buildDigest).toBe(first.build.buildDigest);
-      expect(pinned.data).toEqual({ title: "Untitled artifact" });
+      expect(pinned.data).toEqual({ label: "Ready", message: "Customize this compact summary." });
 
       const metadataPath = join(
         root,
