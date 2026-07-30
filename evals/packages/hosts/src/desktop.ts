@@ -42,9 +42,9 @@ export interface DesktopHandle extends AttachedSurface {
 
 async function waitForReadiness(app: Surface, timeoutMs: number): Promise<AppReadiness> {
   const deadline = Date.now() + timeoutMs;
-  // Give each probe room to answer while the app is busy; the poll's own
-  // deadline is what bounds the wait, not a per-call default.
-  const probeTimeoutMs = Math.min(Math.max(timeoutMs, 20_000), 120_000);
+  // Short per-probe timeout so a briefly-busy renderer is retried rather than
+  // consuming the whole readiness budget in one stuck call.
+  const probeTimeoutMs = Math.min(timeoutMs, 15_000);
   let last: AppStateProbe = { controlReady: false, transitional: null, surface: null, workspaceId: null, route: "", text: "" };
   while (Date.now() < deadline) {
     try {

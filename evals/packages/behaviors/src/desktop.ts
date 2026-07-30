@@ -30,10 +30,10 @@ export async function waitFor(
 ): Promise<unknown> {
   const startedAt = Date.now();
   let lastError: unknown = null;
-  // A busy renderer can take longer than the CDP client's default per-call
-  // timeout to answer; the wait's own deadline bounds the loop, so let each
-  // evaluation use the remaining budget instead of dying on the default.
-  const evalTimeoutMs = Math.min(Math.max(timeoutMs, 20_000), 120_000);
+  // Each probe gets a SHORT timeout on purpose: a renderer that is briefly busy
+  // should have the call abandoned and retried on the next tick. Giving a probe
+  // the whole budget turns one stuck evaluation into the entire wait.
+  const evalTimeoutMs = Math.min(timeoutMs, 15_000);
   while (Date.now() - startedAt < timeoutMs) {
     try {
       const value = await evalIn(app, expression, { timeoutMs: evalTimeoutMs, awaitPromise });
