@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
+  CalendarClock,
   ChevronRight,
   Columns2,
   FolderPlus,
@@ -843,6 +844,8 @@ export type AppSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  scheduledTasksActive?: boolean;
+  onOpenScheduledTasks?: (workspaceId: string) => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   /** Back/forward across recently viewed conversations, rendered at the top of the sidebar. */
@@ -1177,6 +1180,8 @@ export function AppSidebar(props: AppSidebarProps) {
                   showInitialLoading={props.showInitialLoading}
                   previewCount={previewCount(group.workspace.id)}
                   showMoreSessions={showMoreSessions}
+                  scheduledTasksActive={props.scheduledTasksActive && props.selectedWorkspaceId === group.workspace.id}
+                  onOpenScheduledTasks={props.onOpenScheduledTasks}
                 />
               ))}
             </Reorder.Group>
@@ -1357,6 +1362,8 @@ type WorkspaceReorderItemProps = {
   showInitialLoading?: boolean;
   previewCount: number;
   showMoreSessions: (workspaceId: string, totalRoots: number) => void;
+  scheduledTasksActive?: boolean;
+  onOpenScheduledTasks?: (workspaceId: string) => void;
 };
 
 function WorkspaceReorderItem({
@@ -1365,6 +1372,8 @@ function WorkspaceReorderItem({
   showInitialLoading,
   previewCount,
   showMoreSessions,
+  scheduledTasksActive,
+  onOpenScheduledTasks,
 }: WorkspaceReorderItemProps) {
   const dragControls = useDragControls();
 
@@ -1391,6 +1400,8 @@ function WorkspaceReorderItem({
         previewCount={previewCount}
         showMoreSessions={showMoreSessions}
         onWorkspaceTitlePointerDown={(event) => dragControls.start(event)}
+        scheduledTasksActive={scheduledTasksActive}
+        onOpenScheduledTasks={onOpenScheduledTasks}
       />
     </Reorder.Item>
   );
@@ -1461,6 +1472,8 @@ type WorkspaceSidebarGroupProps = {
   previewCount: number;
   showMoreSessions: (workspaceId: string, totalRoots: number) => void;
   onWorkspaceTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
+  scheduledTasksActive?: boolean;
+  onOpenScheduledTasks?: (workspaceId: string) => void;
 };
 
 function WorkspaceSidebarGroup({
@@ -1470,6 +1483,8 @@ function WorkspaceSidebarGroup({
   previewCount,
   showMoreSessions,
   onWorkspaceTitlePointerDown,
+  scheduledTasksActive,
+  onOpenScheduledTasks,
 }: WorkspaceSidebarGroupProps) {
   const ctx = useSidebarContext();
   const workspace = group.workspace;
@@ -1605,6 +1620,24 @@ function WorkspaceSidebarGroup({
 
             <CollapsibleContent className="pt-px">
               <SidebarMenuSub className="gap-1">
+                {onOpenScheduledTasks ? (
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton
+                      data-testid={`scheduled-tasks-sidebar-${workspace.id}`}
+                      aria-current={scheduledTasksActive ? "page" : undefined}
+                      className={cn(
+                        SIDEBAR_ROW_LANE,
+                        scheduledTasksActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+                      )}
+                      onClick={() => onOpenScheduledTasks(workspace.id)}
+                    >
+                      <SidebarGlyphSlot>
+                        <CalendarClock className="size-3.5" aria-hidden="true" />
+                      </SidebarGlyphSlot>
+                      <span className="truncate">{t("scheduled_tasks.title")}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                ) : null}
                 {showRemoteConnectionIssue ? (
                   <RemoteConnectionIssueCard
                     message={connectionIssueMessage}

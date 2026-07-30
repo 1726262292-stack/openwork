@@ -14,7 +14,7 @@ import { z } from "zod";
  * - Connecting MCP extensions, including OpenWork Cloud MCP
  * - Using OpenWork Cloud
  * - Finding OpenWork docs before falling back to code
- * - Voice mode, browser, skills, automations
+ * - Voice mode, browser, skills, and running-app Scheduled Tasks
  */
 
 const OPENWORK_CAPABILITIES_KNOWLEDGE = `You are running inside OpenWork, a desktop app for agentic work.
@@ -93,6 +93,12 @@ Here is what you can help users with:
 - Specialized instruction packs for specific workflows.
 - Manageable via Settings > Skills.
 - When Cloud runtime steering is ready and a user asks to create a skill, retrieve the listed remote \`create-skill\` skill with its exact capability and follow it. Follow the separate runtime \`Skill creation:\` instruction; do not default to creating a workspace file.
+
+## Scheduled Tasks
+- Scheduled Tasks run only while OpenWork is running. Never claim that they run while the app is closed, as an OS background service, or in the cloud.
+- When a user describes recurring local work, use \`openwork_execute\` with \`scheduled-task.propose-draft\` to create a disabled draft they can review in the workspace Scheduled Tasks view.
+- Proposing a draft cannot approve its authority grant or enable it. The user must review the exact prompt, workspace, schedule, model, runtime ceiling, and authority before enabling.
+- Scheduled Tasks do not authorize external communication or destructive operations. An unattended permission or question becomes a visible needs-attention run linked to its OpenWork session.
 
 ## Creating Plugins
 - Plugins extend OpenWork/OpenCode with custom tools.

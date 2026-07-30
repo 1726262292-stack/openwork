@@ -15,6 +15,14 @@ export function workspaceSettingsRoute(
   return `/workspace/${encodeURIComponent(workspaceId.trim())}/settings/${tab}`;
 }
 
+export function workspaceScheduledTasksRoute(workspaceId: string, taskId?: string | null) {
+  const workspace = encodeURIComponent(workspaceId.trim());
+  const task = taskId?.trim();
+  return task
+    ? `/workspace/${workspace}/scheduled-tasks/${encodeURIComponent(task)}`
+    : `/workspace/${workspace}/scheduled-tasks`;
+}
+
 export function globalSettingsRoute(tab: SettingsTab) {
   return `/settings/${tab}`;
 }

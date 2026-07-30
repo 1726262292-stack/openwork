@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
+import { workspaceScheduledTasksRoute } from "./workspace-routes";
 import {
   useNotificationStore,
   type AppNotification,
@@ -119,6 +120,8 @@ export function NotificationBell() {
         navigate("/extensions");
       } else if (action.type === "install-marketplace-plugin") {
         navigate("/extensions");
+      } else if (action.type === "open-scheduled-task") {
+        navigate(workspaceScheduledTasksRoute(action.workspaceId, action.taskId));
       }
     },
     [markAllRead, navigate, reloadCoordinator],

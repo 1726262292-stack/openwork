@@ -9,6 +9,7 @@ describe("OpenWork provider adapters", () => {
 
     expect(contributions.map((contribution) => contribution.featureId)).toEqual([
       "sessions",
+      "scheduled-tasks",
       "extensions",
       "artifacts",
     ]);
@@ -31,6 +32,15 @@ describe("OpenWork provider adapters", () => {
     for (const contribution of contributions) {
       expect(openworkFeatureContributionSchema.safeParse(contribution).success).toBe(true);
     }
+    expect(
+      contributions.flatMap((contribution) => contribution.affordances)
+        .find((affordance) => affordance.id === "scheduled-task.propose-draft"),
+    ).toMatchObject({
+      kind: "command",
+      confirmation: "never",
+      effects: { data: "write", ui: "none", external: false },
+      executor: { kind: "openwork" },
+    });
   });
 
   test("only contributes artifact affordances when the managed builder skill is enabled", () => {
@@ -88,6 +98,7 @@ describe("OpenWork provider adapters", () => {
 
     expect(contributions.map((contribution) => contribution.featureId)).toEqual([
       "sessions",
+      "scheduled-tasks",
       "extensions",
       "artifacts",
       "mcp:notion",
