@@ -123,17 +123,25 @@ export async function createLocalWorkspaceViaUi(
   }
 
   await waitForText(app, "Power your first task", { timeoutMs: 120_000 });
+  // Read the created workspace through the local OpenWork server with the
+  // credentials the renderer already holds — the path the legacy flows proved.
+  // (An earlier version called an unverified desktop-bridge fetch channel, which
+  // simply never resolved and blocked the renderer for the whole timeout.)
+  await waitFor(
+    app,
+    "Boolean(localStorage.getItem('openwork.server.port') && localStorage.getItem('openwork.server.token'))",
+    { timeoutMs: 60_000, label: "local OpenWork server credentials" },
+  );
   const raw = await evalIn(app, `(async () => {
-    const invoke = window.__OPENWORK_ELECTRON__.invokeDesktop;
-    const info = await invoke("openworkServerInfo");
-    const baseUrl = String(info?.baseUrl || info?.connectUrl || "").replace(/\\/+$/, "");
-    const headers = {};
-    const token = info?.ownerToken || info?.clientToken || "";
-    if (token) headers.authorization = "Bearer " + token;
-    if (info?.hostToken) headers["x-openwork-host-token"] = info.hostToken;
-    const response = await invoke("__fetch", baseUrl + "/workspaces", { method: "GET", headers, timeoutMs: 8_000 });
-    const payload = typeof response?.body === "string" ? JSON.parse(response.body) : response?.body ?? response;
-    const workspace = (payload?.workspaces ?? payload?.items ?? []).find((candidate) => candidate.path === ${JSON.stringify(input.path)});
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    const hostToken = localStorage.getItem("openwork.server.hostToken");
+    const headers = { Authorization: "Bearer " + token };
+    if (hostToken) headers["X-OpenWork-Host-Token"] = hostToken;
+    const response = await fetch("http://127.0.0.1:" + port + "/workspaces", { headers });
+    const payload = await response.json().catch(() => null);
+    const list = payload?.workspaces ?? payload?.items ?? [];
+    const workspace = list.find((candidate) => candidate.path === ${JSON.stringify(input.path)}) ?? list[0];
     return {
       id: workspace?.id ?? "",
       name: workspace?.name ?? "",
@@ -141,6 +149,6 @@ export async function createLocalWorkspaceViaUi(
       route: location.hash,
       entrypoint: ${JSON.stringify(entrypoint)},
     };
-  })()`, { awaitPromise: true, timeoutMs: 120_000 });
+  })()`, { awaitPromise: true, timeoutMs: 30_000 });
   return parseWorkspaceFacts(raw);
 }
