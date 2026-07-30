@@ -97,9 +97,12 @@ const PROBE_EXPRESSION = `(() => {
   const stored = localStorage.getItem("openwork.react.activeWorkspace");
   const routeMatch = (route.match(/\\/workspace\\/([^/?#]+)/) ?? [])[1] ?? null;
   const workspaceId = (stored && stored.length > 0 ? stored : null) ?? routeMatch;
+  // Any settings/extensions surface inside a workspace is interactive too.
+  const settingsSurface = /\\/workspace\\/[^/?#]+\\/(settings|extensions)/.test(route)
+    && (text.includes("Extensions") || text.includes("Preferences") || text.includes("Permissions"));
   const surface = welcome
     ? "welcome"
-    : taskUi && workspaceId && !needsWorkspace
+    : (taskUi || settingsSurface) && workspaceId && !needsWorkspace
       ? "workspace"
       : taskUi || needsWorkspace
         ? "no-workspace"
