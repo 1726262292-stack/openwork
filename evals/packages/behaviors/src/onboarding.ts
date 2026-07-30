@@ -1,5 +1,5 @@
 import type { Surface } from "@openwork/cdp";
-import { clickButton, evalIn, fill, waitFor, waitForText } from "./desktop.ts";
+import { clickButton, currentHash, evalIn, fill, waitFor, waitForText } from "./desktop.ts";
 
 export interface LocalWorkspaceFacts {
   id: string;
@@ -123,37 +123,17 @@ export async function createLocalWorkspaceViaUi(
   }
 
   await waitForText(app, "Power your first task", { timeoutMs: 120_000 });
-  // Read the created workspace through the local OpenWork server with the
-  // credentials the renderer already holds — the path the legacy flows proved.
-  // (An earlier version called an unverified desktop-bridge fetch channel, which
-  // simply never resolved and blocked the renderer for the whole timeout.)
-  await waitFor(
-    app,
-    "Boolean(localStorage.getItem('openwork.server.port') && localStorage.getItem('openwork.server.token'))",
-    // A cold profile blocks the renderer thread while the workspace runtime boots;
-    // poll patiently rather than assuming a hang.
-    { timeoutMs: 240_000, label: "local OpenWork server credentials" },
-  );
-  // Poll instead of one long call: the renderer blocks intermittently while the
-  // workspace runtime boots, so a single evaluation can be caught mid-block.
-  const raw = await waitFor(app, `(async () => {
-    const port = localStorage.getItem("openwork.server.port");
-    const token = localStorage.getItem("openwork.server.token");
-    const hostToken = localStorage.getItem("openwork.server.hostToken");
-    const headers = { Authorization: "Bearer " + token };
-    if (hostToken) headers["X-OpenWork-Host-Token"] = hostToken;
-    const response = await fetch("http://127.0.0.1:" + port + "/workspaces", { headers });
-    const payload = await response.json().catch(() => null);
-    const list = payload?.workspaces ?? payload?.items ?? [];
-    if (!Array.isArray(list) || list.length === 0) return null;
-    const workspace = list.find((candidate) => candidate.path === ${JSON.stringify(input.path)}) ?? list[0];
-    return {
-      id: workspace?.id ?? "",
-      name: workspace?.name ?? "",
-      path: workspace?.path ?? "",
-      route: location.hash,
-      entrypoint: ${JSON.stringify(entrypoint)},
-    };
-  })()`, { awaitPromise: true, timeoutMs: 180_000, label: "created workspace record" });
+  // Deliberately do NOT query the workspace record here. The local server has
+  // credentials in localStorage before it can actually serve, so an in-page fetch
+  // at this point never settles. The caller resolves the id from the product's
+  // own active-workspace state once onboarding finishes, which is both cheaper
+  // and the state a user's app really uses.
+  const raw = {
+    id: "",
+    name: input.name ?? "",
+    path: input.path,
+    route: await currentHash(app),
+    entrypoint,
+  };
   return parseWorkspaceFacts(raw);
 }
