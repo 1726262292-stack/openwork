@@ -106,9 +106,12 @@ jobs:
           const nextPatch = Number(patch) + 1;
           const run = process.env.GITHUB_RUN_NUMBER || "0";
           const sha = (process.env.GITHUB_SHA || "").slice(0, 7) || "local";
-          const version = `${major}.${minor}.${nextPatch}-${channel}.${run}+${sha}`;
+          // The workflow run number is shared by both channel branches. Keep it
+          // before the channel name so SemVer orders every newer channel build
+          // above every older one, regardless of which channel produced it.
+          const version = `${major}.${minor}.${nextPatch}-pre.${run}.${channel}+${sha}`;
           const releaseTag =
-            `${channel}-macos-v${major}.${minor}.${nextPatch}-${channel}.${run}-${sha}`;
+            `${channel}-macos-v${major}.${minor}.${nextPatch}-pre.${run}.${channel}-${sha}`;
 
           console.log(`channel_version=${version}`);
           console.log(`base_version=${major}.${minor}.${nextPatch}`);

@@ -41,16 +41,22 @@ produce an installable artifact.
 Successful runs produce immutable prerelease tags:
 
 ```text
-canary-macos-v0.18.12-canary.<run>-<sha>
-experimental-macos-v0.18.12-experimental.<run>-<sha>
+canary-macos-v0.18.12-pre.<run>.canary-<sha>
+experimental-macos-v0.18.12-pre.<run>.experimental-<sha>
 ```
 
 The packaged versions follow SemVer prerelease notation:
 
 ```text
-0.18.12-canary.<run>+<sha>
-0.18.12-experimental.<run>+<sha>
+0.18.12-pre.<run>.canary+<sha>
+0.18.12-pre.<run>.experimental+<sha>
 ```
+
+The workflow run number is one monotonically increasing sequence shared by
+both branches. It appears before the channel name so a later build is always a
+newer SemVer version, even when the later build comes from the other channel.
+Build metadata (`+<sha>`) identifies the exact source commit but does not affect
+version precedence.
 
 Rolling updater manifests are published at:
 
