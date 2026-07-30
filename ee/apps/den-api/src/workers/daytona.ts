@@ -339,7 +339,13 @@ function checkpointLastFlushMarkerPath() {
 }
 
 function checkpointEnvironmentScript() {
-  return `OPENWORK_STATE_MANIFEST=${shellQuote(checkpointStateManifest())}
+  // The engine keeps its sessions in a SQLite database under its own data dir
+  // (opencode.db), which lives on the container overlay rather than a volume.
+  // It was missing from the checkpoint, so every recycle onto a new snapshot
+  // started the user from scratch. Resolved from $HOME in-shell so it tracks
+  // the image instead of a hardcoded /root.
+  return `ENGINE_STATE_PATH=\${OPENWORK_ENGINE_STATE_PATH:-\$HOME/.local/share/opencode}
+OPENWORK_STATE_MANIFEST="${checkpointStateManifest()} \$ENGINE_STATE_PATH"
 CHECKPOINT_DIR=${shellQuote(checkpointDir())}
 RESTORE_MARKER=${shellQuote(checkpointRestoreMarkerPath())}
 LAST_FLUSH_MARKER=${shellQuote(checkpointLastFlushMarkerPath())}
@@ -387,7 +393,14 @@ flush_checkpoint() {
   for state_path in $OPENWORK_STATE_MANIFEST; do
     set -- "$@" "\${state_path#/}"
   done
-  if tar -C / -cf "$tmp_checkpoint" "$@"; then
+  # Collapse the WAL so the copied database is self-consistent and small. Best
+  # effort: a locked or absent database must never fail the flush.
+  if [ -f "$ENGINE_STATE_PATH/opencode.db" ]; then
+    node -e 'const{DatabaseSync}=require("node:sqlite");const db=new DatabaseSync(process.argv[1]);db.exec("PRAGMA wal_checkpoint(TRUNCATE)");db.close()' "$ENGINE_STATE_PATH/opencode.db" >/dev/null 2>&1 || true
+  fi
+  # Credentials are re-materialized and re-delivered on every start, so they are
+  # deliberately not persisted to the shared volume. Logs are noise.
+  if tar -C / --exclude="\${ENGINE_STATE_PATH#/}/auth.json" --exclude="\${ENGINE_STATE_PATH#/}/log" -cf "$tmp_checkpoint" "$@"; then
     if cp "$tmp_checkpoint" "$CHECKPOINT_DIR/ckpt-$epoch.tar"; then
       touch "$LAST_FLUSH_MARKER"
       rm -f "$tmp_checkpoint"
