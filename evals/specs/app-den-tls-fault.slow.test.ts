@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { desktop } from "@openwork/hosts";
 import { startEgressLab } from "@openwork/labs";
-import { clickButton, visibleText, waitUntilInteractive } from "@openwork/behaviors";
+import { clickButton, enabledButtons, visibleText, waitUntilInteractive } from "@openwork/behaviors";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 
 /**
@@ -47,9 +47,12 @@ test.skipIf(!optedIn)(title, async () => {
 
   // Attempting to reach the Den is what exercises the broken edge. The
   // affordance differs by surface, so use whichever the app is showing.
-  const signInLabel = ["Sign in to OpenWork Cloud", "Sync with OpenWork Cloud", "Sign in"]
-    .find((label) => beforeText.includes(label));
-  expect(signInLabel, `no sign-in affordance on screen. Visible text: ${beforeText.slice(0, 400)}`).toBeDefined();
+  // Pick from actual enabled buttons: "Sync with OpenWork Cloud" appears in the
+  // text but is not a control, which a text match would wrongly select.
+  const buttons = await enabledButtons(app);
+  const signInLabel = ["Sign in to OpenWork Cloud", "Sign in", "Sync with OpenWork Cloud"]
+    .find((label) => buttons.includes(label));
+  expect(signInLabel, `no sign-in button on screen. Buttons: ${buttons.join(" | ")}`).toBeDefined();
   if (!signInLabel) throw new Error("unreachable: no sign-in affordance");
   await clickButton(app, signInLabel, { timeoutMs: 60_000 });
   await waitUntilInteractive(app, { timeoutMs: 180_000 });
