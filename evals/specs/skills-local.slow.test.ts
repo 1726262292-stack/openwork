@@ -39,7 +39,10 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   const firstLoad = await measureLoadedSkills(app);
   expect(firstLoad.rowCount).toBeGreaterThanOrEqual(10);
   expect(firstLoad.elapsedMs).toBeLessThan(3_000);
-  expect(firstLoad.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
+  expect(
+    firstLoad.skills.some((skill) => skill.name === "/browser-automation"),
+    `expected a /browser-automation skill. Loaded: ${firstLoad.skills.map((skill) => skill.name).join(", ")}`,
+  ).toBe(true);
   expect(firstLoad.skills.some((skill) => skill.name === "/browser-automation" && skill.local)).toBe(true);
   expect(firstLoad.loadingCommandsVisible).toBe(false);
   {

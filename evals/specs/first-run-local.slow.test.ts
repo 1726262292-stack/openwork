@@ -129,7 +129,7 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     timeoutMs: 120_000,
     label: "first-run task UI",
   });
-  expect(await currentHash(app)).toContain(`/workspace/${workspace.id}/session`);
+  expect(await currentHash(app)).toContain(`/workspace/${workspaceId ?? ""}/session`);
   const composer = await readComposerState(app);
   expect(composer.route).toContain("/workspace/");
   expect(composer.route).toContain("/session");
