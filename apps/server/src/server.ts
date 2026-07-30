@@ -23,6 +23,7 @@ import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { defaultWorkspaceOpenworkConfig, ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
+import { resetManagedProviderAuthCache, syncManagedProviderAuth } from "./managed-provider-auth.js";
 import { EnvService } from "./env-file.js";
 import {
   normalizeResourceSnapshot,
@@ -684,6 +685,16 @@ type ServerLogger = {
   log: (level: LogLevel, message: string, attributes?: LogAttributes) => void;
 };
 
+/** Adapt the server logger to the warn/error shape helpers expect. */
+function toManagedProviderAuthLogger(logger: ServerLogger) {
+  return {
+    warn: (message: string, attributes?: Record<string, unknown>) =>
+      logger.log("warn", message, attributes as LogAttributes | undefined),
+    error: (message: string, attributes?: Record<string, unknown>) =>
+      logger.log("error", message, attributes as LogAttributes | undefined),
+  };
+}
+
 const LOG_LEVEL_NUMBERS: Record<LogLevel, number> = {
   info: 9,
   warn: 13,
@@ -847,6 +858,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     env,
     restartReloadWatchers,
     engineMcpServerState,
+    logger,
   );
 
   const serverOptions: {
@@ -1017,6 +1029,13 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     invalidateEngineMcpServerState(config, engineMcpServerState);
     throw error;
   }
+
+  // Deliver server-managed provider credentials to the engine on startup. The
+  // engine process receives a fixed env allowlist, so credentials materialized
+  // into the env store only reach it through the engine's auth API. Fire and
+  // forget: a credential problem must never stop the server from serving.
+  resetManagedProviderAuthCache();
+  void syncManagedProviderAuth({ config, env, logger: toManagedProviderAuthLogger(logger) }).catch(() => undefined);
 
   return {
     ...server,
@@ -1508,6 +1527,7 @@ function createRoutes(
   env: EnvService,
   onWorkspacesChanged: () => void,
   engineMcpServerState: EngineMcpServerState,
+  logger: ServerLogger,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1515,6 +1535,7 @@ function createRoutes(
     config,
     tokens,
     env,
+    managedProviderAuthLogger: toManagedProviderAuthLogger(logger),
     serverVersion: SERVER_VERSION,
     opencodeVersion: OPENCODE_VERSION,
     jsonResponse,
@@ -2040,6 +2061,13 @@ function createRoutes(
     if (shouldReload) {
       await reloadOpencodeEngine(config, workspace, engineMcpServerState);
     }
+    // The provider entry only names its credential env vars; the engine needs
+    // the value itself via its auth API.
+    await syncManagedProviderAuth({
+      config,
+      env,
+      logger: toManagedProviderAuthLogger(logger),
+    }).catch(() => undefined);
 
     return jsonResponse({
       ok: true,
