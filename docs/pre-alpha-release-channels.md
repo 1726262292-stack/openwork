@@ -65,9 +65,9 @@ the stable `v*` application, npm, EE image, AUR, or Daytona release paths.
 ## Reduced CI/CD
 
 The repository's standard test and i18n workflows target `dev`, so direct
-pushes to these two channel branches do not run them. Each Vercel project's
-`vercel.json` also disables Git-triggered deployments for the exact `canary`
-and `experimental` branch names.
+pushes to these two channel branches do not run them. Each of the five Vercel
+projects has a `vercel.json` that also disables Git-triggered deployments for
+the exact `canary` and `experimental` branch names.
 
 These builds are unsupported and may contain incomplete migrations, broken
 flows, or features that are reverted without promotion.
