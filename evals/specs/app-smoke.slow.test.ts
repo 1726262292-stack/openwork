@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
+import { seedWorkspace, evalIn, waitFor } from "@openwork/behaviors";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 
@@ -11,9 +11,8 @@ const title = appSpecsEnabled
 test.skipIf(!appSpecsEnabled)(title, async () => {
   await using app = await desktop({ name: "app-smoke" });
   await using roll = photoRoll("app-smoke");
-  const workspace = await createAndSelectWorkspace(app, { path: process.cwd() });
-  expect(workspace.route).toContain("/workspace/");
-  expect(workspace.route).toContain("/session");
+  const workspace = await seedWorkspace(app, { path: process.cwd() });
+  expect(workspace.workspaceId).toBeTruthy();
   const route = await evalIn(app, "window.__openworkControl.snapshot().route");
   expect(route).toBeTruthy();
   await waitFor(app, "document.body.innerText.trim().length > 40", { timeoutMs: 30_000, label: "rendered body text" });

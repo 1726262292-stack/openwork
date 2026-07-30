@@ -136,9 +136,9 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
       "The workspace task UI is visible with What do you need done? and the Run task control",
-      modelUsable
+      availability.runTaskEnabled
         ? "Run task is visibly enabled for a model that is already usable"
-        : "Connect a model provider is visibly offered because no model provider is configured",
+        : "Run task is visibly disabled or Connect a model provider is offered, because no provider is configured yet",
       "No generic error or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);

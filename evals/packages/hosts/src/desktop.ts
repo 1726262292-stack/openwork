@@ -1,3 +1,4 @@
+import { timed } from "@openwork/timeline";
 import { attachSurface, describeAppState, isInteractive, probeAppState } from "@openwork/cdp";
 import { resolveHost } from "./resolve.ts";
 import type { AppStateProbe, AppSurfaceState, AttachedSurface, Surface, SurfaceHandle } from "@openwork/cdp";
@@ -99,8 +100,9 @@ export async function desktop(opts: DesktopOptions = {}): Promise<DesktopHandle>
 
   let attached: AttachedSurface | null = null;
   try {
-    attached = await attachSurface(handle, { timeoutMs });
-    const readiness = await waitForReadiness(attached, timeoutMs);
+    const surface = await attachSurface(handle, { timeoutMs });
+    attached = surface;
+    const readiness = await timed("app.readiness", () => waitForReadiness(surface, timeoutMs), handle.name);
     let stopped = false;
     const stop = async (): Promise<void> => {
       if (stopped) return;

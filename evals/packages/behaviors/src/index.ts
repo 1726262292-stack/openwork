@@ -1,4 +1,5 @@
-export * from "./den.ts";
+export * from "./den.ts"
+export * from "./seeds.ts";
 export * from "./desktop.ts";
 export * from "./desktop-boot.ts";
 export * from "./diagnostics.ts";

@@ -4,7 +4,7 @@ import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import {
   clickText,
-  createAndSelectWorkspace,
+  seedWorkspace,
   evalIn,
   measureLoadedSkills,
   measureSkillsWithSlowCloud,
@@ -22,7 +22,7 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 test.skipIf(!appSpecsEnabled)(title, async () => {
   await using app = await desktop({ name: "skills-local" });
   await using roll = photoRoll("skills-local");
-  await createAndSelectWorkspace(app, { path: repoRoot });
+  await seedWorkspace(app, { path: repoRoot });
 
   const capabilities = await readComposerCapabilities(app);
   expect(capabilities.sections).toEqual(["Agents", "Commands", "Skills", "Extensions"]);

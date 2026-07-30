@@ -4,7 +4,7 @@ import { desktop } from "@openwork/hosts";
 import { startMockMcp } from "@openwork/labs";
 import {
   clickButton,
-  createAndSelectWorkspace,
+  seedWorkspace,
   currentHash,
   deleteConnection,
   deleteConnectionsNamed,
@@ -110,7 +110,7 @@ test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
   await using roll = photoRoll("org-connection-lifecycle");
   await signInDesktopAs(app, den, member);
   const workspacePath = `/tmp/openwork-org-connection-lifecycle-${Date.now()}`;
-  const { workspaceId } = await createAndSelectWorkspace(app, { path: workspacePath });
+  const { workspaceId } = await seedWorkspace(app, { path: workspacePath });
   await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
   await waitFor(app, `window.location.hash.includes("/settings/extensions") && document.body.innerText.includes("Extensions")`, {
     timeoutMs: 60_000,

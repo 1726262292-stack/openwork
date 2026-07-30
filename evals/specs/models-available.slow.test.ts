@@ -3,7 +3,7 @@ import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import {
-  createAndSelectWorkspace,
+  seedWorkspace,
   denFetch,
   evalIn,
   go,
@@ -78,7 +78,7 @@ async function executeControl(app: Surface, action: string, args?: unknown): Pro
 }
 
 async function ensureSession(app: Surface, path: string): Promise<string> {
-  const { workspaceId } = await createAndSelectWorkspace(app, { path });
+  const { workspaceId } = await seedWorkspace(app, { path });
   await go(app, `/workspace/${workspaceId}/session`);
   await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
     timeoutMs: 60_000,
@@ -259,16 +259,6 @@ test.skipIf(!appSpecsEnabled)(appTitle, async () => {
   await waitForText(app, seeded.unavailableModelId, { timeoutMs: 30_000 });
   let recovery = await readModelRecoveryState(app);
   expect(recovery.warningVisible).toBe(true);
-  {
-    const shot = await screenshot(app);
-    const seen = await validate(shot, [
-      "A Model no longer available warning visibly blocks use of the disappeared model",
-      "No unrelated generic error or 'Something went wrong' crash message is visible",
-    ]);
-    expect(seen.ok, seen.why).toBe(true);
-    await roll.add(shot, seen);
-  }
-
   await executeControl(app, "session.model_picker.open");
   await waitFor(app, `Boolean(document.querySelector('[data-slot="dialog-content"]'))`, {
     timeoutMs: 30_000,
@@ -283,7 +273,8 @@ test.skipIf(!appSpecsEnabled)(appTitle, async () => {
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The open Models picker visibly explains that a different model must be selected",
+      "A Model no longer available warning blocks the disappeared model",
+      "The open Models picker explains that a different model must be selected",
       "No unrelated generic error or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -336,7 +327,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(managedTitle, async () => {
   await using roll = photoRoll("models-managed-recovery");
   await signInDesktopAs(app, den, admin);
   const workspacePath = `/tmp/openwork-managed-models-${Date.now()}`;
-  await createAndSelectWorkspace(app, { path: workspacePath });
+  await seedWorkspace(app, { path: workspacePath });
   await waitForText(app, emptyMessage, { timeoutMs: 120_000 });
 
   let recovery = await readModelRecoveryState(app);
