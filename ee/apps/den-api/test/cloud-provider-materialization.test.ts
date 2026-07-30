@@ -286,11 +286,12 @@ async function materialize(input: {
   fetchImpl: FetchImpl
   logger?: Logger
   force?: boolean
+  instanceUrl?: string
 }) {
   return materializeCloudWorkerProviders({
     organizationId,
     workerId: input.workerId ?? createDenTypeId("worker"),
-    instanceUrl,
+    instanceUrl: input.instanceUrl ?? instanceUrl,
     hostToken: "host-token",
     clientToken: "client-token",
     store: makeStore(input.providers),
@@ -317,6 +318,41 @@ describe("Cloud provider materialization", () => {
     expect(second.status).toBe("noop")
     expect(instance.calls.filter((call) => call.method === "PUT" && call.path === "/env")).toHaveLength(0)
     expect(instance.calls.filter((call) => call.method === "PATCH" && call.path === "/runtime-config/providers")).toHaveLength(0)
+  })
+
+  test("re-materializes after a recycle replaces the instance", async () => {
+    // A recycle onto a new snapshot gives the worker a brand new sandbox: only
+    // the runtime config survives (shared volume), the env store starts empty.
+    // Keying the cache by worker alone made den-api answer "cached" and never
+    // write the credential into the new instance, so every provider failed with
+    // "API key is missing" while still appearing in the picker.
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const workerId = createDenTypeId("worker")
+
+    const before = makeInstance({
+      envValues: { ANTHROPIC_API_KEY: "sk-anthropic" },
+      runtimeProviders: { [provider.id]: makeAnthropicRuntimeProvider() },
+    })
+    await materialize({ workerId, providers: () => [provider], fetchImpl: before.fetchImpl })
+
+    // Same worker, same credential fingerprint, new sandbox: config persisted on
+    // the volume, env store empty.
+    const recycled = makeInstance({
+      runtimeProviders: { [provider.id]: makeAnthropicRuntimeProvider() },
+    })
+    const result = await materialize({
+      workerId,
+      providers: () => [provider],
+      fetchImpl: recycled.fetchImpl,
+      instanceUrl: "https://worker-recycled.example.test",
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe("applied")
+    expect(recycled.calls.filter((call) => call.method === "PUT" && call.path === "/env")).toHaveLength(1)
+    expect(recycled.calls.find((call) => call.method === "PUT" && call.path === "/env")?.body).toEqual({
+      entries: [{ key: "ANTHROPIC_API_KEY", value: "sk-anthropic" }],
+    })
   })
 
   test("writes a models.dev provider block, credential env, and reloads OpenCode", async () => {

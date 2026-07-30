@@ -1,7 +1,7 @@
 /**
  * Release-channel concept for OpenWork desktop builds.
  *
- * There are two channels users can opt into:
+ * There are four channels users can opt into:
  *
  * - "stable": the default. The desktop app auto-updates from the rolling
  *   "latest" GitHub release attached to whichever semver tag most recently
@@ -12,8 +12,12 @@
  *   (`alpha-macos-latest`) so the updater endpoint stays stable while the
  *   underlying artifact is replaced on every dev push.
  *
- * Only the macOS (arm64) build is published to the alpha channel today.
- * Linux and Windows always resolve to the stable channel.
+ * - "canary" and "experimental": hidden Electron/macOS-only rolling channels
+ *   used by the corresponding long-lived branches. The UI exposes these only
+ *   while elevated Developer mode is enabled.
+ *
+ * Only macOS (arm64) prerelease builds are published today. Linux and Windows
+ * always resolve to the stable channel.
  */
 
 import type { ReleaseChannel } from "../types";
@@ -29,7 +33,30 @@ export const ALPHA_UPDATER_ENDPOINT =
 /** Rolling GitHub release tag that alpha macOS artifacts are published to. */
 export const ALPHA_MACOS_RELEASE_TAG = "alpha-macos-latest";
 
+export const CANARY_MACOS_RELEASE_TAG = "canary-macos-latest";
+export const EXPERIMENTAL_MACOS_RELEASE_TAG = "experimental-macos-latest";
+
 export type PlatformKind = "darwin" | "linux" | "windows" | "web" | "unknown";
+
+export function isPrereleaseChannel(
+  channel: ReleaseChannel,
+): channel is Exclude<ReleaseChannel, "stable"> {
+  return channel !== "stable";
+}
+
+export function isPreAlphaChannel(
+  channel: ReleaseChannel,
+): channel is Extract<ReleaseChannel, "canary" | "experimental"> {
+  return channel === "canary" || channel === "experimental";
+}
+
+export function visibleReleaseChannels(
+  elevatedDeveloperMode: boolean,
+): ReleaseChannel[] {
+  return elevatedDeveloperMode
+    ? ["stable", "alpha", "canary", "experimental"]
+    : ["stable", "alpha"];
+}
 
 /**
  * Returns true when the given platform supports the alpha channel.
@@ -53,13 +80,18 @@ export function resolveUpdaterEndpoint(
   channel: ReleaseChannel,
   platform: PlatformKind = "darwin",
 ): string {
-  if (channel === "alpha" && isAlphaChannelSupported(platform)) {
-    return ALPHA_UPDATER_ENDPOINT;
+  if (!isAlphaChannelSupported(platform)) {
+    return STABLE_UPDATER_ENDPOINT;
   }
+  if (channel === "alpha") return ALPHA_UPDATER_ENDPOINT;
+  // Canary and Experimental publish Electron's latest-mac.yml manifest, not
+  // the retired Tauri latest.json format used by this legacy resolver.
   return STABLE_UPDATER_ENDPOINT;
 }
 
 /** Narrow an arbitrary string to a valid ReleaseChannel, defaulting to stable. */
 export function coerceReleaseChannel(value: unknown): ReleaseChannel {
-  return value === "alpha" ? "alpha" : "stable";
+  return value === "alpha" || value === "canary" || value === "experimental"
+    ? value
+    : "stable";
 }

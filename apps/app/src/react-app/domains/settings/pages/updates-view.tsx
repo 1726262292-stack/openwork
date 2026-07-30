@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { formatBytes, formatRelativeTime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import type { ReleaseChannel } from "../../../../app/types";
+import { visibleReleaseChannels } from "../../../../app/lib/release-channels";
 import type { SettingsUpdateStatus } from "../state/electron-updater-state";
 import {
   LayoutSectionItem,
@@ -33,6 +34,8 @@ import { Spinner } from "../settings-section";
 const RELEASE_CHANNEL_OPTIONS: { label: string; value: ReleaseChannel }[] = [
   { label: "Stable", value: "stable" },
   { label: "Alpha", value: "alpha" },
+  { label: "Canary", value: "canary" },
+  { label: "Experimental", value: "experimental" },
 ];
 
 type UpdateDownloadProgressProps = {
@@ -87,9 +90,17 @@ export type UpdatesViewProps = {
    * toggle is hidden.
    */
   alphaChannelSupported?: boolean;
+  /** Whether the hidden canary and experimental channels are unlocked. */
+  elevatedDeveloperMode?: boolean;
 };
 
 export function UpdatesView(props: UpdatesViewProps) {
+  const visibleChannels = visibleReleaseChannels(
+    props.elevatedDeveloperMode === true,
+  );
+  const releaseChannelOptions = RELEASE_CHANNEL_OPTIONS.filter((option) =>
+    visibleChannels.includes(option.value)
+  );
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
   const updateState = props.updateStatus?.state ?? "idle";
   const updateVersion = props.updateStatus?.version ?? null;
@@ -247,15 +258,20 @@ export function UpdatesView(props: UpdatesViewProps) {
               <LayoutSectionItemHeader>
                 <LayoutSectionItemTitle>Release channel</LayoutSectionItemTitle>
                 <LayoutSectionItemDescription>
-                  Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished (macOS only).
+                  {props.elevatedDeveloperMode
+                    ? "Elevated Developer mode also exposes the riskier Canary and Experimental rolling builds (macOS only)."
+                    : "Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished (macOS only)."}
                 </LayoutSectionItemDescription>
                 <LayoutSectionItemHeaderActions>
                   <Select
                     value={props.releaseChannel}
-                    items={RELEASE_CHANNEL_OPTIONS}
+                    items={releaseChannelOptions}
                     onValueChange={(value) => {
-                      if (value === "stable" || value === "alpha") {
-                        props.onReleaseChannelChange?.(value);
+                      const option = releaseChannelOptions.find(
+                        (candidate) => candidate.value === value,
+                      );
+                      if (option) {
+                        props.onReleaseChannelChange?.(option.value);
                       }
                     }}
                     disabled={!props.onReleaseChannelChange}
@@ -265,7 +281,7 @@ export function UpdatesView(props: UpdatesViewProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {RELEASE_CHANNEL_OPTIONS.map((option) => (
+                        {releaseChannelOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>

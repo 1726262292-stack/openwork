@@ -12,6 +12,7 @@ import {
   resolveFreshStableDesktopUpdate,
 } from "../../../../app/lib/version-gate";
 import type { ReleaseChannel } from "../../../../app/types";
+import { isPrereleaseChannel } from "../../../../app/lib/release-channels";
 import { isElectronRuntime, safeStringify } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { useUpdateCheckRequestStore } from "./update-check-request";
@@ -165,7 +166,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
   const resolvePolicyReleaseChannel = useCallback(
     async (channel: ReleaseChannel) => {
       if (
-        channel !== "alpha" ||
+        !isPrereleaseChannel(channel) ||
         !isAlphaChannelAllowedByDesktopConfig(desktopConfig)
       ) {
         return {
@@ -189,8 +190,10 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
     }
     if (isAlphaChannelAllowedByDesktopConfig(desktopConfig)) return;
     if (
-      availableReleaseChannelRef.current === "alpha" ||
-      downloadedReleaseChannelRef.current === "alpha"
+      (availableReleaseChannelRef.current &&
+        isPrereleaseChannel(availableReleaseChannelRef.current)) ||
+      (downloadedReleaseChannelRef.current &&
+        isPrereleaseChannel(downloadedReleaseChannelRef.current))
     ) {
       availableReleaseChannelRef.current = null;
       downloadedReleaseChannelRef.current = null;
@@ -302,7 +305,7 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         return;
       }
       if (
-        releaseChannelResolution.channel === "alpha" &&
+        isPrereleaseChannel(releaseChannelResolution.channel) &&
         !isAlphaChannelAllowedByDesktopConfig(desktopConfigRef.current)
       ) {
         onReleaseChannelChange("stable");
@@ -444,13 +447,13 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         });
         return;
       }
-      const latestDesktopConfig = checkedReleaseChannel === "alpha"
+      const latestDesktopConfig = isPrereleaseChannel(checkedReleaseChannel)
         ? desktopConfigRef.current
         : freshDesktopConfig;
       const availableAllowed = result.available && result.latestVersion
         ? targetVersion
           ? result.latestVersion === targetVersion
-          : checkedReleaseChannel === "alpha"
+          : isPrereleaseChannel(checkedReleaseChannel)
             ? await isAlphaUpdateAllowed(result.latestVersion, latestDesktopConfig)
             : await isUpdateAllowed(result.latestVersion, latestDesktopConfig)
         : result.available;
@@ -520,9 +523,13 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
       return;
     }
     try {
-      if (downloadedReleaseChannelRef.current === "alpha") {
-        const releaseChannelResolution = await resolvePolicyReleaseChannel("alpha");
-        if (releaseChannelResolution.channel !== "alpha") {
+      if (
+        downloadedReleaseChannelRef.current &&
+        isPrereleaseChannel(downloadedReleaseChannelRef.current)
+      ) {
+        const downloadedChannel = downloadedReleaseChannelRef.current;
+        const releaseChannelResolution = await resolvePolicyReleaseChannel(downloadedChannel);
+        if (releaseChannelResolution.channel !== downloadedChannel) {
           onReleaseChannelChange(releaseChannelResolution.channel);
           await bridge.setChannel?.(releaseChannelResolution.channel);
           downloadedReleaseChannelRef.current = null;
