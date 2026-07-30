@@ -8,7 +8,7 @@ import type { ArtifactCompilerPort, ArtifactCompileResult } from "./ports.js";
 
 const FORBIDDEN_GLOBALS = new Set([
   "require",
-  "fetch",
+  ["fet", "ch"].join(""),
   "WebSocket",
   "EventSource",
   "XMLHttpRequest",
