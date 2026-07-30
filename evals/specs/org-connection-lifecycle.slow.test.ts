@@ -1,16 +1,17 @@
 import { expect, onTestFinished, test } from "vitest";
-import { attachSurface } from "@openwork/cdp";
-import { fraimz } from "@openwork/fraimz";
+import { photoRoll, screenshot, validate } from "@openwork/fraimz";
+import { desktop } from "@openwork/hosts";
 import { startMockMcp } from "@openwork/labs";
 import {
   clickButton,
+  createAndSelectWorkspace,
   currentHash,
   deleteConnection,
   deleteConnectionsNamed,
   enabledButtons,
-  ensureFreshWorkspace,
   ensureMemberSession,
   evalIn,
+  go,
   readUsableConnection,
   signIn,
   signInDesktopAs,
@@ -22,11 +23,11 @@ import {
 import type { Surface } from "@openwork/cdp";
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
-const cdpUrl = process.env.OPENWORK_EVAL_CDP_URL?.trim() ?? "";
-const title = !apiUrl
-  ? "organization connection lifecycle skipped: set OPENWORK_EVAL_DEN_API_URL"
-  : !cdpUrl
-    ? "organization connection lifecycle skipped: set OPENWORK_EVAL_CDP_URL"
+const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
+const title = !appSpecsEnabled
+  ? "organization connection lifecycle skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in"
+  : !apiUrl
+    ? "organization connection lifecycle skipped: set OPENWORK_EVAL_DEN_API_URL"
     : "member connects, reconnects, and disconnects an organization OAuth connection";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -72,7 +73,7 @@ async function waitForNotConnected(app: Surface, name: string): Promise<void> {
   })()`, { timeoutMs: 60_000, label: "not connected connection detail" });
 }
 
-test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
+test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
   const den = {
     apiUrl,
     webUrl: (process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim() || apiUrl.replace("127.0.0.1", "localhost")).replace(/\/+$/, ""),
@@ -102,22 +103,34 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
   onTestFinished(async () => deleteConnection(admin, connection.id));
   expect((await readUsableConnection(member, connection.id))?.connectedForMe).toBe(false);
 
-  await using app = await attachSurface({
-    name: "running-app",
-    kind: "electron",
-    hostKind: "attached",
-    cdpUrl,
+  await using app = await desktop({
+    name: "org-connection-lifecycle",
+    bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
   });
+  await using roll = photoRoll("org-connection-lifecycle");
   await signInDesktopAs(app, den, member);
-  await ensureFreshWorkspace(app, { path: `/tmp/openwork-org-connection-lifecycle-${Date.now()}` });
-  const frame = fraimz((message, attachment) => annotate(message, typeof attachment === "string" ? attachment : undefined));
+  const workspacePath = `/tmp/openwork-org-connection-lifecycle-${Date.now()}`;
+  const { workspaceId } = await createAndSelectWorkspace(app, { path: workspacePath });
+  await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
+  await waitFor(app, `window.location.hash.includes("/settings/extensions") && document.body.innerText.includes("Extensions")`, {
+    timeoutMs: 60_000,
+    label: "extensions connections route",
+  });
 
   await waitForConnectionCard(app, connection.name);
   await waitForText(app, "NEEDS YOUR SIGN-IN", { timeoutMs: 30_000 });
   await openConnectionDetail(app, connection.name);
   await waitForNotConnected(app, connection.name);
   await waitForText(app, "OAuth required", { timeoutMs: 30_000 });
-  await frame(app, "lifecycle-1-needs-signin");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The organization connection detail visibly says Not connected and OAuth required with a Connect your account action",
+      "No generic error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   const connectClickedAt = new Date().toISOString();
   await clickButton(app, "Connect your account");
@@ -127,7 +140,15 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
   const redirectUri = authorize.params.get("redirect_uri") ?? "";
   expect(redirectUri).toContain("/v1/mcp-connections/");
   expect(redirectUri.includes("/oauth/callback") || redirectUri.includes(connection.id)).toBe(true);
-  await frame(app, "lifecycle-2-browser-handoff");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The connection flow visibly indicates that browser authorization is in progress or required",
+      "No OAuth launch error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   await waitForText(app, "Connected with your own account.", { timeoutMs: 90_000 });
   await waitForButtonGone(app, "Connect your account");
@@ -138,7 +159,15 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
   const firstConnectedAt = (await readUsableConnection(member, connection.id))?.connectedAt;
   expect(firstConnectedAt).toBeTruthy();
   if (!firstConnectedAt) throw new Error("The first OAuth connection did not record connectedAt.");
-  await frame(app, "lifecycle-3-connected");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The connection detail visibly says Connected with your own account",
+      "No Connect your account action or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   const focused = await evalIn(app, `(() => {
     const button = [...document.querySelectorAll('button')]
@@ -151,7 +180,15 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
   const actions = await enabledButtons(app);
   expect(actions).toContain("Reconnect");
   expect(actions).toContain("Disconnect");
-  await frame(app, "lifecycle-4-lifecycle-actions");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "Reconnect and Disconnect lifecycle actions are both visibly available",
+      "No generic error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   const reconnectClickedAt = new Date().toISOString();
   await clickButton(app, "Reconnect");
@@ -161,7 +198,15 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
     return current?.connectedForMe === true && Boolean(current.connectedAt) && current.connectedAt !== firstConnectedAt;
   }, { timeout: 90_000, interval: 1_000 }).toBe(true);
   await waitForText(app, "Connected with your own account.", { timeoutMs: 90_000 });
-  await frame(app, "lifecycle-5-reconnected");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The connection visibly returns to Connected with your own account after reconnecting",
+      "No reconnect error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 
   await clickButton(app, "Disconnect");
   await expect.poll(
@@ -171,5 +216,13 @@ test.skipIf(!apiUrl || !cdpUrl)(title, async ({ annotate }) => {
   await waitForNotConnected(app, connection.name);
   await waitForText(app, "Connect your account", { timeoutMs: 30_000 });
   expect(await currentHash(app)).toContain("/settings/extensions/");
-  await frame(app, "lifecycle-6-disconnected");
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The connection visibly returns to Not connected with a Connect your account action after disconnecting",
+      "No disconnect error or 'Something went wrong' crash message is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+    await roll.add(shot, seen);
+  }
 });

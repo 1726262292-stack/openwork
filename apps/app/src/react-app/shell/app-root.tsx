@@ -413,6 +413,38 @@ export function AppRoot() {
                 }
               />
               <Route
+                path="/workspace/:workspaceId/scheduled-tasks"
+                element={
+                  <DevProfiler id="ScheduledTasksRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
+                path="/workspace/:workspaceId/scheduled-tasks/:taskId"
+                element={
+                  <DevProfiler id="ScheduledTasksRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
+                path="/workspace/:workspaceId/extensions/*"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
+                path="/extensions/*"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
                 path="/workspace/:workspaceId/settings/*"
                 element={
                   <DevProfiler id="SettingsRoute">

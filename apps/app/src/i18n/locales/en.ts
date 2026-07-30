@@ -1,9 +1,12 @@
+import { scheduledTasksEnglish } from "./scheduled-tasks";
+
 /**
  * English translations
  * Professional terms (Skills, Plugins, Commands, Sessions, OpenCode, OpenPackage, OpenWork) are NOT translated
  */
 
 export default {
+  ...scheduledTasksEnglish,
   "account.mcp_connected_one": "{count} MCP server",
   "account.mcp_connected_other": "{count} MCP servers",
   "account.providers_connected_one": "{count} model provider",
@@ -1440,7 +1443,6 @@ export default {
   "settings.recovery_requires_desktop": "These actions require the desktop app.",
   "settings.recovery_requires_desktop_title": "Desktop app required",
   "settings.reveal_config_requires_desktop": "Only available in the desktop app",
-  "settings.scheduler_plugin_unavailable": "Scheduler plugin install is not yet available.",
   "settings.server_endpoints_api": "API endpoint",
   "settings.server_endpoints_bootstrap_hint": "Bootstrap file: {path}",
   "settings.server_endpoints_cloud_mcp": "Cloud agent (MCP)",
@@ -1844,4 +1846,22 @@ export default {
   "session_management.empty_group": "No sessions",
   "session_management.ungrouped": "Ungrouped",
   "session_management.archived_label": "Archived",
+  "ui_artifacts.preferences_title": "UI artifacts",
+  "ui_artifacts.preferences_section_desc": "Chat-native cards that turn connected tool data into concise, visual answers.",
+  "ui_artifacts.preferences_toggle": "UI artifacts (Alpha)",
+  "ui_artifacts.preferences_toggle_desc": "Suggest and render native cards for successful capability calls. Synced to your active organization when signed in and saved on this device otherwise.",
+  "ui_artifacts.kind.workspace_brief": "Workspace brief",
+  "ui_artifacts.kind.workspace_brief_desc": "A complete chat-native dashboard with your day, attention items, progress, and quick actions.",
+  "ui_artifacts.kind.calendar_view": "Calendar",
+  "ui_artifacts.kind.calendar_view_desc": "Day, chronological agenda, and date-grouped week variants.",
+  "ui_artifacts.kind.widgets_collection": "Widgets",
+  "ui_artifacts.kind.widgets_collection_desc": "Combine metric, progress, status, balance, and date widgets in one artifact.",
+  "ui_artifacts.kind.communication_thread": "Conversation thread",
+  "ui_artifacts.kind.communication_thread_desc": "Slack, Teams, or Google Chat message previews.",
+  "ui_artifacts.kind.mail_inbox": "Priority inbox",
+  "ui_artifacts.kind.mail_inbox_desc": "Gmail or Outlook messages likely to need attention.",
+  "ui_artifacts.kind.work_attention": "Attention queue",
+  "ui_artifacts.kind.work_attention_desc": "Incidents, approvals, tasks, goals, and learning items.",
+  "ui_artifacts.kind.work_approvals": "Approval queue",
+  "ui_artifacts.kind.work_approvals_desc": "Stateful mock approval and rejection decisions with revision checks.",
 } as const;

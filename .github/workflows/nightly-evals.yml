@@ -111,6 +111,20 @@ jobs:
           OPENWORK_EVAL_DEN_TOKEN: ${{ secrets.OPENWORK_EVAL_DEN_TOKEN }}
         run: pnpm fraimz --all
 
+      - name: Run nightly eval spec lane
+        shell: bash
+        env:
+          DISPLAY: ":99"
+          OPENWORK_EVAL_APP_SPECS: "1"
+          OPENWORK_EVAL_CDP_URL: "http://127.0.0.1:9823"
+          OPENWORK_EVAL_DEN_API_URL: ${{ secrets.OPENWORK_EVAL_DEN_API_URL }}
+          OPENWORK_EVAL_DEN_TOKEN: ${{ secrets.OPENWORK_EVAL_DEN_TOKEN }}
+        # The migrated app-driving specs are still being stabilised against a
+        # real app (state readiness/restoration). They produce photo rolls as
+        # evidence; they must not gate the nightly run until they are green.
+        continue-on-error: true
+        run: pnpm --dir evals run spec:nightly
+
       - name: Upload eval reports
         if: always()
         uses: actions/upload-artifact@v4

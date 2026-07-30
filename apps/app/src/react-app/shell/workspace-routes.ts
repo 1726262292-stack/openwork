@@ -15,8 +15,29 @@ export function workspaceSettingsRoute(
   return `/workspace/${encodeURIComponent(workspaceId.trim())}/settings/${tab}`;
 }
 
+export function workspaceScheduledTasksRoute(workspaceId: string, taskId?: string | null) {
+  const workspace = encodeURIComponent(workspaceId.trim());
+  const task = taskId?.trim();
+  return task
+    ? `/workspace/${workspace}/scheduled-tasks/${encodeURIComponent(task)}`
+    : `/workspace/${workspace}/scheduled-tasks`;
+}
+
 export function globalSettingsRoute(tab: SettingsTab) {
   return `/settings/${tab}`;
+}
+
+function extensionsRouteSuffix(path?: string | null) {
+  const suffix = path?.trim().replace(/^\/+|\/+$/g, "") ?? "";
+  return suffix ? `/${suffix}` : "";
+}
+
+export function workspaceExtensionsRoute(workspaceId: string, path?: string | null) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/extensions${extensionsRouteSuffix(path)}`;
+}
+
+export function globalExtensionsRoute(path?: string | null) {
+  return `/extensions${extensionsRouteSuffix(path)}`;
 }
 
 export function sessionIdForLegacyWorkspaceInference(

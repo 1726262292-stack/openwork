@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { constants, existsSync, openSync } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { allocateFreePort, allocateFreePorts, listTargets, waitForCdp } from "@openwork/cdp";
 import { ensureDenStack } from "../../../runner/den-stack.ts";
@@ -396,6 +396,26 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
   const log = options.log;
   const spawnedSurfaces = new Set<SurfaceHandle>();
 
+
+// Containers (Daytona sandboxes) cannot use Chromium's SUID sandbox: the helper
+// binary in a mounted pnpm store is not root-owned, and Electron aborts with
+// "The SUID sandbox helper binary was found, but is not configured correctly".
+// The desktop honours ELECTRON_EXTRA_LAUNCH_ARGS (apps/desktop/electron/main.mjs),
+// so pass the container-safe switches when we detect a sandbox.
+function insideContainerSandbox(env: NodeJS.ProcessEnv = process.env): boolean {
+  if ((env.DAYTONA_SANDBOX_ID ?? "").trim().length > 0) return true;
+  if ((env.OPENWORK_EVAL_CONTAINER_ELECTRON ?? "").trim() === "1") return true;
+  return existsSync("/daytona-secrets") || existsSync("/daytona-artifacts");
+}
+
+function containerLaunchArgs(existing: string | undefined): string | undefined {
+  if (!insideContainerSandbox()) return existing;
+  const needed = ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--enable-unsafe-swiftshader"];
+  const present = (existing ?? "").split(/\s+/).filter((entry) => entry.length > 0);
+  for (const arg of needed) if (!present.includes(arg)) present.push(arg);
+  return present.join(" ");
+}
+
   return {
     kind: "local",
 
@@ -411,6 +431,16 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
       const appIdentifier = `com.differentai.openwork.eval.${sanitizeSlug(name)}`;
       const isolationEnv = electronSurfaceEnv(paths, { appName, appIdentifier, port, cdpPort });
       const env: NodeJS.ProcessEnv = { ...process.env, ...isolationEnv, ...opts.env };
+      const launchArgs = containerLaunchArgs(env.ELECTRON_EXTRA_LAUNCH_ARGS);
+      if (launchArgs !== undefined) env.ELECTRON_EXTRA_LAUNCH_ARGS = launchArgs;
+      // appendSwitch() in the main process runs too late for the SUID sandbox
+      // check (it aborts in a child before our JS switches apply), so disable
+      // the sandbox at process start the way Electron documents.
+      if (insideContainerSandbox()) env.ELECTRON_DISABLE_SANDBOX = "1";
+      // Sandbox exec sessions do not export DISPLAY, but Xvfb is running on :99
+      // (see .devcontainer/start-daytona-electron.sh). Without it Electron
+      // segfaults instead of opening a window.
+      if (insideContainerSandbox() && (env.DISPLAY ?? "").trim().length === 0) env.DISPLAY = ":99";
       const logPath = join(profileRoot, "electron.log");
       log(`Starting local Electron surface ${name} (Vite :${port}, CDP :${cdpPort})...`);
       const spawned = spawnDetached(pnpmCommand(), ["dev:electron"], { cwd: options.repoRoot, env, logPath });
@@ -500,6 +530,9 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
       if (handle.pid !== undefined) {
         await killLocalPid(handle.pid, { log });
       }
+      if (handle.kind === "electron" && handle.profileDir) {
+        await rm(handle.profileDir, { recursive: true, force: true });
+      }
       spawnedSurfaces.delete(handle);
     },
 
@@ -508,7 +541,10 @@ export function createLocalHost(options: LocalHostOptions): DisposableHost {
     },
 
     async [Symbol.asyncDispose](): Promise<void> {
-      await this.stop();
+      for (const handle of [...spawnedSurfaces]) {
+        await this.disposeSurface(handle)
+          .catch((error: unknown) => log(`Local surface ${handle.name} cleanup failed: ${messageText(error)}`));
+      }
     },
   };
 }

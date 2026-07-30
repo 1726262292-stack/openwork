@@ -60,7 +60,16 @@ export async function signIn(den: DenRef, credentials: { email: string; password
 
 export function doInternalMarkEmailVerified(command: string, email: string): void {
   if (!command.trim()) throw new Error("OPENWORK_EVAL_MARK_VERIFIED_CMD is required to verify a newly-created member.");
-  execSync(command.replaceAll("{email}", email), { cwd: REPO_ROOT, stdio: "ignore" });
+  try {
+    execSync(command.replaceAll("{email}", email), { cwd: REPO_ROOT, encoding: "utf8", stdio: "pipe" });
+  } catch (error) {
+    const stdout = isRecord(error) && typeof error.stdout === "string" ? error.stdout.trim() : "";
+    const stderr = isRecord(error) && typeof error.stderr === "string" ? error.stderr.trim() : "";
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Marking ${email} verified failed: ${message}\nstdout: ${stdout || "(empty)"}\nstderr: ${stderr || "(empty)"}`,
+    );
+  }
 }
 
 export async function ensureMemberSession(

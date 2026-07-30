@@ -951,6 +951,7 @@ export type UpdateExternalMcpConnectionInput = {
   oauthConfiguration?: ExternalMcpOAuthConfiguration | null
   access: ExternalMcpAccessInput
   updatedByOrgMembershipId: OrgMembershipId
+  createdByOrgMembershipId?: OrgMembershipId
   validatedAt?: Date
 }
 
@@ -975,12 +976,16 @@ export async function updateExternalMcpConnection(
   input: UpdateExternalMcpConnectionInput,
 ): Promise<UpdateExternalMcpConnectionResult> {
   return db.transaction(async (tx) => {
+    const ownershipConditions = input.createdByOrgMembershipId === undefined
+      ? []
+      : [eq(ExternalMcpConnectionTable.createdByOrgMembershipId, input.createdByOrgMembershipId)]
     const rows = await tx
       .select()
       .from(ExternalMcpConnectionTable)
       .where(and(
         eq(ExternalMcpConnectionTable.organizationId, input.organizationId),
         eq(ExternalMcpConnectionTable.id, input.connectionId),
+        ...ownershipConditions,
       ))
       .limit(1)
       .for("update")
