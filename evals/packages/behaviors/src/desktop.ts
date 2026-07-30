@@ -1,6 +1,10 @@
 import { evaluate } from "@openwork/cdp";
 import type { EvaluateOptions, Surface } from "@openwork/cdp";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const DEFAULT_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 250;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -138,4 +142,17 @@ export async function enabledButtons(app: Surface): Promise<string[]> {
     throw new Error("CDP did not return enabled button labels as strings.");
   }
   return labels;
+}
+
+/** Invoke a registered `window.__openworkControl` action, the product's own automation seam. */
+export async function control(app: Surface, action: string, args?: unknown): Promise<unknown> {
+  const result = await evalIn(
+    app,
+    `window.__openworkControl.execute(${JSON.stringify(action)}, ${JSON.stringify(args ?? null)})`,
+    { awaitPromise: true },
+  );
+  if (!isRecord(result) || result.ok !== true) {
+    throw new Error(`Desktop control action ${action} failed: ${isRecord(result) ? String(result.error ?? "unknown") : "unknown"}`);
+  }
+  return result.result;
 }
