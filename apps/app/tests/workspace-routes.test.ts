@@ -10,7 +10,25 @@ import {
   preserveWorkspaceRouteSession,
   removeWorkspaceRouteSession,
   sessionIdForLegacyWorkspaceInference,
+  globalExtensionsRoute,
+  workspaceExtensionsRoute,
+  workspaceSettingsRoute,
 } from "../src/react-app/shell/workspace-routes";
+
+describe("workspace surface routes", () => {
+  test("keeps Extensions outside Settings and preserves deep links", () => {
+    expect(workspaceSettingsRoute(" workspace/a ", "extensions")).toBe(
+      "/workspace/workspace%2Fa/settings/extensions",
+    );
+    expect(workspaceExtensionsRoute(" workspace/a ")).toBe(
+      "/workspace/workspace%2Fa/extensions",
+    );
+    expect(workspaceExtensionsRoute(" workspace/a ", "/skills/")).toBe(
+      "/workspace/workspace%2Fa/extensions/skills",
+    );
+    expect(globalExtensionsRoute("mcps")).toBe("/extensions/mcps");
+  });
+});
 
 describe("workspace route session inference", () => {
   test("modern workspace routes do not contribute a refresh session id", () => {

@@ -14,6 +14,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Puzzle,
   Search,
   Share2,
   Trash2,
@@ -138,6 +139,7 @@ import {
 } from "./sidebar-lanes";
 import { WorkspaceAvatarPicker } from "./workspace-avatar-picker";
 import { useWorkbenchStore } from "../chat/workbench-store";
+import { SidebarDestination } from "./sidebar-destination";
 
 /** Paper Desktop: unread #2FBE54, needs-action #E8933A (14px artboard → ~8px app). */
 const OUTCOME_DOT_UNREAD = "#2FBE54";
@@ -843,6 +845,8 @@ export type AppSidebarProps = {
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
   onOpenAccountSettings?: () => void;
+  onOpenExtensions: () => void;
+  extensionsActive?: boolean;
   /** Live app status, shown inside the footer account menu. */
   status: Omit<AccountStatusMenuProps, "onOpenAccountSettings">;
 };
@@ -1084,9 +1088,9 @@ export function AppSidebar(props: AppSidebarProps) {
             </Button>
           </div>
         ) : null}
-        {props.onOpenSessionSearch ? (
-          <SidebarHeader className="pb-0 pe-0">
-            <SidebarMenu>
+        <SidebarHeader className="pb-0 pe-0">
+          <SidebarMenu>
+            {props.onOpenSessionSearch ? (
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={props.onOpenSessionSearch}
@@ -1100,9 +1104,15 @@ export function AppSidebar(props: AppSidebarProps) {
                   </kbd>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarHeader>
-        ) : null}
+            ) : null}
+            <SidebarDestination
+              active={props.extensionsActive === true}
+              icon={Puzzle}
+              label={t("settings.tab_extensions")}
+              onSelect={props.onOpenExtensions}
+            />
+          </SidebarMenu>
+        </SidebarHeader>
         <SidebarSplitPill
           workspaceSessionGroups={props.workspaceSessionGroups}
           selectedWorkspaceId={props.selectedWorkspaceId}

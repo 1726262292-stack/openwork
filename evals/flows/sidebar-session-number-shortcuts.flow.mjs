@@ -1,3 +1,5 @@
+import { ensureSessionWorkspace } from "./lib/session-workspace.mjs";
+
 const READ_SHORTCUT_ROWS = `(() => [...document.querySelectorAll('[aria-keyshortcuts]')]
   .map((entry) => ({
     shortcut: entry.getAttribute('aria-keyshortcuts'),
@@ -14,10 +16,10 @@ export default {
     {
       name: "Holding the platform modifier reveals accurate first-nine session shortcuts",
       run: async (ctx) => {
-        await ctx.waitFor("Boolean(window.__openworkControl)", {
-          timeoutMs: 60_000,
-          label: "control API",
-        });
+        await ensureSessionWorkspace(
+          ctx,
+          "sidebar-session-number-shortcuts",
+        );
         for (let index = 1; index <= 3; index += 1) {
           await ctx.control("session.create_task");
           const sessionId = await ctx.waitFor(`(() => {
