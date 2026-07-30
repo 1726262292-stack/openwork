@@ -27,6 +27,25 @@ describe("Electron distribution configs", () => {
     });
   });
 
+  it("declares every workspace runtime package used by the embedded server", async () => {
+    const packageMetadata = JSON.parse(
+      await readFile(path.resolve(dirname, "..", "package.json"), "utf8"),
+    );
+    for (const packageName of ["@openwork/app-contract", "@openwork/app-tools", "@openwork/paths", "@openwork/types"]) {
+      assert.equal(packageMetadata.dependencies[packageName], "workspace:*");
+    }
+  });
+
+  it("keeps embedded-server workspace packages on built JavaScript in Node", async () => {
+    for (const packageName of ["app-contract", "app-tools"]) {
+      const packageMetadata = JSON.parse(
+        await readFile(path.resolve(dirname, "..", "..", "..", "packages", packageName, "package.json"), "utf8"),
+      );
+      assert.equal(packageMetadata.exports["."].node, "./dist/index.js");
+      assert.equal(packageMetadata.exports["."].default, "./dist/index.js");
+    }
+  });
+
   it("keeps the public artifact and protocol unchanged", async () => {
     const config = await readConfig("electron-builder.yml");
     assert.equal(config.extends, "./electron-builder.base.yml");
