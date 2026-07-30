@@ -27,12 +27,15 @@ describe("Electron distribution configs", () => {
     });
   });
 
-  it("declares every workspace runtime package used by the embedded server", async () => {
+  it("declares every runtime package used by the embedded server", async () => {
     const packageMetadata = JSON.parse(
       await readFile(path.resolve(dirname, "..", "package.json"), "utf8"),
     );
-    for (const packageName of ["@openwork/app-contract", "@openwork/app-tools", "@openwork/paths", "@openwork/types"]) {
-      assert.equal(packageMetadata.dependencies[packageName], "workspace:*");
+    const serverPackageMetadata = JSON.parse(
+      await readFile(path.resolve(dirname, "..", "..", "server", "package.json"), "utf8"),
+    );
+    for (const [packageName, version] of Object.entries(serverPackageMetadata.dependencies)) {
+      assert.equal(packageMetadata.dependencies[packageName], version, packageName);
     }
   });
 
@@ -69,6 +72,12 @@ describe("Electron distribution configs", () => {
       packageMetadata.scripts["verify:packaged-server"],
       "node ./scripts/verify-packaged-server.mjs",
     );
+    const verifier = await readFile(
+      path.resolve(dirname, "..", "scripts", "verify-packaged-server.mjs"),
+      "utf8",
+    );
+    assert.match(verifier, /mkdtempSync/);
+    assert.match(verifier, /cpSync\(appBundle, isolatedAppBundle/);
 
     const workflow = await readFile(
       path.resolve(dirname, "..", "..", "..", ".github", "workflows", "pre-alpha-macos-aarch64.yml"),
