@@ -8,7 +8,6 @@
 # the den stack, then the vitest spec lane against the same live stack.
 set -euo pipefail
 cd /workspace
-pnpm --dir evals install
 
 # Sandbox exec sessions have private /tmp namespaces; the artifacts volume is
 # the only log destination visible to other sessions (and over HTTP :8090).
@@ -17,6 +16,11 @@ pnpm --dir evals install
 LOG_DIR="${OPENWORK_REAL_RUN_LOG_DIR:-/workspace/evals/results/real-run}"
 mkdir -p "$LOG_DIR"
 exec > >(tee "$LOG_DIR/real-run.log") 2>&1
+
+# pnpm must never prompt in a sandbox: an interactive approve-builds/purge
+# question kills the run before anything is logged.
+export CI=true
+pnpm --dir evals install
 
 H="$HOME"
 MARIADB_VERSION="11.4.5"
