@@ -437,6 +437,10 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
       // check (it aborts in a child before our JS switches apply), so disable
       // the sandbox at process start the way Electron documents.
       if (insideContainerSandbox()) env.ELECTRON_DISABLE_SANDBOX = "1";
+      // Sandbox exec sessions do not export DISPLAY, but Xvfb is running on :99
+      // (see .devcontainer/start-daytona-electron.sh). Without it Electron
+      // segfaults instead of opening a window.
+      if (insideContainerSandbox() && (env.DISPLAY ?? "").trim().length === 0) env.DISPLAY = ":99";
       const logPath = join(profileRoot, "electron.log");
       log(`Starting local Electron surface ${name} (Vite :${port}, CDP :${cdpPort})...`);
       const spawned = spawnDetached(pnpmCommand(), ["dev:electron"], { cwd: options.repoRoot, env, logPath });
