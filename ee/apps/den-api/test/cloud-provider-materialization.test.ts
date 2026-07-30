@@ -149,6 +149,7 @@ function makeInstance(input: {
   envWriteRejection?: { status: number; body: unknown }
   failConfigPatches?: number
   providerRouteStatus?: number
+  providerRouteServesSpa?: boolean
   runtimeVersion?: string | null
   runtimeProviders?: Record<string, unknown>
   opencodeConfigProviders?: Record<string, unknown>
@@ -239,6 +240,14 @@ function makeInstance(input: {
     }
 
     if (method === "PATCH" && parsed.pathname === "/runtime-config/providers") {
+      if (input.providerRouteServesSpa) {
+        // Instances older than this route fall through to the SPA catch-all and
+        // answer 200 with index.html (seen on a real worker on 0.18.3).
+        return new Response("<!doctype html>\n<html lang=\"en\"><head><title>OpenWork</title></head></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        })
+      }
       if (input.providerRouteStatus) {
         return jsonResponse({ error: "runtime_provider_route_unavailable" }, input.providerRouteStatus)
       }
@@ -683,6 +692,26 @@ describe("Cloud provider materialization", () => {
     expect(retried.ok).toBe(true)
     expect(retried.status).toBe("applied")
     expect(writeCalls(instance.calls).map((call) => call.method)).toEqual(["PUT", "PATCH"])
+  })
+
+  test("treats an instance that serves the SPA on the provider route as unsupported", async () => {
+    // A real worker still running openwork-server 0.18.3 answered PATCH
+    // /runtime-config/providers with 200 + index.html, so the patch looked like
+    // a success while the engine ended up with zero providers. The org then saw
+    // an opaque failure instead of "this workspace needs an update", and every
+    // model failed with "no API keys".
+    const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
+    const instance = makeInstance({ providerRouteServesSpa: true })
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe("unsupported")
+    await Promise.resolve()
   })
 
   test("preserves credential env when the global provider route is unsupported", async () => {
