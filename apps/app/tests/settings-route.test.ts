@@ -15,7 +15,7 @@ describe("settings route parsing", () => {
     expect(parseExtensionsPath(pathname)).toEqual(route);
     expect(isSettingsTabActive(route.tab, "extensions")).toBe(true);
     expect(isSettingsTabActive(route.tab, "general")).toBe(false);
-    expect(getWorkspaceSettingsTabs()).toEqual(["preferences", "permissions", "advanced"]);
+    expect(getWorkspaceSettingsTabs()).toEqual(["preferences", "permissions", "apps", "advanced"]);
   });
 
   test("preserves top-level Extensions section and detail deep links", () => {
