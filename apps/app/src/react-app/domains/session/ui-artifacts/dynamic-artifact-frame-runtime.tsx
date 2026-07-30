@@ -350,7 +350,7 @@ function bootRuntime(initial: UiArtifactHostBridgeEnvelope, port: MessagePort) {
 const allowInitialize = createRateGate()
 let initialized = false
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (
       initialized ||
