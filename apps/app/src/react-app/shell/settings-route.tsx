@@ -35,12 +35,18 @@ import {
 import type {
   Client,
   ProviderListItem,
+  ReleaseChannel,
   SettingsTab,
   WorkspaceConnectionState,
   WorkspaceDisplay,
   WorkspacePreset,
   WorkspaceSessionGroup,
 } from "@/app/types";
+import {
+  EMPTY_ELEVATED_DEVELOPER_MODE_TOGGLE_SEQUENCE,
+  recordElevatedDeveloperModeToggle,
+} from "@/app/lib/elevated-developer-mode";
+import { isPreAlphaChannel } from "@/app/lib/release-channels";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
 import { currentLocale, t, setLocale, type Language } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
@@ -456,6 +462,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("openwork.developerMode") === "1";
   });
+  const elevatedDeveloperModeToggleSequenceRef = useRef(
+    EMPTY_ELEVATED_DEVELOPER_MODE_TOGGLE_SEQUENCE,
+  );
+  const elevatedDeveloperMode =
+    local.prefs.featureFlags.elevatedDeveloperMode === true;
   const [themeMode, setThemeModeState] = useState<ThemeMode>(getInitialThemeMode);
   const [hideTitlebar, setHideTitlebar] = useState(() => readStoredBoolean(SETTINGS_HIDE_TITLEBAR_KEY, false));
   const [updateAutoCheck, setUpdateAutoCheck] = useState(() =>
@@ -917,11 +928,48 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       }
     },
   });
+  const toggleDeveloperMode = useCallback(() => {
+    const gesture = recordElevatedDeveloperModeToggle(
+      elevatedDeveloperModeToggleSequenceRef.current,
+    );
+    elevatedDeveloperModeToggleSequenceRef.current = gesture.sequence;
+
+    if (gesture.triggered) {
+      local.setPrefs((previous) => {
+        const nextElevatedDeveloperMode =
+          !previous.featureFlags.elevatedDeveloperMode;
+        return {
+          ...previous,
+          releaseChannel:
+            !nextElevatedDeveloperMode &&
+            isPreAlphaChannel(previous.releaseChannel)
+              ? "stable"
+              : previous.releaseChannel,
+          featureFlags: {
+            ...previous.featureFlags,
+            elevatedDeveloperMode: nextElevatedDeveloperMode,
+          },
+        };
+      });
+    }
+
+    setDeveloperMode((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(
+          "openwork.developerMode",
+          next ? "1" : "0",
+        );
+      } catch {}
+      return next;
+    });
+  }, [local]);
   const onReleaseChannelChange = useCallback(
-    (next: "stable" | "alpha") => {
+    (next: ReleaseChannel) => {
+      if (isPreAlphaChannel(next) && !elevatedDeveloperMode) return;
       local.setPrefs((previous) => ({ ...previous, releaseChannel: next }));
     },
-    [local],
+    [elevatedDeveloperMode, local],
   );
   const electronUpdaterState = useElectronUpdaterState({
     releaseChannel: local.prefs.releaseChannel ?? "stable",
@@ -2410,11 +2458,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             opencodeConnectStatus={null}
             openworkServerStatus={openworkServerSnapshot.openworkServerStatus}
             developerMode={developerMode}
-            toggleDeveloperMode={() => setDeveloperMode((current) => {
-              const next = !current;
-              try { window.localStorage.setItem("openwork.developerMode", next ? "1" : "0"); } catch {}
-              return next;
-            })}
+            elevatedDeveloperMode={elevatedDeveloperMode}
+            toggleDeveloperMode={toggleDeveloperMode}
             opencodeDevModeEnabled={false}
             openDebugDeepLink={async () => ({ ok: false, message: "Debug deep links are not wired into the React settings route yet." })}
             cloudMcpUrl={openworkCloudMcpUrl}
@@ -2476,6 +2521,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               isMacPlatform() &&
               desktopConfig.config.allowAlphaUpdates !== false
             }
+            elevatedDeveloperMode={elevatedDeveloperMode}
           />
         );
       case "recovery":

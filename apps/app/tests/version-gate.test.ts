@@ -19,6 +19,8 @@ describe("alpha desktop update policy", () => {
     expect(isAlphaChannelAllowedByDesktopConfig({})).toBe(true);
     expect(isAlphaChannelAllowedByDesktopConfig({ allowAlphaUpdates: true })).toBe(true);
     expect(resolveDesktopUpdateChannel("alpha", {})).toBe("alpha");
+    expect(resolveDesktopUpdateChannel("canary", {})).toBe("canary");
+    expect(resolveDesktopUpdateChannel("experimental", {})).toBe("experimental");
   });
 
   test("forces policy-disabled alpha selections back to stable", () => {
@@ -26,6 +28,8 @@ describe("alpha desktop update policy", () => {
 
     expect(isAlphaChannelAllowedByDesktopConfig(desktopConfig)).toBe(false);
     expect(resolveDesktopUpdateChannel("alpha", desktopConfig)).toBe("stable");
+    expect(resolveDesktopUpdateChannel("canary", desktopConfig)).toBe("stable");
+    expect(resolveDesktopUpdateChannel("experimental", desktopConfig)).toBe("stable");
     expect(resolveDesktopUpdateChannel("stable", desktopConfig)).toBe("stable");
   });
 

@@ -32,11 +32,22 @@ function resolveAppVersion(app) {
 const ELECTRON_UPDATER_FEEDS = Object.freeze({
   stable: "https://github.com/different-ai/openwork/releases/latest/download",
   alpha: "https://github.com/different-ai/openwork/releases/download/alpha-macos-latest",
+  canary: "https://github.com/different-ai/openwork/releases/download/canary-macos-latest",
+  experimental: "https://github.com/different-ai/openwork/releases/download/experimental-macos-latest",
 });
 
-function normalizeElectronUpdaterChannel(value, manifestChannel = "latest") {
+export function normalizeElectronUpdaterChannel(
+  value,
+  manifestChannel = "latest",
+  platform = process.platform,
+) {
   if (manifestChannel !== "latest") return "stable";
-  if (value === "alpha" && process.platform === "darwin") return "alpha";
+  if (
+    platform === "darwin" &&
+    (value === "alpha" || value === "canary" || value === "experimental")
+  ) {
+    return value;
+  }
   return "stable";
 }
 
@@ -66,8 +77,14 @@ async function writeElectronUpdaterChannel(app, channel, manifestChannel = "late
   return normalized;
 }
 
-function electronUpdaterFeedUrl(channel, manifestChannel = "latest") {
-  return ELECTRON_UPDATER_FEEDS[normalizeElectronUpdaterChannel(channel, manifestChannel)];
+export function electronUpdaterFeedUrl(
+  channel,
+  manifestChannel = "latest",
+  platform = process.platform,
+) {
+  return ELECTRON_UPDATER_FEEDS[
+    normalizeElectronUpdaterChannel(channel, manifestChannel, platform)
+  ];
 }
 
 function normalizeStableTargetVersion(value) {
@@ -181,10 +198,11 @@ async function applyElectronUpdaterFeed(app, updater, targetVersion = null, mani
     throw new Error("Version-specific update feeds are supported only on the stable channel.");
   }
   const state = updaterChannelState(app, channel, targetVersion, manifestChannel);
-  updater.allowPrerelease = state.channel === "alpha";
-  // Moving from alpha back to stable can be a semver downgrade; still show
-  // the latest stable so users can return to the stable channel deliberately.
-  updater.allowDowngrade = state.channel === "stable" && !targetVersion;
+  updater.allowPrerelease = state.channel !== "stable";
+  // Moving between rolling channels can be a semver downgrade (for example,
+  // canary -> experimental when the canary timestamp is newer). Still show
+  // the selected channel so users can switch deliberately.
+  updater.allowDowngrade = !targetVersion;
   // Select the manifest through the generic provider's own `channel` option
   // rather than AppUpdater#channel: that setter is a no-op unless the instance
   // was constructed with a channel, which would silently leave a custom

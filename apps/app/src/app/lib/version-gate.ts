@@ -11,6 +11,7 @@ import {
   type DenDesktopConfig,
 } from "./den";
 import type { ReleaseChannel } from "../types";
+import { isPrereleaseChannel } from "./release-channels";
 
 declare global {
   interface Window {
@@ -136,7 +137,7 @@ export function resolveDesktopUpdateChannel(
   channel: ReleaseChannel,
   desktopConfig: DenDesktopConfig | null | undefined,
 ): ReleaseChannel {
-  return channel === "alpha" && !isAlphaChannelAllowedByDesktopConfig(desktopConfig)
+  return isPrereleaseChannel(channel) && !isAlphaChannelAllowedByDesktopConfig(desktopConfig)
     ? "stable"
     : channel;
 }
@@ -321,9 +322,10 @@ export async function isUpdateSupportedByDen(updateVersion: string): Promise<boo
 }
 
 /**
- * Alpha channel builds may run one patch ahead of the current Den/org maximum
- * (e.g. Den allows 0.13.3, alpha 0.13.4-alpha.N is allowed). Larger jumps are
- * still blocked so alpha cannot bypass staged rollout ceilings entirely.
+ * Prerelease channel builds may run one patch ahead of the current Den/org
+ * maximum (e.g. Den allows 0.13.3 and alpha/canary/experimental may serve
+ * 0.13.4-*.N). Larger jumps are still blocked so prerelease channels cannot
+ * bypass staged rollout ceilings entirely.
  */
 export async function isAlphaUpdateAllowed(
   updateVersion: string,

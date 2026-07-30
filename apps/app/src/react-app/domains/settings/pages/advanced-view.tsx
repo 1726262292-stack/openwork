@@ -38,6 +38,7 @@ export type AdvancedViewProps = {
   opencodeConnectStatus: OpencodeConnectStatus | null;
   openworkServerStatus: OpenworkServerStatus;
   developerMode: boolean;
+  elevatedDeveloperMode: boolean;
   toggleDeveloperMode: () => void;
   opencodeDevModeEnabled: boolean;
   openDebugDeepLink: (rawUrl: string) => Promise<{ ok: boolean; message: string }>;
@@ -224,6 +225,7 @@ export function AdvancedView(props: AdvancedViewProps) {
       <AdvancedDeveloperSection
         busy={props.busy}
         developerMode={props.developerMode}
+        elevatedDeveloperMode={props.elevatedDeveloperMode}
         opencodeDevModeEnabled={props.opencodeDevModeEnabled}
         deepLinkOpen={debugDeepLinkOpen}
         deepLinkInput={debugDeepLinkInput}
