@@ -23,6 +23,7 @@ import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
 import { appLogger } from "../../observability/logger.js"
+import { ORGANIZATION_SUPER_ADMIN_ROLE, organizationRoleValueSatisfies } from "../../organization-role-hierarchy.js"
 import {
   jsonValidator,
   orgMemberRoute,
@@ -101,7 +102,14 @@ import {
   externalMcpToolCallInspectionForError,
 } from "../../capability-sources/external-mcp-tool-inspection.js"
 import { resolvePluginArchResourceRole, type PluginArchActorContext } from "./plugin-system/access.js"
-import { ensureOrganizationAdmin, ensureOrganizationAdminRole, idParamSchema, orgAccessFailureStatus } from "./shared.js"
+import {
+  ensureOrganizationAdmin,
+  ensureOrganizationAdminRole,
+  getFreshPrivilegedSessionRequiredResponse,
+  hasFreshPrivilegedSession,
+  idParamSchema,
+  orgAccessFailureStatus,
+} from "./shared.js"
 import type { OrgRouteVariables } from "./shared.js"
 
 const connectionParamsSchema = idParamSchema("connectionId", "externalMcpConnection")
@@ -1905,12 +1913,12 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
     describeRoute({
       tags: ["Authentication"],
       summary: "Edit an External MCP Connection",
-      description: "Organization-admin-only. Name and direct access changes preserve credentials. URL, authentication type, or credential-mode changes invalidate the old identity atomically. Secret fields are write-only optional replacements and are never returned. expectedUpdatedAt prevents stale edits.",
+      description: "Workspace owners and super-admins can edit any connection. Other org members can edit only connections they created. Name and direct access changes preserve credentials. URL, authentication type, or credential-mode changes invalidate the old identity atomically. Secret fields are write-only optional replacements and are never returned. expectedUpdatedAt prevents stale edits.",
       responses: {
         200: jsonResponse("Connection updated.", connectionUpdatedResponseSchema),
         400: jsonResponse("Invalid request.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
-        403: jsonResponse("Only workspace owners and admins can edit MCP connections.", forbiddenSchema),
+        403: jsonResponse("Only workspace owners, super-admins, or the connection creator can edit MCP connections.", forbiddenSchema),
         404: jsonResponse("Unknown connection.", connectionNotFoundSchema),
         409: jsonResponse("The edit is stale or changes marketplace-owned identity fields.", connectionUpdateConflictSchema),
         502: jsonResponse("The proposed API-key or no-auth configuration could not be validated.", connectionValidationFailedSchema),
@@ -1921,8 +1929,9 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
     jsonValidator(updateConnectionBodySchema),
     async (c) => {
       const payload = c.get("organizationContext")
-      const admin = ensureOrganizationAdminRole(c, "Only workspace owners and admins can edit MCP connections.")
-      if (!admin.ok) return c.json(admin.response, orgAccessFailureStatus(admin.response))
+      if (!hasFreshPrivilegedSession({ session: c.get("session") })) {
+        return c.json(getFreshPrivilegedSessionRequiredResponse(), 403)
+      }
 
       const { connectionId } = c.req.valid("param")
       const externalMcpConnectionId = normalizeDenTypeId("externalMcpConnection", connectionId)
@@ -1932,6 +1941,18 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       })
       if (!connection) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
+      }
+
+      const canUpdateAnyConnection = organizationRoleValueSatisfies({
+        roleValue: payload.currentMember.role,
+        requiredRole: ORGANIZATION_SUPER_ADMIN_ROLE,
+        isOwner: payload.currentMember.isOwner,
+      })
+      if (!canUpdateAnyConnection && connection.createdByOrgMembershipId !== payload.currentMember.id) {
+        return c.json({
+          error: "forbidden",
+          message: "Only workspace owners, super-admins, or the connection creator can edit this MCP connection.",
+        }, 403)
       }
 
       const body = c.req.valid("json")
@@ -2107,6 +2128,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           teamIds: body.access.teamIds.map((id) => normalizeDenTypeId("team", id)),
         },
         updatedByOrgMembershipId: payload.currentMember.id,
+        ...(canUpdateAnyConnection ? {} : { createdByOrgMembershipId: payload.currentMember.id }),
         ...(validatedAt ? { validatedAt } : {}),
       })
       if (result.status === "not_found") {
@@ -2213,7 +2235,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       responses: {
         200: emptyResponse("Removed."),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
-        403: jsonResponse("Only workspace owners and admins can remove MCP connections.", forbiddenSchema),
+        403: jsonResponse("Only workspace owners, super-admins, or the connection creator can remove MCP connections.", forbiddenSchema),
         404: jsonResponse("Unknown connection.", connectionNotFoundSchema),
       },
     }),
@@ -2221,12 +2243,39 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
     paramValidator(connectionParamsSchema),
     async (c) => {
       const payload = c.get("organizationContext")
-      const admin = ensureOrganizationAdmin(c, "Only workspace owners and admins can remove MCP connections.")
-      if (!admin.ok) return c.json(admin.response, orgAccessFailureStatus(admin.response))
+      if (!hasFreshPrivilegedSession({ session: c.get("session") })) {
+        return c.json(getFreshPrivilegedSessionRequiredResponse(), 403)
+      }
 
       const { connectionId } = c.req.valid("param")
       const externalMcpConnectionId = normalizeDenTypeId("externalMcpConnection", connectionId)
-      const removed = await deleteExternalMcpConnection({ organizationId: payload.organization.id, connectionId: externalMcpConnectionId })
+      const connection = await getExternalMcpConnection({ organizationId: payload.organization.id, connectionId: externalMcpConnectionId })
+      if (!connection) {
+        return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
+      }
+
+      const canDeleteAnyConnection = organizationRoleValueSatisfies({
+        roleValue: payload.currentMember.role,
+        requiredRole: ORGANIZATION_SUPER_ADMIN_ROLE,
+        isOwner: payload.currentMember.isOwner,
+      })
+      if (!canDeleteAnyConnection && connection.createdByOrgMembershipId !== payload.currentMember.id) {
+        return c.json({
+          error: "forbidden",
+          message: "Only workspace owners, super-admins, or the connection creator can remove this MCP connection.",
+        }, 403)
+      }
+
+      const removed = canDeleteAnyConnection
+        ? await deleteExternalMcpConnection({
+            organizationId: payload.organization.id,
+            connectionId: externalMcpConnectionId,
+          })
+        : await deleteExternalMcpConnection({
+            organizationId: payload.organization.id,
+            connectionId: externalMcpConnectionId,
+            createdByOrgMembershipId: payload.currentMember.id,
+          })
       if (!removed) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
       }

@@ -38,6 +38,16 @@ describe("Daytona OpenWork checkpoint start command", () => {
     })
 
     expect(command).toContain("OPENWORK_STATE_MANIFEST=")
+    // The engine keeps sessions in opencode.db on the container overlay. It was
+    // missing from the manifest, so every recycle onto a new snapshot started
+    // the user from scratch.
+    expect(command).toContain("ENGINE_STATE_PATH=${OPENWORK_ENGINE_STATE_PATH:-$HOME/.local/share/opencode}")
+    expect(command).toContain('OPENWORK_STATE_MANIFEST="/tmp/openwork-data /tmp/openwork-workspace $ENGINE_STATE_PATH"')
+    // Collapse the WAL first so the copied database is self-consistent.
+    expect(command).toContain("PRAGMA wal_checkpoint(TRUNCATE)")
+    // Credentials are re-materialized every start; never persist them to the volume.
+    expect(command).toContain('--exclude="${ENGINE_STATE_PATH#/}/auth.json"')
+    expect(command).toContain('--exclude="${ENGINE_STATE_PATH#/}/log"')
     expect(command).toContain("/tmp/openwork-data /tmp/openwork-workspace")
     expect(command).toContain("CHECKPOINT_DIR=")
     expect(command).toContain("/persist/openwork/checkpoints")
@@ -47,7 +57,7 @@ describe("Daytona OpenWork checkpoint start command", () => {
     expect(command).toContain("DEN_CKPT_KEEP")
     expect(command).toContain("find \"$CHECKPOINT_DIR\" -maxdepth 1 -type f -name")
     expect(command).toContain("ckpt-*.tar")
-    expect(command).toContain("tar -C / -cf")
+    expect(command).toContain("-cf \"$tmp_checkpoint\"")
     expect(command).toContain("tar -C / -xf")
     expect(command).not.toContain("tar -h")
     expect(command).not.toContain("tar -ch")
