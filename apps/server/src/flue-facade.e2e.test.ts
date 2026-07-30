@@ -85,7 +85,9 @@ function startMockOpencode() {
 
 function startMockMcpServer() {
   const authorizationValues: string[] = [];
+  const toolCallAuthorizationValues: string[] = [];
   const toolCalls: string[] = [];
+  let initializeCount = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -103,6 +105,7 @@ function startMockMcpServer() {
       if (payload.method === "notifications/initialized") return new Response(null, { status: 202 });
       const id = payload.id ?? null;
       if (payload.method === "initialize") {
+        initializeCount += 1;
         return Response.json({
           jsonrpc: "2.0",
           id,
@@ -145,6 +148,7 @@ function startMockMcpServer() {
         const params = isRecord(payload.params) ? payload.params : {};
         const name = readStringField(params, "name");
         toolCalls.push(name);
+        toolCallAuthorizationValues.push(authorization ?? "");
         return Response.json({
           jsonrpc: "2.0",
           id,
@@ -158,7 +162,131 @@ function startMockMcpServer() {
   return {
     url: `http://127.0.0.1:${server.port}/mcp`,
     authorizationValues,
+    toolCallAuthorizationValues,
     toolCalls,
+    get initializeCount() {
+      return initializeCount;
+    },
+  };
+}
+
+function startRestartableMockMcpServer() {
+  const toolCalls: string[] = [];
+  let initializeCount = 0;
+  let generation = 0;
+  let running = true;
+  let currentSessions = new Set<string>();
+
+  const serve = (port: number) => {
+    generation += 1;
+    currentSessions = new Set<string>();
+    return Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      async fetch(request) {
+        if (request.method === "GET") return new Response(null, { status: 405 });
+        const sessionId = request.headers.get("mcp-session-id");
+        if (request.method === "DELETE") {
+          if (sessionId) currentSessions.delete(sessionId);
+          return new Response(null, { status: 200 });
+        }
+        if (request.method !== "POST") return new Response(null, { status: 405 });
+        const payload: unknown = await request.json();
+        if (!isRecord(payload) || typeof payload.method !== "string") {
+          return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } }, { status: 400 });
+        }
+        const id = payload.id ?? null;
+        if (payload.method === "initialize") {
+          initializeCount += 1;
+          const nextSession = `flue-restartable-${generation}-${initializeCount}`;
+          currentSessions.add(nextSession);
+          return Response.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              protocolVersion: "2025-03-26",
+              capabilities: { tools: {} },
+              serverInfo: { name: "openwork-flue-restartable-test", version: "1.0.0" },
+            },
+          }, { headers: { "Mcp-Session-Id": nextSession } });
+        }
+        if (!sessionId || !currentSessions.has(sessionId)) {
+          return Response.json({
+            jsonrpc: "2.0",
+            id,
+            error: { code: -32001, message: "MCP session expired" },
+          }, { status: 404 });
+        }
+        if (payload.method === "notifications/initialized") return new Response(null, { status: 202 });
+        if (payload.method === "tools/list") {
+          return Response.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              tools: [
+                {
+                  name: "search_capabilities",
+                  description: "Search connected capabilities.",
+                  inputSchema: {
+                    type: "object",
+                    properties: { query: { type: "string" } },
+                    required: ["query"],
+                  },
+                },
+                {
+                  name: "execute_capability",
+                  description: "Execute a connected capability.",
+                  inputSchema: {
+                    type: "object",
+                    properties: { name: { type: "string" } },
+                    required: ["name"],
+                  },
+                },
+              ],
+            },
+          });
+        }
+        if (payload.method === "tools/call") {
+          const params = isRecord(payload.params) ? payload.params : {};
+          const name = readStringField(params, "name");
+          toolCalls.push(name);
+          return Response.json({
+            jsonrpc: "2.0",
+            id,
+            result: { content: [{ type: "text", text: `restartable result from ${name}` }] },
+          });
+        }
+        return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+      },
+    });
+  };
+
+  let server = serve(0);
+  const port = server.port;
+  if (typeof port !== "number") throw new Error("Restartable MCP mock did not bind a TCP port");
+  const stop = () => {
+    if (!running) return;
+    running = false;
+    server.stop(true);
+  };
+  const restart = async () => {
+    stop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    server = serve(port);
+    running = true;
+  };
+  stops.push(stop);
+  return {
+    url: `http://127.0.0.1:${port}/mcp`,
+    toolCalls,
+    stop,
+    restart,
+    get initializeCount() {
+      return initializeCount;
+    },
+    get activeSessionCount() {
+      return currentSessions.size;
+    },
   };
 }
 
@@ -326,6 +454,17 @@ function completedToolPart(value: unknown, toolName: string): Record<string, unk
     for (const part of message.parts) {
       if (!isRecord(part) || part.type !== "tool" || part.tool !== toolName || !isRecord(part.state)) continue;
       if (part.state.status === "completed") return part;
+    }
+  }
+  return null;
+}
+
+function toolPart(value: unknown, toolName: string): Record<string, unknown> | null {
+  if (!Array.isArray(value)) return null;
+  for (const message of value) {
+    if (!isRecord(message) || !Array.isArray(message.parts)) continue;
+    for (const part of message.parts) {
+      if (isRecord(part) && part.type === "tool" && part.tool === toolName && isRecord(part.state)) return part;
     }
   }
   return null;
@@ -918,7 +1057,7 @@ describe("Flue opencode-wire facade", () => {
       const sessionId = sessionIdFromCreateResponse(created);
       setFlueFauxResponsesForTest([
         fauxAssistantMessage([
-          fauxToolCall("mcp__openwork-cloud__search_capabilities", { query: "calendar" }),
+          fauxToolCall("openwork-cloud_search_capabilities", { query: "calendar" }),
         ], { stopReason: "toolUse" }),
         fauxAssistantMessage([fauxText("The cloud capability is available.")]),
       ]);
@@ -932,7 +1071,7 @@ describe("Flue opencode-wire facade", () => {
       });
       expect(promptResponse.status).toBe(204);
       const messages = await waitForCompletedMessages(base, token, sessionId);
-      const toolPart = completedToolPart(messages, "mcp__openwork-cloud__search_capabilities");
+      const toolPart = completedToolPart(messages, "openwork-cloud_search_capabilities");
       expect(toolPart).toMatchObject({ state: { status: "completed" } });
       expect(readStringField(toolPart?.state, "output")).toContain("mock result from search_capabilities");
       expect(mcp.toolCalls).toContain("search_capabilities");
@@ -985,5 +1124,327 @@ describe("Flue opencode-wire facade", () => {
       setFlueFauxResponsesForTest([]);
       console.warn = originalWarn;
     }
+  });
+
+  test("keeps an in-flight prompt on its open MCP connection while rebuilding the next harness", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const mcp = startMockMcpServer();
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      mcp: {
+        "openwork-cloud": {
+          type: "remote",
+          url: mcp.url,
+          headers: { Authorization: "Bearer first-connection" },
+          enabled: true,
+        },
+      },
+    }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const created = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "Flue MCP reconnect" }),
+    }));
+    const sessionId = sessionIdFromCreateResponse(created);
+    let releaseModel = () => {};
+    let markModelStarted = () => {};
+    const modelStarted = new Promise<void>((resolve) => {
+      markModelStarted = resolve;
+    });
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModel = resolve;
+    });
+    setFlueFauxResponsesForTest([
+      async () => {
+        markModelStarted();
+        await modelGate;
+        return fauxAssistantMessage([
+          fauxToolCall("openwork-cloud_search_capabilities", { query: "calendar" }),
+        ], { stopReason: "toolUse" });
+      },
+      fauxAssistantMessage([fauxText("The cloud capability is available after reconnecting.")]),
+    ]);
+
+    const promptResponse = await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(sessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({
+        model: { providerID: "flue", modelID: "default" },
+        parts: [{ type: "text", text: "Search cloud capabilities after reconnecting." }],
+      }),
+    });
+    expect(promptResponse.status).toBe(204);
+    await modelStarted;
+
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      mcp: {
+        "openwork-cloud": {
+          type: "remote",
+          url: mcp.url,
+          headers: { Authorization: "Bearer replacement-connection" },
+          enabled: true,
+        },
+      },
+    }));
+    const refresh = await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) });
+    expect(await refresh.json()).toEqual({ "openwork-cloud": { status: "connected" } });
+    releaseModel();
+
+    const messages = await waitForCompletedMessages(base, token, sessionId);
+    expect(toolPart(messages, "openwork-cloud_search_capabilities")).toMatchObject({
+      state: { status: "completed" },
+    });
+    expect(mcp.toolCalls).toContain("search_capabilities");
+    expect(mcp.initializeCount).toBe(2);
+
+    const nextCreated = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "Flue replacement harness" }),
+    }));
+    const nextSessionId = sessionIdFromCreateResponse(nextCreated);
+    setFlueFauxResponsesForTest([
+      fauxAssistantMessage([
+        fauxToolCall("openwork-cloud_search_capabilities", { query: "replacement harness" }),
+      ], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("The replacement harness is active.")]),
+    ]);
+    expect((await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(nextSessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ parts: [{ type: "text", text: "Use the replacement harness." }] }),
+    })).status).toBe(204);
+    const nextMessages = await waitForCompletedMessages(base, token, nextSessionId);
+    expect(toolPart(nextMessages, "openwork-cloud_search_capabilities")).toMatchObject({
+      state: { status: "completed" },
+    });
+    expect(mcp.toolCallAuthorizationValues).toEqual([
+      "Bearer first-connection",
+      "Bearer replacement-connection",
+    ]);
+  });
+
+  test("reconnects and retries once after the MCP server transport is killed and restarted", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const mcp = startRestartableMockMcpServer();
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      mcp: {
+        "openwork-cloud": { type: "remote", url: mcp.url, enabled: true },
+      },
+    }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const firstCreated = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "MCP before restart" }),
+    }));
+    const firstSessionId = sessionIdFromCreateResponse(firstCreated);
+    setFlueFauxResponsesForTest([
+      fauxAssistantMessage([
+        fauxToolCall("openwork-cloud_search_capabilities", { query: "before restart" }),
+      ], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("The first MCP call succeeded.")]),
+    ]);
+    expect((await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(firstSessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ parts: [{ type: "text", text: "Call MCP before restart." }] }),
+    })).status).toBe(204);
+    const firstMessages = await waitForCompletedMessages(base, token, firstSessionId);
+    expect(toolPart(firstMessages, "openwork-cloud_search_capabilities")).toMatchObject({
+      state: { status: "completed" },
+    });
+
+    const secondCreated = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "MCP after restart" }),
+    }));
+    const secondSessionId = sessionIdFromCreateResponse(secondCreated);
+    let releaseModel = () => {};
+    let markModelStarted = () => {};
+    const modelStarted = new Promise<void>((resolve) => {
+      markModelStarted = resolve;
+    });
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModel = resolve;
+    });
+    setFlueFauxResponsesForTest([
+      async () => {
+        markModelStarted();
+        await modelGate;
+        return fauxAssistantMessage([
+          fauxToolCall("openwork-cloud_search_capabilities", { query: "after restart" }),
+        ], { stopReason: "toolUse" });
+      },
+      fauxAssistantMessage([fauxText("The MCP call recovered after restart.")]),
+    ]);
+    expect((await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(secondSessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ parts: [{ type: "text", text: "Call MCP after restart." }] }),
+    })).status).toBe(204);
+    await modelStarted;
+    await mcp.restart();
+    releaseModel();
+
+    const secondMessages = await waitForCompletedMessages(base, token, secondSessionId);
+    expect(toolPart(secondMessages, "openwork-cloud_search_capabilities")).toMatchObject({
+      state: { status: "completed" },
+    });
+    expect(mcp.toolCalls).toEqual(["search_capabilities", "search_capabilities"]);
+    expect(mcp.initializeCount).toBe(2);
+    const status = await readJson(await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) }));
+    expect(status).toEqual({ "openwork-cloud": { status: "connected" } });
+    const ids = await readJson(await fetch(`${base}/w/ws_1/opencode/experimental/tool/ids`, { headers: auth(token) }));
+    expect(ids).toEqual([
+      "openwork-cloud_execute_capability",
+      "openwork-cloud_search_capabilities",
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mcp.activeSessionCount).toBe(1);
+  });
+
+  test("expires cached MCP liveness and reports a server that cannot be reprobed", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const mcp = startRestartableMockMcpServer();
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      mcp: { expiring: { type: "remote", url: mcp.url, enabled: true } },
+    }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+    expect(await readJson(await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) }))).toEqual({
+      expiring: { status: "connected" },
+    });
+
+    mcp.stop();
+    const realNow = Date.now;
+    const afterLivenessInterval = realNow() + 31_000;
+    Date.now = () => afterLivenessInterval;
+    try {
+      expect(await readJson(await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) }))).toEqual({
+        expiring: { status: "failed", error: "connection_failed" },
+      });
+    } finally {
+      Date.now = realNow;
+    }
+    expect(mcp.initializeCount).toBe(1);
+  });
+
+  test("reports a dead MCP transport as failed while a healthy sibling remains usable", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    await seedEmptyCatalog(workspaceRoot);
+    const dead = startRestartableMockMcpServer();
+    const healthy = startMockMcpServer();
+    const mock = startMockOpencode();
+    const { base, token, config } = await startOpenworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+    await writeGlobalRuntimeOpencodeConfig(config, () => ({
+      mcp: {
+        dead: { type: "remote", url: dead.url, enabled: true },
+        healthy: { type: "remote", url: healthy.url, enabled: true },
+      },
+    }));
+    await readJson(await fetch(`${base}/workspace/ws_1/engine`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ engine: "flue" }),
+    }));
+
+    const deadCreated = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "Dead MCP" }),
+    }));
+    const deadSessionId = sessionIdFromCreateResponse(deadCreated);
+    let releaseModel = () => {};
+    let markModelStarted = () => {};
+    const modelStarted = new Promise<void>((resolve) => {
+      markModelStarted = resolve;
+    });
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModel = resolve;
+    });
+    setFlueFauxResponsesForTest([
+      async () => {
+        markModelStarted();
+        await modelGate;
+        return fauxAssistantMessage([
+          fauxToolCall("dead_search_capabilities", { query: "server gone" }),
+        ], { stopReason: "toolUse" });
+      },
+      fauxAssistantMessage([fauxText("The dead server call failed truthfully.")]),
+    ]);
+    expect((await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(deadSessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ parts: [{ type: "text", text: "Call the server that will stop." }] }),
+    })).status).toBe(204);
+    await modelStarted;
+    dead.stop();
+    releaseModel();
+
+    const deadMessages = await waitForCompletedMessages(base, token, deadSessionId);
+    const deadToolPart = toolPart(deadMessages, "dead_search_capabilities");
+    expect(deadToolPart).toMatchObject({ state: { status: "error" } });
+    expect(readStringField(deadToolPart?.state, "error")).toContain('MCP server \\"dead\\"');
+    expect(readStringField(deadToolPart?.state, "error")).toContain("reconnect attempt failed: connection_failed");
+    const status = await readJson(await fetch(`${base}/w/ws_1/opencode/mcp`, { headers: auth(token) }));
+    expect(status).toEqual({
+      dead: { status: "failed", error: "connection_failed" },
+      healthy: { status: "connected" },
+    });
+    const ids = await readJson(await fetch(`${base}/w/ws_1/opencode/experimental/tool/ids`, { headers: auth(token) }));
+    expect(ids).toEqual([
+      "healthy_execute_capability",
+      "healthy_search_capabilities",
+    ]);
+    expect(dead.initializeCount).toBe(1);
+    expect(healthy.initializeCount).toBe(1);
+
+    const healthyCreated = await readJson(await fetch(`${base}/w/ws_1/opencode/session`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ title: "Healthy MCP sibling" }),
+    }));
+    const healthySessionId = sessionIdFromCreateResponse(healthyCreated);
+    setFlueFauxResponsesForTest([
+      fauxAssistantMessage([
+        fauxToolCall("healthy_search_capabilities", { query: "healthy sibling" }),
+      ], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("The healthy sibling still works.")]),
+    ]);
+    expect((await fetch(`${base}/w/ws_1/opencode/session/${encodeURIComponent(healthySessionId)}/prompt_async`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ parts: [{ type: "text", text: "Call the healthy sibling." }] }),
+    })).status).toBe(204);
+    const healthyMessages = await waitForCompletedMessages(base, token, healthySessionId);
+    expect(toolPart(healthyMessages, "healthy_search_capabilities")).toMatchObject({
+      state: { status: "completed" },
+    });
+    expect(healthy.toolCalls).toEqual(["search_capabilities"]);
+    expect(healthy.initializeCount).toBe(1);
   });
 });

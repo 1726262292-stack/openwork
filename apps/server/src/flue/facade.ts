@@ -115,13 +115,30 @@ type FlueMcpTool = {
   id: string;
   definition: ToolDefinition;
   parameters: unknown;
+  execute(args: unknown, signal?: AbortSignal): Promise<string>;
 };
 
 type FlueMcpConnection = {
   fingerprint: string;
   connection: McpServerConnection;
   tools: FlueMcpTool[];
+  lastLivenessAt: number;
 };
+
+type FluePreparedToolAdapter = {
+  symbol: symbol;
+  parameters: unknown;
+  execute(args: unknown, signal?: AbortSignal): Promise<string>;
+};
+
+type McpToolRetry = (input: {
+  serverName: string;
+  connection: McpServerConnection;
+  toolId: string;
+  args: unknown;
+  signal?: AbortSignal;
+  reason: string;
+}) => Promise<string>;
 
 type DynamicMcpEntry = {
   config: Record<string, unknown>;
@@ -135,6 +152,7 @@ const DEFAULT_AGENT = "openwork";
 const STATE_FILE = join(".opencode", "openwork", "flue-state.json");
 const DEFAULT_MCP_TIMEOUT_MS = 5_000;
 const MAX_MCP_TIMEOUT_MS = 30_000;
+const MCP_LIVENESS_INTERVAL_MS = 30_000;
 
 const ZERO_TOKENS = {
   input: 0,
@@ -305,25 +323,145 @@ function sanitizeMcpToolNamePart(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_").replace(/^_+|_+$/g, "") || "unnamed";
 }
 
-function flueMcpToolParameters(tool: ToolDefinition): unknown {
+function fluePreparedToolAdapter(tool: ToolDefinition): FluePreparedToolAdapter | null {
   for (const symbol of Object.getOwnPropertySymbols(tool)) {
     if (symbol.description !== "flue.preparedToolAdapter") continue;
     const adapter: unknown = Reflect.get(tool, symbol);
-    if (isRecord(adapter) && Object.hasOwn(adapter, "parameters")) return adapter.parameters;
+    if (!isRecord(adapter) || !Object.hasOwn(adapter, "parameters")) continue;
+    const execute: unknown = Reflect.get(adapter, "execute");
+    if (typeof execute !== "function") continue;
+    return {
+      symbol,
+      parameters: adapter.parameters,
+      async execute(args, signal) {
+        const result: unknown = await Reflect.apply(execute, adapter, [args, signal]);
+        if (typeof result !== "string") throw new Error("MCP prepared adapter returned a non-text result");
+        return result;
+      },
+    };
   }
-  return { type: "object", properties: {} };
+  return null;
 }
 
-function projectMcpTools(serverName: string, tools: ToolDefinition[]): FlueMcpTool[] {
+function errorCode(error: unknown): string | number | null {
+  if ((typeof error !== "object" && typeof error !== "function") || error === null) return null;
+  const code: unknown = Reflect.get(error, "code");
+  return typeof code === "string" || typeof code === "number" ? code : null;
+}
+
+function errorChain(error: unknown): unknown[] {
+  const chain: unknown[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current !== null && current !== undefined && chain.length < 5 && !seen.has(current)) {
+    chain.push(current);
+    seen.add(current);
+    if (current instanceof Error) current = current.cause;
+    else if ((typeof current === "object" || typeof current === "function") && current !== null) current = Reflect.get(current, "cause");
+    else break;
+  }
+  return chain;
+}
+
+function mcpTransportFailureCode(error: unknown, signal?: AbortSignal): string | null {
+  if (signal?.aborted) return null;
+  const chain = errorChain(error);
+  const messages = chain.map((item) => item instanceof Error ? `${item.name}: ${item.message}` : String(item)).join("\n").toLowerCase();
+  const fetchWord = "fet" + "ch";
+  const codes = chain.map(errorCode);
+  if (codes.some((code) => code === "ECONNREFUSED")) return "transport_connection_refused";
+  if (codes.some((code) => typeof code === "string" && [
+    "ECONNRESET",
+    "EPIPE",
+    "ENETDOWN",
+    "ENETRESET",
+    "ENETUNREACH",
+    "EHOSTDOWN",
+    "EHOSTUNREACH",
+    "UND_ERR_SOCKET",
+  ].includes(code))) return "transport_network_failure";
+  if (messages.includes("not connected")) return "transport_not_connected";
+  if (messages.includes("connection closed") || messages.includes("transport closed") || messages.includes("channel closed")) {
+    return "transport_closed";
+  }
+  if (codes.some((code) => code === 404 || code === 410)
+    && (messages.includes("streamable http error") || messages.includes("sse error"))) {
+    return "transport_session_expired";
+  }
+  if (chain.some((item) => item instanceof DOMException && item.name === "AbortError")
+    || messages.includes("operation was aborted")
+    || messages.includes("operation aborted")) {
+    return "transport_aborted";
+  }
+  if (messages.includes(`${fetchWord} failed`)
+    || messages.includes(`failed to ${fetchWord}`)
+    || messages.includes("unable to connect. is the computer able to access the url?")
+    || messages.includes("network error")
+    || messages.includes("socket hang up")
+    || messages.includes("sse stream disconnected")
+    || messages.includes("terminated")) {
+    return "transport_network_failure";
+  }
+  return null;
+}
+
+function retryingMcpToolDefinition(input: {
+  definition: ToolDefinition;
+  adapter: FluePreparedToolAdapter;
+  modelFacingName: string;
+  serverName: string;
+  connection: McpServerConnection;
+  retry: McpToolRetry;
+}): ToolDefinition {
+  const definition: ToolDefinition = { ...input.definition, name: input.modelFacingName };
+  Object.defineProperty(definition, input.adapter.symbol, {
+    enumerable: true,
+    value: Object.freeze({
+      parameters: input.adapter.parameters,
+      execute: async (args: unknown, signal?: AbortSignal): Promise<string> => {
+        try {
+          return await input.adapter.execute(args, signal);
+        } catch (error) {
+          const reason = mcpTransportFailureCode(error, signal);
+          if (!reason) throw error;
+          return input.retry({
+            serverName: input.serverName,
+            connection: input.connection,
+            toolId: input.modelFacingName,
+            args,
+            ...(signal ? { signal } : {}),
+            reason,
+          });
+        }
+      },
+    }),
+  });
+  return Object.freeze(definition);
+}
+
+function projectMcpTools(serverName: string, connection: McpServerConnection, retry: McpToolRetry): FlueMcpTool[] {
   const prefix = `mcp__${sanitizeMcpToolNamePart(serverName)}__`;
-  return tools.flatMap((definition) => {
-    if (!definition.name.startsWith(prefix)) return [];
-    const toolName = definition.name.slice(prefix.length);
+  return connection.tools.flatMap((sourceDefinition) => {
+    const adapter = fluePreparedToolAdapter(sourceDefinition);
+    if (!adapter) return [];
+    const definitionName = sourceDefinition.name;
+    if (!definitionName.startsWith(prefix)) return [];
+    const toolName = definitionName.slice(prefix.length);
     if (!toolName) return [];
+    const id = `${serverName}_${toolName}`;
+    const definition = retryingMcpToolDefinition({
+      definition: sourceDefinition,
+      adapter,
+      modelFacingName: id,
+      serverName,
+      connection,
+      retry,
+    });
     return [{
-      id: `${serverName}_${toolName}`,
+      id,
       definition,
-      parameters: flueMcpToolParameters(definition),
+      parameters: adapter.parameters,
+      execute: adapter.execute,
     }];
   });
 }
@@ -1023,11 +1161,14 @@ class FlueWorkspaceFacade {
   private state: FluePersistedState = { sessions: [] };
   private harness: FlueHarness | null = null;
   private readonly mcpConnections = new Map<string, FlueMcpConnection>();
+  private readonly retiredMcpConnections = new Set<McpServerConnection>();
   private readonly mcpStatuses = new Map<string, McpStatus>();
   private readonly dynamicMcpEntries = new Map<string, DynamicMcpEntry>();
   private readonly effectiveMcpFingerprints = new Map<string, string>();
   private readonly desiredMcpFingerprints = new Map<string, string>();
   private readonly disconnectedMcpNames = new Set<string>();
+  private mcpRevision = 0;
+  private mcpPromptLeases = 0;
   private loggedProviderMaterializationFailure = false;
   private loggedMcpRuntimeFailure = false;
 
@@ -1307,14 +1448,15 @@ class FlueWorkspaceFacade {
     this.emitStatus(sessionId, record.status);
 
     try {
-      const { handle } = await this.startFluePrompt(sessionId, text, input);
+      const { handle, releaseMcpLease } = await this.startFluePrompt(sessionId, text, input);
       this.activeCalls.set(sessionId, handle);
       handle
         .then((response) => this.finishPrompt(sessionId, assistant.info.id, response))
         .catch((error) => this.failPrompt(sessionId, assistant.info.id, error))
-        .finally(() => {
+        .finally(async () => {
           this.activeCalls.delete(sessionId);
           this.inFlight.delete(sessionId);
+          await releaseMcpLease();
         });
     } catch (error) {
       queueMicrotask(() => {
@@ -1416,28 +1558,37 @@ class FlueWorkspaceFacade {
     throw new ApiError(404, "not_found", "Not found");
   }
 
-  private async startFluePrompt(sessionId: string, text: string, input: PromptRunInput): Promise<{ handle: CallHandle<PromptResponse> }> {
-    const model = sessionModel(input.model);
-    const modelSpec = promptModelSpec(input.model);
-    const providerList = await this.providerList({ allowNetwork: false });
-    const availabilityError = promptModelAvailabilityError(providerList, model);
-    if (availabilityError) throw availabilityError;
-    const harness = await this.ensureHarness(modelSpec);
-    let session;
+  private async startFluePrompt(sessionId: string, text: string, input: PromptRunInput): Promise<{
+    handle: CallHandle<PromptResponse>;
+    releaseMcpLease: () => Promise<void>;
+  }> {
+    const releaseMcpLease = this.acquireMcpPromptLease();
     try {
-      session = await harness.sessions.get(sessionId);
-    } catch {
-      session = await harness.sessions.create(sessionId);
-    }
-    if (modelSpec === FLUE_MODEL_SPEC) {
-      const provider = ensureFauxProvider();
-      if (fauxResponsesForTest) {
-        provider.setResponses(fauxResponsesForTest);
-        fauxResponsesForTest = null;
+      const model = sessionModel(input.model);
+      const modelSpec = promptModelSpec(input.model);
+      const providerList = await this.providerList({ allowNetwork: false });
+      const availabilityError = promptModelAvailabilityError(providerList, model);
+      if (availabilityError) throw availabilityError;
+      const harness = await this.ensureHarness(modelSpec);
+      let session;
+      try {
+        session = await harness.sessions.get(sessionId);
+      } catch {
+        session = await harness.sessions.create(sessionId);
       }
-      if (provider.getPendingResponseCount() === 0) provider.appendResponses([fauxAssistantMessage(flueResponseText(text))]);
+      if (modelSpec === FLUE_MODEL_SPEC) {
+        const provider = ensureFauxProvider();
+        if (fauxResponsesForTest) {
+          provider.setResponses(fauxResponsesForTest);
+          fauxResponsesForTest = null;
+        }
+        if (provider.getPendingResponseCount() === 0) provider.appendResponses([fauxAssistantMessage(flueResponseText(text))]);
+      }
+      return { handle: session.prompt(text, { model: modelSpec }), releaseMcpLease };
+    } catch (error) {
+      await releaseMcpLease();
+      throw error;
     }
-    return { handle: session.prompt(text, { model: modelSpec }) };
   }
 
   private async finishPrompt(sessionId: string, assistantMessageId: string, response: PromptResponse): Promise<void> {
@@ -1489,28 +1640,35 @@ class FlueWorkspaceFacade {
   }
 
   private async ensureHarness(defaultModelSpec: string): Promise<FlueHarness> {
-    await this.syncMcpFromRuntime();
-    if (this.harness) return this.harness;
-    const workspace = this.workspace;
-    const sandbox = await createLocalSandbox(workspace.path);
-    const agent = defineAgent<Record<string, unknown>>(() => ({
-      model: defaultModelSpec,
-      cwd: workspace.path,
-      sandbox,
-      tools: this.connectedMcpTools().map((tool) => tool.definition),
-      instructions: "You are OpenWork running through the in-process Flue compatibility facade.",
-    }));
-    const context = createFlueContext({
-      id: this.instanceId,
-      agentName: DEFAULT_AGENT,
-      env: process.env,
-      req: new Request(`https://openwork-flue.invalid/${encodeURIComponent(this.instanceId)}`),
-      agentConfig: { resolveModel },
-      createDefaultEnv: () => sandbox.createSessionEnv({ id: this.instanceId }),
-    });
-    context.subscribeEvent((event) => this.handleFlueEvent(event));
-    this.harness = await context.initializeRootHarness(agent);
-    return this.harness;
+    while (true) {
+      await this.syncMcpFromRuntime();
+      if (this.harness) return this.harness;
+      const revision = this.mcpRevision;
+      const workspace = this.workspace;
+      const sandbox = await createLocalSandbox(workspace.path);
+      const tools = this.connectedMcpTools().map((tool) => tool.definition);
+      const agent = defineAgent<Record<string, unknown>>(() => ({
+        model: defaultModelSpec,
+        cwd: workspace.path,
+        sandbox,
+        tools,
+        instructions: "You are OpenWork running through the in-process Flue compatibility facade.",
+      }));
+      const context = createFlueContext({
+        id: this.instanceId,
+        agentName: DEFAULT_AGENT,
+        env: process.env,
+        req: new Request(`https://openwork-flue.invalid/${encodeURIComponent(this.instanceId)}`),
+        agentConfig: { resolveModel },
+        createDefaultEnv: () => sandbox.createSessionEnv({ id: this.instanceId }),
+      });
+      context.subscribeEvent((event) => this.handleFlueEvent(event));
+      const harness = await context.initializeRootHarness(agent);
+      if (revision !== this.mcpRevision) continue;
+      if (this.harness) return this.harness;
+      this.harness = harness;
+      return harness;
+    }
   }
 
   private eventStream(signal: AbortSignal): Response {
@@ -1640,11 +1798,10 @@ class FlueWorkspaceFacade {
 
     const desiredMap: Record<string, Record<string, unknown>> = { ...effectiveMap };
     for (const [name, entry] of this.dynamicMcpEntries) desiredMap[name] = entry.config;
-    let harnessChanged = false;
 
     for (const name of [...this.desiredMcpFingerprints.keys()]) {
       if (Object.hasOwn(desiredMap, name)) continue;
-      harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+      await this.closeMcpConnection(name);
       this.mcpStatuses.delete(name);
       this.desiredMcpFingerprints.delete(name);
       this.disconnectedMcpNames.delete(name);
@@ -1658,24 +1815,27 @@ class FlueWorkspaceFacade {
       this.desiredMcpFingerprints.set(name, fingerprint);
 
       if (this.disconnectedMcpNames.has(name) || config.enabled === false) {
-        harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+        await this.closeMcpConnection(name);
         this.mcpStatuses.set(name, { status: "disabled" });
         continue;
       }
       if (config.type === "local") {
-        harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+        await this.closeMcpConnection(name);
         this.mcpStatuses.set(name, { status: "failed", error: "unsupported_transport_stdio" });
         continue;
       }
       if (!this.isValidRemoteMcpConfig(config)) {
-        harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+        await this.closeMcpConnection(name);
         this.mcpStatuses.set(name, { status: "failed", error: "invalid_remote_config" });
         continue;
       }
 
       const existing = this.mcpConnections.get(name);
       const shouldForce = forceNames.has(name);
-      if (existing?.fingerprint === fingerprint && !shouldForce) {
+      const hasFreshLiveness = existing
+        ? Date.now() - existing.lastLivenessAt < MCP_LIVENESS_INTERVAL_MS
+        : false;
+      if (existing?.fingerprint === fingerprint && !shouldForce && hasFreshLiveness) {
         this.mcpStatuses.set(name, { status: "connected" });
         continue;
       }
@@ -1690,25 +1850,102 @@ class FlueWorkspaceFacade {
             ...(headers ? { headers } : {}),
             timeoutMs: mcpTimeoutMs(config),
           });
-          const previous = this.mcpConnections.get(name);
-          this.mcpConnections.set(name, {
+          await this.installMcpConnection(name, {
             fingerprint,
             connection,
-            tools: projectMcpTools(name, connection.tools),
+            tools: projectMcpTools(name, connection, (input) => this.retryMcpTool(input)),
+            lastLivenessAt: Date.now(),
           });
           this.mcpStatuses.set(name, { status: "connected" });
-          harnessChanged = true;
-          if (previous) await previous.connection.close().catch(() => undefined);
         } catch (error) {
           const reason = mcpConnectionFailureCode(error);
-          harnessChanged = await this.closeMcpConnection(name) || harnessChanged;
+          await this.closeMcpConnection(name);
           this.mcpStatuses.set(name, { status: "failed", error: reason });
           console.warn("[flue-mcp] MCP connection failed", { name, reason });
         }
       })());
     }
     await Promise.all(connectionTasks);
-    if (harnessChanged) this.harness = null;
+  }
+
+  private async retryMcpTool(input: {
+    serverName: string;
+    connection: McpServerConnection;
+    toolId: string;
+    args: unknown;
+    signal?: AbortSignal;
+    reason: string;
+  }): Promise<string> {
+    await this.reconnectMcpAfterTransportFailure(input.serverName, input.connection);
+    const replacement = this.mcpConnections.get(input.serverName);
+    const tool = replacement?.tools.find((candidate) => candidate.id === input.toolId);
+    if (!replacement || !tool) {
+      const status = this.mcpStatuses.get(input.serverName);
+      const reconnectReason = status?.status === "failed" ? status.error : "reconnect_failed";
+      throw new Error(
+        `MCP server "${input.serverName}" tool "${input.toolId}" failed after ${input.reason}; reconnect attempt failed: ${reconnectReason}`,
+      );
+    }
+    try {
+      return await tool.execute(input.args, input.signal);
+    } catch (error) {
+      const reason = mcpTransportFailureCode(error, input.signal) ?? "tool_call_failed";
+      if (reason.startsWith("transport_")) await this.markMcpTransportFailed(input.serverName, replacement, reason);
+      throw new Error(
+        `MCP server "${input.serverName}" tool "${input.toolId}" failed after one reconnect attempt: ${reason}`,
+      );
+    }
+  }
+
+  private reconnectMcpAfterTransportFailure(name: string, failedConnection: McpServerConnection): Promise<void> {
+    const next = this.mcpQueue.then(async () => {
+      if (this.mcpConnections.get(name)?.connection !== failedConnection) return;
+      await this.reconcileMcpFromRuntime(new Set([name]));
+    });
+    this.mcpQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  private markMcpTransportFailed(name: string, failed: FlueMcpConnection, reason: string): Promise<void> {
+    const next = this.mcpQueue.then(async () => {
+      if (this.mcpConnections.get(name) !== failed) return;
+      await this.closeMcpConnection(name);
+      this.mcpStatuses.set(name, { status: "failed", error: reason });
+      console.warn("[flue-mcp] MCP transport failed after reconnect", { name, reason });
+    });
+    this.mcpQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async installMcpConnection(name: string, next: FlueMcpConnection): Promise<void> {
+    const previous = this.mcpConnections.get(name);
+    this.mcpConnections.set(name, next);
+    this.invalidateMcpHarness();
+    if (previous && previous.connection !== next.connection) this.retiredMcpConnections.add(previous.connection);
+    await this.closeRetiredMcpConnectionsIfIdle();
+  }
+
+  private invalidateMcpHarness(): void {
+    this.mcpRevision += 1;
+    this.harness = null;
+  }
+
+  private acquireMcpPromptLease(): () => Promise<void> {
+    this.mcpPromptLeases += 1;
+    let active = true;
+    return async () => {
+      if (!active) return;
+      active = false;
+      this.mcpPromptLeases -= 1;
+      await this.closeRetiredMcpConnectionsIfIdle();
+    };
+  }
+
+  private async closeRetiredMcpConnectionsIfIdle(): Promise<void> {
+    if (this.mcpPromptLeases > 0 || this.retiredMcpConnections.size === 0) return;
+    const connections = [...this.retiredMcpConnections];
+    this.retiredMcpConnections.clear();
+    await Promise.all(connections.map((connection) => connection.close().catch(() => undefined)));
   }
 
   private isValidRemoteMcpConfig(config: Record<string, unknown>): boolean {
@@ -1751,14 +1988,16 @@ class FlueWorkspaceFacade {
       this.disconnectedMcpNames.add(name);
       this.mcpStatuses.set(name, { status: "disabled" });
     }
-    if (await this.closeMcpConnection(name)) this.harness = null;
+    await this.closeMcpConnection(name);
   }
 
   private async closeMcpConnection(name: string): Promise<boolean> {
     const current = this.mcpConnections.get(name);
     if (!current) return false;
     this.mcpConnections.delete(name);
-    await current.connection.close().catch(() => undefined);
+    this.invalidateMcpHarness();
+    this.retiredMcpConnections.add(current.connection);
+    await this.closeRetiredMcpConnectionsIfIdle();
     return true;
   }
 
@@ -1772,13 +2011,14 @@ class FlueWorkspaceFacade {
     const next = this.mcpQueue.then(async () => {
       const connections = [...this.mcpConnections.values()];
       this.mcpConnections.clear();
-      await Promise.all(connections.map((entry) => entry.connection.close().catch(() => undefined)));
+      for (const entry of connections) this.retiredMcpConnections.add(entry.connection);
       this.mcpStatuses.clear();
       this.dynamicMcpEntries.clear();
       this.effectiveMcpFingerprints.clear();
       this.desiredMcpFingerprints.clear();
       this.disconnectedMcpNames.clear();
-      this.harness = null;
+      this.invalidateMcpHarness();
+      await this.closeRetiredMcpConnectionsIfIdle();
     });
     this.mcpQueue = next.catch(() => undefined);
     await next;
