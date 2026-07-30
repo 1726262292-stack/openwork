@@ -109,10 +109,20 @@ export async function createAndSelectWorkspace(
   const route = await currentHash(app);
   if (route.includes("/welcome")) {
     const workspace = await createLocalWorkspaceViaUi(app, input);
-    workspaceId = workspace.id || (await resolveWorkspaceId(app));
     await clickButton(app, "Skip and use the free model", { timeoutMs: 90_000 });
     await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 90_000 });
     await clickButton(app, "Skip", { timeoutMs: 15_000 });
+    // Only now is the workspace actually selected: resolving before the
+    // onboarding steps finish reads an id the app has not adopted yet.
+    workspaceId = workspace.id;
+    if (!workspaceId) {
+      await waitFor(app, `Boolean(localStorage.getItem("openwork.react.activeWorkspace"))
+        || /\\/workspace\\/[^/?#]+/.test(window.location.hash)`, {
+        timeoutMs: 180_000,
+        label: "workspace selected after onboarding",
+      });
+      workspaceId = await resolveWorkspaceId(app);
+    }
   } else {
     if (route.includes("/onboarding")) await completeOrganizationOnboarding(app);
     workspaceId = await resolveWorkspaceId(app);
