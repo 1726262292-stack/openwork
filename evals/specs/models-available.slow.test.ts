@@ -371,13 +371,14 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(managedTitle, async () => {
     label: "empty notice still present after Retry (pinned defect)",
   });
   expect(stillEmpty).toBeTruthy();
+  // Retry itself is asserted before the click; right after it the button can
+  // legitimately read "Refreshing…", so only the persistent notice is pinned.
   const after = await readModelRecoveryState(app);
   expect(after.emptyMessageVisible).toBe(true);
-  expect(after.retryVisible).toBe(true);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The compact empty-models notice with Retry is still visible after Retry was clicked",
+      "The compact empty-models notice is still visible after Retry was clicked",
       "No 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
