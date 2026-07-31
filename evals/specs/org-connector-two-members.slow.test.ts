@@ -75,7 +75,14 @@ async function waitForConnectionCard(app: Surface, name: string): Promise<void> 
     })()`).catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  throw new Error(`The connection card ${name} never appeared.`);
+  // Say what WAS on screen: "card missing" alone cannot distinguish an
+  // unmounted surface from a connection den never offered this member.
+  const seen = await evalIn(app, `({
+    hash: window.location.hash,
+    buttons: [...document.querySelectorAll('button')].map((b) => (b.textContent ?? '').replace(/\\s+/g, ' ').trim()).filter(Boolean).slice(0, 40),
+    text: (document.body.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 600),
+  })`).catch(() => null);
+  throw new Error(`The connection card ${name} never appeared. On screen: ${JSON.stringify(seen)}`);
 }
 
 /** The connections surface, settled — polling before it mounts finds nothing. */
