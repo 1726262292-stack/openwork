@@ -29,12 +29,12 @@
     "@openwork/paths": "workspace:*",
     "@opencode-ai/sdk": "^1.17.11",
     "better-sqlite3": "^12.11.1",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "electron-updater": "^6.3.9",
     "jsonc-parser": "^3.2.1",
     "minimatch": "^10.2.5",
     "node-pty": "npm:@lydell/node-pty@1.2.0-beta.12",
-    "yaml": "^2.6.1",
+    "yaml": "^2.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
