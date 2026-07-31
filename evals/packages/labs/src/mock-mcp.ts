@@ -12,11 +12,25 @@ export interface MockAuthorizeRequest {
   at: string;
 }
 
+/** A tool invocation the connector actually served, and which credential served it. */
+export interface MockToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  /** sha256 prefix of the caller's bearer token — distinct per member credential. */
+  tokenId: string | null;
+}
+
 export interface MockMcpHandle {
   url: string;
   mcpUrl: string;
   authorizeRequestSince(iso: string, opts?: { timeoutMs?: number }): Promise<MockAuthorizeRequest & { params: URLSearchParams }>;
   requests(): Promise<MockAuthorizeRequest[]>;
+  /**
+   * Tool calls the connector served. This is the AUTHORITY for "did a person
+   * really use it" — the app's own UI can look connected while nothing was
+   * invoked, and per-member isolation is only provable by distinct tokenIds.
+   */
+  toolCalls(opts?: { name?: string; timeoutMs?: number; atLeast?: number }): Promise<MockToolCall[]>;
   stop(): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;
 }
@@ -131,10 +145,47 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
     });
   };
 
+  const rawEntries = async (): Promise<Record<string, unknown>[]> => {
+    const response = await fetch(`${url}/requests`);
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(`Mock request log failed: HTTP ${response.status}`);
+    return isRecord(body) && Array.isArray(body.requests) ? body.requests.filter(isRecord) : [];
+  };
+
+  const readToolCalls = async (name?: string): Promise<MockToolCall[]> => {
+    const calls: MockToolCall[] = [];
+    for (const entry of await rawEntries()) {
+      if (!Array.isArray(entry.toolCalls)) continue;
+      for (const call of entry.toolCalls) {
+        if (!isRecord(call) || typeof call.name !== "string") continue;
+        if (name && call.name !== name) continue;
+        calls.push({
+          name: call.name,
+          args: isRecord(call.args) ? call.args : {},
+          tokenId: typeof call.tokenId === "string" ? call.tokenId : null,
+        });
+      }
+    }
+    return calls;
+  };
+
   return {
     url,
     mcpUrl: `${url}/mcp`,
     requests,
+    async toolCalls(opts = {}) {
+      const wanted = opts.atLeast ?? 0;
+      if (wanted <= 0) return readToolCalls(opts.name);
+      // The engine invokes tools asynchronously after the model decides to, so
+      // poll rather than read once.
+      const deadline = Date.now() + (opts.timeoutMs ?? 120_000);
+      let calls = await readToolCalls(opts.name);
+      while (calls.length < wanted && Date.now() < deadline) {
+        await sleep(1_000);
+        calls = await readToolCalls(opts.name);
+      }
+      return calls;
+    },
     async authorizeRequestSince(iso, opts = {}) {
       const deadline = Date.now() + (opts.timeoutMs ?? 60_000);
       while (Date.now() < deadline) {
