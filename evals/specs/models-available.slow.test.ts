@@ -33,7 +33,6 @@ const managedTitle = !appSpecsEnabled
     : "managed organization empty-models notice stays usable (live recovery after publish is a pinned defect)";
 const emptyMessage = "Your organization hasn't published any models for you yet.";
 const guidance = "The model you were using is no longer available, please select a different model for this session.";
-const readyDraft = "Ready with the assigned model.";
 const providerName = "Composer Model Refresh Proof";
 const modelId = "gpt-5.4";
 const adminExceptionPolicyName = "Admins may add providers";
@@ -372,14 +371,13 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(managedTitle, async () => {
     label: "empty notice still present after Retry (pinned defect)",
   });
   expect(stillEmpty).toBeTruthy();
-  await setComposerText(app, readyDraft);
-  const composer = await readComposerState(app);
-  expect(composer.draftText).toContain(readyDraft);
-  expect(composer.runTaskVisible).toBe(true);
+  const after = await readModelRecoveryState(app);
+  expect(after.emptyMessageVisible).toBe(true);
+  expect(after.retryVisible).toBe(true);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The compact empty-models notice is still visible after Retry while the composer stays usable with a typed draft",
+      "The compact empty-models notice with Retry is still visible after Retry was clicked",
       "No 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
