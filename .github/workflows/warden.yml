@@ -1,8 +1,13 @@
 name: Warden
 
+# Trigger types must stay aligned with the warden.toml trigger actions:
+# an event that runs this workflow but matches no warden trigger would
+# produce findings_count=0 without analysis and wrongly grant clearance.
+# (ready_for_review is deliberately absent — warden does not support it;
+# draft-to-ready PRs get analyzed on their next push.)
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
     branches: [dev]
 
 permissions:
@@ -20,8 +25,13 @@ env:
 
 jobs:
   warden:
-    if: ${{ !github.event.pull_request.draft }}
+    # Skip drafts and fork PRs: forks have no secrets, so analysis cannot
+    # run (and clearance is fork-blocked in warden-clearance.yml anyway).
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
