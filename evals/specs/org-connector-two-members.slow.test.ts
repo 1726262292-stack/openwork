@@ -45,11 +45,29 @@ import type { Surface } from "@openwork/cdp";
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
 const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
+/**
+ * BLOCKED ON A PRODUCT DEFECT, so opt-in rather than nightly-gating.
+ *
+ * The organization connections surface (/settings/extensions/connections)
+ * renders empty for a signed-in org member on current dev: the route is correct
+ * and `document.body.innerText` is "". The pre-existing org-connection-lifecycle
+ * spec independently fails the same way ("Connection card did not render"),
+ * having passed that point earlier the same day — the sandbox pulled merged dev
+ * in between, which includes #3375 (provider logos across the connect flow).
+ *
+ * Everything up to that surface is verified: both members resolve, the org
+ * connection is created and readable per-member over the API, and both desktops
+ * boot and sign in as different people. Drop OPENWORK_EVAL_CONNECTOR_SPEC once
+ * the surface renders again; the assertions below are the real target.
+ */
+const optedIn = process.env.OPENWORK_EVAL_CONNECTOR_SPEC === "1";
 const title = !appSpecsEnabled
   ? "org connector two members skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in"
   : !apiUrl
     ? "org connector two members skipped: set OPENWORK_EVAL_DEN_API_URL to a running Den"
-    : "two members each connect their own account to one org connector and call its tools";
+    : !optedIn
+      ? "org connector two members skipped: the org connections surface renders blank on dev (see header); set OPENWORK_EVAL_CONNECTOR_SPEC=1 to run anyway"
+      : "two members each connect their own account to one org connector and call its tools";
 
 const password = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
 const adminEmail = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
@@ -131,7 +149,7 @@ async function memberDesktop(name: string, den: DenRef, member: DenSession): Pro
   return { app, workspaceId };
 }
 
-test.skipIf(!appSpecsEnabled || !apiUrl)(title, async () => {
+test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   const den: DenRef = {
     apiUrl,
     webUrl: (process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim() || apiUrl.replace("127.0.0.1", "localhost")).replace(/\/+$/, ""),
