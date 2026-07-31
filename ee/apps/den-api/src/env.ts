@@ -51,6 +51,7 @@ const EnvSchema = z.object({
   LINEAR_API_BASE: z.string().optional(),
   LINEAR_COMPLIANCE_COMPLETED_STATE_ID: z.string().optional(),
   OPENWORK_DEV_MODE: z.string().optional(),
+  DEN_BOTID_PROTECTION_ENABLED: z.string().optional(),
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
   DEN_DIAGNOSTICS_ORIGIN: z.string().optional(),
   DEN_DIAGNOSTICS_BEARER_TOKEN: z.string().optional(),
@@ -372,6 +373,7 @@ const mcpConnectionsGatingEnabled =
   (parsed.DEN_MCP_CONNECTIONS_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
+const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"
 const diagnosticsOrigin = normalizeDiagnosticsOrigin(parsed.DEN_DIAGNOSTICS_ORIGIN, devMode)
 const diagnosticsBearerToken = optionalString(parsed.DEN_DIAGNOSTICS_BEARER_TOKEN)
 if (diagnosticsBearerToken && diagnosticsBearerToken.length < 24) {
@@ -431,6 +433,7 @@ export const env = {
   // are treated as suffix matches, e.g. ".example.com".
   webAppHosts: splitCsv(parsed.DEN_WEB_APP_HOSTS).map((host) => host.toLowerCase()),
   devMode,
+  botIdProtectionEnabled,
   allowPrivateMcpUrls,
   diagnostics: {
     origin: diagnosticsOrigin,

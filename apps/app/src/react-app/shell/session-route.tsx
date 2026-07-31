@@ -134,15 +134,7 @@ import {
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { useSessionMcpMaintenance } from "@/react-app/domains/connections/use-session-mcp-maintenance";
 import { useCloudMcpSubmitReadiness } from "@/react-app/domains/connections/use-cloud-mcp-submit-readiness";
-import {
-  IDLE_CLOUD_MCP_SUBMISSION_GATE_STATE,
-  type CloudMcpSubmissionResult,
-} from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
-import {
-  cloudMcpAppSubmissionBlocked,
-  cloudMcpAppSubmissionBlockedIssue,
-  deriveCloudMcpAppSubmissionState,
-} from "@/react-app/domains/connections/cloud-mcp-app-readiness";
+import type { CloudMcpSubmissionResult } from "@/react-app/domains/connections/cloud-mcp-submit-readiness";
 import { useRemoteAccessRestart } from "@/react-app/domains/workspace/remote-access-restart";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
@@ -566,14 +558,6 @@ export function SessionRoute() {
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? null,
     providerModel: cloudMcpProviderModel,
   });
-  const cloudMcpAppSubmissionState = deriveCloudMcpAppSubmissionState({
-    authStatus: denAuth.status,
-    hasSessionToken: Boolean(readDenSettings().authToken?.trim()),
-    maintenance: sessionMcpMaintenance,
-  });
-  const effectiveCloudMcpSubmissionState = cloudMcpAppSubmissionBlocked(cloudMcpAppSubmissionState)
-    ? cloudMcpAppSubmissionState
-    : cloudMcpSubmissionState;
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -1216,20 +1200,9 @@ export function SessionRoute() {
         const sendVariant = sessionModelSelection ? sessionModelSelection.variant : modelVariantValue;
         if (!sessionModelSelection && selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
 
-        // The app-level connection lifecycle owns waiting and repair. This
-        // synchronous guard only prevents keyboard, queue, auto-send, or
-        // control paths from bypassing the disabled Run Task button.
-        if (cloudMcpAppSubmissionBlocked(cloudMcpAppSubmissionState)) {
-          return {
-            outcome: "blocked",
-            issue: cloudMcpAppSubmissionBlockedIssue(cloudMcpAppSubmissionState),
-          };
-        }
-
         return submitWithCloudMcpReadiness({
-          // Connection readiness is established before submission. Keep the
-          // submit hook for send de-duplication/state only; it must not start
-          // a second readiness workflow after the user clicks Run Task.
+          // Temporarily bypass the pre-send Cloud MCP gate: it blocks every
+          // message, including tasks that do not use connected services.
           skipGate: true,
           send: async () => {
             captureAnalyticsEvent("task_message_sent", {
@@ -1296,8 +1269,7 @@ export function SessionRoute() {
           },
         });
       },
-      cloudMcpSubmissionState: effectiveCloudMcpSubmissionState,
-      onRetryCloudConnection: sessionMcpMaintenance.retry,
+      cloudMcpSubmissionState,
       onOpenConnect: () => handleOpenExtensions(),
       onDraftChange: () => {
         // Draft persistence will be wired once the full React shell owns session state.
@@ -1394,8 +1366,7 @@ export function SessionRoute() {
     listAgents,
     listSlashCommands,
     modelBehaviorOptions,
-    cloudMcpAppSubmissionState,
-    effectiveCloudMcpSubmissionState,
+    cloudMcpSubmissionState,
     modelLabel,
     modelUnavailableMessage,
     organizationModelsEmpty,
@@ -1415,7 +1386,6 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionProviderAuthStore,
-    sessionMcpMaintenance.retry,
     sessionsByWorkspaceId,
     submitWithCloudMcpReadiness,
     token,
@@ -1493,21 +1463,12 @@ export function SessionRoute() {
       },
       isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
       isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
-      // Chat-first needs a workspace before Cloud MCP can be projected into
-      // its engine. Allow that local setup step; the seeded prompt's auto-send
-      // remains held by SessionSurface until the new workspace is connected.
-      cloudMcpSubmissionState: selectedWorkspaceId
-        ? effectiveCloudMcpSubmissionState
-        : IDLE_CLOUD_MCP_SUBMISSION_GATE_STATE,
-      onRetryCloudConnection: sessionMcpMaintenance.retry,
-      onOpenConnect: () => handleOpenExtensions(),
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => {
         handleOpenExtensions(section === "skills" ? "skills" : section === "mcps" ? "mcps" : section === "plugins" ? "plugins" : "");
       },
     };
   }, [
     client,
-    effectiveCloudMcpSubmissionState,
     handleOpenExtensions,
     handleOpenSettings,
     listAgents,
@@ -1528,9 +1489,7 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionProviderAuthStore,
-    sessionMcpMaintenance.retry,
     setSelectedAgent,
-    navigate,
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
