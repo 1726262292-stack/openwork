@@ -115,7 +115,12 @@ export interface ResolvedMarketplaceFacts {
   raw: unknown;
 }
 
-/** What a member actually sees in a marketplace — read as that member, not the admin. */
+/**
+ * What a member actually sees in a marketplace — read as that member, not the
+ * admin. The resolved marketplace lists plugins (with component COUNTS only);
+ * the skill names live on each plugin's own resolved components
+ * (items[].configObject with objectType "skill" and the skill's title).
+ */
 export async function readResolvedMarketplace(member: DenSession, marketplaceId: string): Promise<ResolvedMarketplaceFacts> {
   return timed("cloud.readResolvedMarketplace", async () => {
     const { response, body } = await denFetch(member, `/v1/marketplaces/${marketplaceId}/resolved`, {
@@ -125,19 +130,24 @@ export async function readResolvedMarketplace(member: DenSession, marketplaceId:
     const item = isRecord(body) && isRecord(body.item) ? body.item : isRecord(body) ? body : {};
     const plugins = Array.isArray(item.plugins) ? item.plugins : [];
     const pluginNames: string[] = [];
-    const skillNames: string[] = [];
+    const pluginIds: string[] = [];
     for (const plugin of plugins) {
       if (!isRecord(plugin)) continue;
       if (typeof plugin.name === "string") pluginNames.push(plugin.name);
-      const components = Array.isArray(plugin.components) ? plugin.components : [];
-      for (const component of components) {
-        if (!isRecord(component)) continue;
-        const name = typeof component.name === "string"
-          ? component.name
-          : isRecord(component.normalizedPayloadJson) && typeof component.normalizedPayloadJson.name === "string"
-            ? component.normalizedPayloadJson.name
-            : "";
-        if (name) skillNames.push(name);
+      if (typeof plugin.id === "string") pluginIds.push(plugin.id);
+    }
+    const skillNames: string[] = [];
+    for (const pluginId of pluginIds) {
+      const resolved = await denFetch(member, `/v1/plugins/${encodeURIComponent(pluginId)}/resolved`, {
+        headers: { authorization: `Bearer ${member.token}` },
+      });
+      if (!resolved.response.ok) continue; // Not readable by this member = not visible to them.
+      const items = isRecord(resolved.body) && Array.isArray(resolved.body.items) ? resolved.body.items : [];
+      for (const component of items) {
+        if (!isRecord(component) || !isRecord(component.configObject)) continue;
+        const configObject = component.configObject;
+        if (configObject.objectType !== "skill") continue;
+        if (typeof configObject.title === "string" && configObject.title) skillNames.push(configObject.title);
       }
     }
     return { pluginNames, skillNames, raw: body };
