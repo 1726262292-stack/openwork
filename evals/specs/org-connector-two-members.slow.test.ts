@@ -67,9 +67,24 @@ async function waitForConnectionCard(app: Surface, name: string): Promise<void> 
     if (found === true) return;
     await evalIn(app, "window.__openworkControl.execute('extensions.refresh-marketplace', null)", { awaitPromise: true })
       .catch(() => undefined);
+    await evalIn(app, `(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((element) => (element.textContent ?? '').trim() === 'Refresh' && !element.disabled);
+      button?.click();
+      return Boolean(button);
+    })()`).catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   throw new Error(`The connection card ${name} never appeared.`);
+}
+
+/** The connections surface, settled — polling before it mounts finds nothing. */
+async function openConnectionsSurface(app: Surface, workspaceId: string): Promise<void> {
+  await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
+  await waitFor(app, `window.location.hash.includes("/settings/extensions") && document.body.innerText.includes("Extensions")`, {
+    timeoutMs: 60_000,
+    label: "extensions connections route",
+  });
 }
 
 async function openConnectionDetail(app: Surface, name: string): Promise<void> {
@@ -137,7 +152,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(title, async () => {
   // ── Member A connects their own account ──────────────────────────────
   const a = await memberDesktop("connector-member-a", den, memberA);
   await using appA = a.app;
-  await go(appA, `/workspace/${a.workspaceId}/settings/extensions/connections`);
+  await openConnectionsSurface(appA, a.workspaceId);
   await waitForConnectionCard(appA, connection.name);
   await waitForText(appA, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
   await openConnectionDetail(appA, connection.name);
@@ -173,7 +188,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(title, async () => {
   // ── THE ISOLATION ASSERTION — why two desktops exist ─────────────────
   const b = await memberDesktop("connector-member-b", den, memberB);
   await using appB = b.app;
-  await go(appB, `/workspace/${b.workspaceId}/settings/extensions/connections`);
+  await openConnectionsSurface(appB, b.workspaceId);
   await waitForConnectionCard(appB, connection.name);
   // A is connected. B must NOT have inherited A's credential.
   await waitForText(appB, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
