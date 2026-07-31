@@ -116,20 +116,9 @@ function createDaytonaClient() {
 async function listDaytonaSandboxIdsByLabels(labels: Record<string, string>) {
   const daytona = createDaytonaClient()
   const ids: string[] = []
-  let page = 1
-  const limit = 100
 
-  while (true) {
-    const sandboxes = await daytona.list(labels, page, limit)
-    for (const sandbox of sandboxes.items) {
-      ids.push(sandbox.id)
-    }
-
-    if (sandboxes.items.length < limit) {
-      break
-    }
-
-    page += 1
+  for await (const sandbox of daytona.list({ labels, limit: 100 })) {
+    ids.push(sandbox.id)
   }
 
   return ids
