@@ -25,6 +25,97 @@ export type CloudWorkspaceViewModel = {
 
 export type CloudWorkspaceMainContentDecision = "takeover" | "error" | "content";
 
+export type CloudWorkspaceBootStageState = "done" | "active" | "pending";
+
+export type CloudWorkspaceBootStage = {
+  id: string;
+  label: string;
+  state: CloudWorkspaceBootStageState;
+};
+
+/**
+ * Boot progress is derived from the status we already poll rather than from a
+ * timer, so the ladder can never claim more progress than we can prove. Each
+ * variant tells us which checkpoint the sandbox is standing on: a provisioning
+ * sandbox is still being reserved, while a waking or updating one demonstrably
+ * exists already.
+ */
+const BOOT_STAGES: Partial<
+  Record<CloudWorkspacePillVariant, { labels: readonly [string, string, string]; activeIndex: number }>
+> = {
+  provisioning: {
+    labels: ["Reserving your computer", "Restoring your files", "Connecting the app"],
+    activeIndex: 0,
+  },
+  waking: {
+    labels: ["Reserving your computer", "Restoring your files", "Connecting the app"],
+    activeIndex: 1,
+  },
+  updating: {
+    labels: ["Saving your session", "Applying the latest image", "Reconnecting the app"],
+    activeIndex: 1,
+  },
+};
+
+export function cloudWorkspaceBootStages(variant: CloudWorkspacePillVariant): CloudWorkspaceBootStage[] {
+  const stages = BOOT_STAGES[variant];
+  if (!stages) return [];
+  return stages.labels.map((label, index) => ({
+    id: `${variant}-${index}`,
+    label,
+    state: index < stages.activeIndex ? "done" : index === stages.activeIndex ? "active" : "pending",
+  }));
+}
+
+/** Past this point "usually under a minute" stops being true, so the copy and the actions change. */
+export const CLOUD_WORKSPACE_SLOW_BOOT_MS = 45_000;
+
+export function cloudWorkspaceBootIsSlow(elapsedMs: number): boolean {
+  return elapsedMs >= CLOUD_WORKSPACE_SLOW_BOOT_MS;
+}
+
+export function formatCloudWorkspaceElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s elapsed`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s elapsed`;
+}
+
+export function cloudWorkspaceTakeoverCopy(input: {
+  variant: CloudWorkspacePillVariant;
+  slow: boolean;
+}): { title: string; body: string } {
+  if (input.variant === "failed") {
+    return {
+      title: "Workspace needs attention",
+      body: "We couldn’t start the sandbox. Retry, or sign out and reconnect.",
+    };
+  }
+  if (input.slow) {
+    return {
+      title: "Still working on it…",
+      body: "This is taking longer than usual. Nothing is broken — wait it out, or retry.",
+    };
+  }
+  if (input.variant === "provisioning") {
+    return {
+      title: "Starting your workspace…",
+      body: "Usually under a minute. We’ll open it the moment it’s ready.",
+    };
+  }
+  if (input.variant === "updating") {
+    return {
+      title: "Updating your workspace…",
+      body: "We’re applying the latest OpenWork image. Your files and sessions come along.",
+    };
+  }
+  return {
+    title: "Waking your workspace…",
+    body: "Your sandbox is coming back online. We’ll open it as soon as it’s ready.",
+  };
+}
+
 export function formatCloudWorkspaceVersion(version: string | null): string | null {
   const trimmed = version?.trim() ?? "";
   if (!trimmed) return null;
