@@ -2,7 +2,7 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { timed } from "@openwork/timeline";
-import { control, evalIn, waitFor, waitForText } from "./desktop.ts";
+import { control, evalIn, waitFor } from "./desktop.ts";
 import type { Surface } from "@openwork/cdp";
 
 /**
@@ -62,7 +62,24 @@ export async function signInInBrowser(
 ): Promise<void> {
   await timed("browser.signIn", async () => {
     await evalIn(browser, `window.location.href = ${JSON.stringify(url)}`);
-    await waitForText(browser, "Sign in", { timeoutMs: 120_000 });
+    // A first run sends people to sign-up; an existing account switches to
+    // sign-in, exactly as a person would.
+    await waitFor(browser, `Boolean(document.querySelector('input[type="email"], input[name="email"]'))`, {
+      timeoutMs: 120_000,
+      label: "den auth form",
+    });
+    await evalIn(browser, `(() => {
+      const text = document.body?.innerText ?? "";
+      if (!/sign ?up|create your account/i.test(text)) return false;
+      const toggle = [...document.querySelectorAll("a,button")]
+        .find((element) => /sign ?in|already have an account|log ?in/i.test(element.textContent ?? ""));
+      toggle?.click();
+      return Boolean(toggle);
+    })()`);
+    await waitFor(browser, `Boolean(document.querySelector('input[type="password"], input[name="password"]'))`, {
+      timeoutMs: 60_000,
+      label: "den password field",
+    });
     await waitFor(browser, `(() => {
       const email = document.querySelector('input[type="email"], input[name="email"]');
       const password = document.querySelector('input[type="password"], input[name="password"]');
@@ -78,7 +95,7 @@ export async function signInInBrowser(
     })()`, { timeoutMs: 60_000, label: "den sign-in form filled" });
     await waitFor(browser, `(() => {
       const button = [...document.querySelectorAll("button")]
-        .find((candidate) => /sign in|continue|log in/i.test(candidate.textContent ?? "") && !candidate.disabled);
+        .find((candidate) => /sign ?in|continue|log ?in/i.test(candidate.textContent ?? "") && !candidate.disabled);
       button?.click();
       return Boolean(button);
     })()`, { timeoutMs: 60_000, label: "den sign-in submitted" });
