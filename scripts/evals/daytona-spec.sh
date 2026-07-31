@@ -31,6 +31,14 @@ if compgen -G "/daytona-secrets/*.env" > /dev/null; then
 fi
 
 
+# Den-dependent specs need the stack up. ensureDenStack is idempotent, so this is
+# safe to call repeatedly; it is skipped unless a spec asks for it.
+if [ "${OPENWORK_SPEC_NEEDS_DEN:-0}" = "1" ]; then
+  echo "==> Ensuring the Den stack is running"
+  export PATH="$HOME/mariadb/bin:$HOME/mariadb/scripts:$PATH"
+  node --input-type=module -e 'const m = await import("/workspace/evals/runner/den-stack.ts"); await m.ensureDenStack({ log: (line) => console.log("   " + line), cdpCandidates: [], skipApp: true });'
+fi
+
 pnpm --dir evals install
 echo "==> Running $SPEC"
 pnpm --dir evals exec vitest run --config vitest.config.ts --project nightly "$SPEC"
