@@ -609,6 +609,7 @@ export function createDaytonaHost(options: DaytonaHostOptions): DaytonaHost {
 
   return {
     kind: "daytona",
+    workspaceRoot: "/workspace",
     previewUrl,
     spawnElectron,
     spawnChrome,

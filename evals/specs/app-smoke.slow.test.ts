@@ -11,7 +11,9 @@ const title = appSpecsEnabled
 test.skipIf(!appSpecsEnabled)(title, async () => {
   await using app = await desktop({ name: "app-smoke" });
   await using roll = photoRoll("app-smoke");
-  const workspace = await createAndSelectWorkspace(app, { path: process.cwd() });
+  // The app's own host's workspace root — NOT process.cwd(), which is the
+  // driver's filesystem and does not exist when the app runs in a sandbox.
+  const workspace = await createAndSelectWorkspace(app, { path: app.workspaceRoot ?? process.cwd() });
   expect(workspace.workspaceId).toBeTruthy();
   const route = await evalIn(app, "window.__openworkControl.snapshot().route");
   expect(route).toBeTruthy();

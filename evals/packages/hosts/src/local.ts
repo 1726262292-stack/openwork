@@ -490,6 +490,7 @@ async function clearStaleSurfaces(rootDir: string, log: (message: string) => voi
 
   return {
     kind: "local",
+    workspaceRoot: options.repoRoot,
 
     async spawnElectron(name: string, opts: ElectronSurfaceOptions = {}): Promise<SurfaceHandle> {
       await prepareSharedElectronResources(options.repoRoot, log);

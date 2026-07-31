@@ -44,6 +44,13 @@ export interface AppReadiness {
 
 export interface DesktopHandle extends AttachedSurface {
   readiness: AppReadiness;
+  /**
+   * The workspace root on the host running THIS app — use it for workspace
+   * paths instead of `process.cwd()`, which is the driver's filesystem and may
+   * not exist where the app runs. Null only in `mode: "attach"`, where the
+   * host is unknown.
+   */
+  workspaceRoot: string | null;
   stop(): Promise<void>;
 }
 
@@ -123,6 +130,7 @@ export async function desktop(opts: DesktopOptions = {}): Promise<DesktopHandle>
       handle: attached.handle,
       client: attached.client,
       readiness,
+      workspaceRoot: host?.workspaceRoot ?? null,
       stop,
       [Symbol.asyncDispose]: dispose,
     };
