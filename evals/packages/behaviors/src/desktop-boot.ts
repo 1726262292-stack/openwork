@@ -51,9 +51,11 @@ export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSess
     timeoutMs: 60_000,
     label: "active org resolved",
   });
-  await waitFor(app, "window.location.hash.includes('/onboarding')", {
+  // A first-time member lands on organization onboarding; a member whose app
+  // already has a workspace can come straight back to it.
+  await waitFor(app, `window.location.hash.includes("/onboarding") || /\\/(workspace|session)/.test(window.location.hash)`, {
     timeoutMs: 60_000,
-    label: "organization onboarding route",
+    label: "organization onboarding or workspace route",
   });
 }
 
@@ -101,6 +103,13 @@ async function resolveWorkspaceId(app: Surface): Promise<string> {
   return workspaceIdFromRoute(await currentHash(app));
 }
 
+/**
+ * THE arrangement path for a workspace: the product's own onboarding, driven
+ * the way a person drives it. A previous API seed (POST /workspaces/local +
+ * activate) produced a state the product itself never produces — a workspace
+ * with no engine and no model catalog — and specs failed on that arrangement,
+ * not on their subject. If a spec needs a workspace, it goes through here.
+ */
 export async function createAndSelectWorkspace(
   app: Surface,
   input: { path: string },
@@ -109,10 +118,20 @@ export async function createAndSelectWorkspace(
   const route = await currentHash(app);
   if (route.includes("/welcome")) {
     const workspace = await createLocalWorkspaceViaUi(app, input);
-    workspaceId = workspace.id || (await resolveWorkspaceId(app));
-    await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
-    await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
+    await clickButton(app, "Skip and use the free model", { timeoutMs: 90_000 });
+    await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 90_000 });
     await clickButton(app, "Skip", { timeoutMs: 15_000 });
+    // Only now is the workspace actually selected: resolving before the
+    // onboarding steps finish reads an id the app has not adopted yet.
+    workspaceId = workspace.id;
+    if (!workspaceId) {
+      await waitFor(app, `Boolean(localStorage.getItem("openwork.react.activeWorkspace"))
+        || /\\/workspace\\/[^/?#]+/.test(window.location.hash)`, {
+        timeoutMs: 180_000,
+        label: "workspace selected after onboarding",
+      });
+      workspaceId = await resolveWorkspaceId(app);
+    }
   } else {
     if (route.includes("/onboarding")) await completeOrganizationOnboarding(app);
     workspaceId = await resolveWorkspaceId(app);

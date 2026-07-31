@@ -1,4 +1,4 @@
-import { describeAppState, evaluate, isInteractive, probeAppState } from "@openwork/cdp";
+import { describeAppState, evaluateOnSurface, isInteractive, probeAppState } from "@openwork/cdp";
 import type { AppStateProbe, EvaluateOptions, Surface } from "@openwork/cdp";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -20,23 +20,52 @@ function jsValue(value: unknown): string {
 }
 
 export async function evalIn(app: Surface, expression: string, opts: EvaluateOptions = {}): Promise<unknown> {
-  return evaluate(app.client, expression, opts);
+  // Target healing lives in @openwork/cdp; behaviours just evaluate.
+  return evaluateOnSurface(app, expression, opts);
+}
+
+/**
+ * Read something from the page, tolerating a renderer that is briefly blocked.
+ * The app blocks its JS thread while a workspace runtime boots, so a single
+ * evaluation can be caught mid-block; retrying short calls is reliable where one
+ * long call is not. Only for IDEMPOTENT reads — never for clicks.
+ */
+async function resilientRead(
+  app: Surface,
+  expression: string,
+  { timeoutMs = 240_000, perAttemptMs = 10_000, label = expression }: { timeoutMs?: number; perAttemptMs?: number; label?: string } = {},
+): Promise<unknown> {
+  // A cold profile can block its JS thread for minutes while the workspace
+  // runtime boots, so retry to a deadline rather than a fixed attempt count.
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+  let attempts = 0;
+  while (Date.now() < deadline) {
+    attempts += 1;
+    try {
+      return await evalIn(app, expression, { timeoutMs: perAttemptMs });
+    } catch (error) {
+      lastError = error;
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+  throw new Error(`Could not read ${label} within ${timeoutMs}ms (${attempts} attempts)${lastError ? `: ${messageText(lastError)}` : ""}.`);
 }
 
 export async function waitFor(
   app: Surface,
   expression: string,
-  { timeoutMs = DEFAULT_TIMEOUT_MS, label = expression }: { timeoutMs?: number; label?: string } = {},
+  { timeoutMs = DEFAULT_TIMEOUT_MS, label = expression, awaitPromise = false }: { timeoutMs?: number; label?: string; awaitPromise?: boolean } = {},
 ): Promise<unknown> {
   const startedAt = Date.now();
   let lastError: unknown = null;
-  // A busy renderer can take longer than the CDP client's default per-call
-  // timeout to answer; the wait's own deadline bounds the loop, so let each
-  // evaluation use the remaining budget instead of dying on the default.
-  const evalTimeoutMs = Math.min(Math.max(timeoutMs, 20_000), 120_000);
+  // Each probe gets a SHORT timeout on purpose: a renderer that is briefly busy
+  // should have the call abandoned and retried on the next tick. Giving a probe
+  // the whole budget turns one stuck evaluation into the entire wait.
+  const evalTimeoutMs = Math.min(timeoutMs, 15_000);
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const value = await evalIn(app, expression, { timeoutMs: evalTimeoutMs });
+      const value = await evalIn(app, expression, { timeoutMs: evalTimeoutMs, awaitPromise });
       if (value) return value;
       lastError = null;
     } catch (error) {
@@ -54,12 +83,12 @@ export async function waitForText(app: Surface, text: string, opts: { timeoutMs?
   });
 }
 
-export async function hasText(app: Surface, text: string, opts: EvaluateOptions = {}): Promise<boolean> {
-  return Boolean(await evalIn(app, `document.body.innerText.includes(${jsValue(text)})`, opts));
+export async function hasText(app: Surface, text: string): Promise<boolean> {
+  return Boolean(await resilientRead(app, `document.body.innerText.includes(${jsValue(text)})`, { label: `text ${jsValue(text)}` }));
 }
 
-export async function visibleText(app: Surface, opts: EvaluateOptions = {}): Promise<string> {
-  const text = await evalIn(app, "document.body.innerText", opts);
+export async function visibleText(app: Surface): Promise<string> {
+  const text = await resilientRead(app, "document.body.innerText", { label: "visible text" });
   if (typeof text !== "string") throw new Error("CDP did not return document.body.innerText as a string.");
   return text;
 }
@@ -132,16 +161,16 @@ export async function go(app: Surface, hashPath: string): Promise<void> {
 }
 
 export async function currentHash(app: Surface): Promise<string> {
-  const hash = await evalIn(app, "window.location.hash");
+  const hash = await resilientRead(app, "window.location.hash", { label: "location hash" });
   if (typeof hash !== "string") throw new Error("CDP did not return window.location.hash as a string.");
   return hash;
 }
 
 export async function enabledButtons(app: Surface): Promise<string[]> {
-  const labels = await evalIn(app, `[...document.querySelectorAll('button')]
+  const labels = await resilientRead(app, `[...document.querySelectorAll('button')]
     .filter((element) => !element.disabled)
     .map((element) => (element.textContent ?? '').trim())
-    .filter(Boolean)`);
+    .filter(Boolean)`, { label: "enabled buttons" });
   if (!Array.isArray(labels) || !labels.every((label) => typeof label === "string")) {
     throw new Error("CDP did not return enabled button labels as strings.");
   }
@@ -180,7 +209,7 @@ export async function waitUntilInteractive(
   let last: AppStateProbe = { controlReady: false, transitional: null, surface: null, workspaceId: null, route: "", text: "" };
   while (Date.now() < deadline) {
     try {
-      last = await probeAppState(app.client, { timeoutMs: Math.min(timeoutMs, 120_000) });
+      last = await probeAppState(app.client, { timeoutMs: 15_000 });
       if (isInteractive(last)) return last;
     } catch {
       // A navigation can destroy the execution context mid-probe.
@@ -188,4 +217,25 @@ export async function waitUntilInteractive(
     await sleep(POLL_INTERVAL_MS);
   }
   throw new Error(`App did not become interactive after ${timeoutMs}ms: ${describeAppState(last)}`);
+}
+
+/** Wait until the page's visible text stops changing — the app is done working. */
+export async function waitUntilTextStable(
+  app: Surface,
+  { quietMs = 6_000, timeoutMs = 240_000 }: { quietMs?: number; timeoutMs?: number } = {},
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let previous = "";
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    const current = await visibleText(app).catch(() => previous);
+    if (current !== previous) {
+      previous = current;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= quietMs) {
+      return current;
+    }
+    await sleep(1_000);
+  }
+  return previous;
 }

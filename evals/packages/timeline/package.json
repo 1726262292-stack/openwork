@@ -1,5 +1,5 @@
 {
-  "name": "@openwork/fraimz",
+  "name": "@openwork/timeline",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,5 @@
       "development": "./src/index.ts",
       "default": "./src/index.ts"
     }
-  },
-  "dependencies": {
-    "@openwork/cdp": "workspace:*",
-    "@openwork/timeline": "workspace:*"
   }
 }

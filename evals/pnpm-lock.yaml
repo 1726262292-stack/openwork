@@ -42,6 +42,9 @@ importers:
       '@openwork/matchers':
         specifier: workspace:*
         version: link:../matchers
+      '@openwork/timeline':
+        specifier: workspace:*
+        version: link:../timeline
 
   packages/cdp: {}
 
@@ -50,16 +53,24 @@ importers:
       '@openwork/cdp':
         specifier: workspace:*
         version: link:../cdp
+      '@openwork/timeline':
+        specifier: workspace:*
+        version: link:../timeline
 
   packages/hosts:
     dependencies:
       '@openwork/cdp':
         specifier: workspace:*
         version: link:../cdp
+      '@openwork/timeline':
+        specifier: workspace:*
+        version: link:../timeline
 
   packages/labs: {}
 
   packages/matchers: {}
+
+  packages/timeline: {}
 
 packages:
 

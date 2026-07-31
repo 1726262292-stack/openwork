@@ -108,8 +108,11 @@ test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
     bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
   });
   await using roll = photoRoll("org-connection-lifecycle");
-  await signInDesktopAs(app, den, member);
+  // Workspace first, then the org sign-in: the signed-in org shell offers no
+  // Add workspace entry, so a member's workspace exists before they connect.
   const workspacePath = `/tmp/openwork-org-connection-lifecycle-${Date.now()}`;
+  await createAndSelectWorkspace(app, { path: workspacePath });
+  await signInDesktopAs(app, den, member);
   const { workspaceId } = await createAndSelectWorkspace(app, { path: workspacePath });
   await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
   await waitFor(app, `window.location.hash.includes("/settings/extensions") && document.body.innerText.includes("Extensions")`, {

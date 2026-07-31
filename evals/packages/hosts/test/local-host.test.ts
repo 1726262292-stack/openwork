@@ -67,7 +67,13 @@ test("electronSurfaceEnv matches the isolated Electron demo contract", () => {
     cdpPort: 9123,
   });
 
-  assert.deepEqual(Object.keys(env).sort(), ENV_KEYS);
+  assert.deepEqual(Object.keys(env).filter((key) => key !== "PNPM_HOME").sort(), ENV_KEYS);
+  // The one deliberate hole in the isolation: pnpm's version redirection must
+  // stay warm, or every spawn re-downloads the pinned pnpm from the network.
+  if (process.platform === "darwin" || process.platform === "linux") {
+    assert(env.PNPM_HOME, "PNPM_HOME should point at the host's pnpm home");
+    assert(!env.PNPM_HOME.startsWith(root), "PNPM_HOME must not be inside the isolated profile");
+  }
   assert.equal(env.APPDATA, paths.appDataDir);
   assert.equal(env.HOME, paths.homeDir);
   assert.equal(env.LOCALAPPDATA, paths.localAppDataDir);
