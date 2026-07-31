@@ -86,6 +86,28 @@ export async function signInInBrowser(
 }
 
 /**
+ * Read the deep link the browser is handed once sign-in completes.
+ *
+ * Observed shape: the app opens `<den>/?mode=sign-up&desktopAuth=1&desktopScheme=openwork`,
+ * the person signs in there, and Den then hands back
+ * `openwork://den-auth?grant=…&denBaseUrl=…`. A browser cannot follow a custom
+ * scheme on its own, so the page surfaces it as a link/button — that is what we
+ * read, which keeps the grant the real one Den issued for this session.
+ */
+export async function readHandoffDeepLink(browser: Surface, { timeoutMs = 120_000 } = {}): Promise<string> {
+  const found = await waitFor(browser, `(() => {
+    const fromAnchor = [...document.querySelectorAll('a[href^="openwork://"]')]
+      .map((anchor) => anchor.getAttribute("href"))
+      .find((href) => typeof href === "string" && href.includes("grant="));
+    if (fromAnchor) return fromAnchor;
+    const inText = (document.body?.innerText ?? "").match(/openwork:\\/\\/[^\\s"']+grant=[^\\s"']+/);
+    return inText ? inText[0] : false;
+  })()`, { timeoutMs, label: "handoff deep link in the browser" });
+  if (typeof found !== "string") throw new Error("Could not read a handoff deep link from the browser page.");
+  return found;
+}
+
+/**
  * Complete the hop back into the desktop.
  *
  * A real OS dispatches `openwork://den-auth?grant=…` to the app. A container has

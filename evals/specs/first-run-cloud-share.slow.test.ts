@@ -13,6 +13,7 @@ import {
   ensureMemberSession,
   go,
   grantMarketplaceAccess,
+  readHandoffDeepLink,
   readResolvedMarketplace,
   signIn,
   signInInBrowser,
@@ -79,7 +80,12 @@ test.skipIf(!appSpecsEnabled || !denApiUrl)(title, async () => {
   if (!signInLabel) throw new Error("unreachable");
   await clickButton(app, signInLabel, { timeoutMs: 60_000 });
 
-  const handoffUrl = await capture.waitForUrl((url) => url.includes("grant=") || url.includes("/auth"), { timeoutMs: 90_000 });
+  // The real handoff URL carries desktopAuth/desktopScheme; the grant is issued
+  // by Den only after the person signs in in the browser.
+  const handoffUrl = await capture.waitForUrl(
+    (url) => url.includes("desktopAuth=1") || url.includes("desktopScheme=") || url.includes("grant="),
+    { timeoutMs: 90_000 },
+  );
   expect(handoffUrl.startsWith(den.webUrl), `the app opened an unexpected origin: ${handoffUrl}`).toBe(true);
 
   // 2. Finish in a real browser.
@@ -97,8 +103,10 @@ test.skipIf(!appSpecsEnabled || !denApiUrl)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  // 3. Back to the app: the grant the app generated is now approved.
-  await completeDesktopHandoff(app, handoffUrl, den.webUrl);
+  // 3. Back to the app with the grant Den issued for this browser session.
+  const deepLink = await readHandoffDeepLink(browser, { timeoutMs: 120_000 });
+  expect(deepLink.startsWith("openwork://"), `unexpected deep link: ${deepLink}`).toBe(true);
+  await completeDesktopHandoff(app, deepLink, den.webUrl);
   await waitUntilInteractive(app, { timeoutMs: 180_000 });
   const signedInText = await visibleText(app);
   expect(
