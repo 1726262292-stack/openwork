@@ -10,7 +10,6 @@ import {
   evalIn,
   go,
   measureLoadedSkills,
-  measureSkillsWithSlowCloud,
   readComposerCapabilities,
   readLoadedExtensions,
   revealMenuRow,
@@ -116,21 +115,10 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  const slowCloud = await measureSkillsWithSlowCloud(app);
-  expect(slowCloud.denRequestCount).toBeGreaterThanOrEqual(1);
-  expect(slowCloud.elapsedMs).toBeLessThan(3_000);
-  expect(slowCloud.connectSettledMs).toBeNull();
-  expect(slowCloud.rowCount).toBeGreaterThanOrEqual(10);
-  expect(slowCloud.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
-  expect(slowCloud.loadingCommandsVisible).toBe(false);
-  {
-    await revealMenuRow(app, "/browser-automation");
-    const shot = await screenshot(app);
-    const seen = await validate(shot, [
-      "Local skills including browser-automation remain visibly available while cloud loading is delayed",
-      "No Loading commands state or 'Something went wrong' crash message is visible",
-    ]);
-    expect(seen.ok, seen.why).toBe(true);
-    await roll.add(shot, seen);
-  }
+  // A slow-cloud variant used to live here, arranged by hooking window.fetch
+  // and faking gateway/org state from the renderer. On desktop, den traffic
+  // goes through the main process, so the hook could never delay it, and the
+  // gateway marker rewired the local server to the page origin — a state no
+  // desktop user can reach. Cloud latency belongs in a den-boundary fault
+  // spec (see app-den-tls-fault) where the fault is injected for real.
 });
