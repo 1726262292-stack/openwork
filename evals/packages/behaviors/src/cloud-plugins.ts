@@ -90,17 +90,20 @@ export async function assignPluginToMarketplace(admin: DenSession, marketplaceId
   });
 }
 
-/** Give a colleague (or their team, or the whole org) access to the marketplace. */
+/**
+ * Give a colleague (or their team, or the whole org) access to the marketplace.
+ * The API requires a role: viewer covers "can see and use what's shared".
+ */
 export async function grantMarketplaceAccess(
   admin: DenSession,
   marketplaceId: string,
-  grant: { orgWide: true } | { orgMembershipId: string } | { teamId: string },
+  grant: ({ orgWide: true } | { orgMembershipId: string } | { teamId: string }) & { role?: "viewer" | "editor" | "manager" },
 ): Promise<void> {
   await timed("cloud.grantMarketplaceAccess", async () => {
     const { response, body } = await denFetch(admin, `/v1/marketplaces/${marketplaceId}/access`, {
       method: "POST",
       headers: { authorization: `Bearer ${admin.token}` },
-      body: JSON.stringify(grant),
+      body: JSON.stringify({ role: "viewer", ...grant }),
     });
     if (!response.ok) throw new Error(`Granting marketplace access failed (${response.status}): ${JSON.stringify(body).slice(0, 300)}`);
   });
