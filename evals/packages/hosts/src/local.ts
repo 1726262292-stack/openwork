@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { constants, existsSync, openSync } from "node:fs";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { allocateFreePort, allocateFreePorts, listTargets, waitForCdp } from "@openwork/cdp";
 import { ensureDenStack } from "../../../runner/den-stack.ts";
@@ -326,10 +327,36 @@ export function electronProfilePaths(root: string): ElectronProfilePaths {
   };
 }
 
+/**
+ * Where the HOST keeps pnpm's self-managed versions. The surface's fresh HOME
+ * hides this cache, and pnpm (packageManager pin vs the global binary) then
+ * re-downloads its pinned version from the network on EVERY spawn — observed
+ * on a Daytona sandbox as a 21MB download per Electron spawn that, when it
+ * failed once, degenerated into a self-sustaining recursive `pnpm add pnpm`
+ * cascade that outlived the spec run. Pointing PNPM_HOME at the host's real
+ * pnpm home keeps version redirection local and instant.
+ */
+function hostPnpmHome(): string | null {
+  const configured = process.env.PNPM_HOME?.trim();
+  if (configured) return configured;
+  if (process.platform === "darwin") return join(homedir(), "Library", "pnpm");
+  if (process.platform === "linux") {
+    const dataHome = process.env.XDG_DATA_HOME?.trim();
+    return join(dataHome || join(homedir(), ".local", "share"), "pnpm");
+  }
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA?.trim();
+    return localAppData ? join(localAppData, "pnpm") : null;
+  }
+  return null;
+}
+
 export function electronSurfaceEnv(paths: ElectronProfilePaths, options: ElectronSurfaceEnvOptions): Record<string, string> {
+  const pnpmHome = hostPnpmHome();
   // Provenance: mirrors scripts/dev-two-electron-demo.mjs demoEnv() so local
   // eval Electron surfaces stay fully isolated from the user's real desktop app.
   return {
+    ...(pnpmHome ? { PNPM_HOME: pnpmHome } : {}),
     APPDATA: paths.appDataDir,
     HOME: paths.homeDir,
     LOCALAPPDATA: paths.localAppDataDir,
