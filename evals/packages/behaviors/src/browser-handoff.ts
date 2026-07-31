@@ -54,7 +54,14 @@ export async function captureOpenedUrls(): Promise<UrlCapture> {
   };
 }
 
-/** Sign in on a real den web page in a real browser, the way a person does. */
+/**
+ * Sign in on a real den web page in a real browser, the way a person does.
+ *
+ * Observed shape: den auth is two steps, not one form. First an email-only
+ * step ("Enter your email and we'll send you to the right sign-in step",
+ * button "Next"); only after that does the password step appear (button
+ * "Sign in"). There is no sign-up/sign-in toggle — the email step routes.
+ */
 export async function signInInBrowser(
   browser: Surface,
   url: string,
@@ -62,43 +69,32 @@ export async function signInInBrowser(
 ): Promise<void> {
   await timed("browser.signIn", async () => {
     await evalIn(browser, `window.location.href = ${JSON.stringify(url)}`);
-    // A first run sends people to sign-up; an existing account switches to
-    // sign-in, exactly as a person would.
-    await waitFor(browser, `Boolean(document.querySelector('input[type="email"], input[name="email"]'))`, {
-      timeoutMs: 120_000,
-      label: "den auth form",
-    });
-    await evalIn(browser, `(() => {
-      const text = document.body?.innerText ?? "";
-      if (!/sign ?up|create your account/i.test(text)) return false;
-      const toggle = [...document.querySelectorAll("a,button")]
-        .find((element) => /sign ?in|already have an account|log ?in/i.test(element.textContent ?? ""));
-      toggle?.click();
-      return Boolean(toggle);
-    })()`);
-    await waitFor(browser, `Boolean(document.querySelector('input[type="password"], input[name="password"]'))`, {
-      timeoutMs: 60_000,
-      label: "den password field",
-    });
     await waitFor(browser, `(() => {
+      if (document.querySelector('input[type="password"], input[name="password"]')) return true;
       const email = document.querySelector('input[type="email"], input[name="email"]');
-      const password = document.querySelector('input[type="password"], input[name="password"]');
-      if (!email || !password) return false;
-      const set = (input, value) => {
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-        setter.call(input, value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      };
-      set(email, ${JSON.stringify(credentials.email)});
-      set(password, ${JSON.stringify(credentials.password)});
+      if (!email) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(email, ${JSON.stringify(credentials.email)});
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+      const next = [...document.querySelectorAll("button")]
+        .find((candidate) => /next|continue|sign ?in/i.test(candidate.textContent ?? "") && !candidate.disabled);
+      if (!next) return false;
+      next.click();
       return true;
-    })()`, { timeoutMs: 60_000, label: "den sign-in form filled" });
+    })()`, { timeoutMs: 120_000, label: "den email step submitted" });
     await waitFor(browser, `(() => {
-      const button = [...document.querySelectorAll("button")]
+      if (/signed in/i.test(document.body?.innerText ?? "")) return true;
+      const password = document.querySelector('input[type="password"], input[name="password"]');
+      if (!password) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(password, ${JSON.stringify(credentials.password)});
+      password.dispatchEvent(new Event("input", { bubbles: true }));
+      const submit = [...document.querySelectorAll("button")]
         .find((candidate) => /sign ?in|continue|log ?in/i.test(candidate.textContent ?? "") && !candidate.disabled);
-      button?.click();
-      return Boolean(button);
-    })()`, { timeoutMs: 60_000, label: "den sign-in submitted" });
+      if (!submit) return false;
+      submit.click();
+      return true;
+    })()`, { timeoutMs: 60_000, label: "den password step submitted" });
   }, credentials.email);
 }
 
@@ -106,13 +102,18 @@ export async function signInInBrowser(
  * Read the deep link the browser is handed once sign-in completes.
  *
  * Observed shape: the app opens `<den>/?mode=sign-up&desktopAuth=1&desktopScheme=openwork`,
- * the person signs in there, and Den then hands back
- * `openwork://den-auth?grant=…&denBaseUrl=…`. A browser cannot follow a custom
- * scheme on its own, so the page surfaces it as a link/button — that is what we
- * read, which keeps the grant the real one Den issued for this session.
+ * the person signs in there, and Den shows "You're signed in" with an
+ * "Open OpenWork" button plus a readonly input holding the sign-in code —
+ * the full `openwork://den-auth?grant=…&denBaseUrl=…` URL a person would
+ * copy-paste into the app. Reading that input keeps the grant the real one
+ * Den issued for this session.
  */
 export async function readHandoffDeepLink(browser: Surface, { timeoutMs = 120_000 } = {}): Promise<string> {
   const found = await waitFor(browser, `(() => {
+    const fromInput = [...document.querySelectorAll("input")]
+      .map((input) => input.value)
+      .find((value) => typeof value === "string" && value.startsWith("openwork://") && value.includes("grant="));
+    if (fromInput) return fromInput;
     const fromAnchor = [...document.querySelectorAll('a[href^="openwork://"]')]
       .map((anchor) => anchor.getAttribute("href"))
       .find((href) => typeof href === "string" && href.includes("grant="));
