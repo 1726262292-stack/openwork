@@ -117,18 +117,18 @@ export async function readLoadedSkills(app: Surface): Promise<SkillFacts[]> {
 }
 
 /**
- * Scroll a skill row into view. The skills menu is a scrollable list, so a
- * row can be loaded (and asserted from the DOM) while a screenshot still
+ * Scroll a composer-menu row into view. The menu is a scrollable popover, so
+ * a row can be loaded (and asserted from the DOM) while a screenshot still
  * cannot show it; reveal it first when a visual claim names it.
  */
-export async function revealSkillRow(app: Surface, marker: string): Promise<void> {
+export async function revealMenuRow(app: Surface, marker: string): Promise<void> {
   await waitFor(app, `(() => {
     const row = [...document.querySelectorAll("button")]
       .find((button) => (button.textContent ?? "").includes(${JSON.stringify(marker)}));
     if (!row) return false;
     row.scrollIntoView({ block: "center" });
     return true;
-  })()`, { timeoutMs: 10_000, label: `skill row ${marker} in view` });
+  })()`, { timeoutMs: 10_000, label: `menu row ${marker} in view` });
 }
 
 export async function readLoadedExtensions(app: Surface): Promise<string[]> {

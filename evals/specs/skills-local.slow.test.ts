@@ -13,7 +13,7 @@ import {
   measureSkillsWithSlowCloud,
   readComposerCapabilities,
   readLoadedExtensions,
-  revealSkillRow,
+  revealMenuRow,
   waitFor,
   waitUntilInteractive,
 } from "@openwork/behaviors";
@@ -32,9 +32,10 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   const capabilities = await readComposerCapabilities(app);
   expect(capabilities.sections).toEqual(["Agents", "Commands", "Skills", "Extensions"]);
   {
+    await revealMenuRow(app, "Agents");
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "The composer capability menu visibly shows Agents, Commands, Skills, and Extensions",
+      "The composer capability menu visibly shows the Agents section among its capability sections",
       "No loading failure or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -51,7 +52,7 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   expect(firstLoad.skills.some((skill) => skill.name === "/browser-automation" && skill.local)).toBe(true);
   expect(firstLoad.loadingCommandsVisible).toBe(false);
   {
-    await revealSkillRow(app, "/browser-automation");
+    await revealMenuRow(app, "/browser-automation");
     const shot = await screenshot(app);
     const seen = await validate(shot, [
       "The Skills list visibly includes the local browser-automation skill",
@@ -101,7 +102,7 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   expect(coldLoad.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
   expect(await evalIn(app, "window.location.hash")).toEqual(expect.stringContaining("/session/"));
   {
-    await revealSkillRow(app, "/browser-automation");
+    await revealMenuRow(app, "/browser-automation");
     const shot = await screenshot(app);
     const seen = await validate(shot, [
       "A newly created session visibly shows the local browser-automation skill",
@@ -119,7 +120,7 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   expect(slowCloud.skills.some((skill) => skill.name === "/browser-automation")).toBe(true);
   expect(slowCloud.loadingCommandsVisible).toBe(false);
   {
-    await revealSkillRow(app, "/browser-automation");
+    await revealMenuRow(app, "/browser-automation");
     const shot = await screenshot(app);
     const seen = await validate(shot, [
       "Local skills including browser-automation remain visibly available while cloud loading is delayed",
