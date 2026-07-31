@@ -3,10 +3,9 @@ import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import {
-  seedWorkspace,
+  createAndSelectWorkspace,
   denFetch,
   evalIn,
-  go,
   readAvailableModels,
   readComposerState,
   readCurrentOrganizationMemberId,
@@ -78,21 +77,10 @@ async function executeControl(app: Surface, action: string, args?: unknown): Pro
 }
 
 async function ensureSession(app: Surface, path: string): Promise<string> {
-  const { workspaceId } = await seedWorkspace(app, { path });
-  await go(app, `/workspace/${workspaceId}/session`);
-  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
-    timeoutMs: 60_000,
-    label: "session.create_task enabled",
-  });
-  await executeControl(app, "session.create_task");
-  // Wait on the product's own session list rather than a route shape: a created
-  // task does not always put a session id in the hash.
-  await waitFor(app, `(async () => {
-    const result = await window.__openworkControl.execute("session.list_sessions", null);
-    const value = result?.result ?? result;
-    const sessions = Array.isArray(value) ? value : value?.sessions;
-    return Array.isArray(sessions) && sessions.length > 0;
-  })()`, { timeoutMs: 90_000, label: "created model test session", awaitPromise: true });
+  // Onboarding leaves the app on the workspace's session surface with the
+  // engine configured and a session already open — the state a real first
+  // run produces, and all the model helpers need.
+  const { workspaceId } = await createAndSelectWorkspace(app, { path });
   return workspaceId;
 }
 
@@ -331,7 +319,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(managedTitle, async () => {
   await using roll = photoRoll("models-managed-recovery");
   await signInDesktopAs(app, den, admin);
   const workspacePath = `/tmp/openwork-managed-models-${Date.now()}`;
-  await seedWorkspace(app, { path: workspacePath });
+  await createAndSelectWorkspace(app, { path: workspacePath });
   await waitForText(app, emptyMessage, { timeoutMs: 120_000 });
 
   let recovery = await readModelRecoveryState(app);

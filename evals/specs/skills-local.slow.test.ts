@@ -4,8 +4,8 @@ import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import {
   clickButton,
-  clickText,
   control,
+  createAndSelectWorkspace,
   enabledButtons,
   evalIn,
   go,
@@ -13,7 +13,6 @@ import {
   measureSkillsWithSlowCloud,
   readComposerCapabilities,
   readLoadedExtensions,
-  seedWorkspace,
   waitFor,
   waitUntilInteractive,
 } from "@openwork/behaviors";
@@ -27,7 +26,7 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 test.skipIf(!appSpecsEnabled)(title, async () => {
   await using app = await desktop({ name: "skills-local" });
   await using roll = photoRoll("skills-local");
-  const workspace = await seedWorkspace(app, { path: repoRoot });
+  const workspace = await createAndSelectWorkspace(app, { path: repoRoot });
 
   const capabilities = await readComposerCapabilities(app);
   expect(capabilities.sections).toEqual(["Agents", "Commands", "Skills", "Extensions"]);
@@ -82,13 +81,12 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   // to be interactive on the session surface instead.
   await waitUntilInteractive(app, { timeoutMs: 120_000 });
   // The app does not always navigate to the new session, so ask it for the list
-  // rather than scraping the route.
+  // rather than scraping the route. Observed payload shape:
+  // { ok, actionId, result: [{ sessionId: "ses_…", title, workspace, updatedAt }] }
   const listed = await waitFor(app, `(async () => {
     const result = await window.__openworkControl.execute("session.list_sessions", null);
-    const value = result?.result ?? result;
-    const sessions = Array.isArray(value) ? value : value?.sessions;
-    if (!Array.isArray(sessions)) return false;
-    const withId = sessions.map((entry) => entry?.id).filter((id) => typeof id === "string" && id.startsWith("ses_"));
+    const sessions = Array.isArray(result?.result) ? result.result : [];
+    const withId = sessions.map((entry) => entry?.sessionId).filter((id) => typeof id === "string" && id.startsWith("ses_"));
     return withId.length > 0 ? withId[0] : false;
   })()`, { timeoutMs: 120_000, awaitPromise: true, label: "created session id" });
   const createdSessionId = typeof listed === "string" ? listed : "";

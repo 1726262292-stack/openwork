@@ -101,6 +101,13 @@ async function resolveWorkspaceId(app: Surface): Promise<string> {
   return workspaceIdFromRoute(await currentHash(app));
 }
 
+/**
+ * THE arrangement path for a workspace: the product's own onboarding, driven
+ * the way a person drives it. A previous API seed (POST /workspaces/local +
+ * activate) produced a state the product itself never produces — a workspace
+ * with no engine and no model catalog — and specs failed on that arrangement,
+ * not on their subject. If a spec needs a workspace, it goes through here.
+ */
 export async function createAndSelectWorkspace(
   app: Surface,
   input: { path: string },
