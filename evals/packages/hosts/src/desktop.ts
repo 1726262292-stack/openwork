@@ -20,6 +20,13 @@ function logCleanupError(name: string, error: unknown): void {
 export interface DesktopOptions {
   name?: string;
   mode?: "spawn" | "attach";
+  /**
+   * Where this desktop runs. Defaults to the ambient host (`resolveHost()`).
+   * Pass one from `localHost()` / `daytonaSandbox(id)` to place it explicitly —
+   * that is the only way a spec can put two desktops in two sandboxes, or the
+   * app and the browser in different places.
+   */
+  host?: Host;
   bootstrap?: {
     baseUrl: string;
     apiBaseUrl?: string;
@@ -90,7 +97,7 @@ export async function desktop(opts: DesktopOptions = {}): Promise<DesktopHandle>
       cdpUrl,
     };
   } else {
-    host = await resolveHost();
+    host = opts.host ?? await resolveHost();
     handle = await host.spawnElectron(opts.name ?? "spec", {
       profile: "fresh",
       bootstrap: opts.bootstrap,

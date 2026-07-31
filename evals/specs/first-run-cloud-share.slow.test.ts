@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
-import { desktop, resolveHost } from "@openwork/hosts";
-import { attachSurface } from "@openwork/cdp";
+import { chrome, desktop } from "@openwork/hosts";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import {
   assignPluginToMarketplace,
@@ -88,10 +87,9 @@ test.skipIf(!appSpecsEnabled || !denApiUrl)(title, async () => {
   );
   expect(handoffUrl.startsWith(den.webUrl), `the app opened an unexpected origin: ${handoffUrl}`).toBe(true);
 
-  // 2. Finish in a real browser.
-  const host = await resolveHost();
-  const browserHandle = await host.spawnChrome("cloud-signin", { profile: "fresh", startUrl: "about:blank" });
-  await using browser = await attachSurface(browserHandle);
+  // 2. Finish in a real browser. Same host as the app here; `chrome({ host })`
+  // is what a split topology would use.
+  await using browser = await chrome({ name: "cloud-signin", startUrl: "about:blank" });
   await signInInBrowser(browser, handoffUrl, { email: adminEmail, password });
   {
     const shot = await screenshot(browser);
