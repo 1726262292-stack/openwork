@@ -1,0 +1,63 @@
+name: Warden
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [dev]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+concurrency:
+  group: warden-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  WARDEN_MODEL: ${{ secrets.WARDEN_MODEL }}
+  WARDEN_ANTHROPIC_API_KEY: ${{ secrets.WARDEN_ANTHROPIC_API_KEY }}
+
+jobs:
+  warden:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Analyze
+        id: analyze
+        uses: getsentry/warden@v0
+        with:
+          mode: analyze
+
+      - name: Report
+        uses: getsentry/warden@v0
+        with:
+          mode: report
+          findings-file: ${{ steps.analyze.outputs.findings-file }}
+
+      # Consumed by warden-clearance.yml (workflow_run). The clearance
+      # workflow refuses to act on PRs that touch review machinery, so this
+      # artifact cannot be forged without tripping that guard.
+      - name: Write clearance summary
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          FINDINGS_COUNT: ${{ steps.analyze.outputs.findings-count }}
+          HIGH_COUNT: ${{ steps.analyze.outputs.high-count }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sha "$HEAD_SHA" \
+            --arg count "$FINDINGS_COUNT" \
+            --arg high "$HIGH_COUNT" \
+            '{head_sha: $sha, findings_count: ($count | tonumber), high_count: ($high | tonumber)}' \
+            > warden-summary.json
+          cat warden-summary.json
+
+      - name: Upload clearance summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: warden-summary
+          path: warden-summary.json

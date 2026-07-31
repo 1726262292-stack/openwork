@@ -1,0 +1,32 @@
+version = 1
+
+# Warden gates "security clearance" on a single question: does this diff
+# introduce a new security issue? See .warden/skills/diff-security-review.
+# The clearance itself is granted by .github/workflows/warden-clearance.yml.
+
+[defaults]
+reportOn = "low"
+ignorePaths = [
+  "**/node_modules/**",
+  "**/pnpm-lock.yaml",
+  "**/dist/**",
+  "**/*.min.js",
+]
+
+[defaults.agent]
+model = "anthropic/claude-sonnet-4-6"
+
+[defaults.auxiliary]
+model = "anthropic/claude-haiku-4-5"
+
+[[skills]]
+name = "diff-security-review"
+
+[[skills.triggers]]
+type = "pull_request"
+actions = ["opened", "synchronize", "reopened"]
+draft = false
+
+# Lets developers run `warden` locally on uncommitted changes before pushing.
+[[skills.triggers]]
+type = "local"
