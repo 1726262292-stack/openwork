@@ -59,12 +59,20 @@ const bEmail = process.env.OPENWORK_EVAL_MEMBER_B_EMAIL?.trim() || "riley.demo@a
 // is on the eval secrets volume, so a tool-capable model is available when set.
 const modelId = process.env.OPENWORK_EVAL_MODEL?.trim() || "";
 
-async function waitForConnectionCard(app: Surface, name: string): Promise<void> {
+async function waitForConnectionCard(app: Surface, name: string, workspaceId: string): Promise<void> {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     const found = await evalIn(app, `([...document.querySelectorAll('button')]
       .some((button) => (button.textContent ?? '').includes(${JSON.stringify(name)})))`);
     if (found === true) return;
+    // The app opens a freshly created session on its own, which navigates away
+    // from settings mid-poll. Steer back, the way a person would click back.
+    const onSettings = await evalIn(app, `window.location.hash.includes("/settings/extensions")`).catch(() => false);
+    if (onSettings !== true) {
+      await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      continue;
+    }
     await evalIn(app, "window.__openworkControl.execute('extensions.refresh-marketplace', null)", { awaitPromise: true })
       .catch(() => undefined);
     await evalIn(app, `(() => {
@@ -160,7 +168,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(title, async () => {
   const a = await memberDesktop("connector-member-a", den, memberA);
   await using appA = a.app;
   await openConnectionsSurface(appA, a.workspaceId);
-  await waitForConnectionCard(appA, connection.name);
+  await waitForConnectionCard(appA, connection.name, a.workspaceId);
   await waitForText(appA, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
   await openConnectionDetail(appA, connection.name);
   await waitForText(appA, "OAuth required", { timeoutMs: 30_000 });
@@ -196,7 +204,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(title, async () => {
   const b = await memberDesktop("connector-member-b", den, memberB);
   await using appB = b.app;
   await openConnectionsSurface(appB, b.workspaceId);
-  await waitForConnectionCard(appB, connection.name);
+  await waitForConnectionCard(appB, connection.name, b.workspaceId);
   // A is connected. B must NOT have inherited A's credential.
   await waitForText(appB, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
   expect((await readUsableConnection(memberB, connection.id))?.connectedForMe).toBe(false);
