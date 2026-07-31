@@ -17,9 +17,6 @@ exec > >(tee "$LOG") 2>&1
 export CI=true
 export DISPLAY="${DISPLAY:-:99}"   # the host component verifies it answers
 export OPENWORK_EVAL_APP_SPECS=1
-# Den-dependent specs read these; harmless when no Den is running.
-export OPENWORK_EVAL_DEN_API_URL="${OPENWORK_EVAL_DEN_API_URL:-http://127.0.0.1:8790}"
-export OPENWORK_EVAL_DEN_WEB_URL="${OPENWORK_EVAL_DEN_WEB_URL:-http://localhost:3005}"
 if [ -x "$HOME/mark-verified.sh" ]; then
   export OPENWORK_EVAL_MARK_VERIFIED_CMD="bash $HOME/mark-verified.sh {email}"
 fi
@@ -37,6 +34,19 @@ if [ "${OPENWORK_SPEC_NEEDS_DEN:-0}" = "1" ]; then
   echo "==> Ensuring the Den stack is running"
   export PATH="$HOME/mariadb/bin:$HOME/mariadb/scripts:$PATH"
   node --input-type=module -e 'const m = await import("/workspace/evals/runner/den-stack.ts"); await m.ensureDenStack({ log: (line) => console.log("   " + line), cdpCandidates: [], skipApp: true });'
+fi
+
+# Den env is only exported when a Den actually answers. Exporting it blindly
+# makes den-gated specs run against nothing and fail with "fetch failed"
+# instead of skipping with their own honest reason.
+DEN_API_CANDIDATE="${OPENWORK_EVAL_DEN_API_URL:-http://127.0.0.1:8790}"
+if curl -sf -m 3 -o /dev/null "$DEN_API_CANDIDATE/health"; then
+  export OPENWORK_EVAL_DEN_API_URL="$DEN_API_CANDIDATE"
+  export OPENWORK_EVAL_DEN_WEB_URL="${OPENWORK_EVAL_DEN_WEB_URL:-http://localhost:3005}"
+  echo "==> Den answers at $OPENWORK_EVAL_DEN_API_URL"
+else
+  unset OPENWORK_EVAL_DEN_API_URL OPENWORK_EVAL_DEN_WEB_URL
+  echo "==> No Den running; den-gated specs will skip (set OPENWORK_SPEC_NEEDS_DEN=1 to start one)"
 fi
 
 pnpm --dir evals install
