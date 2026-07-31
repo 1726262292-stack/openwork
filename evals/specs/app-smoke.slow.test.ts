@@ -11,9 +11,12 @@ const title = appSpecsEnabled
 test.skipIf(!appSpecsEnabled)(title, async () => {
   await using app = await desktop({ name: "app-smoke" });
   await using roll = photoRoll("app-smoke");
-  // The app's own host's workspace root — NOT process.cwd(), which is the
-  // driver's filesystem and does not exist when the app runs in a sandbox.
-  const workspace = await createAndSelectWorkspace(app, { path: app.workspaceRoot ?? process.cwd() });
+  // A fresh, small directory that exists on whatever host runs the app.
+  // NOT process.cwd(): that is the DRIVER's filesystem, which does not exist
+  // when the app runs in a sandbox. NOT the repo root either: opening the whole
+  // monorepo makes the engine scan node_modules and blocks the renderer past
+  // 240s. createLocalWorkspace creates the folder, so it need not pre-exist.
+  const workspace = await createAndSelectWorkspace(app, { path: `/tmp/openwork-app-smoke-${Date.now()}` });
   expect(workspace.workspaceId).toBeTruthy();
   const route = await evalIn(app, "window.__openworkControl.snapshot().route");
   expect(route).toBeTruthy();
