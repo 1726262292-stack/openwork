@@ -416,11 +416,60 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
   return present.join(" ");
 }
 
+
+/**
+ * Spawning a desktop has environment preconditions that only this component can
+ * reasonably own. Callers should not have to know that Electron needs a live X
+ * server, or that a previous run's process may still hold a port.
+ */
+const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function displayAnswers(display: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("xdpyinfo", ["-display", display], (error) => resolve(!error));
+  });
+}
+
+async function ensureDisplay(repoRoot: string, env: NodeJS.ProcessEnv, log: (message: string) => void): Promise<void> {
+  const display = (env.DISPLAY ?? "").trim();
+  if (!display) return;
+  if (await displayAnswers(display)) return;
+  // A stale /tmp/.X11-unix socket is not proof the server is alive: Electron
+  // exits with "Missing X server or $DISPLAY", which looks like a hung renderer.
+  const starter = join(repoRoot, ".devcontainer", "start-daytona-vnc.sh");
+  if (!existsSync(starter)) {
+    log(`Display ${display} is not answering and ${starter} is missing; Electron will fail to start.`);
+    return;
+  }
+  log(`Display ${display} is not answering; starting the virtual display...`);
+  spawnDetached("bash", [starter], { cwd: repoRoot, env, logPath: join(repoRoot, "evals", "results", "virtual-display.log") });
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await sleepMs(2_000);
+    if (await displayAnswers(display)) {
+      log(`Display ${display} is live.`);
+      return;
+    }
+  }
+  log(`Display ${display} still not answering after 60s; Electron will fail to start.`);
+}
+
+/** Kill Electron processes from earlier runs of THIS host's surfaces only. */
+async function clearStaleSurfaces(rootDir: string, log: (message: string) => void): Promise<void> {
+  await new Promise<void>((resolve) => {
+    execFile("pkill", ["--full", rootDir], () => resolve());
+  });
+  log(`Cleared any Electron processes left over from earlier surfaces in ${rootDir}.`);
+}
+
   return {
     kind: "local",
 
     async spawnElectron(name: string, opts: ElectronSurfaceOptions = {}): Promise<SurfaceHandle> {
       await prepareSharedElectronResources(options.repoRoot, log);
+      const spawnEnvForChecks: NodeJS.ProcessEnv = { ...process.env, ...opts.env };
+      if (insideContainerSandbox() && (spawnEnvForChecks.DISPLAY ?? "").trim().length === 0) spawnEnvForChecks.DISPLAY = ":99";
+      await ensureDisplay(options.repoRoot, spawnEnvForChecks, log);
+      await clearStaleSurfaces(rootDir, log);
       const profileRoot = join(rootDir, `${sanitizeSlug(name)}-${timestamp()}-${process.pid}`);
       const paths = electronProfilePaths(profileRoot);
       await ensureElectronProfile(paths);

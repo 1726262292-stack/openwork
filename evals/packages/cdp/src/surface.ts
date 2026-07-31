@@ -1,6 +1,6 @@
-import { connect, debuggerUrlFor, pickAppTarget } from "./cdp.ts";
+import { connect, debuggerUrlFor, evaluate, pickAppTarget } from "./cdp.ts";
 import { firstPageTarget, waitForCdp } from "./targets.ts";
-import type { CdpClient, CdpTarget } from "./cdp.ts";
+import type { CdpClient, CdpTarget, EvaluateOptions } from "./cdp.ts";
 
 export type SurfaceKind = "electron" | "chrome";
 
@@ -60,4 +60,32 @@ export async function reattachSurface(surface: Surface): Promise<void> {
     // The old client is already gone; that is the case we are recovering from.
   }
   surface.client = await connectToAppTarget(surface.handle);
+}
+
+/**
+ * Evaluate against a surface, healing a replaced page target.
+ *
+ * The desktop swaps its page target during transitions; evaluations against the
+ * old one hang until they time out, which reads like a blocked renderer. Owning
+ * that here means callers — behaviours, specs, the readiness gate — never carry
+ * re-attach bookkeeping.
+ */
+export async function evaluateOnSurface(
+  surface: Surface,
+  expression: string,
+  opts: EvaluateOptions & { reattachAttempts?: number } = {},
+): Promise<unknown> {
+  const { reattachAttempts = 1, ...evaluateOptions } = opts;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= reattachAttempts; attempt += 1) {
+    try {
+      return await evaluate(surface.client, expression, evaluateOptions);
+    } catch (error) {
+      lastError = error;
+      if (attempt === reattachAttempts) break;
+      // A dead target cannot answer; get the app's current one and try again.
+      await reattachSurface(surface).catch(() => undefined);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }

@@ -1,4 +1,4 @@
-import { describeAppState, evaluate, isInteractive, probeAppState, reattachSurface } from "@openwork/cdp";
+import { describeAppState, evaluateOnSurface, isInteractive, probeAppState } from "@openwork/cdp";
 import type { AppStateProbe, EvaluateOptions, Surface } from "@openwork/cdp";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -20,7 +20,8 @@ function jsValue(value: unknown): string {
 }
 
 export async function evalIn(app: Surface, expression: string, opts: EvaluateOptions = {}): Promise<unknown> {
-  return evaluate(app.client, expression, opts);
+  // Target healing lives in @openwork/cdp; behaviours just evaluate.
+  return evaluateOnSurface(app, expression, opts);
 }
 
 /**
@@ -45,9 +46,6 @@ async function resilientRead(
       return await evalIn(app, expression, { timeoutMs: perAttemptMs });
     } catch (error) {
       lastError = error;
-      // Two consecutive timeouts usually mean the page target was replaced (the
-      // app recreates it during transitions), not that the renderer is busy.
-      if (attempts % 2 === 0) await reattachSurface(app).catch(() => undefined);
       await sleep(POLL_INTERVAL_MS);
     }
   }
@@ -61,7 +59,6 @@ export async function waitFor(
 ): Promise<unknown> {
   const startedAt = Date.now();
   let lastError: unknown = null;
-  let failures = 0;
   // Each probe gets a SHORT timeout on purpose: a renderer that is briefly busy
   // should have the call abandoned and retried on the next tick. Giving a probe
   // the whole budget turns one stuck evaluation into the entire wait.
@@ -73,8 +70,6 @@ export async function waitFor(
       lastError = null;
     } catch (error) {
       lastError = error;
-      failures += 1;
-      if (failures % 3 === 0) await reattachSurface(app).catch(() => undefined);
     }
     await sleep(POLL_INTERVAL_MS);
   }
