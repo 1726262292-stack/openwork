@@ -47,6 +47,13 @@ import {
 import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { newProvidersEvent } from "@/app/lib/provider-events";
 
+/** Shown with their logos when no keys are connected yet. */
+const SUGGESTED_KEY_PROVIDERS = [
+  { id: "anthropic", name: "Anthropic" },
+  { id: "openai", name: "OpenAI" },
+  { id: "google", name: "Google" },
+];
+
 function getProviderDisplayName(providerId: string) {
   return providerId
     .split("-")
@@ -289,6 +296,24 @@ export function ModelSelect({
     setPromoHidden(true);
   }, []);
 
+  // Providers the user connected with their own key — OpenCode Zen and
+  // OpenWork Models are managed for them, so they never count as "your keys".
+  const keyProviders = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const option of modelOptions) {
+      const id = option.providerID.trim().toLowerCase();
+      if (!id || id === "opencode" || id === OPENWORK_MODELS_PROVIDER_ID) continue;
+      if (seen.has(id)) continue;
+      seen.set(id, option.description ?? getProviderDisplayName(option.providerID));
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [modelOptions]);
+
+  const hasKeyProviders = keyProviders.length > 0;
+  const keyProviderPreview = hasKeyProviders
+    ? keyProviders.slice(0, 3)
+    : SUGGESTED_KEY_PROVIDERS;
+
   const handleConnectProvider = React.useCallback(() => {
     onOpenChange(false);
     setSearch("");
@@ -444,7 +469,8 @@ export function ModelSelect({
               </CommandGroup>
             )}
           </CommandList>
-          {/* Your API keys → provider configuration */}
+          {/* Your API keys → provider configuration. One slot, one action: the
+              label reflects whether any keys are connected yet. */}
           {canAddProviders ? (
             <div className="border-t border-border p-1">
               <div className="flex items-baseline px-2 pb-0.5 pt-1 text-xs text-muted-foreground">
@@ -455,11 +481,23 @@ export function ModelSelect({
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
                 onClick={handleConnectProvider}
               >
+                <span className="flex shrink-0 items-center">
+                  {keyProviderPreview.map((provider, index) => (
+                    <span
+                      key={provider.id}
+                      className="flex size-[18px] items-center justify-center overflow-hidden rounded-[6px] border border-border bg-background"
+                      style={index === 0 ? undefined : { marginLeft: "-5px" }}
+                    >
+                      <ProviderIcon providerId={provider.id} providerName={provider.name} size={12} />
+                    </span>
+                  ))}
+                </span>
                 <span className="min-w-0 flex-1 truncate text-foreground">
-                  Anthropic, OpenAI, Google…
+                  {keyProviderPreview.map((provider) => provider.name).join(", ")}
+                  {!hasKeyProviders || keyProviders.length > keyProviderPreview.length ? "…" : ""}
                 </span>
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                  Connect
+                  {hasKeyProviders ? "Connect more providers" : "Add your keys"}
                 </span>
               </button>
             </div>
