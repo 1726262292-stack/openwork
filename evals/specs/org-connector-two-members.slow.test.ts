@@ -62,18 +62,22 @@ const modelId = process.env.OPENWORK_EVAL_MODEL?.trim() || "";
 async function waitForConnectionCard(app: Surface, name: string, workspaceId: string): Promise<void> {
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
+    // Short per-probe timeout, failure tolerated: two desktops in one sandbox
+    // make the renderer freeze in bursts, and a bare 20s evaluate turns one
+    // freeze into a failed spec.
     const found = await evalIn(app, `([...document.querySelectorAll('button')]
-      .some((button) => (button.textContent ?? '').includes(${JSON.stringify(name)})))`);
+      .some((button) => (button.textContent ?? '').includes(${JSON.stringify(name)})))`, { timeoutMs: 8_000 })
+      .catch(() => false);
     if (found === true) return;
     // The app opens a freshly created session on its own, which navigates away
     // from settings mid-poll. Steer back, the way a person would click back.
-    const onSettings = await evalIn(app, `window.location.hash.includes("/settings/extensions")`).catch(() => false);
+    const onSettings = await evalIn(app, `window.location.hash.includes("/settings/extensions")`, { timeoutMs: 8_000 }).catch(() => false);
     if (onSettings !== true) {
       await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
       await new Promise((resolve) => setTimeout(resolve, 1_500));
       continue;
     }
-    await evalIn(app, "window.__openworkControl.execute('extensions.refresh-marketplace', null)", { awaitPromise: true })
+    await evalIn(app, "window.__openworkControl.execute('extensions.refresh-marketplace', null)", { awaitPromise: true, timeoutMs: 15_000 })
       .catch(() => undefined);
     await evalIn(app, `(() => {
       const button = [...document.querySelectorAll('button')]
