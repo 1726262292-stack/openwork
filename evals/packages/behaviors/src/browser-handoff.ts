@@ -95,6 +95,13 @@ export async function signInInBrowser(
       submit.click();
       return true;
     })()`, { timeoutMs: 60_000, label: "den password step submitted" });
+    // Signed in means the outcome page, not a submit in flight ("Working...").
+    await waitFor(browser, `(() => {
+      const text = document.body?.innerText ?? "";
+      if (/signed in/i.test(text)) return true;
+      return [...document.querySelectorAll("input")]
+        .some((input) => (input.value ?? "").startsWith("openwork://"));
+    })()`, { timeoutMs: 60_000, label: "den sign-in outcome" });
   }, credentials.email);
 }
 

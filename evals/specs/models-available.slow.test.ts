@@ -317,8 +317,14 @@ test.skipIf(!appSpecsEnabled || !apiUrl)(managedTitle, async () => {
     bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
   });
   await using roll = photoRoll("models-managed-recovery");
-  await signInDesktopAs(app, den, admin);
+  // Workspace first, then the org sign-in: the org's managed-model policy
+  // then lands on an existing composer. (Signed-in-first has no workspace
+  // affordance to drive: the org shell offers no Add workspace entry there.)
   const workspacePath = `/tmp/openwork-managed-models-${Date.now()}`;
+  await createAndSelectWorkspace(app, { path: workspacePath });
+  await signInDesktopAs(app, den, admin);
+  // Completes organization onboarding if it appears, and reselects the
+  // existing workspace's task UI either way.
   await createAndSelectWorkspace(app, { path: workspacePath });
   await waitForText(app, emptyMessage, { timeoutMs: 120_000 });
 
