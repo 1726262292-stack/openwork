@@ -157,7 +157,11 @@ export async function measureSkillsWithSlowCloud(app: Surface): Promise<SlowClou
     timeoutMs: 60_000,
     label: "composer plug button after slow-cloud reload",
   });
-  const value = await evalIn(app, `new Promise((resolve) => {
+  // Arm the scenario in one small mutation, then drive the menu with the
+  // retried helper. The previous shape opened the menu inside this evaluate
+  // with fixed 100/300ms delays; right after a reload those clicks can land
+  // before React handlers attach, and the whole scenario times out.
+  const armed = await evalIn(app, `(() => {
     window.__OPENWORK_GATEWAY__ = { version: 1 };
     const originalFetch = window.fetch.bind(window);
     window.__denFetchLog = [];
@@ -171,52 +175,55 @@ export async function measureSkillsWithSlowCloud(app: Surface): Promise<SlowClou
     };
     localStorage.setItem("openwork.den.authToken", "eval-slow-cloud-token");
     localStorage.setItem("openwork.den.activeOrgId", "org_slowcloud_" + Date.now());
+    window.__slowCloudWitness = { connectSettledMs: null, error: null };
+    const connectStartedAt = performance.now();
     import("/src/react-app/domains/connections/cloud-inventory-cache.ts").then((module) => {
-      const connectStartedAt = performance.now();
-      const witness = { connectSettledMs: null };
       module.loadSessionConnectCapabilities().then(() => {
-        witness.connectSettledMs = Math.round(performance.now() - connectStartedAt);
+        window.__slowCloudWitness.connectSettledMs = Math.round(performance.now() - connectStartedAt);
       });
-      document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-      setTimeout(() => {
-        document.querySelector(${JSON.stringify(PLUG_BUTTON)})?.click();
-        setTimeout(() => {
-          const skillsButton = [...document.querySelectorAll("button")]
-            .find((button) => (button.textContent ?? "").trim() === "Skills");
-          if (!skillsButton) { resolve({ error: "skills section button not found" }); return; }
-          const startedAt = performance.now();
-          skillsButton.click();
-          const poll = () => {
-            const rows = [...document.querySelectorAll("button")]
-              .filter((button) => /^\\/[a-z0-9-]+/i.test((button.textContent ?? "").trim()));
-            const hit = rows.some((button) => ${JSON.stringify(SKILL_MARKERS)}
-              .some((marker) => (button.textContent ?? "").includes(marker)));
-            if (hit) {
-              const elapsedMs = Math.round(performance.now() - startedAt);
-              setTimeout(() => resolve({
-                elapsedMs,
-                rowCount: rows.length,
-                skills: rows.map((button) => {
-                  const label = (button.textContent ?? "").replace(/\\s+/g, " ").trim();
-                  return { name: (label.match(/^\\/[a-z0-9-]+/) ?? [label])[0], label, local: label.includes("Local") };
-                }),
-                loadingCommandsVisible: document.body.innerText.includes("Loading commands"),
-                denRequestCount: window.__denFetchLog.length,
-                connectSettledMs: witness.connectSettledMs,
-              }), 1_500);
-              return;
-            }
-            if (performance.now() - startedAt > 20_000) {
-              resolve({ error: "timed out", denRequestCount: window.__denFetchLog.length });
-              return;
-            }
-            setTimeout(poll, 20);
-          };
-          poll();
-        }, 300);
-      }, 100);
-    }).catch((error) => resolve({ error: String(error).slice(0, 200) }));
-  })`, { awaitPromise: true, timeoutMs: 60_000 });
+    }).catch((error) => { window.__slowCloudWitness.error = String(error).slice(0, 200); });
+    return true;
+  })()`, { timeoutMs: 30_000 });
+  if (armed !== true) throw new Error(`Could not arm the slow-cloud scenario: ${JSON.stringify(armed)}`);
+  await openPlugMenu(app);
+  const value = await evalIn(app, `new Promise((resolve) => {
+    if (typeof window.__slowCloudWitness?.error === "string" && window.__slowCloudWitness.error) {
+      resolve({ error: window.__slowCloudWitness.error });
+      return;
+    }
+    const skillsButton = [...document.querySelectorAll("button")]
+      .find((button) => (button.textContent ?? "").trim() === "Skills");
+    if (!skillsButton) { resolve({ error: "skills section button not found" }); return; }
+    const startedAt = performance.now();
+    skillsButton.click();
+    const poll = () => {
+      const rows = [...document.querySelectorAll("button")]
+        .filter((button) => /^\\/[a-z0-9-]+/i.test((button.textContent ?? "").trim()));
+      const hit = rows.some((button) => ${JSON.stringify(SKILL_MARKERS)}
+        .some((marker) => (button.textContent ?? "").includes(marker)));
+      if (hit) {
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        setTimeout(() => resolve({
+          elapsedMs,
+          rowCount: rows.length,
+          skills: rows.map((button) => {
+            const label = (button.textContent ?? "").replace(/\\s+/g, " ").trim();
+            return { name: (label.match(/^\\/[a-z0-9-]+/) ?? [label])[0], label, local: label.includes("Local") };
+          }),
+          loadingCommandsVisible: document.body.innerText.includes("Loading commands"),
+          denRequestCount: window.__denFetchLog.length,
+          connectSettledMs: window.__slowCloudWitness.connectSettledMs,
+        }), 1_500);
+        return;
+      }
+      if (performance.now() - startedAt > 20_000) {
+        resolve({ error: "timed out", denRequestCount: window.__denFetchLog.length });
+        return;
+      }
+      setTimeout(poll, 20);
+    };
+    poll();
+  })`, { awaitPromise: true, timeoutMs: 30_000 });
   if (!isRecord(value) || typeof value.error === "string") throw new Error(`Slow-cloud skills scenario failed: ${JSON.stringify(value)}`);
   return {
     ...parseSkillsLoad(value),
