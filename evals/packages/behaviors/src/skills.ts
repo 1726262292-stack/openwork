@@ -161,8 +161,12 @@ export async function measureSkillsWithSlowCloud(app: Surface): Promise<SlowClou
   // retried helper. The previous shape opened the menu inside this evaluate
   // with fixed 100/300ms delays; right after a reload those clicks can land
   // before React handlers attach, and the whole scenario times out.
+  // A den auth token + active org is the real cloud-connected desktop state.
+  // Deliberately NO __OPENWORK_GATEWAY__ marker: that flips the app into the
+  // hosted gateway runtime, which rewires the local openwork-server client to
+  // the page origin — local skills then never load, which is a state a
+  // desktop user can never reach.
   const armed = await evalIn(app, `(() => {
-    window.__OPENWORK_GATEWAY__ = { version: 1 };
     const originalFetch = window.fetch.bind(window);
     window.__denFetchLog = [];
     window.fetch = async (input, init) => {
@@ -232,15 +236,4 @@ export async function measureSkillsWithSlowCloud(app: Surface): Promise<SlowClou
   };
 }
 
-export async function resetSkillsCloudState(app: Surface): Promise<void> {
-  await evalIn(app, `(() => {
-    localStorage.removeItem("openwork.den.authToken");
-    localStorage.removeItem("openwork.den.activeOrgId");
-    localStorage.removeItem("openwork.den.activeOrgSlug");
-    localStorage.removeItem("openwork.den.activeOrgName");
-    delete window.__OPENWORK_GATEWAY__;
-    location.reload();
-    return true;
-  })()`);
-  await waitFor(app, "Boolean(window.__openworkControl)", { timeoutMs: 60_000, label: "control API after skills cleanup" });
-}
+
