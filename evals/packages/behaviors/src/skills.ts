@@ -49,19 +49,19 @@ function parseSkillsLoad(value: unknown): SkillsLoadFacts {
 }
 
 async function openPlugMenu(app: Surface): Promise<void> {
-  await evalIn(app, `(() => {
-    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-    return true;
-  })()`);
-  await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(PLUG_BUTTON)}))`, {
-    timeoutMs: 60_000,
-    label: "composer plug button",
-  });
-  await evalIn(app, `document.querySelector(${JSON.stringify(PLUG_BUTTON)}).click()`);
+  // One guarded, retried step: the renderer freezes in bursts while the
+  // workspace engine boots, so a bare click evaluation can eat a 20s CDP
+  // timeout and fail the spec. Clicking only while the menu is closed keeps
+  // retries from toggling it back shut.
   await waitFor(app, `(() => {
     const labels = [...document.querySelectorAll("button")].map((button) => (button.textContent ?? "").trim());
-    return labels.includes("Skills") && labels.includes("Extensions");
-  })()`, { label: "plug menu sections" });
+    if (labels.includes("Skills") && labels.includes("Extensions")) return true;
+    const plug = document.querySelector(${JSON.stringify(PLUG_BUTTON)});
+    if (!plug) return false;
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    plug.click();
+    return false;
+  })()`, { timeoutMs: 60_000, label: "plug menu sections" });
 }
 
 export async function readComposerCapabilities(app: Surface): Promise<ComposerCapabilitiesFacts> {
@@ -105,7 +105,9 @@ export async function measureLoadedSkills(app: Surface): Promise<SkillsLoadFacts
       setTimeout(poll, 20);
     };
     poll();
-  })`, { awaitPromise: true });
+  })`, { awaitPromise: true, timeoutMs: 30_000 });
+  // The in-page poll gives up at 20s; the CDP call must outlive it or the two
+  // deadlines race and the spec dies with a raw CDP timeout instead of facts.
   if (isRecord(value) && typeof value.error === "string") throw new Error(`Skills did not render: ${JSON.stringify(value)}`);
   return parseSkillsLoad(value);
 }
@@ -142,9 +144,9 @@ export async function readLoadedExtensions(app: Surface): Promise<string[]> {
     timeoutMs: 10_000,
     label: "OpenWork Browser extension",
   });
-  const value = await evalIn(app, `([...document.querySelectorAll("button")]
+  const value = await waitFor(app, `([...document.querySelectorAll("button")]
     .map((button) => (button.textContent ?? "").replace(/\\s+/g, " ").trim())
-    .filter((label) => label.includes("OpenWork Browser")))`);
+    .filter((label) => label.includes("OpenWork Browser")))`, { timeoutMs: 60_000, label: "OpenWork Browser extension rows" });
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
@@ -214,7 +216,7 @@ export async function measureSkillsWithSlowCloud(app: Surface): Promise<SlowClou
         }, 300);
       }, 100);
     }).catch((error) => resolve({ error: String(error).slice(0, 200) }));
-  })`, { awaitPromise: true });
+  })`, { awaitPromise: true, timeoutMs: 60_000 });
   if (!isRecord(value) || typeof value.error === "string") throw new Error(`Slow-cloud skills scenario failed: ${JSON.stringify(value)}`);
   return {
     ...parseSkillsLoad(value),
