@@ -63,6 +63,15 @@ if [ -z "$REF" ]; then
   REF="${REF:-$(git rev-parse HEAD)}"
 fi
 
+# The ref is interpolated into a remote shell assignment below, so anything
+# outside git's safe alphabet (or a leading dash) is remote code execution.
+case "$REF" in
+  ""|-*|*[!A-Za-z0-9._/-]*)
+    echo "ERROR: unsafe ref '$REF' — only letters, digits and . _ / - are allowed." >&2
+    exit 1
+    ;;
+esac
+
 snapshot_id() {
   daytona snapshot list -f json | node -e 'const name = process.argv[1]; let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => { const snapshot = JSON.parse(input).find((item) => item.name === name); if (snapshot) process.stdout.write(snapshot.id || snapshot.name); });' "$1"
 }

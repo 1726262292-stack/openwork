@@ -112,6 +112,20 @@ async function execInSandbox(
   return checkedExec(exec, ["exec", sandbox, "--", `bash -lc '${script}'`], opts.context, { timeoutMs: opts.timeoutMs });
 }
 
+/**
+ * A ref travels into a remote double-quoted shell word AND into a file the
+ * operator is told to `source`, so `$(...)`, a quote, or a newline in it is
+ * remote code execution. Refuse anything outside git's own safe alphabet here
+ * rather than escaping it correctly at each site forever.
+ */
+function assertSafeRef(ref: string): string {
+  const value = ref.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value)) {
+    throw new Error(`Unsafe git ref ${JSON.stringify(ref)}: only letters, digits and . _ / - are allowed, and it may not start with "-".`);
+  }
+  return value;
+}
+
 function snapshotId(output: string, name: string): string | null {
   let parsed: unknown;
   try {
@@ -154,6 +168,7 @@ function lastNonemptyLine(text: string): string {
 export async function provisionDesktopSandbox(options: DesktopSandboxOptions & ProvisionExecOptions): Promise<DesktopSandbox> {
   const exec = options.exec ?? defaultDaytonaExec;
   const log = options.log ?? console.error;
+  const ref = assertSafeRef(options.ref);
   const reused = options.reuse?.trim() || "";
   let sandbox = reused;
 
@@ -195,14 +210,14 @@ export async function provisionDesktopSandbox(options: DesktopSandboxOptions & P
       // observed leaving FETCH_HEAD stale, silently running the wrong code —
       // and servers may refuse raw-sha fetches outright, so fall back to a
       // full fetch and prefer the remote-tracking ref over any stale local.
-      `set -e; cd /workspace; git fetch origin "${options.ref}" 2>/dev/null || git fetch origin; git checkout --detach "origin/${options.ref}" 2>/dev/null || git checkout --detach "${options.ref}" 2>/dev/null || git checkout --detach FETCH_HEAD; git rev-parse --short=12 HEAD`,
+      `set -e; cd /workspace; git fetch origin "${ref}" 2>/dev/null || git fetch origin; git checkout --detach "origin/${ref}" 2>/dev/null || git checkout --detach "${ref}" 2>/dev/null || git checkout --detach FETCH_HEAD; git rev-parse --short=12 HEAD`,
       { timeoutMs: 120_000, context: `checkout gate for ${sandbox}` },
     );
     const sha = lastNonemptyLine(result.stdout);
     if (!sha) throw new Error(`Checkout gate failed for ${sandbox}: git did not print a resolved sha. Output tail: ${outputTail(result)}`);
-    const wantsSha = /^[0-9a-f]{7,40}$/.test(options.ref);
-    if (wantsSha && !sha.startsWith(options.ref.slice(0, 12)) && !options.ref.startsWith(sha)) {
-      throw new Error(`Checkout gate failed for ${sandbox}: asked for ${options.ref} but HEAD is ${sha}.`);
+    const wantsSha = /^[0-9a-f]{7,40}$/.test(ref);
+    if (wantsSha && !sha.startsWith(ref.slice(0, 12)) && !ref.startsWith(sha)) {
+      throw new Error(`Checkout gate failed for ${sandbox}: asked for ${ref} but HEAD is ${sha}.`);
     }
     log(`==> checkout resolved ${sha}`);
   });
@@ -519,6 +534,7 @@ async function proveDenSeed(apiUrl: string, webUrl: string, sandbox: string, reu
 export async function provisionDenSandbox(options: DenSandboxOptions & ProvisionExecOptions): Promise<DenSandbox> {
   const exec = options.exec ?? defaultDaytonaExec;
   const log = options.log ?? console.error;
+  const ref = assertSafeRef(options.ref);
   const reused = options.reuse?.trim() || "";
   let sandbox: string;
   let webUrl: string;
@@ -531,7 +547,7 @@ export async function provisionDenSandbox(options: DenSandboxOptions & Provision
       previewUrl(exec, sandbox, 8788),
     ]));
   } else {
-    const result = await timedStep(log, "Den provisioning script", () => runDenProvisionScript(options.ref, options.repoRoot ?? REPO_ROOT, log));
+    const result = await timedStep(log, "Den provisioning script", () => runDenProvisionScript(ref, options.repoRoot ?? REPO_ROOT, log));
     if (result.code !== 0) {
       throw new Error(`Den provisioning script gate failed with exit ${result.code}. Output tail:\n${textTail(result.output)}`);
     }
@@ -651,6 +667,7 @@ function commentLine(content: string, prefix: string): string | null {
 }
 
 export function renderConnectorSpecEnv(facts: ConnectorSpecEnv): string {
+  assertSafeRef(facts.ref);
   return [
     `${ENV_HEADER_PREFIX} — generated ${new Date().toISOString()}${ENV_REF_MARKER}${facts.ref}`,
     `${ENV_CREATED_PREFIX}${facts.created.join(",")}`,

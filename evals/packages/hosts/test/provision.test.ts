@@ -100,6 +100,27 @@ test("provisionDesktopSandbox resolves the snapshot id and creates with connecto
   assertRemoteCommandsAreSingleArgument(calls);
 });
 
+test("an unsafe ref is refused before it can reach a remote shell or a sourced file", async () => {
+  const { exec, calls } = desktopFake();
+
+  for (const ref of ["dev\"; rm -rf /; #", "$(curl attacker)", "dev\nrm -rf /", "--upload-pack=evil"]) {
+    await assert.rejects(
+      provisionDesktopSandbox({ ref, name: "a", reuse: "existing-a", exec, log: () => undefined }),
+      /Unsafe git ref/,
+    );
+    assert.throws(() => renderConnectorSpecEnv({
+      denApiUrl: "https://a",
+      denWebUrl: "https://w",
+      sandboxA: "a",
+      sandboxB: "b",
+      mockUrl: "https://m",
+      ref,
+      created: [],
+    }), /Unsafe git ref/);
+  }
+  assert.equal(calls.length, 0, "an unsafe ref must be refused before any daytona call");
+});
+
 test("provisionDesktopSandbox fails the disk gate above 85 percent", async () => {
   const { exec } = desktopFake("92%");
 
