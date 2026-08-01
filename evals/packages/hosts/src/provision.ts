@@ -248,7 +248,10 @@ export async function provisionDesktopSandbox(options: DesktopSandboxOptions & P
     const result = await execInSandbox(
       exec,
       sandbox,
-      "export DISPLAY=:99; nohup python3 -m http.server 18099 --bind 127.0.0.1 >/tmp/xdgtest.log 2>&1 & sleep 1; (xdg-open http://127.0.0.1:18099/xdg-open-proof >/dev/null 2>&1 &); ok=0; for i in $(seq 1 30); do grep -q xdg-open-proof /tmp/xdgtest.log 2>/dev/null && ok=1 && break; sleep 1; done; pkill -f \"http.server 18099\" >/dev/null 2>&1; pkill -f chromium >/dev/null 2>&1; rm -f /tmp/xdgtest.log; [ $ok = 1 ] && echo XDG_OPEN_WORKS || echo XDG_OPEN_BROKEN",
+      // Verdict BEFORE cleanup, and bracketed pkill patterns: the pattern is
+      // otherwise a substring of this very shell's command line, so pkill
+      // TERMs its own shell (exit 143) before the verdict can be printed.
+      "export DISPLAY=:99; nohup python3 -m http.server 18099 --bind 127.0.0.1 >/tmp/xdgtest.log 2>&1 & sleep 1; (xdg-open http://127.0.0.1:18099/xdg-open-proof >/dev/null 2>&1 &); ok=0; for i in $(seq 1 30); do grep -q xdg-open-proof /tmp/xdgtest.log 2>/dev/null && ok=1 && break; sleep 1; done; [ $ok = 1 ] && echo XDG_OPEN_WORKS || echo XDG_OPEN_BROKEN; pkill -f \"[h]ttp.server 18099\" >/dev/null 2>&1; pkill -f \"[c]hromium\" >/dev/null 2>&1; rm -f /tmp/xdgtest.log; true",
       { timeoutMs: 90_000, context: `browser hop gate for ${sandbox}` },
     );
     if (!result.stdout.includes("XDG_OPEN_WORKS")) {
