@@ -11,7 +11,10 @@ on:
     branches: [dev]
 
 permissions:
-  contents: read
+  # contents:write is required by GitHub to resolve review threads via
+  # GraphQL; Warden auto-resolves its own findings once fixed, which the
+  # ruleset's required_review_thread_resolution depends on.
+  contents: write
   pull-requests: write
   checks: write
 
