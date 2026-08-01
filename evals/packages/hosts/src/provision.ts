@@ -1,0 +1,607 @@
+import { spawn } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+
+import { checkedExec, defaultDaytonaExec } from "./daytona.ts";
+import type { DaytonaExec, DaytonaExecResult } from "./daytona.ts";
+
+const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
+const DESKTOP_READY_TIMEOUT_MS = 300_000;
+const INSTALL_TIMEOUT_MS = 25 * 60 * 1_000;
+const SERVER_SCRIPT_TIMEOUT_MS = 20 * 60 * 1_000;
+const HTTPS_URL = /https:\/\/[^\s"'<>)]+/;
+
+export interface ProvisionExecOptions {
+  exec?: DaytonaExec;
+}
+
+export interface DesktopSandboxOptions {
+  ref: string;
+  name: string;
+  reuse?: string;
+  snapshot?: string;
+  log?: (line: string) => void;
+}
+
+export interface DesktopSandbox {
+  sandbox: string;
+  created: boolean;
+}
+
+export interface DenSandboxOptions {
+  ref: string;
+  reuse?: string;
+  repoRoot?: string;
+  log?: (line: string) => void;
+}
+
+export interface DenSandbox {
+  sandbox: string;
+  apiUrl: string;
+  webUrl: string;
+  created: boolean;
+}
+
+export interface MockOnSandboxOptions {
+  sandbox: string;
+  port?: number;
+  log?: (line: string) => void;
+  fetchImpl?: typeof fetch;
+}
+
+export interface MockOnSandbox {
+  url: string;
+}
+
+export interface ConnectorSpecEnv {
+  denApiUrl: string;
+  denWebUrl: string;
+  sandboxA: string;
+  sandboxB: string;
+  mockUrl: string;
+  ref: string;
+  created: string[];
+}
+
+function messageText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function outputTail(result: DaytonaExecResult): string {
+  return `${result.stdout}${result.stderr}`.trim().slice(-2_000);
+}
+
+function textTail(text: string): string {
+  return text.trim().slice(-4_000);
+}
+
+function firstHttpsUrl(text: string): string | null {
+  const match = HTTPS_URL.exec(text);
+  return match ? match[0].replace(/[.,;:]+$/, "") : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function timedStep<T>(log: (line: string) => void, name: string, action: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  log(`==> ${name}...`);
+  try {
+    const result = await action();
+    log(`==> ${name} done (${Date.now() - startedAt}ms)`);
+    return result;
+  } catch (error) {
+    log(`==> ${name} failed (${Date.now() - startedAt}ms)`);
+    throw error;
+  }
+}
+
+/**
+ * daytona exec joins its trailing args with spaces, so a multi-word command
+ * must travel as ONE argument or `bash -lc` receives only the first word and
+ * the rest leaks into the remote login shell.
+ */
+async function execInSandbox(
+  exec: DaytonaExec,
+  sandbox: string,
+  script: string,
+  opts: { timeoutMs?: number; context: string },
+): Promise<DaytonaExecResult> {
+  if (script.includes("'")) throw new Error(`Remote script for ${opts.context} must not contain single quotes.`);
+  return checkedExec(exec, ["exec", sandbox, "--", `bash -lc '${script}'`], opts.context, { timeoutMs: opts.timeoutMs });
+}
+
+function snapshotId(output: string, name: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch (error) {
+    throw new Error(`Snapshot gate failed: daytona snapshot list returned invalid JSON: ${messageText(error)}. Output tail: ${textTail(output)}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Snapshot gate failed: daytona snapshot list did not return an array. Output tail: ${textTail(output)}`);
+  }
+  for (const entry of parsed) {
+    if (isRecord(entry) && entry.name === name && typeof entry.id === "string" && entry.id.length > 0) return entry.id;
+  }
+  return null;
+}
+
+function sandboxTimestamp(): string {
+  return new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+}
+
+async function waitForExecReady(exec: DaytonaExec, sandbox: string): Promise<void> {
+  const deadline = Date.now() + DESKTOP_READY_TIMEOUT_MS;
+  let lastError = "not attempted";
+  while (Date.now() < deadline) {
+    try {
+      await execInSandbox(exec, sandbox, "true", { timeoutMs: 30_000, context: `sandbox exec-ready gate for ${sandbox}` });
+      return;
+    } catch (error) {
+      lastError = messageText(error);
+    }
+    await delay(5_000);
+  }
+  throw new Error(`Sandbox exec-ready gate failed for ${sandbox} after 300s. Last output: ${lastError}`);
+}
+
+function lastNonemptyLine(text: string): string {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) ?? "";
+}
+
+export async function provisionDesktopSandbox(options: DesktopSandboxOptions & ProvisionExecOptions): Promise<DesktopSandbox> {
+  const exec = options.exec ?? defaultDaytonaExec;
+  const log = options.log ?? console.error;
+  const reused = options.reuse?.trim() || "";
+  let sandbox = reused;
+
+  await timedStep(log, "sandbox gate", async () => {
+    if (reused) {
+      await exec(["sandbox", "start", reused], { timeoutMs: 60_000 });
+    } else {
+      const snapshot = options.snapshot ?? "openwork-eval-vnc";
+      const listed = await checkedExec(exec, ["snapshot", "list", "-f", "json"], "snapshot gate", { timeoutMs: 60_000 });
+      const id = snapshotId(listed.stdout, snapshot);
+      if (!id) {
+        throw new Error(`Snapshot gate failed: snapshot ${snapshot} is missing. Output tail: ${outputTail(listed)}`);
+      }
+      sandbox = `openwork-connector-${options.name}-${sandboxTimestamp()}`;
+      await checkedExec(
+        exec,
+        [
+          "create",
+          "--name", sandbox,
+          "--snapshot", id,
+          "--volume", "openwork-eval-secrets:/daytona-secrets",
+          "--auto-stop", "60",
+          "--public",
+          "--target", "us",
+        ],
+        `sandbox creation gate for ${sandbox}`,
+        { timeoutMs: 300_000 },
+      );
+      log(`==> desktop sandbox created: ${sandbox}`);
+    }
+    await waitForExecReady(exec, sandbox);
+  });
+
+  await timedStep(log, "checkout gate", async () => {
+    const result = await execInSandbox(
+      exec,
+      sandbox,
+      `set -e; cd /workspace; git fetch origin "${options.ref}" && git checkout --detach FETCH_HEAD; git rev-parse --short HEAD`,
+      { timeoutMs: 120_000, context: `checkout gate for ${sandbox}` },
+    );
+    const sha = lastNonemptyLine(result.stdout);
+    if (!sha) throw new Error(`Checkout gate failed for ${sandbox}: git did not print a resolved sha. Output tail: ${outputTail(result)}`);
+    log(`==> checkout resolved ${sha}`);
+  });
+
+  await timedStep(log, "install gate", async () => {
+    await execInSandbox(
+      exec,
+      sandbox,
+      "cd /workspace; pnpm install --store-dir /workspace/.openwork-daytona/pnpm-store",
+      { timeoutMs: INSTALL_TIMEOUT_MS, context: `install gate for ${sandbox}` },
+    );
+  });
+
+  await timedStep(log, "cleanup and disk gate", async () => {
+    const result = await execInSandbox(
+      exec,
+      sandbox,
+      "rm -rf /workspace/.openwork-daytona/profiles /tmp/openwork-* 2>/dev/null; df -P /workspace | tail -1",
+      { timeoutMs: 60_000, context: `cleanup and disk gate for ${sandbox}` },
+    );
+    const dfLine = lastNonemptyLine(result.stdout);
+    const useField = dfLine.split(/\s+/).find((field) => /^\d+%$/.test(field));
+    if (!useField) {
+      throw new Error(`Cleanup and disk gate failed for ${sandbox}: could not parse Use% from ${JSON.stringify(dfLine)}.`);
+    }
+    const used = Number.parseInt(useField, 10);
+    if (used > 85) {
+      const sizes = await execInSandbox(
+        exec,
+        sandbox,
+        "du -sh /workspace/node_modules /workspace/.openwork-daytona/pnpm-store 2>&1 || true",
+        { timeoutMs: 60_000, context: `disk usage detail for ${sandbox}` },
+      );
+      throw new Error(`Cleanup and disk gate failed for ${sandbox}: workspace is ${useField} used. df: ${dfLine}\n${outputTail(sizes)}`);
+    }
+  });
+
+  await timedStep(log, "display gate", async () => {
+    const result = await execInSandbox(
+      exec,
+      sandbox,
+      "bash /workspace/.devcontainer/start-daytona-vnc.sh >/tmp/vnc.log 2>&1; sleep 2; pgrep -f Xvfb >/dev/null && echo XVFB_OK || echo XVFB_FAIL",
+      { timeoutMs: 60_000, context: `display gate for ${sandbox}` },
+    );
+    if (!result.stdout.includes("XVFB_OK")) {
+      throw new Error(`Display gate failed for ${sandbox}: expected XVFB_OK. Output tail: ${outputTail(result)}`);
+    }
+  });
+
+  await timedStep(log, "browser hop gate", async () => {
+    const result = await execInSandbox(
+      exec,
+      sandbox,
+      "export DISPLAY=:99; nohup python3 -m http.server 18099 --bind 127.0.0.1 >/tmp/xdgtest.log 2>&1 & sleep 1; (xdg-open http://127.0.0.1:18099/xdg-open-proof >/dev/null 2>&1 &); ok=0; for i in $(seq 1 30); do grep -q xdg-open-proof /tmp/xdgtest.log 2>/dev/null && ok=1 && break; sleep 1; done; pkill -f \"http.server 18099\" >/dev/null 2>&1; pkill -f chromium >/dev/null 2>&1; rm -f /tmp/xdgtest.log; [ $ok = 1 ] && echo XDG_OPEN_WORKS || echo XDG_OPEN_BROKEN",
+      { timeoutMs: 90_000, context: `browser hop gate for ${sandbox}` },
+    );
+    if (!result.stdout.includes("XDG_OPEN_WORKS")) {
+      throw new Error(`Browser hop gate failed for ${sandbox}: expected XDG_OPEN_WORKS. Output tail: ${outputTail(result)}`);
+    }
+  });
+
+  await timedStep(log, "Vite prewarm gate", async () => {
+    const detachScript = `cd /workspace; python3 - <<PYEOF
+import subprocess
+log = open("/tmp/vite-prewarm.log", "ab", buffering=0)
+subprocess.Popen(["bash", "-lc", "cd /workspace && pnpm -w dev:ui"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
+PYEOF
+echo detached`;
+    await execInSandbox(exec, sandbox, detachScript, { timeoutMs: 30_000, context: `Vite prewarm detach for ${sandbox}` });
+
+    const deadline = Date.now() + 180_000;
+    let last = "not attempted";
+    while (Date.now() < deadline) {
+      try {
+        const result = await execInSandbox(
+          exec,
+          sandbox,
+          "curl -s -o /dev/null -w %{http_code} --max-time 5 http://localhost:5173/",
+          { timeoutMs: 10_000, context: `Vite prewarm probe for ${sandbox}` },
+        );
+        last = result.stdout.trim();
+        if (last === "200") return;
+      } catch (error) {
+        last = messageText(error);
+      }
+      await delay(5_000);
+    }
+    const viteLog = await execInSandbox(
+      exec,
+      sandbox,
+      "tail -80 /tmp/vite-prewarm.log 2>&1 || true",
+      { timeoutMs: 30_000, context: `Vite prewarm log for ${sandbox}` },
+    );
+    throw new Error(`Vite prewarm gate failed for ${sandbox}: last probe ${last}. Log tail:\n${outputTail(viteLog)}`);
+  });
+
+  return { sandbox, created: !reused };
+}
+
+interface LocalProcessResult {
+  output: string;
+  code: number;
+}
+
+interface LineWriter {
+  push(text: string): void;
+  flush(): void;
+}
+
+function lineWriter(log: (line: string) => void): LineWriter {
+  let pending = "";
+  return {
+    push(text) {
+      pending += text;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+      for (const line of lines) log(line);
+    },
+    flush() {
+      if (pending) log(pending);
+      pending = "";
+    },
+  };
+}
+
+function runDenProvisionScript(ref: string, repoRoot: string, log: (line: string) => void): Promise<LocalProcessResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("bash", [".devcontainer/test-server-on-daytona.sh", ref, "--seed"], {
+      cwd: repoRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdoutLines = lineWriter(log);
+    const stderrLines = lineWriter(log);
+    let output = "";
+    let timedOut = false;
+    let settled = false;
+    const timer = globalThis.setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, SERVER_SCRIPT_TIMEOUT_MS);
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      const text = String(chunk);
+      output += text;
+      stdoutLines.push(text);
+    });
+    child.stderr.on("data", (chunk) => {
+      const text = String(chunk);
+      output += text;
+      stderrLines.push(text);
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stdoutLines.flush();
+      stderrLines.flush();
+      if (timedOut) output += `\nTimed out after ${SERVER_SCRIPT_TIMEOUT_MS}ms.`;
+      resolve({ output, code: timedOut ? 124 : code ?? 1 });
+    });
+  });
+}
+
+function sandboxFromServerOutput(output: string): string | null {
+  let fallback: string | null = null;
+  for (const line of output.split(/\r?\n/)) {
+    const ready = /Server sandbox ready:\s*(\S+)/.exec(line);
+    if (ready?.[1]) return ready[1];
+    const creating = /Creating server sandbox:\s*(\S+)/.exec(line);
+    if (creating?.[1]) fallback = creating[1];
+  }
+  return fallback;
+}
+
+function urlAfterLabels(output: string, labels: string[]): string | null {
+  for (const line of output.split(/\r?\n/)) {
+    if (labels.some((label) => line.includes(label))) {
+      const url = firstHttpsUrl(line);
+      if (url) return url;
+    }
+  }
+  return null;
+}
+
+async function previewUrl(exec: DaytonaExec, sandbox: string, port: number): Promise<string> {
+  const result = await checkedExec(
+    exec,
+    ["preview-url", sandbox, "-p", String(port)],
+    `preview URL gate for ${sandbox}:${port}`,
+    { timeoutMs: 60_000 },
+  );
+  const url = firstHttpsUrl(result.stdout);
+  if (!url) throw new Error(`Preview URL gate failed for ${sandbox}:${port}: no https URL in output tail: ${outputTail(result)}`);
+  return url;
+}
+
+async function proveDenSeed(apiUrl: string, sandbox: string, reused: boolean): Promise<void> {
+  const email = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
+  const password = process.env.OPENWORK_EVAL_DEMO_PASSWORD ?? "OpenWorkDemo123!";
+  const url = `${apiUrl.replace(/\/+$/, "")}/api/auth/sign-in/email`;
+  const deadline = Date.now() + 30_000;
+  let last = "not attempted";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.status === 200) return;
+      last = `HTTP ${response.status}`;
+    } catch (error) {
+      last = messageText(error);
+    }
+    await delay(2_000);
+  }
+  if (reused) {
+    throw new Error(`Den seed proof failed for reused sandbox ${sandbox}: the Den has no seeded org. Omit --reuse-den to provision a seeded Den sandbox. Last: ${last}`);
+  }
+  throw new Error(`Den seed proof failed for ${sandbox}: ${email} could not sign in at ${apiUrl}. Last: ${last}`);
+}
+
+export async function provisionDenSandbox(options: DenSandboxOptions & ProvisionExecOptions): Promise<DenSandbox> {
+  const exec = options.exec ?? defaultDaytonaExec;
+  const log = options.log ?? console.error;
+  const reused = options.reuse?.trim() || "";
+  let sandbox: string;
+  let webUrl: string;
+  let apiUrl: string;
+
+  if (reused) {
+    sandbox = reused;
+    [webUrl, apiUrl] = await timedStep(log, "Den preview URL gate", () => Promise.all([
+      previewUrl(exec, sandbox, 3005),
+      previewUrl(exec, sandbox, 8788),
+    ]));
+  } else {
+    const result = await timedStep(log, "Den provisioning script", () => runDenProvisionScript(options.ref, options.repoRoot ?? REPO_ROOT, log));
+    if (result.code !== 0) {
+      throw new Error(`Den provisioning script gate failed with exit ${result.code}. Output tail:\n${textTail(result.output)}`);
+    }
+    const parsedSandbox = sandboxFromServerOutput(result.output);
+    if (!parsedSandbox) throw new Error(`Den provisioning script output is missing sandbox. Output tail:\n${textTail(result.output)}`);
+    const parsedWebUrl = urlAfterLabels(result.output, ["DEN_WEB_URL=", "Den Web:"]);
+    if (!parsedWebUrl) throw new Error(`Den provisioning script output is missing webUrl. Output tail:\n${textTail(result.output)}`);
+    const parsedApiUrl = urlAfterLabels(result.output, ["DEN_API_URL=", "Den API:"]);
+    if (!parsedApiUrl) throw new Error(`Den provisioning script output is missing apiUrl. Output tail:\n${textTail(result.output)}`);
+    sandbox = parsedSandbox;
+    webUrl = parsedWebUrl;
+    apiUrl = parsedApiUrl;
+  }
+
+  await timedStep(log, "Den seeded-org proof", () => proveDenSeed(apiUrl, sandbox, Boolean(reused)));
+  return { sandbox, apiUrl, webUrl, created: !reused };
+}
+
+export async function startMockOnSandbox(options: MockOnSandboxOptions & ProvisionExecOptions): Promise<MockOnSandbox> {
+  const exec = options.exec ?? defaultDaytonaExec;
+  const log = options.log ?? console.error;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const port = options.port ?? 3979;
+  const url = await timedStep(log, "mock preview URL gate", () => previewUrl(exec, options.sandbox, port));
+
+  await timedStep(log, "mock process cleanup", async () => {
+    await execInSandbox(
+      exec,
+      options.sandbox,
+      "pkill -f mock-oauth-mcp-server || true",
+      { timeoutMs: 30_000, context: `mock process cleanup for ${options.sandbox}` },
+    ).catch(() => undefined);
+  });
+
+  await timedStep(log, "mock process detach", async () => {
+    const detachScript = `cd /workspace; python3 - <<PYEOF
+import subprocess
+log = open("/tmp/mock-mcp.log", "ab", buffering=0)
+subprocess.Popen(["bash", "-lc", "cd /workspace && env HOST=0.0.0.0 PORT=${port} ISSUER=${url} AUTO_APPROVE=1 node scripts/mock-oauth-mcp-server.mjs"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
+PYEOF
+echo detached`;
+    await execInSandbox(exec, options.sandbox, detachScript, { timeoutMs: 30_000, context: `mock process detach for ${options.sandbox}` });
+  });
+
+  await timedStep(log, "mock health gate", async () => {
+    const deadline = Date.now() + 60_000;
+    let last = "not attempted";
+    while (Date.now() < deadline) {
+      let body: unknown = null;
+      let responseOk = false;
+      try {
+        const response = await fetchImpl(`${url}/health`, { signal: AbortSignal.timeout(5_000) });
+        body = await response.json();
+        responseOk = response.ok;
+        if (!response.ok) last = `HTTP ${response.status}`;
+      } catch (error) {
+        last = messageText(error);
+      }
+      if (responseOk && isRecord(body) && body.ok === true) {
+        const issuer = typeof body.issuer === "string" ? body.issuer : JSON.stringify(body.issuer);
+        if (issuer !== url) throw new Error(`Mock issuer gate failed: health reported ${issuer}, expected ${url}.`);
+        return;
+      }
+      await delay(2_000);
+    }
+    const mockLog = await execInSandbox(
+      exec,
+      options.sandbox,
+      "tail -80 /tmp/mock-mcp.log 2>&1 || true",
+      { timeoutMs: 30_000, context: `mock health log for ${options.sandbox}` },
+    );
+    throw new Error(`Mock health gate failed at ${url}. Last: ${last}. Log tail:\n${outputTail(mockLog)}`);
+  });
+
+  return { url };
+}
+
+function deletionOutput(result: DaytonaExecResult): string {
+  return `${result.stderr}\n${result.stdout}`.trim();
+}
+
+function deletionNotFound(text: string): boolean {
+  return /not found|does not exist|no sandbox/i.test(text);
+}
+
+function unknownYesFlag(text: string): boolean {
+  return /unknown (?:option|flag)|unrecognized option/i.test(text) && text.includes("--yes");
+}
+
+export async function deleteSandboxes(
+  ids: string[],
+  options: ProvisionExecOptions & { log?: (line: string) => void } = {},
+): Promise<void> {
+  const exec = options.exec ?? defaultDaytonaExec;
+  const log = options.log ?? console.error;
+  for (const id of ids) {
+    log(`==> deleting sandbox ${id}...`);
+    let result = await exec(["delete", id, "--yes"], { timeoutMs: 60_000 });
+    let output = deletionOutput(result);
+    if (result.code !== 0 && deletionNotFound(output)) {
+      log(`==> sandbox ${id} not found; continuing`);
+      continue;
+    }
+    if (result.code !== 0 && unknownYesFlag(output)) {
+      result = await exec(["delete", id], { timeoutMs: 60_000, input: "y\n" });
+      output = deletionOutput(result);
+      if (result.code !== 0 && deletionNotFound(output)) {
+        log(`==> sandbox ${id} not found; continuing`);
+        continue;
+      }
+    }
+    if (result.code !== 0) throw new Error(`Sandbox deletion gate failed for ${id} with exit ${result.code}. Output tail: ${textTail(output)}`);
+    log(`==> deleted sandbox ${id}`);
+  }
+}
+
+export function renderConnectorSpecEnv(facts: ConnectorSpecEnv): string {
+  return [
+    `# provisioned for org-connector-two-members — generated ${new Date().toISOString()}; ref=${facts.ref}`,
+    `# provision-created=${facts.created.join(",")}`,
+    "OPENWORK_EVAL_APP_SPECS=1",
+    "OPENWORK_EVAL_CONNECTOR_SPEC=1",
+    `OPENWORK_EVAL_DEN_API_URL=${facts.denApiUrl}`,
+    `OPENWORK_EVAL_DEN_WEB_URL=${facts.denWebUrl}`,
+    `OPENWORK_EVAL_DAYTONA_SANDBOX_A=${facts.sandboxA}`,
+    `OPENWORK_EVAL_DAYTONA_SANDBOX_B=${facts.sandboxB}`,
+    `OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL=${facts.mockUrl}`,
+    "OPENWORK_EVAL_MODEL=big-pickle",
+    "",
+  ].join("\n");
+}
+
+export function parseConnectorSpecEnv(content: string): ConnectorSpecEnv {
+  const values = new Map<string, string>();
+  for (const line of content.split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) continue;
+    const separator = line.indexOf("=");
+    if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
+  }
+  function required(name: string): string {
+    const value = values.get(name);
+    if (value === undefined || value.length === 0) throw new Error(`Missing ${name} in connector spec env.`);
+    return value;
+  }
+
+  required("OPENWORK_EVAL_APP_SPECS");
+  required("OPENWORK_EVAL_CONNECTOR_SPEC");
+  required("OPENWORK_EVAL_MODEL");
+  const ref = /^# provisioned for org-connector-two-members — generated .*; ref=(.*)$/m.exec(content)?.[1];
+  if (!ref) throw new Error("Missing ref in connector spec env header.");
+  const createdText = /^# provision-created=(.*)$/m.exec(content)?.[1];
+  if (createdText === undefined) throw new Error("Missing provision-created in connector spec env header.");
+
+  return {
+    denApiUrl: required("OPENWORK_EVAL_DEN_API_URL"),
+    denWebUrl: required("OPENWORK_EVAL_DEN_WEB_URL"),
+    sandboxA: required("OPENWORK_EVAL_DAYTONA_SANDBOX_A"),
+    sandboxB: required("OPENWORK_EVAL_DAYTONA_SANDBOX_B"),
+    mockUrl: required("OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL"),
+    ref,
+    created: createdText.split(",").map((id) => id.trim()).filter(Boolean),
+  };
+}

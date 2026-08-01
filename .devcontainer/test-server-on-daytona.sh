@@ -6,12 +6,14 @@ set -euo pipefail
 # Usage:
 #   bash .devcontainer/test-server-on-daytona.sh [branch-or-commit]
 #   bash .devcontainer/test-server-on-daytona.sh [branch-or-commit] --force-install
+#   bash .devcontainer/test-server-on-daytona.sh [branch-or-commit] --seed
 #
 # Creates a Daytona sandbox, starts MySQL + Den API + Den Web + worker proxy,
 # waits for health checks, and prints public preview URLs.
 
 REF=""
 FORCE_INSTALL=0
+RUN_SEED=0
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SANDBOX="openwork-server-$(date +%Y%m%d-%H%M%S)"
 DAYTONA_SERVER_SNAPSHOT="${DAYTONA_SERVER_SNAPSHOT:-openwork-server}"
@@ -25,6 +27,9 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --force-install)
       FORCE_INSTALL=1
+      ;;
+    --seed)
+      RUN_SEED=1
       ;;
     --snapshot)
       shift
@@ -102,7 +107,7 @@ START_SCRIPT_B64="$(base64 < "$ROOT_DIR/.devcontainer/start-daytona-server.sh" |
 daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; mkdir -p .devcontainer; printf %s $START_SCRIPT_B64 | base64 -d > .devcontainer/start-daytona-server.sh; chmod +x .devcontainer/start-daytona-server.sh'"
 
 echo "==> Starting OpenWork Den server stack..."
-daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; DEN_WEB_PUBLIC_URL=\"$DEN_WEB_URL\" DEN_API_PUBLIC_URL=\"$DEN_API_URL\" DEN_WORKER_PROXY_PUBLIC_URL=\"$DEN_WORKER_PROXY_URL\" DEN_WEB_PORT=$DEN_WEB_PORT DEN_API_PORT=$DEN_API_PORT DEN_WORKER_PROXY_PORT=$DEN_WORKER_PROXY_PORT bash .devcontainer/start-daytona-server.sh'"
+daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; DEN_WEB_PUBLIC_URL=\"$DEN_WEB_URL\" DEN_API_PUBLIC_URL=\"$DEN_API_URL\" DEN_WORKER_PROXY_PUBLIC_URL=\"$DEN_WORKER_PROXY_URL\" DEN_WEB_PORT=$DEN_WEB_PORT DEN_API_PORT=$DEN_API_PORT DEN_WORKER_PROXY_PORT=$DEN_WORKER_PROXY_PORT RUN_SEED=$RUN_SEED bash .devcontainer/start-daytona-server.sh'"
 
 echo "==> Waiting for public Den Web health (up to ${MAX_WAIT}s)..."
 elapsed=0
