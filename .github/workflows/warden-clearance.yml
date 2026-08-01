@@ -55,7 +55,7 @@ jobs:
 
       - name: Download clearance summary
         if: steps.identity.outputs.configured == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: warden-summary
           run-id: ${{ github.event.workflow_run.id }}
@@ -114,7 +114,7 @@ jobs:
       - name: Mint clearance token
         if: steps.verdict.outputs.verdict == 'clear' || steps.verdict.outputs.verdict == 'flagged'
         id: app
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.WARDEN_APP_ID }}
           private-key: ${{ secrets.WARDEN_PRIVATE_KEY }}
