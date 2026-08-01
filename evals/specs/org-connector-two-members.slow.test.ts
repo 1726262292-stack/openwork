@@ -119,6 +119,27 @@ async function waitForConnectionCard(app: Surface, name: string, workspaceId: st
   throw new Error(`The connection card ${name} never appeared. On screen: ${JSON.stringify(seen)}`);
 }
 
+/**
+ * Wait for text to be REALLY on screen, then bring it into view.
+ *
+ * waitForText proves the DOM contains it; a frame proves pixels. The detail
+ * panel paints slightly after its text lands, so screenshotting on the DOM
+ * signal alone captures a blank panel intermittently.
+ */
+async function revealText(app: Surface, text: string, timeoutMs = 45_000): Promise<void> {
+  await waitFor(app, `(() => {
+    const nodes = [...document.querySelectorAll("button, h1, h2, h3, p, span, div")];
+    const node = nodes.reverse().find((element) => (element.textContent ?? "").includes(${JSON.stringify(text)}));
+    if (!node) return false;
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    node.scrollIntoView({ block: "center" });
+    return true;
+  })()`, { timeoutMs, label: `visible text ${JSON.stringify(text)}` });
+  // One paint after scrolling, so the frame is not captured mid-scroll.
+  await new Promise((resolve) => setTimeout(resolve, 750));
+}
+
 /** The connections surface, settled — polling before it mounts finds nothing. */
 async function openConnectionsSurface(app: Surface, workspaceId: string): Promise<void> {
   await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
@@ -198,6 +219,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   await waitForText(appA, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
   await openConnectionDetail(appA, connection.name);
   await waitForText(appA, "OAuth required", { timeoutMs: 30_000 });
+  await revealText(appA, "Connect your account");
   {
     const shot = await screenshot(appA);
     const seen = await validate(shot, [
@@ -216,6 +238,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     async () => (await readUsableConnection(memberA, connection.id))?.connectedForMe,
     { timeout: 90_000, interval: 1_000 },
   ).toBe(true);
+  await revealText(appA, "Connected with your own account.");
   {
     const shot = await screenshot(appA);
     const seen = await validate(shot, [
@@ -235,6 +258,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   await waitForText(appB, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
   expect((await readUsableConnection(memberB, connection.id))?.connectedForMe).toBe(false);
   expect((await readUsableConnection(memberA, connection.id))?.connectedForMe).toBe(true);
+  await revealText(appB, "NEEDS YOUR SIGN-IN");
   {
     const shot = await screenshot(appB);
     const seen = await validate(shot, [
