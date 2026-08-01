@@ -276,7 +276,7 @@ export function registerOrgResourceRoutes<T extends { Variables: OrgRouteVariabl
         c.get("memberTeams"),
         organizationContext.organization.id,
       ).map((team) => team.id)
-      const items = await listAccessibleMarketplaceCapabilityReferences({
+      const items = (await listAccessibleMarketplaceCapabilityReferences({
         organizationId: organizationContext.organization.id,
         member: {
           orgMembershipId: organizationContext.currentMember.id,
@@ -285,7 +285,7 @@ export function registerOrgResourceRoutes<T extends { Variables: OrgRouteVariabl
         enabled: memberFacingMcpConnectionsEnabled(organizationContext.organization.metadata, {
           gatingEnabled: env.mcpConnectionsGatingEnabled,
         }),
-      })
+      })).filter((item) => item.marketplaceId !== null)
       return c.json({ items })
     },
   )

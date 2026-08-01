@@ -24,7 +24,7 @@ description: |
 
 # Create Skill
 
-Create exactly one new Cloud skill. Do not publish it to a marketplace and do not grant org-wide access in this flow.
+Create exactly one new Cloud skill. It is immediately usable by its creator. Do not attach it to a marketplace or grant org-wide access in this flow.
 
 ## Fast path (prefer these exact MCP names)
 
@@ -60,7 +60,7 @@ Produce one complete \`SKILL.md\` with:
    }
    \`\`\`
    Do not send \`marketplaceId\` or \`orgWide\`.
-3. Execute \`getPluginsResolved\` with the returned plugin id. Report plugin id, skill/config-object id, and that it is private until published or shared.
+3. Execute \`getPluginsResolved\` with the returned plugin id. Report plugin id, skill/config-object id, and that the skill is ready to use now.
 4. On authorization or validation errors, report them. Do not fall back to a workspace-local skill unless the user explicitly asks for one.
 `
 
@@ -160,7 +160,7 @@ export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
     descriptor: {
       name: "create-skill",
       title: "Create Skill",
-      description: "Create a new OpenWork Cloud skill as a private plugin with one skill component.",
+      description: "Create a new OpenWork Cloud skill that its creator can use immediately.",
       capability: BUILTIN_CREATE_SKILL_CAPABILITY,
       location: "skill://create-skill/SKILL.md",
     },

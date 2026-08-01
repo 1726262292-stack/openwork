@@ -83,6 +83,15 @@ export async function ensureMemberSession(
     // Bootstrap the missing member through the real invitation flow.
   }
   let markVerifiedWarning = "";
+  const loginOptions = await denFetch(
+    den,
+    `/v1/auth/login-options?email=${encodeURIComponent(input.email)}`,
+  );
+  if (isRecord(loginOptions.body) && loginOptions.body.allowPublicSignup === false) {
+    throw new Error(
+      `Member bootstrap needs public signup, but this Den runs single-org mode with signup disabled. Start den-api with DEN_ORG_MODE=multi_org (like the demo:den script) or DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP=true, or pre-provision ${input.email}.`,
+    );
+  }
   const invite = await denFetch(den, "/v1/invitations", {
     method: "POST",
     headers: auth(admin),
