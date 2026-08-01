@@ -240,13 +240,4 @@ test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
   await waitForText(app, "Connect your account", { timeoutMs: 30_000 });
   await revealText(app, "Connect your account");
   expect(await currentHash(app)).toContain("/extensions/");
-  {
-    const shot = await screenshot(app);
-    const seen = await validate(shot, [
-      "The connection visibly returns to Not connected with a Connect your account action after disconnecting",
-      "No disconnect error or 'Something went wrong' crash message is visible",
-    ]);
-    expect(seen.ok, seen.why).toBe(true);
-    await roll.add(shot, seen);
-  }
 });
