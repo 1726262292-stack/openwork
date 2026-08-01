@@ -82,6 +82,7 @@ export async function ensureMemberSession(
   } catch {
     // Bootstrap the missing member through the real invitation flow.
   }
+  let markVerifiedWarning = "";
   const invite = await denFetch(den, "/v1/invitations", {
     method: "POST",
     headers: auth(admin),
@@ -98,8 +99,21 @@ export async function ensureMemberSession(
   if (!signUp.response.ok) {
     throw new Error(`Member sign-up failed: HTTP ${signUp.response.status} ${preview(signUp.body)}`);
   }
-  doInternalMarkEmailVerified(input.markVerifiedCmd ?? "", input.email);
-  const member = await signIn(den, input);
+  // Best effort: verification is a convenience for dens that require it. If the
+  // helper is absent or fails (its DB credentials drift), the sign-in below is
+  // the real test — failing here would hide a member who can already sign in.
+  try {
+    doInternalMarkEmailVerified(input.markVerifiedCmd ?? "", input.email);
+  } catch (error) {
+    markVerifiedWarning = error instanceof Error ? error.message : String(error);
+  }
+  const member = await signIn(den, input).catch((signInError: unknown) => {
+    const detail = signInError instanceof Error ? signInError.message : String(signInError);
+    throw new Error(
+      `${input.email} could not sign in after sign-up: ${detail}`
+      + (markVerifiedWarning ? `\nEmail verification also failed first: ${markVerifiedWarning}` : ""),
+    );
+  });
   const accept = await denFetch(den, "/v1/orgs/invitations/accept", {
     method: "POST",
     headers: auth(member),

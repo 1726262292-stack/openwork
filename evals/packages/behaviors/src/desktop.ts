@@ -157,7 +157,17 @@ export async function fill(app: Surface, selector: string, value: string, opts: 
 
 export async function go(app: Surface, hashPath: string): Promise<void> {
   const hash = hashPath.startsWith("#") ? hashPath : `#${hashPath}`;
-  await evalIn(app, `(() => { window.location.hash = ${jsValue(hash)}; return true; })()`);
+  // Setting the hash is idempotent, so retry through renderer freeze bursts
+  // rather than letting one blocked evaluate fail a whole spec. Contention (two
+  // desktops on one host) makes those bursts routine, and a bare 20s evaluate
+  // here was the single most common way a long journey died near its end.
+  // 120s: with several desktops and their engines on one host the renderer can
+  // stay blocked well past a minute. Retrying an idempotent hash assignment
+  // costs nothing when the app is healthy.
+  await waitFor(app, `(() => { window.location.hash = ${jsValue(hash)}; return true; })()`, {
+    timeoutMs: 120_000,
+    label: `navigate to ${hash}`,
+  });
 }
 
 export async function currentHash(app: Surface): Promise<string> {

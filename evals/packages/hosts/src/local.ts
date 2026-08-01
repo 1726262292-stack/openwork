@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { constants, existsSync, openSync } from "node:fs";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { allocateFreePort, allocateFreePorts, listTargets, waitForCdp } from "@openwork/cdp";
@@ -480,16 +480,33 @@ async function ensureDisplay(repoRoot: string, env: NodeJS.ProcessEnv, log: (mes
   log(`Display ${display} still not answering after 60s; Electron will fail to start.`);
 }
 
-/** Kill Electron processes from earlier runs of THIS host's surfaces only. */
+/**
+ * Kill Electron processes from earlier runs of THIS host's surfaces, and delete
+ * the profile directories they left behind.
+ *
+ * Disposal removes a profile on the happy path, but every killed or failed run
+ * leaks one at ~50MB. Twenty-seven of them filled a 10GB sandbox to 99%, and the
+ * symptom was not "disk full" — it was the renderer failing to answer
+ * `Runtime.evaluate` for 240s, which reads exactly like a broken app. Pruning
+ * here is cheap and keeps that failure from being invented again.
+ */
 async function clearStaleSurfaces(rootDir: string, log: (message: string) => void): Promise<void> {
   await new Promise<void>((resolve) => {
     execFile("pkill", ["--full", rootDir], () => resolve());
   });
-  log(`Cleared any Electron processes left over from earlier surfaces in ${rootDir}.`);
+  // Safe because surfaces run one at a time (vitest fileParallelism is off) and
+  // the pkill above already assumes exclusive ownership of rootDir.
+  const stale = await readdir(rootDir).catch(() => []);
+  let removed = 0;
+  for (const entry of stale) {
+    await rm(join(rootDir, entry), { recursive: true, force: true }).then(() => { removed += 1; }).catch(() => undefined);
+  }
+  log(`Cleared Electron processes and ${removed} stale profile director${removed === 1 ? "y" : "ies"} in ${rootDir}.`);
 }
 
   return {
     kind: "local",
+    workspaceRoot: options.repoRoot,
 
     async spawnElectron(name: string, opts: ElectronSurfaceOptions = {}): Promise<SurfaceHandle> {
       await prepareSharedElectronResources(options.repoRoot, log);

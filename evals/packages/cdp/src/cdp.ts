@@ -187,10 +187,17 @@ export function connect(
           const id = nextId;
           nextId += 1;
           return new Promise((innerResolve, innerReject) => {
+            // Name WHAT timed out. The rejection fires from a timer, so the
+            // caller's stack is gone by then: "CDP call Runtime.evaluate timed
+            // out" alone cannot tell you which of a spec's dozens of
+            // evaluations blocked, which turns a one-line fix into a hunt.
+            const subject = typeof params.expression === "string"
+              ? ` evaluating: ${params.expression.replace(/\s+/g, " ").trim().slice(0, 160)}`
+              : "";
             const timer = timeoutMs > 0
               ? setTimeout(() => {
                 pending.delete(id);
-                innerReject(new Error(`CDP call ${method} timed out after ${timeoutMs}ms.`));
+                innerReject(new Error(`CDP call ${method} timed out after ${timeoutMs}ms.${subject}`));
               }, timeoutMs)
               : null;
             pending.set(id, { resolve: innerResolve, reject: innerReject, timer });
