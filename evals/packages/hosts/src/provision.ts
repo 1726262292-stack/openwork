@@ -403,7 +403,10 @@ async function proveDenSeed(apiUrl: string, sandbox: string, reused: boolean): P
   const email = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
   const password = process.env.OPENWORK_EVAL_DEMO_PASSWORD ?? "OpenWorkDemo123!";
   const url = `${apiUrl.replace(/\/+$/, "")}/api/auth/sign-in/email`;
-  const deadline = Date.now() + 30_000;
+  // A freshly-booted stack was observed answering public sign-in with bare
+  // 403s for its first ~minute, then recovering on its own — so the window is
+  // generous, and a failing status keeps its body so the failure names itself.
+  const deadline = Date.now() + 120_000;
   let last = "not attempted";
   while (Date.now() < deadline) {
     try {
@@ -414,7 +417,8 @@ async function proveDenSeed(apiUrl: string, sandbox: string, reused: boolean): P
         signal: AbortSignal.timeout(5_000),
       });
       if (response.status === 200) return;
-      last = `HTTP ${response.status}`;
+      const body = await response.text().catch(() => "");
+      last = `HTTP ${response.status} ${body.slice(0, 300)}`.trim();
     } catch (error) {
       last = messageText(error);
     }
