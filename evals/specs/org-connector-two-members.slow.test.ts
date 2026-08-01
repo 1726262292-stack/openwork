@@ -1,6 +1,6 @@
 import { expect, onTestFinished, test } from "vitest";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
-import { desktop } from "@openwork/hosts";
+import { daytonaSandbox, desktop } from "@openwork/hosts";
 import { startMockMcp } from "@openwork/labs";
 import {
   clickButton,
@@ -20,7 +20,7 @@ import {
   waitForText,
   writeComposerText,
 } from "@openwork/behaviors";
-import type { DesktopHandle } from "@openwork/hosts";
+import type { DesktopHandle, Host } from "@openwork/hosts";
 import type { DenRef, DenSession } from "@openwork/behaviors";
 import type { Surface } from "@openwork/cdp";
 
@@ -38,35 +38,40 @@ import type { Surface } from "@openwork/cdp";
  *    rather than trusting the app's own "Connected" text.
  *  - The tool call is a real agent task through the product's composer.
  *
- * PLACEMENT: both desktops run on the ambient host today. Moving either onto its
- * own sandbox is `desktop({ host: daytonaSandbox(id) })` — the seam exists; what
- * blocks it is driver-side mode B, not this spec.
+ * PLACEMENT: set OPENWORK_EVAL_DAYTONA_SANDBOX_A and _B to put each member's
+ * desktop on its own Daytona sandbox (the driver must run outside any sandbox).
+ * That is the reliable shape: two desktops plus two engines starve renderers on
+ * one 9GB sandbox. Without A/B both desktops share the ambient host.
+ *
+ * When the desktops are remote, the mock connector cannot live on the driver's
+ * loopback: Den dials it server-side (discovery, DCR, token, tool calls), each
+ * desktop's browser opens its /authorize, and the driver polls /requests. Host
+ * it somewhere all three can reach and point
+ * OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL at it (ISSUER must be that same URL).
  */
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
 const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
 /**
- * BLOCKED ON A PRODUCT DEFECT, so opt-in rather than nightly-gating.
+ * OPT-IN because it needs provisioned placement, not because anything is broken.
+ * (An earlier revision blamed a product defect for a blank connections surface;
+ * that was this spec racing the app's route rewrite and the panel's first paint,
+ * both fixed here and in org-connection-lifecycle. Retracted.)
  *
- * The organization connections surface (/settings/extensions/connections)
- * renders empty for a signed-in org member on current dev: the route is correct
- * and `document.body.innerText` is "". The pre-existing org-connection-lifecycle
- * spec independently fails the same way ("Connection card did not render"),
- * having passed that point earlier the same day — the sandbox pulled merged dev
- * in between, which includes #3375 (provider logos across the connect flow).
- *
- * Everything up to that surface is verified: both members resolve, the org
- * connection is created and readable per-member over the API, and both desktops
- * boot and sign in as different people. Drop OPENWORK_EVAL_CONNECTOR_SPEC once
- * the surface renders again; the assertions below are the real target.
+ * The tool-call phase runs two desktops and two engines at once — more than one
+ * eval sandbox reliably gives. Run it with OPENWORK_EVAL_DAYTONA_SANDBOX_A/_B
+ * placing each desktop on its own sandbox, a Den both can reach, and the mock
+ * published at OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL.
  */
 const optedIn = process.env.OPENWORK_EVAL_CONNECTOR_SPEC === "1";
+const sandboxA = process.env.OPENWORK_EVAL_DAYTONA_SANDBOX_A?.trim() ?? "";
+const sandboxB = process.env.OPENWORK_EVAL_DAYTONA_SANDBOX_B?.trim() ?? "";
 const title = !appSpecsEnabled
   ? "org connector two members skipped: set OPENWORK_EVAL_APP_SPECS=1 to opt in"
   : !apiUrl
     ? "org connector two members skipped: set OPENWORK_EVAL_DEN_API_URL to a running Den"
     : !optedIn
-      ? "org connector two members skipped: the org connections surface renders blank on dev (see header); set OPENWORK_EVAL_CONNECTOR_SPEC=1 to run anyway"
+      ? "org connector two members skipped: needs two desktops plus two engines (see header); set OPENWORK_EVAL_CONNECTOR_SPEC=1 and place them with OPENWORK_EVAL_DAYTONA_SANDBOX_A/_B"
       : "two members each connect their own account to one org connector and call its tools";
 
 const password = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
@@ -164,9 +169,10 @@ async function openConnectionDetail(app: Surface, name: string): Promise<void> {
 }
 
 /** Bring one member's desktop to the org connections surface, signed in as them. */
-async function memberDesktop(name: string, den: DenRef, member: DenSession): Promise<{ app: DesktopHandle; workspaceId: string }> {
+async function memberDesktop(name: string, den: DenRef, member: DenSession, host?: Host): Promise<{ app: DesktopHandle; workspaceId: string }> {
   const app = await desktop({
     name,
+    host,
     bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
   });
   // Workspace first, then the org sign-in: the signed-in org shell offers no
@@ -184,9 +190,17 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     webUrl: (process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim() || apiUrl.replace("127.0.0.1", "localhost")).replace(/\/+$/, ""),
   };
   await using roll = photoRoll("org-connector-two-members");
+  // Half-specified placement would silently recreate the one-sandbox squeeze.
+  if (Boolean(sandboxA) !== Boolean(sandboxB)) {
+    throw new Error("Set both OPENWORK_EVAL_DAYTONA_SANDBOX_A and _B (or neither).");
+  }
+  if (sandboxA) expect(sandboxA).not.toBe(sandboxB);
 
   // ── The connector we own, with OAuth per member ──────────────────────
-  await using conn = await startMockMcp();
+  await using conn = await startMockMcp({
+    port: Number(process.env.OPENWORK_EVAL_CONNECTOR_MOCK_PORT ?? 3979),
+    publicUrl: process.env.OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL?.trim() || undefined,
+  });
   const admin = await signIn(den, { email: adminEmail, password });
   const memberA = await ensureMemberSession(den, admin, {
     email: aEmail,
@@ -216,8 +230,9 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   expect((await readUsableConnection(memberB, connection.id))?.connectedForMe).toBe(false);
 
   // ── Member A connects their own account ──────────────────────────────
-  const a = await memberDesktop("connector-member-a", den, memberA);
+  const a = await memberDesktop("connector-member-a", den, memberA, sandboxA ? daytonaSandbox(sandboxA) : undefined);
   await using appA = a.app;
+  if (sandboxA) expect(appA.handle.sandboxId).toBe(sandboxA);
   await openConnectionsSurface(appA, a.workspaceId);
   await waitForConnectionCard(appA, connection.name, a.workspaceId);
   await waitForText(appA, "NEEDS YOUR SIGN-IN", { timeoutMs: 60_000 });
@@ -254,8 +269,9 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   }
 
   // ── THE ISOLATION ASSERTION — why two desktops exist ─────────────────
-  const b = await memberDesktop("connector-member-b", den, memberB);
+  const b = await memberDesktop("connector-member-b", den, memberB, sandboxB ? daytonaSandbox(sandboxB) : undefined);
   await using appB = b.app;
+  if (sandboxB) expect(appB.handle.sandboxId).toBe(sandboxB);
   await openConnectionsSurface(appB, b.workspaceId);
   await waitForConnectionCard(appB, connection.name, b.workspaceId);
   // A is connected. B must NOT have inherited A's credential.
@@ -284,6 +300,10 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   ).toBe(true);
 
   // ── Both people actually USE it: real tool calls from the composer ───
+  // The mock can be long-lived (publicUrl): only calls it serves from here on
+  // are this run's. Same driver-clock-vs-mock-clock contract as
+  // authorizeRequestSince, which already held for both connects above.
+  const submittedSince = new Date().toISOString();
   const markers: Record<string, string> = {};
   for (const [label, entry] of [["a", a], ["b", b]] as const) {
     const { app, workspaceId } = entry;
@@ -304,7 +324,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   }
 
   // The connector is the witness: two calls, two DISTINCT credentials.
-  const calls = await conn.toolCalls({ name: "mock_echo", atLeast: 2, timeoutMs: 240_000 });
+  const calls = await conn.toolCalls({ name: "mock_echo", atLeast: 2, timeoutMs: 240_000, sinceIso: submittedSince });
   expect(
     calls.length,
     `expected both members to invoke mock_echo. Saw: ${JSON.stringify(calls)}`,
