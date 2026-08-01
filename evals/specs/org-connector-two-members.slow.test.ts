@@ -128,8 +128,12 @@ async function waitForConnectionCard(app: Surface, name: string, workspaceId: st
  */
 async function revealText(app: Surface, text: string, timeoutMs = 45_000): Promise<void> {
   await waitFor(app, `(() => {
+    // innerText, not textContent: innerText is render-aware, so CSS
+    // text-transform (a badge styled uppercase) matches what waitForText saw
+    // and what a person reads. Comparing raw textContent can never agree.
+    const wanted = ${JSON.stringify(text)}.toLowerCase();
     const nodes = [...document.querySelectorAll("button, h1, h2, h3, p, span, div")];
-    const node = nodes.reverse().find((element) => (element.textContent ?? "").includes(${JSON.stringify(text)}));
+    const node = nodes.reverse().find((element) => ((element.innerText ?? element.textContent ?? "")).toLowerCase().includes(wanted));
     if (!node) return false;
     const rect = node.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return false;
