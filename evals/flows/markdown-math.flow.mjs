@@ -13,6 +13,25 @@ function messageSelector(messageId) {
   return `[data-message-id=${JSON.stringify(messageId)}]`;
 }
 
+const UNSAFE_JS_CHAR_MAP = {
+  "<": "\\u003C",
+  ">": "\\u003E",
+  "/": "\\u002F",
+  "\\": "\\\\",
+  "\b": "\\b",
+  "\f": "\\f",
+  "\n": "\\n",
+  "\r": "\\r",
+  "\t": "\\t",
+  "\0": "\\0",
+  "\u2028": "\\u2028",
+  "\u2029": "\\u2029",
+};
+
+function escapeUnsafeChars(str) {
+  return str.replace(/[<>\/\\\b\f\n\r\t\0\u2028\u2029]/g, (ch) => UNSAFE_JS_CHAR_MAP[ch]);
+}
+
 async function waitForControl(ctx) {
   await ctx.waitFor("Boolean(window.__openworkControl)", {
     timeoutMs: 60_000,
@@ -63,7 +82,7 @@ async function ensureSession(ctx) {
 /** Seeds progressively more of the math message so each frame shows new content. */
 async function seedMathMessage(ctx, stage, expectedFormulas) {
   await ctx.waitFor(
-    `window.__openworkControl.listActions().some((action) => action.id === ${JSON.stringify(MATH_SEED_ACTION)} && !action.disabled)`,
+    `window.__openworkControl.listActions().some((action) => action.id === ${escapeUnsafeChars(JSON.stringify(MATH_SEED_ACTION))} && !action.disabled)`,
     { timeoutMs: 30_000, label: `${MATH_SEED_ACTION} enabled` },
   );
 
