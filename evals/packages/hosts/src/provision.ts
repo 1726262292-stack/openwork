@@ -10,6 +10,8 @@ const DESKTOP_READY_TIMEOUT_MS = 300_000;
 const INSTALL_TIMEOUT_MS = 25 * 60 * 1_000;
 const SERVER_SCRIPT_TIMEOUT_MS = 20 * 60 * 1_000;
 const HTTPS_URL = /https:\/\/[^\s"'<>)]+/;
+const DEN_WEB_PORT = 3005;
+const DEN_API_PORT = 8788;
 
 export interface ProvisionExecOptions {
   exec?: DaytonaExec;
@@ -476,15 +478,6 @@ function sandboxFromServerOutput(output: string): string | null {
   return fallback;
 }
 
-function urlAfterLabels(output: string, labels: string[]): string | null {
-  for (const line of output.split(/\r?\n/)) {
-    if (labels.some((label) => line.includes(label))) {
-      const url = firstHttpsUrl(line);
-      if (url) return url;
-    }
-  }
-  return null;
-}
 
 async function previewUrl(exec: DaytonaExec, sandbox: string, port: number): Promise<string> {
   const result = await checkedExec(
@@ -543,8 +536,8 @@ export async function provisionDenSandbox(options: DenSandboxOptions & Provision
   if (reused) {
     sandbox = reused;
     [webUrl, apiUrl] = await timedStep(log, "Den preview URL gate", () => Promise.all([
-      previewUrl(exec, sandbox, 3005),
-      previewUrl(exec, sandbox, 8788),
+      previewUrl(exec, sandbox, DEN_WEB_PORT),
+      previewUrl(exec, sandbox, DEN_API_PORT),
     ]));
   } else {
     const result = await timedStep(log, "Den provisioning script", () => runDenProvisionScript(ref, options.repoRoot ?? REPO_ROOT, log));
@@ -553,13 +546,15 @@ export async function provisionDenSandbox(options: DenSandboxOptions & Provision
     }
     const parsedSandbox = sandboxFromServerOutput(result.output);
     if (!parsedSandbox) throw new Error(`Den provisioning script output is missing sandbox. Output tail:\n${textTail(result.output)}`);
-    const parsedWebUrl = urlAfterLabels(result.output, ["DEN_WEB_URL=", "Den Web:"]);
-    if (!parsedWebUrl) throw new Error(`Den provisioning script output is missing webUrl. Output tail:\n${textTail(result.output)}`);
-    const parsedApiUrl = urlAfterLabels(result.output, ["DEN_API_URL=", "Den API:"]);
-    if (!parsedApiUrl) throw new Error(`Den provisioning script output is missing apiUrl. Output tail:\n${textTail(result.output)}`);
     sandbox = parsedSandbox;
-    webUrl = parsedWebUrl;
-    apiUrl = parsedApiUrl;
+    // URLs come from daytona for THIS sandbox, never from the script's stdout:
+    // the ref being provisioned controls that stream, so a spoofed
+    // "DEN_API_URL=https://attacker" line would receive the demo credentials
+    // the sign-in proof posts moments later.
+    [webUrl, apiUrl] = await timedStep(log, "Den preview URL gate", () => Promise.all([
+      previewUrl(exec, parsedSandbox, DEN_WEB_PORT),
+      previewUrl(exec, parsedSandbox, DEN_API_PORT),
+    ]));
   }
 
   await timedStep(log, "Den seeded-org proof", () => proveDenSeed(apiUrl, webUrl, sandbox, Boolean(reused)));
@@ -666,6 +661,19 @@ function commentLine(content: string, prefix: string): string | null {
   return null;
 }
 
+/** POSIX single-quoting: the generated file is `source`d, so an unquoted
+ * value like `$(cmd)` would execute on the operator's machine. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function unquote(value: string): string {
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replaceAll(`'"'"'`, "'");
+  }
+  return value;
+}
+
 export function renderConnectorSpecEnv(facts: ConnectorSpecEnv): string {
   assertSafeRef(facts.ref);
   return [
@@ -673,11 +681,11 @@ export function renderConnectorSpecEnv(facts: ConnectorSpecEnv): string {
     `${ENV_CREATED_PREFIX}${facts.created.join(",")}`,
     "OPENWORK_EVAL_APP_SPECS=1",
     "OPENWORK_EVAL_CONNECTOR_SPEC=1",
-    `OPENWORK_EVAL_DEN_API_URL=${facts.denApiUrl}`,
-    `OPENWORK_EVAL_DEN_WEB_URL=${facts.denWebUrl}`,
-    `OPENWORK_EVAL_DAYTONA_SANDBOX_A=${facts.sandboxA}`,
-    `OPENWORK_EVAL_DAYTONA_SANDBOX_B=${facts.sandboxB}`,
-    `OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL=${facts.mockUrl}`,
+    `OPENWORK_EVAL_DEN_API_URL=${shellQuote(facts.denApiUrl)}`,
+    `OPENWORK_EVAL_DEN_WEB_URL=${shellQuote(facts.denWebUrl)}`,
+    `OPENWORK_EVAL_DAYTONA_SANDBOX_A=${shellQuote(facts.sandboxA)}`,
+    `OPENWORK_EVAL_DAYTONA_SANDBOX_B=${shellQuote(facts.sandboxB)}`,
+    `OPENWORK_EVAL_CONNECTOR_MOCK_PUBLIC_URL=${shellQuote(facts.mockUrl)}`,
     "OPENWORK_EVAL_MODEL=big-pickle",
     "",
   ].join("\n");
@@ -688,7 +696,7 @@ export function parseConnectorSpecEnv(content: string): ConnectorSpecEnv {
   for (const line of content.split(/\r?\n/)) {
     if (!line || line.startsWith("#")) continue;
     const separator = line.indexOf("=");
-    if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
+    if (separator > 0) values.set(line.slice(0, separator), unquote(line.slice(separator + 1)));
   }
   function required(name: string): string {
     const value = values.get(name);

@@ -100,6 +100,22 @@ test("provisionDesktopSandbox resolves the snapshot id and creates with connecto
   assertRemoteCommandsAreSingleArgument(calls);
 });
 
+test("rendered values are shell-quoted, because the env file is meant to be sourced", () => {
+  const nasty = "$(touch /tmp/pwned); echo it's-here";
+  const content = renderConnectorSpecEnv({
+    denApiUrl: "https://a",
+    denWebUrl: "https://w",
+    sandboxA: nasty,
+    sandboxB: "b",
+    mockUrl: "https://m",
+    ref: "dev",
+    created: [],
+  });
+
+  assert(content.includes(`OPENWORK_EVAL_DAYTONA_SANDBOX_A='$(touch /tmp/pwned); echo it'"'"'s-here'`));
+  assert.equal(parseConnectorSpecEnv(content).sandboxA, nasty);
+});
+
 test("an unsafe ref is refused before it can reach a remote shell or a sourced file", async () => {
   const { exec, calls } = desktopFake();
 
