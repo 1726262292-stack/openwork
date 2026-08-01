@@ -35,33 +35,14 @@ async function closeTransientUi(ctx) {
   })()`);
 }
 
+/**
+ * Always starts a brand new task so the flow is idempotent: a previous run
+ * leaves its seeded math message behind, which would make the opening frame
+ * identical to the seeded ones.
+ */
 async function ensureSession(ctx) {
   await waitForControl(ctx);
   await closeTransientUi(ctx);
-
-  const routeSession = await ctx.eval(`(() => {
-    const route = String(window.__openworkControl.snapshot().route || window.location.hash || "");
-    const match = route.match(/ses_[A-Za-z0-9]+/);
-    return match ? match[0] : "";
-  })()`);
-
-  if (routeSession) {
-    activeSessionId = routeSession;
-    return routeSession;
-  }
-
-  const sessions = await ctx.control("session.list_sessions").catch(() => []);
-  const firstSession = Array.isArray(sessions) ? sessions[0] : null;
-
-  if (firstSession?.sessionId) {
-    await ctx.control("session.open", { sessionId: firstSession.sessionId });
-    await ctx.waitFor(
-      `String(window.__openworkControl.snapshot().route || "").includes(${JSON.stringify(firstSession.sessionId)})`,
-      { timeoutMs: 30_000, label: "existing session route" },
-    );
-    activeSessionId = firstSession.sessionId;
-    return firstSession.sessionId;
-  }
 
   await ctx.control("session.create_task");
   activeSessionId = await ctx.waitFor(
@@ -72,30 +53,29 @@ async function ensureSession(ctx) {
     })()`,
     { timeoutMs: 30_000, label: "created session route" },
   );
+  await ctx.waitFor(
+    `document.querySelectorAll(".katex").length === 0`,
+    { timeoutMs: 30_000, label: "empty transcript with no leftover math" },
+  );
   return activeSessionId;
 }
 
-async function seedMathMessage(ctx) {
-  if (assistantMessageId) return;
-
+/** Seeds progressively more of the math message so each frame shows new content. */
+async function seedMathMessage(ctx, stage, expectedFormulas) {
   await ctx.waitFor(
     `window.__openworkControl.listActions().some((action) => action.id === ${JSON.stringify(MATH_SEED_ACTION)} && !action.disabled)`,
     { timeoutMs: 30_000, label: `${MATH_SEED_ACTION} enabled` },
   );
 
-  const seeded = await ctx.control(MATH_SEED_ACTION);
+  const seeded = await ctx.control(MATH_SEED_ACTION, { stage });
   assistantMessageId = seeded.assistantMessageId || "";
   ctx.assert(Boolean(assistantMessageId), `Seed action did not return an assistant message id: ${JSON.stringify(seeded)}`);
 
   await ctx.control("session.scroll_bottom").catch(() => undefined);
+  // Wait for the concrete artifact under assertion, not for a spinner.
   await ctx.waitFor(
-    `Boolean(document.querySelector(${JSON.stringify(messageSelector(assistantMessageId))}))`,
-    { timeoutMs: 30_000, label: "seeded math assistant message" },
-  );
-  // Wait for the concrete artifact under assertion: at least one rendered formula.
-  await ctx.waitFor(
-    `document.querySelectorAll(${JSON.stringify(`${messageSelector(assistantMessageId)} .katex`)}).length >= 4`,
-    { timeoutMs: 30_000, label: "rendered KaTeX formulas" },
+    `document.querySelectorAll(${JSON.stringify(`${messageSelector(assistantMessageId)} .katex`)}).length >= ${expectedFormulas}`,
+    { timeoutMs: 30_000, label: `${expectedFormulas} rendered KaTeX formulas` },
   );
 }
 
@@ -188,7 +168,7 @@ export default {
         await ctx.prove("Inline $...$ and \\(...\\) math render as typeset formulas, not raw LaTeX source", {
           voiceover: vo[1],
           action: async () => {
-            await seedMathMessage(ctx);
+            await seedMathMessage(ctx, 1, 2);
           },
           assert: async () => {
             const state = await readMathState(ctx);
@@ -200,9 +180,14 @@ export default {
               !state.proseText.includes("$E\\psi"),
               `Dollar-delimited LaTeX is still visible as raw source: ${state.proseText}`,
             );
+            // Only markers unique to the well-formed formulas: the seed also
+            // contains a deliberately malformed "$\frac{1}{$", whose visible
+            // source is the graceful fallback proved in the last step.
+            const leaked = ["\\hbar", "\\hat{H}", "\\partial", "\\Psi"]
+              .filter((marker) => state.proseText.includes(marker));
             ctx.assert(
-              !state.proseText.includes("\\hbar") && !state.proseText.includes("\\frac"),
-              `Backslash LaTeX commands leaked into the visible prose: ${state.proseText}`,
+              leaked.length === 0,
+              `Backslash LaTeX commands leaked into the visible prose (${leaked.join(", ")}): ${state.proseText}`,
             );
 
             // The formulas really are the ones from the message.
@@ -230,7 +215,7 @@ export default {
         await ctx.prove("$$...$$ and \\[...\\] both render as centred display equations", {
           voiceover: vo[2],
           action: async () => {
-            await seedMathMessage(ctx);
+            await seedMathMessage(ctx, 2, 4);
           },
           assert: async () => {
             const state = await readMathState(ctx);
@@ -262,7 +247,7 @@ export default {
         await ctx.prove("Each formula keeps a MathML branch so screen readers announce the equation", {
           voiceover: vo[3],
           action: async () => {
-            await seedMathMessage(ctx);
+            await seedMathMessage(ctx, 2, 4);
           },
           assert: async () => {
             const state = await readMathState(ctx);
@@ -276,12 +261,17 @@ export default {
               state.annotations.length >= state.katexCount,
               `TeX annotations were stripped by sanitization: ${state.annotations.length} of ${state.katexCount}.`,
             );
-            ctx.log(`mathml elements: ${state.mathmlCount}, annotations: ${state.annotations.length}`);
-          },
-          screenshot: {
-            name: "math-accessible-mathml",
-            requireText: ["Schrodinger proof heading"],
-            rejectText: ["Something went wrong"],
+            // No new pixels here — the evidence is the MathML a screen reader
+            // consumes, so the frame carries that text instead of a screenshot.
+            await ctx.output(
+              "math-accessible-mathml",
+              [
+                `formulas: ${state.katexCount}`,
+                `<math> elements: ${state.mathmlCount}`,
+                "TeX announced to assistive tech:",
+                ...state.annotations.map((tex) => `  - ${tex}`),
+              ].join("\n"),
+            );
           },
         });
       },
@@ -292,7 +282,7 @@ export default {
         await ctx.prove("Malformed LaTeX and plain currency never break the surrounding message", {
           voiceover: vo[4],
           action: async () => {
-            await seedMathMessage(ctx);
+            await seedMathMessage(ctx, 3, 4);
           },
           assert: async () => {
             const state = await readMathState(ctx);
