@@ -191,11 +191,19 @@ export async function provisionDesktopSandbox(options: DesktopSandboxOptions & P
     const result = await execInSandbox(
       exec,
       sandbox,
-      `set -e; cd /workspace; git fetch origin "${options.ref}" && git checkout --detach FETCH_HEAD; git rev-parse --short HEAD`,
+      // Check out the REQUESTED ref, not FETCH_HEAD: a raw-sha fetch was
+      // observed leaving FETCH_HEAD stale, silently running the wrong code —
+      // and servers may refuse raw-sha fetches outright, so fall back to a
+      // full fetch and prefer the remote-tracking ref over any stale local.
+      `set -e; cd /workspace; git fetch origin "${options.ref}" 2>/dev/null || git fetch origin; git checkout --detach "origin/${options.ref}" 2>/dev/null || git checkout --detach "${options.ref}" 2>/dev/null || git checkout --detach FETCH_HEAD; git rev-parse --short=12 HEAD`,
       { timeoutMs: 120_000, context: `checkout gate for ${sandbox}` },
     );
     const sha = lastNonemptyLine(result.stdout);
     if (!sha) throw new Error(`Checkout gate failed for ${sandbox}: git did not print a resolved sha. Output tail: ${outputTail(result)}`);
+    const wantsSha = /^[0-9a-f]{7,40}$/.test(options.ref);
+    if (wantsSha && !sha.startsWith(options.ref.slice(0, 12)) && !options.ref.startsWith(sha)) {
+      throw new Error(`Checkout gate failed for ${sandbox}: asked for ${options.ref} but HEAD is ${sha}.`);
+    }
     log(`==> checkout resolved ${sha}`);
   });
 
@@ -282,6 +290,53 @@ echo detached`;
     ).catch(() => undefined);
     if (!seen) {
       throw new Error(`Browser hop gate failed for ${sandbox}: xdg-open never delivered a request (no browser reachable from the OAuth connect flow).`);
+    }
+  });
+
+  await timedStep(log, "first boot gate", async () => {
+    // A sandbox's first Electron boot pays sidecar prepare, the
+    // openwork-server tsc build, and the engine cold start. Paid INSIDE a
+    // spec, that bill starved the tool-call phase past its window while every
+    // UI assertion still passed. Boot once into a throwaway profile, wait for
+    // CDP, tear it down — after this the room behaves like a warm machine.
+    const detachScript = `python3 - <<PYEOF
+import subprocess
+log = open("/tmp/warmup-electron.log", "ab", buffering=0)
+subprocess.Popen(["bash", "-lc", "cd /workspace && env OPENWORK_ELECTRON_USERDATA=/tmp/warmup-profile OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=9825 bash .devcontainer/start-daytona-electron.sh"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
+PYEOF
+echo detached`;
+    await execInSandbox(exec, sandbox, detachScript, { timeoutMs: 30_000, context: `first boot detach for ${sandbox}` });
+    const deadline = Date.now() + 420_000;
+    let last = "not attempted";
+    let ready = false;
+    while (Date.now() < deadline) {
+      const probe = await execInSandbox(
+        exec,
+        sandbox,
+        "curl -s --max-time 5 http://127.0.0.1:9825/json/version || echo CDP_DOWN",
+        { timeoutMs: 15_000, context: `first boot probe for ${sandbox}` },
+      ).catch((error) => ({ stdout: messageText(error), stderr: "", code: 1 }));
+      last = probe.stdout.trim().slice(0, 200);
+      if (last.includes("Browser")) {
+        ready = true;
+        break;
+      }
+      await delay(5_000);
+    }
+    await execInSandbox(
+      exec,
+      sandbox,
+      "pkill -f \"[e]lectron\" >/dev/null 2>&1; pkill -f \"[o]pencode\" >/dev/null 2>&1; sleep 1; rm -rf /tmp/warmup-profile; true",
+      { timeoutMs: 30_000, context: `first boot cleanup for ${sandbox}` },
+    ).catch(() => undefined);
+    if (!ready) {
+      const bootLog = await execInSandbox(
+        exec,
+        sandbox,
+        "tail -60 /tmp/warmup-electron.log 2>&1 || true",
+        { timeoutMs: 30_000, context: `first boot log for ${sandbox}` },
+      ).catch(() => null);
+      throw new Error(`First boot gate failed for ${sandbox}: CDP never answered on 9825. Last probe: ${last}. Log tail:\n${bootLog ? outputTail(bootLog) : "unavailable"}`);
     }
   });
 

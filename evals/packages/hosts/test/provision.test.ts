@@ -37,6 +37,7 @@ function desktopFake(diskUse = "40%"):
     if (script.includes("du -sh")) return { stdout: "8G /workspace/node_modules\n", stderr: "", code: 0 };
     if (script.includes("pgrep -f Xvfb")) return { stdout: "XVFB_OK\n", stderr: "", code: 0 };
     if (script.includes("xdg-open-proof")) return { stdout: "XDG_OPEN_WORKS\n", stderr: "", code: 0 };
+    if (script.includes("json/version")) return { stdout: '{"Browser":"Chrome/144"}', stderr: "", code: 0 };
     if (script.includes("%{http_code}")) return { stdout: "200", stderr: "", code: 0 };
     return { stdout: "", stderr: "", code: 0 };
   };
