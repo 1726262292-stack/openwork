@@ -92,8 +92,7 @@ test("provisionDesktopSandbox resolves the snapshot id and creates with connecto
   const create = calls.find((call) => call.args[0] === "create");
   assert(create);
   assert(create.args.includes("snapshot-123"));
-  assert(create.args.includes("--volume"));
-  assert(create.args.includes("openwork-eval-secrets:/daytona-secrets"));
+  assert(!create.args.includes("--volume"), "eval secrets must not be mounted next to an untrusted ref by default");
   assert(create.args.includes("--auto-stop"));
   assert(create.args.includes("--public"));
   assert.equal(calls.filter((call) => call.args[0] === "sandbox" && call.args[1] === "start").length, 0);
@@ -135,6 +134,15 @@ test("an unsafe ref is refused before it can reach a remote shell or a sourced f
     }), /Unsafe git ref/);
   }
   assert.equal(calls.length, 0, "an unsafe ref must be refused before any daytona call");
+});
+
+test("the eval secrets volume is mounted only when explicitly asked for", async () => {
+  const { exec, calls } = desktopFake();
+
+  await provisionDesktopSandbox({ ref: "dev", name: "b", secrets: true, exec, log: () => undefined });
+
+  const create = calls.find((call) => call.args[0] === "create");
+  assert(create?.args.includes("openwork-eval-secrets:/daytona-secrets"));
 });
 
 test("provisionDesktopSandbox fails the disk gate above 85 percent", async () => {

@@ -22,6 +22,14 @@ export interface DesktopSandboxOptions {
   name: string;
   reuse?: string;
   snapshot?: string;
+  /**
+   * Mount the shared eval secrets volume. Off by default: `pnpm install` runs
+   * lifecycle scripts from the checked-out ref, so mounting provider keys next
+   * to an untrusted ref hands them to it. Signed-in org desktops can only pick
+   * the org's own models anyway, and driver-side vision keys never live here —
+   * so nothing in the connector room needs this.
+   */
+  secrets?: boolean;
   log?: (line: string) => void;
 }
 
@@ -191,7 +199,7 @@ export async function provisionDesktopSandbox(options: DesktopSandboxOptions & P
           "create",
           "--name", sandbox,
           "--snapshot", id,
-          "--volume", "openwork-eval-secrets:/daytona-secrets",
+          ...(options.secrets === true ? ["--volume", "openwork-eval-secrets:/daytona-secrets"] : []),
           "--auto-stop", "60",
           "--public",
           "--target", "us",
