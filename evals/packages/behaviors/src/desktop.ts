@@ -161,8 +161,11 @@ export async function go(app: Surface, hashPath: string): Promise<void> {
   // rather than letting one blocked evaluate fail a whole spec. Contention (two
   // desktops on one host) makes those bursts routine, and a bare 20s evaluate
   // here was the single most common way a long journey died near its end.
+  // 120s: with several desktops and their engines on one host the renderer can
+  // stay blocked well past a minute. Retrying an idempotent hash assignment
+  // costs nothing when the app is healthy.
   await waitFor(app, `(() => { window.location.hash = ${jsValue(hash)}; return true; })()`, {
-    timeoutMs: 60_000,
+    timeoutMs: 120_000,
     label: `navigate to ${hash}`,
   });
 }
