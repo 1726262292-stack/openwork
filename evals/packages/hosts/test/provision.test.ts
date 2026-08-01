@@ -129,19 +129,19 @@ test("startMockOnSandbox rejects a health response with the wrong issuer", async
   assertRemoteCommandsAreSingleArgument(calls);
 });
 
-test("deleteSandboxes retries without --yes when the Daytona CLI rejects the flag", async () => {
+test("deleteSandboxes answers the confirmation prompt and tolerates a missing sandbox", async () => {
   const calls: ExecCall[] = [];
   const exec: DaytonaExec = async (args, opts) => {
     calls.push({ args: [...args], opts });
-    if (args.includes("--yes")) return { stdout: "", stderr: "unknown flag: --yes", code: 1 };
+    if (args[1] === "gone-2") return { stdout: "", stderr: "sandbox not found", code: 1 };
     return { stdout: "deleted\n", stderr: "", code: 0 };
   };
 
-  await deleteSandboxes(["sandbox-1"], { exec, log: () => undefined });
+  await deleteSandboxes(["sandbox-1", "gone-2"], { exec, log: () => undefined });
 
   assert.deepEqual(calls.map((call) => call.args), [
-    ["delete", "sandbox-1", "--yes"],
     ["delete", "sandbox-1"],
+    ["delete", "gone-2"],
   ]);
-  assert.equal(calls[1]?.opts?.input, "y\n");
+  assert.equal(calls[0]?.opts?.input, "y\n");
 });

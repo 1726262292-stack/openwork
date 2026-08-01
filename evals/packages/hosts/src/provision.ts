@@ -531,10 +531,6 @@ function deletionNotFound(text: string): boolean {
   return /not found|does not exist|no sandbox/i.test(text);
 }
 
-function unknownYesFlag(text: string): boolean {
-  return /unknown (?:option|flag)|unrecognized option/i.test(text) && text.includes("--yes");
-}
-
 export async function deleteSandboxes(
   ids: string[],
   options: ProvisionExecOptions & { log?: (line: string) => void } = {},
@@ -543,19 +539,13 @@ export async function deleteSandboxes(
   const log = options.log ?? console.error;
   for (const id of ids) {
     log(`==> deleting sandbox ${id}...`);
-    let result = await exec(["delete", id, "--yes"], { timeoutMs: 60_000 });
-    let output = deletionOutput(result);
+    // The CLI has no --yes; answering its confirmation prompt on stdin works,
+    // and a promptless future CLI would simply ignore the input.
+    const result = await exec(["delete", id], { timeoutMs: 60_000, input: "y\n" });
+    const output = deletionOutput(result);
     if (result.code !== 0 && deletionNotFound(output)) {
       log(`==> sandbox ${id} not found; continuing`);
       continue;
-    }
-    if (result.code !== 0 && unknownYesFlag(output)) {
-      result = await exec(["delete", id], { timeoutMs: 60_000, input: "y\n" });
-      output = deletionOutput(result);
-      if (result.code !== 0 && deletionNotFound(output)) {
-        log(`==> sandbox ${id} not found; continuing`);
-        continue;
-      }
     }
     if (result.code !== 0) throw new Error(`Sandbox deletion gate failed for ${id} with exit ${result.code}. Output tail: ${textTail(output)}`);
     log(`==> deleted sandbox ${id}`);
