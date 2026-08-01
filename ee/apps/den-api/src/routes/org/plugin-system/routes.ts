@@ -107,7 +107,7 @@ import {
   pluginUpdateSchema,
   resourceAccessGrantWriteSchema,
 } from "./schemas.js"
-import { requirePluginArchCapability, type PluginArchActorContext, PluginArchAuthorizationError } from "./access.js"
+import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActorContext, PluginArchAuthorizationError } from "./access.js"
 import { pluginArchRoutePaths } from "./contracts.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "../shared.js"
 import { isAgentOAuthClientConnection } from "../mcp-connections.js"
@@ -713,6 +713,9 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
         const context = actorContext(c)
         await requirePluginArchCapability(context, "plugin.create")
         const body = validJson<PluginCreateBody>(c)
+        if (body.orgWide === true && !isPluginArchOrgAdmin(context)) {
+          throw new PluginArchAuthorizationError(403, "forbidden", "Only organization owners and admins can create org-wide plugins.")
+        }
         if ((body.components?.length ?? 0) > 0) {
           await requirePluginArchCapability(context, "config_object.create")
         }

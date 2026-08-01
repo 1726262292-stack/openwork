@@ -27,7 +27,7 @@ import {
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { hasSkillFrontmatterName, parseSkillMarkdown } from "@openwork-ee/utils"
 import type { PluginArchActorContext, PluginArchResourceKind, PluginArchRole } from "./access.js"
-import { requirePluginArchResourceRole, resolvePluginArchResourceRole } from "./access.js"
+import { isPluginArchOrgAdmin, PluginArchAuthorizationError, requirePluginArchResourceRole, resolvePluginArchResourceRole } from "./access.js"
 import {
   buildGithubAppInstallUrl,
   createGithubInstallStateToken,
@@ -1879,6 +1879,9 @@ export async function listResourceAccess(input: { context: PluginArchActorContex
 export async function createResourceAccessGrant(input: { context: PluginArchActorContext; value: AccessGrantWrite } & ResourceTarget) {
   await ensureResourceInOrganization(input.context, input)
   await requirePluginArchResourceRole({ context: input.context, resourceId: input.resourceId, resourceKind: input.resourceKind, role: "manager" })
+  if (input.value.orgWide === true && !isPluginArchOrgAdmin(input.context)) {
+    throw new PluginArchAuthorizationError(403, "forbidden", "Only organization owners and admins can grant org-wide access.")
+  }
   await ensureGrantTargetsInOrganization(input.context, input.value)
   const grant = await upsertGrant(input)
   await syncPluginMcpRequirementAccessForResource(input)
@@ -2005,6 +2008,10 @@ export async function createPluginBundle(input: {
   name: string
   orgWide?: boolean
 }) {
+  if (input.orgWide === true && !isPluginArchOrgAdmin(input.context)) {
+    throw new PluginArchAuthorizationError(403, "forbidden", "Only organization owners and admins can create org-wide plugins.")
+  }
+
   for (const component of input.components ?? []) {
     deriveProjection({ objectType: component.type, value: component.value })
   }
@@ -4587,6 +4594,10 @@ export async function importGithubPluginMcps(input: {
   selectedServerKeys?: string[]
   selectedServerNames?: string[]
 }) {
+  if (!isPluginArchOrgAdmin(input.context)) {
+    throw new PluginArchAuthorizationError(403, "forbidden", "Only organization owners and admins can import plugins from GitHub.")
+  }
+
   if (input.marketplaceId) {
     await ensureEditableMarketplace(input.context, input.marketplaceId)
   }
@@ -5848,6 +5859,10 @@ export async function getGithubConnectorDiscoveryTree(input: { connectorInstance
 }
 
 export async function applyGithubConnectorDiscovery(input: { autoImportNewPlugins: boolean; connectorInstanceId: ConnectorInstanceId; connectorSyncEventId?: ConnectorSyncEventId; context: PluginArchActorContext; forceRefresh?: boolean; selectedKeys: string[] }) {
+  if (!isPluginArchOrgAdmin(input.context)) {
+    throw new PluginArchAuthorizationError(403, "forbidden", "Only organization owners and admins can apply connector discovery.")
+  }
+
   const discovery = await resolveGithubConnectorDiscovery({ connectorInstanceId: input.connectorInstanceId, context: input.context, forceRefresh: input.forceRefresh })
   const selectedKeySet = new Set(input.selectedKeys.map((key) => key.trim()).filter(Boolean))
   const selectedPlugins = discovery.cache.discoveredPlugins.filter((plugin) => plugin.supported && selectedKeySet.has(plugin.key))

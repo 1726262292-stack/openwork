@@ -105,7 +105,7 @@ import {
 } from "./schemas.js"
 
 type EndpointMethod = "DELETE" | "GET" | "PATCH" | "POST"
-type EndpointAudience = "admin" | "public_webhook"
+type EndpointAudience = "admin" | "member" | "public_webhook"
 type EndpointTag = "Config Objects" | "Plugins" | "Marketplaces" | "Connectors" | "GitHub" | "Webhooks"
 
 type EndpointContract = {
@@ -233,7 +233,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     tag: "Config Objects",
   },
   createConfigObject: {
-    audience: "admin",
+    audience: "member",
     description: "Create a cloud or imported config object and optionally attach it to plugins.",
     method: "POST",
     path: pluginArchRoutePaths.configObjects,
@@ -377,7 +377,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     tag: "Plugins",
   },
   createPlugin: {
-    audience: "admin",
+    audience: "member",
     description: "Create a private-by-default plugin, optionally bundled with components, org-wide sharing, and marketplace publishing.",
     method: "POST",
     path: pluginArchRoutePaths.plugins,
