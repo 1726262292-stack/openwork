@@ -638,10 +638,22 @@ export async function deleteSandboxes(
   }
 }
 
+const ENV_HEADER_PREFIX = "# provisioned for org-connector-two-members";
+const ENV_REF_MARKER = "; ref=";
+const ENV_CREATED_PREFIX = "# provision-created=";
+
+/** First line starting with prefix, minus the prefix. Linear, no backtracking. */
+function commentLine(content: string, prefix: string): string | null {
+  for (const line of content.split(/\r?\n/)) {
+    if (line.startsWith(prefix)) return line.slice(prefix.length);
+  }
+  return null;
+}
+
 export function renderConnectorSpecEnv(facts: ConnectorSpecEnv): string {
   return [
-    `# provisioned for org-connector-two-members — generated ${new Date().toISOString()}; ref=${facts.ref}`,
-    `# provision-created=${facts.created.join(",")}`,
+    `${ENV_HEADER_PREFIX} — generated ${new Date().toISOString()}${ENV_REF_MARKER}${facts.ref}`,
+    `${ENV_CREATED_PREFIX}${facts.created.join(",")}`,
     "OPENWORK_EVAL_APP_SPECS=1",
     "OPENWORK_EVAL_CONNECTOR_SPEC=1",
     `OPENWORK_EVAL_DEN_API_URL=${facts.denApiUrl}`,
@@ -670,10 +682,15 @@ export function parseConnectorSpecEnv(content: string): ConnectorSpecEnv {
   required("OPENWORK_EVAL_APP_SPECS");
   required("OPENWORK_EVAL_CONNECTOR_SPEC");
   required("OPENWORK_EVAL_MODEL");
-  const ref = /^# provisioned for org-connector-two-members — generated .*; ref=(.*)$/m.exec(content)?.[1];
+  // Header comments are read by line scan, not regex: `.*` before a literal
+  // backtracks polynomially on adversarial input (CodeQL js/polynomial-redos).
+  const header = commentLine(content, ENV_HEADER_PREFIX);
+  const refAt = header ? header.lastIndexOf(ENV_REF_MARKER) : -1;
+  if (refAt < 0) throw new Error("Missing ref in connector spec env header.");
+  const ref = header?.slice(refAt + ENV_REF_MARKER.length) ?? "";
   if (!ref) throw new Error("Missing ref in connector spec env header.");
-  const createdText = /^# provision-created=(.*)$/m.exec(content)?.[1];
-  if (createdText === undefined) throw new Error("Missing provision-created in connector spec env header.");
+  const createdText = commentLine(content, ENV_CREATED_PREFIX);
+  if (createdText === null) throw new Error("Missing provision-created in connector spec env header.");
 
   return {
     denApiUrl: required("OPENWORK_EVAL_DEN_API_URL"),
