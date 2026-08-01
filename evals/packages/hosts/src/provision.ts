@@ -245,17 +245,43 @@ export async function provisionDesktopSandbox(options: DesktopSandboxOptions & P
   });
 
   await timedStep(log, "browser hop gate", async () => {
-    const result = await execInSandbox(
+    // Chromium launched inside a pipe-stdin exec session TERMs the whole
+    // session as it starts (exit 143 at ~2.5s; the same script survives under
+    // a TTY). So nothing may run as a child of the session: both halves are
+    // fully detached the way the mock and Vite gates are, and the proof is
+    // read back by clean, childless polls.
+    const detachScript = `rm -f /tmp/xdgtest.log; python3 - <<PYEOF
+import subprocess
+log = open("/tmp/xdgtest.log", "ab", buffering=0)
+subprocess.Popen(["python3", "-m", "http.server", "18099", "--bind", "127.0.0.1"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
+subprocess.Popen(["bash", "-lc", "sleep 1; export DISPLAY=:99; xdg-open http://127.0.0.1:18099/xdg-open-proof"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+PYEOF
+echo detached`;
+    await execInSandbox(exec, sandbox, detachScript, { timeoutMs: 30_000, context: `browser hop detach for ${sandbox}` });
+
+    const deadline = Date.now() + 60_000;
+    let seen = false;
+    while (Date.now() < deadline) {
+      const probe = await execInSandbox(
+        exec,
+        sandbox,
+        "grep -q xdg-open-proof /tmp/xdgtest.log 2>/dev/null && echo XDG_OPEN_WORKS || echo XDG_WAITING",
+        { timeoutMs: 15_000, context: `browser hop probe for ${sandbox}` },
+      );
+      if (probe.stdout.includes("XDG_OPEN_WORKS")) {
+        seen = true;
+        break;
+      }
+      await delay(3_000);
+    }
+    await execInSandbox(
       exec,
       sandbox,
-      // Verdict BEFORE cleanup, and bracketed pkill patterns: the pattern is
-      // otherwise a substring of this very shell's command line, so pkill
-      // TERMs its own shell (exit 143) before the verdict can be printed.
-      "export DISPLAY=:99; nohup python3 -m http.server 18099 --bind 127.0.0.1 >/tmp/xdgtest.log 2>&1 & sleep 1; (xdg-open http://127.0.0.1:18099/xdg-open-proof >/dev/null 2>&1 &); ok=0; for i in $(seq 1 30); do grep -q xdg-open-proof /tmp/xdgtest.log 2>/dev/null && ok=1 && break; sleep 1; done; [ $ok = 1 ] && echo XDG_OPEN_WORKS || echo XDG_OPEN_BROKEN; pkill -f \"[h]ttp.server 18099\" >/dev/null 2>&1; pkill -f \"[c]hromium\" >/dev/null 2>&1; rm -f /tmp/xdgtest.log; true",
-      { timeoutMs: 90_000, context: `browser hop gate for ${sandbox}` },
-    );
-    if (!result.stdout.includes("XDG_OPEN_WORKS")) {
-      throw new Error(`Browser hop gate failed for ${sandbox}: expected XDG_OPEN_WORKS. Output tail: ${outputTail(result)}`);
+      "pkill -f \"[h]ttp.server 18099\" >/dev/null 2>&1; pkill -f \"[c]hromium\" >/dev/null 2>&1; rm -f /tmp/xdgtest.log; true",
+      { timeoutMs: 15_000, context: `browser hop cleanup for ${sandbox}` },
+    ).catch(() => undefined);
+    if (!seen) {
+      throw new Error(`Browser hop gate failed for ${sandbox}: xdg-open never delivered a request (no browser reachable from the OAuth connect flow).`);
     }
   });
 
