@@ -406,9 +406,15 @@ async function issueToken(req, res, entry) {
 
 function isAuthorized(req) {
   if (allowUnauthenticatedMcp) return true;
+  const token = bearerToken(req);
+  return Boolean(token && tokens.has(token));
+}
+
+/** Linear-time bearer parse — `\s+(.+)` backtracks polynomially on header spam. */
+function bearerToken(req) {
   const header = req.headers.authorization || "";
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return Boolean(match && tokens.has(match[1]));
+  if (!/^bearer /i.test(header)) return null;
+  return header.slice("bearer ".length).trim() || null;
 }
 
 /**
@@ -419,9 +425,9 @@ function isAuthorized(req) {
  * another. Never log the token itself.
  */
 function tokenFingerprint(req) {
-  const match = (req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
-  if (!match) return null;
-  return createHash("sha256").update(match[1]).digest("hex").slice(0, 12);
+  const token = bearerToken(req);
+  if (!token) return null;
+  return createHash("sha256").update(token).digest("hex").slice(0, 12);
 }
 
 function mcpResult(message) {
