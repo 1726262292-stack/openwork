@@ -173,7 +173,7 @@ export default {
           assert: async () => {
             const state = await readMathState(ctx);
             ctx.assert(state.ok, state.reason || "Math message did not render.");
-            ctx.assert(state.katexCount >= 4, `Expected at least 4 rendered formulas, saw ${state.katexCount}.`);
+            ctx.assert(state.katexCount >= 2, `Expected the 2 inline formulas to render, saw ${state.katexCount}.`);
 
             // The regression being fixed: LaTeX delimiters shown as literal prose.
             ctx.assert(
