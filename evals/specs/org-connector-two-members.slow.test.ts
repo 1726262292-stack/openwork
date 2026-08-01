@@ -89,8 +89,12 @@ async function waitForConnectionCard(app: Surface, name: string, workspaceId: st
     if (found === true) return;
     // The app opens a freshly created session on its own, which navigates away
     // from settings mid-poll. Steer back, the way a person would click back.
-    const onSettings = await evalIn(app, `window.location.hash.includes("/settings/extensions")`, { timeoutMs: 8_000 }).catch(() => false);
-    if (onSettings !== true) {
+    // The app CANONICALISES this route: /settings/extensions/connections
+    // becomes /extensions/connections. Checking for the pre-rewrite form made
+    // the steer-back below fire every iteration, so navigation fought the
+    // rewrite and the surface never settled — which looked like a blank page.
+    const onExtensions = await evalIn(app, `window.location.hash.includes("/extensions")`, { timeoutMs: 8_000 }).catch(() => false);
+    if (onExtensions !== true) {
       await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
       await new Promise((resolve) => setTimeout(resolve, 1_500));
       continue;
@@ -118,9 +122,9 @@ async function waitForConnectionCard(app: Surface, name: string, workspaceId: st
 /** The connections surface, settled — polling before it mounts finds nothing. */
 async function openConnectionsSurface(app: Surface, workspaceId: string): Promise<void> {
   await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
-  await waitFor(app, `window.location.hash.includes("/settings/extensions") && document.body.innerText.includes("Extensions")`, {
+  await waitFor(app, `window.location.hash.includes("/extensions") && document.body.innerText.includes("Extensions")`, {
     timeoutMs: 60_000,
-    label: "extensions connections route",
+    label: "extensions connections route (app canonicalises away /settings)",
   });
 }
 
