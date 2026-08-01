@@ -193,6 +193,7 @@ test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
       "The connection detail visibly says Connected with your own account",
+      "Reconnect and Disconnect lifecycle actions are both visibly available",
       "No Connect your account action or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -210,15 +211,6 @@ test.skipIf(!apiUrl || !appSpecsEnabled)(title, async () => {
   const actions = await enabledButtons(app);
   expect(actions).toContain("Reconnect");
   expect(actions).toContain("Disconnect");
-  {
-    const shot = await screenshot(app);
-    const seen = await validate(shot, [
-      "Reconnect and Disconnect lifecycle actions are both visibly available",
-      "No generic error or 'Something went wrong' crash message is visible",
-    ]);
-    expect(seen.ok, seen.why).toBe(true);
-    await roll.add(shot, seen);
-  }
 
   const reconnectClickedAt = new Date().toISOString();
   await clickButton(app, "Reconnect");
