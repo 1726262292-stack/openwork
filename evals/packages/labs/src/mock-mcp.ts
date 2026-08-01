@@ -18,6 +18,8 @@ export interface MockToolCall {
   args: Record<string, unknown>;
   /** sha256 prefix of the caller's bearer token — distinct per member credential. */
   tokenId: string | null;
+  /** When the connector served it (the mock's clock). */
+  at: string;
 }
 
 export interface MockMcpHandle {
@@ -29,8 +31,12 @@ export interface MockMcpHandle {
    * Tool calls the connector served. This is the AUTHORITY for "did a person
    * really use it" — the app's own UI can look connected while nothing was
    * invoked, and per-member isolation is only provable by distinct tokenIds.
+   *
+   * Pass sinceIso when the mock is long-lived (publicUrl): its request log
+   * spans runs, so an unfiltered atLeast is satisfied by a PREVIOUS run's
+   * calls and returns before this run's calls ever arrive.
    */
-  toolCalls(opts?: { name?: string; timeoutMs?: number; atLeast?: number }): Promise<MockToolCall[]>;
+  toolCalls(opts?: { name?: string; timeoutMs?: number; atLeast?: number; sinceIso?: string }): Promise<MockToolCall[]>;
   stop(): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;
 }
@@ -71,7 +77,9 @@ async function waitForHealth(url: string, output: () => string, child: ChildProc
   let last = "unreachable";
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null) {
+    // With an externally-managed mock there is no child at all; only a spawned
+    // child that has ALREADY exited (exitCode set) means startup failed.
+    if (child && child.exitCode !== null) {
       throw new Error(`Mock OAuth+MCP server exited before becoming healthy. Output: ${output().slice(-1_000)}`);
     }
     try {
@@ -152,10 +160,12 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
     return isRecord(body) && Array.isArray(body.requests) ? body.requests.filter(isRecord) : [];
   };
 
-  const readToolCalls = async (name?: string): Promise<MockToolCall[]> => {
+  const readToolCalls = async (name?: string, sinceIso?: string): Promise<MockToolCall[]> => {
     const calls: MockToolCall[] = [];
     for (const entry of await rawEntries()) {
       if (!Array.isArray(entry.toolCalls)) continue;
+      const at = typeof entry.at === "string" ? entry.at : "";
+      if (sinceIso && at < sinceIso) continue;
       for (const call of entry.toolCalls) {
         if (!isRecord(call) || typeof call.name !== "string") continue;
         if (name && call.name !== name) continue;
@@ -163,6 +173,7 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
           name: call.name,
           args: isRecord(call.args) ? call.args : {},
           tokenId: typeof call.tokenId === "string" ? call.tokenId : null,
+          at,
         });
       }
     }
@@ -175,14 +186,14 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
     requests,
     async toolCalls(opts = {}) {
       const wanted = opts.atLeast ?? 0;
-      if (wanted <= 0) return readToolCalls(opts.name);
+      if (wanted <= 0) return readToolCalls(opts.name, opts.sinceIso);
       // The engine invokes tools asynchronously after the model decides to, so
       // poll rather than read once.
       const deadline = Date.now() + (opts.timeoutMs ?? 120_000);
-      let calls = await readToolCalls(opts.name);
+      let calls = await readToolCalls(opts.name, opts.sinceIso);
       while (calls.length < wanted && Date.now() < deadline) {
         await sleep(1_000);
-        calls = await readToolCalls(opts.name);
+        calls = await readToolCalls(opts.name, opts.sinceIso);
       }
       return calls;
     },
