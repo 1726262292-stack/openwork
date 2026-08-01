@@ -56,7 +56,7 @@ function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function defaultDaytonaExec(args: string[], opts: { input?: string; timeoutMs?: number } = {}): Promise<DaytonaExecResult> {
+export function defaultDaytonaExec(args: string[], opts: { input?: string; timeoutMs?: number } = {}): Promise<DaytonaExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn("daytona", args, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
@@ -214,7 +214,7 @@ async function orgModeOrDefault(webUrl: string, log: (msg: string) => void): Pro
   }
 }
 
-async function checkedExec(exec: DaytonaExec, args: string[], context: string, opts: { input?: string; timeoutMs?: number } = {}): Promise<DaytonaExecResult> {
+export async function checkedExec(exec: DaytonaExec, args: string[], context: string, opts: { input?: string; timeoutMs?: number } = {}): Promise<DaytonaExecResult> {
   const result = await exec(args, opts);
   if (result.code !== 0) {
     const details = (result.stderr || result.stdout).trim();

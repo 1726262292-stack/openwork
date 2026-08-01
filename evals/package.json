@@ -5,6 +5,7 @@
   "scripts": {
     "spec": "vitest run --config vitest.config.ts --project pr",
     "spec:nightly": "vitest run --config vitest.config.ts",
+    "provision:org-connector-two-members": "node scripts/provision-org-connector-two-members.ts",
     "test": "node --test runner/*.test.ts packages/*/test/*.test.ts",
     "typecheck": "tsc -p ."
   },
