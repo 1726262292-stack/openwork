@@ -399,20 +399,22 @@ async function previewUrl(exec: DaytonaExec, sandbox: string, port: number): Pro
   return url;
 }
 
-async function proveDenSeed(apiUrl: string, sandbox: string, reused: boolean): Promise<void> {
+async function proveDenSeed(apiUrl: string, webUrl: string, sandbox: string, reused: boolean): Promise<void> {
   const email = process.env.OPENWORK_EVAL_DEMO_EMAIL?.trim() || "alex@acme.test";
   const password = process.env.OPENWORK_EVAL_DEMO_PASSWORD ?? "OpenWorkDemo123!";
   const url = `${apiUrl.replace(/\/+$/, "")}/api/auth/sign-in/email`;
   // A freshly-booted stack was observed answering public sign-in with bare
   // 403s for its first ~minute, then recovering on its own — so the window is
   // generous, and a failing status keeps its body so the failure names itself.
+  // (That body once read MISSING_OR_NULL_ORIGIN: early boot rejects
+  // origin-less POSTs, and every real client sends Origin — so must we.)
   const deadline = Date.now() + 120_000;
   let last = "not attempted";
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", origin: webUrl },
         body: JSON.stringify({ email, password }),
         signal: AbortSignal.timeout(5_000),
       });
@@ -460,7 +462,7 @@ export async function provisionDenSandbox(options: DenSandboxOptions & Provision
     apiUrl = parsedApiUrl;
   }
 
-  await timedStep(log, "Den seeded-org proof", () => proveDenSeed(apiUrl, sandbox, Boolean(reused)));
+  await timedStep(log, "Den seeded-org proof", () => proveDenSeed(apiUrl, webUrl, sandbox, Boolean(reused)));
   return { sandbox, apiUrl, webUrl, created: !reused };
 }
 
