@@ -14,6 +14,9 @@ importers:
       '@openwork/cdp':
         specifier: workspace:*
         version: link:packages/cdp
+      '@openwork/evidence':
+        specifier: workspace:*
+        version: link:packages/evidence
       '@openwork/fraimz':
         specifier: workspace:*
         version: link:packages/fraimz
@@ -47,6 +50,8 @@ importers:
         version: link:../timeline
 
   packages/cdp: {}
+
+  packages/evidence: {}
 
   packages/fraimz:
     dependencies:

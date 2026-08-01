@@ -5,6 +5,8 @@
   "scripts": {
     "spec": "vitest run --config vitest.config.ts --project pr",
     "spec:nightly": "vitest run --config vitest.config.ts",
+    "roll": "node packages/evidence/bin/roll.mjs",
+    "publish:pr": "node packages/evidence/bin/publish-pr.mjs",
     "provision:org-connector-two-members": "node scripts/provision-org-connector-two-members.ts",
     "test": "node --test runner/*.test.ts packages/*/test/*.test.ts",
     "typecheck": "tsc -p ."
@@ -12,6 +14,7 @@
   "dependencies": {
     "@openwork/behaviors": "workspace:*",
     "@openwork/cdp": "workspace:*",
+    "@openwork/evidence": "workspace:*",
     "@openwork/fraimz": "workspace:*",
     "@openwork/hosts": "workspace:*",
     "@openwork/labs": "workspace:*",

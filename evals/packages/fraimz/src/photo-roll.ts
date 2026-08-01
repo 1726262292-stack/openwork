@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,12 +43,22 @@ function frameCaption(name: string, sequence: number, seen?: SeenFacts): string 
   return seen?.results[0]?.expectation.trim() || `${name} frame ${sequence}`;
 }
 
+function gitValue(args: string[]): string {
+  const result = spawnSync("git", ["rev-parse", ...args], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  return result.status === 0 && !result.error ? result.stdout.trim() : "";
+}
+
 export function photoRoll(name: string, opts: { outDir?: string } = {}): Roll {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = opts.outDir ?? join(REPO_ROOT, "evals", "results", "rolls", `${stamp}-${slug(name)}`);
   const frames: RollFrame[] = [];
   const hashes = new Map<string, string>();
   const createdAt = new Date().toISOString();
+  const gitSha = gitValue(["HEAD"]);
+  const branch = gitValue(["--abbrev-ref", "HEAD"]);
   let closedPath = "";
 
   const close = async (): Promise<string> => {
@@ -64,7 +75,7 @@ export function photoRoll(name: string, opts: { outDir?: string } = {}): Roll {
       failedExpectations: expectationResults.filter((result) => !result.passed).length,
     };
     const closedAt = new Date().toISOString();
-    const payload = { name, dir, createdAt, closedAt, summary, frames };
+    const payload = { name, dir, createdAt, closedAt, gitSha, branch, summary, frames };
     const frameMarkup = frames.map((frame) => `
       <article class="frame ${frame.ok === true ? "passed" : frame.ok === false ? "failed" : "unvalidated"}">
         <h2>${html(frame.caption)}</h2>
