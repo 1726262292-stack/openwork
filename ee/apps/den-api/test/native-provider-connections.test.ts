@@ -202,6 +202,21 @@ async function seedPendingGoogleOAuth(label: string) {
   return { ...seeded, pending, callbackUrl }
 }
 
+function principalRequest(input: {
+  organizationId: DenTypeId<"organization">
+  path: string
+  userId: DenTypeId<"user">
+}) {
+  return app.fetch(new Request(`http://den-api.local${input.path}`, {
+    headers: {
+      "x-den-internal-mcp-principal": session.createInternalMcpPrincipalHeader({
+        userId: input.userId,
+        organizationId: input.organizationId,
+      }),
+    },
+  }))
+}
+
 describe("buildNativeProviderEntry", () => {
   test("no org client configured means no entry — the org has not enrolled", () => {
     const provider = registry.getNativeOAuthProvider("google-workspace")!
@@ -386,6 +401,134 @@ describe("buildNativeProviderEntry", () => {
       externalAccountId: null,
       accessToken: "callback-access-token",
       pendingCodeVerifier: null,
+    })
+  })
+
+  test("two native Google connectors connect independently and connect/start skips MCP discovery", async () => {
+    oauthIdentityMode = "id-token"
+    const seeded = await seedMember("TwoGoogleConnectors")
+    const provider = registry.getNativeOAuthProvider("google-workspace")
+    if (!provider) throw new Error("google-workspace provider is missing")
+    const first = await createExternalMcpConnection({
+      organizationId: seeded.organizationId,
+      name: "Acme Google",
+      url: provider.websiteUrl,
+      authType: "oauth",
+      kind: "native_provider",
+      nativeProviderKey: provider.providerId,
+      credentialMode: "per_member",
+      createdByOrgMembershipId: seeded.memberId,
+      access: { orgWide: true, memberIds: [], teamIds: [] },
+    })
+    const second = await createExternalMcpConnection({
+      organizationId: seeded.organizationId,
+      name: "Subsidiary Google",
+      url: provider.websiteUrl,
+      authType: "oauth",
+      kind: "native_provider",
+      nativeProviderKey: provider.providerId,
+      credentialMode: "per_member",
+      createdByOrgMembershipId: seeded.memberId,
+      access: { orgWide: true, memberIds: [], teamIds: [] },
+    })
+    await oauthCredentials.upsertOrgOAuthClient({
+      organizationId: seeded.organizationId,
+      providerId: first.id,
+      clientId: "first-google-client",
+      clientSecret: "first-google-secret",
+      createdByOrgMembershipId: seeded.memberId,
+    })
+    await oauthCredentials.upsertOrgOAuthClient({
+      organizationId: seeded.organizationId,
+      providerId: second.id,
+      clientId: "second-google-client",
+      clientSecret: "second-google-secret",
+      createdByOrgMembershipId: seeded.memberId,
+    })
+
+    for (const connection of [first, second]) {
+      const startResponse = await principalRequest({
+        organizationId: seeded.organizationId,
+        path: `/v1/mcp-connections/${connection.id}/connect/start`,
+        userId: seeded.userId,
+      })
+      expect(startResponse.status).toBe(200)
+      const startBody: unknown = await startResponse.json()
+      if (!isRecord(startBody) || typeof startBody.authorizeUrl !== "string") {
+        throw new Error("Native connector connect/start did not return an authorize URL")
+      }
+      const authorizeUrl = new URL(startBody.authorizeUrl)
+      expect(authorizeUrl.searchParams.get("redirect_uri")).toBe("http://den-api.local/v1/oauth-providers/google-workspace/connect/callback")
+      const state = authorizeUrl.searchParams.get("state")
+      if (!state) throw new Error("Native connector authorize URL omitted state")
+      const verified = genericOAuth.verifyOAuthStateToken({ token: state, secret: process.env.BETTER_AUTH_SECRET ?? "" })
+      expect(verified?.providerId).toBe(connection.id)
+      expect(verified?.binding).toBe("google-workspace")
+
+      const callbackUrl = new URL("http://den-api.local/v1/oauth-providers/google-workspace/connect/callback")
+      callbackUrl.searchParams.set("code", `code-${connection.id}`)
+      callbackUrl.searchParams.set("state", state)
+      const callbackResponse = await app.request(callbackUrl.toString())
+      expect(callbackResponse.status).toBe(200)
+    }
+
+    const [firstAccount, secondAccount] = await Promise.all([
+      oauthCredentials.getConnectedAccount({
+        organizationId: seeded.organizationId,
+        orgMembershipId: seeded.memberId,
+        providerId: first.id,
+      }),
+      oauthCredentials.getConnectedAccount({
+        organizationId: seeded.organizationId,
+        orgMembershipId: seeded.memberId,
+        providerId: second.id,
+      }),
+    ])
+    expect(firstAccount?.id).not.toBe(secondAccount?.id)
+    expect(firstAccount?.accessToken).toBe("callback-access-token")
+    expect(secondAccount?.accessToken).toBe("callback-access-token")
+
+    const entries = await mod.listNativeProviderUsableEntries({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+    })
+    expect(entries.map((entry) => entry.id).sort()).toEqual([first.id, second.id].sort())
+    expect(entries.every((entry) => entry.connectedForMe)).toBe(true)
+  })
+
+  test("the legacy Google alias remains listed and connectable", async () => {
+    const seeded = await seedMember("LegacyGoogleAlias")
+    await oauthCredentials.upsertOrgOAuthClient({
+      organizationId: seeded.organizationId,
+      providerId: "google-workspace",
+      clientId: "legacy-google-client",
+      clientSecret: "legacy-google-secret",
+      createdByOrgMembershipId: seeded.memberId,
+    })
+
+    const entries = await mod.listNativeProviderUsableEntries({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+    })
+    expect(entries.map((entry) => entry.id)).toContain("google-workspace")
+
+    const response = await principalRequest({
+      organizationId: seeded.organizationId,
+      path: "/v1/mcp-connections/google-workspace/connect/start",
+      userId: seeded.userId,
+    })
+    expect(response.status).toBe(200)
+    const body: unknown = await response.json()
+    if (!isRecord(body) || typeof body.authorizeUrl !== "string") {
+      throw new Error("Legacy Google alias did not return an authorize URL")
+    }
+    const authorizeUrl = new URL(body.authorizeUrl)
+    expect(authorizeUrl.searchParams.get("redirect_uri")).toBe("http://den-api.local/v1/oauth-providers/google-workspace/connect/callback")
+    const state = authorizeUrl.searchParams.get("state")
+    if (!state) throw new Error("Legacy Google alias omitted state")
+    expect(genericOAuth.verifyOAuthStateToken({ token: state, secret: process.env.BETTER_AUTH_SECRET ?? "" })).toMatchObject({
+      providerId: "google-workspace",
+      binding: "google-workspace",
     })
   })
 

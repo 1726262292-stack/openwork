@@ -68,6 +68,7 @@ import {
 } from "../../capability-sources/external-mcp-connections.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { listNativeProviderUsableEntries } from "../../capability-sources/native-provider-connections.js"
+import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
 import { connectCallbackPage } from "../../capability-sources/oauth-callback-page.js"
 import { getConnectedAccount, getOrgOAuthClient, upsertOrgOAuthClient } from "../../capability-sources/oauth-credentials.js"
 import { assertPublicUrl, createGuardedFetch, createRealmSafeFetch } from "../../capability-sources/url-guard.js"
@@ -111,6 +112,7 @@ import {
   orgAccessFailureStatus,
 } from "./shared.js"
 import type { OrgRouteVariables } from "./shared.js"
+import { beginNativeProviderConnect } from "./oauth-providers.js"
 
 const connectionParamsSchema = idParamSchema("connectionId", "externalMcpConnection")
 const logger = appLogger.child({ component: "mcp_connections" })
@@ -248,7 +250,8 @@ const clientMetadataResponseSchema = z.object({
   token_endpoint_auth_method: z.literal("none"),
 }).meta({ ref: "ExternalMcpClientMetadata" })
 
-const createConnectionBodySchema = z.object({
+const createExternalConnectionBodySchema = z.object({
+  kind: z.literal("external_mcp").optional(),
   name: z.string().trim().min(1).max(255),
   url: externalMcpUrlSchema,
   authType: z.enum(["oauth", "apikey", "none"]),
@@ -264,6 +267,22 @@ const createConnectionBodySchema = z.object({
   /** Who can USE the connection. Defaults to org-wide so the naive quick-add path matches expectations, but it's an explicit, editable choice. */
   access: accessInputSchema.optional().default({ orgWide: true, memberIds: [], teamIds: [] }),
 })
+
+const createNativeProviderConnectionBodySchema = z.object({
+  kind: z.literal("native_provider"),
+  nativeProviderKey: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(255),
+  oauthClient: z.object({
+    clientId: z.string().trim().min(1).max(512),
+    clientSecret: z.string().trim().min(1).max(4096).optional(),
+    features: z.array(z.string().trim().min(1).max(128)).optional(),
+  }),
+})
+
+const createConnectionBodySchema = z.union([
+  createNativeProviderConnectionBodySchema,
+  createExternalConnectionBodySchema,
+])
 
 const updateConnectionBodySchema = z.object({
   expectedUpdatedAt: z.string().datetime(),
@@ -484,8 +503,15 @@ function memberConnectLinks(connection: ExternalMcpConnectionRow) {
   yourConnections.searchParams.set("connectionId", connection.id)
   return {
     yourConnections: yourConnections.toString(),
-    oauthCallback: callbackRedirectUri(connection),
+    oauthCallback: connection.kind === "native_provider" && connection.nativeProviderKey
+      ? nativeProviderCallbackUrl(connection.nativeProviderKey)
+      : callbackRedirectUri(connection),
   }
+}
+
+function nativeProviderCallbackUrl(nativeProviderKey: string) {
+  const baseUrl = env.apiPublicUrl ?? env.betterAuthUrl
+  return new URL(`/v1/oauth-providers/${encodeURIComponent(nativeProviderKey)}/connect/callback`, baseUrl).toString()
 }
 
 export function isAgentApiKeyConnection(input: { authType: string; sessionId?: string | null }) {
@@ -946,11 +972,13 @@ async function toConnectionResponse(
   const oauthRegistrationSource = oauthRegistrationSourceForClient(oauthClient)
   const callbackMode = row.oauthConfiguration?.callbackMode ?? null
   const requiredAuthTypes = [...options.requiredAuthTypes]
-  const presetRequiredAuthType = requiredPluginMcpAuthType({ declaredAuthType: null, url: row.url })
+  const presetRequiredAuthType = row.kind === "external_mcp"
+    ? requiredPluginMcpAuthType({ declaredAuthType: null, url: row.url })
+    : null
   if (requiredAuthTypes.length === 0 && presetRequiredAuthType) requiredAuthTypes.push(presetRequiredAuthType)
   const authPolicyConfirmed = options.identityManagedBy.length === 0 || requiredAuthTypes.length > 0
   const authTypeMismatch = requiredAuthTypes.some((requiredAuthType) => requiredAuthType !== row.authType)
-  const oauthClientRequired = row.authType === "oauth" && pluginMcpRequiresPreRegisteredOAuthClient(row.url)
+  const oauthClientRequired = row.kind === "external_mcp" && row.authType === "oauth" && pluginMcpRequiresPreRegisteredOAuthClient(row.url)
   const oauthClientConfigured = Boolean(oauthClient)
   const setupRequired = options.identityManagedBy.length > 0 && (
     !authPolicyConfirmed
@@ -996,10 +1024,12 @@ async function toConnectionResponse(
     ...(options.includeAccess ? {
       oauthClientId: oauthClient?.clientId ?? null,
       oauthCallbackUrl: row.authType === "oauth"
-        ? externalMcpCallbackUrl({ connectionId: row.id, callbackMode: callbackMode ?? "legacy-v1" })
+        ? row.kind === "native_provider" && row.nativeProviderKey
+          ? nativeProviderCallbackUrl(row.nativeProviderKey)
+          : externalMcpCallbackUrl({ connectionId: row.id, callbackMode: callbackMode ?? "legacy-v1" })
         : null,
-      oauthSharedCallbackUrl: row.authType === "oauth" ? externalMcpSharedCallbackUrl() : null,
-      oauthClientMetadataUrl: row.authType === "oauth" ? externalMcpClientMetadataUrl() : null,
+      oauthSharedCallbackUrl: row.kind === "external_mcp" && row.authType === "oauth" ? externalMcpSharedCallbackUrl() : null,
+      oauthClientMetadataUrl: row.kind === "external_mcp" && row.authType === "oauth" ? externalMcpClientMetadataUrl() : null,
       oauthCallbackMode: callbackMode,
       oauthRegistrationSource,
       authorizationServerIssuer: row.oauthConfiguration?.authorizationServerIssuer ?? null,
@@ -1081,6 +1111,9 @@ async function handleExternalMcpOAuthCallback(input: {
   ])
   if (!connection || !members[0]) {
     return invalidMcpOAuthCallback("Unknown authorization transaction.")
+  }
+  if (connection.kind !== "external_mcp") {
+    return invalidMcpOAuthCallback("Native provider connectors do not use the external MCP OAuth callback.")
   }
   const configuredIssuer = connection.oauthConfiguration?.authorizationServerIssuer ?? null
   const discovery = connection.oauthConfiguration?.discovery
@@ -1563,6 +1596,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       const nativeEntries = await listNativeProviderUsableEntries({
         organizationId: payload.organization.id,
         orgMembershipId: payload.currentMember.id,
+        teamIds: memberTeams.map((team) => team.id),
       })
       return c.json({ connections: [...nativeEntries, ...connections] })
     },
@@ -1596,6 +1630,9 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       })
       if (!connection) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
+      }
+      if (connection.kind !== "external_mcp") {
+        return c.json({ error: "invalid_request", message: "Native provider connectors do not expose an MCP tool catalog." }, 400)
       }
 
       const isAdmin = verifyOrgRole({ roles: ["admin"], userContext: payload.currentMember })
@@ -1702,6 +1739,9 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       if (!connection) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
       }
+      if (connection.kind !== "external_mcp") {
+        return c.json({ error: "invalid_request", message: "Native provider connectors do not expose MCP tools." }, 400)
+      }
 
       const memberTeams: MemberTeamSummary[] = c.get("memberTeams") ?? []
       const canUse = memberFacingMcpConnectionsEnabled(payload.organization.metadata, { gatingEnabled: env.mcpConnectionsGatingEnabled })
@@ -1799,6 +1839,47 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
 
       const body = c.req.valid("json")
       const sessionId = c.get("session")?.id
+      if (body.kind === "native_provider") {
+        if (isAgentOAuthClientConnection({ oauthClient: body.oauthClient, sessionId })) {
+          return c.json({ error: "invalid_request", message: "OAuth client credentials cannot be set from the agent. Add them in the OpenWork Cloud dashboard under Extensions." }, 400)
+        }
+        const provider = getNativeOAuthProvider(body.nativeProviderKey)
+        if (!provider) {
+          return c.json({ error: "invalid_request", message: `"${body.nativeProviderKey}" is not a known native OAuth provider.` }, 400)
+        }
+        const unknownFeatures = (body.oauthClient.features ?? []).filter((feature) => !Object.hasOwn(provider.optionalFeatures ?? {}, feature))
+        if (unknownFeatures.length > 0) {
+          return c.json({ error: "invalid_request", message: `Unknown optional feature(s): ${unknownFeatures.join(", ")}.` }, 400)
+        }
+        const created = await createExternalMcpConnection({
+          organizationId: payload.organization.id,
+          name: body.name,
+          url: provider.websiteUrl,
+          authType: "oauth",
+          kind: "native_provider",
+          nativeProviderKey: provider.providerId,
+          credentialMode: "per_member",
+          createdByOrgMembershipId: payload.currentMember.id,
+          access: { orgWide: true, memberIds: [], teamIds: [] },
+        })
+        await upsertOrgOAuthClient({
+          organizationId: payload.organization.id,
+          providerId: created.id,
+          clientId: body.oauthClient.clientId,
+          clientSecret: body.oauthClient.clientSecret ?? null,
+          ...(body.oauthClient.features ? { extra: { features: body.oauthClient.features } } : {}),
+          createdByOrgMembershipId: payload.currentMember.id,
+        })
+        const response = await toConnectionResponse(created, {
+          callerOrgMembershipId: payload.currentMember.id,
+          createdByName: resolveCreatorName(payload, created.createdByOrgMembershipId),
+          includeAccess: true,
+          requiredBy: [],
+          identityManagedBy: [],
+          requiredAuthTypes: new Set(),
+        })
+        return c.json({ ...response, links: memberConnectLinks(created) })
+      }
       // Secrets must not travel through chat transcripts: when the caller is
       // the agent (internal MCP principal), refuse API-key connections.
       if (isAgentOAuthClientConnection({ oauthClient: body.oauthClient, sessionId })) {
@@ -2394,6 +2475,30 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         if (!canUse && !callerIsAdmin) {
           return c.json({ error: "forbidden", message: "You have not been granted access to this connection." }, 403)
         }
+      }
+
+      if (connection.kind === "native_provider") {
+        if (!connection.nativeProviderKey) {
+          return c.json({ error: "invalid_request", message: "Native provider connector configuration is incomplete." }, 409)
+        }
+        const provider = getNativeOAuthProvider(connection.nativeProviderKey)
+        if (!provider) {
+          return c.json({ error: "invalid_request", message: "Native provider connector configuration is not supported." }, 409)
+        }
+        const started = await beginNativeProviderConnect({
+          provider,
+          credentialProviderId: connection.id,
+          organizationId: payload.organization.id,
+          orgMembershipId: payload.currentMember.id,
+          request: c.req.raw,
+        })
+        if ("error" in started) {
+          if (started.error === "client_configuration_invalid") {
+            return c.json({ error: "invalid_request", message: started.message ?? "OAuth client configuration is incomplete." }, 400)
+          }
+          return c.json({ error: "connection_not_found", message: "This connector does not have an OAuth client configured." }, 404)
+        }
+        return c.json({ status: "needs_auth", authorizeUrl: started.authorizeUrl })
       }
 
       let issuerRepairRequiresAdmin = false

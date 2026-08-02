@@ -9,6 +9,7 @@ import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../op
 import { buildGmailDraftRaw, gmailDraftUrl, gmailThreadUrl, readGmailDraftIds } from "../../capability-sources/gmail.js"
 import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
 import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
+import { resolveDefaultNativeProviderCredentialId } from "../../capability-sources/native-provider-connections.js"
 import {
   buildDriveMultipartUpload,
   buildDriveSearchQuery,
@@ -354,9 +355,17 @@ async function googleWorkspaceToken(input: {
   if (!provider) {
     return { kind: "google_api_error", message: "google-workspace provider is not registered." }
   }
+  const credentialProviderId = await resolveDefaultNativeProviderCredentialId({
+    organizationId: input.organizationId,
+    nativeProviderKey: provider.providerId,
+  })
+  if (!credentialProviderId) {
+    return { kind: "needs_connection", message: CONNECT_GOOGLE_ACCOUNT_MESSAGE }
+  }
 
   const token = await getValidAccessToken({
     provider,
+    credentialProviderId,
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
   })

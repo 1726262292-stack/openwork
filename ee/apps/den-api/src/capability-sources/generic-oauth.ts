@@ -461,13 +461,14 @@ async function refreshTokens(input: {
  */
 export async function getValidAccessToken(input: {
   provider: NativeOAuthProviderConfig
+  credentialProviderId: string
   organizationId: DenTypeId<"organization">
   orgMembershipId: DenTypeId<"member">
 }): Promise<{ accessToken: string; account: ConnectedAccountRow } | { error: "not_connected" | "client_not_configured" }> {
   const account = await getConnectedAccount({
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
-    providerId: input.provider.providerId,
+    providerId: input.credentialProviderId,
   })
   if (!account || !account.accessToken) {
     return { error: "not_connected" }
@@ -482,7 +483,7 @@ export async function getValidAccessToken(input: {
     return { error: "not_connected" }
   }
 
-  const client = await getOrgOAuthClient(input.organizationId, input.provider.providerId)
+  const client = await getOrgOAuthClient(input.organizationId, input.credentialProviderId)
   if (!client) {
     return { error: "client_not_configured" }
   }
@@ -492,7 +493,7 @@ export async function getValidAccessToken(input: {
   const updated = await refreshConnectedAccountForActiveMember({
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
-    providerId: input.provider.providerId,
+    providerId: input.credentialProviderId,
     expectedAccountId: account.id,
     expectedAccessToken: account.accessToken,
     expectedRefreshToken: account.refreshToken,
@@ -511,7 +512,7 @@ export async function getValidAccessToken(input: {
   const current = await getConnectedAccount({
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
-    providerId: input.provider.providerId,
+    providerId: input.credentialProviderId,
   })
   if (
     current?.accessToken

@@ -1,7 +1,7 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import type { DenTypeId } from "@openwork-ee/utils/typeid"
+import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { env } from "../../env.js"
 import {
   jsonValidator,
@@ -39,6 +39,8 @@ import {
   upsertOrgOAuthClient,
 } from "../../capability-sources/oauth-credentials.js"
 import { normalizeEntraTenantId, readProviderTenantId } from "../../capability-sources/oauth-tenant.js"
+import { getExternalMcpConnection } from "../../capability-sources/external-mcp-connections.js"
+import { resolveDefaultNativeProviderCredentialId } from "../../capability-sources/native-provider-connections.js"
 import { CONNECTIONS_READ_SESSION_MAX_AGE_MS, ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
 import type { OrgRouteVariables } from "./shared.js"
 
@@ -166,11 +168,12 @@ const nativeConnectStartResponseSchema = z.object({
 
 type OrgIds = { organizationId: DenTypeId<"organization">; orgMembershipId: DenTypeId<"member"> }
 
-async function beginNativeProviderConnect(input: OrgIds & {
+export async function beginNativeProviderConnect(input: OrgIds & {
   provider: NativeOAuthProviderConfig
+  credentialProviderId: string
   request: Request
 }): Promise<{ authorizeUrl: string } | { error: "client_not_configured" | "client_configuration_invalid"; message?: string }> {
-  const client = await getOrgOAuthClient(input.organizationId, input.provider.providerId)
+  const client = await getOrgOAuthClient(input.organizationId, input.credentialProviderId)
   if (!client) {
     return { error: "client_not_configured" }
   }
@@ -179,7 +182,8 @@ async function beginNativeProviderConnect(input: OrgIds & {
   const state = createOAuthStateToken({
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
-    providerId: input.provider.providerId,
+    providerId: input.credentialProviderId,
+    binding: input.provider.providerId,
     secret: env.betterAuthSecret,
   })
 
@@ -202,10 +206,35 @@ async function beginNativeProviderConnect(input: OrgIds & {
   await upsertConnectedAccount({
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
-    providerId: input.provider.providerId,
+    providerId: input.credentialProviderId,
     pendingCodeVerifier: verifier,
   })
   return { authorizeUrl }
+}
+
+async function resolveNativeProviderCredential(input: {
+  organizationId: DenTypeId<"organization">
+  providerOrConnectionId: string
+}): Promise<{ provider: NativeOAuthProviderConfig; credentialProviderId: string } | null> {
+  const registeredProvider = getNativeOAuthProvider(input.providerOrConnectionId)
+  if (registeredProvider) {
+    const credentialProviderId = await resolveDefaultNativeProviderCredentialId({
+      organizationId: input.organizationId,
+      nativeProviderKey: registeredProvider.providerId,
+    })
+    return { provider: registeredProvider, credentialProviderId: credentialProviderId ?? registeredProvider.providerId }
+  }
+
+  let connectionId: DenTypeId<"externalMcpConnection">
+  try {
+    connectionId = normalizeDenTypeId("externalMcpConnection", input.providerOrConnectionId)
+  } catch {
+    return null
+  }
+  const connection = await getExternalMcpConnection({ organizationId: input.organizationId, connectionId })
+  if (connection?.kind !== "native_provider" || !connection.nativeProviderKey) return null
+  const provider = getNativeOAuthProvider(connection.nativeProviderKey)
+  return provider ? { provider, credentialProviderId: connection.id } : null
 }
 
 /**
@@ -243,13 +272,17 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
       if (!admin.ok) return c.json(admin.response, orgAccessFailureStatus(admin.response))
 
       const { providerId } = c.req.valid("param")
-      const provider = getNativeOAuthProvider(providerId)
-      if (!provider) {
+      const resolved = await resolveNativeProviderCredential({
+        organizationId: payload.organization.id,
+        providerOrConnectionId: providerId,
+      })
+      if (!resolved) {
         return c.json({ error: "unknown_oauth_provider", message: `"${providerId}" is not a known native OAuth provider.` }, 404)
       }
+      const { provider, credentialProviderId } = resolved
 
       const body = c.req.valid("json")
-      const existing = await getOrgOAuthClient(payload.organization.id, providerId)
+      const existing = await getOrgOAuthClient(payload.organization.id, credentialProviderId)
       if (!existing && !body.clientId) {
         return c.json({ error: "invalid_request", message: "clientId is required for first-time setup." }, 400)
       }
@@ -297,13 +330,13 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
         previousTenantId,
         nextTenantId: tenantId,
         organizationId: payload.organization.id,
-        providerId,
+        providerId: credentialProviderId,
         revoke: disconnectProviderAccountsForOrganization,
       })
 
       const saved = await upsertOrgOAuthClient({
         organizationId: payload.organization.id,
-        providerId,
+        providerId: credentialProviderId,
         clientId,
         ...(body.clientSecret !== undefined ? { clientSecret: body.clientSecret } : {}),
         ...((body.features !== undefined || provider.tenantIdExtraKey) ? { extra } : {}),
@@ -345,12 +378,16 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
       if (!admin.ok) return c.json(admin.response, orgAccessFailureStatus(admin.response))
 
       const { providerId } = c.req.valid("param")
-      const provider = getNativeOAuthProvider(providerId)
-      if (!provider) {
+      const resolved = await resolveNativeProviderCredential({
+        organizationId: payload.organization.id,
+        providerOrConnectionId: providerId,
+      })
+      if (!resolved) {
         return c.json({ error: "unknown_oauth_provider", message: `"${providerId}" is not a known native OAuth provider.` }, 404)
       }
+      const { provider, credentialProviderId } = resolved
 
-      const client = await getOrgOAuthClient(payload.organization.id, providerId)
+      const client = await getOrgOAuthClient(payload.organization.id, credentialProviderId)
       const features = clientSelectedFeatures(provider, client?.extra ?? null)
       return c.json({
         providerId,
@@ -358,7 +395,7 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
         clientId: client?.clientId ?? null,
         features,
         scopes: resolveProviderScopes(provider, features),
-        redirectUri: callbackRedirectUri(c.req.raw, providerId),
+        redirectUri: callbackRedirectUri(c.req.raw, provider.providerId),
         tenantId: provider.tenantIdExtraKey ? readProviderTenantId(client?.extra ?? null, provider.tenantIdExtraKey) : null,
       })
     },
@@ -382,13 +419,17 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
     async (c) => {
       const payload = c.get("organizationContext")
       const { providerId } = c.req.valid("param")
-      const provider = getNativeOAuthProvider(providerId)
-      if (!provider) {
+      const resolved = await resolveNativeProviderCredential({
+        organizationId: payload.organization.id,
+        providerOrConnectionId: providerId,
+      })
+      if (!resolved) {
         return c.json({ error: "unknown_oauth_provider", message: `"${providerId}" is not a known native OAuth provider.` }, 404)
       }
 
       const started = await beginNativeProviderConnect({
-        provider,
+        provider: resolved.provider,
+        credentialProviderId: resolved.credentialProviderId,
         organizationId: payload.organization.id,
         orgMembershipId: payload.currentMember.id,
         request: c.req.raw,
@@ -427,8 +468,13 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
       orgMemberRoute(),
       async (c) => {
         const payload = c.get("organizationContext")
+        const credentialProviderId = await resolveDefaultNativeProviderCredentialId({
+          organizationId: payload.organization.id,
+          nativeProviderKey: provider.providerId,
+        }) ?? provider.providerId
         const started = await beginNativeProviderConnect({
           provider,
+          credentialProviderId,
           organizationId: payload.organization.id,
           orgMembershipId: payload.currentMember.id,
           request: c.req.raw,
@@ -472,15 +518,27 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
       }
 
       const statePayload = verifyOAuthStateToken({ token: state, secret: env.betterAuthSecret })
-      if (!statePayload || statePayload.providerId !== providerId) {
+      if (!statePayload || (
+        statePayload.binding !== providerId
+        && !(statePayload.binding === undefined && statePayload.providerId === providerId)
+      )) {
         return c.json({ error: "invalid_request", message: "Invalid or expired state." }, 400)
       }
 
-      const client = await getOrgOAuthClient(statePayload.organizationId, providerId)
+      const resolved = await resolveNativeProviderCredential({
+        organizationId: statePayload.organizationId,
+        providerOrConnectionId: statePayload.providerId,
+      })
+      if (!resolved || resolved.provider.providerId !== providerId || resolved.credentialProviderId !== statePayload.providerId) {
+        return c.json({ error: "invalid_request", message: "Invalid or expired state." }, 400)
+      }
+      const credentialProviderId = resolved.credentialProviderId
+
+      const client = await getOrgOAuthClient(statePayload.organizationId, credentialProviderId)
       const pending = await getConnectedAccount({
         organizationId: statePayload.organizationId,
         orgMembershipId: statePayload.orgMembershipId,
-        providerId,
+        providerId: credentialProviderId,
       })
       if (!client || !pending?.pendingCodeVerifier) {
         return c.json({ error: "invalid_request", message: "No pending connection for this state." }, 400)
@@ -504,7 +562,7 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
         const saved = await completeConnectedAccountForActiveMember({
           organizationId: statePayload.organizationId,
           orgMembershipId: statePayload.orgMembershipId,
-          providerId,
+          providerId: credentialProviderId,
           expectedAccountId: pending.id,
           expectedPendingCodeVerifier: pending.pendingCodeVerifier,
           externalAccountId,
@@ -578,14 +636,18 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
     async (c) => {
       const payload = c.get("organizationContext")
       const { providerId } = c.req.valid("param")
-      if (!getNativeOAuthProvider(providerId)) {
+      const resolved = await resolveNativeProviderCredential({
+        organizationId: payload.organization.id,
+        providerOrConnectionId: providerId,
+      })
+      if (!resolved) {
         return c.json({ error: "unknown_oauth_provider", message: `"${providerId}" is not a known native OAuth provider.` }, 404)
       }
 
       const account = await getConnectedAccount({
         organizationId: payload.organization.id,
         orgMembershipId: payload.currentMember.id,
-        providerId,
+        providerId: resolved.credentialProviderId,
       })
       return c.json({
         providerId,
@@ -613,10 +675,17 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
     async (c) => {
       const payload = c.get("organizationContext")
       const { providerId } = c.req.valid("param")
+      const resolved = await resolveNativeProviderCredential({
+        organizationId: payload.organization.id,
+        providerOrConnectionId: providerId,
+      })
+      if (!resolved) {
+        return c.json({ error: "unknown_oauth_provider", message: `"${providerId}" is not a known native OAuth provider.` }, 404)
+      }
       const removed = await disconnectAccount({
         organizationId: payload.organization.id,
         orgMembershipId: payload.currentMember.id,
-        providerId,
+        providerId: resolved.credentialProviderId,
       })
       if (!removed) {
         return c.json({ error: "not_found", message: "Nothing was connected." }, 404)

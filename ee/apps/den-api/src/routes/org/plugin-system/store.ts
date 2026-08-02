@@ -4650,6 +4650,7 @@ async function connectionCompatibleWithRequirement(input: {
   organizationId: OrganizationId
   url: string
 }) {
+  if (input.connection.kind !== "external_mcp") return false
   const baseCompatible = comparablePluginMcpRequirementUrl(input.connection.url) === comparablePluginMcpRequirementUrl(input.url)
     && input.connection.authType === input.authType
     && input.connection.credentialMode === input.credentialMode
@@ -4717,6 +4718,9 @@ async function validateConfiguredPluginMcpConnection(input: {
   authType: PluginMcpRequirementAuthType
   connection: ExternalMcpConnectionRow
 }) {
+  if (input.connection.kind !== "external_mcp") {
+    throw new PluginArchRouteFailure(400, "invalid_mcp_connection", "Native provider connectors cannot satisfy plugin MCP requirements.")
+  }
   if (input.authType === "oauth") return
   try {
     await connectExternalMcp(
@@ -4781,7 +4785,7 @@ async function ensureImportedExternalMcpConnection(input: {
   await assertPublicUrl(serverUrl)
   const organizationId = input.context.organizationContext.organization.id
   const existing = (await listExternalMcpConnections(organizationId))
-    .find((connection) => comparablePluginMcpRequirementUrl(connection.url) === comparablePluginMcpRequirementUrl(serverUrl))
+    .find((connection) => connection.kind === "external_mcp" && comparablePluginMcpRequirementUrl(connection.url) === comparablePluginMcpRequirementUrl(serverUrl))
 
   if (existing) {
     await requireExistingExternalMcpConnectionMatchesImport({

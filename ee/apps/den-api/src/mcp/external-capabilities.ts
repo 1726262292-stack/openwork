@@ -971,6 +971,9 @@ export async function executeExternalCapability(input: {
   if (!connection) {
     return { ok: false, error: "unknown_capability", message: `No external MCP connection "${input.connectionId}" in this organization.` }
   }
+  if (connection.kind !== "external_mcp") {
+    return { ok: false, error: "unknown_capability", message: `Connection "${input.connectionId}" is a native provider connector and does not expose MCP tools.` }
+  }
 
   const canUse = await memberCanUseExternalMcpConnection({
     connectionId,
