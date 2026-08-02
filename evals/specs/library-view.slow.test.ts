@@ -289,12 +289,13 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     `[...document.querySelectorAll("aside, nav")].some((entry) => (entry.textContent ?? "").includes("Library"))`,
   );
   expect(libraryNavPresent).toBe(true);
-  const heroContainsDescription = await evalIn(browser, `(() => {
+  const descriptionOutsideHero = await evalIn(browser, `(() => {
     const heading = [...document.querySelectorAll("h1")].find((entry) => entry.textContent?.trim() === "Library");
     const hero = heading?.closest("[data-dashboard-hero]");
-    return Boolean(hero?.textContent?.includes("Everything you can use in chat"));
+    const description = [...document.querySelectorAll("p")].find((entry) => entry.textContent?.includes("Everything you can use in chat"));
+    return Boolean(hero && description && !hero.contains(description));
   })()`);
-  expect(heroContainsDescription).toBe(true);
+  expect(descriptionOutsideHero).toBe(true);
   const descriptionBeforeTabs = await evalIn(browser, `(() => {
     const text = document.body.innerText;
     const descriptionIndex = text.indexOf("Everything you can use in chat");
@@ -318,7 +319,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   await using roll = photoRoll("p3-library");
   const desktopShot = await screenshot(browser);
   const desktopSeen = await validate(desktopShot, [
-    "A gradient hero card titled Library contains the description text inside it",
+    "A compact gradient header is titled Library, with its description immediately below and before the tabs",
     "Plugin cards show name, description and small provenance pills with no component counts",
   ]);
   await roll.add(desktopShot, desktopSeen);
