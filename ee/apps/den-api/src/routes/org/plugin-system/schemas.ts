@@ -486,6 +486,33 @@ export const teamPluginAccessSchema = z.object({
   grantId: pluginAccessGrantIdSchema.nullable(),
 }).meta({ ref: "PluginArchTeamPluginAccess" })
 
+const effectiveAccessEdgeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("mine") }),
+  z.object({
+    kind: z.literal("person"),
+    sharedBy: z.object({
+      orgMembershipId: memberIdSchema,
+      name: z.string().trim().min(1).max(255),
+    }).nullable(),
+    grantedAt: z.string().datetime({ offset: true }),
+  }),
+  z.object({
+    kind: z.literal("team"),
+    team: z.object({
+      id: teamIdSchema,
+      name: z.string().trim().min(1).max(255),
+    }),
+  }),
+  z.object({ kind: z.literal("org_wide") }),
+  z.object({
+    kind: z.literal("catalog"),
+    marketplace: z.object({
+      id: marketplaceIdSchema,
+      name: z.string().trim().min(1).max(255),
+    }),
+  }),
+])
+
 export const mePluginAccessSchema = z.object({
   plugin: z.object({
     id: pluginIdSchema,
@@ -494,34 +521,38 @@ export const mePluginAccessSchema = z.object({
     componentCount: z.number().int().nonnegative(),
     sourceRepositoryUrl: z.string().trim().min(1).max(1024).nullable(),
   }),
-  edges: z.array(z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("mine") }),
-    z.object({
-      kind: z.literal("person"),
-      sharedBy: z.object({
-        orgMembershipId: memberIdSchema,
-        name: z.string().trim().min(1).max(255),
-      }).nullable(),
-      grantedAt: z.string().datetime({ offset: true }),
-    }),
-    z.object({
-      kind: z.literal("team"),
-      team: z.object({
-        id: teamIdSchema,
-        name: z.string().trim().min(1).max(255),
-      }),
-    }),
-    z.object({ kind: z.literal("org_wide") }),
-    z.object({
-      kind: z.literal("catalog"),
-      marketplace: z.object({
-        id: marketplaceIdSchema,
-        name: z.string().trim().min(1).max(255),
-      }),
-    }),
-  ])),
+  edges: z.array(effectiveAccessEdgeSchema),
   role: accessRoleSchema,
 }).meta({ ref: "PluginArchMePluginAccess" })
+
+export const libraryItemSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("plugin"),
+    id: pluginIdSchema,
+    name: z.string().trim().min(1).max(255),
+    description: nullableStringSchema,
+    componentCount: z.number().int().nonnegative(),
+    componentKinds: z.array(z.string()),
+    sourceRepositoryUrl: z.string().trim().min(1).max(1024).nullable(),
+    edges: z.array(effectiveAccessEdgeSchema),
+    role: accessRoleSchema,
+  }),
+  z.object({
+    type: z.literal("connection"),
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1).max(255),
+    description: nullableStringSchema,
+    transport: z.enum(["mcp", "native"]),
+    provider: z.string().trim().min(1).nullable(),
+    state: z.enum(["connected", "needs_signin", "needs_admin_setup", "available"]),
+    connectedAt: nullableTimestampSchema,
+    edges: z.array(effectiveAccessEdgeSchema),
+  }),
+]).meta({ ref: "PluginArchLibraryItem" })
+
+export const meLibraryListResponseSchema = z.object({
+  items: z.array(libraryItemSchema),
+}).meta({ ref: "PluginArchMeLibraryListResponse" })
 
 export const configObjectVersionSchema = z.object({
   id: configObjectVersionIdSchema,

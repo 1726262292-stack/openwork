@@ -22,20 +22,34 @@ export type LibraryAccessEdge =
   | { kind: "org_wide" }
   | { kind: "catalog"; marketplace: LibraryNamedEntity };
 
-export type LibraryPluginAccessItem = {
-  plugin: {
-    id: string;
-    name: string;
-    description: string | null;
-    componentCount: number;
-    sourceRepositoryUrl: string | null;
-  };
+export type LibraryPluginItem = {
+  type: "plugin";
+  id: string;
+  name: string;
+  description: string | null;
+  componentCount: number;
+  componentKinds: string[];
+  sourceRepositoryUrl: string | null;
   edges: LibraryAccessEdge[];
   role: PluginAccessRole;
 };
 
+export type LibraryConnectionItem = {
+  type: "connection";
+  id: string;
+  name: string;
+  description: string | null;
+  transport: "mcp" | "native";
+  provider: string | null;
+  state: "connected" | "needs_signin" | "needs_admin_setup" | "available";
+  connectedAt: string | null;
+  edges: LibraryAccessEdge[];
+};
+
+export type LibraryItem = LibraryPluginItem | LibraryConnectionItem;
+
 export const libraryQueryKeys = {
-  access: ["me", "plugin-access"],
+  items: ["me", "library"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -51,8 +65,27 @@ function readNullableString(value: unknown): string | null | undefined {
   return readString(value) ?? undefined;
 }
 
+function readStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const strings = value.map(readString);
+  if (strings.some((item) => item === null)) return null;
+  return strings.filter((item): item is string => item !== null);
+}
+
 function readRole(value: unknown): PluginAccessRole | null {
   if (value === "viewer" || value === "editor" || value === "manager") return value;
+  return null;
+}
+
+function readTransport(value: unknown): LibraryConnectionItem["transport"] | null {
+  if (value === "mcp" || value === "native") return value;
+  return null;
+}
+
+function readConnectionState(value: unknown): LibraryConnectionItem["state"] | null {
+  if (value === "connected" || value === "needs_signin" || value === "needs_admin_setup" || value === "available") {
+    return value;
+  }
   return null;
 }
 
@@ -92,60 +125,108 @@ function parseEdge(value: unknown): LibraryAccessEdge | null {
   return null;
 }
 
-function parseLibraryItem(value: unknown): LibraryPluginAccessItem | null {
-  if (!isRecord(value) || !isRecord(value.plugin) || !Array.isArray(value.edges)) return null;
-  const id = readString(value.plugin.id);
-  const name = readString(value.plugin.name);
-  const description = readNullableString(value.plugin.description);
-  const sourceRepositoryUrl = readNullableString(value.plugin.sourceRepositoryUrl);
-  const componentCount = value.plugin.componentCount;
+function parseEdges(value: unknown): LibraryAccessEdge[] | null {
+  if (!Array.isArray(value)) return null;
+  const edges = value.map(parseEdge);
+  if (edges.some((edge) => edge === null)) return null;
+  return edges.filter((edge): edge is LibraryAccessEdge => edge !== null);
+}
+
+function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
+  const id = readString(value.id);
+  const name = readString(value.name);
+  const description = readNullableString(value.description);
+  const sourceRepositoryUrl = readNullableString(value.sourceRepositoryUrl);
+  const componentKinds = readStringArray(value.componentKinds);
   const role = readRole(value.role);
-  const edges = value.edges.map(parseEdge).filter((edge): edge is LibraryAccessEdge => edge !== null);
+  const edges = parseEdges(value.edges);
   if (
     !id
     || !name
     || description === undefined
     || sourceRepositoryUrl === undefined
-    || typeof componentCount !== "number"
-    || !Number.isInteger(componentCount)
-    || componentCount < 0
+    || typeof value.componentCount !== "number"
+    || !Number.isInteger(value.componentCount)
+    || value.componentCount < 0
+    || !componentKinds
     || !role
-    || edges.length !== value.edges.length
+    || !edges
   ) {
     return null;
   }
   return {
-    plugin: {
-      id,
-      name,
-      description,
-      componentCount,
-      sourceRepositoryUrl,
-    },
+    type: "plugin",
+    id,
+    name,
+    description,
+    componentCount: value.componentCount,
+    componentKinds,
+    sourceRepositoryUrl,
     edges,
     role,
   };
 }
 
-export function parseLibraryPayload(payload: unknown): LibraryPluginAccessItem[] {
+function parseConnection(value: Record<string, unknown>): LibraryConnectionItem | null {
+  const id = readString(value.id);
+  const name = readString(value.name);
+  const description = readNullableString(value.description);
+  const transport = readTransport(value.transport);
+  const provider = readNullableString(value.provider);
+  const state = readConnectionState(value.state);
+  const connectedAt = readNullableString(value.connectedAt);
+  const edges = parseEdges(value.edges);
+  if (
+    !id
+    || !name
+    || description === undefined
+    || !transport
+    || provider === undefined
+    || !state
+    || connectedAt === undefined
+    || !edges
+  ) {
+    return null;
+  }
+  return {
+    type: "connection",
+    id,
+    name,
+    description,
+    transport,
+    provider,
+    state,
+    connectedAt,
+    edges,
+  };
+}
+
+function parseLibraryItem(value: unknown): LibraryItem | null {
+  if (!isRecord(value)) return null;
+  if (value.type === "plugin") return parsePlugin(value);
+  if (value.type === "connection") return parseConnection(value);
+  return null;
+}
+
+export function parseLibraryPayload(payload: unknown): LibraryItem[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
-    throw new Error("Plugin access response was incomplete.");
+    throw new Error("Library response was incomplete.");
   }
   const items = payload.items
     .map(parseLibraryItem)
-    .filter((item): item is LibraryPluginAccessItem => item !== null);
+    .filter((item): item is LibraryItem => item !== null);
   if (items.length !== payload.items.length) {
-    throw new Error("Plugin access response was incomplete.");
+    throw new Error("Library response was incomplete.");
   }
   return items;
 }
 
-export function useLibraryAccess() {
+export function useLibrary() {
   return useQuery({
-    queryKey: libraryQueryKeys.access,
-    queryFn: async (): Promise<LibraryPluginAccessItem[]> => {
+    queryKey: libraryQueryKeys.items,
+    queryFn: async (): Promise<LibraryItem[]> => {
       const { response, payload } = await requestJson(
-        "/v1/me/plugin-access",
+        "/v1/me/library",
         { method: "GET" },
         15000,
       );

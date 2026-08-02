@@ -101,6 +101,7 @@ import {
   resolveGithubPluginMcpImportAuthType,
   type PluginMcpAuthType,
 } from "../../../capability-sources/external-mcp-auth-policy.js"
+import type { MemberUsableConnectionFacts } from "../mcp-connections.js"
 
 type OrganizationId = PluginArchActorContext["organizationContext"]["organization"]["id"]
 const logger = appLogger.child({ component: "plugin_system_store" })
@@ -2102,7 +2103,7 @@ const mePluginAccessEdgeOrder: Record<MePluginAccessEdge["kind"], number> = {
   catalog: 5,
 }
 
-export async function listMeEffectivePluginAccess(input: { context: PluginArchActorContext }) {
+async function listMeEffectivePluginAccessWithComponentKinds(input: { context: PluginArchActorContext }) {
   const organizationId = input.context.organizationContext.organization.id
   const memberId = input.context.organizationContext.currentMember.id
   const teamIds = input.context.memberTeams.map((team) => team.id)
@@ -2139,7 +2140,7 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
         eq(MarketplaceAccessGrantTable.orgMembershipId, memberId),
       )
 
-  const [pluginGrants, marketplaceMemberships, marketplaceGrants, componentCountRows] = await Promise.all([
+  const [pluginGrants, marketplaceMemberships, marketplaceGrants, componentRows] = await Promise.all([
     db
       .select()
       .from(PluginAccessGrantTable)
@@ -2175,14 +2176,22 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
         applicableMarketplaceGrant,
       )),
     db
-      .select({ pluginId: PluginConfigObjectTable.pluginId, componentCount: count() })
+      .select({
+        pluginId: PluginConfigObjectTable.pluginId,
+        objectType: ConfigObjectTable.objectType,
+        componentCount: count(),
+      })
       .from(PluginConfigObjectTable)
+      .innerJoin(ConfigObjectTable, and(
+        eq(PluginConfigObjectTable.organizationId, ConfigObjectTable.organizationId),
+        eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id),
+      ))
       .where(and(
         eq(PluginConfigObjectTable.organizationId, organizationId),
         inArray(PluginConfigObjectTable.pluginId, pluginIds),
         isNull(PluginConfigObjectTable.removedAt),
       ))
-      .groupBy(PluginConfigObjectTable.pluginId),
+      .groupBy(PluginConfigObjectTable.pluginId, ConfigObjectTable.objectType),
   ])
 
   const grantCreatorIds = uniqueIds(pluginGrants.flatMap((grant) =>
@@ -2198,7 +2207,13 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
   const pluginsById = new Map(activePlugins.map((plugin) => [plugin.id, plugin]))
   const teamsById = new Map(input.context.memberTeams.map((team) => [team.id, team]))
   const marketplaceGrantsById = new Map<MarketplaceId, typeof marketplaceGrants>()
-  const componentCounts = new Map(componentCountRows.map((row) => [row.pluginId, row.componentCount]))
+  const componentsByPlugin = new Map<PluginId, { count: number; kinds: Set<string> }>()
+  for (const row of componentRows) {
+    const components = componentsByPlugin.get(row.pluginId) ?? { count: 0, kinds: new Set<string>() }
+    components.count += row.componentCount
+    components.kinds.add(row.objectType)
+    componentsByPlugin.set(row.pluginId, components)
+  }
   const candidatesByPlugin = new Map<PluginId, Map<string, MePluginAccessCandidate>>()
 
   const addCandidate = (pluginId: PluginId, candidate: MePluginAccessCandidate) => {
@@ -2284,7 +2299,8 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
         id: plugin.id,
         name: plugin.name,
         description: plugin.description,
-        componentCount: componentCounts.get(plugin.id) ?? 0,
+        componentCount: componentsByPlugin.get(plugin.id)?.count ?? 0,
+        componentKinds: [...(componentsByPlugin.get(plugin.id)?.kinds ?? [])].sort(),
         sourceRepositoryUrl: plugin.sourceRepositoryUrl,
       },
       edges: candidates.map((candidate) => candidate.edge),
@@ -2296,6 +2312,140 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
     return byName !== 0 ? byName : left.plugin.id.localeCompare(right.plugin.id)
   })
   return { items }
+}
+
+export async function listMeEffectivePluginAccess(input: { context: PluginArchActorContext }) {
+  const result = await listMeEffectivePluginAccessWithComponentKinds(input)
+  return {
+    items: result.items.map((item) => ({
+      plugin: {
+        id: item.plugin.id,
+        name: item.plugin.name,
+        description: item.plugin.description,
+        componentCount: item.plugin.componentCount,
+        sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
+      },
+      edges: item.edges,
+      role: item.role,
+    })),
+  }
+}
+
+export async function listMeLibraryPluginItems(input: { context: PluginArchActorContext }) {
+  const result = await listMeEffectivePluginAccessWithComponentKinds(input)
+  return result.items.map((item) => ({
+    type: "plugin",
+    id: item.plugin.id,
+    name: item.plugin.name,
+    description: item.plugin.description,
+    componentCount: item.plugin.componentCount,
+    componentKinds: item.plugin.componentKinds,
+    sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
+    edges: item.edges,
+    role: item.role,
+  }))
+}
+
+function memberConnectionState(connection: MemberUsableConnectionFacts) {
+  if (
+    connection.setupRequired
+    || connection.issuerReviewRequired
+    || connection.reconnectActionOwner === "organization_admin"
+    || connection.authPolicyConfirmed === false
+    || connection.authTypeMismatch
+    || (connection.oauthClientRequired && !connection.oauthClientConfigured)
+    || (connection.credentialMode === "shared" && !connection.connectedForMe)
+  ) {
+    return "needs_admin_setup"
+  }
+  if (connection.credentialMode === "per_member" && (!connection.connectedForMe || connection.needsReconnect)) {
+    return "needs_signin"
+  }
+  if (connection.connectedForMe || (connection.credentialMode === "shared" && connection.connected)) {
+    return "connected"
+  }
+  return "available"
+}
+
+export async function listMeLibraryConnectionItems(input: {
+  connections: MemberUsableConnectionFacts[]
+  context: PluginArchActorContext
+}) {
+  if (input.connections.length === 0) return []
+
+  const organizationId = input.context.organizationContext.organization.id
+  const memberId = input.context.organizationContext.currentMember.id
+  const teamIds = input.context.memberTeams.map((team) => team.id)
+  const connectionIds = new Set(input.connections.map((connection) => connection.id))
+  const applicableGrant = teamIds.length > 0
+    ? or(
+        eq(ExternalMcpConnectionAccessGrantTable.orgWide, true),
+        eq(ExternalMcpConnectionAccessGrantTable.orgMembershipId, memberId),
+        inArray(ExternalMcpConnectionAccessGrantTable.teamId, teamIds),
+      )
+    : or(
+        eq(ExternalMcpConnectionAccessGrantTable.orgWide, true),
+        eq(ExternalMcpConnectionAccessGrantTable.orgMembershipId, memberId),
+      )
+  const grants = await db
+    .select()
+    .from(ExternalMcpConnectionAccessGrantTable)
+    .where(and(
+      eq(ExternalMcpConnectionAccessGrantTable.organizationId, organizationId),
+      applicableGrant,
+    ))
+    .orderBy(asc(ExternalMcpConnectionAccessGrantTable.createdAt), asc(ExternalMcpConnectionAccessGrantTable.id))
+  const creatorIds = uniqueIds(grants
+    .filter((grant) => connectionIds.has(grant.externalMcpConnectionId) && grant.orgMembershipId === memberId)
+    .map((grant) => grant.createdByOrgMembershipId))
+  const creators = creatorIds.length === 0
+    ? []
+    : await db
+      .select({ orgMembershipId: MemberTable.id, name: AuthUserTable.name })
+      .from(MemberTable)
+      .leftJoin(AuthUserTable, eq(MemberTable.userId, AuthUserTable.id))
+      .where(and(eq(MemberTable.organizationId, organizationId), inArray(MemberTable.id, creatorIds)))
+  const creatorNames = new Map(creators.map((creator) => [creator.orgMembershipId, creator.name]))
+  const teamsById = new Map(input.context.memberTeams.map((team) => [team.id, team]))
+  const edgesByConnection = new Map<string, Map<string, MePluginAccessEdge>>()
+  const addEdge = (connectionId: string, key: string, edge: MePluginAccessEdge) => {
+    if (!connectionIds.has(connectionId)) return
+    const edges = edgesByConnection.get(connectionId) ?? new Map<string, MePluginAccessEdge>()
+    if (!edgesByConnection.has(connectionId)) edgesByConnection.set(connectionId, edges)
+    if (!edges.has(key)) edges.set(key, edge)
+  }
+
+  for (const grant of grants) {
+    if (grant.orgWide) addEdge(grant.externalMcpConnectionId, "org_wide", { kind: "org_wide" })
+    if (grant.orgMembershipId === memberId) {
+      const creatorName = creatorNames.get(grant.createdByOrgMembershipId)
+      addEdge(grant.externalMcpConnectionId, "person", {
+        kind: "person",
+        sharedBy: creatorName ? { orgMembershipId: grant.createdByOrgMembershipId, name: creatorName } : null,
+        grantedAt: grant.createdAt.toISOString(),
+      })
+    }
+    if (grant.teamId) {
+      const team = teamsById.get(grant.teamId)
+      if (team) addEdge(grant.externalMcpConnectionId, `team:${team.id}`, { kind: "team", team: { id: team.id, name: team.name } })
+    }
+  }
+
+  return input.connections.map((connection) => {
+    const edges = [...(edgesByConnection.get(connection.id)?.values() ?? [{ kind: "org_wide" } satisfies MePluginAccessEdge])]
+    edges.sort((left, right) => mePluginAccessEdgeOrder[left.kind] - mePluginAccessEdgeOrder[right.kind])
+    return {
+      type: "connection",
+      id: connection.id,
+      name: connection.name,
+      description: null,
+      transport: connection.nativeProviderKey !== null ? "native" : "mcp",
+      provider: connection.nativeProviderKey,
+      state: memberConnectionState(connection),
+      connectedAt: connection.connectedAt,
+      edges,
+    }
+  })
 }
 
 export async function createResourceAccessGrant(input: { context: PluginArchActorContext; value: AccessGrantWrite } & ResourceTarget) {

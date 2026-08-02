@@ -92,6 +92,7 @@ import {
   marketplacePluginParamsSchema,
   marketplacePluginWriteSchema,
   marketplaceUpdateSchema,
+  meLibraryListResponseSchema,
   mePluginAccessListResponseSchema,
   pluginAccessGrantParamsSchema,
   pluginCreateSchema,
@@ -113,7 +114,7 @@ import {
 import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActorContext, PluginArchAuthorizationError } from "./access.js"
 import { pluginArchRoutePaths } from "./contracts.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "../shared.js"
-import { isAgentOAuthClientConnection } from "../mcp-connections.js"
+import { isAgentOAuthClientConnection, listMemberUsableConnectionFacts } from "../mcp-connections.js"
 import {
   PluginArchRouteFailure,
   addPluginMembership,
@@ -154,6 +155,8 @@ import {
   listGithubRepositories,
   listMarketplaceMemberships,
   listMarketplaces,
+  listMeLibraryConnectionItems,
+  listMeLibraryPluginItems,
   listMeEffectivePluginAccess,
   listPluginMemberships,
   listPlugins,
@@ -1019,6 +1022,35 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     async (c: OrgContext) => {
       try {
         return c.json(await listMeEffectivePluginAccess({ context: actorContext(c) }))
+      } catch (error) {
+        return routeErrorResponse(c, error)
+      }
+    })
+
+  withPluginArchOrgContext(app, "get", pluginArchRoutePaths.meLibrary,
+    describeRoute({
+      tags: ["Plugins"],
+      summary: "List my library",
+      description: "Lists the active plugins and connections the caller can use, with every applicable access edge.",
+      responses: {
+        200: jsonResponse("Effective member library returned successfully.", meLibraryListResponseSchema),
+        401: jsonResponse("The caller must be signed in to view their library.", unauthorizedSchema),
+      },
+    }),
+    async (c: OrgContext) => {
+      try {
+        const context = actorContext(c)
+        const [pluginItems, connections] = await Promise.all([
+          listMeLibraryPluginItems({ context }),
+          listMemberUsableConnectionFacts({ context }),
+        ])
+        const connectionItems = await listMeLibraryConnectionItems({ connections, context })
+        const items = [...pluginItems, ...connectionItems]
+        items.sort((left, right) => {
+          const byName = left.name.localeCompare(right.name)
+          return byName !== 0 ? byName : left.id.localeCompare(right.id)
+        })
+        return c.json({ items })
       } catch (error) {
         return routeErrorResponse(c, error)
       }

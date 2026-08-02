@@ -1049,6 +1049,57 @@ async function toConnectionResponse(
   }
 }
 
+export type MemberUsableConnectionFacts = {
+  id: string
+  name: string
+  nativeProviderKey: string | null
+  credentialMode: "shared" | "per_member"
+  connected: boolean
+  connectedAt: string | null
+  connectedForMe: boolean
+  needsReconnect: boolean
+  authPolicyConfirmed?: boolean
+  authTypeMismatch?: boolean
+  oauthClientConfigured?: boolean
+  oauthClientRequired?: boolean
+  setupRequired?: boolean
+  issuerReviewRequired?: boolean
+  reconnectActionOwner?: string | null
+}
+
+export async function listMemberUsableConnectionFacts(input: {
+  context: PluginArchActorContext
+}): Promise<MemberUsableConnectionFacts[]> {
+  const organization = input.context.organizationContext.organization
+  if (!memberFacingMcpConnectionsEnabled(organization.metadata, { gatingEnabled: env.mcpConnectionsGatingEnabled })) {
+    return []
+  }
+
+  const member = input.context.organizationContext.currentMember
+  const teamIds = input.context.memberTeams.map((team) => team.id)
+  const rows = await listVisibleExternalMcpConnections({
+    organizationId: organization.id,
+    orgMembershipId: member.id,
+    teamIds,
+  })
+  const provenance = await requiredByForConnections({ context: input.context, includeAllPluginNames: false, rows })
+  const connections = await Promise.all(rows.map((row) =>
+    toConnectionResponse(row, {
+      callerOrgMembershipId: member.id,
+      createdByName: resolveCreatorName(input.context.organizationContext, row.createdByOrgMembershipId),
+      includeAccess: false,
+      requiredBy: provenance.requiredBy.get(row.id) ?? [],
+      identityManagedBy: provenance.identityManagedBy.get(row.id) ?? [],
+      requiredAuthTypes: provenance.requiredAuthTypes.get(row.id) ?? new Set(),
+    })))
+  const nativeEntries = await listNativeProviderUsableEntries({
+    organizationId: organization.id,
+    orgMembershipId: member.id,
+    teamIds,
+  })
+  return [...nativeEntries, ...connections]
+}
+
 function callbackRedirectUri(connection: ExternalMcpConnectionRow) {
   if (connection.authType !== "oauth") return "http://127.0.0.1/unused-mcp-oauth-callback"
   return externalMcpCallbackUrl({
@@ -1578,37 +1629,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         return c.json({ connections })
       }
 
-      // Org-level kill switch: explicitly opted-out orgs return an empty list —
-      // indistinguishable from "nothing published", on every desktop version in
-      // the field (see external-mcp-rollout.ts).
-      if (!memberFacingMcpConnectionsEnabled(payload.organization.metadata, { gatingEnabled: env.mcpConnectionsGatingEnabled })) {
-        return c.json({ connections: [] })
-      }
-
-      const rows = await listVisibleExternalMcpConnections({
-        organizationId: payload.organization.id,
-        orgMembershipId: payload.currentMember.id,
-        teamIds: memberTeams.map((team) => team.id),
-      })
-      const provenance = await requiredByForConnections({ context, includeAllPluginNames: false, rows })
-      const connections = await Promise.all(rows.map((row) =>
-        toConnectionResponse(row, {
-          callerOrgMembershipId: payload.currentMember.id,
-          createdByName: resolveCreatorName(payload, row.createdByOrgMembershipId),
-          includeAccess: false,
-          requiredBy: provenance.requiredBy.get(row.id) ?? [],
-          identityManagedBy: provenance.identityManagedBy.get(row.id) ?? [],
-          requiredAuthTypes: provenance.requiredAuthTypes.get(row.id) ?? new Set(),
-        })))
-      // Native providers (e.g. google-workspace) join the same list once the
-      // org saved an OAuth client for them — same card, same connect flow,
-      // same org kill switch (this sits after the check on purpose).
-      const nativeEntries = await listNativeProviderUsableEntries({
-        organizationId: payload.organization.id,
-        orgMembershipId: payload.currentMember.id,
-        teamIds: memberTeams.map((team) => team.id),
-      })
-      return c.json({ connections: [...nativeEntries, ...connections] })
+      return c.json({ connections: await listMemberUsableConnectionFacts({ context }) })
     },
   )
 

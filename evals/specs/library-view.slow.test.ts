@@ -1,10 +1,20 @@
 import { expect, onTestFinished, test } from "vitest";
-import { denFetch, ensureMemberSession, evalIn, signIn, waitFor } from "@openwork/behaviors";
+import {
+  createOrgConnection,
+  deleteConnection,
+  deleteConnectionsNamed,
+  denFetch,
+  ensureMemberSession,
+  evalIn,
+  signIn,
+  waitFor,
+} from "@openwork/behaviors";
 import type { DenSession } from "@openwork/behaviors";
-import { navigate } from "@openwork/cdp";
+import { allocateFreePort, navigate } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
 import { chrome } from "@openwork/hosts";
+import { startMockMcp } from "@openwork/labs";
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
 const webUrl = process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim().replace(/\/+$/, "") ?? "";
@@ -68,8 +78,8 @@ function items(body: unknown): Record<string, unknown>[] {
   return isRecord(body) && Array.isArray(body.items) ? body.items.filter(isRecord) : [];
 }
 
-function pluginIdForAccessItem(item: Record<string, unknown>): string {
-  return isRecord(item.plugin) && typeof item.plugin.id === "string" ? item.plugin.id : "";
+function libraryItemId(item: Record<string, unknown>): string {
+  return typeof item.id === "string" ? item.id : "";
 }
 
 function edgesForAccessItem(item: Record<string, unknown>): Record<string, unknown>[] {
@@ -94,6 +104,21 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   });
   const orgId = await organizationId(admin);
   await selectOrganization(admin, orgId);
+
+  const mockPort = await allocateFreePort();
+  await using mock = await startMockMcp({
+    port: mockPort,
+    publicUrl: process.env.OPENWORK_EVAL_LIBRARY_MOCK_PUBLIC_URL?.trim() || undefined,
+  });
+  await deleteConnectionsNamed(admin, "Library Spec Linear ");
+  const connection = await createOrgConnection(admin, {
+    name: `Library Spec Linear ${Date.now()}`,
+    url: mock.url + "/mcp",
+    authType: "oauth",
+    credentialMode: "per_member",
+    access: { orgWide: true },
+  });
+  onTestFinished(async () => deleteConnection(admin, connection.id));
 
   let caseySession: DenSession | undefined;
   let pluginId = "";
@@ -212,20 +237,20 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     throw new Error(`Granting the provenance team library access failed: HTTP ${grantedTeam.response.status} ${grantedTeam.text.slice(0, 500)}`);
   }
 
-  const caseyAccess = await denFetch(casey, "/v1/me/plugin-access", {
+  const caseyAccess = await denFetch(casey, "/v1/me/library", {
     headers: {
       authorization: `Bearer ${casey.token}`,
       "x-openwork-org-id": orgId,
     },
   });
   expect(caseyAccess.response.status).toBe(200);
-  const caseyPlugin = items(caseyAccess.body).find((item) => pluginIdForAccessItem(item) === pluginId);
+  const caseyPlugin = items(caseyAccess.body).find((item) => item.type === "plugin" && libraryItemId(item) === pluginId);
   expect(caseyPlugin).toBeDefined();
   if (!caseyPlugin) throw new Error(`Casey's library omitted ${pluginName}: ${caseyAccess.text.slice(0, 500)}`);
   expect(caseyPlugin.role).toBe("manager");
   expect(edgesForAccessItem(caseyPlugin).some((edge) => edge.kind === "mine")).toBe(true);
 
-  const novaAccess = await denFetch(nova, "/v1/me/plugin-access", {
+  const novaAccess = await denFetch(nova, "/v1/me/library", {
     headers: {
       authorization: `Bearer ${nova.token}`,
       "x-openwork-org-id": orgId,
@@ -233,18 +258,25 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   });
   expect(novaAccess.response.status).toBe(200);
   const novaItems = items(novaAccess.body);
-  const novaPlugin = novaItems.find((item) => pluginIdForAccessItem(item) === pluginId);
+  const novaPlugin = novaItems.find((item) => item.type === "plugin" && libraryItemId(item) === pluginId);
   expect(novaPlugin).toBeDefined();
   if (!novaPlugin) throw new Error(`Nova's library omitted ${pluginName}: ${novaAccess.text.slice(0, 500)}`);
   expect(novaPlugin.role).toBe("viewer");
+  expect(Array.isArray(novaPlugin.componentKinds) && novaPlugin.componentKinds.includes("skill")).toBe(true);
   expect(edgesForAccessItem(novaPlugin).some((edge) => {
     return edge.kind === "person"
       && isRecord(edge.sharedBy)
       && typeof edge.sharedBy.name === "string"
       && edge.sharedBy.name.includes("Casey");
   })).toBe(true);
+  const novaConnection = novaItems.find((item) => item.type === "connection" && libraryItemId(item) === connection.id);
+  expect(novaConnection).toBeDefined();
+  if (!novaConnection) throw new Error(`Nova's library omitted ${connection.name}: ${novaAccess.text.slice(0, 500)}`);
+  expect(novaConnection.transport).toBe("mcp");
+  expect(novaConnection.state).toBe("needs_signin");
   expect(novaItems.some((item) => {
-    return pluginIdForAccessItem(item) !== pluginId
+    return item.type === "plugin"
+      && libraryItemId(item) !== pluginId
       && edgesForAccessItem(item).some((edge) => edge.kind === "org_wide" || edge.kind === "catalog");
   })).toBe(true);
 
@@ -272,12 +304,24 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   try {
     await waitFor(
       browser,
-      `document.body.innerText.includes("Library")
-        && document.body.innerText.includes(${JSON.stringify(pluginName)})
-        && [...document.querySelectorAll("[data-library-grid] span")].some((entry) =>
-          (entry.textContent ?? "").replace(/\\s+/g, " ").includes("Shared by Casey")
-        )`,
-      { timeoutMs: 60_000, label: "member library, shared plugin, and Casey provenance" },
+      `(() => {
+        const text = document.body.innerText;
+        const connectionRow = [...document.querySelectorAll('[data-library-item-type="connection"]')]
+          .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+        const rowState = connectionRow && [...connectionRow.querySelectorAll("span")]
+          .some((entry) => entry.textContent?.trim() === "Needs your sign-in");
+        const filterState = [...document.querySelectorAll('[aria-label="Library filters"] button')]
+          .some((entry) => /^Needs sign-in · \\d+ ×$/.test((entry.textContent ?? "").trim()));
+        return text.includes("Library")
+          && text.includes(${JSON.stringify(pluginName)})
+          && Boolean(connectionRow)
+          && Boolean(rowState)
+          && filterState
+          && [...document.querySelectorAll("[data-library-list] span")].some((entry) =>
+            (entry.textContent ?? "").replace(/\\s+/g, " ").includes("Shared by Casey")
+          );
+      })()`,
+      { timeoutMs: 60_000, label: "member library, shared plugin, connection sign-in state, and Casey provenance" },
     );
   } catch (error) {
     const pageState = await evalIn(browser, `({ href: location.href, text: document.body.innerText.slice(0, 1000) })`);
@@ -304,38 +348,85 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     return descriptionIndex >= 0 && tabIndex >= 0 && descriptionIndex < tabIndex;
   })()`);
   expect(descriptionBeforeTabs).toBe(true);
-  const gridHasNoComponentCount = await evalIn(
-    browser,
-    `!(/\\bcomponents?\\b/i.test(document.querySelector("[data-library-grid]")?.textContent ?? ""))`,
-  );
-  expect(gridHasNoComponentCount).toBe(true);
-  const searchBeforeTabs = await evalIn(browser, `(() => {
-    const search = document.querySelector('input[placeholder="Search your library"]');
-    const firstTab = [...document.querySelectorAll('[role="tab"]')].find((entry) => entry.textContent?.trim() === "All");
-    return Boolean(search && firstTab && (search.compareDocumentPosition(firstTab) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const kindPillRowHasCounts = await evalIn(browser, `(() => {
+    const filters = document.querySelector('[aria-label="Library filters"]');
+    return Boolean(filters && /Connections · \\d+/.test(filters.textContent ?? ""));
   })()`);
-  expect(searchBeforeTabs).toBe(true);
+  expect(kindPillRowHasCounts).toBe(true);
+  const connectionHasSignInLink = await evalIn(browser, `(() => {
+    const row = [...document.querySelectorAll('[data-library-item-type="connection"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+    const signIn = row ? [...row.querySelectorAll('a')].find((entry) => entry.textContent?.trim() === "Sign in") : null;
+    return Boolean(signIn?.getAttribute("href")?.includes("your-connections"));
+  })()`);
+  expect(connectionHasSignInLink).toBe(true);
+  const pluginRowsHaveNoComponentCount = await evalIn(browser, `(() => {
+    const rows = [...document.querySelectorAll('[data-library-item-type="plugin"]')];
+    return rows.length > 0 && rows.every((row) => !/\\b\\d+\\s+components?\\b/i.test(row.textContent ?? ""));
+  })()`);
+  expect(pluginRowsHaveNoComponentCount).toBe(true);
 
-  await using roll = photoRoll("p3-library");
+  const mcpFilterClicked = await evalIn(browser, `(() => {
+    const filter = [...document.querySelectorAll('[aria-label="Library filters"] button')]
+      .find((entry) => /^MCPs · \\d+$/.test((entry.textContent ?? "").trim()));
+    filter?.click();
+    return Boolean(filter);
+  })()`);
+  expect(mcpFilterClicked).toBe(true);
+  await waitFor(browser, `(() => {
+    const row = [...document.querySelectorAll('[data-library-item-type="connection"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+    const pluginRow = document.querySelector('[data-library-item-type="plugin"]');
+    if (!row || !pluginRow) return false;
+    const rect = row.getBoundingClientRect();
+    const pluginRect = pluginRow.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && pluginRect.width > 0 && pluginRect.height > 0;
+  })()`, { timeoutMs: 60_000, label: "plugin and MCP-backed connection after selecting the MCPs facet" });
+  const connectionScrolledIntoView = await evalIn(browser, `(() => {
+    const row = [...document.querySelectorAll('[data-library-item-type="connection"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+    row?.scrollIntoView({ block: "center" });
+    return Boolean(row);
+  })()`);
+  expect(connectionScrolledIntoView).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  await using roll = photoRoll("library-v2");
+  await evalIn(browser, `document.querySelector("[data-dashboard-hero]")?.scrollIntoView({ block: "start" })`);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const desktopHeaderShot = await screenshot(browser);
+  const desktopHeaderSeen = await validate(desktopHeaderShot, [
+    "A compact gradient header is titled Library, with its description immediately below and before the tabs",
+  ]);
+  await roll.add(desktopHeaderShot, desktopHeaderSeen);
+  expect(desktopHeaderSeen.ok, desktopHeaderSeen.why).toBe(true);
+
+  await evalIn(browser, `([...document.querySelectorAll('[data-library-item-type="connection"]')]
+    .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)})))
+    ?.scrollIntoView({ block: "center" })`);
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const desktopShot = await screenshot(browser);
   const desktopSeen = await validate(desktopShot, [
-    "A compact gradient header is titled Library, with its description immediately below and before the tabs",
-    "Plugin cards show name, description and small provenance pills with no component counts",
+    "A library lists plugin and connection rows with kind and provenance chips",
+    "A connection row shows a needs sign-in state with a Sign in action",
   ]);
   await roll.add(desktopShot, desktopSeen);
   expect(desktopSeen.ok, desktopSeen.why).toBe(true);
 
   await useMobileViewport(browser);
   await new Promise((resolve) => setTimeout(resolve, 500));
-  await waitFor(browser, `document.body.innerText.includes(${JSON.stringify(pluginName)})`, {
+  await waitFor(browser, `document.body.innerText.includes(${JSON.stringify(connection.name)})
+    && Boolean(document.querySelector('[data-library-item-type="plugin"]'))`, {
     timeoutMs: 60_000,
-    label: "shared plugin after mobile reflow",
+    label: "plugin and connection after mobile reflow",
   });
+  await evalIn(browser, `([...document.querySelectorAll('[data-library-item-type="connection"]')]
+    .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)})))
+    ?.scrollIntoView({ block: "center" })`);
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const mobileShot = await screenshot(browser);
   const mobileSeen = await validate(mobileShot, [
-    "A narrow mobile layout shows library cards in a single column",
-    "Provenance chips wrap and remain readable",
-    "the hero is short and does not dominate the screen",
+    "A narrow mobile layout keeps rows readable with wrapped chips",
   ]);
   await roll.add(mobileShot, mobileSeen);
   expect(mobileSeen.ok, mobileSeen.why).toBe(true);
