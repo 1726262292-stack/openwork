@@ -273,7 +273,7 @@ function pluginPath(row: MarketplaceCapabilityRow): string {
 }
 
 function provenance(pluginName: string): string {
-  return `Content from marketplace plugin ${pluginName} ${PROVENANCE_SUFFIX}`
+  return `Content from plugin ${pluginName} ${PROVENANCE_SUFFIX}`
 }
 
 function objectHint(row: MarketplaceCapabilityRow): string {
@@ -1435,7 +1435,7 @@ export async function executeMarketplaceCapability(input: {
   const visibleRows = await filterVisibleRows({ organizationId, member: input.member, rows })
   const row = visibleRows[0]
   if (!row) {
-    return { ok: false, error: "forbidden", message: "You have not been granted access to this marketplace plugin capability." }
+    return { ok: false, error: "forbidden", message: "You have not been granted access to this plugin capability." }
   }
 
   const version = await latestVersion(row.configObject.id, organizationId)

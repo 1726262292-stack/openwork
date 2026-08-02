@@ -156,62 +156,74 @@ function AccessAddPicker({
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+6px)] z-20 w-[340px] rounded-2xl border border-gray-200 bg-white">
-          <div className="border-b border-gray-100 p-3">
-            <DenInput
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${kind === "person" ? "people" : "teams"}...`}
-              autoFocus
-            />
-          </div>
-          <div className="max-h-[220px] divide-y divide-gray-100 overflow-y-auto">
-            {filteredCandidates.length === 0 ? (
-              <p className="px-4 py-5 text-center text-[12px] text-gray-400">No matches</p>
-            ) : (
-              filteredCandidates.map((candidate) => {
-                const selected = candidate.id === selectedId;
-                return (
-                  <button
-                    key={candidate.id}
-                    type="button"
-                    onClick={() => setSelectedId(candidate.id)}
-                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${selected ? "bg-gray-50" : "hover:bg-gray-50/70"}`}
-                  >
-                    <div className="min-w-0 flex-1">{candidate.content}</div>
-                    <Check className={`h-4 w-4 shrink-0 ${selected ? "text-emerald-600" : "text-transparent"}`} aria-hidden />
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <div className="border-t border-gray-100 p-3">
-            <div className="flex items-center gap-2">
-              <DenSelect
-                aria-label={`Access role for ${label}`}
-                value={role}
-                onChange={(event) => setRole(event.target.value === "editor" ? "editor" : "viewer")}
-                className="min-w-0 flex-1"
-                disabled={submitting}
-              >
-                <option value="viewer">Can view (use in chat)</option>
-                <option value="editor">Can edit</option>
-              </DenSelect>
-              <DenButton
-                size="sm"
-                loading={submitting}
-                disabled={!selectedId}
-                onClick={() => void handleGrant()}
-              >
-                Grant
-              </DenButton>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6 md:absolute md:inset-auto md:left-0 md:top-[calc(100%+6px)] md:z-20 md:block md:bg-transparent md:p-0"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) resetAndClose();
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Add ${label} access`}
+            className="w-full max-w-[340px] rounded-2xl border border-gray-200 bg-white md:w-[340px]"
+          >
+            <div className="border-b border-gray-100 p-3">
+              <DenInput
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={`Search ${kind === "person" ? "people" : "teams"}...`}
+                autoFocus
+              />
             </div>
-            {role === "editor" ? (
-              <p className="mt-2 text-[11.5px] leading-5 text-amber-700">
-                Can change this skill for everyone who has it.
-              </p>
-            ) : null}
+            <div className="max-h-[220px] divide-y divide-gray-100 overflow-y-auto">
+              {filteredCandidates.length === 0 ? (
+                <p className="px-4 py-5 text-center text-[12px] text-gray-400">No matches</p>
+              ) : (
+                filteredCandidates.map((candidate) => {
+                  const selected = candidate.id === selectedId;
+                  return (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      onClick={() => setSelectedId(candidate.id)}
+                      className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${selected ? "bg-gray-50" : "hover:bg-gray-50/70"}`}
+                    >
+                      <div className="min-w-0 flex-1">{candidate.content}</div>
+                      <Check className={`h-4 w-4 shrink-0 ${selected ? "text-emerald-600" : "text-transparent"}`} aria-hidden />
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="border-t border-gray-100 p-3">
+              <div className="flex items-center gap-2">
+                <DenSelect
+                  aria-label={`Access role for ${label}`}
+                  value={role}
+                  onChange={(event) => setRole(event.target.value === "editor" ? "editor" : "viewer")}
+                  className="min-w-0 flex-1"
+                  disabled={submitting}
+                >
+                  <option value="viewer">Can view (use in chat)</option>
+                  <option value="editor">Can edit</option>
+                </DenSelect>
+                <DenButton
+                  size="sm"
+                  loading={submitting}
+                  disabled={!selectedId}
+                  onClick={() => void handleGrant()}
+                >
+                  Grant
+                </DenButton>
+              </div>
+              {role === "editor" ? (
+                <p className="mt-2 text-[11.5px] leading-5 text-amber-700">
+                  Can change this skill for everyone who has it.
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
@@ -352,15 +364,17 @@ export function PluginAccessSection({
                     ? "you"
                     : membersById.get(grant.createdByOrgMembershipId)?.user.name ?? "an organization member";
                   return (
-                    <div key={grant.id} className="flex flex-wrap items-center gap-3 px-6 py-3.5">
-                      <div className="min-w-[220px] flex-1">
-                        {member ? (
-                          <OrgMemberIdentity member={member} />
-                        ) : (
-                          <p className="text-[13px] font-medium text-gray-500">Removed member</p>
-                        )}
+                    <div key={grant.id} className="flex flex-col gap-3 px-4 py-4 md:flex-row md:flex-wrap md:items-center md:px-6 md:py-3.5">
+                      <div className="flex w-full min-w-0 items-start gap-3 md:w-auto md:min-w-[220px] md:flex-1 md:items-center">
+                        <div className="min-w-0 flex-1">
+                          {member ? (
+                            <OrgMemberIdentity member={member} />
+                          ) : (
+                            <p className="text-[13px] font-medium text-gray-500">Removed member</p>
+                          )}
+                        </div>
+                        <AccessRolePill role={grant.role} />
                       </div>
-                      <AccessRolePill role={grant.role} />
                       {creatorGrant ? (
                         <span className="text-[12px] font-medium text-gray-400">creator</span>
                       ) : (
@@ -368,14 +382,16 @@ export function PluginAccessSection({
                           <p className="text-[11.5px] text-gray-400">
                             shared by {sharedBy} · {formatAccessDate(grant.createdAt)}
                           </p>
-                          <DenButton
-                            size="sm"
-                            variant="destructive"
-                            disabled={busy}
-                            onClick={() => void handleRevoke(grant.id)}
-                          >
-                            Revoke
-                          </DenButton>
+                          <div className="flex w-full justify-end md:w-auto">
+                            <DenButton
+                              size="sm"
+                              variant="destructive"
+                              disabled={busy}
+                              onClick={() => void handleRevoke(grant.id)}
+                            >
+                              Revoke
+                            </DenButton>
+                          </div>
                         </>
                       )}
                     </div>
@@ -388,26 +404,30 @@ export function PluginAccessSection({
                     ? "you"
                     : membersById.get(grant.createdByOrgMembershipId)?.user.name ?? "an organization member";
                   return (
-                    <div key={grant.id} className="flex flex-wrap items-center gap-3 px-6 py-3.5">
-                      <div className="min-w-[220px] flex-1">
-                        {team ? (
-                          <TeamIdentity name={team.name} memberCount={team.memberIds.length} />
-                        ) : (
-                          <p className="text-[13px] font-medium text-gray-500">Removed team</p>
-                        )}
+                    <div key={grant.id} className="flex flex-col gap-3 px-4 py-4 md:flex-row md:flex-wrap md:items-center md:px-6 md:py-3.5">
+                      <div className="flex w-full min-w-0 items-start gap-3 md:w-auto md:min-w-[220px] md:flex-1 md:items-center">
+                        <div className="min-w-0 flex-1">
+                          {team ? (
+                            <TeamIdentity name={team.name} memberCount={team.memberIds.length} />
+                          ) : (
+                            <p className="text-[13px] font-medium text-gray-500">Removed team</p>
+                          )}
+                        </div>
+                        <AccessRolePill role={grant.role} />
                       </div>
-                      <AccessRolePill role={grant.role} />
                       <p className="text-[11.5px] text-gray-400">
                         shared by {sharedBy} · {formatAccessDate(grant.createdAt)}
                       </p>
-                      <DenButton
-                        size="sm"
-                        variant="destructive"
-                        disabled={busy}
-                        onClick={() => void handleRevoke(grant.id)}
-                      >
-                        Revoke
-                      </DenButton>
+                      <div className="flex w-full justify-end md:w-auto">
+                        <DenButton
+                          size="sm"
+                          variant="destructive"
+                          disabled={busy}
+                          onClick={() => void handleRevoke(grant.id)}
+                        >
+                          Revoke
+                        </DenButton>
+                      </div>
                     </div>
                   );
                 })}

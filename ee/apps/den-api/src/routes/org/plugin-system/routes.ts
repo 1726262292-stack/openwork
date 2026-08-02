@@ -92,6 +92,7 @@ import {
   marketplacePluginParamsSchema,
   marketplacePluginWriteSchema,
   marketplaceUpdateSchema,
+  mePluginAccessListResponseSchema,
   pluginAccessGrantParamsSchema,
   pluginCreateSchema,
   pluginDetailResponseSchema,
@@ -153,6 +154,7 @@ import {
   listGithubRepositories,
   listMarketplaceMemberships,
   listMarketplaces,
+  listMeEffectivePluginAccess,
   listPluginMemberships,
   listPlugins,
   listResourceAccess,
@@ -999,6 +1001,24 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
       try {
         const params = validParam<any>(c)
         return c.json(await listResourceAccess({ context: actorContext(c), resourceId: params.pluginId, resourceKind: "plugin" }))
+      } catch (error) {
+        return routeErrorResponse(c, error)
+      }
+    })
+
+  withPluginArchOrgContext(app, "get", pluginArchRoutePaths.mePluginAccess,
+    describeRoute({
+      tags: ["Plugins"],
+      summary: "List my effective plugin access",
+      description: "Lists active plugins in the caller's organization library and every access edge that applies to the caller.",
+      responses: {
+        200: jsonResponse("Effective member plugin access returned successfully.", mePluginAccessListResponseSchema),
+        401: jsonResponse("The caller must be signed in to view plugin access.", unauthorizedSchema),
+      },
+    }),
+    async (c: OrgContext) => {
+      try {
+        return c.json(await listMeEffectivePluginAccess({ context: actorContext(c) }))
       } catch (error) {
         return routeErrorResponse(c, error)
       }

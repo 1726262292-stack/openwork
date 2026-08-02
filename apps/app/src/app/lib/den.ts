@@ -1920,7 +1920,7 @@ function getAssignedMarketplaceCapabilities(payload: unknown): DenAssignedMarket
     if (
       !isRecord(item)
       || typeof item.configObjectId !== "string"
-      || typeof item.marketplaceId !== "string"
+      || (item.marketplaceId !== null && typeof item.marketplaceId !== "string")
       || typeof item.objectType !== "string"
       || typeof item.pluginId !== "string"
     ) {

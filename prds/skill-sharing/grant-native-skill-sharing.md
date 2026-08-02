@@ -234,6 +234,28 @@ non-manager denial, recipient cannot re-share.
 
 ### P3 — Library UI + provenance
 
+#### P3 PR3 — member library + mobile + debt retirement (shipped)
+
+Design: Paper pages "PR3 — Member library placement" + "Mobile treatment —
+A/B/C" (user-approved). Shipped: member-visible `dashboard/library` route
+(outside the admin gate, next to Your Connections) rendering the Screen C
+library — audience tabs (All / Mine / Shared with me / Team / Everyone),
+search, one card per plugin with stacked provenance chips incl. the GitHub
+source chip; backed by new `GET /v1/me/plugin-access` (caller-scoped edges:
+mine / person+sharedBy / team / org_wide / catalog; role capped viewer via
+catalogs). The program's only migration landed: `plugin.source_repository_url`
+populated by GitHub import + discovery. Desktop grant-only filter LIFTED on
+/v1/resources/marketplace-capabilities (consumer made null-tolerant in
+apps/app). Marketplace copy strings retired (forbidden message + provenance).
+Mobile: Page 4 pattern applied — library mobile-first, PR1 team grid and PR2
+access rows retrofitted to stacked cards below md, share picker becomes a
+centered dialog on small screens. Proof:
+`evals/specs/library-view.slow.test.ts` — member API edges asserted for
+creator and recipient, desktop-filter lift asserted (marketplaceId null row),
+browser leg AS A PLAIN MEMBER with a two-frame photo roll (desktop + 375px
+mobile), vision 4/4. The browser leg caught and fixed a sharedBy parser
+mismatch — the member-perspective spec paying for itself.
+
 #### P3 PR2 — plugin access panel (shipped)
 
 Design: Paper file page "PR2 — Skill access panel" (user-approved). Shipped:
