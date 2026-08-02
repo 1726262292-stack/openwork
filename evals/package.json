@@ -5,7 +5,6 @@
   "scripts": {
     "spec": "vitest run --config vitest.config.ts --project pr",
     "spec:stack": "vitest run --config vitest.config.ts",
-    "spec:nightly": "pnpm run spec:stack",
     "roll": "node packages/evidence/bin/roll.mjs",
     "publish:pr": "node packages/evidence/bin/publish-pr.mjs",
     "dev:den": "node scripts/dev-den.ts",
