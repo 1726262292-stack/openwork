@@ -45,7 +45,7 @@ separately:
 pnpm --dir evals install           # required once (and in CI) before the commands below
 pnpm --dir evals run test          # node:test unit tests (runner + packages)
 pnpm --dir evals run spec          # vitest spec lane, pr project
-pnpm --dir evals run spec:nightly  # includes *.slow.test.ts
+pnpm --dir evals run spec:stack  # includes *.slow.test.ts
 ```
 
 The layers live in [`packages/`](./packages) and are consumable independently of
