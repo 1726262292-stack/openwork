@@ -62,7 +62,7 @@
     "evals:typecheck": "tsc -p evals",
     "evals:test": "node --test evals/runner/*.test.ts evals/packages/*/test/*.test.ts",
     "evals:spec": "pnpm --dir evals run spec",
-    "evals:spec:nightly": "pnpm --dir evals run spec:nightly",
+    "evals:spec:stack": "pnpm --dir evals run spec:stack",
     "owt": "node evals/runner/run-owt.mjs",
     "bump:patch": "pnpm --filter @openwork/app bump:patch",
     "bump:minor": "pnpm --filter @openwork/app bump:minor",

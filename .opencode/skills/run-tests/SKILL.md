@@ -9,7 +9,7 @@ description: Run the tests, run e2e locally, run on Daytona, why is this skipped
 
 - `pnpm evals:spec` is the app-less PR lane.
 - App specs require `OPENWORK_EVAL_APP_SPECS=1` and run with
-  `vitest --project nightly <file>`.
+  `vitest --project stack <file>`.
 - Set `OPENWORK_EVAL_DAYTONA=1` to place resources in sandboxes. Leave it unset
   for isolated local instances.
 - Local `server()` requires Docker MySQL from `pnpm dev:den:mysql`.

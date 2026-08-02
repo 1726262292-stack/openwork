@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "spec": "vitest run --config vitest.config.ts --project pr",
-    "spec:nightly": "vitest run --config vitest.config.ts",
+    "spec:stack": "vitest run --config vitest.config.ts",
     "roll": "node packages/evidence/bin/roll.mjs",
     "publish:pr": "node packages/evidence/bin/publish-pr.mjs",
     "dev:den": "node scripts/dev-den.ts",
