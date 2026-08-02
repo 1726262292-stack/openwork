@@ -195,10 +195,25 @@ export async function createNativeConnector(
   admin: DenSession,
   input: NativeConnectorInput,
 ): Promise<{ id: string; name: string }> {
-  notImplemented(
-    "createNativeConnector",
-    "needs the server-side native-provider connector row first (external_mcp_connection.kind = 'native_provider'), then POST it the way createOrgConnection does.",
-  );
+  const result = await denFetch(admin, "/v1/mcp-connections", {
+    method: "POST",
+    headers: auth(admin),
+    body: JSON.stringify({
+      kind: "native_provider",
+      nativeProviderKey: input.providerKey,
+      name: input.name,
+      oauthClient: {
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+        features: input.features,
+      },
+    }),
+  });
+  const connection = parseConnection(result.body);
+  if (!result.response.ok || !connection) {
+    throw new Error(`Native connector create failed: HTTP ${result.response.status} ${preview(result.body)}`);
+  }
+  return { id: connection.id, name: connection.name };
 }
 
 export async function deleteConnection(admin: DenSession, id: string): Promise<void> {

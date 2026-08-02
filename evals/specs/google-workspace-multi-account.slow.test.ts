@@ -175,7 +175,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     name: "Acme Robotics",
     clientId: "acme-robotics-google-client",
     clientSecret: "acme-robotics-google-secret",
-    features: ["gmail"],
+    features: ["gmailDraft"],
     access: { orgWide: true },
   });
   onTestFinished(async () => deleteConnection(admin, robotics.id));
@@ -201,7 +201,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     name: "Acme Labs",
     clientId: "acme-labs-google-client",
     clientSecret: "acme-labs-google-secret",
-    features: ["gmail"],
+    features: ["gmailDraft"],
     access: { orgWide: true },
   });
   onTestFinished(async () => deleteConnection(admin, labs.id));
