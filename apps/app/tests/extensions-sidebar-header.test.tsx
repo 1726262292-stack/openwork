@@ -38,6 +38,9 @@ describe("Extensions sidebar destination", () => {
     expect(html).toContain('aria-current="page"');
     expect(html).toContain("data-active");
     expect(html).toContain(">Library<");
+    // Idle weight matches the neighboring Search row (70% foreground) so the
+    // sidebar header reads as one family; active/hover restore full strength.
+    expect(html).toContain("text-sidebar-foreground/70");
   });
 
   test("sits below Search and above Pinned sessions", () => {
