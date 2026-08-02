@@ -1,6 +1,5 @@
 import { describeAppState, evaluateOnSurface, isInteractive, probeAppState } from "@openwork/cdp";
 import type { AppStateProbe, EvaluateOptions, Surface } from "@openwork/cdp";
-import { notImplemented } from "@openwork/labs";
 
 export interface SessionToolCall {
   capability: string;
@@ -94,10 +93,81 @@ export async function readSessionToolCalls(
   app: Surface,
   opts?: { sessionId?: string; timeoutMs?: number },
 ): Promise<SessionToolCall[]> {
-  notImplemented(
-    "readSessionToolCalls",
-    "read the session timeline observability added in 915c43d18 so a spec can assert WHICH connector the agent chose, not just that a side effect happened.",
-  );
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
+  let sessionId = opts?.sessionId ?? "";
+  let openedSessionId = "";
+
+  while (Date.now() < deadline) {
+    if (!sessionId) {
+      const sessions = await control(app, "session.list_sessions", undefined, { timeoutMs: remainingReadMs(deadline) }).catch(() => null);
+      sessionId = mostRecentSessionId(sessions);
+    }
+
+    if (Date.now() >= deadline) break;
+    if (sessionId && openedSessionId !== sessionId) {
+      const opened = await control(app, "session.open", { sessionId }, { timeoutMs: remainingReadMs(deadline) })
+        .then(() => true)
+        .catch(() => false);
+      if (opened) openedSessionId = sessionId;
+    }
+
+    if (openedSessionId && Date.now() < deadline) {
+      const transcript = await control(app, "session.read_transcript", { count: 30 }, { timeoutMs: remainingReadMs(deadline) }).catch(() => null);
+      if (isRecord(transcript) && transcript.sessionId === openedSessionId) {
+        const calls = parseSessionToolCalls(transcript);
+        if (calls.length > 0) return calls;
+      }
+    }
+
+    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
+  }
+
+  return [];
+}
+
+function remainingReadMs(deadline: number): number {
+  return Math.max(1, Math.min(10_000, deadline - Date.now()));
+}
+
+function mostRecentSessionId(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  for (const session of value) {
+    if (!isRecord(session) || typeof session.sessionId !== "string") continue;
+    const sessionId = session.sessionId.trim();
+    if (sessionId) return sessionId;
+  }
+  return "";
+}
+
+function timelineAt(value: Record<string, unknown>): string {
+  for (const key of ["at", "timestamp", "createdAt"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string") return candidate;
+  }
+  return "";
+}
+
+function connectionIdFromCapability(capability: string): string | null {
+  const parts = capability.split(":");
+  if (parts.length !== 3 || (parts[0] !== "mcp" && parts[0] !== "native") || !parts[1] || !parts[2]) return null;
+  return parts[1];
+}
+
+/** Parse the payload returned by the app's `session.read_transcript` control action. */
+export function parseSessionToolCalls(value: unknown): SessionToolCall[] {
+  if (!isRecord(value) || !Array.isArray(value.messages)) return [];
+  const calls: SessionToolCall[] = [];
+  for (const message of value.messages) {
+    if (!isRecord(message) || typeof message.text !== "string") continue;
+    const matches = message.text.matchAll(/(?:^|\n)\[tool:([^\]\r\n]+)\]/g);
+    for (const match of matches) {
+      const capability = match[1];
+      if (!capability) continue;
+      calls.push({ capability, connectionId: connectionIdFromCapability(capability), at: timelineAt(message) });
+    }
+  }
+  return calls;
 }
 
 export async function hasText(app: Surface, text: string): Promise<boolean> {

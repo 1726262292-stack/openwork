@@ -267,6 +267,12 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   await openConnectionsSurface(app, memberApp.workspaceId);
   await waitForText(app, roboticsEmail, { timeoutMs: 60_000 });
   await waitForText(app, labsEmail, { timeoutMs: 60_000 });
+  // Close the Labs panel and return to the list: the frame must show BOTH
+  // rows at once, each badged with its own signed-in email.
+  await clickButton(app, "Close");
+  await openConnectionsSurface(app, memberApp.workspaceId);
+  await waitForText(app, roboticsEmail, { timeoutMs: 60_000 });
+  await waitForText(app, labsEmail, { timeoutMs: 60_000 });
   await revealText(app, labsEmail);
   {
     const shot = await screenshot(app);

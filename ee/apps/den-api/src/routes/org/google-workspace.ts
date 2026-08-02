@@ -1,4 +1,5 @@
 import type { Hono } from "hono"
+import { contextStorage, getContext } from "hono/context-storage"
 import { randomUUID } from "node:crypto"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
@@ -9,7 +10,7 @@ import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../op
 import { buildGmailDraftRaw, gmailDraftUrl, gmailThreadUrl, readGmailDraftIds } from "../../capability-sources/gmail.js"
 import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
 import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
-import { resolveDefaultNativeProviderCredentialId } from "../../capability-sources/native-provider-connections.js"
+import { listNativeProviderUsableEntries, resolveDefaultNativeProviderCredentialId } from "../../capability-sources/native-provider-connections.js"
 import {
   buildDriveMultipartUpload,
   buildDriveSearchQuery,
@@ -27,6 +28,7 @@ import {
 } from "../../capability-sources/google-workspace-api.js"
 import type { ConnectedAccountRow } from "../../capability-sources/oauth-credentials.js"
 import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
+import { readInternalCapabilityConnectorId } from "../../session.js"
 import type { OrgRouteVariables } from "./shared.js"
 
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -355,10 +357,21 @@ async function googleWorkspaceToken(input: {
   if (!provider) {
     return { kind: "google_api_error", message: "google-workspace provider is not registered." }
   }
-  const credentialProviderId = await resolveDefaultNativeProviderCredentialId({
-    organizationId: input.organizationId,
-    nativeProviderKey: provider.providerId,
-  })
+  const requestedConnectorId = readInternalCapabilityConnectorId(getContext().req.raw.headers)
+  let credentialProviderId: string | null
+  if (requestedConnectorId) {
+    const entries = await listNativeProviderUsableEntries({
+      organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
+    })
+    const selected = entries.find((entry) => entry.id === requestedConnectorId)
+    credentialProviderId = selected?.nativeProviderKey === provider.providerId ? selected.id : null
+  } else {
+    credentialProviderId = await resolveDefaultNativeProviderCredentialId({
+      organizationId: input.organizationId,
+      nativeProviderKey: provider.providerId,
+    })
+  }
   if (!credentialProviderId) {
     return { kind: "needs_connection", message: CONNECT_GOOGLE_ACCOUNT_MESSAGE }
   }
@@ -426,6 +439,7 @@ function buildCalendarConferenceData(): CalendarConferenceData {
  * them — the agent path needs no MCP server and no extra wiring.
  */
 export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
+  app.use("/v1/capabilities/google-workspace/*", contextStorage())
   app.get(
     "/v1/capabilities/google-workspace/gmail-messages",
     describeRoute({

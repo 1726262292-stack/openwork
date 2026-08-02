@@ -155,10 +155,14 @@ export function orgMcpConnectionDescription(connection: Pick<DenExternalMcpConne
   return `${prefix}Available from your organization. Connect your own account to use it.`;
 }
 
-export function orgMcpConnectionActionLabel(connection: Pick<DenExternalMcpConnection, "credentialMode" | "connected" | "connectedForMe" | "needsReconnect" | "missingFeatures">) {
+export function orgMcpConnectionActionLabel(connection: Pick<DenExternalMcpConnection, "credentialMode" | "connected" | "connectedForMe" | "needsReconnect" | "missingFeatures" | "externalAccountId">) {
   if (connection.credentialMode === "shared") return "Managed by your organization";
   if (connection.connectedForMe && connectionNeedsReconnect(connection)) return "Reconnect";
-  if (connection.connectedForMe) return "Connected";
+  if (connection.connectedForMe) {
+    // Show WHICH account: with several connectors for one service (two Google
+    // domains), a bare "Connected" badge cannot tell the sign-ins apart.
+    return connection.externalAccountId ? `Connected — ${connection.externalAccountId}` : "Connected";
+  }
   return "Connect your account";
 }
 
