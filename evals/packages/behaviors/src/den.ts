@@ -1,10 +1,30 @@
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { notImplemented } from "@openwork/labs";
 
 export type DenRef = { apiUrl: string; webUrl: string };
 export type DenSession = DenRef & { token: string; email: string };
 export type ConnectionFacts = { id: string; name: string; connectedForMe: boolean | null; connectedAt: string | null };
 export type DenFetchResult = { response: Response; body: unknown; text: string };
+
+export interface NativeConnectorInput {
+  providerKey: string;
+  name: string;
+  clientId: string;
+  clientSecret: string;
+  features?: string[];
+  access?: { orgWide?: boolean };
+}
+
+export interface ProvisionOrgInput {
+  connectors?: string[];
+  members?: string[];
+}
+
+export interface ProvisionedOrg {
+  admin: DenSession;
+  orgId: string;
+}
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
@@ -171,6 +191,16 @@ export async function createOrgConnection(
   return { id: connection.id, name: connection.name };
 }
 
+export async function createNativeConnector(
+  admin: DenSession,
+  input: NativeConnectorInput,
+): Promise<{ id: string; name: string }> {
+  notImplemented(
+    "createNativeConnector",
+    "needs the server-side native-provider connector row first (external_mcp_connection.kind = 'native_provider'), then POST it the way createOrgConnection does.",
+  );
+}
+
 export async function deleteConnection(admin: DenSession, id: string): Promise<void> {
   const result = await denFetch(admin, `/v1/mcp-connections/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -191,6 +221,13 @@ export async function readUsableConnection(member: DenSession, id: string): Prom
   const result = await denFetch(member, "/v1/mcp-connections?scope=usable", { headers: auth(member) });
   if (!result.response.ok) throw new Error(`Usable connection list failed: HTTP ${result.response.status} ${preview(result.body)}`);
   return parseConnections(result.body).find((connection) => connection.id === id) ?? null;
+}
+
+export async function provisionOrg(den: DenRef, input: ProvisionOrgInput): Promise<ProvisionedOrg> {
+  notImplemented(
+    "provisionOrg",
+    "generalise evals/scripts/provision-org-connector-two-members.ts into a fixture that takes the org shape.",
+  );
 }
 
 export async function createDesktopHandoffGrant(member: DenSession, desktopScheme = "openwork"): Promise<string> {
