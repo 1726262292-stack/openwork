@@ -102,6 +102,8 @@ import {
   pluginParamsSchema,
   pluginUpdateSchema,
   resourceAccessGrantWriteSchema,
+  teamParamsSchema,
+  teamPluginAccessListResponseSchema,
 } from "./schemas.js"
 
 type EndpointMethod = "DELETE" | "GET" | "PATCH" | "POST"
@@ -167,6 +169,7 @@ export const pluginArchRoutePaths = {
   pluginReleases: `${orgBasePath}/plugins/:pluginId/releases`,
   pluginAccess: `${orgBasePath}/plugins/:pluginId/access`,
   pluginAccessGrant: `${orgBasePath}/plugins/:pluginId/access/:grantId`,
+  teamPluginAccess: `${orgBasePath}/teams/:teamId/plugin-access`,
   pluginGithubMcpImportPreview: `${orgBasePath}/plugins/import-mcps-from-github-url/preview`,
   pluginGithubMcpImport: `${orgBasePath}/plugins/import-mcps-from-github-url`,
   marketplaces: `${orgBasePath}/marketplaces`,
@@ -464,6 +467,15 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     path: pluginArchRoutePaths.pluginAccess,
     request: { params: pluginParamsSchema },
     response: { description: "Plugin access grants.", schema: accessGrantListResponseSchema, status: 200 },
+    tag: "Plugins",
+  },
+  listTeamPluginAccess: {
+    audience: "member",
+    description: "List the plugins a team can use through direct, marketplace, and organization-wide access.",
+    method: "GET",
+    path: pluginArchRoutePaths.teamPluginAccess,
+    request: { params: teamParamsSchema },
+    response: { description: "Effective plugin access for the team.", schema: teamPluginAccessListResponseSchema, status: 200 },
     tag: "Plugins",
   },
   grantPluginAccess: {

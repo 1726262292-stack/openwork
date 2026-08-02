@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
 import {
+  AuthUserTable,
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
   ConfigObjectVersionTable,
@@ -1874,6 +1875,209 @@ export async function listResourceAccess(input: { context: PluginArchActorContex
   }
   const rows = await db.select().from(ConnectorInstanceAccessGrantTable).where(eq(ConnectorInstanceAccessGrantTable.connectorInstanceId, input.resourceId)).orderBy(desc(ConnectorInstanceAccessGrantTable.createdAt))
   return { items: rows.map((row) => serializeAccessGrant(row)), nextCursor: null }
+}
+
+type TeamPluginAccessEdge = "direct_team" | "via_catalog" | "org_wide"
+
+type TeamPluginAccessCandidate = {
+  createdAt: Date
+  createdByOrgMembershipId: MemberId
+  edge: TeamPluginAccessEdge
+  grantId: PluginAccessGrantId | null
+  marketplace: { id: MarketplaceId; name: string } | null
+  pluginId: PluginId
+  pluginName: string
+  role: PluginArchRole
+}
+
+const teamPluginAccessEdgeOrder: Record<TeamPluginAccessEdge, number> = {
+  direct_team: 1,
+  via_catalog: 2,
+  org_wide: 3,
+}
+
+const teamPluginAccessRolePriority: Record<PluginArchRole, number> = {
+  viewer: 1,
+  editor: 2,
+  manager: 3,
+}
+
+export async function listTeamEffectivePluginAccess(input: { context: PluginArchActorContext; teamId: TeamId }) {
+  const organizationId = input.context.organizationContext.organization.id
+  const teams = await db
+    .select({ id: TeamTable.id })
+    .from(TeamTable)
+    .where(and(eq(TeamTable.id, input.teamId), eq(TeamTable.organizationId, organizationId)))
+    .limit(1)
+
+  if (!teams[0]) {
+    throw new PluginArchRouteFailure(404, "team_not_found", "Team not found.")
+  }
+  if (!isPluginArchOrgAdmin(input.context) && !input.context.memberTeams.some((team) => team.id === input.teamId)) {
+    throw new PluginArchAuthorizationError(403, "forbidden", "Only organization admins and team members can view this team's plugin access.")
+  }
+
+  const [directRows, marketplaceRows, orgWideRows] = await Promise.all([
+    db
+      .select({
+        createdAt: PluginAccessGrantTable.createdAt,
+        createdByOrgMembershipId: PluginAccessGrantTable.createdByOrgMembershipId,
+        grantId: PluginAccessGrantTable.id,
+        pluginId: PluginTable.id,
+        pluginName: PluginTable.name,
+        role: PluginAccessGrantTable.role,
+      })
+      .from(PluginAccessGrantTable)
+      .innerJoin(PluginTable, eq(PluginAccessGrantTable.pluginId, PluginTable.id))
+      .where(and(
+        eq(PluginAccessGrantTable.organizationId, organizationId),
+        eq(PluginAccessGrantTable.teamId, input.teamId),
+        isNull(PluginAccessGrantTable.removedAt),
+        eq(PluginTable.organizationId, organizationId),
+        eq(PluginTable.status, "active"),
+        isNull(PluginTable.deletedAt),
+      ))
+      .orderBy(asc(PluginAccessGrantTable.createdAt), asc(PluginAccessGrantTable.id)),
+    db
+      .select({
+        createdAt: MarketplaceAccessGrantTable.createdAt,
+        createdByOrgMembershipId: MarketplaceAccessGrantTable.createdByOrgMembershipId,
+        marketplaceId: MarketplaceTable.id,
+        marketplaceName: MarketplaceTable.name,
+        pluginId: PluginTable.id,
+        pluginName: PluginTable.name,
+        role: MarketplaceAccessGrantTable.role,
+      })
+      .from(MarketplaceAccessGrantTable)
+      .innerJoin(MarketplaceTable, eq(MarketplaceAccessGrantTable.marketplaceId, MarketplaceTable.id))
+      .innerJoin(MarketplacePluginTable, eq(MarketplacePluginTable.marketplaceId, MarketplaceTable.id))
+      .innerJoin(PluginTable, eq(MarketplacePluginTable.pluginId, PluginTable.id))
+      .where(and(
+        eq(MarketplaceAccessGrantTable.organizationId, organizationId),
+        eq(MarketplaceAccessGrantTable.teamId, input.teamId),
+        isNull(MarketplaceAccessGrantTable.removedAt),
+        eq(MarketplaceTable.organizationId, organizationId),
+        eq(MarketplaceTable.status, "active"),
+        isNull(MarketplaceTable.deletedAt),
+        eq(MarketplacePluginTable.organizationId, organizationId),
+        isNull(MarketplacePluginTable.removedAt),
+        eq(PluginTable.organizationId, organizationId),
+        eq(PluginTable.status, "active"),
+        isNull(PluginTable.deletedAt),
+      ))
+      .orderBy(asc(MarketplaceAccessGrantTable.createdAt), asc(MarketplaceAccessGrantTable.id), asc(MarketplaceTable.name)),
+    db
+      .select({
+        createdAt: PluginAccessGrantTable.createdAt,
+        createdByOrgMembershipId: PluginAccessGrantTable.createdByOrgMembershipId,
+        pluginId: PluginTable.id,
+        pluginName: PluginTable.name,
+        role: PluginAccessGrantTable.role,
+      })
+      .from(PluginAccessGrantTable)
+      .innerJoin(PluginTable, eq(PluginAccessGrantTable.pluginId, PluginTable.id))
+      .where(and(
+        eq(PluginAccessGrantTable.organizationId, organizationId),
+        eq(PluginAccessGrantTable.orgWide, true),
+        isNull(PluginAccessGrantTable.removedAt),
+        eq(PluginTable.organizationId, organizationId),
+        eq(PluginTable.status, "active"),
+        isNull(PluginTable.deletedAt),
+      ))
+      .orderBy(asc(PluginAccessGrantTable.createdAt), asc(PluginAccessGrantTable.id)),
+  ])
+
+  const candidates: TeamPluginAccessCandidate[] = []
+  for (const row of directRows) {
+    candidates.push({
+      ...row,
+      edge: "direct_team",
+      marketplace: null,
+    })
+  }
+  for (const row of marketplaceRows) {
+    candidates.push({
+      createdAt: row.createdAt,
+      createdByOrgMembershipId: row.createdByOrgMembershipId,
+      edge: "via_catalog",
+      grantId: null,
+      marketplace: { id: row.marketplaceId, name: row.marketplaceName },
+      pluginId: row.pluginId,
+      pluginName: row.pluginName,
+      role: row.role,
+    })
+  }
+  for (const row of orgWideRows) {
+    candidates.push({
+      ...row,
+      edge: "org_wide",
+      grantId: null,
+      marketplace: null,
+    })
+  }
+
+  const effectiveByPluginEdge = new Map<string, TeamPluginAccessCandidate>()
+  for (const candidate of candidates) {
+    const key = `${candidate.pluginId}:${candidate.edge}`
+    const current = effectiveByPluginEdge.get(key)
+    if (!current || teamPluginAccessRolePriority[candidate.role] > teamPluginAccessRolePriority[current.role]) {
+      effectiveByPluginEdge.set(key, candidate)
+    }
+  }
+
+  const effective = [...effectiveByPluginEdge.values()]
+  const pluginIds = uniqueIds(effective.map((candidate) => candidate.pluginId))
+  const creatorIds = uniqueIds(effective.map((candidate) => candidate.createdByOrgMembershipId))
+  const componentCountRows = pluginIds.length === 0
+    ? []
+    : await db
+      .select({ pluginId: PluginConfigObjectTable.pluginId, componentCount: count() })
+      .from(PluginConfigObjectTable)
+      .where(and(
+        eq(PluginConfigObjectTable.organizationId, organizationId),
+        inArray(PluginConfigObjectTable.pluginId, pluginIds),
+        isNull(PluginConfigObjectTable.removedAt),
+      ))
+      .groupBy(PluginConfigObjectTable.pluginId)
+  const creatorRows = creatorIds.length === 0
+    ? []
+    : await db
+      .select({ orgMembershipId: MemberTable.id, name: AuthUserTable.name })
+      .from(MemberTable)
+      .leftJoin(AuthUserTable, eq(MemberTable.userId, AuthUserTable.id))
+      .where(and(eq(MemberTable.organizationId, organizationId), inArray(MemberTable.id, creatorIds)))
+
+  const componentCounts = new Map(componentCountRows.map((row) => [row.pluginId, row.componentCount]))
+  const creatorNames = new Map(creatorRows.flatMap((row) => row.name === null ? [] : [[row.orgMembershipId, row.name]]))
+
+  effective.sort((left, right) => {
+    const byName = left.pluginName.localeCompare(right.pluginName)
+    if (byName !== 0) return byName
+    const byEdge = teamPluginAccessEdgeOrder[left.edge] - teamPluginAccessEdgeOrder[right.edge]
+    if (byEdge !== 0) return byEdge
+    return left.pluginId.localeCompare(right.pluginId)
+  })
+
+  return {
+    items: effective.map((candidate) => {
+      const creatorName = creatorNames.get(candidate.createdByOrgMembershipId)
+      return {
+        plugin: {
+          id: candidate.pluginId,
+          name: candidate.pluginName,
+          componentCount: componentCounts.get(candidate.pluginId) ?? 0,
+        },
+        edge: candidate.edge,
+        marketplace: candidate.marketplace,
+        role: candidate.role,
+        grantedBy: creatorName
+          ? { orgMembershipId: candidate.createdByOrgMembershipId, name: creatorName }
+          : null,
+        grantedAt: candidate.createdAt.toISOString(),
+        grantId: candidate.grantId,
+      }
+    }),
+  }
 }
 
 export async function createResourceAccessGrant(input: { context: PluginArchActorContext; value: AccessGrantWrite } & ResourceTarget) {

@@ -269,6 +269,10 @@ export async function evaluate(
   return isRecord(result) ? result.value : undefined;
 }
 
+export async function navigate(client: CdpClient, url: string): Promise<void> {
+  await client.send("Page.navigate", { url });
+}
+
 export async function captureScreenshot(client: CdpClient): Promise<Buffer> {
   const payload = await client.send("Page.captureScreenshot", { format: "png" });
   if (!isRecord(payload) || typeof payload.data !== "string") {

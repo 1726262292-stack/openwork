@@ -234,6 +234,19 @@ non-manager denial, recipient cannot re-share.
 
 ### P3 — Library UI + provenance
 
+#### P3 PR1 — team access view (shipped from this branch)
+
+Design source: Paper file "P3 — Access Visibility" (screens annotated with
+den-web primitive mappings and NEW rationale). Shipped: `GET
+/v1/teams/:teamId/plugin-access` (direct_team / via_catalog / org_wide edges,
+server-side grantor names, admin-or-team-member gated) + den-web team detail
+page (Members ▸ Teams ▸ team name) with Overview and Access tabs — the
+members-grid pattern, edge badges on DenBadge tones, amber editor rows,
+Revoke for direct grants, Open catalog for inherited ones. Proof:
+`test/plugin-system-team-access.test.ts` (route-level, real MySQL) +
+`evals/specs/team-access-view.slow.test.ts` (API leg + headless-Chrome
+browser leg with vision-validated photo roll of the real screen).
+
 Dashboard library: Mine / Shared with me / Team / Everyone, one row per
 plugin, provenance chips (Yours / Shared by N / Team T / catalog M /
 built-in), per-skill access list, revoke, delete blast-radius warning.

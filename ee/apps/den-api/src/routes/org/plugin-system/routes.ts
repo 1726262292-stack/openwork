@@ -106,6 +106,8 @@ import {
   pluginParamsSchema,
   pluginUpdateSchema,
   resourceAccessGrantWriteSchema,
+  teamParamsSchema,
+  teamPluginAccessListResponseSchema,
 } from "./schemas.js"
 import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActorContext, PluginArchAuthorizationError } from "./access.js"
 import { pluginArchRoutePaths } from "./contracts.js"
@@ -154,6 +156,7 @@ import {
   listPluginMemberships,
   listPlugins,
   listResourceAccess,
+  listTeamEffectivePluginAccess,
   attachPluginToMarketplace,
   completeGithubConnectorInstall,
   applyGithubConnectorDiscovery,
@@ -996,6 +999,32 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
       try {
         const params = validParam<any>(c)
         return c.json(await listResourceAccess({ context: actorContext(c), resourceId: params.pluginId, resourceKind: "plugin" }))
+      } catch (error) {
+        return routeErrorResponse(c, error)
+      }
+    })
+
+  withPluginArchOrgContext(app, "get", pluginArchRoutePaths.teamPluginAccess,
+    paramValidator(teamParamsSchema),
+    describeRoute({
+      tags: ["Plugins"],
+      summary: "List effective team plugin access",
+      description: "Lists plugins available to a team through direct grants, marketplace grants, and organization-wide grants.",
+      responses: {
+        200: jsonResponse("Effective team plugin access returned successfully.", teamPluginAccessListResponseSchema),
+        400: jsonResponse("The team access path parameters were invalid.", invalidRequestSchema),
+        401: jsonResponse("The caller must be signed in to view team plugin access.", unauthorizedSchema),
+        403: jsonResponse("The caller lacks permission to view this team's plugin access.", forbiddenSchema),
+        404: jsonResponse("The team could not be found.", notFoundSchema),
+      },
+    }),
+    async (c: OrgContext) => {
+      try {
+        const params = validParam<z.infer<typeof teamParamsSchema>>(c)
+        return c.json(await listTeamEffectivePluginAccess({
+          context: actorContext(c),
+          teamId: normalizeDenTypeId("team", params.teamId),
+        }))
       } catch (error) {
         return routeErrorResponse(c, error)
       }

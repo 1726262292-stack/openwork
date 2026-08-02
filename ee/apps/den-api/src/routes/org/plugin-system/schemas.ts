@@ -156,6 +156,7 @@ export const pluginAccessGrantParamsSchema = pluginParamsSchema.extend(idParamSc
 export const marketplaceParamsSchema = idParamSchema("marketplaceId", "marketplace")
 export const marketplacePluginParamsSchema = marketplaceParamsSchema.extend(idParamSchema("pluginId", "plugin").shape)
 export const marketplaceAccessGrantParamsSchema = marketplaceParamsSchema.extend(idParamSchema("grantId", "marketplaceAccessGrant").shape)
+export const teamParamsSchema = idParamSchema("teamId", "team")
 export const connectorAccountParamsSchema = idParamSchema("connectorAccountId", "connectorAccount")
 export const connectorInstanceParamsSchema = idParamSchema("connectorInstanceId", "connectorInstance")
 export const connectorInstanceAccessGrantParamsSchema = connectorInstanceParamsSchema.extend(idParamSchema("grantId", "connectorInstanceAccessGrant").shape)
@@ -464,6 +465,26 @@ export const accessGrantSchema = z.object({
   createdAt: z.string().datetime({ offset: true }),
   removedAt: nullableTimestampSchema,
 }).meta({ ref: "PluginArchAccessGrant" })
+
+export const teamPluginAccessSchema = z.object({
+  plugin: z.object({
+    id: pluginIdSchema,
+    name: z.string().trim().min(1).max(255),
+    componentCount: z.number().int().nonnegative(),
+  }),
+  edge: z.enum(["direct_team", "via_catalog", "org_wide"]),
+  marketplace: z.object({
+    id: marketplaceIdSchema,
+    name: z.string().trim().min(1).max(255),
+  }).nullable(),
+  role: accessRoleSchema,
+  grantedBy: z.object({
+    orgMembershipId: memberIdSchema,
+    name: z.string().trim().min(1).max(255),
+  }).nullable(),
+  grantedAt: z.string().datetime({ offset: true }),
+  grantId: pluginAccessGrantIdSchema.nullable(),
+}).meta({ ref: "PluginArchTeamPluginAccess" })
 
 export const configObjectVersionSchema = z.object({
   id: configObjectVersionIdSchema,
@@ -944,6 +965,7 @@ export const marketplacePluginListResponseSchema = pluginArchListResponseSchema(
 export const marketplacePluginMutationResponseSchema = pluginArchMutationResponseSchema("PluginArchMarketplacePluginMutationResponse", marketplacePluginSchema)
 export const accessGrantListResponseSchema = pluginArchListResponseSchema("PluginArchAccessGrantListResponse", accessGrantSchema)
 export const accessGrantMutationResponseSchema = pluginArchMutationResponseSchema("PluginArchAccessGrantMutationResponse", accessGrantSchema)
+export const teamPluginAccessListResponseSchema = pluginArchListResponseSchema("PluginArchTeamPluginAccessListResponse", teamPluginAccessSchema).omit({ nextCursor: true })
 export const connectorAccountListResponseSchema = pluginArchListResponseSchema("PluginArchConnectorAccountListResponse", connectorAccountSchema)
 export const connectorAccountDetailResponseSchema = pluginArchDetailResponseSchema("PluginArchConnectorAccountDetailResponse", connectorAccountSchema)
 export const connectorAccountMutationResponseSchema = pluginArchMutationResponseSchema("PluginArchConnectorAccountMutationResponse", connectorAccountSchema)
