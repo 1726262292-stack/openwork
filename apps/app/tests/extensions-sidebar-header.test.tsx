@@ -26,7 +26,7 @@ describe("Extensions sidebar destination", () => {
           <SidebarDestination
             active
             icon={Puzzle}
-            label="Extensions"
+            label="Library"
             onSelect={() => {}}
           />
         </SidebarMenu>
@@ -34,10 +34,10 @@ describe("Extensions sidebar destination", () => {
     );
 
     expect(html).toContain('type="button"');
-    expect(html).toContain('aria-label="Extensions"');
+    expect(html).toContain('aria-label="Library"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain("data-active");
-    expect(html).toContain(">Extensions<");
+    expect(html).toContain(">Library<");
   });
 
   test("sits below Search and above Pinned sessions", () => {
