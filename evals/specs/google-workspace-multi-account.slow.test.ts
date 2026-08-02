@@ -214,7 +214,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "Acme Robotics and Acme Labs are visible side by side as two separate Google connections",
+      "Acme Robotics and Acme Labs are both visible, as two separate Google Workspace connections",
       "The original Acme Robotics connection is still present and no crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -229,12 +229,17 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     (await readUsableConnection(member, labs.id))?.connectedForMe,
     "Jordan must not inherit a Labs credential before connecting her own account",
   ).toBe(false);
-  expect(await countButtons(app, "Connect your account", true), "both Google cards must independently offer Connect your account").toBe(2);
-  await revealText(app, "Connect your account");
+  // The list surface offers each connection a "Sign in" next action and opens a
+  // detail panel to actually authorize ("Connect your account" lives there), so
+  // independence is asserted on the two cards plus the sign-in affordance.
+  expect(await countButtons(app, robotics.name), "Robotics must still be exactly one card").toBe(1);
+  expect(await countButtons(app, labs.name), "Labs must still be exactly one card").toBe(1);
+  expect(await hasText(app, "Sign in"), "each unconnected Google connection must ask for this person's own sign-in").toBe(true);
+  await revealText(app, labs.name);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "Jordan's app visibly offers Connect your account independently for both Google connections",
+      "Both Google connections are listed and each still needs this person's own sign-in",
       "Neither connection asks for a shared password and no crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
