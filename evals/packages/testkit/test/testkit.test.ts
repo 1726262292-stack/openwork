@@ -28,17 +28,23 @@ test("needs accepts a tool-capable model and provider key", () => {
 
 test("needs throws a named SkipError for every unsatisfied resource", () => {
   assert.throws(
-    () => checkNeeds({ model: "tool-capable", env: ["EXTRA_REQUIRED"], daytona: true }, {}),
+    () => checkNeeds({ model: "tool-capable", env: ["EXTRA_REQUIRED"], optIn: ["EXACT_OPT_IN"], daytona: true }, {}),
     (error) => {
       assert(error instanceof SkipError);
       assert.match(error.message, /^needs: /);
       assert.match(error.message, /set EXTRA_REQUIRED/);
+      assert.match(error.message, /set EXACT_OPT_IN=1/);
       assert.match(error.message, /set OPENWORK_EVAL_MODEL/);
       assert.match(error.message, /set OPENAI_API_KEY or ANTHROPIC_API_KEY/);
       assert.match(error.message, /set OPENWORK_EVAL_DAYTONA=1/);
       return true;
     },
   );
+});
+
+test("needs only accepts opt-in gates set exactly to 1", () => {
+  assert.throws(() => checkNeeds({ optIn: ["EXACT_OPT_IN"] }, { EXACT_OPT_IN: "true" }), SkipError);
+  assert.doesNotThrow(() => checkNeeds({ optIn: ["EXACT_OPT_IN"] }, { EXACT_OPT_IN: "1" }));
 });
 
 test("needs reads process.env at the call site", () => {

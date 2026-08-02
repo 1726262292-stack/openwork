@@ -13,7 +13,7 @@ import {
   provisionDenSandbox,
   startMockOnSandbox,
 } from "@openwork/hosts";
-import { denFetch, freshSession, signIn } from "@openwork/behaviors";
+import { denFetch, ensureMemberSession, freshSession, signIn } from "@openwork/behaviors";
 import { createConnection } from "mysql2/promise";
 import type { ChildProcess } from "node:child_process";
 import type { DenRef, DenSession } from "@openwork/behaviors";
@@ -45,6 +45,7 @@ export interface ServerOptions {
   mocks?: Record<string, MockBoot>;
   org?: OrgShape;
   reuse?: DenRef;
+  reuseMembers?: Record<string, PersonShape>;
 }
 
 export interface Den extends AsyncDisposable {
@@ -294,6 +295,25 @@ async function provisionOrganization(
   return { admin, members, createdOrg: options.createOrg };
 }
 
+async function provisionReusedMembers(
+  ref: DenRef,
+  admin: DenSession,
+  shapes: Record<string, PersonShape>,
+  runId: string,
+): Promise<Record<string, DenSession>> {
+  const members: Record<string, DenSession> = {};
+  for (const [key, shape] of Object.entries(shapes)) {
+    const person = personDefaults(key, shape, runId);
+    members[key] = await ensureMemberSession(ref, admin, {
+      email: person.email,
+      password: person.password,
+      name: person.name,
+      markVerifiedCmd: process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim(),
+    });
+  }
+  return members;
+}
+
 async function bootLocalMocks(
   place: Place,
   definitions: Record<string, MockBoot>,
@@ -399,11 +419,12 @@ export async function server(options: ServerOptions): Promise<Den> {
           fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
         },
       );
+      const reusedMembers = await provisionReusedMembers(reuse, organization.admin, options.reuseMembers ?? {}, runId);
       let disposed = false;
       return {
         ref: reuse,
         admin: organization.admin,
-        members: organization.members,
+        members: { ...organization.members, ...reusedMembers },
         mocks: bootedMocks.handles,
         async [Symbol.asyncDispose](): Promise<void> {
           if (disposed) return;

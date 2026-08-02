@@ -1,6 +1,6 @@
 import { createAndSelectWorkspace, signInDesktopAs } from "@openwork/behaviors";
 import { desktop } from "@openwork/hosts";
-import type { DesktopHandle } from "@openwork/hosts";
+import type { DesktopHandle, Host } from "@openwork/hosts";
 import type { Den } from "./server.ts";
 import type { Place } from "./place.ts";
 
@@ -8,6 +8,7 @@ export interface AppOptions {
   den: Den;
   as: string;
   place: Place;
+  host?: Host;
   model?: string;
 }
 
@@ -23,7 +24,7 @@ export async function app(options: AppOptions): Promise<App> {
   }
   const surface = await desktop({
     name: `testkit-${options.as}`,
-    host: options.place.host(),
+    host: options.host ?? options.place.host(),
     bootstrap: {
       baseUrl: options.den.ref.webUrl,
       apiBaseUrl: options.den.ref.webUrl,

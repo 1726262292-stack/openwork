@@ -1,6 +1,7 @@
 export interface NeedsSpec {
   model?: "tool-capable";
   env?: string[];
+  optIn?: string[];
   daytona?: boolean;
 }
 
@@ -22,6 +23,9 @@ export function unmetNeeds(spec: NeedsSpec, env: NodeJS.ProcessEnv): string[] {
   const missing: string[] = [];
   for (const name of spec.env ?? []) {
     if (!present(env, name)) missing.push(`set ${name}`);
+  }
+  for (const name of spec.optIn ?? []) {
+    if (env[name]?.trim() !== "1") missing.push(`set ${name}=1`);
   }
   if (spec.model === "tool-capable") {
     if (!present(env, "OPENWORK_EVAL_MODEL")) missing.push("set OPENWORK_EVAL_MODEL");

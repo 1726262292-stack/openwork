@@ -1,13 +1,9 @@
 import { allocateFreePort } from "@openwork/cdp";
 import { startMockMcp } from "@openwork/labs";
-import type { StartMockMcpOptions } from "@openwork/labs";
+import type { MockMcpHandle, StartMockMcpOptions } from "@openwork/labs";
 import type { Place } from "./place.ts";
 
-export interface MockHandle extends AsyncDisposable {
-  url: string;
-  mcpUrl: string;
-  stop(): Promise<void>;
-}
+export type MockHandle = MockMcpHandle;
 
 export interface MockUrls {
   name: string;

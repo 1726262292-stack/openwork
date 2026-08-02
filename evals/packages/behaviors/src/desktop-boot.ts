@@ -141,7 +141,9 @@ export async function createAndSelectWorkspace(
         timeoutMs: 60_000,
         label: "workspace.create enabled",
       });
-      await control(app, "workspace.create", input);
+      // Cold first action: engine spawn + Vite compile can exceed the default
+      // evaluate bound, and this proved flaky at 8s (passed on rerun).
+      await control(app, "workspace.create", input, { timeoutMs: 60_000 });
       // The app does not always put a new workspace in the hash, so wait for its
       // own active-workspace state to settle instead of matching a route shape.
       await waitFor(app, `Boolean(localStorage.getItem("openwork.react.activeWorkspace"))
