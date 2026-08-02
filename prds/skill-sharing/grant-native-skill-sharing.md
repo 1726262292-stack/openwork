@@ -234,6 +234,23 @@ non-manager denial, recipient cannot re-share.
 
 ### P3 — Library UI + provenance
 
+#### P3 PR2 — plugin access panel (shipped)
+
+Design: Paper file page "PR2 — Skill access panel" (user-approved). Shipped:
+"WHO CAN ACCESS THIS" section on plugin detail (stacked section, no tabs) —
+people/team rows with role pills and shared-by provenance, AccessAddPicker
+share flow with plain-words role choice ("Can view" default, "Can edit"
+behind a select with an amber consequence line), org-wide switch rendered
+ONLY for admins (server 403s members — hide, don't disable), creator
+provenance under the header, and a computed blast-radius line on the archive
+confirm. No new API (existing grant routes; serializer already exposed
+creator fields). Proof: `evals/specs/plugin-access-panel.slow.test.ts` — API
+leg (creator grants person + team; grant list asserted) + browser leg with
+vision-validated photo roll; org-wide toggle asserted PRESENT for admin.
+Known limitation discovered: the den-web `(admin)` route group redirects
+plain members away from plugin detail — member-facing surfaces are a PR3
+decision (the member library cannot live behind the admin gate).
+
 #### P3 PR1 — team access view (shipped from this branch)
 
 Design source: Paper file "P3 — Access Visibility" (screens annotated with

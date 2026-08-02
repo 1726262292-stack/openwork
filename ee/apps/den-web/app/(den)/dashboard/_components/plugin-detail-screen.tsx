@@ -23,11 +23,14 @@ import {
   useUpdatePlugin,
 } from "./plugin-data";
 import { CatalogIdentityTile } from "./catalog-identity-tile";
+import { type PluginAccessGrant, usePluginAccess } from "./plugin-access-data";
+import { PluginAccessSection } from "./plugin-access-section";
 
 export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
   const router = useRouter();
   const { orgContext, orgSlug } = useOrgDashboard();
   const { data: plugin, isLoading, error, refetch } = usePlugin(pluginId);
+  const pluginAccessQuery = usePluginAccess(pluginId);
   const archivePlugin = useArchivePlugin();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [editPlugin, setEditPlugin] = useState<{ name: string; description: string } | null>(null);
@@ -71,6 +74,12 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
   }
 
   const marketplaces = plugin.marketplaces ?? [];
+  const creator = orgContext?.members.find((member) => member.id === plugin.createdByOrgMembershipId) ?? null;
+  const accessBlastRadius = getPluginAccessBlastRadius(
+    pluginAccessQuery.data ?? [],
+    orgContext?.teams ?? [],
+    orgContext?.currentMember.id ?? null,
+  );
   const missingLabels: string[] = [];
   if (plugin.agents.length === 0) missingLabels.push("agents");
   if (plugin.commands.length === 0) missingLabels.push("commands");
@@ -166,6 +175,9 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
           {plugin.description ? (
             <p className="mt-1 text-[13px] leading-[1.55] text-gray-500">{plugin.description}</p>
           ) : null}
+          <p className="mt-1.5 text-[11.5px] text-gray-400">
+            Added by {creator?.user.name ?? "Unknown member"} · {formatPluginTimestamp(plugin.createdAt)}
+          </p>
           <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-gray-400">
             {marketplaces.length > 0 ? (
               <>
@@ -182,6 +194,13 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
       </article>
 
       <div className="mt-6 space-y-6">
+        <PluginAccessSection
+          pluginId={plugin.id}
+          pluginCreatedByOrgMembershipId={plugin.createdByOrgMembershipId}
+          grants={pluginAccessQuery.data ?? []}
+          isLoading={pluginAccessQuery.isLoading}
+          error={pluginAccessQuery.error}
+        />
         <SkillsSection orgSlug={orgSlug} plugin={plugin} />
         <PrimitiveSection icon={Users} label="Agents" items={plugin.agents} render={renderAgentRow} />
         <PrimitiveSection icon={Terminal} label="Commands" items={plugin.commands} render={renderCommandRow} />
@@ -210,6 +229,8 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
       <ArchivePluginDialog
         open={archiveOpen}
         pluginName={plugin.name}
+        affectedPeopleCount={accessBlastRadius.peopleCount}
+        affectedTeamCount={accessBlastRadius.teamCount}
         busy={archivePlugin.isPending}
         error={archivePlugin.error}
         onClose={() => {
@@ -315,6 +336,8 @@ function EditPluginDialog({
 function ArchivePluginDialog({
   open,
   pluginName,
+  affectedPeopleCount,
+  affectedTeamCount,
   busy,
   error,
   onClose,
@@ -322,6 +345,8 @@ function ArchivePluginDialog({
 }: {
   open: boolean;
   pluginName: string;
+  affectedPeopleCount: number;
+  affectedTeamCount: number;
   busy: boolean;
   error: unknown;
   onClose: () => void;
@@ -345,6 +370,11 @@ function ArchivePluginDialog({
         <p id="archive-plugin-description" className="mt-2 text-[13px] leading-6 text-gray-500">
           This removes the plugin from active Den lists without deleting its historical skills, marketplace relationships, or audit trail.
         </p>
+        {affectedPeopleCount > 0 ? (
+          <p className="mt-3 text-[12.5px] font-medium text-amber-700">
+            This removes it for {affectedPeopleCount} people across {affectedTeamCount} {affectedTeamCount === 1 ? "team" : "teams"}.
+          </p>
+        ) : null}
         {error ? (
           <p className="mt-3 text-[12.5px] text-red-600">
             {error instanceof Error ? error.message : "Failed to archive plugin."}
@@ -361,6 +391,29 @@ function ArchivePluginDialog({
       </div>
     </div>
   );
+}
+
+function getPluginAccessBlastRadius(
+  grants: PluginAccessGrant[],
+  teams: Array<{ id: string; memberIds: string[] }>,
+  currentMemberId: string | null,
+) {
+  const people = new Set<string>();
+  const teamIds = new Set<string>();
+  const teamsById = new Map(teams.map((team) => [team.id, team]));
+
+  for (const grant of grants) {
+    if (grant.orgMembershipId) people.add(grant.orgMembershipId);
+    if (grant.teamId) teamIds.add(grant.teamId);
+  }
+  for (const teamId of teamIds) {
+    for (const memberId of teamsById.get(teamId)?.memberIds ?? []) {
+      people.add(memberId);
+    }
+  }
+  if (currentMemberId) people.delete(currentMemberId);
+
+  return { peopleCount: people.size, teamCount: teamIds.size };
 }
 
 function formatMissingList(labels: string[]) {
