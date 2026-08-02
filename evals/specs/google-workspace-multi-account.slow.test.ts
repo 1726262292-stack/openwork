@@ -186,10 +186,12 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   await waitForConnectionCard(app, robotics.name, memberApp.workspaceId);
   expect(await hasText(app, "Acme Labs"), "Acme Labs must not exist before Alex registers the acquired domain").toBe(false);
   expect(await countButtons(app, robotics.name), "the original company should begin with exactly one Google connection card").toBe(1);
+  // The DOM already has the card; a frame needs its pixels on screen.
+  await revealText(app, robotics.name);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "Acme Robotics is visibly set up as the company's original Google Workspace connection",
+      "Acme Robotics is visibly listed as a Google Workspace connection this person can sign in to",
       "No Acme Labs connection or 'Something went wrong' crash message is visible yet",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -208,6 +210,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   await waitForConnectionCard(app, labs.name, memberApp.workspaceId);
   expect(await countButtons(app, robotics.name), "adding Labs must leave the original Robotics card untouched").toBe(1);
   expect(await countButtons(app, labs.name), "Alex's Acme Labs registration must create one separate card").toBe(1);
+  await revealText(app, labs.name);
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
@@ -250,6 +253,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     labsAuthorize.params.get("prompt"),
     "Acme Labs OAuth must send prompt=select_account instead of silently reusing Robotics",
   ).toBe("select_account");
+  await revealText(app, "Acme Labs");
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
@@ -314,6 +318,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   expect(supplierPrompt, "the user-facing request must not smuggle in the Robotics connector id").not.toContain(robotics.id);
   const supplierRequestedAt = new Date().toISOString();
   await sendComposerMessage(app, supplierPrompt);
+  await revealText(app, "Acme Labs");
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
@@ -361,6 +366,7 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   const gmailLink = /https:\/\/mail\.google\.com\/[^\s<>)\]]+/.exec(reply.text)?.[0] ?? "";
   expect(gmailLink, `the assistant did not return a Gmail link. Reply: ${reply.text}`).toContain("authuser=");
   expect(gmailLink, `the Gmail link hard-coded the first signed-in account: ${gmailLink}`).not.toContain("/mail/u/0/");
+  await revealText(app, "authuser=");
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
