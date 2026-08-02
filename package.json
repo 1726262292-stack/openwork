@@ -58,6 +58,7 @@
     "benchmark:admin-scale:mysql": "pnpm --filter @openwork-ee/den-db benchmark:admin-scale:mysql",
     "evals": "node evals/runner/run.mjs --mode automation",
     "fraimz": "node evals/runner/run.mjs --mode demo",
+    "fraimz:publish": "node evals/packages/evidence/bin/publish-pr.mjs",
     "evals:typecheck": "tsc -p evals",
     "evals:test": "node --test evals/runner/*.test.ts evals/packages/*/test/*.test.ts",
     "evals:spec": "pnpm --dir evals run spec",

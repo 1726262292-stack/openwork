@@ -8,6 +8,7 @@
     "roll": "node packages/evidence/bin/roll.mjs",
     "publish:pr": "node packages/evidence/bin/publish-pr.mjs",
     "dev:den": "node scripts/dev-den.ts",
+    "fraimz:publish": "node packages/evidence/bin/publish-pr.mjs",
     "provision:org-connector-two-members": "node scripts/provision-org-connector-two-members.ts",
     "test": "node --test runner/*.test.ts packages/*/test/*.test.ts",
     "typecheck": "tsc -p ."
@@ -19,7 +20,8 @@
     "@openwork/fraimz": "workspace:*",
     "@openwork/hosts": "workspace:*",
     "@openwork/labs": "workspace:*",
-    "@openwork/matchers": "workspace:*"
+    "@openwork/matchers": "workspace:*",
+    "@openwork/testkit": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^3.2.4"

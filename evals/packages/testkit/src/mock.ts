@@ -1,0 +1,60 @@
+import { allocateFreePort } from "@openwork/cdp";
+import { startMockMcp } from "@openwork/labs";
+import type { StartMockMcpOptions } from "@openwork/labs";
+import type { Place } from "./place.ts";
+
+export interface MockHandle extends AsyncDisposable {
+  url: string;
+  mcpUrl: string;
+  stop(): Promise<void>;
+}
+
+export interface MockUrls {
+  name: string;
+  url: string;
+  mcpUrl: string;
+}
+
+export interface BootedMock {
+  handle: MockHandle;
+  env(urls: MockUrls): Record<string, string>;
+}
+
+export interface MockBoot {
+  boot(place: Place): Promise<BootedMock>;
+  daytonaPort?: number;
+  connect?(publicUrl: string): Promise<BootedMock>;
+}
+
+function mockEnvKey(name: string): string {
+  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "MOCK";
+}
+
+export function deriveMockEnv(name: string, url: string, mcpUrl: string): Record<string, string> {
+  const key = mockEnvKey(name);
+  return {
+    [`OPENWORK_EVAL_MOCK_${key}_URL`]: url,
+    [`OPENWORK_EVAL_MOCK_${key}_MCP_URL`]: mcpUrl,
+  };
+}
+
+export function mcpMock(options: StartMockMcpOptions = {}): MockBoot {
+  return {
+    daytonaPort: options.port ?? 3979,
+    async connect(publicUrl) {
+      const handle = await startMockMcp({ ...options, publicUrl });
+      return {
+        handle,
+        env: ({ name, url, mcpUrl }) => deriveMockEnv(name, url, mcpUrl),
+      };
+    },
+    async boot(_place) {
+      const port = options.port ?? await allocateFreePort();
+      const handle = await startMockMcp({ ...options, port });
+      return {
+        handle,
+        env: ({ name, url, mcpUrl }) => deriveMockEnv(name, url, mcpUrl),
+      };
+    },
+  };
+}
