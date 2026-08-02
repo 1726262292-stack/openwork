@@ -533,9 +533,10 @@ export async function server(options: ServerOptions): Promise<Den> {
       OPENWORK_DEV_MODE: "1",
       PROVISIONER_MODE: "stub",
     };
-    const api = spawnService("den-api", "dev:den:api", apiPort, commonEnv, join(logsDir, "api.log"));
+    const api = spawnService("den-api", "dev:den:api", apiPort, { ...commonEnv, DEN_BIND_HOST: "127.0.0.1" }, join(logsDir, "api.log"));
     services.push(api);
     const web = spawnService("den-web", "dev:den:web", webPort, {
+      DEN_WEB_HOST: "127.0.0.1",
       ...commonEnv,
       DEN_API_BASE: `http://127.0.0.1:${apiPort}`,
       DEN_AUTH_ORIGIN: `http://localhost:${webPort}`,
