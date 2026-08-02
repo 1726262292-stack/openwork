@@ -28,6 +28,7 @@ import {
 } from "../../capability-sources/google-workspace-api.js"
 import type { ConnectedAccountRow } from "../../capability-sources/oauth-credentials.js"
 import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
+import { listTeamsForMember } from "../../orgs.js"
 import { readInternalCapabilityConnectorId } from "../../session.js"
 import type { OrgRouteVariables } from "./shared.js"
 
@@ -357,19 +358,27 @@ async function googleWorkspaceToken(input: {
   if (!provider) {
     return { kind: "google_api_error", message: "google-workspace provider is not registered." }
   }
+  const memberTeams = await listTeamsForMember({
+    organizationId: input.organizationId,
+    memberId: input.orgMembershipId,
+  })
+  const teamIds = memberTeams.map((team) => team.id)
   const requestedConnectorId = readInternalCapabilityConnectorId(getContext().req.raw.headers)
   let credentialProviderId: string | null
   if (requestedConnectorId) {
     const entries = await listNativeProviderUsableEntries({
       organizationId: input.organizationId,
       orgMembershipId: input.orgMembershipId,
+      teamIds,
     })
     const selected = entries.find((entry) => entry.id === requestedConnectorId)
     credentialProviderId = selected?.nativeProviderKey === provider.providerId ? selected.id : null
   } else {
     credentialProviderId = await resolveDefaultNativeProviderCredentialId({
       organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
       nativeProviderKey: provider.providerId,
+      teamIds,
     })
   }
   if (!credentialProviderId) {

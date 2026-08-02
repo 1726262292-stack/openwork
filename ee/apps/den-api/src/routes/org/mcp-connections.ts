@@ -2468,6 +2468,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       }
 
       const callerIsAdmin = verifyOrgRole({ roles: ["admin"], userContext: payload.currentMember })
+      const memberTeams: MemberTeamSummary[] = c.get("memberTeams") ?? []
       if (connection.credentialMode === "shared") {
         // Connecting a shared credential IS the org-level integration setup —
         // admin-only, like creating the connection itself.
@@ -2476,7 +2477,6 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       } else {
         // Per-member: any member GRANTED the connection may connect their own
         // account (that is the whole point); admins may too.
-        const memberTeams: MemberTeamSummary[] = c.get("memberTeams") ?? []
         const canUse = await memberCanUseExternalMcpConnection({
           connectionId: externalMcpConnectionId,
           orgMembershipId: payload.currentMember.id,
@@ -2501,8 +2501,12 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           organizationId: payload.organization.id,
           orgMembershipId: payload.currentMember.id,
           request: c.req.raw,
+          teamIds: memberTeams.map((team) => team.id),
         })
         if ("error" in started) {
+          if (started.error === "forbidden") {
+            return c.json({ error: "forbidden", message: "You have not been granted access to this connection." }, 403)
+          }
           if (started.error === "client_configuration_invalid") {
             return c.json({ error: "invalid_request", message: started.message ?? "OAuth client configuration is incomplete." }, 400)
           }

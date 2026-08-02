@@ -141,6 +141,24 @@ async function seedMember(label: string) {
   return { userId, organizationId, memberId }
 }
 
+async function seedAdditionalMember(input: { label: string; organizationId: DenTypeId<"organization"> }) {
+  const userId = createDenTypeId("user")
+  const memberId = createDenTypeId("member")
+  cleanupUserIds.push(userId)
+  await db.insert(schema.AuthUserTable).values({
+    id: userId,
+    name: `${input.label} User`,
+    email: `${input.label.toLowerCase()}+${userId}@test.local`,
+  })
+  await db.insert(schema.MemberTable).values({
+    id: memberId,
+    organizationId: input.organizationId,
+    userId,
+    role: "member",
+  })
+  return { userId, memberId }
+}
+
 async function seedGoogleWorkspaceConnection(input: {
   label: string
   features: string[]
@@ -530,6 +548,77 @@ describe("buildNativeProviderEntry", () => {
       providerId: "google-workspace",
       binding: "google-workspace",
     })
+  })
+
+  test("native connector connect/start requires a member access grant", async () => {
+    const ungranted = await seedMember("NativeConnectorUngranted")
+    const granted = await seedAdditionalMember({
+      label: "NativeConnectorGranted",
+      organizationId: ungranted.organizationId,
+    })
+    const provider = registry.getNativeOAuthProvider("google-workspace")
+    if (!provider) throw new Error("google-workspace provider is missing")
+    const connection = await createExternalMcpConnection({
+      organizationId: ungranted.organizationId,
+      name: "Granted Google",
+      url: provider.websiteUrl,
+      authType: "oauth",
+      kind: "native_provider",
+      nativeProviderKey: provider.providerId,
+      credentialMode: "per_member",
+      createdByOrgMembershipId: ungranted.memberId,
+      access: { orgWide: false, memberIds: [granted.memberId], teamIds: [] },
+    })
+    await oauthCredentials.upsertOrgOAuthClient({
+      organizationId: ungranted.organizationId,
+      providerId: connection.id,
+      clientId: "granted-google-client",
+      clientSecret: "granted-google-secret",
+      createdByOrgMembershipId: ungranted.memberId,
+    })
+
+    const explicitDenied = await principalRequest({
+      organizationId: ungranted.organizationId,
+      path: `/v1/mcp-connections/${connection.id}/connect/start`,
+      userId: ungranted.userId,
+    })
+    expect(explicitDenied.status).toBe(403)
+    await expect(explicitDenied.json()).resolves.toEqual({
+      error: "forbidden",
+      message: "You have not been granted access to this connection.",
+    })
+
+    const oauthProviderDenied = await principalRequest({
+      organizationId: ungranted.organizationId,
+      path: `/v1/oauth-providers/${connection.id}/connect/start`,
+      userId: ungranted.userId,
+    })
+    expect(oauthProviderDenied.status).toBe(403)
+    await expect(oauthProviderDenied.json()).resolves.toEqual({
+      error: "forbidden",
+      message: "You have not been granted access to this connection.",
+    })
+
+    const aliasDenied = await principalRequest({
+      organizationId: ungranted.organizationId,
+      path: "/v1/mcp-connections/google-workspace/connect/start",
+      userId: ungranted.userId,
+    })
+    expect(aliasDenied.status).toBe(404)
+    await expect(aliasDenied.json()).resolves.toMatchObject({ error: "client_not_configured" })
+
+    for (const path of [
+      `/v1/mcp-connections/${connection.id}/connect/start`,
+      `/v1/oauth-providers/${connection.id}/connect/start`,
+      "/v1/mcp-connections/google-workspace/connect/start",
+    ]) {
+      const response = await principalRequest({
+        organizationId: ungranted.organizationId,
+        path,
+        userId: granted.userId,
+      })
+      expect(response.status).toBe(200)
+    }
   })
 
   test("external connection list rows omit native reconnect fields", async () => {

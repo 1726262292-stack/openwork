@@ -173,6 +173,37 @@ export async function listNativeProviderUsableEntries(input: {
 
 export async function resolveDefaultNativeProviderCredentialId(input: {
   organizationId: DenTypeId<"organization">
+  orgMembershipId: DenTypeId<"member">
+  nativeProviderKey: string
+  teamIds: DenTypeId<"team">[]
+}): Promise<string | null> {
+  // The literal registry key is the legacy alias: it has no connector row or
+  // access grants, so it intentionally remains implicitly org-wide.
+  if (await getOrgOAuthClient(input.organizationId, input.nativeProviderKey)) {
+    return input.nativeProviderKey
+  }
+  const legacyAccounts = await db
+    .select({ id: ConnectedAccountTable.id })
+    .from(ConnectedAccountTable)
+    .where(and(
+      eq(ConnectedAccountTable.organizationId, input.organizationId),
+      eq(ConnectedAccountTable.providerId, input.nativeProviderKey),
+    ))
+    .limit(1)
+  if (legacyAccounts[0]) return input.nativeProviderKey
+  const connectors = (await listUsableNativeProviderConnections({
+    organizationId: input.organizationId,
+    orgMembershipId: input.orgMembershipId,
+    teamIds: input.teamIds,
+  })).filter((connection) => (
+    connection.nativeProviderKey === input.nativeProviderKey
+  ))
+  return connectors.length === 1 ? connectors[0].id : null
+}
+
+/** Admin configuration lookup only; member flows must use the grant-aware default resolver above. */
+export async function resolveManageableNativeProviderCredentialId(input: {
+  organizationId: DenTypeId<"organization">
   nativeProviderKey: string
 }): Promise<string | null> {
   if (await getOrgOAuthClient(input.organizationId, input.nativeProviderKey)) {
