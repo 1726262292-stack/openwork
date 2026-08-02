@@ -1,4 +1,4 @@
-import { describeAppState, evaluateOnSurface, isInteractive, probeAppState } from "@openwork/cdp";
+import { describeAppState, dumpScreenState, evaluateOnSurface, isInteractive, probeAppState } from "@openwork/cdp";
 import type { AppStateProbe, EvaluateOptions, Surface } from "@openwork/cdp";
 
 export interface SessionToolCall {
@@ -11,7 +11,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_DOM_PROBE_TIMEOUT_MS = 8_000;
 const POLL_INTERVAL_MS = 250;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -27,7 +28,14 @@ function jsValue(value: unknown): string {
 
 export async function evalIn(app: Surface, expression: string, opts: EvaluateOptions = {}): Promise<unknown> {
   // Target healing lives in @openwork/cdp; behaviours just evaluate.
-  return evaluateOnSurface(app, expression, opts);
+  return evaluateOnSurface(app, expression, {
+    ...opts,
+    timeoutMs: opts.timeoutMs ?? DEFAULT_DOM_PROBE_TIMEOUT_MS,
+  });
+}
+
+async function timeoutError(app: Surface, message: string): Promise<Error> {
+  return new Error(`${message} On screen: ${await dumpScreenState(app)}.`);
 }
 
 /**
@@ -39,7 +47,7 @@ export async function evalIn(app: Surface, expression: string, opts: EvaluateOpt
 async function resilientRead(
   app: Surface,
   expression: string,
-  { timeoutMs = 240_000, perAttemptMs = 10_000, label = expression }: { timeoutMs?: number; perAttemptMs?: number; label?: string } = {},
+  { timeoutMs = 60_000, perAttemptMs = DEFAULT_DOM_PROBE_TIMEOUT_MS, label = expression }: { timeoutMs?: number; perAttemptMs?: number; label?: string } = {},
 ): Promise<unknown> {
   // A cold profile can block its JS thread for minutes while the workspace
   // runtime boots, so retry to a deadline rather than a fixed attempt count.
@@ -49,13 +57,18 @@ async function resilientRead(
   while (Date.now() < deadline) {
     attempts += 1;
     try {
-      return await evalIn(app, expression, { timeoutMs: perAttemptMs });
+      return await evalIn(app, expression, {
+        timeoutMs: Math.min(perAttemptMs, Math.max(0, deadline - Date.now())),
+      });
     } catch (error) {
       lastError = error;
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
     }
   }
-  throw new Error(`Could not read ${label} within ${timeoutMs}ms (${attempts} attempts)${lastError ? `: ${messageText(lastError)}` : ""}.`);
+  throw await timeoutError(
+    app,
+    `Could not read ${label} within ${timeoutMs}ms (${attempts} attempts)${lastError ? `: ${messageText(lastError)}` : ""}.`,
+  );
 }
 
 export async function waitFor(
@@ -68,18 +81,23 @@ export async function waitFor(
   // Each probe gets a SHORT timeout on purpose: a renderer that is briefly busy
   // should have the call abandoned and retried on the next tick. Giving a probe
   // the whole budget turns one stuck evaluation into the entire wait.
-  const evalTimeoutMs = Math.min(timeoutMs, 15_000);
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const value = await evalIn(app, expression, { timeoutMs: evalTimeoutMs, awaitPromise });
+      const value = await evalIn(app, expression, {
+        timeoutMs: Math.min(DEFAULT_DOM_PROBE_TIMEOUT_MS, Math.max(0, timeoutMs - (Date.now() - startedAt))),
+        awaitPromise,
+      });
       if (value) return value;
       lastError = null;
     } catch (error) {
       lastError = error;
     }
-    await sleep(POLL_INTERVAL_MS);
+    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, timeoutMs - (Date.now() - startedAt))));
   }
-  throw new Error(`Timed out after ${timeoutMs}ms waiting for ${label}${lastError ? ` (last error: ${messageText(lastError)})` : ""}.`);
+  throw await timeoutError(
+    app,
+    `Timed out after ${timeoutMs}ms waiting for ${label}${lastError ? ` (last error: ${messageText(lastError)})` : ""}.`,
+  );
 }
 
 export async function waitForText(app: Surface, text: string, opts: { timeoutMs?: number } = {}): Promise<void> {
@@ -219,7 +237,7 @@ export async function clickButton(app: Surface, label: string, opts: { timeoutMs
 export async function waitForButtonGone(app: Surface, label: string, opts: { timeoutMs?: number } = {}): Promise<void> {
   await waitFor(app, `!Boolean([...document.querySelectorAll('button')]
     .find((element) => (element.textContent ?? '').trim() === ${jsValue(label)}))`, {
-    timeoutMs: opts.timeoutMs ?? 90_000,
+    timeoutMs: opts.timeoutMs ?? 60_000,
     label: `button removed: ${label}`,
   });
 }
@@ -242,17 +260,15 @@ export async function fill(app: Surface, selector: string, value: string, opts: 
   })()`);
 }
 
-export async function go(app: Surface, hashPath: string): Promise<void> {
+export async function go(app: Surface, hashPath: string, opts: { timeoutMs?: number } = {}): Promise<void> {
   const hash = hashPath.startsWith("#") ? hashPath : `#${hashPath}`;
   // Setting the hash is idempotent, so retry through renderer freeze bursts
   // rather than letting one blocked evaluate fail a whole spec. Contention (two
   // desktops on one host) makes those bursts routine, and a bare 20s evaluate
   // here was the single most common way a long journey died near its end.
-  // 120s: with several desktops and their engines on one host the renderer can
-  // stay blocked well past a minute. Retrying an idempotent hash assignment
-  // costs nothing when the app is healthy.
+  const timeoutMs = opts.timeoutMs ?? 60_000;
   await waitFor(app, `(() => { window.location.hash = ${jsValue(hash)}; return true; })()`, {
-    timeoutMs: 120_000,
+    timeoutMs,
     label: `navigate to ${hash}`,
   });
 }
@@ -398,39 +414,44 @@ export async function control(
  */
 export async function waitUntilInteractive(
   app: Surface,
-  { timeoutMs = 120_000 }: { timeoutMs?: number } = {},
+  { timeoutMs = 60_000 }: { timeoutMs?: number } = {},
 ): Promise<AppStateProbe> {
   const deadline = Date.now() + timeoutMs;
   let last: AppStateProbe = { controlReady: false, transitional: null, surface: null, workspaceId: null, route: "", text: "" };
   while (Date.now() < deadline) {
     try {
-      last = await probeAppState(app.client, { timeoutMs: 15_000 });
+      last = await probeAppState(app.client, {
+        timeoutMs: Math.min(DEFAULT_DOM_PROBE_TIMEOUT_MS, Math.max(0, deadline - Date.now())),
+      });
       if (isInteractive(last)) return last;
     } catch {
       // A navigation can destroy the execution context mid-probe.
     }
-    await sleep(POLL_INTERVAL_MS);
+    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
   }
-  throw new Error(`App did not become interactive after ${timeoutMs}ms: ${describeAppState(last)}`);
+  throw await timeoutError(app, `App did not become interactive after ${timeoutMs}ms: ${describeAppState(last)}`);
 }
 
 /** Wait until the page's visible text stops changing — the app is done working. */
 export async function waitUntilTextStable(
   app: Surface,
-  { quietMs = 6_000, timeoutMs = 240_000 }: { quietMs?: number; timeoutMs?: number } = {},
+  { quietMs = 6_000, timeoutMs = 60_000 }: { quietMs?: number; timeoutMs?: number } = {},
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let previous = "";
   let stableSince = Date.now();
   while (Date.now() < deadline) {
-    const current = await visibleText(app).catch(() => previous);
+    const currentValue = await evalIn(app, "document.body.innerText", {
+      timeoutMs: Math.min(DEFAULT_DOM_PROBE_TIMEOUT_MS, Math.max(0, deadline - Date.now())),
+    }).catch(() => previous);
+    const current = typeof currentValue === "string" ? currentValue : previous;
     if (current !== previous) {
       previous = current;
       stableSince = Date.now();
     } else if (Date.now() - stableSince >= quietMs) {
       return current;
     }
-    await sleep(1_000);
+    await sleep(Math.min(1_000, Math.max(0, deadline - Date.now())));
   }
-  return previous;
+  throw await timeoutError(app, `Visible text did not stabilize after ${timeoutMs}ms. Last text: ${JSON.stringify(previous.slice(0, 500))}.`);
 }

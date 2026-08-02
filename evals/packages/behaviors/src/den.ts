@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { notImplemented } from "@openwork/labs";
 
 export type DenRef = { apiUrl: string; webUrl: string };
-export type DenSession = DenRef & { token: string; email: string };
+export type DenSession = DenRef & { token: string; email: string; password: string };
 export type ConnectionFacts = { id: string; name: string; connectedForMe: boolean | null; connectedAt: string | null };
 export type DenFetchResult = { response: Response; body: unknown; text: string };
 
@@ -27,6 +27,7 @@ export interface ProvisionedOrg {
 }
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
+const DEFAULT_DEN_FETCH_TIMEOUT_MS = 30_000;
 
 function trimTrailingSlashes(value: string): string {
   let end = value.length;
@@ -55,7 +56,11 @@ export async function denFetch(den: DenRef, path: string, init: RequestInit = {}
   const headers = new Headers(init.headers);
   if (!headers.has("content-type")) headers.set("content-type", "application/json");
   if (!headers.has("origin")) headers.set("origin", den.webUrl);
-  const response = await fetch(`${trimTrailingSlashes(den.apiUrl)}${path}`, { ...init, headers });
+  const response = await fetch(`${trimTrailingSlashes(den.apiUrl)}${path}`, {
+    ...init,
+    headers,
+    signal: init.signal ?? AbortSignal.timeout(DEFAULT_DEN_FETCH_TIMEOUT_MS),
+  });
   const text = await response.text();
   let body: unknown = text;
   try {
@@ -75,7 +80,12 @@ export async function signIn(den: DenRef, credentials: { email: string; password
   if (!result.response.ok || !token) {
     throw new Error(`Sign-in failed for ${credentials.email}: HTTP ${result.response.status} ${preview(result.body)}`);
   }
-  return { ...den, token, email: credentials.email };
+  return { ...den, token, email: credentials.email, password: credentials.password };
+}
+
+/** Refresh an eval session using the credentials captured by signIn. */
+export async function freshSession(session: DenSession): Promise<DenSession> {
+  return signIn(session, { email: session.email, password: session.password });
 }
 
 export function doInternalMarkEmailVerified(command: string, email: string): void {
@@ -216,19 +226,45 @@ export async function createNativeConnector(
   return { id: connection.id, name: connection.name };
 }
 
-export async function deleteConnection(admin: DenSession, id: string): Promise<void> {
-  const result = await denFetch(admin, `/v1/mcp-connections/${encodeURIComponent(id)}`, {
+function needsFreshAuth(result: DenFetchResult): boolean {
+  return result.response.status === 403 && isRecord(result.body) && result.body.error === "reauth";
+}
+
+async function retryOnceAfterFreshAuth(
+  session: DenSession,
+  operation: (active: DenSession) => Promise<DenFetchResult>,
+): Promise<{ session: DenSession; result: DenFetchResult }> {
+  let active = session;
+  let result = await operation(active);
+  if (needsFreshAuth(result)) {
+    active = await freshSession(session);
+    result = await operation(active);
+  }
+  return { session: active, result };
+}
+
+async function deleteConnectionWithSession(admin: DenSession, id: string): Promise<DenSession> {
+  const { session, result } = await retryOnceAfterFreshAuth(admin, (active) => denFetch(active, `/v1/mcp-connections/${encodeURIComponent(id)}`, {
     method: "DELETE",
-    headers: auth(admin),
-  });
+    headers: auth(active),
+  }));
   if (!result.response.ok) throw new Error(`Connection delete failed for ${id}: HTTP ${result.response.status} ${preview(result.body)}`);
+  return session;
+}
+
+export async function deleteConnection(admin: DenSession, id: string): Promise<void> {
+  await deleteConnectionWithSession(admin, id);
 }
 
 export async function deleteConnectionsNamed(admin: DenSession, prefix: string): Promise<void> {
-  const result = await denFetch(admin, "/v1/mcp-connections?scope=manageable", { headers: auth(admin) });
+  const listed = await retryOnceAfterFreshAuth(admin, (active) => denFetch(active, "/v1/mcp-connections?scope=manageable", {
+    headers: auth(active),
+  }));
+  const result = listed.result;
   if (!result.response.ok) throw new Error(`Connection list failed: HTTP ${result.response.status} ${preview(result.body)}`);
+  let active = listed.session;
   for (const connection of parseConnections(result.body)) {
-    if (connection.name.startsWith(prefix)) await deleteConnection(admin, connection.id);
+    if (connection.name.startsWith(prefix)) active = await deleteConnectionWithSession(active, connection.id);
   }
 }
 
