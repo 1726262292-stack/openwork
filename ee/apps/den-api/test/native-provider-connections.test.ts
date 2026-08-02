@@ -11,12 +11,47 @@ const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 const GMAIL_DRAFT_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
+type OAuthIdentityMode = "id-token" | "userinfo-failure"
+let oauthIdentityMode: OAuthIdentityMode = "id-token"
+let userinfoRequestCount = 0
+
+function idTokenWithEmail(email: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }), "utf8").toString("base64url")
+  const payload = Buffer.from(JSON.stringify({ email }), "utf8").toString("base64url")
+  return `${header}.${payload}.mock-signature`
+}
+
+const fakeOAuthServer = Bun.serve({
+  hostname: "127.0.0.1",
+  port: 0,
+  fetch(request) {
+    const url = new URL(request.url)
+    if (url.pathname === "/token") {
+      return Response.json({
+        access_token: "callback-access-token",
+        refresh_token: "callback-refresh-token",
+        token_type: "Bearer",
+        expires_in: 3_600,
+        ...(oauthIdentityMode === "id-token" ? { id_token: idTokenWithEmail("connected@example.com") } : {}),
+      })
+    }
+    if (url.pathname === "/userinfo") {
+      userinfoRequestCount += 1
+      return Response.json({ error: "userinfo unavailable" }, { status: 503 })
+    }
+    return new Response("Not found", { status: 404 })
+  },
+})
+
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_gwsreconnect"
   process.env.DEN_DB_ENCRYPTION_KEY = process.env.DEN_DB_ENCRYPTION_KEY ?? "local-dev-db-encryption-key-please-change-1234567890"
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "local-dev-secret-not-for-production-use!!"
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
+  process.env.DEN_GOOGLE_OAUTH_AUTHORIZE_URL = `${fakeOAuthServer.url.origin}/authorize`
+  process.env.DEN_GOOGLE_OAUTH_TOKEN_URL = `${fakeOAuthServer.url.origin}/token`
+  process.env.DEN_GOOGLE_OAUTH_USERINFO_URL = `${fakeOAuthServer.url.origin}/userinfo`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -32,13 +67,14 @@ let oauthCredentials: typeof import("../src/capability-sources/oauth-credentials
 let app: typeof import("../src/app.js").default
 let session: typeof import("../src/session.js")
 let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
+let genericOAuth: typeof import("../src/capability-sources/generic-oauth.js")
 
 const cleanupOrganizationIds: DenTypeId<"organization">[] = []
 const cleanupUserIds: DenTypeId<"user">[] = []
 
 beforeAll(async () => {
   seedRequiredEnv()
-  const [modImport, registryImport, dbImport, schemaImport, drizzleImport, oauthImport, appImport, sessionImport, externalImport] = await Promise.all([
+  const [modImport, registryImport, dbImport, schemaImport, drizzleImport, oauthImport, appImport, sessionImport, externalImport, genericOAuthImport] = await Promise.all([
     import("../src/capability-sources/native-provider-connections.js"),
     import("../src/capability-sources/provider-registry.js"),
     import("../src/db.js"),
@@ -48,6 +84,7 @@ beforeAll(async () => {
     import("../src/app.js"),
     import("../src/session.js"),
     import("../src/capability-sources/external-mcp-connections.js"),
+    import("../src/capability-sources/generic-oauth.js"),
   ])
   mod = modImport
   registry = registryImport
@@ -58,6 +95,7 @@ beforeAll(async () => {
   app = appImport.default
   session = sessionImport
   createExternalMcpConnection = externalImport.createExternalMcpConnection
+  genericOAuth = genericOAuthImport
 })
 
 afterAll(async () => {
@@ -73,6 +111,7 @@ afterAll(async () => {
   for (const userId of cleanupUserIds) {
     await db.delete(schema.AuthUserTable).where(drizzle.eq(schema.AuthUserTable.id, userId))
   }
+  fakeOAuthServer.stop(true)
 })
 
 async function seedMember(label: string) {
@@ -132,6 +171,35 @@ async function getGoogleWorkspaceEntry(input: { organizationId: DenTypeId<"organ
     orgMembershipId: input.memberId,
   })
   return entries.find((entry) => entry.id === "google-workspace")
+}
+
+async function seedPendingGoogleOAuth(label: string) {
+  const seeded = await seedMember(label)
+  await oauthCredentials.upsertOrgOAuthClient({
+    organizationId: seeded.organizationId,
+    providerId: "google-workspace",
+    clientId: "google-client-id",
+    clientSecret: "google-client-secret",
+    createdByOrgMembershipId: seeded.memberId,
+  })
+  const pending = await oauthCredentials.upsertConnectedAccount({
+    organizationId: seeded.organizationId,
+    orgMembershipId: seeded.memberId,
+    providerId: "google-workspace",
+    pendingCodeVerifier: "callback-pkce-verifier",
+  })
+  const secret = process.env.BETTER_AUTH_SECRET
+  if (!secret) throw new Error("BETTER_AUTH_SECRET is required")
+  const state = genericOAuth.createOAuthStateToken({
+    organizationId: seeded.organizationId,
+    orgMembershipId: seeded.memberId,
+    providerId: "google-workspace",
+    secret,
+  })
+  const callbackUrl = new URL("http://den-api.local/v1/oauth-providers/google-workspace/connect/callback")
+  callbackUrl.searchParams.set("code", "authorization-code")
+  callbackUrl.searchParams.set("state", state)
+  return { ...seeded, pending, callbackUrl }
 }
 
 describe("buildNativeProviderEntry", () => {
@@ -278,6 +346,46 @@ describe("buildNativeProviderEntry", () => {
       id: replacement.id,
       accessToken: "replacement-access",
       refreshToken: "replacement-refresh",
+    })
+  })
+
+  test("OAuth callback records the email from the token endpoint id_token", async () => {
+    oauthIdentityMode = "id-token"
+    userinfoRequestCount = 0
+    const seeded = await seedPendingGoogleOAuth("IdTokenIdentity")
+
+    const response = await app.request(seeded.callbackUrl.toString())
+    expect(response.status).toBe(200)
+    expect(userinfoRequestCount).toBe(0)
+    await expect(oauthCredentials.getConnectedAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+    })).resolves.toMatchObject({
+      id: seeded.pending.id,
+      externalAccountId: "connected@example.com",
+      accessToken: "callback-access-token",
+      pendingCodeVerifier: null,
+    })
+  })
+
+  test("OAuth callback still completes when id_token is absent and userinfo fails", async () => {
+    oauthIdentityMode = "userinfo-failure"
+    userinfoRequestCount = 0
+    const seeded = await seedPendingGoogleOAuth("UserinfoFailure")
+
+    const response = await app.request(seeded.callbackUrl.toString())
+    expect(response.status).toBe(200)
+    expect(userinfoRequestCount).toBe(1)
+    await expect(oauthCredentials.getConnectedAccount({
+      organizationId: seeded.organizationId,
+      orgMembershipId: seeded.memberId,
+      providerId: "google-workspace",
+    })).resolves.toMatchObject({
+      id: seeded.pending.id,
+      externalAccountId: null,
+      accessToken: "callback-access-token",
+      pendingCodeVerifier: null,
     })
   })
 

@@ -92,6 +92,68 @@ const oauthStatusResponseSchema = z.object({
   scopes: z.array(z.string()).nullable(),
 }).meta({ ref: "OAuthProviderStatusResponse" })
 
+const nativeOAuthIdentitySchema = z.object({
+  email: z.string().trim().email().max(320),
+})
+const NATIVE_OAUTH_USERINFO_TIMEOUT_MS = 5_000
+
+function emailFromIdToken(idToken: string | undefined): string | null {
+  const segments = idToken?.split(".")
+  if (segments?.length !== 3) return null
+  const encodedPayload = segments[1]
+  if (!encodedPayload) return null
+  try {
+    // Identity hint only: the token came directly from the configured token
+    // endpoint over TLS and is never used here for authentication or authorization.
+    const payload: unknown = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"))
+    const parsed = nativeOAuthIdentitySchema.safeParse(payload)
+    return parsed.success ? parsed.data.email : null
+  } catch {
+    return null
+  }
+}
+
+async function resolveExternalAccountId(input: {
+  provider: NativeOAuthProviderConfig
+  accessToken: string
+  idToken?: string
+  requestId: string
+}): Promise<string | null> {
+  const idTokenEmail = emailFromIdToken(input.idToken)
+  if (idTokenEmail) return idTokenEmail
+  if (!input.provider.userinfoUrl) return null
+
+  try {
+    const response = await fetch(input.provider.userinfoUrl, {
+      headers: { authorization: `Bearer ${input.accessToken}` },
+      signal: AbortSignal.timeout(NATIVE_OAUTH_USERINFO_TIMEOUT_MS),
+    })
+    if (!response.ok) {
+      console.warn("native_oauth_identity_resolution_failed", {
+        requestId: input.requestId,
+        providerId: input.provider.providerId,
+        status: response.status,
+      })
+      return null
+    }
+    const body: unknown = await response.json()
+    const parsed = nativeOAuthIdentitySchema.safeParse(body)
+    if (parsed.success) return parsed.data.email
+    console.warn("native_oauth_identity_resolution_failed", {
+      requestId: input.requestId,
+      providerId: input.provider.providerId,
+      code: "invalid_userinfo_response",
+    })
+  } catch (error) {
+    console.warn("native_oauth_identity_resolution_failed", {
+      requestId: input.requestId,
+      providerId: input.provider.providerId,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    })
+  }
+  return null
+}
+
 function callbackRedirectUri(request: Request, providerId: string) {
   const origin = resolvePublicOrigin(request, env.apiPublicUrl)
   return `${origin}/v1/oauth-providers/${encodeURIComponent(providerId)}/connect/callback`
@@ -432,6 +494,12 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
           redirectUri: callbackRedirectUri(c.req.raw, providerId),
           codeVerifier: pending.pendingCodeVerifier,
         })
+        const externalAccountId = await resolveExternalAccountId({
+          provider,
+          accessToken: tokens.access_token,
+          idToken: tokens.id_token,
+          requestId: c.get("requestId"),
+        })
 
         const saved = await completeConnectedAccountForActiveMember({
           organizationId: statePayload.organizationId,
@@ -439,6 +507,7 @@ export function registerOAuthProviderRoutes<T extends { Variables: OrgRouteVaria
           providerId,
           expectedAccountId: pending.id,
           expectedPendingCodeVerifier: pending.pendingCodeVerifier,
+          externalAccountId,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token ?? null,
           tokenType: tokens.token_type ?? null,

@@ -6,7 +6,7 @@ import type { DenTypeId } from "@openwork-ee/utils/typeid"
 import { env } from "../../env.js"
 import { jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
-import { buildGmailDraftRaw, readGmailDraftIds } from "../../capability-sources/gmail.js"
+import { buildGmailDraftRaw, gmailDraftUrl, gmailThreadUrl, readGmailDraftIds } from "../../capability-sources/gmail.js"
 import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
 import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
 import {
@@ -98,14 +98,6 @@ const upstreamErrorSchema = z.object({
   error: z.literal("google_api_error"),
   message: z.string(),
 }).meta({ ref: "GoogleWorkspaceUpstreamError" })
-
-function gmailDraftUrl(messageId: string | null): string | null {
-  return messageId ? `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(messageId)}` : null
-}
-
-function gmailThreadUrl(threadId: string | undefined): string | null {
-  return threadId ? `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}` : null
-}
 
 const gmailMessagesQuerySchema = z.object({
   q: z.string().trim().min(1).max(1_000).optional().describe("Optional Gmail search query, using Gmail's search syntax."),
@@ -1142,8 +1134,8 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         ok: true,
         draftId,
         messageId,
-        draftUrl: gmailDraftUrl(messageId),
-        threadUrl: gmailThreadUrl(threadId),
+        draftUrl: gmailDraftUrl(messageId, token.account.externalAccountId ?? undefined),
+        threadUrl: gmailThreadUrl(threadId, token.account.externalAccountId ?? undefined),
         to,
         subject,
         threadId: threadId ?? null,

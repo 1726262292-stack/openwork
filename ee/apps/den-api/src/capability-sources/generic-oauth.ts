@@ -174,6 +174,7 @@ export function buildAuthorizeUrl(input: {
 type TokenResponse = {
   access_token: string
   refresh_token?: string
+  id_token?: string
   expires_in?: number
   token_type?: string
   scope?: string
@@ -182,6 +183,7 @@ type TokenResponse = {
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
   refresh_token: z.string().min(1).optional(),
+  id_token: z.string().optional().catch(undefined),
   expires_in: z.number().nonnegative().optional(),
   token_type: z.string().min(1).optional(),
   scope: z.string().optional(),
