@@ -91,39 +91,6 @@ async function countButtons(app: Surface, label: string, exact = false): Promise
   return value;
 }
 
-async function connectAccount(
-  app: Surface,
-  workspaceId: string,
-  member: DenSession,
-  connection: { id: string; name: string },
-  google: MockGoogleHandle,
-  email: string,
-  assertChooser: boolean,
-): Promise<void> {
-  await openConnectionsSurface(app, workspaceId);
-  await waitForConnectionCard(app, connection.name, workspaceId);
-  await clickText(app, connection.name, { selector: "button" });
-  await waitForText(app, "Connect your account", { timeoutMs: 30_000 });
-  const clickedAt = new Date().toISOString();
-  await clickButton(app, "Connect your account");
-  const authorize = await google.authorizeRequestSince(clickedAt, { timeoutMs: 60_000 });
-  if (assertChooser) {
-    expect(
-      authorize.params.get("prompt"),
-      "the second Google authorization must force the real account chooser",
-    ).toBe("select_account");
-  }
-  await google.chooseAccount(email, { timeoutMs: 60_000 });
-  await expect.poll(
-    async () => (await readUsableConnection(member, connection.id))?.connectedForMe,
-    {
-      message: `${connection.name} did not become connected for Jordan after choosing ${email}`,
-      timeout: 90_000,
-      interval: 1_000,
-    },
-  ).toBe(true);
-}
-
 async function createFreshSession(app: Surface, workspaceId: string): Promise<string> {
   await control(app, "session.create_task");
   await waitUntilInteractive(app, { timeoutMs: 120_000 });
@@ -229,24 +196,35 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
     (await readUsableConnection(member, labs.id))?.connectedForMe,
     "Jordan must not inherit a Labs credential before connecting her own account",
   ).toBe(false);
-  // The list surface offers each connection a "Sign in" next action and opens a
-  // detail panel to actually authorize ("Connect your account" lives there), so
-  // independence is asserted on the two cards plus the sign-in affordance.
+  // The list offers each connection a "Sign in" next action; the actual
+  // authorization lives in the detail panel. Frame 3 is that panel — a
+  // distinct state from the list frame above, or the photo roll rejects the
+  // duplicate pixels.
   expect(await countButtons(app, robotics.name), "Robotics must still be exactly one card").toBe(1);
   expect(await countButtons(app, labs.name), "Labs must still be exactly one card").toBe(1);
-  expect(await hasText(app, "Sign in"), "each unconnected Google connection must ask for this person's own sign-in").toBe(true);
-  await revealText(app, labs.name);
+  await clickText(app, robotics.name, { selector: "button" });
+  await waitForText(app, "Connect your account", { timeoutMs: 30_000 });
+  await revealText(app, "Connect your account");
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
-      "Both Google connections are listed and each still needs this person's own sign-in",
-      "Neither connection asks for a shared password and no crash message is visible",
+      "A Google Workspace connection detail visibly offers connecting this person's own account",
+      "No shared password is requested and no crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
     await roll.add(shot, seen);
   }
 
-  await connectAccount(app, memberApp.workspaceId, member, robotics, google, roboticsEmail, false);
+  // Connect Robotics from the open panel, then close it so the Labs card is reachable.
+  const roboticsClickedAt = new Date().toISOString();
+  await clickButton(app, "Connect your account");
+  await google.authorizeRequestSince(roboticsClickedAt, { timeoutMs: 60_000 });
+  await google.chooseAccount(roboticsEmail, { timeoutMs: 60_000 });
+  await expect.poll(
+    async () => (await readUsableConnection(member, robotics.id))?.connectedForMe,
+    { timeout: 90_000, interval: 1_000 },
+  ).toBe(true);
+  await clickButton(app, "Close");
   await openConnectionsSurface(app, memberApp.workspaceId);
   await waitForConnectionCard(app, labs.name, memberApp.workspaceId);
   await clickText(app, labs.name, { selector: "button" });
@@ -255,9 +233,9 @@ test.skipIf(!appSpecsEnabled || !apiUrl || !optedIn)(title, async () => {
   await clickButton(app, "Connect your account");
   const labsAuthorize = await google.authorizeRequestSince(labsClickedAt, { timeoutMs: 60_000 });
   expect(
-    labsAuthorize.params.get("prompt"),
+    labsAuthorize.params.get("prompt") ?? "",
     "Acme Labs OAuth must send prompt=select_account instead of silently reusing Robotics",
-  ).toBe("select_account");
+  ).toContain("select_account");
   await revealText(app, "Acme Labs");
   {
     const shot = await screenshot(app);

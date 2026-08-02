@@ -254,13 +254,35 @@ export async function revealText(app: Surface, text: string, timeoutMs = 45_000)
   await new Promise((resolve) => setTimeout(resolve, 750));
 }
 
-/** The connections surface, settled — polling before it mounts finds nothing. */
+/**
+ * The connections surface, settled — polling before it mounts finds nothing.
+ *
+ * Navigates in a steer-back loop, not once: the app opens a freshly created
+ * session on its own, and that navigation can land AFTER our go(), parking
+ * the app on /session while a single 60s wait times out. Same race and same
+ * cure as waitForConnectionCard.
+ */
 export async function openConnectionsSurface(app: Surface, workspaceId: string): Promise<void> {
-  await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
-  await waitFor(app, `window.location.hash.includes("/extensions") && document.body.innerText.includes("Extensions")`, {
-    timeoutMs: 60_000,
-    label: "extensions connections route (app canonicalises away /settings)",
-  });
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const settled = await evalIn(
+      app,
+      `window.location.hash.includes("/extensions") && document.body.innerText.includes("Extensions")`,
+      { timeoutMs: 8_000 },
+    ).catch(() => false);
+    if (settled === true) return;
+    await go(app, `/workspace/${workspaceId}/settings/extensions/connections`).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+  }
+  // Say what WAS on screen: a bare timeout cannot distinguish a route that
+  // never rewrote from a shell the app steered somewhere else entirely.
+  const seen = await evalIn(app, `({
+    hash: window.location.hash,
+    title: document.title,
+    buttons: [...document.querySelectorAll('button')].map((b) => (b.textContent ?? '').replace(/\\s+/g, ' ').trim()).filter(Boolean).slice(0, 30),
+    text: (document.body.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 500),
+  })`, { timeoutMs: 10_000 }).catch(() => null);
+  throw new Error(`The extensions connections surface never settled. On screen: ${JSON.stringify(seen)}`);
 }
 
 export async function currentHash(app: Surface): Promise<string> {

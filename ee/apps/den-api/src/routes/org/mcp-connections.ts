@@ -932,6 +932,7 @@ async function toConnectionResponse(
   let connectedForMe = connected && row.credentialMode === "shared"
   let grantedScopes = row.scope?.split(/\s+/).filter(Boolean) ?? []
   let callerCredentialHealth = row.credentialHealth
+  let callerExternalAccountId: string | null = null
   if (row.credentialMode === "per_member") {
     const account = await getConnectedAccount({
       organizationId: row.organizationId,
@@ -939,6 +940,7 @@ async function toConnectionResponse(
       providerId: row.id,
     })
     connectedForMe = Boolean(account?.accessToken)
+    callerExternalAccountId = account?.accessToken ? account.externalAccountId : null
     callerCredentialHealth = account?.credentialHealth ?? null
     grantedScopes = account?.scopes ?? []
     if (options.includeAccess) {
@@ -1001,6 +1003,14 @@ async function toConnectionResponse(
     url: row.url,
     authType: row.authType,
     credentialMode: row.credentialMode,
+    // Which service a native connector fronts ("google-workspace"), so a
+    // member's card can say what they would be signing in to. Null for
+    // external MCP rows, whose url already names the service.
+    nativeProviderKey: row.kind === "native_provider" ? row.nativeProviderKey : null,
+    // The caller's own connected identity (their email for Google), so the
+    // card can say WHICH account is signed in — the whole point of holding
+    // more than one connector for the same service.
+    externalAccountId: callerExternalAccountId,
     connected,
     connectedAt: connectedAt ? connectedAt.toISOString() : null,
     ...(options.includeAccess ? { createdByName: options.createdByName ?? null } : {}),

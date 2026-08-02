@@ -34,6 +34,8 @@ export type NativeProviderConnectionEntry = {
   connectedForMe: boolean
   needsReconnect: boolean
   missingFeatures: string[]
+  /** Which service this connector fronts ("google-workspace"), so an admin-named card ("Acme Labs") can still say what it signs in to. */
+  nativeProviderKey: string
   externalAccountId?: string | null
   grantedScopes?: string[]
   tenantId?: string | null
@@ -88,6 +90,7 @@ export function buildNativeProviderEntry(
     url: provider.websiteUrl,
     authType: "oauth",
     credentialMode: "per_member",
+    nativeProviderKey: provider.providerId,
     connected: true,
     connectedAt: null,
     connectedForMe: state.connectedForMe,
