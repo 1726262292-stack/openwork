@@ -44,7 +44,8 @@ async function setViewport(ctx: FlowContext, width: number, height: number): Pro
 
 async function navigateTo(ctx: FlowContext, path: string, title: string): Promise<void> {
   const url = new URL(path, denWebUrl()).toString();
-  await ctx.eval(`(() => { location.assign(${JSON.stringify(url)}); return true; })()`);
+  ctx.assert(Boolean(ctx.page), "A browser page is required.");
+  await ctx.page?.goto(url, { waitUntil: "domcontentloaded" });
   await ctx.waitFor(
     `(() => {
       if (location.pathname !== ${JSON.stringify(path)} || document.readyState !== "complete") return false;
