@@ -274,7 +274,9 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
       browser,
       `document.body.innerText.includes("Library")
         && document.body.innerText.includes(${JSON.stringify(pluginName)})
-        && document.body.innerText.includes("Shared by Casey")`,
+        && [...document.querySelectorAll("[data-library-grid] span")].some((entry) =>
+          (entry.textContent ?? "").replace(/\\s+/g, " ").includes("Shared by Casey")
+        )`,
       { timeoutMs: 60_000, label: "member library, shared plugin, and Casey provenance" },
     );
   } catch (error) {
@@ -287,12 +289,37 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     `[...document.querySelectorAll("aside, nav")].some((entry) => (entry.textContent ?? "").includes("Library"))`,
   );
   expect(libraryNavPresent).toBe(true);
+  const heroContainsDescription = await evalIn(browser, `(() => {
+    const heading = [...document.querySelectorAll("h1")].find((entry) => entry.textContent?.trim() === "Library");
+    const hero = heading?.closest("[data-dashboard-hero]");
+    return Boolean(hero?.textContent?.includes("Everything you can use in chat"));
+  })()`);
+  expect(heroContainsDescription).toBe(true);
+  const descriptionBeforeTabs = await evalIn(browser, `(() => {
+    const text = document.body.innerText;
+    const descriptionIndex = text.indexOf("Everything you can use in chat");
+    const firstTab = [...document.querySelectorAll('[role="tab"]')].find((entry) => entry.textContent?.trim() === "All");
+    const tabIndex = firstTab ? text.indexOf(firstTab.textContent ?? "") : -1;
+    return descriptionIndex >= 0 && tabIndex >= 0 && descriptionIndex < tabIndex;
+  })()`);
+  expect(descriptionBeforeTabs).toBe(true);
+  const gridHasNoComponentCount = await evalIn(
+    browser,
+    `!(/\\bcomponents?\\b/i.test(document.querySelector("[data-library-grid]")?.textContent ?? ""))`,
+  );
+  expect(gridHasNoComponentCount).toBe(true);
+  const searchBeforeTabs = await evalIn(browser, `(() => {
+    const search = document.querySelector('input[placeholder="Search your library"]');
+    const firstTab = [...document.querySelectorAll('[role="tab"]')].find((entry) => entry.textContent?.trim() === "All");
+    return Boolean(search && firstTab && (search.compareDocumentPosition(firstTab) & Node.DOCUMENT_POSITION_FOLLOWING));
+  })()`);
+  expect(searchBeforeTabs).toBe(true);
 
   await using roll = photoRoll("p3-library");
   const desktopShot = await screenshot(browser);
   const desktopSeen = await validate(desktopShot, [
-    "A library page lists plugin cards with provenance chips",
-    "A chip reading Shared by is visible",
+    "A gradient hero card titled Library contains the description text inside it",
+    "Plugin cards show name, description and small provenance pills with no component counts",
   ]);
   await roll.add(desktopShot, desktopSeen);
   expect(desktopSeen.ok, desktopSeen.why).toBe(true);
@@ -307,6 +334,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   const mobileSeen = await validate(mobileShot, [
     "A narrow mobile layout shows library cards in a single column",
     "Provenance chips wrap and remain readable",
+    "the hero is short and does not dominate the screen",
   ]);
   await roll.add(mobileShot, mobileSeen);
   expect(mobileSeen.ok, mobileSeen.why).toBe(true);

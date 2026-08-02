@@ -52,42 +52,53 @@ function sourceRepositoryName(value: string | null): string | null {
 
 function EdgeChip({ edge }: { edge: LibraryAccessEdge }) {
   if (edge.kind === "mine") {
-    return <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11.5px] font-medium text-emerald-700">Yours</span>;
+    return <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">Yours</span>;
   }
   if (edge.kind === "person") {
-    return <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11.5px] font-medium text-blue-700">Shared by {edge.sharedBy?.name ?? "someone"}</span>;
+    return (
+      <span className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+        <span className="shrink-0">Shared by&nbsp;</span>
+        <span className="min-w-0 max-w-[220px] truncate">{edge.sharedBy?.name ?? "someone"}</span>
+      </span>
+    );
   }
   if (edge.kind === "team") {
-    return <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11.5px] font-medium text-gray-600">Team: {edge.team.name}</span>;
+    return (
+      <span className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+        <span className="shrink-0">Team:&nbsp;</span>
+        <span className="min-w-0 max-w-[220px] truncate">{edge.team.name}</span>
+      </span>
+    );
   }
   if (edge.kind === "catalog") {
-    return <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11.5px] font-medium text-blue-700">Catalog: {edge.marketplace.name}</span>;
+    return (
+      <span className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+        <span className="shrink-0">Catalog:&nbsp;</span>
+        <span className="min-w-0 max-w-[220px] truncate">{edge.marketplace.name}</span>
+      </span>
+    );
   }
-  return <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11.5px] font-medium text-emerald-700">Everyone</span>;
+  return <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-600">Everyone</span>;
 }
 
 function LibraryCard({ item, isAdmin, orgSlug }: { item: LibraryPluginAccessItem; isAdmin: boolean; orgSlug: string | null }) {
   const sourceName = sourceRepositoryName(item.plugin.sourceRepositoryUrl);
   const content = (
-    <>
-      <div className="flex items-start justify-between gap-4">
-        <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-gray-950">{item.plugin.name}</h2>
-        <span className="shrink-0 text-[11.5px] text-gray-400">
-          {item.plugin.componentCount} {item.plugin.componentCount === 1 ? "component" : "components"}
-        </span>
-      </div>
-      <p className="mt-2 line-clamp-2 min-h-10 text-[13px] leading-5 text-gray-500">
+    <div className="flex flex-col gap-2.5">
+      <h2 className="text-[15px] font-semibold text-gray-950">{item.plugin.name}</h2>
+      <p className="line-clamp-2 text-[13px] leading-5 text-gray-500">
         {item.plugin.description ?? "No description provided."}
       </p>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {item.edges.map((edge, index) => <EdgeChip key={`${edge.kind}-${index}`} edge={edge} />)}
         {sourceName ? (
-          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11.5px] font-medium text-gray-600">
-            From {sourceName}
+          <span className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+            <span className="shrink-0">From&nbsp;</span>
+            <span className="min-w-0 max-w-[220px] truncate">{sourceName}</span>
           </span>
         ) : null}
       </div>
-    </>
+    </div>
   );
   const className = `block rounded-2xl border border-gray-200 bg-white p-5 ${isAdmin ? "transition-colors hover:border-gray-400" : ""}`;
 
@@ -124,25 +135,28 @@ export function LibraryScreen() {
   return (
     <DashboardPageTemplate
       icon={LibraryBig}
+      badgeLabel="Member library"
       title="Library"
       description="Everything you can use in chat — yours, shared with you, from your teams, and org-wide."
+      descriptionPlacement="hero"
       colors={["#DBEAFE", "#1E3A8A", "#2563EB", "#A7F3D0"]}
+      size="responsive"
     >
-      <div className="mb-6 space-y-4">
-        <div className="overflow-x-auto">
-          <UnderlineTabs
-            className="min-w-max [&>nav]:flex-nowrap"
-            tabs={LIBRARY_TABS}
-            activeTab={activeTab}
-            onChange={setActiveTab}
-          />
-        </div>
+      <div className="mb-5 w-full max-w-[340px]">
         <DenInput
           type="search"
           icon={Search}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search your library..."
+          placeholder="Search your library"
+        />
+      </div>
+      <div className="mb-6 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <UnderlineTabs
+          className="min-w-max [&>nav]:flex-nowrap"
+          tabs={LIBRARY_TABS}
+          activeTab={activeTab}
+          onChange={setActiveTab}
         />
       </div>
 
@@ -165,7 +179,7 @@ export function LibraryScreen() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div data-library-grid className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
           {visibleItems.map((item) => (
             <LibraryCard key={item.plugin.id} item={item} isAdmin={access.isAdmin} orgSlug={orgSlug} />
           ))}

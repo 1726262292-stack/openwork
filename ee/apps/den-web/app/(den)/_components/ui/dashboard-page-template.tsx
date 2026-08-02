@@ -38,7 +38,9 @@ export type DashboardPageTemplateProps = {
    */
   colors: [string, string, string, string];
   /** `compact` shrinks the hero for setup/onboarding pages. */
-  size?: "default" | "compact";
+  size?: "default" | "compact" | "responsive";
+  /** Places the supporting copy inside the gradient hero instead of below it. */
+  descriptionPlacement?: "below" | "hero";
   children?: React.ReactNode;
 };
 
@@ -49,18 +51,24 @@ export function DashboardPageTemplate({
   description,
   colors,
   size = "default",
+  descriptionPlacement = "below",
   children,
 }: DashboardPageTemplateProps) {
   const compact = size === "compact";
+  const responsive = size === "responsive";
+  const descriptionInHero = descriptionPlacement === "hero";
   const webGlSupported = useWebGlSupported();
 
   return (
-    <div className={`mx-auto max-w-[860px] ${compact ? "p-6 md:p-8" : "p-8"}`}>
+    <div className={`mx-auto max-w-[860px] ${compact || responsive ? "p-6 md:p-8" : "p-8"}`}>
       {/* ── Gradient hero card ── */}
       <div
+        data-dashboard-hero
         className={`relative flex items-center overflow-hidden border border-gray-100 ${
           compact
             ? "mb-5 h-[88px] rounded-2xl px-6 sm:h-[96px] sm:px-8"
+            : responsive
+              ? "mb-5 h-[88px] rounded-2xl px-6 sm:h-[96px] sm:px-8 md:mb-8 md:h-[200px] md:rounded-3xl md:px-10"
             : "mb-8 h-[200px] rounded-3xl px-10"
         }`}
       >
@@ -104,6 +112,8 @@ export function DashboardPageTemplate({
             className={`absolute z-10 flex items-center justify-center rounded-xl border border-white/30 bg-white/20 backdrop-blur-md ${
               compact
                 ? "right-5 top-1/2 h-9 w-9 -translate-y-1/2"
+                : responsive
+                  ? "right-5 top-1/2 h-9 w-9 -translate-y-1/2 md:right-8 md:top-8 md:h-12 md:w-12 md:translate-y-0"
                 : "right-8 top-8 h-12 w-12"
             }`}
           >
@@ -111,31 +121,66 @@ export function DashboardPageTemplate({
           </div>
         ) : null}
 
-        {/* Badge (optional) + Title */}
-        <div
-          className={`absolute z-10 flex flex-col items-start gap-2 ${
-            compact ? "left-6 top-1/2 -translate-y-1/2 sm:left-8" : "bottom-8 left-10"
-          }`}
-        >
-          {badgeLabel ? (
-            <span className="rounded-full border border-white/20 bg-white/20 px-2.5 py-1 text-[10px] uppercase tracking-[1px] text-white backdrop-blur-md">
-              {badgeLabel}
-            </span>
-          ) : null}
-          <h1
-            className={`font-medium text-white ${
-              compact
-                ? "text-[20px] tracking-[-0.03em] sm:text-[22px]"
-                : "text-[28px] tracking-[-0.5px]"
+        {descriptionInHero ? (
+          <div
+            className={`absolute z-10 ${
+              responsive
+                ? "inset-y-0 left-6 right-16 flex flex-col justify-center gap-1.5 sm:left-8 md:inset-y-auto md:bottom-8 md:left-10 md:right-20 md:items-start md:gap-2"
+                : compact
+                  ? "inset-y-0 left-6 right-16 flex flex-col justify-center gap-1.5 sm:left-8"
+                  : "bottom-8 left-10 right-20 flex flex-col items-start gap-2"
             }`}
           >
-            {title}
-          </h1>
-        </div>
+            <div className={responsive ? "flex items-center gap-2 md:flex-col md:items-start" : "flex flex-col items-start gap-2"}>
+              {badgeLabel ? (
+                <span className="rounded-full border border-white/20 bg-white/20 px-2.5 py-1 text-[10px] uppercase tracking-[1px] text-white backdrop-blur-md">
+                  {badgeLabel}
+                </span>
+              ) : null}
+              <h1
+                className={`font-medium text-white ${
+                  responsive
+                    ? "text-[20px] tracking-[-0.03em] sm:text-[22px] md:text-[28px] md:tracking-[-0.5px]"
+                    : compact
+                      ? "text-[20px] tracking-[-0.03em] sm:text-[22px]"
+                      : "text-[28px] tracking-[-0.5px]"
+                }`}
+              >
+                {title}
+              </h1>
+            </div>
+            <p className="line-clamp-2 max-w-[650px] text-[11px] leading-4 text-white/85 md:line-clamp-none md:text-[13px] md:leading-5">
+              {description}
+            </p>
+          </div>
+        ) : (
+          <div
+            className={`absolute z-10 flex flex-col items-start gap-2 ${
+              compact ? "left-6 top-1/2 -translate-y-1/2 sm:left-8" : "bottom-8 left-10"
+            }`}
+          >
+            {badgeLabel ? (
+              <span className="rounded-full border border-white/20 bg-white/20 px-2.5 py-1 text-[10px] uppercase tracking-[1px] text-white backdrop-blur-md">
+                {badgeLabel}
+              </span>
+            ) : null}
+            <h1
+              className={`font-medium text-white ${
+                compact
+                  ? "text-[20px] tracking-[-0.03em] sm:text-[22px]"
+                  : "text-[28px] tracking-[-0.5px]"
+              }`}
+            >
+              {title}
+            </h1>
+          </div>
+        )}
       </div>
 
       {/* ── Description ── */}
-      <p className={`text-[14px] text-gray-500 ${compact ? "mb-5" : "mb-6"}`}>{description}</p>
+      {!descriptionInHero ? (
+        <p className={`text-[14px] text-gray-500 ${compact ? "mb-5" : "mb-6"}`}>{description}</p>
+      ) : null}
 
       {/* ── Page content ── */}
       {children}
