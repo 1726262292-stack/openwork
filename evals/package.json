@@ -7,6 +7,7 @@
     "spec:nightly": "vitest run --config vitest.config.ts",
     "roll": "node packages/evidence/bin/roll.mjs",
     "publish:pr": "node packages/evidence/bin/publish-pr.mjs",
+    "dev:den": "node scripts/dev-den.ts",
     "provision:org-connector-two-members": "node scripts/provision-org-connector-two-members.ts",
     "test": "node --test runner/*.test.ts packages/*/test/*.test.ts",
     "typecheck": "tsc -p ."

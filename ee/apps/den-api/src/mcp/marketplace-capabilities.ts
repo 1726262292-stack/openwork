@@ -1070,7 +1070,8 @@ async function marketplacePluginMcpRequirementStatuses(input: {
   const byPlugin = new Map<string, MarketplaceMcpRequirementStatus[]>()
   if (requirements.length === 0) return byPlugin
 
-  const allConnections = await listExternalMcpConnections(input.organizationId)
+  const allConnections = (await listExternalMcpConnections(input.organizationId))
+    .filter((connection) => connection.kind === "external_mcp")
   const usableConnections = await listUsableExternalMcpConnections({
     organizationId: input.organizationId,
     orgMembershipId: input.member.orgMembershipId,
@@ -1216,7 +1217,8 @@ export async function resolveMarketplacePluginCloudReadiness(input: {
     orgMembershipId: input.member.orgMembershipId,
     teamIds: input.member.teamIds,
   })
-  const allConnections = await listExternalMcpConnections(input.organizationId)
+  const allConnections = (await listExternalMcpConnections(input.organizationId))
+    .filter((connection) => connection.kind === "external_mcp")
   const desktopManifestPluginIds = new Set(input.desktopManifestPluginIds ?? [])
 
   for (const pluginId of pluginIds) {

@@ -1,10 +1,30 @@
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { notImplemented } from "@openwork/labs";
 
 export type DenRef = { apiUrl: string; webUrl: string };
 export type DenSession = DenRef & { token: string; email: string };
 export type ConnectionFacts = { id: string; name: string; connectedForMe: boolean | null; connectedAt: string | null };
 export type DenFetchResult = { response: Response; body: unknown; text: string };
+
+export interface NativeConnectorInput {
+  providerKey: string;
+  name: string;
+  clientId: string;
+  clientSecret: string;
+  features?: string[];
+  access?: { orgWide?: boolean };
+}
+
+export interface ProvisionOrgInput {
+  connectors?: string[];
+  members?: string[];
+}
+
+export interface ProvisionedOrg {
+  admin: DenSession;
+  orgId: string;
+}
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
@@ -171,6 +191,31 @@ export async function createOrgConnection(
   return { id: connection.id, name: connection.name };
 }
 
+export async function createNativeConnector(
+  admin: DenSession,
+  input: NativeConnectorInput,
+): Promise<{ id: string; name: string }> {
+  const result = await denFetch(admin, "/v1/mcp-connections", {
+    method: "POST",
+    headers: auth(admin),
+    body: JSON.stringify({
+      kind: "native_provider",
+      nativeProviderKey: input.providerKey,
+      name: input.name,
+      oauthClient: {
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+        features: input.features,
+      },
+    }),
+  });
+  const connection = parseConnection(result.body);
+  if (!result.response.ok || !connection) {
+    throw new Error(`Native connector create failed: HTTP ${result.response.status} ${preview(result.body)}`);
+  }
+  return { id: connection.id, name: connection.name };
+}
+
 export async function deleteConnection(admin: DenSession, id: string): Promise<void> {
   const result = await denFetch(admin, `/v1/mcp-connections/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -191,6 +236,90 @@ export async function readUsableConnection(member: DenSession, id: string): Prom
   const result = await denFetch(member, "/v1/mcp-connections?scope=usable", { headers: auth(member) });
   if (!result.response.ok) throw new Error(`Usable connection list failed: HTTP ${result.response.status} ${preview(result.body)}`);
   return parseConnections(result.body).find((connection) => connection.id === id) ?? null;
+}
+
+export async function provisionOrg(den: DenRef, input: ProvisionOrgInput): Promise<ProvisionedOrg> {
+  const connectors = input.connectors ?? [];
+  for (const connector of connectors) {
+    if (connector !== "google-workspace") {
+      throw new Error(`Unsupported provisionOrg connector: ${connector}`);
+    }
+  }
+
+  const unique = `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 12)}`;
+  const password = process.env.OPENWORK_EVAL_DEMO_PASSWORD?.trim() || "OpenWorkDemo123!";
+  const email = `openwork-eval-admin-${unique}@example.test`;
+  const name = `OpenWork Eval ${unique}`;
+  const signUp = await denFetch(den, "/api/auth/sign-up/email", {
+    method: "POST",
+    body: JSON.stringify({ email, name, password }),
+  });
+  if (!signUp.response.ok) {
+    throw new Error(`Admin sign-up failed for ${email}: HTTP ${signUp.response.status} ${preview(signUp.body)}`);
+  }
+
+  const admin = await signIn(den, { email, password });
+  const createOrg = await denFetch(den, "/v1/org", {
+    method: "POST",
+    headers: auth(admin),
+    body: JSON.stringify({ name }),
+  });
+  const organization = isRecord(createOrg.body) && isRecord(createOrg.body.organization)
+    ? createOrg.body.organization
+    : null;
+  const orgId = stringField(organization, "id");
+  if (!createOrg.response.ok || !orgId) {
+    throw new Error(`Organization create failed: HTTP ${createOrg.response.status} ${preview(createOrg.body)}`);
+  }
+
+  for (const memberEmail of input.members ?? []) {
+    const member = await ensureMemberSession(den, admin, {
+      email: memberEmail,
+      password,
+      name: "OpenWork Eval Member",
+      markVerifiedCmd: process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim(),
+    });
+    const orgs = await denFetch(den, "/v1/me/orgs", { headers: auth(member) });
+    const memberships = isRecord(orgs.body) && Array.isArray(orgs.body.orgs) ? orgs.body.orgs : [];
+    if (!orgs.response.ok) {
+      throw new Error(`Organization membership list failed for ${memberEmail}: HTTP ${orgs.response.status} ${preview(orgs.body)}`);
+    }
+    if (memberships.some((entry) => stringField(entry, "id") === orgId)) continue;
+
+    const invite = await denFetch(den, "/v1/invitations", {
+      method: "POST",
+      headers: auth(admin),
+      body: JSON.stringify({ email: memberEmail, role: "member" }),
+    });
+    const inviteToken = stringField(invite.body, "inviteToken");
+    if (!invite.response.ok || !inviteToken) {
+      throw new Error(`Invitation failed for ${memberEmail}: HTTP ${invite.response.status} ${preview(invite.body)}`);
+    }
+    const accept = await denFetch(den, "/v1/orgs/invitations/accept", {
+      method: "POST",
+      headers: auth(member),
+      body: JSON.stringify({ id: inviteToken }),
+    });
+    if (!accept.response.ok || !isRecord(accept.body) || accept.body.accepted !== true) {
+      throw new Error(`Invitation accept failed for ${memberEmail}: HTTP ${accept.response.status} ${preview(accept.body)}`);
+    }
+  }
+
+  for (const connector of connectors) {
+    const configured = await denFetch(den, `/v1/oauth-providers/${connector}/client`, {
+      method: "POST",
+      headers: auth(admin),
+      body: JSON.stringify({
+        clientId: `openwork-eval-google-client-${unique}`,
+        clientSecret: `openwork-eval-google-secret-${unique}`,
+      }),
+    });
+    if (!configured.response.ok) {
+      throw new Error(`Connector configuration failed for ${connector}: HTTP ${configured.response.status} ${preview(configured.body)}`);
+    }
+  }
+
+  return { admin, orgId };
 }
 
 export async function createDesktopHandoffGrant(member: DenSession, desktopScheme = "openwork"): Promise<string> {

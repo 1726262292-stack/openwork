@@ -26,6 +26,7 @@ import {
   listBuiltinSkillDescriptors,
   searchBuiltinSkillCapabilities,
 } from "./builtin-skills.js"
+import { executeNativeCapability, searchNativeCapabilities } from "./native-capabilities.js"
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
@@ -441,7 +442,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
-          "Native API matches include pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField.",
+          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
@@ -457,6 +458,15 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
         const sourceFilter = searchCapabilitySourceFilter(type)
         const marketplaceObjectTypes = type === "skills" ? skillMarketplaceObjectTypes : undefined
         const restMatches = sourceFilter.api ? searchCapabilities(catalog, query, boundedLimit) : []
+        const nativeMatches = sourceFilter.api
+          ? await searchNativeCapabilities({
+            organizationId,
+            member: memberIdentity,
+            query,
+            catalog,
+            limit: boundedLimit,
+          })
+          : []
         const adminMatches = sourceFilter.admin
           ? await searchAvailableAdminCapabilities(await resolvePlatformAdmin(), query, boundedLimit)
           : []
@@ -490,7 +500,7 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
             enabled: externalMcpConnectionsEnabled,
           })
           : []
-        const matches = [...restMatches, ...adminMatches, ...builtinSkillMatches, ...externalMatches, ...marketplaceMatches]
+        const matches = [...restMatches, ...nativeMatches, ...adminMatches, ...builtinSkillMatches, ...externalMatches, ...marketplaceMatches]
           .sort(compareCapabilityMatches)
           .slice(0, boundedLimit)
         return capabilitySearchToolResult(matches, externalCoverageHint)
@@ -559,6 +569,20 @@ export function registerAgentMcpRoutes<T extends { Variables: Record<string, unk
               // what McpServer's own tool callback contract requires.
               return externalCapabilitySuccessToolResult(result)
             }
+
+            const nativeResult = await executeNativeCapability({
+              app: app as unknown as Hono,
+              env: c.env,
+              name,
+              organizationId,
+              member: memberIdentity,
+              catalog,
+              principal,
+              path,
+              query,
+              body,
+            })
+            if (nativeResult) return nativeResult
 
             const marketplace = parseMarketplaceCapabilityName(name)
             if (marketplace) {

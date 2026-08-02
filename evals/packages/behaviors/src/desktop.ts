@@ -1,6 +1,12 @@
 import { describeAppState, evaluateOnSurface, isInteractive, probeAppState } from "@openwork/cdp";
 import type { AppStateProbe, EvaluateOptions, Surface } from "@openwork/cdp";
 
+export interface SessionToolCall {
+  capability: string;
+  connectionId: string | null;
+  at: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -81,6 +87,87 @@ export async function waitForText(app: Surface, text: string, opts: { timeoutMs?
     timeoutMs: opts.timeoutMs,
     label: `visible text ${jsValue(text)}`,
   });
+}
+
+export async function readSessionToolCalls(
+  app: Surface,
+  opts?: { sessionId?: string; timeoutMs?: number },
+): Promise<SessionToolCall[]> {
+  const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
+  let sessionId = opts?.sessionId ?? "";
+  let openedSessionId = "";
+
+  while (Date.now() < deadline) {
+    if (!sessionId) {
+      const sessions = await control(app, "session.list_sessions", undefined, { timeoutMs: remainingReadMs(deadline) }).catch(() => null);
+      sessionId = mostRecentSessionId(sessions);
+    }
+
+    if (Date.now() >= deadline) break;
+    if (sessionId && openedSessionId !== sessionId) {
+      const opened = await control(app, "session.open", { sessionId }, { timeoutMs: remainingReadMs(deadline) })
+        .then(() => true)
+        .catch(() => false);
+      if (opened) openedSessionId = sessionId;
+    }
+
+    if (openedSessionId && Date.now() < deadline) {
+      const transcript = await control(app, "session.read_transcript", { count: 30 }, { timeoutMs: remainingReadMs(deadline) }).catch(() => null);
+      if (isRecord(transcript) && transcript.sessionId === openedSessionId) {
+        const calls = parseSessionToolCalls(transcript);
+        if (calls.length > 0) return calls;
+      }
+    }
+
+    await sleep(Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())));
+  }
+
+  return [];
+}
+
+function remainingReadMs(deadline: number): number {
+  return Math.max(1, Math.min(10_000, deadline - Date.now()));
+}
+
+function mostRecentSessionId(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  for (const session of value) {
+    if (!isRecord(session) || typeof session.sessionId !== "string") continue;
+    const sessionId = session.sessionId.trim();
+    if (sessionId) return sessionId;
+  }
+  return "";
+}
+
+function timelineAt(value: Record<string, unknown>): string {
+  for (const key of ["at", "timestamp", "createdAt"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string") return candidate;
+  }
+  return "";
+}
+
+function connectionIdFromCapability(capability: string): string | null {
+  const parts = capability.split(":");
+  if (parts.length !== 3 || (parts[0] !== "mcp" && parts[0] !== "native") || !parts[1] || !parts[2]) return null;
+  return parts[1];
+}
+
+/** Parse the payload returned by the app's `session.read_transcript` control action. */
+export function parseSessionToolCalls(value: unknown): SessionToolCall[] {
+  if (!isRecord(value) || !Array.isArray(value.messages)) return [];
+  const calls: SessionToolCall[] = [];
+  for (const message of value.messages) {
+    if (!isRecord(message) || typeof message.text !== "string") continue;
+    const matches = message.text.matchAll(/(?:^|\n)\[tool:([^\]\r\n]+)\]/g);
+    for (const match of matches) {
+      const capability = match[1];
+      if (!capability) continue;
+      calls.push({ capability, connectionId: connectionIdFromCapability(capability), at: timelineAt(message) });
+    }
+  }
+  return calls;
 }
 
 export async function hasText(app: Surface, text: string): Promise<boolean> {
@@ -168,6 +255,104 @@ export async function go(app: Surface, hashPath: string): Promise<void> {
     timeoutMs: 120_000,
     label: `navigate to ${hash}`,
   });
+}
+
+export async function waitForConnectionCard(app: Surface, name: string, workspaceId: string): Promise<void> {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline) {
+    // Short per-probe timeout, failure tolerated: two desktops in one sandbox
+    // make the renderer freeze in bursts, and a bare 20s evaluate turns one
+    // freeze into a failed spec.
+    const found = await evalIn(app, `([...document.querySelectorAll('button')]
+      .some((button) => (button.textContent ?? '').includes(${JSON.stringify(name)})))`, { timeoutMs: 8_000 })
+      .catch(() => false);
+    if (found === true) return;
+    // The app opens a freshly created session on its own, which navigates away
+    // from settings mid-poll. Steer back, the way a person would click back.
+    // The app CANONICALISES this route: /settings/extensions/connections
+    // becomes /extensions/connections. Checking for the pre-rewrite form made
+    // the steer-back below fire every iteration, so navigation fought the
+    // rewrite and the surface never settled — which looked like a blank page.
+    const onExtensions = await evalIn(app, `window.location.hash.includes("/extensions")`, { timeoutMs: 8_000 }).catch(() => false);
+    if (onExtensions !== true) {
+      await go(app, `/workspace/${workspaceId}/settings/extensions/connections`);
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      continue;
+    }
+    await evalIn(app, "window.__openworkControl.execute('extensions.refresh-marketplace', null)", { awaitPromise: true, timeoutMs: 15_000 })
+      .catch(() => undefined);
+    await evalIn(app, `(() => {
+      const button = [...document.querySelectorAll('button')]
+        .find((element) => (element.textContent ?? '').trim() === 'Refresh' && !element.disabled);
+      button?.click();
+      return Boolean(button);
+    })()`).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  // Say what WAS on screen: "card missing" alone cannot distinguish an
+  // unmounted surface from a connection den never offered this member.
+  const seen = await evalIn(app, `({
+    hash: window.location.hash,
+    buttons: [...document.querySelectorAll('button')].map((b) => (b.textContent ?? '').replace(/\\s+/g, ' ').trim()).filter(Boolean).slice(0, 40),
+    text: (document.body.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 600),
+  })`).catch(() => null);
+  throw new Error(`The connection card ${name} never appeared. On screen: ${JSON.stringify(seen)}`);
+}
+
+/**
+ * Wait for text to be REALLY on screen, then bring it into view.
+ *
+ * waitForText proves the DOM contains it; a frame proves pixels. The detail
+ * panel paints slightly after its text lands, so screenshotting on the DOM
+ * signal alone captures a blank panel intermittently.
+ */
+export async function revealText(app: Surface, text: string, timeoutMs = 45_000): Promise<void> {
+  await waitFor(app, `(() => {
+    // innerText, not textContent: innerText is render-aware, so CSS
+    // text-transform (a badge styled uppercase) matches what waitForText saw
+    // and what a person reads. Comparing raw textContent can never agree.
+    const wanted = ${JSON.stringify(text)}.toLowerCase();
+    const nodes = [...document.querySelectorAll("button, h1, h2, h3, p, span, div")];
+    const node = nodes.reverse().find((element) => ((element.innerText ?? element.textContent ?? "")).toLowerCase().includes(wanted));
+    if (!node) return false;
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    node.scrollIntoView({ block: "center" });
+    return true;
+  })()`, { timeoutMs, label: `visible text ${JSON.stringify(text)}` });
+  // One paint after scrolling, so the frame is not captured mid-scroll.
+  await new Promise((resolve) => setTimeout(resolve, 750));
+}
+
+/**
+ * The connections surface, settled — polling before it mounts finds nothing.
+ *
+ * Navigates in a steer-back loop, not once: the app opens a freshly created
+ * session on its own, and that navigation can land AFTER our go(), parking
+ * the app on /session while a single 60s wait times out. Same race and same
+ * cure as waitForConnectionCard.
+ */
+export async function openConnectionsSurface(app: Surface, workspaceId: string): Promise<void> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const settled = await evalIn(
+      app,
+      `window.location.hash.includes("/extensions") && document.body.innerText.includes("Extensions")`,
+      { timeoutMs: 8_000 },
+    ).catch(() => false);
+    if (settled === true) return;
+    await go(app, `/workspace/${workspaceId}/settings/extensions/connections`).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+  }
+  // Say what WAS on screen: a bare timeout cannot distinguish a route that
+  // never rewrote from a shell the app steered somewhere else entirely.
+  const seen = await evalIn(app, `({
+    hash: window.location.hash,
+    title: document.title,
+    buttons: [...document.querySelectorAll('button')].map((b) => (b.textContent ?? '').replace(/\\s+/g, ' ').trim()).filter(Boolean).slice(0, 30),
+    text: (document.body.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 500),
+  })`, { timeoutMs: 10_000 }).catch(() => null);
+  throw new Error(`The extensions connections surface never settled. On screen: ${JSON.stringify(seen)}`);
 }
 
 export async function currentHash(app: Surface): Promise<string> {
