@@ -4,7 +4,7 @@ import type { DenSession } from "@openwork/behaviors";
 
 const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim().replace(/\/+$/, "") ?? "";
 const title = apiUrl
-  ? "grant-native cloud skills are usable only by their creator"
+  ? "grant-native cloud skills can be shared by their creator without recipient re-sharing"
   : "skill grant access skipped: set OPENWORK_EVAL_DEN_API_URL";
 let requestId = 0;
 
@@ -77,6 +77,24 @@ async function mintMcpToken(session: DenSession, orgId: string): Promise<string>
   return token;
 }
 
+async function organizationMemberIdByEmail(session: DenSession, orgId: string, email: string): Promise<string> {
+  const result = await denFetch(session, "/v1/org", {
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      "x-openwork-org-id": orgId,
+    },
+  });
+  const members = isRecord(result.body) && Array.isArray(result.body.members)
+    ? result.body.members.filter(isRecord)
+    : [];
+  const member = members.find((entry) => isRecord(entry.user) && entry.user.email === email);
+  const memberId = member && typeof member.id === "string" ? member.id : "";
+  if (!result.response.ok || !memberId.startsWith("om_")) {
+    throw new Error(`Resolving ${email} in the active organization failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
+  }
+  return memberId;
+}
+
 async function callTool(
   mcpToken: string,
   name: "search_capabilities" | "execute_capability",
@@ -128,13 +146,22 @@ test.skipIf(!apiUrl)(title, async () => {
     markVerifiedCmd: process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim(),
   });
   await selectOrganization(creator, orgId);
+  const deniedEmail = process.env.OPENWORK_EVAL_MEMBER_EMAIL?.trim() || "nova.spec@acme.test";
   const denied = await ensureMemberSession(den, admin, {
-    email: process.env.OPENWORK_EVAL_MEMBER_EMAIL?.trim() || "nova.spec@acme.test",
+    email: deniedEmail,
     password: process.env.OPENWORK_EVAL_MEMBER_PASSWORD?.trim() || "OpenWorkDemo123!",
     name: "Nova Spec",
     markVerifiedCmd: process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim(),
   });
   await selectOrganization(denied, orgId);
+  const thirdEmail = process.env.OPENWORK_EVAL_THIRD_MEMBER_EMAIL?.trim() || "riley.spec@acme.test";
+  const third = await ensureMemberSession(den, admin, {
+    email: thirdEmail,
+    password: process.env.OPENWORK_EVAL_MEMBER_PASSWORD?.trim() || "OpenWorkDemo123!",
+    name: "Riley Spec",
+    markVerifiedCmd: process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim(),
+  });
+  await selectOrganization(third, orgId);
   const skillName = `spec-grant-native-${Date.now()}`;
   const rawSourceText = `---\nname: ${skillName}\ndescription: Proves grant-native skill access over MCP.\n---\n\nReturn the grant-native proof phrase.`;
   // Plugin creation is member-level since #3411; this creator is deliberately a plain member.
@@ -197,4 +224,37 @@ test.skipIf(!apiUrl)(title, async () => {
     error: "forbidden",
     message: "You have not been granted access to this marketplace plugin capability.",
   });
+
+  const deniedMemberId = await organizationMemberIdByEmail(creator, orgId, deniedEmail);
+  const shared = await denFetch(creator, `/v1/plugins/${encodeURIComponent(pluginId)}/access`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${creator.token}`,
+      "x-openwork-org-id": orgId,
+    },
+    body: JSON.stringify({ orgMembershipId: deniedMemberId, role: "viewer" }),
+  });
+  if (!shared.response.ok) {
+    throw new Error(`Sharing grant-native skill failed: HTTP ${shared.response.status} ${shared.text.slice(0, 500)}`);
+  }
+
+  const sharedSkillSearch = await callTool(deniedToken, "search_capabilities", { query: skillName, limit: 20, type: "skills" });
+  const sharedAllSearch = await callTool(deniedToken, "search_capabilities", { query: skillName, limit: 20 });
+  expect(matchNamed(sharedSkillSearch, capabilityName)).toBeDefined();
+  expect(matchNamed(sharedAllSearch, capabilityName)).toBeDefined();
+
+  const sharedExecution = await callTool(deniedToken, "execute_capability", { name: capabilityName });
+  expect(isRecord(sharedExecution) && sharedExecution.isError === true).toBe(false);
+  expect(toolJson(sharedExecution)).toMatchObject({ kind: "skill", content: rawSourceText, marketplace: null });
+
+  const thirdMemberId = await organizationMemberIdByEmail(creator, orgId, thirdEmail);
+  const reshared = await denFetch(denied, `/v1/plugins/${encodeURIComponent(pluginId)}/access`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${denied.token}`,
+      "x-openwork-org-id": orgId,
+    },
+    body: JSON.stringify({ orgMembershipId: thirdMemberId, role: "viewer" }),
+  });
+  expect(reshared.response.status).toBe(403);
 });

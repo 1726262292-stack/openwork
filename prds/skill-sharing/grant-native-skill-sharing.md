@@ -212,6 +212,26 @@ Hardcoded Team-scoped defaults (person ✔, own team ✔, org admin-only).
 Proof: suite covering grant writes, recipient visibility via P1 index,
 non-manager denial, recipient cannot re-share.
 
+#### P2 results — PASSED (verified 2026-08-02, branch `feat/p2-share-verbs`)
+
+- `share-plugin` builtin (`skill:share-plugin`): getOrg → postPluginsAccess →
+  getPluginsAccess; viewer by default, editor only on explicit ask, org-wide
+  relayed as admin-only; never invents ids. `create-skill` offers sharing
+  after creation and handles `409 duplicate_plugin` by steering to the
+  version-update path.
+- Duplicate guard: same creator + same trimmed name + active → 409 with the
+  existing plugin id (`createPlugin`); archived names reusable; other
+  creators unaffected. Admin GitHub re-imports of an identical name now 409
+  (accepted; aligns with the dedup goal).
+- Grant-creation MCP-requirement sync confirmed wired (`store.ts:1887,1895`).
+- Proof: 53/53 bun (builtin search/execute/resources, dup semantics,
+  member-grant → recipient search+execute with `marketplace: null`, viewer
+  cannot re-share) + 19/19 server steering tests + den tsc clean; wire spec
+  `skill-grant-access.test.ts` extended to the full story — member creates →
+  uses → second member denied → creator shares viewer → second member
+  discovers and executes → recipient re-share 403 — passing 3× against a
+  live multi_org stack; evals typecheck clean.
+
 ### P3 — Library UI + provenance
 
 Dashboard library: Mine / Shared with me / Team / Everyone, one row per

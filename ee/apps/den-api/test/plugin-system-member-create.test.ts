@@ -24,6 +24,7 @@ process.env.BETTER_AUTH_URL ??= "http://127.0.0.1:8790"
 
 let db: typeof import("../src/db.js").db
 let store: typeof import("../src/routes/org/plugin-system/store.js")
+let marketplaceCapabilities: typeof import("../src/mcp/marketplace-capabilities.js")
 
 const organizationId = createDenTypeId("organization")
 const memberId = createDenTypeId("member")
@@ -56,6 +57,7 @@ beforeAll(async () => {
   }).db
   mock.module("../src/db.js", () => ({ db }))
   store = await import("../src/routes/org/plugin-system/store.js")
+  marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
   await clearRows()
 
   await db.insert(OrganizationTable).values({
@@ -131,6 +133,7 @@ function actorContext(input: {
 }
 
 const memberContext = actorContext({ id: memberId, isOwner: false, role: "member", userId: memberUserId })
+const otherMemberContext = actorContext({ id: otherMemberId, isOwner: false, role: "member", userId: otherMemberUserId })
 const adminContext = actorContext({ id: adminId, isOwner: false, role: "admin", userId: adminUserId })
 
 function skillComponent(name: string): { type: "skill"; value: { rawSourceText: string } } {
@@ -146,6 +149,27 @@ async function rejectedStatus(action: () => Promise<unknown>) {
   } catch (error) {
     if (typeof error === "object" && error !== null && "status" in error && typeof error.status === "number") {
       return error.status
+    }
+    throw error
+  }
+  throw new Error("Expected action to reject")
+}
+
+async function rejectedRouteFailure(action: () => Promise<unknown>): Promise<{ error: string; message: string; status: number }> {
+  try {
+    await action()
+  } catch (error) {
+    if (
+      typeof error === "object"
+      && error !== null
+      && "status" in error
+      && typeof error.status === "number"
+      && "error" in error
+      && typeof error.error === "string"
+      && "message" in error
+      && typeof error.message === "string"
+    ) {
+      return { error: error.error, message: error.message, status: error.status }
     }
     throw error
   }
@@ -174,6 +198,20 @@ test("a member creates a plugin bundle with a skill and receives manager access"
     ))
   expect(managerGrants).toHaveLength(1)
   expect(await store.getPluginDetail(memberContext, plugin.id)).toMatchObject({ id: plugin.id, memberCount: 1 })
+})
+
+test("same-creator active plugin names conflict while archived and other-creator names do not", async () => {
+  const first = await store.createPlugin({ context: memberContext, name: "Duplicate member plugin" })
+  const duplicate = await rejectedRouteFailure(() => store.createPlugin({ context: memberContext, name: "  Duplicate member plugin  " }))
+  expect(duplicate).toMatchObject({ error: "duplicate_plugin", status: 409 })
+  expect(duplicate.message).toContain(first.id)
+
+  await store.setPluginLifecycle({ action: "archive", context: memberContext, pluginId: first.id })
+  const replacement = await store.createPlugin({ context: memberContext, name: "Duplicate member plugin" })
+  expect(replacement.id).not.toBe(first.id)
+
+  const otherCreatorPlugin = await store.createPlugin({ context: otherMemberContext, name: "Duplicate member plugin" })
+  expect(otherCreatorPlugin.id).not.toBe(replacement.id)
 })
 
 test("a member cannot import plugins from GitHub without starting a fetch", async () => {
@@ -232,7 +270,12 @@ test("a member cannot publish to a marketplace they cannot edit and no plugin is
 })
 
 test("a member manager can grant another member access but cannot grant org-wide access", async () => {
-  const plugin = await store.createPluginBundle({ context: memberContext, name: "Member-managed plugin" })
+  const rawSourceText = "---\nname: member-shared-skill\ndescription: Member shared skill.\n---\n\nFollow the shared instructions."
+  const plugin = await store.createPluginBundle({
+    components: [{ type: "skill", value: { rawSourceText } }],
+    context: memberContext,
+    name: "Member-managed plugin",
+  })
 
   expect(await rejectedStatus(() => store.createResourceAccessGrant({
     context: memberContext,
@@ -248,6 +291,36 @@ test("a member manager can grant another member access but cannot grant org-wide
     value: { orgMembershipId: otherMemberId, role: "viewer" },
   })
   expect(grant).toMatchObject({ orgMembershipId: otherMemberId, orgWide: false, role: "viewer" })
+
+  const memberships = await db.select().from(PluginConfigObjectTable).where(eq(PluginConfigObjectTable.pluginId, plugin.id))
+  const configObjectId = memberships[0]?.configObjectId
+  if (!configObjectId) throw new Error("Shared plugin has no config object")
+  const capabilityName = marketplaceCapabilities.buildMarketplaceCapabilityName(plugin.id, configObjectId)
+  const matches = await marketplaceCapabilities.searchMarketplaceCapabilities({
+    enabled: true,
+    limit: 20,
+    member: { orgMembershipId: otherMemberId, teamIds: [] },
+    organizationId,
+    query: "member shared skill",
+  })
+  expect(matches.some((match) => match.name === capabilityName)).toBe(true)
+
+  const execution = await marketplaceCapabilities.executeMarketplaceCapability({
+    configObjectId,
+    enabled: true,
+    member: { orgMembershipId: otherMemberId, teamIds: [] },
+    organizationId,
+    pluginId: plugin.id,
+  })
+  if (!execution.ok) throw new Error(execution.message)
+  expect(execution.result).toMatchObject({ content: rawSourceText, marketplace: null })
+
+  expect(await rejectedStatus(() => store.createResourceAccessGrant({
+    context: otherMemberContext,
+    resourceId: plugin.id,
+    resourceKind: "plugin",
+    value: { orgMembershipId: adminId, role: "viewer" },
+  }))).toBe(403)
 })
 
 test("an admin can create an org-wide plugin bundle end-to-end", async () => {

@@ -1970,13 +1970,31 @@ export async function getPluginDetail(context: PluginArchActorContext, pluginId:
 
 export async function createPlugin(input: { context: PluginArchActorContext; description?: string | null; name: string }) {
   const now = new Date()
+  const name = input.name.trim()
+  const existing = await db
+    .select({ id: PluginTable.id })
+    .from(PluginTable)
+    .where(and(
+      eq(PluginTable.organizationId, input.context.organizationContext.organization.id),
+      eq(PluginTable.createdByOrgMembershipId, input.context.organizationContext.currentMember.id),
+      eq(PluginTable.name, name),
+      eq(PluginTable.status, "active"),
+      isNull(PluginTable.deletedAt),
+    ))
+    .orderBy(asc(PluginTable.createdAt), asc(PluginTable.id))
+    .limit(1)
+
+  if (existing[0]) {
+    throw new PluginArchRouteFailure(409, "duplicate_plugin", `You already have an active plugin named "${name}" (${existing[0].id}). Update it instead of creating a duplicate.`)
+  }
+
   const row = {
     createdAt: now,
     createdByOrgMembershipId: input.context.organizationContext.currentMember.id,
     deletedAt: null,
     description: normalizeOptionalString(input.description ?? undefined),
     id: createDenTypeId("plugin"),
-    name: input.name.trim(),
+    name,
     organizationId: input.context.organizationContext.organization.id,
     status: "active" as const,
     updatedAt: now,
