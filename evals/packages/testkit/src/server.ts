@@ -76,7 +76,9 @@ function messageText(error: unknown): string {
 }
 
 function cleanUrl(value: string): string {
-  return value.trim().replace(/\/+$/, "");
+  let out = value.trim();
+  while (out.endsWith("/")) out = out.slice(0, -1);
+  return out;
 }
 
 function stringField(value: unknown, key: string): string | null {

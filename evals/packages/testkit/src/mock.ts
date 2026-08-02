@@ -23,7 +23,13 @@ export interface MockBoot {
 }
 
 function mockEnvKey(name: string): string {
-  return name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "MOCK";
+  const collapsed = [...name.trim().toUpperCase()]
+    .map((ch) => (/[A-Z0-9]/.test(ch) ? ch : "_"))
+    .join("")
+    .split("_")
+    .filter(Boolean)
+    .join("_");
+  return collapsed || "MOCK";
 }
 
 export function deriveMockEnv(name: string, url: string, mcpUrl: string): Record<string, string> {
