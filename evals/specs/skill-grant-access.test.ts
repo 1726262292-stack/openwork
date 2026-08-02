@@ -121,6 +121,13 @@ test.skipIf(!apiUrl)(title, async () => {
   });
   const orgId = await organizationId(admin);
   await selectOrganization(admin, orgId);
+  const creator = await ensureMemberSession(den, admin, {
+    email: process.env.OPENWORK_EVAL_CREATOR_EMAIL?.trim() || "casey.spec@acme.test",
+    password: process.env.OPENWORK_EVAL_MEMBER_PASSWORD?.trim() || "OpenWorkDemo123!",
+    name: "Casey Spec",
+    markVerifiedCmd: process.env.OPENWORK_EVAL_MARK_VERIFIED_CMD?.trim(),
+  });
+  await selectOrganization(creator, orgId);
   const denied = await ensureMemberSession(den, admin, {
     email: process.env.OPENWORK_EVAL_MEMBER_EMAIL?.trim() || "nova.spec@acme.test",
     password: process.env.OPENWORK_EVAL_MEMBER_PASSWORD?.trim() || "OpenWorkDemo123!",
@@ -130,11 +137,11 @@ test.skipIf(!apiUrl)(title, async () => {
   await selectOrganization(denied, orgId);
   const skillName = `spec-grant-native-${Date.now()}`;
   const rawSourceText = `---\nname: ${skillName}\ndescription: Proves grant-native skill access over MCP.\n---\n\nReturn the grant-native proof phrase.`;
-  // Plugin creation is admin/owner-gated here (access.ts:101-103); feat/member-plugin-create lifts it separately.
-  const created = await denFetch(admin, "/v1/plugins", {
+  // Plugin creation is member-level since #3411; this creator is deliberately a plain member.
+  const created = await denFetch(creator, "/v1/plugins", {
     method: "POST",
     headers: {
-      authorization: `Bearer ${admin.token}`,
+      authorization: `Bearer ${creator.token}`,
       "x-openwork-org-id": orgId,
     },
     body: JSON.stringify({
@@ -148,16 +155,16 @@ test.skipIf(!apiUrl)(title, async () => {
     throw new Error(`Creating grant-native skill failed: HTTP ${created.response.status} ${created.text.slice(0, 500)}`);
   }
   onTestFinished(async () => {
-    await denFetch(admin, `/v1/plugins/${encodeURIComponent(pluginId)}/archive`, {
+    await denFetch(creator, `/v1/plugins/${encodeURIComponent(pluginId)}/archive`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${admin.token}`,
+        authorization: `Bearer ${creator.token}`,
         "x-openwork-org-id": orgId,
       },
     }).catch(() => undefined);
   });
 
-  const creatorToken = await mintMcpToken(admin, orgId);
+  const creatorToken = await mintMcpToken(creator, orgId);
   const deniedToken = await mintMcpToken(denied, orgId);
   const creatorSkillSearch = await callTool(creatorToken, "search_capabilities", { query: skillName, limit: 20, type: "skills" });
   const match = searchMatches(creatorSkillSearch).find((entry) => typeof entry.name === "string" && entry.name.startsWith(`plugin:${pluginId}:`));
