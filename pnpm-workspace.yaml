@@ -23,6 +23,7 @@ linkWorkspacePackages: true
 preferWorkspacePackages: true
 overrides:
   "@react-email/ui>next": 16.2.11
+  axios: 1.18.1
   baseline-browser-mapping: 2.11.5
   protobufjs: 7.6.5
   shell-quote: 1.10.0
