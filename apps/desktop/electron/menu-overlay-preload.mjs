@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld("__OPENWORK_MENU_OVERLAY__", {
       }
     };
   },
+  resize(requestId, height) {
+    ipcRenderer.send("openwork:menu-overlay:resize", { requestId, height });
+  },
   choose(requestId, itemId) {
     ipcRenderer.send("openwork:menu-overlay:choose", { requestId, itemId });
   },

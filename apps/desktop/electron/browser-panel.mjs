@@ -16,9 +16,10 @@ const BROWSER_TARGET_RESOLVE_TIMEOUT_MS = 2500;
 const BROWSER_TARGET_RESOLVE_INTERVAL_MS = 80;
 const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
-const MENU_OVERLAY_ITEM_HEIGHT = 36;
-const MENU_OVERLAY_SEPARATOR_HEIGHT = 13;
-const MENU_OVERLAY_VERTICAL_CHROME = 19;
+// Provisional bounds let the renderer lay out; it immediately reports the rendered height.
+const MENU_OVERLAY_INITIAL_ITEM_HEIGHT = 36;
+const MENU_OVERLAY_INITIAL_SEPARATOR_HEIGHT = 13;
+const MENU_OVERLAY_INITIAL_VERTICAL_CHROME = 19;
 const MENU_OVERLAY_EDGE_GAP = 4;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 const PASSKEY_OVERLAY_WIDTH = 360;
@@ -257,9 +258,9 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
 
   function menuOverlayHeight(items) {
     const separatorCount = items.filter((item) => item.separatorBefore).length;
-    return MENU_OVERLAY_VERTICAL_CHROME
-      + (items.length * MENU_OVERLAY_ITEM_HEIGHT)
-      + (separatorCount * MENU_OVERLAY_SEPARATOR_HEIGHT);
+    return MENU_OVERLAY_INITIAL_VERTICAL_CHROME
+      + (items.length * MENU_OVERLAY_INITIAL_ITEM_HEIGHT)
+      + (separatorCount * MENU_OVERLAY_INITIAL_SEPARATOR_HEIGHT);
   }
 
   function menuOverlayBounds(point, items, requestedWidth = MENU_OVERLAY_WIDTH, requestedHeight = menuOverlayHeight(items)) {
@@ -951,6 +952,17 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     ipcMain.on("openwork:menu-overlay:ready", (event) => {
       if (event.sender !== menuOverlayView?.webContents) return;
       markMenuOverlayReady(menuOverlayView);
+    });
+    ipcMain.on("openwork:menu-overlay:resize", (event, payload) => {
+      if (event.sender !== menuOverlayView?.webContents) return;
+      if (payload?.requestId !== menuOverlayRequest?.id) return;
+      const requestedHeight = Number(payload.height);
+      if (!Number.isFinite(requestedHeight) || requestedHeight <= 0) return;
+      const bounds = menuOverlayRequest.bounds;
+      const contentHeight = window()?.getContentSize?.()[1] ?? requestedHeight;
+      const height = Math.min(Math.ceil(requestedHeight), Math.max(contentHeight - bounds.y - MENU_OVERLAY_EDGE_GAP, 0));
+      bounds.height = height;
+      menuOverlayView.setBounds(bounds);
     });
     ipcMain.on("openwork:menu-overlay:choose", (event, payload) => {
       if (event.sender !== menuOverlayView?.webContents) return;
