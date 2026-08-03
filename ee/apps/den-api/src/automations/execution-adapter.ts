@@ -16,13 +16,13 @@ import {
 import type { AutomationError, AutomationUsage } from "@openwork/types/automations"
 import {
   automationEmptyUsage,
-  createAutomationOpenCodeRuntime,
-  type AutomationOpenCodeObservation,
-  type AutomationOpenCodeRuntime,
-  type AutomationOpenCodeRuntimeFactory,
-} from "./opencode-runtime.js"
+  createAutomationEngineRuntime,
+  type AutomationEngineObservation,
+  type AutomationEngineRuntime,
+  type AutomationEngineRuntimeFactory,
+} from "./native-runtime.js"
 
-const adapterId = "openwork-den-opencode-v1"
+const adapterId = "openwork-den-native-v1"
 const recordVersion = 1
 const defaultPollIntervalMs = 250
 
@@ -117,7 +117,7 @@ function normalizeAdapterError(error: unknown): AutomationError {
   }
   return {
     code: "execution_runtime_unavailable",
-    message: error instanceof Error ? error.message.slice(0, 2_000) : "The OpenCode Automation runtime is unavailable.",
+    message: error instanceof Error ? error.message.slice(0, 2_000) : "The Automation engine runtime is unavailable.",
     retryable: true,
   }
 }
@@ -135,27 +135,27 @@ function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<voi
   })
 }
 
-export type DenOpenCodeAutomationEngineOptions = {
+export type DenAutomationEngineOptions = {
   stateDirectory?: string
-  runtimeFactory?: AutomationOpenCodeRuntimeFactory
+  runtimeFactory?: AutomationEngineRuntimeFactory
   now?: () => number
   pollIntervalMs?: number
 }
 
-export class DenOpenCodeAutomationEngineAdapter implements AutomationEngineAdapter {
+export class DenAutomationEngineAdapter implements AutomationEngineAdapter {
   readonly #store: ExecutionStore
-  readonly #runtimeFactory: AutomationOpenCodeRuntimeFactory
+  readonly #runtimeFactory: AutomationEngineRuntimeFactory
   readonly #now: () => number
   readonly #pollIntervalMs: number
-  readonly #active = new Map<string, AutomationOpenCodeRuntime>()
+  readonly #active = new Map<string, AutomationEngineRuntime>()
   readonly #locks = new Map<string, Promise<void>>()
 
-  constructor(options: DenOpenCodeAutomationEngineOptions = {}) {
+  constructor(options: DenAutomationEngineOptions = {}) {
     const stateDirectory = options.stateDirectory
-      ?? process.env.AUTOMATIONS_OPENCODE_STATE_DIR?.trim()
+      ?? process.env.AUTOMATIONS_STATE_DIR?.trim()
       ?? path.join(tmpdir(), "openwork-den-automation-engine")
     this.#store = createFileExecutionStore(stateDirectory)
-    this.#runtimeFactory = options.runtimeFactory ?? createAutomationOpenCodeRuntime
+    this.#runtimeFactory = options.runtimeFactory ?? createAutomationEngineRuntime
     this.#now = options.now ?? Date.now
     this.#pollIntervalMs = Math.max(10, options.pollIntervalMs ?? defaultPollIntervalMs)
   }
@@ -196,7 +196,7 @@ export class DenOpenCodeAutomationEngineAdapter implements AutomationEngineAdapt
     }
   }
 
-  #event(record: ExecutionRecord, observation: AutomationOpenCodeObservation): void {
+  #event(record: ExecutionRecord, observation: AutomationEngineObservation): void {
     if (record.observationKeys.includes(observation.key)) return
     record.observationKeys.push(observation.key)
     const sequence = record.events.length + 1
@@ -252,7 +252,7 @@ export class DenOpenCodeAutomationEngineAdapter implements AutomationEngineAdapt
     await this.#dispose(runtimeKey)
   }
 
-  async #ensureRuntime(runtimeKey: string, record: ExecutionRecord): Promise<AutomationOpenCodeRuntime> {
+  async #ensureRuntime(runtimeKey: string, record: ExecutionRecord): Promise<AutomationEngineRuntime> {
     const existing = this.#active.get(runtimeKey)
     if (existing?.isAlive()) return existing
     await existing?.dispose().catch(() => undefined)
@@ -429,8 +429,8 @@ export class DenOpenCodeAutomationEngineAdapter implements AutomationEngineAdapt
   }
 }
 
-export function createDenOpenCodeAutomationEngine(options: DenOpenCodeAutomationEngineOptions = {}) {
-  return new DenOpenCodeAutomationEngineAdapter(options)
+export function createDenAutomationEngine(options: DenAutomationEngineOptions = {}) {
+  return new DenAutomationEngineAdapter(options)
 }
 
-export const automationEngineAdapter = createDenOpenCodeAutomationEngine()
+export const automationEngineAdapter = createDenAutomationEngine()
