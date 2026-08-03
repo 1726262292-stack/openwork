@@ -334,6 +334,7 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
   function hideMenuOverlay() {
     const view = menuOverlayView;
     const mainWindow = window();
+    const request = menuOverlayRequest;
     menuOverlayShowSerial += 1;
     menuOverlayRequest = null;
     if (!view || !mainWindow) return;
@@ -344,6 +345,12 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
       }
     } catch {
       // already removed
+    }
+    if (request?.source === "tab") {
+      mainWindow.webContents.focus();
+    } else {
+      const tab = getBrowserTab(request?.tabId);
+      if (tab && !tab.view.webContents.isDestroyed()) tab.view.webContents.focus();
     }
   }
 

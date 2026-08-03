@@ -537,8 +537,8 @@ test("built-in browser page menus and passkeys work in Electron with OS-level vi
   try {
     await using app = await desktop({ mode: "attach", name: "builtin-browser-context-menu-passkey" });
     const userAgent = await evalIn(app, "navigator.userAgent");
-    expect(userAgent).toEqual(expect.stringContaining("Electron/35."));
-    evidence.fact("The real app under test is Electron 35", String(userAgent), true);
+    expect(userAgent).toEqual(expect.stringContaining("Electron/41."));
+    evidence.fact("The real app under test is Electron 41", String(userAgent), true);
 
     await createAndSelectWorkspace(app, { path: "/tmp/openwork-browser-context-menu-passkey" });
     await waitFor(
