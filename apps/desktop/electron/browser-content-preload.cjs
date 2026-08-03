@@ -1,6 +1,7 @@
 const { ipcRenderer } = require("electron");
 
-function dismissMenuOverlay() {
+function dismissMenuOverlay(event) {
+  if (event.type === "pointerdown" && (event.button === 2 || event.buttons === 2)) return;
   ipcRenderer.send("openwork:menu-overlay:dismiss");
 }
 

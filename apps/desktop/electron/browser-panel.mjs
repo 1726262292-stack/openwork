@@ -16,7 +16,10 @@ const BROWSER_TARGET_RESOLVE_TIMEOUT_MS = 2500;
 const BROWSER_TARGET_RESOLVE_INTERVAL_MS = 80;
 const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
-const MENU_OVERLAY_HEIGHT = 176;
+const MENU_OVERLAY_ITEM_HEIGHT = 36;
+const MENU_OVERLAY_SEPARATOR_HEIGHT = 13;
+const MENU_OVERLAY_VERTICAL_CHROME = 19;
+const MENU_OVERLAY_EDGE_GAP = 4;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 
 export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
@@ -250,13 +253,23 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     return { x: Math.round(x), y: Math.round(y) };
   }
 
-  function menuOverlayBounds(point) {
-    const [contentWidth, contentHeight] = window()?.getContentSize?.() ?? [MENU_OVERLAY_WIDTH, MENU_OVERLAY_HEIGHT];
+  function menuOverlayHeight(items) {
+    const separatorCount = items.filter((item) => item.separatorBefore).length;
+    return MENU_OVERLAY_VERTICAL_CHROME
+      + (items.length * MENU_OVERLAY_ITEM_HEIGHT)
+      + (separatorCount * MENU_OVERLAY_SEPARATOR_HEIGHT);
+  }
+
+  function menuOverlayBounds(point, items) {
+    const requestedHeight = menuOverlayHeight(items);
+    const [contentWidth, contentHeight] = window()?.getContentSize?.() ?? [MENU_OVERLAY_WIDTH, requestedHeight];
+    const width = Math.min(MENU_OVERLAY_WIDTH, Math.max(contentWidth - MENU_OVERLAY_EDGE_GAP, 0));
+    const height = Math.min(requestedHeight, Math.max(contentHeight - MENU_OVERLAY_EDGE_GAP, 0));
     return {
-      x: Math.min(Math.max(point.x, 0), Math.max(contentWidth - MENU_OVERLAY_WIDTH - 4, 0)),
-      y: Math.min(Math.max(point.y, 0), Math.max(contentHeight - MENU_OVERLAY_HEIGHT - 4, 0)),
-      width: MENU_OVERLAY_WIDTH,
-      height: MENU_OVERLAY_HEIGHT,
+      x: Math.min(Math.max(point.x, 0), Math.max(contentWidth - width - MENU_OVERLAY_EDGE_GAP, 0)),
+      y: Math.min(Math.max(point.y, 0), Math.max(contentHeight - height - MENU_OVERLAY_EDGE_GAP, 0)),
+      width,
+      height,
     };
   }
 
@@ -347,28 +360,92 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
 
   function tabMenuRequest(tab, point) {
     const url = browserTabUrl(tab);
+    const items = [
+      { id: "copy-url", label: "Copy URL", iconName: "copy", disabled: !url },
+      { id: "open-external", label: "Open in Browser", iconName: "external", disabled: !(url && isHttpUrl(url)) },
+      { id: "close-tab", label: "Close Tab", iconName: "close", separatorBefore: true },
+      { id: "close-all-tabs", label: "Close All Tabs", iconName: "close" },
+    ];
     return {
       id: `tab-menu:${tab.tabId}:${Date.now()}`,
       source: "tab",
       tabId: tab.tabId,
       url,
-      bounds: menuOverlayBounds(normalizeMenuOverlayPoint(point)),
-      items: [
-        { id: "copy-url", label: "Copy URL", iconName: "copy", disabled: !url },
-        { id: "open-external", label: "Open in Browser", iconName: "external", disabled: !(url && isHttpUrl(url)) },
-        { id: "close-tab", label: "Close Tab", iconName: "close", separatorBefore: true },
-        { id: "close-all-tabs", label: "Close All Tabs", iconName: "close" },
-      ],
+      bounds: menuOverlayBounds(normalizeMenuOverlayPoint(point), items),
+      items,
     };
   }
 
-  async function showBrowserTabContextMenu(tabId, point) {
-    const tab = getBrowserTab(String(tabId ?? ""));
-    if (!window() || !tab || tab.view.webContents.isDestroyed()) return;
+  function editFlagDisables(editFlags, flag) {
+    return typeof editFlags?.[flag] === "boolean" && !editFlags[flag];
+  }
 
+  function pageMenuRequest(tab, params) {
+    const webContents = tab.view.webContents;
+    const selectionText = typeof params.selectionText === "string" ? params.selectionText : "";
+    const linkUrl = typeof params.linkURL === "string" ? params.linkURL : "";
+    const editFlags = params.editFlags;
+    const items = [];
+
+    if (params.isEditable) {
+      items.push(
+        { id: "page-cut", label: "Cut", disabled: !selectionText || editFlagDisables(editFlags, "canCut") },
+        { id: "page-copy", label: "Copy", disabled: !selectionText || editFlagDisables(editFlags, "canCopy") },
+        { id: "page-paste", label: "Paste", disabled: editFlagDisables(editFlags, "canPaste") },
+        { id: "page-select-all", label: "Select All", disabled: editFlagDisables(editFlags, "canSelectAll"), separatorBefore: true },
+      );
+    } else if (selectionText) {
+      items.push({ id: "page-copy", label: "Copy" });
+    }
+
+    if (linkUrl) {
+      items.push(
+        { id: "page-open-link-new-tab", label: "Open Link in New Tab", disabled: !isHttpUrl(linkUrl), separatorBefore: items.length > 0 },
+        { id: "page-copy-link", label: "Copy Link Address" },
+        { id: "page-open-link-external", label: "Open Link in Browser", disabled: !isHttpUrl(linkUrl) },
+      );
+    }
+
+    const imagePoint = normalizeMenuOverlayPoint(params);
+    if (params.mediaType === "image") {
+      items.push({ id: "page-copy-image", label: "Copy Image", separatorBefore: items.length > 0 });
+    }
+
+    const url = browserTabUrl(tab);
+    if (items.length === 0) {
+      const navigationHistory = webContents.navigationHistory;
+      items.push(
+        { id: "page-back", label: "Back", disabled: !navigationHistory.canGoBack() },
+        { id: "page-forward", label: "Forward", disabled: !navigationHistory.canGoForward() },
+        { id: "page-reload", label: "Reload" },
+        { id: "page-copy-url", label: "Copy Page URL", disabled: !url, separatorBefore: true },
+        { id: "page-open-external", label: "Open Page in Browser", disabled: !(url && isHttpUrl(url)) },
+      );
+    }
+
+    const viewBounds = tab.view.getBounds();
+    const point = {
+      // The view origin was already zoom-scaled by scaleRendererBounds when it
+      // was attached. Context-menu coordinates are local view DIPs, so add
+      // them without applying the main renderer zoom a second time.
+      x: viewBounds.x + imagePoint.x,
+      y: viewBounds.y + imagePoint.y,
+    };
+    return {
+      id: `page-menu:${tab.tabId}:${Date.now()}`,
+      source: "page",
+      tabId: tab.tabId,
+      url,
+      linkUrl,
+      imagePoint,
+      bounds: menuOverlayBounds(point, items),
+      items,
+    };
+  }
+
+  async function showMenuOverlay(request) {
     const showSerial = menuOverlayShowSerial + 1;
     menuOverlayShowSerial = showSerial;
-    const request = tabMenuRequest(tab, point ? scaleRendererPoint(point) : point);
     const view = await ensureMenuOverlayView();
     if (showSerial !== menuOverlayShowSerial || menuOverlayView !== view) return;
     menuOverlayRequest = request;
@@ -388,10 +465,23 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     view.webContents.focus();
   }
 
+  async function showBrowserTabContextMenu(tabId, point) {
+    const tab = getBrowserTab(String(tabId ?? ""));
+    if (!window() || !tab || tab.view.webContents.isDestroyed()) return;
+    const request = tabMenuRequest(tab, point ? scaleRendererPoint(point) : point);
+    await showMenuOverlay(request);
+  }
+
+  async function showBrowserPageContextMenu(tab, params) {
+    if (!window() || tab.view.webContents.isDestroyed()) return;
+    await showMenuOverlay(pageMenuRequest(tab, params));
+  }
+
   function handleMenuOverlayChoice(payload) {
     if (!payload || payload.requestId !== menuOverlayRequest?.id) return;
     const request = menuOverlayRequest;
     const tab = getBrowserTab(request.tabId);
+    const webContents = tab && !tab.view.webContents.isDestroyed() ? tab.view.webContents : null;
     hideMenuOverlay();
 
     switch (payload.itemId) {
@@ -406,6 +496,45 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
         break;
       case "close-all-tabs":
         closeAllBrowserTabs();
+        break;
+      case "page-cut":
+        webContents?.cut();
+        break;
+      case "page-copy":
+        webContents?.copy();
+        break;
+      case "page-paste":
+        webContents?.paste();
+        break;
+      case "page-select-all":
+        webContents?.selectAll();
+        break;
+      case "page-open-link-new-tab":
+        if (request.linkUrl && isHttpUrl(request.linkUrl)) createBrowserTab(request.linkUrl, { select: true });
+        break;
+      case "page-copy-link":
+        if (request.linkUrl) clipboard.writeText(request.linkUrl);
+        break;
+      case "page-open-link-external":
+        if (request.linkUrl && isHttpUrl(request.linkUrl)) void shell.openExternal(request.linkUrl);
+        break;
+      case "page-copy-image":
+        if (webContents && request.imagePoint) webContents.copyImageAt(request.imagePoint.x, request.imagePoint.y);
+        break;
+      case "page-back":
+        if (webContents?.navigationHistory.canGoBack()) webContents.navigationHistory.goBack();
+        break;
+      case "page-forward":
+        if (webContents?.navigationHistory.canGoForward()) webContents.navigationHistory.goForward();
+        break;
+      case "page-reload":
+        webContents?.reload();
+        break;
+      case "page-copy-url":
+        if (request.url) clipboard.writeText(request.url);
+        break;
+      case "page-open-external":
+        if (request.url && isHttpUrl(request.url)) void shell.openExternal(request.url);
         break;
     }
   }
@@ -490,6 +619,10 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
       void shell.openExternal(targetUrl);
       return { action: "deny" };
+    });
+    view.webContents.on("context-menu", (event, params) => {
+      event.preventDefault();
+      void showBrowserPageContextMenu(tab, params);
     });
     view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {
       if (!isMainFrame || isInPlace) return;

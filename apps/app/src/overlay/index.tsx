@@ -46,7 +46,7 @@ function ContextMenuSurface({
   onClose: () => void;
 }) {
   React.useEffect(() => {
-    // document.querySelector<HTMLButtonElement>(MENU_ITEM_SELECTOR)?.focus();
+    document.querySelector<HTMLButtonElement>(MENU_ITEM_SELECTOR)?.focus();
   }, [request.id]);
 
   return (
