@@ -1,13 +1,13 @@
 /** @jsxImportSource react */
 import { useEffect } from "react";
 
-import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { notifyScheduledTask } from "@/react-app/shell/notifications";
+import type { ScheduledTasksClient } from "./scheduled-tasks-client";
 
 const POLL_INTERVAL_MS = 10_000;
 
 export function ScheduledTaskNotificationListener(props: {
-  client: OpenworkServerClient | null;
+  client: ScheduledTasksClient | null;
   workspaceId: string;
   routeWorkspaceId: string;
 }) {

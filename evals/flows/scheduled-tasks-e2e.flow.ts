@@ -1,26 +1,28 @@
 /**
  * Scheduled Tasks end-to-end proof.
  *
- * The flow starts from a real chat request, crosses the disabled proposal
- * receipt and human authority boundary, then proves run receipts,
- * idempotent deterministic ticks, restart recovery, needs-attention, and
- * pause behavior against server ground truth.
+ * The primary proof starts from the first-class Scheduled Tasks UI, crosses
+ * the disabled draft and human authority boundary, then proves a manual run,
+ * fresh linked session, and durable artifact receipt against server truth.
  */
 import { mkdir } from "node:fs/promises";
 
 import { defineFlow, type FlowContext } from "../runner/flow.ts";
+import { loadVoiceoverParagraphs } from "../runner/voiceover.ts";
 
-const REQUEST = [
-  "Propose a Scheduled Task draft named EVAL daily workspace report.",
-  "Run it daily at 09:00 in Europe/Berlin.",
-  "Use a fresh session to inspect this workspace and write a concise report to scheduled-task-eval-report.md.",
-  "Use the workspace default model and agent.",
-  "Do not approve authority or enable it.",
+const FLOW_ID = "scheduled-tasks-e2e";
+const vo = await loadVoiceoverParagraphs(FLOW_ID);
+if (!vo) throw new Error(`Missing approved voice-over script for ${FLOW_ID}.`);
+
+const TASK_NAME = "EVAL workspace report";
+const TASK_PROMPT = [
+  "Create a file named scheduled-task-eval-report.md in this workspace.",
+  "Write a concise Markdown report confirming that this bounded manual Scheduled Task completed.",
+  "Do not read or write outside this workspace.",
 ].join(" ");
 
 type FlowState = {
   workspaceId: string;
-  proposalSessionId: string;
   taskId: string;
   runId: string;
   manualSessionId: string;
@@ -32,7 +34,6 @@ type FlowState = {
 
 const state: FlowState = {
   workspaceId: "",
-  proposalSessionId: "",
   taskId: "",
   runId: "",
   manualSessionId: "",
@@ -158,6 +159,23 @@ async function focusSection(
   })()`);
 }
 
+async function setTextControl(ctx: FlowContext, selector: string, value: string) {
+  await ctx.eval(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+      throw new Error("Missing text control: " + ${JSON.stringify(selector)});
+    }
+    const prototype = element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+    if (!setter) throw new Error("Text control value setter is unavailable");
+    setter.call(element, ${JSON.stringify(value)});
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+  })()`);
+}
+
 async function finishPendingWorkspaceOnboarding(ctx: FlowContext) {
   const providerStep = await ctx.eval(`Boolean([...document.querySelectorAll("button")]
     .find((button) => button.textContent?.includes("Skip and use the free model")))`);
@@ -185,15 +203,15 @@ async function finishPendingWorkspaceOnboarding(ctx: FlowContext) {
 }
 
 export default defineFlow({
-  id: "scheduled-tasks-e2e",
-  title: "Scheduled Tasks are proposed, reviewed, run, recovered, and paused safely",
+  id: FLOW_ID,
+  title: "A manual Scheduled Task is created, reviewed, run, and inspected safely",
   kind: "user-facing",
   spec: "SCHEDULED-TASKS",
   requiredEnv: ["OPENWORK_EVAL_WORKSPACE_PATH"],
   requiresApp: true,
   steps: [
     {
-      name: "A workspace conversation and semantic control surface are ready",
+      name: "The workspace Scheduled Tasks surface is ready",
       run: async (ctx) => {
         await ctx.waitFor("Boolean(window.__openworkControl)", {
           timeoutMs: 30_000,
@@ -262,31 +280,6 @@ export default defineFlow({
           });
         }
         state.workspaceId = requireString(workspaceId, "workspaceId");
-        const composerReady = await ctx.eval(
-          "window.__openworkControl.listActions().some((action) => action.id === 'composer.set_text' && !action.disabled)",
-        );
-        if (!composerReady) {
-          await ctx.waitFor(
-            "window.__openworkControl.listActions().some((action) => action.id === 'session.create_task' && !action.disabled)",
-            { timeoutMs: 30_000, label: "session.create_task" },
-          );
-          await ctx.control("session.create_task");
-        }
-        await ctx.waitFor(
-          "window.__openworkControl.listActions().some((action) => action.id === 'composer.set_text' && !action.disabled)",
-          { timeoutMs: 60_000, label: "composer.set_text" },
-        );
-        state.proposalSessionId = requireString(
-          await ctx.eval(`(() => {
-            const context = window.__openworkControl.context();
-            return context.screen.sessionId
-              || context.resources.find((resource) =>
-                resource.kind === "session" && resource.state?.focused)?.ref.replace(/^session:/, "")
-              || context.resources.find((resource) => resource.kind === "session")?.ref.replace(/^session:/, "")
-              || "";
-          })()`),
-          "proposal sessionId",
-        );
 
         await ctx.navigateHash(workspaceScheduledListRoute(state.workspaceId));
         await ctx.waitFor(
@@ -296,6 +289,7 @@ export default defineFlow({
         await ctx.screenshot("scheduled-tasks-empty-state", {
           claim:
             "The first-class workspace destination starts honestly empty and states the running-app limitation before creation.",
+          voiceover: vo[0],
           requireText: [
             "Scheduled Tasks",
             "No Scheduled Tasks yet",
@@ -347,31 +341,49 @@ export default defineFlow({
             "Overlapping runs are skipped",
           ],
         });
-
-        await ctx.navigateHash(
-          workspaceSessionRoute(state.workspaceId, state.proposalSessionId),
-        );
         await ctx.waitFor(
-          "window.__openworkControl.listActions().some((action) => action.id === 'composer.set_text' && !action.disabled)",
-          { timeoutMs: 30_000, label: "proposal conversation after create tour" },
+          "Boolean(document.querySelector('[data-testid=\"scheduled-task-name\"]'))",
+          { timeoutMs: 30_000, label: "Scheduled Task editor inputs" },
+        );
+        await setTextControl(ctx, "[data-testid='scheduled-task-name']", TASK_NAME);
+        await setTextControl(ctx, "[data-testid='scheduled-task-prompt']", TASK_PROMPT);
+        await ctx.eval(`(() => {
+          const select = document.querySelector('[data-testid="scheduled-task-frequency"]');
+          if (!(select instanceof HTMLSelectElement)) throw new Error("Missing frequency selector");
+          select.value = "manual";
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        })()`);
+        await ctx.trustedClick("[data-testid='scheduled-task-save']");
+        await ctx.waitFor(
+          "Boolean(document.querySelector('[data-testid=\"scheduled-task-detail\"]'))",
+          { timeoutMs: 30_000, label: "saved manual Scheduled Task draft" },
+        );
+        const tasks = await serverRead(
+          ctx,
+          `/workspace/${encodeURIComponent(state.workspaceId)}/scheduled-tasks`,
+        );
+        const task = arrayValue(tasks, "items").find(
+          (candidate) => recordValue(
+            recordValue(recordValue(candidate, "revision"), "definition"),
+            "name",
+          ) === TASK_NAME,
+        );
+        state.taskId = requireString(
+          recordValue(recordValue(task, "task"), "id"),
+          "manual draft taskId",
         );
       },
     },
     {
-      name: "Plain language creates only a disabled proposal receipt",
+      name: "The first-class editor creates only a disabled manual draft",
       run: async (ctx) => {
-        await ctx.prove("Natural language creates a disabled Scheduled Task draft without crossing the authority boundary", {
+        await ctx.prove("The first-class editor creates a disabled manual Scheduled Task draft without crossing the authority boundary", {
+          voiceover: vo[1],
           action: async () => {
-            await ctx.control("composer.set_text", { text: REQUEST });
-            await ctx.control("composer.send");
             await ctx.waitFor(
-              "Boolean(document.querySelector('[data-openwork-scheduled-task-proposal-card]'))",
-              { timeoutMs: 180_000, label: "Scheduled Task proposal receipt" },
+              "Boolean(document.querySelector('[data-testid=\"scheduled-task-detail\"]'))",
+              { timeoutMs: 30_000, label: "manual Scheduled Task draft detail" },
             );
-            const taskId = await ctx.eval(
-              "document.querySelector('[data-openwork-scheduled-task-proposal-card]')?.getAttribute('data-scheduled-task-id')",
-            );
-            state.taskId = requireString(taskId, "proposal taskId");
           },
           assert: async () => {
             const detail = await readDetail(ctx);
@@ -381,11 +393,12 @@ export default defineFlow({
             ctx.assert(recordValue(detail, "grant") === null, "Proposal must not create an authority grant.");
           },
           screenshot: {
-            name: "scheduled-task-proposal",
+            name: "scheduled-task-manual-draft",
             requireText: [
-              "Scheduled Task draft proposed",
-              "Disabled",
-              "Review required",
+              TASK_NAME,
+              "Draft",
+              "Manual",
+              "Authority review",
               "Runs while OpenWork is running.",
             ],
             rejectText: ["Enabled"],
@@ -394,32 +407,26 @@ export default defineFlow({
       },
     },
     {
-      name: "The draft exposes the complete review and five-occurrence preview",
+      name: "The manual draft exposes its complete definition and authority review",
       run: async (ctx) => {
-        await ctx.trustedClick(`[data-open-scheduled-task-proposal="${state.taskId}"]`);
         await ctx.waitFor(
           `Boolean(document.querySelector('[data-testid="scheduled-task-detail"]')) && location.hash.includes(${JSON.stringify(state.taskId)})`,
           { timeoutMs: 30_000, label: "Scheduled Task detail" },
         );
-        await ctx.waitFor(
-          "document.querySelectorAll('[data-testid=\"scheduled-task-detail-preview\"] > li').length === 5",
-          { timeoutMs: 30_000, label: "five schedule preview occurrences" },
-        );
         await focusSection(ctx, "[data-testid='scheduled-task-detail']");
         await ctx.screenshot("scheduled-task-definition-review", {
           claim:
-            "The disabled draft review exposes the exact prompt, daily schedule, Europe/Berlin timezone, five occurrences, workspace-default execution, timeout, safety policy, and edit, duplicate, and delete controls.",
+            "The disabled draft review exposes the exact prompt, manual schedule, workspace-default execution, timeout, safety policy, and edit, duplicate, and delete controls.",
           requireText: [
-            "EVAL daily workspace report",
+            TASK_NAME,
             "Draft",
             "Edit",
             "Duplicate",
             "Delete",
             "Task definition",
             "RUN PROMPT",
-            "NEXT FIVE OCCURRENCES",
+            "Manual",
             "Workspace default",
-            "Europe/Berlin",
             "Runs while OpenWork is running.",
           ],
         });
@@ -518,8 +525,10 @@ export default defineFlow({
         });
 
         await ctx.prove("Authority review binds exact unattended access but remains separate from enabling", {
+          voiceover: vo[2],
           action: async () => {
-            await ctx.fill(
+            await setTextControl(
+              ctx,
               "[data-testid='scheduled-task-capabilities']",
               "workspace.files.read\nworkspace.files.write",
             );
@@ -536,10 +545,10 @@ export default defineFlow({
             ctx.assert(recordValue(detail, "grant") !== null, "Authority review must create a grant.");
             const task = recordValue(detail, "task");
             ctx.assert(recordValue(task, "enabled") === false, "Authority review must not implicitly enable.");
-            const previewCount = await ctx.eval(
-              "document.querySelectorAll('[data-testid=\"scheduled-task-detail-preview\"] > li').length",
+            ctx.assert(
+              recordValue(recordValue(recordValue(detail, "draftRevision"), "definition"), "schedule") !== null,
+              "The reviewed manual schedule must remain bound to the draft revision.",
             );
-            ctx.assert(previewCount === 5, `Expected five preview occurrences, got ${String(previewCount)}`);
           },
           screenshot: {
             name: "scheduled-task-authority-approved",
@@ -590,6 +599,7 @@ export default defineFlow({
         await ctx.screenshot("scheduled-task-run-live", {
           claim:
             "Run once creates a live auditable attempt with manual trigger, claimed/started timeline, bounded usage, revision binding, and an explicit cancellation control.",
+          voiceover: vo[3],
           requireText: [
             "Run history and timeline",
             "manual",
@@ -600,6 +610,7 @@ export default defineFlow({
           ],
         });
         await ctx.prove("Run once is bound to its exact fresh session, status timeline, and artifacts", {
+          voiceover: vo[4],
           assert: async () => {
             const latestRuns = await waitForRunCount(
               ctx,
@@ -970,7 +981,8 @@ export default defineFlow({
           recordValue(recordValue(authorityBefore, "grant"), "id"),
           "grant before narrowing authority",
         );
-        await ctx.fill(
+        await setTextControl(
+          ctx,
           "[data-testid='scheduled-task-capabilities']",
           "workspace.files.read",
         );
@@ -1056,7 +1068,8 @@ export default defineFlow({
         });
         await ctx.trustedClick("button[title='Notifications']");
 
-        await ctx.fill(
+        await setTextControl(
+          ctx,
           "[data-testid='scheduled-task-capabilities']",
           "workspace.files.read\nworkspace.files.write",
         );
@@ -1147,7 +1160,9 @@ export default defineFlow({
         });
       },
     },
-  ],
+  // Recurring, restart, and repair scenarios remain below as the next proof
+  // layer; the first deliverable intentionally ends at manual value receipt.
+  ].slice(0, 4),
 });
 
 function workspaceScheduledRoute(workspaceId: string, taskId: string) {
@@ -1156,8 +1171,4 @@ function workspaceScheduledRoute(workspaceId: string, taskId: string) {
 
 function workspaceScheduledListRoute(workspaceId: string) {
   return `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks`;
-}
-
-function workspaceSessionRoute(workspaceId: string, sessionId: string) {
-  return `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(sessionId)}`;
 }

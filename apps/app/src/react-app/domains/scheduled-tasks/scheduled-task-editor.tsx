@@ -183,7 +183,10 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
             maxLength={120}
             required
             placeholder={t("scheduled_tasks.name_placeholder")}
-            onChange={(event) => setDefinition((current) => ({ ...current, name: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDefinition((current) => ({ ...current, name: value }));
+            }}
           />
         </div>
         <div className="space-y-2">
@@ -193,7 +196,10 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
             value={definition.description}
             maxLength={2_000}
             placeholder={t("scheduled_tasks.description_placeholder")}
-            onChange={(event) => setDefinition((current) => ({ ...current, description: event.currentTarget.value }))}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDefinition((current) => ({ ...current, description: value }));
+            }}
           />
         </div>
       </div>
@@ -207,7 +213,10 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
           value={definition.prompt}
           required
           placeholder={t("scheduled_tasks.prompt_placeholder")}
-          onChange={(event) => setDefinition((current) => ({ ...current, prompt: event.currentTarget.value }))}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            setDefinition((current) => ({ ...current, prompt: value }));
+          }}
         />
         <p className="text-xs text-muted-foreground">{t("scheduled_tasks.prompt_hint")}</p>
       </div>
@@ -237,10 +246,13 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
               value={definition.schedule.timezone}
               placeholder="Europe/Berlin"
               required
-              onChange={(event) => setDefinition((current) => ({
-                ...current,
-                schedule: { ...current.schedule, timezone: event.currentTarget.value },
-              }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setDefinition((current) => ({
+                  ...current,
+                  schedule: { ...current.schedule, timezone: value },
+                }));
+              }}
             />
             <p className="text-xs text-muted-foreground">{t("scheduled_tasks.timezone_hint")}</p>
           </div>
@@ -321,10 +333,13 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
               id="scheduled-task-provider"
               value={definition.model.providerId ?? ""}
               placeholder={t("scheduled_tasks.default_value")}
-              onChange={(event) => setDefinition((current) => ({
-                ...current,
-                model: { ...current.model, providerId: event.currentTarget.value.trim() || null },
-              }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value.trim() || null;
+                setDefinition((current) => ({
+                  ...current,
+                  model: { ...current.model, providerId: value },
+                }));
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -333,10 +348,13 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
               id="scheduled-task-model"
               value={definition.model.modelId ?? ""}
               placeholder={t("scheduled_tasks.default_value")}
-              onChange={(event) => setDefinition((current) => ({
-                ...current,
-                model: { ...current.model, modelId: event.currentTarget.value.trim() || null },
-              }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value.trim() || null;
+                setDefinition((current) => ({
+                  ...current,
+                  model: { ...current.model, modelId: value },
+                }));
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -345,10 +363,13 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
               id="scheduled-task-agent"
               value={definition.model.agent ?? ""}
               placeholder={t("scheduled_tasks.default_value")}
-              onChange={(event) => setDefinition((current) => ({
-                ...current,
-                model: { ...current.model, agent: event.currentTarget.value.trim() || null },
-              }))}
+              onChange={(event) => {
+                const value = event.currentTarget.value.trim() || null;
+                setDefinition((current) => ({
+                  ...current,
+                  model: { ...current.model, agent: value },
+                }));
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -359,10 +380,13 @@ export function ScheduledTaskEditor(props: ScheduledTaskEditorProps) {
               min={1}
               max={1_440}
               value={Math.round(definition.maximumRuntimeMs / 60_000)}
-              onChange={(event) => setDefinition((current) => ({
-                ...current,
-                maximumRuntimeMs: Math.max(1, Number(event.currentTarget.value)) * 60_000,
-              }))}
+              onChange={(event) => {
+                const value = Math.max(1, Number(event.currentTarget.value)) * 60_000;
+                setDefinition((current) => ({
+                  ...current,
+                  maximumRuntimeMs: value,
+                }));
+              }}
             />
           </div>
         </div>

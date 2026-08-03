@@ -1,6 +1,6 @@
-import { readFile, writeFile, rm, stat, realpath } from "node:fs/promises";
+import { readFile, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { resolveGlobalOpencodeConfigPath } from "@openwork/paths";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
@@ -65,13 +65,11 @@ import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
-import { registerScheduledTaskRoutes } from "./routes/scheduled-tasks.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
-import { createScheduledTaskStore } from "./scheduled-tasks/scheduled-task-store.js";
-import { createScheduledTaskService } from "./scheduled-tasks/scheduled-task-service.js";
-import { createScheduledTaskScheduler } from "./scheduled-tasks/scheduled-task-scheduler.js";
-import { createOpencodeScheduledTaskExecutionAdapter } from "./scheduled-tasks/opencode-execution-adapter.js";
-import { validateScheduledTaskCapabilityGrant } from "./scheduled-tasks/execution.js";
+import {
+  createScheduledTasksModule,
+  type ScheduledTasksModule,
+} from "./scheduled-tasks/module.js";
 import {
   markOpenworkCloudMcpStale,
   reconcilePersistedOpenworkCloudMcp,
@@ -857,126 +855,16 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   const engineMcpServerState = beginEngineMcpServerState(config);
-  let scheduledTaskStore:
-    | import("./scheduled-tasks/scheduled-task-store.js").ScheduledTaskStore
-    | null = null;
-  let scheduledTaskService:
-    | import("./scheduled-tasks/scheduled-task-service.js").ScheduledTaskService
-    | null = null;
-  let scheduledTaskScheduler:
-    | import("./scheduled-tasks/scheduled-task-scheduler.js").ScheduledTaskScheduler
-    | null = null;
+  let scheduledTasks: ScheduledTasksModule | null = null;
   let routes: Route[];
   try {
-    scheduledTaskStore = config.readOnly
-      ? null
-      : await createScheduledTaskStore({ config });
-    if (scheduledTaskStore) {
-      const store = scheduledTaskStore;
-      const scheduledTaskExecution = createOpencodeScheduledTaskExecutionAdapter({
-        authorizedRoots: config.authorizedRoots,
-        resolveWorkspace: (workspaceId) =>
-          resolveWorkspaceWithoutBootstrap(config, workspaceId),
-        createClient: (workspace) => createWorkspaceOpencodeClient(config, workspace),
-        inspectAuthority: async ({
-          request,
-          availableCapabilityIds,
-          connectedProviderIds,
-        }) => {
-          const task = store.getTask(request.taskRevision.taskId);
-          const grant = store.getGrant(request.grantRevision.id);
-          const workspaceStillPresent = config.workspaces.some(
-            (workspace) =>
-              workspace.id === request.taskRevision.definition.workspaceId,
-          );
-          if (!workspaceStillPresent) {
-            return scheduledTaskAuthorityFailure(
-              "workspace-removed",
-              "The scheduled-task workspace was removed from OpenWork",
-            );
-          }
-          if (!task || task.deletedAt !== null) {
-            return scheduledTaskAuthorityFailure(
-              "grant-revoked",
-              "The scheduled task no longer authorizes execution",
-            );
-          }
-          if (!grant || grant.revokedAt !== null) {
-            return scheduledTaskAuthorityFailure(
-              "grant-revoked",
-              "The scheduled-task grant was revoked",
-            );
-          }
-          if (grant.expiresAt !== null && grant.expiresAt <= Date.now()) {
-            return scheduledTaskAuthorityFailure(
-              "grant-expired",
-              "The scheduled-task grant expired",
-            );
-          }
-          if (
-            task.activeRevisionId !== request.taskRevision.id
-            || task.activeGrantId !== request.grantRevision.id
-          ) {
-            return scheduledTaskAuthorityFailure(
-              "invalid-revision",
-              "The scheduled task now points to a different reviewed revision",
-            );
-          }
-          const missingCapabilityIds = grant.capabilityIds.filter(
-            (capabilityId) => !availableCapabilityIds.has(capabilityId),
-          );
-          if (missingCapabilityIds.length > 0) {
-            return scheduledTaskAuthorityFailure(
-              "capability-unavailable",
-              "A reviewed scheduled-task capability is no longer available",
-            );
-          }
-          if (
-            grant.model.providerId
-            && !connectedProviderIds.has(grant.model.providerId)
-          ) {
-            return scheduledTaskAuthorityFailure(
-              "credential-unavailable",
-              "The reviewed model provider is no longer connected",
-            );
-          }
-          try {
-            await validateScheduledTaskAuthority(config, {
-              phase: "execute",
-              task,
-              revision: request.taskRevision,
-              grant,
-              now: Date.now(),
-            });
-          } catch (error) {
-            const message = error instanceof Error
-              ? error.message
-              : "Scheduled-task authority is no longer valid";
-            return scheduledTaskAuthorityFailure(
-              error instanceof ApiError && error.code.includes("workspace")
-                ? "workspace-inaccessible"
-                : "invalid-grant",
-              message,
-            );
-          }
-          return { ok: true };
-        },
-        resolveArtifacts: resolveScheduledTaskArtifacts,
-      });
-      scheduledTaskService = createScheduledTaskService({
-        store,
-        execution: scheduledTaskExecution,
-        validateAuthority: (input) => validateScheduledTaskAuthority(config, input),
-      });
-      scheduledTaskScheduler = createScheduledTaskScheduler({
-        service: scheduledTaskService,
-        onError: (error) => {
-          logger.log("error", "Scheduled task scheduler tick failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        },
-      });
-    }
+    scheduledTasks = await createScheduledTasksModule({
+      config,
+      logger,
+      resolveWorkspace: (workspaceId) =>
+        resolveWorkspaceWithoutBootstrap(config, workspaceId),
+      createClient: (workspace) => createWorkspaceOpencodeClient(config, workspace),
+    });
     routes = createRoutes(
       config,
       approvals,
@@ -985,18 +873,13 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       restartReloadWatchers,
       engineMcpServerState,
       logger,
-      scheduledTaskService,
-      scheduledTaskScheduler,
+      scheduledTasks,
     );
   } catch (error) {
     invalidateEngineMcpServerState(config, engineMcpServerState);
     watcherHandle.close();
     reloadBaselineRefreshers.delete(config);
-    try {
-      await scheduledTaskScheduler?.stop();
-    } finally {
-      scheduledTaskStore?.close();
-    }
+    await scheduledTasks?.stop();
     throw error;
   }
 
@@ -1168,14 +1051,10 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     invalidateEngineMcpServerState(config, engineMcpServerState);
     watcherHandle.close();
     reloadBaselineRefreshers.delete(config);
-    try {
-      await scheduledTaskScheduler?.stop();
-    } finally {
-      scheduledTaskStore?.close();
-    }
+    await scheduledTasks?.stop();
     throw error;
   }
-  scheduledTaskScheduler?.start({ immediate: true });
+  scheduledTasks?.start();
 
   // Deliver server-managed provider credentials to the engine on startup. The
   // engine process receives a fixed env allowlist, so credentials materialized
@@ -1195,11 +1074,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       try {
         await server.stop();
       } finally {
-        try {
-          await scheduledTaskScheduler?.stop();
-        } finally {
-          scheduledTaskStore?.close();
-        }
+        await scheduledTasks?.stop();
       }
     },
   };
@@ -1691,8 +1566,7 @@ function createRoutes(
   onWorkspacesChanged: () => void,
   engineMcpServerState: EngineMcpServerState,
   logger: ServerLogger,
-  scheduledTaskService: import("./scheduled-tasks/scheduled-task-service.js").ScheduledTaskService | null,
-  scheduledTaskScheduler: import("./scheduled-tasks/scheduled-task-scheduler.js").ScheduledTaskScheduler | null,
+  scheduledTasks: ScheduledTasksModule | null,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1724,10 +1598,10 @@ function createRoutes(
     routes,
     config,
     onWorkspacesChanged,
-    ...(scheduledTaskService
+    ...(scheduledTasks
       ? {
           onWorkspaceRemoved: async (workspaceId: string) => {
-            await scheduledTaskService.markWorkspaceUnavailable(workspaceId);
+            await scheduledTasks.onWorkspaceRemoved(workspaceId);
           },
         }
       : {}),
@@ -1742,12 +1616,9 @@ function createRoutes(
       reloadOpencodeEngine(routeConfig, workspace, engineMcpServerState),
   });
 
-  if (scheduledTaskService && scheduledTaskScheduler) {
-    registerScheduledTaskRoutes({
+  if (scheduledTasks) {
+    scheduledTasks.registerRoutes({
       routes,
-      config,
-      service: scheduledTaskService,
-      scheduler: scheduledTaskScheduler,
       jsonResponse,
       readJsonBody,
       ensureWritable,
@@ -3148,180 +3019,6 @@ async function isAuthorizedRoot(workspacePath: string, roots: string[]): Promise
     if (resolvedWorkspace.startsWith(resolvedRoot + sep)) return true;
   }
   return false;
-}
-
-function pathContains(root: string, candidate: string): boolean {
-  const normalizedRoot = resolve(root);
-  const normalizedCandidate = resolve(candidate);
-  return normalizedCandidate === normalizedRoot
-    || normalizedCandidate.startsWith(normalizedRoot + sep);
-}
-
-function scheduledTaskAuthorityFailure(
-  code: import("@openwork/types/scheduled-tasks").ScheduledTaskTypedError["code"],
-  message: string,
-) {
-  return {
-    ok: false as const,
-    error: {
-      code,
-      message,
-      retryable: false,
-      ambiguous: false,
-    },
-  };
-}
-
-async function resolveScheduledTaskArtifacts(input: {
-  workspace: WorkspaceInfo;
-  candidates: string[];
-}): Promise<import("@openwork/types/scheduled-tasks").ScheduledTaskArtifactReference[]> {
-  let workspaceRoot: string;
-  try {
-    workspaceRoot = await realpath(input.workspace.path);
-  } catch {
-    return [];
-  }
-  const artifacts: import("@openwork/types/scheduled-tasks").ScheduledTaskArtifactReference[] = [];
-  const seen = new Set<string>();
-  for (const rawCandidate of input.candidates.slice(0, 200)) {
-    const candidate = rawCandidate.trim();
-    if (!candidate) continue;
-    const unresolved = resolve(workspaceRoot, candidate);
-    let canonical: string;
-    try {
-      canonical = await realpath(unresolved);
-      if (!pathContains(workspaceRoot, canonical) || !(await stat(canonical)).isFile()) {
-        continue;
-      }
-    } catch {
-      continue;
-    }
-    const workspaceRelativePath = relative(workspaceRoot, canonical)
-      .split(sep)
-      .join("/");
-    if (!workspaceRelativePath || seen.has(workspaceRelativePath)) continue;
-    seen.add(workspaceRelativePath);
-    artifacts.push({
-      id: `artifact_${hashToken(workspaceRelativePath).slice(0, 24)}`,
-      kind: "file",
-      value: workspaceRelativePath,
-      name: basename(canonical),
-    });
-  }
-  return artifacts;
-}
-
-async function validateScheduledTaskAuthority(
-  config: ServerConfig,
-  input: import("./scheduled-tasks/scheduled-task-service.js").ScheduledTaskAuthorityValidation,
-): Promise<void> {
-  const workspace = await resolveWorkspaceWithoutBootstrap(config, input.task.workspaceId);
-  if (workspace.workspaceType !== "local") {
-    throw new ApiError(
-      409,
-      "scheduled_task_workspace_inaccessible",
-      "Scheduled tasks currently require a local workspace owned by this server",
-    );
-  }
-  if (
-    input.revision.taskId !== input.task.id
-    || input.revision.definition.workspaceId !== input.task.workspaceId
-  ) {
-    throw new ApiError(
-      409,
-      "scheduled_task_invalid_revision",
-      "The scheduled-task revision does not match its workspace",
-    );
-  }
-  if (!input.grant) return;
-
-  const grant = input.grant;
-  const definition = input.revision.definition;
-  if (
-    grant.model.providerId !== definition.model.providerId
-    || grant.model.modelId !== definition.model.modelId
-    || grant.model.agent !== definition.model.agent
-  ) {
-    throw new ApiError(
-      409,
-      "scheduled_task_invalid_grant",
-      "The reviewed model must exactly match the scheduled-task revision",
-    );
-  }
-  if (
-    (grant.filesystem.read && !grant.actionClasses.includes("read"))
-    || (grant.filesystem.write && !grant.actionClasses.includes("write"))
-  ) {
-    throw new ApiError(
-      409,
-      "scheduled_task_invalid_grant",
-      "The reviewed filesystem scope exceeds its allowed action classes",
-    );
-  }
-  const capabilityGrant = validateScheduledTaskCapabilityGrant(grant.capabilityIds);
-  if (!capabilityGrant.ok) {
-    throw new ApiError(
-      409,
-      "scheduled_task_invalid_grant",
-      "Scheduled tasks may only use the reviewed local filesystem capability set",
-      { capabilityIds: capabilityGrant.unsupportedCapabilityIds },
-    );
-  }
-
-  let canonicalWorkspace: string;
-  try {
-    canonicalWorkspace = await realpath(workspace.path);
-  } catch {
-    throw new ApiError(
-      409,
-      "scheduled_task_workspace_inaccessible",
-      "The scheduled-task workspace is no longer accessible",
-    );
-  }
-  const serverRoots: string[] = [];
-  for (const root of config.authorizedRoots) {
-    try {
-      serverRoots.push(await realpath(root));
-    } catch {
-      // A stale configured root grants no authority.
-    }
-  }
-  const reviewedRoots: string[] = [];
-  for (const root of grant.authorizedWorkspaceRoots) {
-    let canonicalRoot: string;
-    try {
-      canonicalRoot = await realpath(root);
-    } catch {
-      throw new ApiError(
-        409,
-        "scheduled_task_workspace_inaccessible",
-        "A reviewed workspace root is no longer accessible",
-      );
-    }
-    if (!serverRoots.some((serverRoot) => pathContains(serverRoot, canonicalRoot))) {
-      throw new ApiError(
-        409,
-        "scheduled_task_invalid_grant",
-        "A reviewed workspace root is outside the server's authorized roots",
-      );
-    }
-    if (!pathContains(canonicalWorkspace, canonicalRoot)) {
-      throw new ApiError(
-        409,
-        "scheduled_task_invalid_grant",
-        "Scheduled-task roots must stay inside their owning workspace",
-      );
-    }
-    reviewedRoots.push(canonicalRoot);
-  }
-  if (!reviewedRoots.some((root) => pathContains(root, canonicalWorkspace))) {
-    throw new ApiError(
-      409,
-      "scheduled_task_invalid_grant",
-      "The reviewed grant must include the scheduled-task workspace root",
-    );
-  }
 }
 
 function ensureWritable(config: ServerConfig): void {

@@ -35,7 +35,6 @@ import type {
 
 import {
   OpenworkServerError,
-  type OpenworkServerClient,
   type OpenworkServerCapabilities,
 } from "@/app/lib/openwork-server";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -50,6 +49,11 @@ import { t } from "@/i18n";
 import { useControlAction, type OpenworkControlAction } from "@/react-app/shell/control/control-provider";
 import { workspaceScheduledTasksRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { ScheduledTaskEditor } from "./scheduled-task-editor";
+import type {
+  ScheduledTaskDetail,
+  ScheduledTaskListItem,
+  ScheduledTasksClient,
+} from "./scheduled-tasks-client";
 
 const ACTIVE_RUN_STATUSES = new Set<ScheduledTaskRun["status"]>([
   "scheduled",
@@ -58,27 +62,12 @@ const ACTIVE_RUN_STATUSES = new Set<ScheduledTaskRun["status"]>([
   "retrying",
 ]);
 
-type ScheduledTaskListItem = {
-  task: ScheduledTask;
-  revision: ScheduledTaskRevision;
-  grant?: ScheduledTaskGrant | null;
-  latestRun?: ScheduledTaskRun | null;
-};
-
-type ScheduledTaskDetail = {
-  task: ScheduledTask;
-  draftRevision: ScheduledTaskRevision;
-  activeRevision: ScheduledTaskRevision | null;
-  grant: ScheduledTaskGrant | null;
-  runs: ScheduledTaskRun[];
-};
-
 type ScheduledTasksPageProps = {
   routeWorkspaceId: string;
   workspaceId: string;
   workspaceRoot: string;
   taskId: string | null;
-  client: OpenworkServerClient | null;
+  client: ScheduledTasksClient | null;
   workspaces: Array<{ id: string; label: string }>;
 };
 
@@ -104,7 +93,15 @@ function scheduleLabel(schedule: ScheduledTaskSchedule) {
 }
 
 function stateLabel(state: ScheduledTaskState) {
-  return t(`scheduled_tasks.state_${state.replace("-", "_")}`);
+  const keyByState = {
+    deleted: "scheduled_tasks.state_deleted",
+    draft: "scheduled_tasks.state_draft",
+    enabled: "scheduled_tasks.state_enabled",
+    "needs-attention": "scheduled_tasks.state_needs_attention",
+    paused: "scheduled_tasks.state_paused",
+    ready: "scheduled_tasks.state_ready",
+  } as const;
+  return t(keyByState[state]);
 }
 
 function stateBadgeVariant(state: ScheduledTaskState): "default" | "secondary" | "destructive" | "outline" {
@@ -640,7 +637,7 @@ function ScheduledTaskDetailView({
   routeWorkspaceId: string;
   workspaceId: string;
   workspaceRoot: string;
-  client: OpenworkServerClient;
+  client: ScheduledTasksClient;
   capabilities: NonNullable<OpenworkServerCapabilities["scheduledTasks"]>;
   onBack: () => void;
   onOpenTask: (taskId: string) => void;
@@ -956,7 +953,7 @@ export function ScheduledTasksControlActions({
   workspaceId,
   routeWorkspaceId,
 }: {
-  client: OpenworkServerClient | null;
+  client: ScheduledTasksClient | null;
   workspaceId: string;
   routeWorkspaceId: string;
 }) {
