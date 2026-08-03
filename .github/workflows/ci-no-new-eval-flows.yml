@@ -1,0 +1,28 @@
+name: No New Legacy Eval Flows
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guard-legacy-eval-flows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch base commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$BASE_SHA"
+
+      - name: Reject non-deletion legacy flow changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-no-new-eval-flows.mjs "$BASE_SHA" "$HEAD_SHA"
