@@ -17,16 +17,13 @@ type ContextMenuItem = {
 
 type ContextMenuRequest = {
   id: string;
-  source: "tab" | "page" | "passkey" | "sidebar";
-  title?: string;
-  description?: string;
+  source: "tab" | "page" | "sidebar";
   items: ContextMenuItem[];
 };
 
 type MenuOverlayApi = {
   ready: () => void;
   onShow: (callback: (request: ContextMenuRequest) => void) => () => void;
-  resize: (requestId: string, height: number) => void;
   choose: (requestId: string, itemId: string) => void;
   close: (requestId?: string) => void;
 };
@@ -43,45 +40,18 @@ function ContextMenuSurface({
   request,
   onChoose,
   onClose,
-  onResize,
 }: {
   request: ContextMenuRequest;
   onChoose: (itemId: string) => void;
   onClose: () => void;
-  onResize: (height: number) => void;
 }) {
-  const rootRef = React.useRef<HTMLDivElement>(null);
-  const contentRef = React.useRef<HTMLDivElement>(null);
-
   React.useEffect(() => {
-    document.querySelector<HTMLButtonElement>(MENU_ITEM_SELECTOR)?.focus();
+    // document.querySelector<HTMLButtonElement>(MENU_ITEM_SELECTOR)?.focus();
   }, [request.id]);
-
-  React.useLayoutEffect(() => {
-    const root = rootRef.current;
-    const content = contentRef.current;
-    if (!root || !content || request.source === "passkey") return;
-
-    const reportHeight = () => {
-      const style = window.getComputedStyle(root);
-      const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-      onResize(Math.ceil(content.getBoundingClientRect().height + verticalPadding));
-    };
-    reportHeight();
-    const observer = new ResizeObserver(reportHeight);
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, [onResize, request.id, request.source]);
 
   return (
     <div
-      ref={rootRef}
       className="dark h-dvh overflow-hidden bg-transparent text-popover-foreground p-px"
-      onPointerDown={(event) => {
-        if (event.button !== 0) return;
-        if (event.target instanceof Element && event.target.closest("[data-slot='context-menu-item']")) return;
-        onClose();
-      }}
       onKeyDown={(event) => {
         const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(MENU_ITEM_SELECTOR));
         const currentIndex = Math.max(buttons.indexOf(document.activeElement as HTMLButtonElement), 0);
@@ -98,25 +68,16 @@ function ContextMenuSurface({
       }}
     >
       <ContextMenuContent
-        ref={contentRef}
-        role={request.source === "passkey" ? "dialog" : "menu"}
-        aria-label={request.title ?? `${request.source} context menu`}
+        role="menu"
+        aria-label={`${request.source} context menu`}
         className="w-full"
       >
-        {request.title ? (
-          <div className="px-3 pt-2 pb-2">
-            <div className="text-sm font-semibold text-foreground">{request.title}</div>
-            {request.description ? (
-              <div className="pt-1 text-xs leading-5 text-muted-foreground">{request.description}</div>
-            ) : null}
-          </div>
-        ) : null}
         {request.items.map((item) => {
           return (
             <React.Fragment key={item.id}>
               {item.separatorBefore ? <ContextMenuSeparator /> : null}
               <ContextMenuItem
-                role={request.source === "passkey" ? undefined : "menuitem"}
+                role="menuitem"
                 disabled={item.disabled}
                 onClick={() => onChoose(item.id)}
               >
@@ -151,7 +112,6 @@ function OverlayApp() {
       request={request}
       onChoose={(itemId) => api.choose(request.id, itemId)}
       onClose={() => api.close(request.id)}
-      onResize={(height) => api.resize(request.id, height)}
     />
   );
 }

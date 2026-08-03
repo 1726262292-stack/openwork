@@ -3,8 +3,6 @@ import { copyFileSync, cpSync, readFileSync, readdirSync, rmSync, writeFileSync 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { macosWebAuthnKeychainAccessGroup } from "../electron/webauthn.mjs";
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
@@ -12,8 +10,6 @@ const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
 const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
 const electronRoot = resolve(desktopRoot, "electron");
 const packagedServerRoot = resolve(desktopRoot, "server");
-const desktopPackagePath = resolve(desktopRoot, "package.json");
-const macEntitlementsPath = resolve(desktopRoot, "build", "entitlements.mac.plist");
 
 const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const nodeCmd = process.execPath;
@@ -33,27 +29,6 @@ function run(command, args, cwd, env) {
     process.exit(result.status ?? 1);
   }
 }
-
-function syncMacosWebAuthnEntitlement() {
-  const packageMetadata = JSON.parse(readFileSync(desktopPackagePath, "utf8"));
-  const keychainAccessGroup = macosWebAuthnKeychainAccessGroup({
-    teamId: packageMetadata.openworkAppleTeamId,
-    bundleId: packageMetadata.desktopName,
-  });
-  if (!keychainAccessGroup) {
-    throw new Error("Desktop package metadata must define the Apple team ID and bundle ID");
-  }
-
-  const entitlements = readFileSync(macEntitlementsPath, "utf8");
-  const keychainGroupPattern = /(<key>keychain-access-groups<\/key>\s*<array>\s*<string>)[^<]+(<\/string>\s*<\/array>)/;
-  if (!keychainGroupPattern.test(entitlements)) {
-    throw new Error("macOS entitlements must contain a keychain-access-groups entry");
-  }
-  const updated = entitlements.replace(keychainGroupPattern, `$1${keychainAccessGroup}$2`);
-  if (updated !== entitlements) writeFileSync(macEntitlementsPath, updated, "utf8");
-}
-
-syncMacosWebAuthnEntitlement();
 
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
