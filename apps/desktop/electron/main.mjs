@@ -53,6 +53,10 @@ import { openExternalUrl } from "./open-external.mjs";
 import { resolveAppIdentifier, resolveUserDataPath } from "./dev-profile.mjs";
 import { fetchAgentContextDiagnosticsResponse } from "./agent-context-diagnostics-fetch.mjs";
 import {
+  configureMacosTouchIdPasskeys,
+  macosWebAuthnKeychainAccessGroup,
+} from "./webauthn.mjs";
+import {
   createLinuxDesktopIntegration,
 } from "./linux-desktop-integration.mjs";
 import {
@@ -115,6 +119,10 @@ const APP_IDENTIFIER = resolveAppIdentifier({
   devProfile: process.env.OPENWORK_DEV_PROFILE,
   isDevMode,
   isPackaged: app.isPackaged,
+});
+const macosTouchIdKeychainAccessGroup = macosWebAuthnKeychainAccessGroup({
+  teamId: desktopPackageMetadata.openworkAppleTeamId,
+  bundleId: desktopPackageMetadata.desktopName,
 });
 if (process.env.OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN === "1") {
   // Fresh, isolated development profiles otherwise trigger macOS's native
@@ -2521,6 +2529,11 @@ or use: pnpm dev:worktree`);
   });
 
   app.whenReady().then(async () => {
+    configureMacosTouchIdPasskeys({
+      electronApp: app,
+      platform: process.platform,
+      keychainAccessGroup: macosTouchIdKeychainAccessGroup,
+    });
     installMediaPermissionHandlers(session, () => mainWindow);
     await runPendingNukeCleanup({
       env: process.env,

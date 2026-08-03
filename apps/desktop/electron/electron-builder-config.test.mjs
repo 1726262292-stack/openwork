@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
+import { macosWebAuthnKeychainAccessGroup } from "./webauthn.mjs";
+
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function readConfig(name) {
@@ -18,6 +20,9 @@ describe("Electron distribution configs", () => {
     );
     const config = await readConfig("electron-builder.base.yml");
     assert.equal(packageMetadata.desktopName, "com.differentai.openwork");
+    assert.equal(config.npmRebuild, true);
+    assert.equal(config.mac.entitlements, "build/entitlements.mac.plist");
+    assert.equal(config.mac.entitlementsInherit, "build/entitlements.mac.inherit.plist");
     assert.equal(config.linux.syncDesktopName, true);
     assert.equal(config.linux.icon, "resources/icons/linux");
     assert.deepEqual(config.linux.extraResources[0], {
@@ -25,6 +30,22 @@ describe("Electron distribution configs", () => {
       to: "icons/linux",
       filter: ["*.png"],
     });
+  });
+
+  it("keeps the Touch ID keychain entitlement in sync with signing metadata", async () => {
+    const packageMetadata = JSON.parse(
+      await readFile(path.resolve(dirname, "..", "package.json"), "utf8"),
+    );
+    const entitlements = await readFile(
+      path.resolve(dirname, "..", "build", "entitlements.mac.plist"),
+      "utf8",
+    );
+    const keychainAccessGroup = macosWebAuthnKeychainAccessGroup({
+      teamId: packageMetadata.openworkAppleTeamId,
+      bundleId: packageMetadata.desktopName,
+    });
+    assert.ok(keychainAccessGroup);
+    assert.match(entitlements, new RegExp(`<string>${keychainAccessGroup}<\\/string>`));
   });
 
   it("keeps the public artifact and protocol unchanged", async () => {
