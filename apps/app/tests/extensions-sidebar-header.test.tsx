@@ -59,13 +59,14 @@ describe("Extensions sidebar destination", () => {
 });
 
 describe("Extensions main page", () => {
-  test("uses the main content header and is absent from Settings navigation", () => {
+  test("uses the main content header and lives in Settings navigation", () => {
     const sessionPageSource = readFileSync(sessionPagePath, "utf8");
     const generalSettingsSource = readFileSync(generalSettingsPath, "utf8");
 
     expect(sessionPageSource).toContain("props.mainContentTitle");
     expect(sessionPageSource).toContain("<h1");
-    expect(getWorkspaceSettingsTabs()).not.toContain("extensions");
+    // Library moved into the Settings pane (#3452).
+    expect(getWorkspaceSettingsTabs()).toContain("extensions");
     expect(generalSettingsSource).not.toContain('{ tab: "extensions"');
   });
 });
