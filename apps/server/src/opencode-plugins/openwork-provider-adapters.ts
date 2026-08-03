@@ -134,7 +134,12 @@ function scheduledTasksContribution(): OpenworkFeatureContribution {
           argument("prompt", "string", true, "Exact self-contained prompt the scheduled run would receive."),
           argument("description", "string", false, "Optional explanation of the recurring outcome."),
           argument("workspaceId", "string", false, "Optional workspace id or name. Defaults to the current workspace."),
-          argument("schedule", "object", false, "Optional manual, daily, or weekly schedule with an IANA timezone."),
+          argument(
+            "schedule",
+            "object",
+            false,
+            "Optional schedule. Use { kind: \"manual\", timezone }, { kind: \"daily\", timezone, hour, minute }, or { kind: \"weekly\", timezone, daysOfWeek, hour, minute }. hour is 0-23, minute is 0-59, and daysOfWeek uses 0=Sunday through 6=Saturday.",
+          ),
           argument("model", "object", false, "Optional providerId, modelId, and agent selection."),
           argument("maximumRuntimeMs", "number", false, "Optional runtime ceiling in milliseconds."),
         ],
