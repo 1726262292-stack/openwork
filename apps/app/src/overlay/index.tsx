@@ -17,7 +17,9 @@ type ContextMenuItem = {
 
 type ContextMenuRequest = {
   id: string;
-  source: "tab" | "page" | "sidebar";
+  source: "tab" | "page" | "passkey" | "sidebar";
+  title?: string;
+  description?: string;
   items: ContextMenuItem[];
 };
 
@@ -68,16 +70,24 @@ function ContextMenuSurface({
       }}
     >
       <ContextMenuContent
-        role="menu"
-        aria-label={`${request.source} context menu`}
+        role={request.source === "passkey" ? "dialog" : "menu"}
+        aria-label={request.title ?? `${request.source} context menu`}
         className="w-full"
       >
+        {request.title ? (
+          <div className="px-3 pt-2 pb-2">
+            <div className="text-sm font-semibold text-foreground">{request.title}</div>
+            {request.description ? (
+              <div className="pt-1 text-xs leading-5 text-muted-foreground">{request.description}</div>
+            ) : null}
+          </div>
+        ) : null}
         {request.items.map((item) => {
           return (
             <React.Fragment key={item.id}>
               {item.separatorBefore ? <ContextMenuSeparator /> : null}
               <ContextMenuItem
-                role="menuitem"
+                role={request.source === "passkey" ? undefined : "menuitem"}
                 disabled={item.disabled}
                 onClick={() => onChoose(item.id)}
               >

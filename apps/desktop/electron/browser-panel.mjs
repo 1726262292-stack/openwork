@@ -21,6 +21,8 @@ const MENU_OVERLAY_SEPARATOR_HEIGHT = 13;
 const MENU_OVERLAY_VERTICAL_CHROME = 19;
 const MENU_OVERLAY_EDGE_GAP = 4;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
+const PASSKEY_OVERLAY_WIDTH = 360;
+const PASSKEY_OVERLAY_HEIGHT = 152;
 
 export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
   const browserTabs = new Map();
@@ -260,10 +262,9 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
       + (separatorCount * MENU_OVERLAY_SEPARATOR_HEIGHT);
   }
 
-  function menuOverlayBounds(point, items) {
-    const requestedHeight = menuOverlayHeight(items);
-    const [contentWidth, contentHeight] = window()?.getContentSize?.() ?? [MENU_OVERLAY_WIDTH, requestedHeight];
-    const width = Math.min(MENU_OVERLAY_WIDTH, Math.max(contentWidth - MENU_OVERLAY_EDGE_GAP, 0));
+  function menuOverlayBounds(point, items, requestedWidth = MENU_OVERLAY_WIDTH, requestedHeight = menuOverlayHeight(items)) {
+    const [contentWidth, contentHeight] = window()?.getContentSize?.() ?? [requestedWidth, requestedHeight];
+    const width = Math.min(requestedWidth, Math.max(contentWidth - MENU_OVERLAY_EDGE_GAP, 0));
     const height = Math.min(requestedHeight, Math.max(contentHeight - MENU_OVERLAY_EDGE_GAP, 0));
     return {
       x: Math.min(Math.max(point.x, 0), Math.max(contentWidth - width - MENU_OVERLAY_EDGE_GAP, 0)),
@@ -443,6 +444,28 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     };
   }
 
+  function passkeyMenuRequest(tab) {
+    const url = browserTabUrl(tab);
+    const items = [
+      { id: "passkey-open-external", label: "Open in your browser", iconName: "external", disabled: !(url && isHttpUrl(url)) },
+    ];
+    const viewBounds = tab.view.getBounds();
+    const point = {
+      x: viewBounds.x + viewBounds.width - PASSKEY_OVERLAY_WIDTH - 16,
+      y: viewBounds.y + 16,
+    };
+    return {
+      id: `passkey-menu:${tab.tabId}:${Date.now()}`,
+      source: "passkey",
+      title: "Open this page to use a passkey",
+      description: "This site asked for a passkey, but OpenWork’s built-in browser can’t use passkeys yet.",
+      tabId: tab.tabId,
+      url,
+      bounds: menuOverlayBounds(point, items, PASSKEY_OVERLAY_WIDTH, PASSKEY_OVERLAY_HEIGHT),
+      items,
+    };
+  }
+
   async function showMenuOverlay(request) {
     const showSerial = menuOverlayShowSerial + 1;
     menuOverlayShowSerial = showSerial;
@@ -460,6 +483,8 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     view.webContents.send("openwork:menu-overlay:show", {
       id: request.id,
       source: request.source,
+      title: request.title,
+      description: request.description,
       items: request.items,
     });
     view.webContents.focus();
@@ -489,6 +514,9 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
         if (request.url) clipboard.writeText(request.url);
         break;
       case "open-external":
+        if (request.url && isHttpUrl(request.url)) void shell.openExternal(request.url);
+        break;
+      case "passkey-open-external":
         if (request.url && isHttpUrl(request.url)) void shell.openExternal(request.url);
         break;
       case "close-tab":
@@ -915,6 +943,11 @@ export function createBrowserPanel({ getWindow, remoteDebugPort, onDeepLink }) {
     ipcMain.handle("openwork:browser:getProxy", () => browserProxyState());
     ipcMain.handle("openwork:browser:tabContextMenu", (_event, tabId, point) => showBrowserTabContextMenu(tabId, point));
     ipcMain.handle("openwork:browser:destroy", () => destroyBrowserView());
+    ipcMain.on("openwork:browser:passkey-unavailable", (event) => {
+      const tab = [...browserTabs.values()].find((candidate) => candidate.view.webContents === event.sender);
+      if (!tab || tab.view.webContents.isDestroyed()) return;
+      void showMenuOverlay(passkeyMenuRequest(tab));
+    });
     ipcMain.on("openwork:menu-overlay:ready", (event) => {
       if (event.sender !== menuOverlayView?.webContents) return;
       markMenuOverlayReady(menuOverlayView);
