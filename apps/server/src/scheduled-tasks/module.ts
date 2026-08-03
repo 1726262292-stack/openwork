@@ -150,6 +150,21 @@ async function validateAuthority(
 
   const grant = input.grant;
   const definition = input.revision.definition;
+  const placement = grant.placement ?? definition.placement;
+  if (
+    placement
+    && (
+      placement.target.kind !== "local-workspace"
+      || placement.target.workspaceId !== definition.workspaceId
+      || placement.schedulerOwner !== "local-server"
+    )
+  ) {
+    throw new ApiError(
+      409,
+      "scheduled_task_invalid_placement",
+      "This local server can only review tasks placed in its local workspace",
+    );
+  }
   if (
     grant.model.providerId !== definition.model.providerId
     || grant.model.modelId !== definition.model.modelId

@@ -1,7 +1,9 @@
 import type {
-  ScheduledTaskService,
+  ScheduledTaskTickInput,
+  ScheduledTaskTickPort,
   ScheduledTaskTickResult,
-} from "./scheduled-task-service.js";
+} from "@openwork/scheduled-tasks";
+import type { ScheduledTaskService } from "./scheduled-task-service.js";
 
 export interface CreateScheduledTaskSchedulerOptions {
   service: ScheduledTaskService;
@@ -9,10 +11,9 @@ export interface CreateScheduledTaskSchedulerOptions {
   onError?: (error: unknown) => void;
 }
 
-export interface ScheduledTaskScheduler {
+export interface ScheduledTaskScheduler extends ScheduledTaskTickPort {
   readonly running: boolean;
   start(options?: { immediate?: boolean }): void;
-  tick(now?: number, workspaceId?: string): Promise<ScheduledTaskTickResult>;
   stop(): Promise<void>;
 }
 
@@ -23,9 +24,9 @@ export function createScheduledTaskScheduler(
   let timer: ReturnType<typeof setInterval> | null = null;
   let activeTick: Promise<ScheduledTaskTickResult> | null = null;
 
-  function tick(now?: number, workspaceId?: string): Promise<ScheduledTaskTickResult> {
+  function tick(input: ScheduledTaskTickInput): Promise<ScheduledTaskTickResult> {
     if (activeTick) return activeTick;
-    const promise = options.service.tick(now, workspaceId);
+    const promise = options.service.tick(input);
     activeTick = promise;
     void promise.then(
       () => {
@@ -46,11 +47,15 @@ export function createScheduledTaskScheduler(
     start(startOptions = {}) {
       if (timer) return;
       timer = setInterval(() => {
-        void tick().catch((error) => options.onError?.(error));
+        void tick({ now: Date.now(), source: "app" }).catch(
+          (error) => options.onError?.(error),
+        );
       }, intervalMs);
       timer.unref?.();
       if (startOptions.immediate) {
-        void tick().catch((error) => options.onError?.(error));
+        void tick({ now: Date.now(), source: "app" }).catch(
+          (error) => options.onError?.(error),
+        );
       }
     },
 

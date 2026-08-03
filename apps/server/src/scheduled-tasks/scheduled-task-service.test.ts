@@ -166,7 +166,7 @@ describe("scheduled task service", () => {
       migrated.query(
         "SELECT MAX(version) AS version FROM openwork_scheduled_task_migrations",
       ).get(),
-    ).toEqual({ version: 2 });
+    ).toEqual({ version: 3 });
     migrated.close();
   });
 
@@ -631,7 +631,11 @@ describe("scheduled task service", () => {
     store.revokeGrant(first.reviewed.grant.id, current, "Capability removed", "owner");
 
     current = Date.UTC(2026, 6, 28, 9, 0);
-    const tick = await first.service.tick(current, "ws_test");
+    const tick = await first.service.tick({
+      now: current,
+      source: "manual",
+      workspaceId: "ws_test",
+    });
 
     expect(tick.claimedRunIds).toHaveLength(1);
     expect(first.service.get("ws_test", first.reviewed.task.id).task.needsAttention?.code).toBe("grant-revoked");
@@ -657,7 +661,11 @@ describe("scheduled task service", () => {
     await service.enable("ws_test", reviewed.task.id);
     current = Date.UTC(2026, 6, 28, 9, 0);
 
-    const tick = await service.tick(current, "ws_test");
+    const tick = await service.tick({
+      now: current,
+      source: "manual",
+      workspaceId: "ws_test",
+    });
     const run = await waitForRunStatus(
       service,
       reviewed.task.id,
@@ -715,7 +723,11 @@ describe("scheduled task service", () => {
     await service.enable("ws_test", reviewed.task.id);
 
     current = Date.UTC(2026, 6, 28, 10, 1, 1);
-    await service.tick(current, "ws_test");
+    await service.tick({
+      now: current,
+      source: "manual",
+      workspaceId: "ws_test",
+    });
     expect(service.get("ws_test", reviewed.task.id).task.needsAttention?.code).toBe("missed-occurrence");
 
     const recovery = await service.runOnce("ws_test", reviewed.task.id);

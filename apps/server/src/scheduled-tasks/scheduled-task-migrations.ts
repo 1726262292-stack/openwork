@@ -1,6 +1,6 @@
 import type { RuntimeSqliteDatabase } from "../runtime-db.js";
 
-export const SCHEDULED_TASK_SCHEMA_VERSION = 2;
+export const SCHEDULED_TASK_SCHEMA_VERSION = 3;
 
 type SqliteStatement = {
   run: (...params: unknown[]) => unknown;
@@ -164,6 +164,15 @@ export function migrateScheduledTaskDatabase(database: RuntimeSqliteDatabase): v
         database,
         "INSERT INTO openwork_scheduled_task_migrations(version, applied_at) VALUES (?, ?)",
       ).run(2, Date.now());
+    }
+    if (current < 3) {
+      database.sqlite.exec(`
+        ALTER TABLE openwork_scheduled_task_runs ADD COLUMN placement_json TEXT
+      `);
+      statement(
+        database,
+        "INSERT INTO openwork_scheduled_task_migrations(version, applied_at) VALUES (?, ?)",
+      ).run(3, Date.now());
     }
     database.sqlite.exec("COMMIT");
   } catch (error) {

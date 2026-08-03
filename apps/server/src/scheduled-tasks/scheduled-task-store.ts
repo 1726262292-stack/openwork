@@ -1,6 +1,7 @@
 import {
   scheduledTaskAttemptSchema,
   scheduledTaskGrantSchema,
+  localWorkspaceIdForScheduledTaskScope,
   scheduledTaskRevisionSchema,
   scheduledTaskRunSchema,
   scheduledTaskSchema,
@@ -9,7 +10,13 @@ import {
   type ScheduledTaskGrant,
   type ScheduledTaskRevision,
   type ScheduledTaskRun,
-} from "@openwork/types/scheduled-tasks";
+  type ScheduledTaskClaimResult,
+  type ScheduledTaskDetail,
+  type ScheduledTaskListItem,
+  type ScheduledTaskOccurrenceRecord,
+  type ScheduledTaskRepositoryFilter,
+  type SynchronousScheduledTaskRepository,
+} from "@openwork/scheduled-tasks";
 import type { RuntimeSqliteDatabase } from "../runtime-db.js";
 import {
   openRuntimeSqliteDatabase,
@@ -81,6 +88,9 @@ function runFromRow(row: Row): ScheduledTaskRun {
     taskId: row.task_id,
     taskRevisionId: row.task_revision_id,
     grantRevisionId: row.grant_revision_id,
+    placement: row.placement_json === null || row.placement_json === undefined
+      ? undefined
+      : parseJson(row.placement_json),
     occurrenceId: row.occurrence_id,
     trigger: row.trigger,
     status: row.status,
@@ -115,72 +125,14 @@ function attemptFromRow(row: Row): ScheduledTaskAttempt {
   });
 }
 
-export interface ScheduledTaskListItem {
-  task: ScheduledTask;
-  revision: ScheduledTaskRevision;
-  grant?: ScheduledTaskGrant;
-  latestRun?: ScheduledTaskRun;
-}
+export type {
+  ScheduledTaskClaimResult,
+  ScheduledTaskDetail,
+  ScheduledTaskListItem,
+  ScheduledTaskOccurrenceRecord,
+} from "@openwork/scheduled-tasks";
 
-export interface ScheduledTaskDetail {
-  task: ScheduledTask;
-  draftRevision: ScheduledTaskRevision;
-  activeRevision: ScheduledTaskRevision | null;
-  grant: ScheduledTaskGrant | null;
-  runs: ScheduledTaskRun[];
-}
-
-export interface ScheduledTaskOccurrenceRecord {
-  id: string;
-  taskId: string;
-  taskRevisionId: string;
-  scheduledFor: number | null;
-  trigger: ScheduledTaskRun["trigger"];
-  status: ScheduledTaskRun["status"];
-  claimedAt: number;
-}
-
-export type ScheduledTaskClaimResult =
-  | { kind: "claimed"; run: ScheduledTaskRun }
-  | { kind: "duplicate"; run: ScheduledTaskRun }
-  | { kind: "overlap"; run: ScheduledTaskRun };
-
-export interface ScheduledTaskStore {
-  createTask(task: ScheduledTask, revision: ScheduledTaskRevision): void;
-  createRevision(task: ScheduledTask, revision: ScheduledTaskRevision): void;
-  activateGrant(
-    task: ScheduledTask,
-    reviewedRevision: ScheduledTaskRevision,
-    grant: ScheduledTaskGrant,
-  ): void;
-  saveTask(task: ScheduledTask): void;
-  getTask(taskId: string): ScheduledTask | null;
-  getRevision(revisionId: string): ScheduledTaskRevision | null;
-  getGrant(grantId: string): ScheduledTaskGrant | null;
-  revokeGrant(
-    grantId: string,
-    revokedAt: number,
-    reason: string,
-    revokedBy: string,
-  ): ScheduledTaskGrant;
-  getDetail(taskId: string, runLimit?: number): ScheduledTaskDetail | null;
-  listTasks(workspaceId: string): ScheduledTaskListItem[];
-  listDueTasks(now: number): ScheduledTask[];
-  claimOccurrence(
-    occurrence: ScheduledTaskOccurrenceRecord,
-    claimedRun: ScheduledTaskRun,
-    overlapRun: ScheduledTaskRun,
-    taskAfterClaim?: ScheduledTask,
-  ): ScheduledTaskClaimResult;
-  saveRun(run: ScheduledTaskRun): void;
-  getRun(runId: string): ScheduledTaskRun | null;
-  listRuns(taskId: string, limit?: number): ScheduledTaskRun[];
-  listInterruptedRuns(): ScheduledTaskRun[];
-  createAttempt(attempt: ScheduledTaskAttempt): void;
-  saveAttempt(attempt: ScheduledTaskAttempt): void;
-  listAttempts(runId: string): ScheduledTaskAttempt[];
-  close(): void;
-}
+export type ScheduledTaskStore = SynchronousScheduledTaskRepository;
 
 function insertTask(database: RuntimeSqliteDatabase, task: ScheduledTask): void {
   statement(database, `
@@ -262,16 +214,17 @@ function updateTask(database: RuntimeSqliteDatabase, task: ScheduledTask): void 
 function insertRun(database: RuntimeSqliteDatabase, run: ScheduledTaskRun): void {
   statement(database, `
     INSERT INTO openwork_scheduled_task_runs(
-      id, task_id, task_revision_id, grant_revision_id, occurrence_id, trigger,
+      id, task_id, task_revision_id, grant_revision_id, placement_json, occurrence_id, trigger,
       status, scheduled_for, claimed_at, started_at, completed_at, duration_ms,
       idempotency_key, session_id, attempt_count, bounded_usage_json, error_json,
       needs_attention_json, artifacts_json, cancel_requested_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     run.id,
     run.taskId,
     run.taskRevisionId,
     run.grantRevisionId,
+    run.placement === undefined ? null : stringifyJson(run.placement),
     run.occurrenceId,
     run.trigger,
     run.status,
@@ -296,12 +249,13 @@ function insertRun(database: RuntimeSqliteDatabase, run: ScheduledTaskRun): void
 function updateRun(database: RuntimeSqliteDatabase, run: ScheduledTaskRun): void {
   statement(database, `
     UPDATE openwork_scheduled_task_runs SET
-      status = ?, started_at = ?, completed_at = ?, duration_ms = ?, session_id = ?,
+      status = ?, placement_json = ?, started_at = ?, completed_at = ?, duration_ms = ?, session_id = ?,
       attempt_count = ?, bounded_usage_json = ?, error_json = ?,
       needs_attention_json = ?, artifacts_json = ?, cancel_requested_at = ?, updated_at = ?
     WHERE id = ?
   `).run(
     run.status,
+    run.placement === undefined ? null : stringifyJson(run.placement),
     run.startedAt,
     run.completedAt,
     run.durationMs,
@@ -329,7 +283,7 @@ function runInImmediateTransaction<T>(database: RuntimeSqliteDatabase, callback:
   }
 }
 
-class SqliteScheduledTaskStore implements ScheduledTaskStore {
+class SqliteScheduledTaskStore implements SynchronousScheduledTaskRepository {
   constructor(
     private readonly database: RuntimeSqliteDatabase,
     private readonly ownsDatabase: boolean,
@@ -436,12 +390,20 @@ class SqliteScheduledTaskStore implements ScheduledTaskStore {
     };
   }
 
-  listTasks(workspaceId: string): ScheduledTaskListItem[] {
-    const rows = statement(this.database, `
-      SELECT * FROM openwork_scheduled_tasks
-      WHERE workspace_id = ? AND deleted_at IS NULL
-      ORDER BY updated_at DESC
-    `).all(workspaceId) as Row[];
+  listTasks(scope: ScheduledTaskRepositoryFilter): ScheduledTaskListItem[] {
+    const workspaceId = localWorkspaceIdForScheduledTaskScope(scope);
+    if (workspaceId === null) return [];
+    const rows = workspaceId === undefined
+      ? statement(this.database, `
+          SELECT * FROM openwork_scheduled_tasks
+          WHERE deleted_at IS NULL
+          ORDER BY updated_at DESC
+        `).all() as Row[]
+      : statement(this.database, `
+          SELECT * FROM openwork_scheduled_tasks
+          WHERE workspace_id = ? AND deleted_at IS NULL
+          ORDER BY updated_at DESC
+        `).all(workspaceId) as Row[];
     return rows.map((row) => {
       const task = taskFromRow(row);
       const revision = this.getRevision(task.draftRevisionId);
@@ -458,14 +420,42 @@ class SqliteScheduledTaskStore implements ScheduledTaskStore {
     });
   }
 
-  listDueTasks(now: number): ScheduledTask[] {
-    const rows = statement(this.database, `
-      SELECT * FROM openwork_scheduled_tasks
-      WHERE enabled = 1 AND state = 'enabled' AND deleted_at IS NULL
-        AND next_run_at IS NOT NULL AND next_run_at <= ?
-      ORDER BY next_run_at ASC
-    `).all(now) as Row[];
+  listDueTasks(now: number, scope?: ScheduledTaskRepositoryFilter): ScheduledTask[] {
+    const workspaceId = localWorkspaceIdForScheduledTaskScope(scope);
+    if (workspaceId === null) return [];
+    const rows = workspaceId === undefined
+      ? statement(this.database, `
+          SELECT * FROM openwork_scheduled_tasks
+          WHERE enabled = 1 AND state = 'enabled' AND deleted_at IS NULL
+            AND next_run_at IS NOT NULL AND next_run_at <= ?
+          ORDER BY next_run_at ASC
+        `).all(now) as Row[]
+      : statement(this.database, `
+          SELECT * FROM openwork_scheduled_tasks
+          WHERE workspace_id = ? AND enabled = 1 AND state = 'enabled'
+            AND deleted_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?
+          ORDER BY next_run_at ASC
+        `).all(workspaceId, now) as Row[];
     return rows.map(taskFromRow);
+  }
+
+  nextDueAt(scope?: ScheduledTaskRepositoryFilter): number | null {
+    const workspaceId = localWorkspaceIdForScheduledTaskScope(scope);
+    if (workspaceId === null) return null;
+    const row = workspaceId === undefined
+      ? statement(this.database, `
+          SELECT MIN(next_run_at) AS next_due_at
+          FROM openwork_scheduled_tasks
+          WHERE enabled = 1 AND state = 'enabled' AND deleted_at IS NULL
+            AND next_run_at IS NOT NULL
+        `).get() as Row | undefined
+      : statement(this.database, `
+          SELECT MIN(next_run_at) AS next_due_at
+          FROM openwork_scheduled_tasks
+          WHERE workspace_id = ? AND enabled = 1 AND state = 'enabled'
+            AND deleted_at IS NULL AND next_run_at IS NOT NULL
+        `).get(workspaceId) as Row | undefined;
+    return nullableNumber(row?.next_due_at);
   }
 
   claimOccurrence(
@@ -605,7 +595,7 @@ export interface CreateScheduledTaskStoreOptions {
 
 export async function createScheduledTaskStore(
   options: CreateScheduledTaskStoreOptions,
-): Promise<ScheduledTaskStore> {
+): Promise<SynchronousScheduledTaskRepository> {
   if (!options.database && !options.path && !options.config) {
     throw new Error("createScheduledTaskStore requires config, path, or database");
   }

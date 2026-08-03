@@ -1,9 +1,10 @@
-import type {
-  ScheduledTaskExecutionEvent,
-  ScheduledTaskExecutionRequest,
-  ScheduledTaskExecutionResult,
-  ScheduledTaskTypedError,
-} from "@openwork/types/scheduled-tasks";
+export type {
+  ScheduledTaskCancellationReason,
+  ScheduledTaskCancellationRequest,
+  ScheduledTaskCancellationResult,
+  ScheduledTaskExecutionAdapter,
+  ScheduledTaskExecutionOptions,
+} from "@openwork/scheduled-tasks";
 
 export const SCHEDULED_TASK_WORKSPACE_READ_CAPABILITY_ID =
   "workspace.files.read" as const;
@@ -38,53 +39,4 @@ export function validateScheduledTaskCapabilityGrant(
   return unsupportedCapabilityIds.length === 0
     ? { ok: true }
     : { ok: false, unsupportedCapabilityIds };
-}
-
-export interface ScheduledTaskExecutionOptions {
-  signal: AbortSignal;
-  onEvent?: (event: ScheduledTaskExecutionEvent) => void | Promise<void>;
-}
-
-export type ScheduledTaskCancellationReason =
-  | "user"
-  | "timeout"
-  | "shutdown"
-  | "grant-revoked"
-  | "workspace-removed"
-  | "capability-lost";
-
-export interface ScheduledTaskCancellationRequest {
-  runId: string;
-  attemptId: string;
-  sessionId: string;
-  reason: ScheduledTaskCancellationReason;
-}
-
-export type ScheduledTaskCancellationResult =
-  | {
-      status: "cancelled";
-      sessionId: string;
-    }
-  | {
-      status: "not-running";
-      sessionId: string;
-    }
-  | {
-      status: "unsupported";
-      sessionId: string;
-      error: ScheduledTaskTypedError;
-    }
-  | {
-      status: "ambiguous";
-      sessionId: string;
-      error: ScheduledTaskTypedError;
-    };
-
-export interface ScheduledTaskExecutionAdapter {
-  execute(
-    request: ScheduledTaskExecutionRequest,
-    options: ScheduledTaskExecutionOptions,
-  ): Promise<ScheduledTaskExecutionResult>;
-
-  cancel(request: ScheduledTaskCancellationRequest): Promise<ScheduledTaskCancellationResult>;
 }

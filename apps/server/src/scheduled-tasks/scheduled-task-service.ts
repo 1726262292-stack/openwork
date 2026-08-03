@@ -1,45 +1,50 @@
 import {
   createScheduledTaskDraftSchema,
+  createLocalScheduledTaskPlacement,
+  isTerminalScheduledTaskRunStatus,
+  nextScheduledTaskOccurrence,
+  previewScheduledTaskSchedule,
   reviewScheduledTaskGrantSchema,
+  scheduledTaskOccurrenceIdentity,
   scheduledTaskAttemptSchema,
   scheduledTaskExecutionResultSchema,
   scheduledTaskGrantSchema,
+  scheduledTaskPlacementIdentity,
   scheduledTaskRevisionSchema,
   scheduledTaskRunSchema,
   scheduledTaskSchema,
+  selectScheduledTasksForTick,
   updateScheduledTaskDraftSchema,
   type CreateScheduledTaskDraft,
   type ReviewScheduledTaskGrant,
   type ScheduledTask,
   type ScheduledTaskAttempt,
+  type ScheduledTaskAuthorityValidation,
+  type ScheduledTaskAuthorityValidator,
+  type ScheduledTaskCancellationReason,
+  type ScheduledTaskCancellationRequest,
+  type ScheduledTaskCapabilityReference,
+  type ScheduledTaskClaimResult,
   type ScheduledTaskDefinition,
+  type ScheduledTaskDetail,
+  type ScheduledTaskExecutionAdapter,
   type ScheduledTaskExecutionEvent,
   type ScheduledTaskExecutionResult,
   type ScheduledTaskGrant,
+  type ScheduledTaskListItem,
   type ScheduledTaskNeedsAttention,
+  type ScheduledTaskPlacement,
   type ScheduledTaskRevision,
   type ScheduledTaskRun,
   type ScheduledTaskRunReceipt,
   type ScheduledTaskSchedule,
+  type ScheduledTaskTickInput,
+  type ScheduledTaskTickResult,
   type ScheduledTaskTypedError,
+  type SynchronousScheduledTaskRepository,
   type UpdateScheduledTaskDraft,
-} from "@openwork/types/scheduled-tasks";
+} from "@openwork/scheduled-tasks";
 import { ApiError } from "../errors.js";
-import type {
-  ScheduledTaskCancellationRequest,
-  ScheduledTaskExecutionAdapter,
-} from "./execution.js";
-import {
-  nextScheduledTaskOccurrence,
-  previewScheduledTaskSchedule,
-  scheduledTaskOccurrenceId,
-} from "./scheduled-task-schedule.js";
-import type {
-  ScheduledTaskClaimResult,
-  ScheduledTaskDetail,
-  ScheduledTaskListItem,
-  ScheduledTaskStore,
-} from "./scheduled-task-store.js";
 
 const EMPTY_USAGE = {
   inputTokens: null,
@@ -47,17 +52,7 @@ const EMPTY_USAGE = {
   costMicros: null,
 } as const;
 
-const TERMINAL_RUN_STATUSES = new Set<ScheduledTaskRun["status"]>([
-  "completed",
-  "failed",
-  "cancelled",
-  "needs-attention",
-  "missed",
-  "skipped-overlap",
-  "ambiguous",
-]);
-
-type CancellationReason = ScheduledTaskCancellationRequest["reason"];
+type CancellationReason = ScheduledTaskCancellationReason;
 
 interface LiveExecution {
   controller: AbortController;
@@ -66,20 +61,14 @@ interface LiveExecution {
   reason: CancellationReason;
 }
 
-export interface ScheduledTaskAuthorityValidation {
-  phase: "review" | "enable" | "execute";
-  task: ScheduledTask;
-  revision: ScheduledTaskRevision;
-  grant: ScheduledTaskGrant | null;
-  now: number;
-}
-
-export type ScheduledTaskAuthorityValidator = (
-  input: ScheduledTaskAuthorityValidation,
-) => void | Promise<void>;
+export type {
+  ScheduledTaskAuthorityValidation,
+  ScheduledTaskAuthorityValidator,
+  ScheduledTaskTickResult,
+} from "@openwork/scheduled-tasks";
 
 export interface CreateScheduledTaskServiceOptions {
-  store: ScheduledTaskStore;
+  store: SynchronousScheduledTaskRepository;
   execution: ScheduledTaskExecutionAdapter;
   validateAuthority?: ScheduledTaskAuthorityValidator;
   clock?: () => number;
@@ -88,11 +77,6 @@ export interface CreateScheduledTaskServiceOptions {
     onTimeout: () => void,
     durationMs: number,
   ) => () => void;
-}
-
-export interface ScheduledTaskTickResult {
-  processedAt: number;
-  claimedRunIds: string[];
 }
 
 export interface ScheduledTaskService {
@@ -136,7 +120,7 @@ export interface ScheduledTaskService {
   getRunReceipt(workspaceId: string, taskId: string, runId: string): ScheduledTaskRunReceipt;
   cancelRun(workspaceId: string, taskId: string, runId: string): Promise<ScheduledTaskRun>;
   recoverInterruptedRuns(): { runIds: string[] };
-  tick(now?: number, workspaceId?: string): Promise<ScheduledTaskTickResult>;
+  tick(input: ScheduledTaskTickInput): Promise<ScheduledTaskTickResult>;
   stop(reason?: CancellationReason): Promise<void>;
 }
 
@@ -144,7 +128,7 @@ function defaultId(prefix: "task" | "rev" | "grant" | "run" | "attempt"): string
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
-function requireTask(store: ScheduledTaskStore, workspaceId: string, taskId: string): ScheduledTask {
+function requireTask(store: SynchronousScheduledTaskRepository, workspaceId: string, taskId: string): ScheduledTask {
   const task = store.getTask(taskId);
   if (!task || task.workspaceId !== workspaceId || task.deletedAt !== null) {
     throw new ApiError(404, "scheduled_task_not_found", "Scheduled task not found");
@@ -152,7 +136,7 @@ function requireTask(store: ScheduledTaskStore, workspaceId: string, taskId: str
   return task;
 }
 
-function requireRevision(store: ScheduledTaskStore, revisionId: string): ScheduledTaskRevision {
+function requireRevision(store: SynchronousScheduledTaskRepository, revisionId: string): ScheduledTaskRevision {
   const revision = store.getRevision(revisionId);
   if (!revision) {
     throw new ApiError(409, "scheduled_task_revision_missing", "Scheduled task revision is missing");
@@ -160,7 +144,7 @@ function requireRevision(store: ScheduledTaskStore, revisionId: string): Schedul
   return revision;
 }
 
-function requireGrant(store: ScheduledTaskStore, grantId: string | null): ScheduledTaskGrant {
+function requireGrant(store: SynchronousScheduledTaskRepository, grantId: string | null): ScheduledTaskGrant {
   const grant = grantId ? store.getGrant(grantId) : null;
   if (!grant) {
     throw new ApiError(409, "scheduled_task_grant_missing", "Review and grant this revision before enabling or running it");
@@ -183,6 +167,18 @@ function validateGrant(
     || revision.definition.workspaceId !== task.workspaceId
   ) {
     throw new ApiError(409, "scheduled_task_stale_grant", "The active grant does not match the active revision");
+  }
+  const placement = grant.placement ?? revision.definition.placement;
+  if (
+    placement
+    && grant.placementIdentity
+    && grant.placementIdentity !== scheduledTaskPlacementIdentity(placement)
+  ) {
+    throw new ApiError(
+      409,
+      "scheduled_task_stale_placement",
+      "The reviewed placement no longer matches the active grant",
+    );
   }
   if (grant.revokedAt !== null) {
     throw new ApiError(409, "scheduled_task_grant_revoked", "The active scheduled-task grant was revoked");
@@ -214,6 +210,39 @@ function validateGrant(
   ) {
     throw new ApiError(409, "scheduled_task_invalid_grant", "Filesystem access exceeds the reviewed action classes");
   }
+}
+
+function localCapabilityReferences(
+  capabilityIds: readonly string[],
+): ScheduledTaskCapabilityReference[] {
+  return capabilityIds.map((id) => ({
+    id,
+    source: "openwork",
+    actionClass: id.endsWith(".read")
+      ? "read"
+      : id.endsWith(".write")
+        ? "write"
+        : "execute",
+    reviewedVersion: "1",
+    reviewedDigest: null,
+  }));
+}
+
+function localPlacement(input: {
+  workspaceId: string;
+  identityId: string;
+  capabilityIds?: readonly string[];
+  existing?: ScheduledTaskPlacement;
+}): ScheduledTaskPlacement {
+  if (input.existing?.target.kind === "den-worker") return input.existing;
+  return createLocalScheduledTaskPlacement({
+    workspaceId: input.workspaceId,
+    identityId: input.identityId,
+    executionAvailability: input.existing?.executionAvailability === "background-device"
+      ? "background-device"
+      : "app-open",
+    capabilityReferences: localCapabilityReferences(input.capabilityIds ?? []),
+  });
 }
 
 function grantError(error: unknown): ScheduledTaskTypedError {
@@ -282,12 +311,19 @@ function runBase(input: {
   now: number;
   status?: ScheduledTaskRun["status"];
 }): ScheduledTaskRun {
-  const terminal = input.status && TERMINAL_RUN_STATUSES.has(input.status);
+  const terminal = input.status && isTerminalScheduledTaskRunStatus(input.status);
   return scheduledTaskRunSchema.parse({
     id: input.id,
     taskId: input.task.id,
     taskRevisionId: input.revision.id,
     grantRevisionId: input.grant.id,
+    placement: input.grant.placement
+      ?? input.revision.definition.placement
+      ?? localPlacement({
+        workspaceId: input.revision.definition.workspaceId,
+        identityId: input.grant.grantor,
+        capabilityIds: input.grant.capabilityIds,
+      }),
     occurrenceId: input.occurrenceId,
     trigger: input.trigger,
     status: input.status ?? "claimed",
@@ -404,7 +440,7 @@ export function createScheduledTaskService(
     event: ScheduledTaskExecutionEvent,
   ): Promise<void> {
     const run = store.getRun(runId);
-    if (!run || TERMINAL_RUN_STATUSES.has(run.status)) return;
+    if (!run || isTerminalScheduledTaskRunStatus(run.status)) return;
     const attempt = store.listAttempts(runId).find((item) => item.id === attemptId);
     const sessionId = "sessionId" in event ? event.sessionId : run.sessionId;
     const timestamp = Math.max(now(), event.at);
@@ -606,6 +642,7 @@ export function createScheduledTaskService(
             runId: run.id,
             attemptId: attempt.id,
             idempotencyKey: `${run.idempotencyKey}:attempt:${attemptNumber}`,
+            placement: run.placement,
             taskRevision: revision,
             grantRevision: grant,
           }, {
@@ -711,7 +748,7 @@ export function createScheduledTaskService(
     } catch (error) {
       const timestamp = now();
       const current = store.getRun(initialRun.id) ?? initialRun;
-      if (TERMINAL_RUN_STATUSES.has(current.status)) return;
+      if (isTerminalScheduledTaskRunStatus(current.status)) return;
       store.saveRun(scheduledTaskRunSchema.parse({
         ...current,
         status: "failed",
@@ -741,25 +778,22 @@ export function createScheduledTaskService(
     taskAfterClaim?: ScheduledTask,
   ): ScheduledTaskClaimResult {
     const nonce = scheduledFor === null ? crypto.randomUUID() : undefined;
-    const occurrenceId = scheduledTaskOccurrenceId({
+    const identity = scheduledTaskOccurrenceIdentity({
       taskId: task.id,
       taskRevisionId: revision.id,
       trigger,
       scheduledFor,
       nonce,
     });
-    const idempotencyKey = scheduledFor === null
-      ? `manual:${task.id}:${revision.id}:${nonce}`
-      : `${trigger}:${task.id}:${revision.id}:${scheduledFor}`;
     const claimedRun = runBase({
       id: makeId("run"),
       task,
       revision,
       grant,
-      occurrenceId,
+      occurrenceId: identity.occurrenceId,
       trigger,
       scheduledFor,
-      idempotencyKey,
+      idempotencyKey: identity.idempotencyKey,
       now: timestamp,
     });
     const overlapRun = runBase({
@@ -767,15 +801,15 @@ export function createScheduledTaskService(
       task,
       revision,
       grant,
-      occurrenceId,
+      occurrenceId: identity.occurrenceId,
       trigger,
       scheduledFor,
-      idempotencyKey,
+      idempotencyKey: identity.idempotencyKey,
       now: timestamp,
       status: "skipped-overlap",
     });
     return store.claimOccurrence({
-      id: occurrenceId,
+      id: identity.occurrenceId,
       taskId: task.id,
       taskRevisionId: revision.id,
       scheduledFor,
@@ -825,7 +859,7 @@ export function createScheduledTaskService(
     if (!run || run.taskId !== taskId) {
       throw new ApiError(404, "scheduled_task_run_not_found", "Scheduled task run not found");
     }
-    if (TERMINAL_RUN_STATUSES.has(run.status)) return run;
+    if (isTerminalScheduledTaskRunStatus(run.status)) return run;
     const timestamp = now();
     run = scheduledTaskRunSchema.parse({
       ...run,
@@ -854,7 +888,7 @@ export function createScheduledTaskService(
     });
     const completedAt = now();
     const reconciled = store.getRun(runId);
-    if (reconciled && TERMINAL_RUN_STATUSES.has(reconciled.status)) return reconciled;
+    if (reconciled && isTerminalScheduledTaskRunStatus(reconciled.status)) return reconciled;
     if (result.status === "not-running") {
       const current = store.getRun(runId) ?? run;
       const error: ScheduledTaskTypedError = {
@@ -925,7 +959,14 @@ export function createScheduledTaskService(
     },
 
     createDraft(input, actorId) {
-      const definition = createScheduledTaskDraftSchema.parse(input);
+      const parsedDefinition = createScheduledTaskDraftSchema.parse(input);
+      const definition = createScheduledTaskDraftSchema.parse({
+        ...parsedDefinition,
+        placement: parsedDefinition.placement ?? localPlacement({
+          workspaceId: parsedDefinition.workspaceId,
+          identityId: actorId,
+        }),
+      });
       const timestamp = now();
       validateDefinitionSchedule(definition, timestamp);
       const taskId = makeId("task");
@@ -958,7 +999,17 @@ export function createScheduledTaskService(
     },
 
     updateDraft(workspaceId, taskId, input, actorId) {
-      const parsed = updateScheduledTaskDraftSchema.parse(input);
+      const parsedInput = updateScheduledTaskDraftSchema.parse(input);
+      const parsed = updateScheduledTaskDraftSchema.parse({
+        ...parsedInput,
+        definition: {
+          ...parsedInput.definition,
+          placement: parsedInput.definition.placement ?? localPlacement({
+            workspaceId: parsedInput.definition.workspaceId,
+            identityId: actorId,
+          }),
+        },
+      });
       const task = requireTask(store, workspaceId, taskId);
       if (task.draftRevisionId !== parsed.expectedRevisionId) {
         throw new ApiError(409, "scheduled_task_revision_conflict", "The scheduled task was edited by another client");
@@ -1031,12 +1082,24 @@ export function createScheduledTaskService(
         reviewedAt: timestamp,
         reviewedBy: actorId,
       });
+      const placement = localPlacement({
+        workspaceId,
+        identityId: actorId,
+        capabilityIds: parsed.capabilityIds,
+        existing: revision.definition.placement,
+      });
       const grant = scheduledTaskGrantSchema.parse({
         id: makeId("grant"),
         taskId,
         revision: nextGrantNumber(task),
         taskRevisionId: revision.id,
         workspaceId,
+        placement,
+        placementIdentity: scheduledTaskPlacementIdentity(placement),
+        filesystemScope: parsed.filesystemScope ?? {
+          kind: "local-workspace-roots",
+          roots: parsed.authorizedWorkspaceRoots,
+        },
         authorizedWorkspaceRoots: parsed.authorizedWorkspaceRoots,
         capabilityIds: parsed.capabilityIds,
         actionClasses: parsed.actionClasses,
@@ -1117,7 +1180,7 @@ export function createScheduledTaskService(
       };
       setTaskAttention(task, attention, timestamp);
       const activeRuns = store.listRuns(taskId, 20).filter(
-        (run) => !TERMINAL_RUN_STATUSES.has(run.status),
+        (run) => !isTerminalScheduledTaskRunStatus(run.status),
       );
       await Promise.all(
         activeRuns.map((run) =>
@@ -1144,7 +1207,7 @@ export function createScheduledTaskService(
         taskIds.push(item.task.id);
         activeRuns.push(
           ...store.listRuns(item.task.id, 20).filter(
-            (run) => !TERMINAL_RUN_STATUSES.has(run.status),
+            (run) => !isTerminalScheduledTaskRunStatus(run.status),
           ),
         );
       }
@@ -1161,7 +1224,7 @@ export function createScheduledTaskService(
 
     async delete(workspaceId, taskId) {
       const task = requireTask(store, workspaceId, taskId);
-      const activeRuns = store.listRuns(taskId, 20).filter((run) => !TERMINAL_RUN_STATUSES.has(run.status));
+      const activeRuns = store.listRuns(taskId, 20).filter((run) => !isTerminalScheduledTaskRunStatus(run.status));
       await Promise.all(activeRuns.map((run) => service.cancelRun(workspaceId, taskId, run.id)));
       const timestamp = now();
       const deleted = scheduledTaskSchema.parse({
@@ -1205,6 +1268,14 @@ export function createScheduledTaskService(
         run,
         taskRevision: revision,
         grantRevision: grant,
+        placement: run.placement
+          ?? grant.placement
+          ?? revision.definition.placement
+          ?? localPlacement({
+            workspaceId,
+            identityId: grant.grantor,
+            capabilityIds: grant.capabilityIds,
+          }),
         attempts: store.listAttempts(run.id),
         sessionRoute: run.sessionId
           ? `/workspace/${encodeURIComponent(workspaceId)}/session/${encodeURIComponent(run.sessionId)}`
@@ -1260,10 +1331,12 @@ export function createScheduledTaskService(
       return { runIds: recovered };
     },
 
-    async tick(inputNow, workspaceId) {
-      const processedAt = Math.floor(inputNow ?? now());
-      const due = store.listDueTasks(processedAt).filter(
-        (task) => workspaceId === undefined || task.workspaceId === workspaceId,
+    async tick(input) {
+      const processedAt = Math.floor(input.now);
+      const scope = input.scope ?? input.workspaceId;
+      const due = selectScheduledTasksForTick(
+        store.listDueTasks(processedAt, scope),
+        { ...input, now: processedAt },
       );
       const claimed: ScheduledTaskRun[] = [];
       for (const task of due) {
@@ -1353,7 +1426,10 @@ export function createScheduledTaskService(
       for (const run of claimed) void trackExecution(run);
       return {
         processedAt,
+        source: input.source,
+        selectedTaskIds: due.map((task) => task.id),
         claimedRunIds: claimed.map((run) => run.id),
+        nextDueAt: store.nextDueAt(scope),
       };
     },
 

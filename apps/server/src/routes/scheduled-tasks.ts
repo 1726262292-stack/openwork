@@ -145,7 +145,11 @@ export function registerScheduledTaskRoutes(
     if (timestamp !== undefined && (!Number.isInteger(timestamp) || timestamp < 0)) {
       throw new ApiError(400, "invalid_scheduler_tick", "now must be a non-negative timestamp");
     }
-    return jsonResponse(await scheduler.tick(timestamp, ctx.params.id));
+    return jsonResponse(await scheduler.tick({
+      now: timestamp ?? Date.now(),
+      source: "manual",
+      workspaceId: ctx.params.id,
+    }));
   });
 
   addRoute(routes, "GET", base, "client", async (ctx) => {
