@@ -16,7 +16,8 @@ export type ExtensionsSection =
   | "skills"
   | "plugins"
   | "needs-sign-in"
-  | "needs-admin-setup";
+  | "needs-admin-setup"
+  | "ready";
 
 /** Sections are the URL spelling of the inventory filters. */
 function filterForSection(section: ExtensionsSection | undefined): ExtensionInventoryFilter {
@@ -56,11 +57,14 @@ function sectionForFilter(filter: ExtensionInventoryFilter): ExtensionsSection {
 function stateForSection(section: ExtensionsSection | undefined): ExtensionInventoryState {
   if (section === "needs-sign-in") return "needs_signin";
   if (section === "needs-admin-setup") return "needs_admin_setup";
+  if (section === "ready") return "ready";
   return "all";
 }
 
 function sectionForState(state: Exclude<ExtensionInventoryState, "all">): ExtensionsSection {
-  return state === "needs_signin" ? "needs-sign-in" : "needs-admin-setup";
+  if (state === "needs_signin") return "needs-sign-in";
+  if (state === "needs_admin_setup") return "needs-admin-setup";
+  return "ready";
 }
 
 type SuggestedPlugin = {
@@ -82,6 +86,8 @@ type SuggestedPlugin = {
 
 export type ExtensionsViewProps = {
   busy: boolean;
+  /** Hide the view's own description line (the settings shell already shows the tab description in-pane). */
+  hideDescription?: boolean;
   selectedWorkspaceRoot: string;
   isRemoteWorkspace: boolean;
   canEditPlugins: boolean;
@@ -89,7 +95,6 @@ export type ExtensionsViewProps = {
   accessHint?: string | null;
   suggestedPlugins: SuggestedPlugin[];
   extensions: PluginsExtensionsStore;
-  mcpConnectedAppsCount: number;
   /** The MCP view (quick-connect grid + configured servers). Skills are injected into it. */
   mcpView: (routing: {
     initialFilter: ExtensionInventoryFilter;
@@ -138,19 +143,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   return (
     <section className="space-y-6 max-w-3xl w-full animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
-        <div className="flex min-w-0 flex-col gap-1">
-          <p className="text-sm text-dls-secondary">
-            {t("extensions.inventory_description")}
-          </p>
-          {props.mcpConnectedAppsCount > 0 ? (
-            <div className="mt-1 inline-flex w-fit items-center gap-2 rounded-full bg-green-3 px-3 py-1">
-              <div className="size-2 rounded-full bg-green-9" />
-              <span className="text-xs font-medium text-green-11">
-                {t("extensions.app_count", { count: props.mcpConnectedAppsCount })}
-              </span>
-            </div>
-          ) : null}
-        </div>
+        {props.hideDescription === true ? <div /> : (
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="text-sm text-dls-secondary">
+              {t("extensions.inventory_description")}
+            </p>
+          </div>
+        )}
         <Button variant="outline" onClick={props.onRefresh}>
           {t("common.refresh")}
         </Button>
