@@ -2226,9 +2226,9 @@ type SessionMenuItemProps = {
 
 function SessionNumberShortcutSlot({ digit }: { digit: number | undefined }) {
   const ctx = useSidebarContext();
-  const label = digit === undefined
-    ? null
-    : sessionNumberShortcutLabel(ctx.sessionNumberShortcutOs, digit);
+  if (digit === undefined) return null;
+
+  const label = sessionNumberShortcutLabel(ctx.sessionNumberShortcutOs, digit);
 
   return (
     <span
@@ -2239,14 +2239,12 @@ function SessionNumberShortcutSlot({ digit }: { digit: number | undefined }) {
         ctx.sessionNumberShortcutOs === "macos" ? "w-8" : "w-11",
       )}
     >
-      {label ? (
-        <kbd
-          data-session-shortcut-badge={digit}
-          className="inline-flex h-5 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/80 px-1.5 font-sans text-[10px] font-medium leading-none tracking-tight text-sidebar-foreground/70 shadow-xs"
-        >
-          {label}
-        </kbd>
-      ) : null}
+      <kbd
+        data-session-shortcut-badge={digit}
+        className="inline-flex h-5 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/80 px-1.5 font-sans text-[10px] font-medium leading-none tracking-tight text-sidebar-foreground/70 shadow-xs"
+      >
+        {label}
+      </kbd>
     </span>
   );
 }
