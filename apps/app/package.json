@@ -1,7 +1,7 @@
 {
   "name": "@openwork/app",
   "private": true,
-  "version": "0.18.12",
+  "version": "0.18.13",
   "type": "module",
   "scripts": {
     "test": "bun test --isolate tests/",
@@ -69,10 +69,12 @@
     "emojilib": "^4.0.3",
     "fuzzysort": "^3.1.0",
     "jsonc-parser": "^3.2.1",
+    "katex": "^0.18.1",
     "lexical": "^0.35.0",
     "lucide-react": "^0.577.0",
     "marked": "^17.0.1",
     "marked-emoji": "^2.0.3",
+    "marked-katex-extension": "^5.1.10",
     "marked-shiki": "^1.2.1",
     "motion": "^12.38.0",
     "react": "catalog:",

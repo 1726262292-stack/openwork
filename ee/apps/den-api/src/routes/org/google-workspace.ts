@@ -1,4 +1,5 @@
 import type { Hono } from "hono"
+import { contextStorage, getContext } from "hono/context-storage"
 import { randomUUID } from "node:crypto"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
@@ -6,9 +7,11 @@ import type { DenTypeId } from "@openwork-ee/utils/typeid"
 import { env } from "../../env.js"
 import { jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
-import { buildGmailDraftRaw, readGmailDraftIds } from "../../capability-sources/gmail.js"
+import { decodeFileContent } from "../../capability-sources/binary-content.js"
+import { buildGmailDraftRaw, gmailDraftUrl, gmailThreadUrl, readGmailDraftIds } from "../../capability-sources/gmail.js"
 import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
 import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
+import { listNativeProviderUsableEntries, resolveDefaultNativeProviderCredentialId } from "../../capability-sources/native-provider-connections.js"
 import {
   buildDriveMultipartUpload,
   buildDriveSearchQuery,
@@ -26,6 +29,8 @@ import {
 } from "../../capability-sources/google-workspace-api.js"
 import type { ConnectedAccountRow } from "../../capability-sources/oauth-credentials.js"
 import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
+import { listTeamsForMember } from "../../orgs.js"
+import { readInternalCapabilityConnectorId } from "../../session.js"
 import type { OrgRouteVariables } from "./shared.js"
 
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -35,6 +40,7 @@ const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 const DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 const DRIVE_FULL_SCOPE = "https://www.googleapis.com/auth/drive"
 const GOOGLE_WORKSPACE_API_TIMEOUT_MS = 30_000
+const MAX_DRIVE_FILE_CONTENT_BYTES = 10 * 1024 * 1024
 const MAX_GMAIL_ATTACHMENT_BYTES = 10 * 1024 * 1024
 const MAX_GMAIL_ATTACHMENTS_TOTAL_BYTES = 20 * 1024 * 1024
 const MAX_GMAIL_ATTACHMENT_BASE64_LENGTH = Math.ceil(MAX_GMAIL_ATTACHMENT_BYTES / 3) * 4
@@ -98,14 +104,6 @@ const upstreamErrorSchema = z.object({
   error: z.literal("google_api_error"),
   message: z.string(),
 }).meta({ ref: "GoogleWorkspaceUpstreamError" })
-
-function gmailDraftUrl(messageId: string | null): string | null {
-  return messageId ? `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(messageId)}` : null
-}
-
-function gmailThreadUrl(threadId: string | undefined): string | null {
-  return threadId ? `https://mail.google.com/mail/u/0/#all/${encodeURIComponent(threadId)}` : null
-}
 
 const gmailMessagesQuerySchema = z.object({
   q: z.string().trim().min(1).max(1_000).optional().describe("Optional Gmail search query, using Gmail's search syntax."),
@@ -293,8 +291,11 @@ const uploadDriveFileResponseSchema = z.object({
 const driveFileResponseSchema = z.object({
   ok: z.literal(true),
   file: driveFileSummarySchema.extend({
-    content: z.string(),
+    content: z.string().nullable(),
+    contentBase64: z.string().nullable().describe("Standard base64-encoded file bytes for binary files; decode locally. Same encoding as the gmail-attachment capability's dataBase64 — it can be passed directly to the Drive upload capability's dataBase64 field."),
+    encoding: z.enum(["text", "base64", "none"]),
     truncated: z.boolean(),
+    contentUnavailableReason: z.enum(["file_too_large"]).nullable(),
   }),
 }).meta({ ref: "GoogleWorkspaceDriveFileResponse" })
 
@@ -362,9 +363,36 @@ async function googleWorkspaceToken(input: {
   if (!provider) {
     return { kind: "google_api_error", message: "google-workspace provider is not registered." }
   }
+  const memberTeams = await listTeamsForMember({
+    organizationId: input.organizationId,
+    memberId: input.orgMembershipId,
+  })
+  const teamIds = memberTeams.map((team) => team.id)
+  const requestedConnectorId = readInternalCapabilityConnectorId(getContext().req.raw.headers)
+  let credentialProviderId: string | null
+  if (requestedConnectorId) {
+    const entries = await listNativeProviderUsableEntries({
+      organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
+      teamIds,
+    })
+    const selected = entries.find((entry) => entry.id === requestedConnectorId)
+    credentialProviderId = selected?.nativeProviderKey === provider.providerId ? selected.id : null
+  } else {
+    credentialProviderId = await resolveDefaultNativeProviderCredentialId({
+      organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
+      nativeProviderKey: provider.providerId,
+      teamIds,
+    })
+  }
+  if (!credentialProviderId) {
+    return { kind: "needs_connection", message: CONNECT_GOOGLE_ACCOUNT_MESSAGE }
+  }
 
   const token = await getValidAccessToken({
     provider,
+    credentialProviderId,
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
   })
@@ -425,6 +453,7 @@ function buildCalendarConferenceData(): CalendarConferenceData {
  * them — the agent path needs no MCP server and no extra wiring.
  */
 export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
+  app.use("/v1/capabilities/google-workspace/*", contextStorage())
   app.get(
     "/v1/capabilities/google-workspace/gmail-messages",
     describeRoute({
@@ -898,8 +927,8 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
     "/v1/capabilities/google-workspace/drive-file/:fileId",
     describeRoute({
       tags: ["Capability Sources"],
-      summary: "Read a Google Drive file's text content as the calling member",
-      description: "Reads text from one Google Drive file, exporting Google Docs editors files as plain text and downloading other files as UTF-8 text with truncation.",
+      summary: "Read a Google Drive file's text or binary content as the calling member",
+      description: "Reads one Google Drive file, exporting Google Docs editors files as plain text. Downloaded files are content-sniffed with strict UTF-8 detection, so text is returned regardless of MIME type; binary content is returned as standard base64 up to 10 MiB.",
       responses: {
         200: jsonResponse("Google Drive file returned.", driveFileResponseSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
@@ -940,10 +969,25 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         return c.json({ error: "google_api_error", message: "Google Drive returned no file id." }, 502)
       }
 
-      const contentUrl = file.mimeType.startsWith("application/vnd.google-apps")
+      const isGoogleAppsFile = file.mimeType.startsWith("application/vnd.google-apps")
+      if (!isGoogleAppsFile && file.size !== null && Number(file.size) > MAX_DRIVE_FILE_CONTENT_BYTES) {
+        return c.json({
+          ok: true,
+          file: {
+            ...file,
+            content: null,
+            contentBase64: null,
+            encoding: "none",
+            truncated: false,
+            contentUnavailableReason: "file_too_large",
+          },
+        })
+      }
+
+      const contentUrl = isGoogleAppsFile
         ? new URL(`${driveApiBase()}/drive/v3/files/${encodeURIComponent(fileId)}/export`)
         : new URL(`${driveApiBase()}/drive/v3/files/${encodeURIComponent(fileId)}`)
-      if (file.mimeType.startsWith("application/vnd.google-apps")) {
+      if (isGoogleAppsFile) {
         contentUrl.searchParams.set("mimeType", "text/plain")
       } else {
         contentUrl.searchParams.set("alt", "media")
@@ -956,13 +1000,61 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         return c.json(await googleApiError("Google Drive file content", contentResponse), 502)
       }
 
-      const content = truncateText(await contentResponse.text(), 200_000)
+      if (isGoogleAppsFile) {
+        const content = truncateText(await contentResponse.text(), 200_000)
+        return c.json({
+          ok: true,
+          file: {
+            ...file,
+            content: content.text,
+            contentBase64: null,
+            encoding: "text",
+            truncated: content.truncated,
+            contentUnavailableReason: null,
+          },
+        })
+      }
+
+      const bytes = new Uint8Array(await contentResponse.arrayBuffer())
+      const content = decodeFileContent(bytes, {
+        maxTextCharacters: 200_000,
+        maxBinaryBytes: MAX_DRIVE_FILE_CONTENT_BYTES,
+      })
+      if (content.kind === "text") {
+        return c.json({
+          ok: true,
+          file: {
+            ...file,
+            content: content.content,
+            contentBase64: null,
+            encoding: "text",
+            truncated: content.truncated,
+            contentUnavailableReason: null,
+          },
+        })
+      }
+      if (content.kind === "binary") {
+        return c.json({
+          ok: true,
+          file: {
+            ...file,
+            content: null,
+            contentBase64: content.contentBase64,
+            encoding: "base64",
+            truncated: false,
+            contentUnavailableReason: null,
+          },
+        })
+      }
       return c.json({
         ok: true,
         file: {
           ...file,
-          content: content.text,
-          truncated: content.truncated,
+          content: null,
+          contentBase64: null,
+          encoding: "none",
+          truncated: false,
+          contentUnavailableReason: "file_too_large",
         },
       })
     },
@@ -1142,8 +1234,8 @@ export function registerGoogleWorkspaceRoutes<T extends { Variables: OrgRouteVar
         ok: true,
         draftId,
         messageId,
-        draftUrl: gmailDraftUrl(messageId),
-        threadUrl: gmailThreadUrl(threadId),
+        draftUrl: gmailDraftUrl(messageId, token.account.externalAccountId ?? undefined),
+        threadUrl: gmailThreadUrl(threadId, token.account.externalAccountId ?? undefined),
         to,
         subject,
         threadId: threadId ?? null,

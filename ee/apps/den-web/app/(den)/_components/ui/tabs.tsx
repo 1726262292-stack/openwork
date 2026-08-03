@@ -7,6 +7,7 @@ export type TabItem<T extends string> = {
   label: string;
   icon?: ElementType<{ className?: string }>;
   count?: number;
+  countClassName?: string;
 };
 
 type UnderlineTabsProps<T extends string> = {
@@ -14,6 +15,8 @@ type UnderlineTabsProps<T extends string> = {
   activeTab: T;
   onChange: (value: T) => void;
   className?: string;
+  /** Keeps empty tabs honest: shows "0" instead of hiding the count. */
+  showZeroCounts?: boolean;
 };
 
 export function UnderlineTabs<T extends string>({
@@ -21,11 +24,12 @@ export function UnderlineTabs<T extends string>({
   activeTab,
   onChange,
   className = "",
+  showZeroCounts = false,
 }: UnderlineTabsProps<T>) {
   return (
     <div className={`border-b border-gray-200 ${className}`}>
       <nav className="-mb-px flex flex-wrap gap-6" role="tablist">
-        {tabs.map(({ value, label, icon: Icon, count }) => {
+        {tabs.map(({ value, label, icon: Icon, count, countClassName }) => {
           const selected = activeTab === value;
           return (
             <button
@@ -42,11 +46,15 @@ export function UnderlineTabs<T extends string>({
             >
               {Icon ? <Icon className="h-4 w-4" /> : null}
               {label}
-              {count !== undefined && count > 0 ? (
+              {count !== undefined && (count > 0 || showZeroCounts) ? (
                 <span
                   className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                    selected ? "bg-gray-100 text-gray-600" : "bg-gray-100 text-gray-400"
-                  }`}
+                    count === 0
+                      ? "bg-transparent text-gray-300"
+                      : selected
+                        ? "bg-gray-100 text-gray-600"
+                        : "bg-gray-100 text-gray-400"
+                  } ${countClassName ?? ""}`}
                 >
                   {count}
                 </span>
