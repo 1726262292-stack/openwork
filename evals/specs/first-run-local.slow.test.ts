@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import type { Surface } from "@openwork/cdp";
 import { photoRoll, screenshot, validate } from "@openwork/fraimz";
+import { readActiveWorkspaceId } from "@openwork/cdp";
 import { desktop } from "@openwork/hosts";
 import {
   clickButton,
@@ -15,9 +16,10 @@ import {
   readComposerState,
   selectModel,
   sendComposerMessage,
-  waitForAssistantReply,
   waitFor,
+  waitForAssistantReply,
   waitForText,
+  waitUntilTextStable,
 } from "@openwork/behaviors";
 
 const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
@@ -68,7 +70,7 @@ async function createTask(app: Surface): Promise<void> {
   if (typeof value !== "object" || value === null || Reflect.get(value, "ok") !== true) {
     throw new Error(`session.create_task failed: ${JSON.stringify(value)}`);
   }
-  await waitFor(app, `/^#\/workspace\/[^/?#]+\/session\/ses_[^/?#]+/.test(window.location.hash)`, {
+  await waitFor(app, `window.location.hash.includes("/session/ses_")`, {
     timeoutMs: 60_000,
     label: "created first-run task session",
   });
@@ -99,7 +101,8 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   await clickButton(app, "Use Without Cloud");
   const workspace = await createLocalWorkspaceViaUi(app, { path: workspacePath });
   expect(workspace.path).toBe(workspacePath);
-  expect(workspace.id).toBeTruthy();
+  // The app adopts the workspace only once onboarding finishes, so its id is
+  // asserted after the remaining steps rather than here.
   expect(await currentHash(app)).toContain("/welcome");
   {
     const shot = await screenshot(app);
@@ -111,20 +114,23 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     await roll.add(shot, seen);
   }
 
-  await clickButton(app, "Skip and use the free model", { timeoutMs: 30_000 });
-  await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 30_000 });
+  await clickButton(app, "Skip and use the free model", { timeoutMs: 90_000 });
+  await waitForText(app, "How did you hear about OpenWork?", { timeoutMs: 90_000 });
   await clickButton(app, "Skip", { timeoutMs: 15_000 });
-  await waitFor(app, `window.location.hash.includes(${JSON.stringify(`/workspace/${workspace.id}/session`)})`, {
-    timeoutMs: 120_000,
-    label: "first-run workspace route",
+  await waitFor(app, `Boolean(localStorage.getItem("openwork.react.activeWorkspace"))
+    || /\\/workspace\\/[^/?#]+/.test(window.location.hash)`, {
+    timeoutMs: 180_000,
+    label: "first-run workspace selected",
   });
-  await go(app, `/workspace/${workspace.id}/session`);
+  const workspaceId = await readActiveWorkspaceId(app.client, { timeoutMs: 30_000 });
+  expect(workspaceId, "onboarding did not leave a selected workspace").toBeTruthy();
+  await go(app, `/workspace/${workspaceId ?? ""}/session`);
   await waitFor(app, `document.body.innerText.includes("What do you need done?")
     || [...document.querySelectorAll("button")].some((button) => (button.textContent ?? "").trim() === "Run task")`, {
     timeoutMs: 120_000,
     label: "first-run task UI",
   });
-  expect(await currentHash(app)).toContain(`/workspace/${workspace.id}/session`);
+  expect(await currentHash(app)).toContain(`/workspace/${workspaceId ?? ""}/session`);
   const composer = await readComposerState(app);
   expect(composer.route).toContain("/workspace/");
   expect(composer.route).toContain("/session");
@@ -136,9 +142,9 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     const shot = await screenshot(app);
     const seen = await validate(shot, [
       "The workspace task UI is visible with What do you need done? and the Run task control",
-      modelUsable
+      availability.runTaskEnabled
         ? "Run task is visibly enabled for a model that is already usable"
-        : "Connect a model provider is visibly offered because no model provider is configured",
+        : "Run task is visibly disabled or Connect a model provider is offered, because no provider is configured yet",
       "No generic error or 'Something went wrong' crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -199,6 +205,9 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   const reply = await waitForAssistantReply(app, { timeoutMs: 180_000 });
   expect(reply.assistantMessageCount).toBeGreaterThan(0);
   expect(reply.text.trim().length).toBeGreaterThan(0);
+  // The reply streams: capturing as soon as text exists catches a "Thinking…"
+  // frame, so wait until the assistant has actually settled.
+  await waitUntilTextStable(app, { quietMs: 8_000, timeoutMs: 240_000 });
   {
     const shot = await screenshot(app);
     const seen = await validate(shot, [

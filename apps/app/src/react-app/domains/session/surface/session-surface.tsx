@@ -124,6 +124,27 @@ console.log(pipeline);
 \`\`\`
 
 Search token: markdown-primitive-highlight.`;
+/**
+ * Staged so each proof frame adds visibly new content: inline math, then the
+ * display equations, then the malformed-input and currency edge cases.
+ */
+const MARKDOWN_MATH_EVAL_STAGES = [
+  `# Schrodinger proof heading
+
+The time-independent form is $E\\psi = \\hat{H}\\psi$, and models often write the
+same inline math as \\(i\\hbar \\frac{\\partial}{\\partial t}\\Psi\\) instead.`,
+  `$$
+\\hat{H} = -\\frac{\\hbar^2}{2m}\\nabla^2 + V(\\mathbf{r})
+$$
+
+The quadratic formula arrives as display math too:
+
+\\[
+x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+\\]`,
+  `Malformed input like $\\frac{1}{$ must not break this paragraph, and prices such
+as $5 and $10 stay plain text.`,
+];
 
 type SessionError = {
   message: string;
@@ -148,6 +169,32 @@ function createMarkdownPrimitiveEvalMessages(sessionId: string) {
       id: assistantMessageId,
       role: "assistant",
       parts: [{ type: "text", text: MARKDOWN_PRIMITIVE_EVAL_TEXT }],
+      metadata: { opencode: { created: Date.now() + 1 } },
+    },
+  ];
+
+  return { messages, assistantMessageId };
+}
+
+/**
+ * Dev-only deterministic transcript covering every LaTeX delimiter the renderer
+ * supports, plus the malformed-input and currency cases it must leave alone.
+ */
+function createMarkdownMathEvalMessages(sessionId: string, stage: number) {
+  const assistantMessageId = `${sessionId}:eval-math-assistant`;
+  const text = MARKDOWN_MATH_EVAL_STAGES.slice(0, Math.max(1, Math.min(stage, MARKDOWN_MATH_EVAL_STAGES.length)))
+    .join("\n\n");
+  const messages: UIMessage[] = [
+    {
+      id: `${sessionId}:eval-math-user`,
+      role: "user",
+      parts: [{ type: "text", text: "Show the LaTeX math proof message." }],
+      metadata: { opencode: { created: Date.now() } },
+    },
+    {
+      id: assistantMessageId,
+      role: "assistant",
+      parts: [{ type: "text", text }],
       metadata: { opencode: { created: Date.now() + 1 } },
     },
   ];
@@ -269,7 +316,6 @@ export type SessionSurfaceProps = {
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => Promise<CloudMcpSubmissionResult>;
   cloudMcpSubmissionState: CloudMcpSubmissionGateState;
-  onRetryCloudConnection: () => void;
   onOpenConnect: () => void;
   onDraftChange: (draft: ComposerDraft) => void;
   attachmentsEnabled: boolean;
@@ -793,8 +839,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
   const preparingCloudTools = props.cloudMcpSubmissionState.status === "checking" ||
     props.cloudMcpSubmissionState.status === "repairing";
-  const cloudSubmissionBlocked = props.cloudMcpSubmissionState.status !== "idle" &&
-    props.cloudMcpSubmissionState.status !== "sending";
   const chatStreaming = sending || liveStatus.type === "busy" || liveStatus.type === "retry";
 
   useEffect(() => {
@@ -850,6 +894,30 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId]);
   useControlAction(props.isControlTarget ? seedMarkdownPrimitiveControlAction : null);
+  const seedMarkdownMathControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.markdown_math.seed_chat",
+      label: "Seed markdown math chat proof",
+      description: "Dev-only eval hook that renders deterministic LaTeX math in the active conversation.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      execute: (args) => {
+        const stage = typeof args === "object" && args !== null && "stage" in args && typeof args.stage === "number"
+          ? args.stage
+          : MARKDOWN_MATH_EVAL_STAGES.length;
+        const seeded = createMarkdownMathEvalMessages(props.sessionId, stage);
+        setEvalMarkdownMessages(seeded.messages);
+        return {
+          ok: true,
+          assistantMessageId: seeded.assistantMessageId,
+          messageCount: seeded.messages.length,
+        };
+      },
+    };
+  }, [props.sessionId]);
+  useControlAction(props.isControlTarget ? seedMarkdownMathControlAction : null);
   const seedChatTranscriptControlAction = useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -1115,11 +1183,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (model.transitionState !== "idle") return;
     if (chatStreaming) return;
     if (props.modelUnavailable) return;
-    if (props.cloudMcpSubmissionState.status !== "idle") return;
     if (!draft.trim()) return;
     if (!consumeComposerAutoSend(props.sessionId)) return;
     void handleSend();
-  }, [chatStreaming, draft, handleSend, model.transitionState, props.cloudMcpSubmissionState.status, props.modelUnavailable, props.sessionId]);
+  }, [chatStreaming, draft, handleSend, model.transitionState, props.modelUnavailable, props.sessionId]);
 
   const handleSteer = useCallback(async () => {
     setSteering(true);
@@ -1127,10 +1194,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [handleSend]);
 
   const handleRetryCloudSubmission = useCallback(() => {
-    props.onRetryCloudConnection();
+    if (draft.trim() || attachments.length > 0) {
+      void handleSend();
+      return;
+    }
     cloudQueueBlockedRef.current = false;
     setCloudQueueRetryVersion((version) => version + 1);
-  }, [props.onRetryCloudConnection]);
+  }, [attachments.length, draft, handleSend]);
 
   // Queue: hold the draft locally and clear the composer. The drain effect
   // sends it once the session reports idle.
@@ -1214,7 +1284,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (drainingQueueRef.current || sendingQueued) return;
     if (cloudQueueBlockedRef.current) return;
-    if (props.cloudMcpSubmissionState.status !== "idle") return;
     if (queuedDrafts.length === 0) return;
     if (chatStreaming || liveStatus.type !== "idle") return;
     const merged = mergeDrafts(queuedDrafts);
@@ -1240,7 +1309,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         drainingQueueRef.current = false;
       }
     })();
-  }, [chatStreaming, clearQueuedDrafts, cloudQueueRetryVersion, liveStatus.type, prependQueuedDrafts, props.cloudMcpSubmissionState.status, props.sessionId, queuedDrafts, sendDraft, sendingQueued]);
+  }, [chatStreaming, clearQueuedDrafts, cloudQueueRetryVersion, liveStatus.type, prependQueuedDrafts, props.sessionId, queuedDrafts, sendDraft, sendingQueued]);
 
   useEffect(() => {
     if (props.cloudMcpSubmissionState.status !== "failed") {
@@ -1978,7 +2047,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
         busy={chatStreaming}
         steering={steering}
         submissionPreparing={preparingCloudTools}
-        submissionBlocked={cloudSubmissionBlocked}
         queuedCount={queuedDrafts.length}
         disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
         modelUnavailable={Boolean(props.modelUnavailable)}

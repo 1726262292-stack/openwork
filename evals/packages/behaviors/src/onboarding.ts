@@ -1,5 +1,5 @@
 import type { Surface } from "@openwork/cdp";
-import { clickButton, evalIn, fill, waitFor, waitForText } from "./desktop.ts";
+import { clickButton, currentHash, evalIn, fill, waitFor, waitForText } from "./desktop.ts";
 
 export interface LocalWorkspaceFacts {
   id: string;
@@ -123,24 +123,17 @@ export async function createLocalWorkspaceViaUi(
   }
 
   await waitForText(app, "Power your first task", { timeoutMs: 120_000 });
-  const raw = await evalIn(app, `(async () => {
-    const invoke = window.__OPENWORK_ELECTRON__.invokeDesktop;
-    const info = await invoke("openworkServerInfo");
-    const baseUrl = String(info?.baseUrl || info?.connectUrl || "").replace(/\\/+$/, "");
-    const headers = {};
-    const token = info?.ownerToken || info?.clientToken || "";
-    if (token) headers.authorization = "Bearer " + token;
-    if (info?.hostToken) headers["x-openwork-host-token"] = info.hostToken;
-    const response = await invoke("__fetch", baseUrl + "/workspaces", { method: "GET", headers, timeoutMs: 8_000 });
-    const payload = typeof response?.body === "string" ? JSON.parse(response.body) : response?.body ?? response;
-    const workspace = (payload?.workspaces ?? payload?.items ?? []).find((candidate) => candidate.path === ${JSON.stringify(input.path)});
-    return {
-      id: workspace?.id ?? "",
-      name: workspace?.name ?? "",
-      path: workspace?.path ?? "",
-      route: location.hash,
-      entrypoint: ${JSON.stringify(entrypoint)},
-    };
-  })()`, { awaitPromise: true, timeoutMs: 120_000 });
+  // Deliberately do NOT query the workspace record here. The local server has
+  // credentials in localStorage before it can actually serve, so an in-page fetch
+  // at this point never settles. The caller resolves the id from the product's
+  // own active-workspace state once onboarding finishes, which is both cheaper
+  // and the state a user's app really uses.
+  const raw = {
+    id: "",
+    name: input.name ?? "",
+    path: input.path,
+    route: await currentHash(app),
+    entrypoint,
+  };
   return parseWorkspaceFacts(raw);
 }

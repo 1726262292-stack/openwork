@@ -31,6 +31,7 @@
     }
   },
   "dependencies": {
-    "@openwork/cdp": "workspace:*"
+    "@openwork/cdp": "workspace:*",
+    "@openwork/timeline": "workspace:*"
   }
 }

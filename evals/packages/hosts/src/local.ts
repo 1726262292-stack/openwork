@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { constants, existsSync, openSync } from "node:fs";
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { allocateFreePort, allocateFreePorts, listTargets, waitForCdp } from "@openwork/cdp";
 import { ensureDenStack } from "../../../runner/den-stack.ts";
@@ -51,6 +52,10 @@ interface SpawnDetachedOptions {
 
 interface KillLocalPidOptions {
   graceMs?: number;
+  log?: (message: string) => void;
+}
+
+export interface FreePortOptions {
   log?: (message: string) => void;
 }
 
@@ -145,13 +150,87 @@ function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
   }
 }
 
+function processGroupIsAlive(pid: number): boolean {
+  if (process.platform === "win32") return false;
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) !== "ESRCH";
+  }
+}
+
 async function waitUntilGone(pid: number, timeoutMs: number): Promise<boolean> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (!pidIsAlive(pid)) return true;
+    if (!pidIsAlive(pid) && !processGroupIsAlive(pid)) return true;
     await delay(POLL_INTERVAL_MS);
   }
-  return !pidIsAlive(pid);
+  return !pidIsAlive(pid) && !processGroupIsAlive(pid);
+}
+
+function listeningPids(port: number): Promise<number[]> {
+  if (process.platform !== "darwin" && process.platform !== "linux") return Promise.resolve([]);
+  return new Promise((resolve, reject) => {
+    execFile(
+      "lsof",
+      [`-tiTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", timeout: 5_000 },
+      (error, stdout) => {
+        const code = isRecord(error) ? error.code : null;
+        if (error && code !== 1 && code !== "1") {
+          reject(error);
+          return;
+        }
+        const pids = stdout.split(/\s+/)
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0);
+        resolve([...new Set(pids)]);
+      },
+    );
+  });
+}
+
+function processGroupId(pid: number): Promise<number | null> {
+  if (process.platform === "win32") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000 }, (error, stdout) => {
+      if (error) {
+        resolve(null);
+        return;
+      }
+      const pgid = Number(stdout.trim());
+      resolve(Number.isInteger(pgid) && pgid > 1 ? pgid : null);
+    });
+  });
+}
+
+/** Ensure no process is listening on a local TCP port, killing stale owners. */
+export async function freePort(port: number, { log }: FreePortOptions = {}): Promise<void> {
+  if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
+    throw new Error(`Port must be an integer from 1 to 65535, got ${port}.`);
+  }
+  if (process.platform !== "darwin" && process.platform !== "linux") return;
+  const deadline = Date.now() + 10_000;
+  const currentProcessGroup = await processGroupId(process.pid);
+  let pids = await listeningPids(port);
+  while (pids.length > 0 && Date.now() < deadline) {
+    for (const pid of pids) {
+      if (pid === process.pid) throw new Error(`Refusing to kill the current process listening on port ${port}.`);
+      const listenerGroup = await processGroupId(pid);
+      const killPid = listenerGroup !== null && currentProcessGroup !== null && listenerGroup !== currentProcessGroup
+        ? listenerGroup
+        : pid;
+      const groupDetail = killPid === pid ? "" : ` in process group ${killPid}`;
+      log?.(`Port ${port} is still held by listener pid ${pid}${groupDetail}; stopping it.`);
+      await killLocalPid(killPid, { graceMs: 1_000, log });
+    }
+    await delay(100);
+    pids = await listeningPids(port);
+  }
+  if (pids.length > 0) {
+    throw new Error(`Port ${port} is still held by listener pid${pids.length === 1 ? "" : "s"} ${pids.join(", ")} after cleanup.`);
+  }
 }
 
 async function tailLines(filePath: string, lineCount: number): Promise<string> {
@@ -168,14 +247,18 @@ async function waitForPageTarget(cdpUrl: string, timeoutMs: number): Promise<voi
   let lastDetail = "no page targets yet";
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      await waitForCdp(cdpUrl, { timeoutMs: 1_000 });
-      const targets = await listTargets(cdpUrl);
+      await waitForCdp(cdpUrl, {
+        timeoutMs: Math.min(1_000, Math.max(0, timeoutMs - (Date.now() - startedAt))),
+      });
+      const targets = await listTargets(cdpUrl, {
+        timeoutMs: Math.min(1_000, Math.max(0, timeoutMs - (Date.now() - startedAt))),
+      });
       if (targets.some((target) => target.type === "page" && target.webSocketDebuggerUrl)) return;
       lastDetail = `saw ${targets.length} targets, none were pages`;
     } catch (error) {
       lastDetail = messageText(error);
     }
-    await delay(POLL_INTERVAL_MS);
+    await delay(Math.min(POLL_INTERVAL_MS, Math.max(0, timeoutMs - (Date.now() - startedAt))));
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for a page target at ${cdpUrl} (${lastDetail})`);
 }
@@ -301,7 +384,7 @@ function isOrgMode(value: unknown): value is OrgMode {
 }
 
 async function runtimeOrgMode(webUrl: string): Promise<OrgMode> {
-  const response = await fetch(`${cleanUrl(webUrl)}/api/runtime-config`);
+  const response = await fetch(`${cleanUrl(webUrl)}/api/runtime-config`, { signal: AbortSignal.timeout(8_000) });
   if (!response.ok) throw new Error(`runtime-config returned HTTP ${response.status}`);
   const body: unknown = await response.json();
   if (isRecord(body) && isOrgMode(body.orgMode)) return body.orgMode;
@@ -326,10 +409,36 @@ export function electronProfilePaths(root: string): ElectronProfilePaths {
   };
 }
 
+/**
+ * Where the HOST keeps pnpm's self-managed versions. The surface's fresh HOME
+ * hides this cache, and pnpm (packageManager pin vs the global binary) then
+ * re-downloads its pinned version from the network on EVERY spawn — observed
+ * on a Daytona sandbox as a 21MB download per Electron spawn that, when it
+ * failed once, degenerated into a self-sustaining recursive `pnpm add pnpm`
+ * cascade that outlived the spec run. Pointing PNPM_HOME at the host's real
+ * pnpm home keeps version redirection local and instant.
+ */
+function hostPnpmHome(): string | null {
+  const configured = process.env.PNPM_HOME?.trim();
+  if (configured) return configured;
+  if (process.platform === "darwin") return join(homedir(), "Library", "pnpm");
+  if (process.platform === "linux") {
+    const dataHome = process.env.XDG_DATA_HOME?.trim();
+    return join(dataHome || join(homedir(), ".local", "share"), "pnpm");
+  }
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA?.trim();
+    return localAppData ? join(localAppData, "pnpm") : null;
+  }
+  return null;
+}
+
 export function electronSurfaceEnv(paths: ElectronProfilePaths, options: ElectronSurfaceEnvOptions): Record<string, string> {
+  const pnpmHome = hostPnpmHome();
   // Provenance: mirrors scripts/dev-two-electron-demo.mjs demoEnv() so local
   // eval Electron surfaces stay fully isolated from the user's real desktop app.
   return {
+    ...(pnpmHome ? { PNPM_HOME: pnpmHome } : {}),
     APPDATA: paths.appDataDir,
     HOME: paths.homeDir,
     LOCALAPPDATA: paths.localAppDataDir,
@@ -377,24 +486,58 @@ export function resolveChromeBinary(env: NodeJS.ProcessEnv = process.env, platfo
 
 export async function killLocalPid(pid: number, options: KillLocalPidOptions = {}): Promise<boolean> {
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (!pidIsAlive(pid)) return false;
+  const rootWasAlive = pidIsAlive(pid);
   const graceMs = options.graceMs ?? KILL_GRACE_MS;
   const sentGroup = signalProcessGroup(pid, "SIGINT");
-  const sentDirect = sentGroup ? true : signalPid(pid, "SIGINT");
+  const sentDirect = !sentGroup && rootWasAlive ? signalPid(pid, "SIGINT") : false;
+  if (!sentGroup && !sentDirect) return false;
   if (sentGroup) options.log?.(`Sent SIGINT to process group ${pid}`);
-  else if (sentDirect) options.log?.(`Sent SIGINT to pid ${pid}`);
+  if (sentDirect && !sentGroup) options.log?.(`Sent SIGINT to pid ${pid}`);
   if (await waitUntilGone(pid, graceMs)) return true;
   const killedGroup = signalProcessGroup(pid, "SIGKILL");
-  if (!killedGroup) signalPid(pid, "SIGKILL");
-  options.log?.(`Sent SIGKILL to pid ${pid}`);
+  const killedDirect = pidIsAlive(pid) ? signalPid(pid, "SIGKILL") : false;
+  if (killedGroup) options.log?.(`Sent SIGKILL to process group ${pid}`);
+  else if (killedDirect) options.log?.(`Sent SIGKILL to pid ${pid}`);
   await waitUntilGone(pid, 1_000);
   return true;
+}
+
+function explicitPort(url: string): number | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost" && parsed.hostname !== "::1") return null;
+    const port = Number(parsed.port);
+    return Number.isInteger(port) && port > 0 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+function surfacePorts(handle: SurfaceHandle): number[] {
+  const ports = new Set<number>();
+  const fromUrl = explicitPort(handle.cdpUrl);
+  if (fromUrl !== null) ports.add(fromUrl);
+  for (const value of [handle.meta?.vitePort, handle.meta?.cdpPort]) {
+    const port = Number(value);
+    if (Number.isInteger(port) && port > 0 && port <= 65_535) ports.add(port);
+  }
+  return [...ports];
 }
 
 export function createLocalHost(options: LocalHostOptions): DisposableHost {
   const rootDir = options.rootDir ?? join(options.repoRoot, "evals", "results", ".surfaces");
   const log = options.log;
   const spawnedSurfaces = new Set<SurfaceHandle>();
+  const denPorts = new Set<number>();
+
+  async function disposeKnownPorts(handle: SurfaceHandle): Promise<void> {
+    for (const port of surfacePorts(handle)) await freePort(port, { log });
+  }
+
+  async function disposeDenPorts(): Promise<void> {
+    for (const port of denPorts) await freePort(port, { log });
+    denPorts.clear();
+  }
 
 
 // Containers (Daytona sandboxes) cannot use Chromium's SUID sandbox: the helper
@@ -416,11 +559,77 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
   return present.join(" ");
 }
 
+
+/**
+ * Spawning a desktop has environment preconditions that only this component can
+ * reasonably own. Callers should not have to know that Electron needs a live X
+ * server, or that a previous run's process may still hold a port.
+ */
+const sleepMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function displayAnswers(display: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("xdpyinfo", ["-display", display], (error) => resolve(!error));
+  });
+}
+
+async function ensureDisplay(repoRoot: string, env: NodeJS.ProcessEnv, log: (message: string) => void): Promise<void> {
+  const display = (env.DISPLAY ?? "").trim();
+  if (!display) return;
+  if (await displayAnswers(display)) return;
+  // A stale /tmp/.X11-unix socket is not proof the server is alive: Electron
+  // exits with "Missing X server or $DISPLAY", which looks like a hung renderer.
+  const starter = join(repoRoot, ".devcontainer", "start-daytona-vnc.sh");
+  if (!existsSync(starter)) {
+    log(`Display ${display} is not answering and ${starter} is missing; Electron will fail to start.`);
+    return;
+  }
+  log(`Display ${display} is not answering; starting the virtual display...`);
+  spawnDetached("bash", [starter], { cwd: repoRoot, env, logPath: join(repoRoot, "evals", "results", "virtual-display.log") });
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await sleepMs(2_000);
+    if (await displayAnswers(display)) {
+      log(`Display ${display} is live.`);
+      return;
+    }
+  }
+  log(`Display ${display} still not answering after 60s; Electron will fail to start.`);
+}
+
+/**
+ * Kill Electron processes from earlier runs of THIS host's surfaces, and delete
+ * the profile directories they left behind.
+ *
+ * Disposal removes a profile on the happy path, but every killed or failed run
+ * leaks one at ~50MB. Twenty-seven of them filled a 10GB sandbox to 99%, and the
+ * symptom was not "disk full" — it was the renderer failing to answer
+ * `Runtime.evaluate` for 240s, which reads exactly like a broken app. Pruning
+ * here is cheap and keeps that failure from being invented again.
+ */
+async function clearStaleSurfaces(rootDir: string, log: (message: string) => void): Promise<void> {
+  await new Promise<void>((resolve) => {
+    execFile("pkill", ["--full", rootDir], () => resolve());
+  });
+  // Safe because surfaces run one at a time (vitest fileParallelism is off) and
+  // the pkill above already assumes exclusive ownership of rootDir.
+  const stale = await readdir(rootDir).catch(() => []);
+  let removed = 0;
+  for (const entry of stale) {
+    await rm(join(rootDir, entry), { recursive: true, force: true }).then(() => { removed += 1; }).catch(() => undefined);
+  }
+  log(`Cleared Electron processes and ${removed} stale profile director${removed === 1 ? "y" : "ies"} in ${rootDir}.`);
+}
+
   return {
     kind: "local",
+    workspaceRoot: options.repoRoot,
 
     async spawnElectron(name: string, opts: ElectronSurfaceOptions = {}): Promise<SurfaceHandle> {
       await prepareSharedElectronResources(options.repoRoot, log);
+      const spawnEnvForChecks: NodeJS.ProcessEnv = { ...process.env, ...opts.env };
+      if (insideContainerSandbox() && (spawnEnvForChecks.DISPLAY ?? "").trim().length === 0) spawnEnvForChecks.DISPLAY = ":99";
+      await ensureDisplay(options.repoRoot, spawnEnvForChecks, log);
+      await clearStaleSurfaces(rootDir, log);
       const profileRoot = join(rootDir, `${sanitizeSlug(name)}-${timestamp()}-${process.pid}`);
       const paths = electronProfilePaths(profileRoot);
       await ensureElectronProfile(paths);
@@ -449,6 +658,10 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
         await waitForCdpOrExit("Electron", cdpUrl, spawned, logPath, true);
       } catch (error) {
         await killLocalPid(spawned.pid, { log });
+        await Promise.all([
+          freePort(port, { log }),
+          freePort(cdpPort, { log }),
+        ]).catch((cleanupError: unknown) => log(`Electron port cleanup failed: ${messageText(cleanupError)}`));
         throw error;
       }
       const handle: SurfaceHandle = {
@@ -458,7 +671,7 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
         cdpUrl,
         pid: spawned.pid,
         profileDir: profileRoot,
-        meta: { vitePort: String(port), log: logPath },
+        meta: { vitePort: String(port), cdpPort: String(cdpPort), log: logPath },
       };
       spawnedSurfaces.add(handle);
       return handle;
@@ -481,6 +694,8 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
           await waitForCdpOrExit("Chrome", cdpUrl, spawned, logPath);
         } catch (error) {
           await killLocalPid(spawned.pid, { log });
+          await freePort(cdpPort, { log })
+            .catch((cleanupError: unknown) => log(`Chrome port cleanup failed: ${messageText(cleanupError)}`));
           throw error;
         }
         return spawned;
@@ -500,6 +715,7 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
         cdpUrl,
         pid: spawned.pid,
         profileDir,
+        meta: { cdpPort: String(cdpPort), log: logPath },
       };
       spawnedSurfaces.add(handle);
       return handle;
@@ -514,6 +730,10 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
       const webUrl = process.env.OPENWORK_EVAL_DEN_WEB_URL?.trim();
       if (!apiUrl || !webUrl) throw new Error("Den stack did not export OPENWORK_EVAL_DEN_API_URL / OPENWORK_EVAL_DEN_WEB_URL.");
       const orgMode = await runtimeOrgMode(webUrl);
+      const apiPort = explicitPort(apiUrl);
+      const webPort = explicitPort(webUrl);
+      if (apiPort !== null) denPorts.add(apiPort);
+      if (webPort !== null) denPorts.add(webPort);
       return { webUrl, apiUrl, orgMode, hostKind: "local" };
     },
 
@@ -530,6 +750,7 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
       if (handle.pid !== undefined) {
         await killLocalPid(handle.pid, { log });
       }
+      await disposeKnownPorts(handle);
       if (handle.kind === "electron" && handle.profileDir) {
         await rm(handle.profileDir, { recursive: true, force: true });
       }
@@ -538,6 +759,7 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
 
     async stop(): Promise<void> {
       for (const handle of [...spawnedSurfaces]) await this.disposeSurface(handle);
+      await disposeDenPorts();
     },
 
     async [Symbol.asyncDispose](): Promise<void> {
@@ -545,6 +767,8 @@ function containerLaunchArgs(existing: string | undefined): string | undefined {
         await this.disposeSurface(handle)
           .catch((error: unknown) => log(`Local surface ${handle.name} cleanup failed: ${messageText(error)}`));
       }
+      await disposeDenPorts()
+        .catch((error: unknown) => log(`Local Den port cleanup failed: ${messageText(error)}`));
     },
   };
 }

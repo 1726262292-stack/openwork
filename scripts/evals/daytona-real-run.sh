@@ -20,7 +20,8 @@ exec > >(tee "$LOG_DIR/real-run.log") 2>&1
 # pnpm must never prompt in a sandbox: an interactive approve-builds/purge
 # question kills the run before anything is logged.
 export CI=true
-export DISPLAY="${DISPLAY:-:99}"
+export DISPLAY="${DISPLAY:-:99}"   # the host component verifies it answers
+
 pnpm --dir evals install
 
 H="$HOME"

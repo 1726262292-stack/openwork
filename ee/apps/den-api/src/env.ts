@@ -51,6 +51,7 @@ const EnvSchema = z.object({
   LINEAR_API_BASE: z.string().optional(),
   LINEAR_COMPLIANCE_COMPLETED_STATE_ID: z.string().optional(),
   OPENWORK_DEV_MODE: z.string().optional(),
+  DEN_BOTID_PROTECTION_ENABLED: z.string().optional(),
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
   DEN_DIAGNOSTICS_ORIGIN: z.string().optional(),
   DEN_DIAGNOSTICS_BEARER_TOKEN: z.string().optional(),
@@ -58,6 +59,7 @@ const EnvSchema = z.object({
   DEN_GATEWAY_ORIGIN: z.string().optional(),
   DEN_GOOGLE_OAUTH_AUTHORIZE_URL: z.string().optional(),
   DEN_GOOGLE_OAUTH_TOKEN_URL: z.string().optional(),
+  DEN_GOOGLE_OAUTH_USERINFO_URL: z.string().optional(),
   DEN_GOOGLE_API_BASE_URL: z.string().optional(),
   DEN_MICROSOFT_OAUTH_AUTHORIZE_URL: z.string().optional(),
   DEN_MICROSOFT_OAUTH_TOKEN_URL: z.string().optional(),
@@ -372,6 +374,7 @@ const mcpConnectionsGatingEnabled =
   (parsed.DEN_MCP_CONNECTIONS_GATING_ENABLED ?? "false").toLowerCase() === "true"
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
+const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"
 const diagnosticsOrigin = normalizeDiagnosticsOrigin(parsed.DEN_DIAGNOSTICS_ORIGIN, devMode)
 const diagnosticsBearerToken = optionalString(parsed.DEN_DIAGNOSTICS_BEARER_TOKEN)
 if (diagnosticsBearerToken && diagnosticsBearerToken.length < 24) {
@@ -431,6 +434,7 @@ export const env = {
   // are treated as suffix matches, e.g. ".example.com".
   webAppHosts: splitCsv(parsed.DEN_WEB_APP_HOSTS).map((host) => host.toLowerCase()),
   devMode,
+  botIdProtectionEnabled,
   allowPrivateMcpUrls,
   diagnostics: {
     origin: diagnosticsOrigin,
@@ -511,6 +515,7 @@ export const env = {
   // production so Google, Microsoft Entra, and Graph use their public APIs.
   googleOAuthAuthorizeUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_AUTHORIZE_URL),
   googleOAuthTokenUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_TOKEN_URL),
+  googleOAuthUserinfoUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_USERINFO_URL),
   googleApiBaseUrl: optionalString(parsed.DEN_GOOGLE_API_BASE_URL),
   microsoftOAuthAuthorizeUrl: optionalString(parsed.DEN_MICROSOFT_OAUTH_AUTHORIZE_URL),
   microsoftOAuthTokenUrl: optionalString(parsed.DEN_MICROSOFT_OAUTH_TOKEN_URL),
