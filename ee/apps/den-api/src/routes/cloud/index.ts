@@ -8,6 +8,7 @@ import { z } from "zod"
 import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
 import { db } from "../../db.js"
 import { env, type DenOrgMode } from "../../env.js"
+import { getOrCreateDenScheduledTaskExecutionToken } from "../../scheduled-tasks/security.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { materializeCloudWorkerProviders } from "../../llm/cloud-provider-materialization.js"
@@ -74,7 +75,8 @@ type CloudInstanceUpdateResponse =
 type CloudWorkerStore = {
   getCloudWorker: (input: { orgId: OrgId; userId: UserId }) => Promise<CloudWorker | null>
   insertCloudWorker: (input: { workerId: WorkerId; orgId: OrgId; userId: UserId; name: string }) => Promise<void>
-  insertWorkerTokens: (input: { workerId: WorkerId; hostToken: string; clientToken: string; activityToken: string }) => Promise<void>
+  insertWorkerTokens: (input: { workerId: WorkerId; hostToken: string; clientToken: string; activityToken: string; scheduledTaskExecutionToken: string }) => Promise<void>
+  mintScheduledTaskExecutionToken?: (workerId: WorkerId) => Promise<string>
   deleteCreateRaceLoser: (workerId: WorkerId) => Promise<void>
   claimFailedWorker: (workerId: WorkerId) => Promise<boolean>
   claimRecycleWorker: (workerId: WorkerId) => Promise<boolean>
@@ -92,7 +94,10 @@ type EnsureCloudWorker = (input: {
 type GetSandboxRecord = (workerId: CloudWorker["id"]) => Promise<CloudSandboxRecord | null>
 type InspectSandbox = (workerId: CloudWorker["id"]) => Promise<CloudSandboxInspection>
 type ProbeSignedPreview = (signedPreviewUrl: string) => Promise<boolean>
-type WakeCloudWorker = (workerId: CloudWorker["id"]) => Promise<void>
+type WakeCloudWorker = (
+  workerId: CloudWorker["id"],
+  options?: { statusAlreadyClaimed?: boolean },
+) => Promise<void>
 type FlushWorkerCheckpoint = (workerId: CloudWorker["id"]) => Promise<boolean>
 type StopCloudWorker = (workerId: CloudWorker["id"]) => Promise<unknown>
 
@@ -289,7 +294,16 @@ const databaseCloudWorkerStore: CloudWorkerStore = {
         scope: "activity",
         token: input.activityToken,
       },
+      {
+        id: createDenTypeId("workerToken"),
+        worker_id: input.workerId,
+        scope: "execution",
+        token: input.scheduledTaskExecutionToken,
+      },
     ])
+  },
+  async mintScheduledTaskExecutionToken(workerId) {
+    return getOrCreateDenScheduledTaskExecutionToken(workerId)
   },
   async deleteCreateRaceLoser(workerId) {
     await db.transaction(async (tx) => {
@@ -409,9 +423,16 @@ async function createCloudWorker(input: {
   const hostToken = token()
   const clientToken = token()
   const activityToken = token()
+  const scheduledTaskExecutionToken = token()
 
   await input.store.insertCloudWorker({ workerId, orgId: input.orgId, userId: input.createdByUserId, name: input.name })
-  await input.store.insertWorkerTokens({ workerId, hostToken, clientToken, activityToken })
+  await input.store.insertWorkerTokens({
+    workerId,
+    hostToken,
+    clientToken,
+    activityToken,
+    scheduledTaskExecutionToken,
+  })
 
   const canonical = await getCloudWorker(input.orgId, input.createdByUserId, input.store)
   if (canonical && canonical.id !== workerId) {
@@ -430,6 +451,7 @@ async function createCloudWorker(input: {
     hostToken,
     clientToken,
     activityToken,
+    scheduledTaskExecutionToken,
   })
 
   return canonical ?? { id: workerId, name: input.name, status: "provisioning" }
@@ -491,6 +513,8 @@ async function startFailedCloudHeal(input: {
     const hostToken = tokenByScope(tokens, "host")
     const clientToken = tokenByScope(tokens, "client")
     const activityToken = tokenByScope(tokens, "activity")
+    const scheduledTaskExecutionToken = tokenByScope(tokens, "execution")
+      ?? await input.store.mintScheduledTaskExecutionToken?.(input.worker.id)
 
     if (!hostToken || !clientToken || !activityToken) {
       await input.store.markProvisioningWorkerFailed(input.worker.id)
@@ -505,6 +529,7 @@ async function startFailedCloudHeal(input: {
       hostToken,
       clientToken,
       activityToken,
+      ...(scheduledTaskExecutionToken ? { scheduledTaskExecutionToken } : {}),
     })
   })()
     .catch(async (error) => {
@@ -520,7 +545,7 @@ async function resolveFailedCloudInstance(input: {
   orgId: OrgId
   continueProvisioning: typeof continueCloudProvisioning
   getSandboxRecord: GetSandboxRecord
-  startWake: (workerId: CloudWorker["id"]) => void
+  startWake: (workerId: CloudWorker["id"], statusAlreadyClaimed?: boolean) => void
   store: CloudWorkerStore
   now: () => number
 }): Promise<CloudInstanceResponse> {
@@ -538,7 +563,7 @@ async function resolveFailedCloudInstance(input: {
       return { status: "failed", url: null }
     }
 
-    input.startWake(input.worker.id)
+    input.startWake(input.worker.id, true)
     return { status: "waking", url: null }
   }
 
@@ -635,7 +660,7 @@ async function startStaleStoppedRecycle(input: {
   worker: CloudWorker
   sandboxExists: boolean
   inspectSandbox: InspectSandbox
-  startWake: (workerId: CloudWorker["id"]) => void
+  startWake: (workerId: CloudWorker["id"], statusAlreadyClaimed?: boolean) => void
   store: CloudWorkerStore
 }): Promise<boolean> {
   if (!input.sandboxExists || !workerNeedsSnapshotRecycle(input.worker)) {
@@ -655,7 +680,7 @@ async function startStaleStoppedRecycle(input: {
 
   const claimed = await input.store.claimRecycleWorker(input.worker.id)
   if (claimed) {
-    input.startWake(input.worker.id)
+    input.startWake(input.worker.id, true)
   }
   return true
 }
@@ -665,7 +690,7 @@ async function recoverUnhealthyCloudSandbox(input: {
   orgId: OrgId
   continueProvisioning: typeof continueCloudProvisioning
   inspectSandbox: InspectSandbox
-  startWake: (workerId: CloudWorker["id"]) => void
+  startWake: (workerId: CloudWorker["id"], statusAlreadyClaimed?: boolean) => void
   store: CloudWorkerStore
 }): Promise<CloudInstanceResponse> {
   let inspection: CloudSandboxInspection = null
@@ -676,7 +701,8 @@ async function recoverUnhealthyCloudSandbox(input: {
   }
 
   if (inspection?.state === "stopped") {
-    input.startWake(input.worker.id)
+    const claimed = await input.store.claimRecycleWorker(input.worker.id)
+    if (claimed) input.startWake(input.worker.id, true)
     return { status: "waking", url: null }
   }
 
@@ -693,7 +719,7 @@ async function resolveCloudInstance(input: {
   getSandboxRecord: GetSandboxRecord
   inspectSandbox: InspectSandbox
   probeSignedPreview: ProbeSignedPreview
-  startWake: (workerId: CloudWorker["id"]) => void
+  startWake: (workerId: CloudWorker["id"], statusAlreadyClaimed?: boolean) => void
   store: CloudWorkerStore
   now: () => number
 }): Promise<CloudInstanceResponse> {
@@ -927,13 +953,16 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
   const gatewayKey = options.gatewayKey !== undefined ? options.gatewayKey : env.gatewayKey
   const wakingWorkers = new Set<CloudWorker["id"]>()
 
-  function startWake(workerId: CloudWorker["id"]) {
+  function startWake(
+    workerId: CloudWorker["id"],
+    statusAlreadyClaimed = false,
+  ) {
     if (wakingWorkers.has(workerId)) {
       return
     }
 
     wakingWorkers.add(workerId)
-    void wakeCloudWorker(workerId)
+    void wakeCloudWorker(workerId, { statusAlreadyClaimed })
       .catch(() => undefined)
       .finally(() => {
         wakingWorkers.delete(workerId)

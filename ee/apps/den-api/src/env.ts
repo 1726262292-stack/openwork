@@ -87,6 +87,7 @@ const EnvSchema = z.object({
   PROVISIONER_MODE: z.enum(["stub", "render", "daytona"]).optional(),
   WORKER_URL_TEMPLATE: z.string().optional(),
   WORKER_ACTIVITY_BASE_URL: z.string().optional(),
+  DEN_SCHEDULED_TASKS_INTERNAL_SECRET: z.string().min(32).optional(),
   OPENWORK_DAYTONA_ENV_PATH: z.string().optional(),
   RENDER_API_BASE: z.string().optional(),
   RENDER_API_KEY: z.string().optional(),
@@ -535,6 +536,7 @@ export const env = {
   workerActivityBaseUrl:
     optionalString(parsed.WORKER_ACTIVITY_BASE_URL) ??
     parsed.BETTER_AUTH_URL.trim().replace(/\/+$/, ""),
+  scheduledTasksInternalSecret: optionalString(parsed.DEN_SCHEDULED_TASKS_INTERNAL_SECRET),
   inferenceProxyBaseUrl: optionalString(parsed.INFERENCE_PROXY_BASE_URL) ?? "http://127.0.0.1:8791",
   openRouterManagementApiKey: optionalString(parsed.OPENROUTER_MANAGEMENT_API_KEY),
   openRouterWorkspaceId: optionalString(parsed.OPENROUTER_WORKSPACE_ID),

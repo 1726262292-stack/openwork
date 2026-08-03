@@ -6,6 +6,7 @@ import { materializeCloudWorkerProviders } from "../llm/cloud-provider-materiali
 import { appLogger } from "../observability/logger.js"
 import { captureException } from "../observability/runtime.js"
 import { CLOUD_INSTANCE_BACKEND } from "./cloud-constants.js"
+import { getOrCreateDenScheduledTaskExecutionToken } from "../scheduled-tasks/security.js"
 import {
   isDaytonaSandboxMissingError,
   provisionWorkerOnDaytona,
@@ -26,7 +27,7 @@ type CloudLifecycleStore = {
   getWorker: (workerId: WorkerId) => Promise<CloudWorker | null>
   getActiveTokens: (workerId: WorkerId) => Promise<WorkerToken[]>
   listIdleWorkers: (input: { idleBefore: Date; limit: number }) => Promise<CloudWorker[]>
-  updateWorkerStatus: (input: { workerId: WorkerId; status: WorkerStatus; imageVersion?: string | null; onlyWhenStatus?: WorkerStatus }) => Promise<void>
+  updateWorkerStatus: (input: { workerId: WorkerId; status: WorkerStatus; imageVersion?: string | null; onlyWhenStatus?: WorkerStatus }) => Promise<boolean>
 }
 
 type WakeCloudWorkerOptions = {
@@ -34,6 +35,8 @@ type WakeCloudWorkerOptions = {
   wakeWorker?: WakeWorkerOnDaytona
   provisionWorker?: ProvisionWorkerOnDaytona
   materializeProviders?: typeof materializeCloudWorkerProviders
+  resolveScheduledTaskExecutionToken?: (workerId: WorkerId) => Promise<string | null>
+  statusAlreadyClaimed?: boolean
 }
 
 type StopIdleCloudWorkersOptions = {
@@ -57,6 +60,24 @@ let cloudIdleStopPromise: Promise<void> | null = null
 
 function tokenByScope(tokens: WorkerToken[], scope: typeof WorkerTokenTable.$inferSelect.scope) {
   return tokens.find((entry) => entry.scope === scope)?.token ?? null
+}
+
+function changedRows(result: unknown): number | null {
+  if (Array.isArray(result)) {
+    for (const value of result) {
+      const nested = changedRows(value)
+      if (nested !== null) return nested
+    }
+    return null
+  }
+  if (typeof result !== "object" || result === null) return null
+  if ("rowsAffected" in result && typeof result.rowsAffected === "number") {
+    return result.rowsAffected
+  }
+  if ("affectedRows" in result && typeof result.affectedRows === "number") {
+    return result.affectedRows
+  }
+  return null
 }
 
 const databaseCloudLifecycleStore: CloudLifecycleStore = {
@@ -100,12 +121,13 @@ const databaseCloudLifecycleStore: CloudLifecycleStore = {
       ? { status: input.status }
       : { status: input.status, image_version: input.imageVersion }
 
-    await db
+    const result = await db
       .update(WorkerTable)
       .set(update)
       .where(input.onlyWhenStatus
         ? and(eq(WorkerTable.id, input.workerId), eq(WorkerTable.status, input.onlyWhenStatus))
         : eq(WorkerTable.id, input.workerId))
+    return (changedRows(result) ?? 0) > 0
   },
 }
 
@@ -142,13 +164,28 @@ async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOp
       logger.error("worker wake failed", { worker_id: workerId, reason: "worker_not_found" })
       return
     }
-
-    await store.updateWorkerStatus({ workerId, status: "provisioning", onlyWhenStatus: "stopped" })
+    if (options.statusAlreadyClaimed) {
+      if (worker.status !== "provisioning") return
+    } else {
+      if (worker.status !== "stopped") return
+      const acquired = await store.updateWorkerStatus({
+        workerId,
+        status: "provisioning",
+        onlyWhenStatus: "stopped",
+      })
+      if (!acquired) return
+    }
 
     const tokens = await store.getActiveTokens(workerId)
     const hostToken = tokenByScope(tokens, "host")
     const clientToken = tokenByScope(tokens, "client")
     const activityToken = tokenByScope(tokens, "activity")
+    const resolveScheduledTaskExecutionToken = options.resolveScheduledTaskExecutionToken
+      ?? (options.store
+        ? async () => null
+        : getOrCreateDenScheduledTaskExecutionToken)
+    const scheduledTaskExecutionToken = tokenByScope(tokens, "execution")
+      ?? await resolveScheduledTaskExecutionToken(workerId)
 
     if (!hostToken || !clientToken || !activityToken) {
       await safelyMarkWorkerFailed(store, workerId)
@@ -162,6 +199,7 @@ async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOp
       hostToken,
       clientToken,
       activityToken,
+      ...(scheduledTaskExecutionToken ? { scheduledTaskExecutionToken } : {}),
     }
     let woken: Awaited<ReturnType<WakeWorkerOnDaytona>>
     try {

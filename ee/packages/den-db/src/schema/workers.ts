@@ -3,7 +3,7 @@ import { denTypeIdColumn, timestamps } from "../columns"
 
 export const WorkerDestination = ["local", "cloud"] as const
 export const WorkerStatus = ["provisioning", "healthy", "failed", "stopped"] as const
-export const TokenScope = ["client", "host", "activity"] as const
+export const TokenScope = ["client", "host", "activity", "execution"] as const
 
 export const WorkerTable = mysqlTable(
   "worker",

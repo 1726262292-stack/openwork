@@ -42,6 +42,8 @@
 #                           — standard OpenTelemetry sampler controls
 #   SENTRY_DSN / SENTRY_TRACES_SAMPLE_RATE / SENTRY_ENVIRONMENT / SENTRY_RELEASE / SENTRY_DIST
 #                           — optional Sentry runtime settings (source-map upload is build-time only)
+#   DEN_SCHEDULED_TASKS_INTERNAL_SECRET — shared HMAC secret for the optional
+#                           Scheduled Tasks wake process and Den tick endpoint
 
 x-shared: &shared
   restart: unless-stopped
@@ -143,6 +145,23 @@ services:
       DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
       DAYTONA_TARGET: ${DAYTONA_TARGET:-}
       DAYTONA_SNAPSHOT: ${DAYTONA_SNAPSHOT:-}
+      DEN_SCHEDULED_TASKS_INTERNAL_SECRET: ${DEN_SCHEDULED_TASKS_INTERNAL_SECRET:-}
+
+  scheduled-tasks-wake:
+    <<: *shared
+    profiles: ["scheduled-tasks"]
+    build:
+      context: ../../
+      dockerfile: packaging/docker/Dockerfile.den
+    command: ["node", "/app/ee/apps/den-api/dist/scheduled-tasks/wake-main.js"]
+    depends_on:
+      den:
+        condition: service_healthy
+    environment:
+      DEN_SCHEDULED_TASKS_WAKE_ENABLED: "1"
+      DEN_SCHEDULED_TASKS_TICK_BASE_URL: http://den:8788
+      DEN_SCHEDULED_TASKS_WAKE_INTERVAL_MS: ${DEN_SCHEDULED_TASKS_WAKE_INTERVAL_MS:-60000}
+      DEN_SCHEDULED_TASKS_INTERNAL_SECRET: ${DEN_SCHEDULED_TASKS_INTERNAL_SECRET:-}
 
   web:
     <<: *shared
@@ -175,6 +194,8 @@ services:
       DEN_SINGLE_ORG_SLUG: ${DEN_SINGLE_ORG_SLUG:-default}
       DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP: ${DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP:-false}
       DEN_SINGLE_ORG_ALLOW_EMAIL_PASSWORD_AFTER_SSO: ${DEN_SINGLE_ORG_ALLOW_EMAIL_PASSWORD_AFTER_SSO:-false}
+      CRON_SECRET: ${CRON_SECRET:-}
+      DEN_SCHEDULED_TASKS_INTERNAL_SECRET: ${DEN_SCHEDULED_TASKS_INTERNAL_SECRET:-}
 
 volumes:
   den-mysql-data:

@@ -5,6 +5,7 @@ import { env } from "../env.js"
 import { appLogger } from "../observability/logger.js"
 import { captureException } from "../observability/runtime.js"
 import { continueCloudProvisioning } from "../routes/workers/shared.js"
+import { getOrCreateDenScheduledTaskExecutionToken } from "../scheduled-tasks/security.js"
 
 type ProvisioningWorker = typeof WorkerTable.$inferSelect
 const logger = appLogger.child({ component: "worker_reconciler" })
@@ -28,6 +29,8 @@ async function reconcileWorker(worker: ProvisioningWorker) {
   const hostToken = tokenByScope(tokens, "host")
   const clientToken = tokenByScope(tokens, "client")
   const activityToken = tokenByScope(tokens, "activity")
+  const scheduledTaskExecutionToken = tokenByScope(tokens, "execution")
+    ?? await getOrCreateDenScheduledTaskExecutionToken(worker.id)
 
   if (!hostToken || !clientToken || !activityToken) {
     await db
@@ -45,6 +48,7 @@ async function reconcileWorker(worker: ProvisioningWorker) {
     hostToken,
     clientToken,
     activityToken,
+    scheduledTaskExecutionToken,
   })
 }
 

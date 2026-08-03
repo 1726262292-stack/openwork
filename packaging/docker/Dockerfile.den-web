@@ -8,6 +8,8 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml /app/
 COPY patches /app/patches
 COPY packages/types/package.json /app/packages/types/package.json
+COPY packages/scheduled-tasks/package.json /app/packages/scheduled-tasks/package.json
+COPY packages/scheduled-tasks-den/package.json /app/packages/scheduled-tasks-den/package.json
 COPY packages/ui/package.json /app/packages/ui/package.json
 COPY ee/packages/utils/package.json /app/ee/packages/utils/package.json
 COPY ee/apps/den-web/package.json /app/ee/apps/den-web/package.json
@@ -15,11 +17,17 @@ COPY ee/apps/den-web/package.json /app/ee/apps/den-web/package.json
 RUN pnpm install --frozen-lockfile --trust-lockfile --filter @openwork-ee/den-web...
 
 COPY packages/types /app/packages/types
+COPY packages/scheduled-tasks /app/packages/scheduled-tasks
+COPY packages/scheduled-tasks-den /app/packages/scheduled-tasks-den
 COPY packages/ui /app/packages/ui
 COPY ee/packages/utils /app/ee/packages/utils
 COPY ee/apps/den-web /app/ee/apps/den-web
 
 WORKDIR /app/ee/apps/den-web
+
+RUN pnpm --dir /app/packages/types run build
+RUN pnpm --dir /app/packages/scheduled-tasks run build
+RUN pnpm --dir /app/packages/scheduled-tasks-den run build
 
 # Source-map upload is build-only; runtime Sentry still requires its own backend and DSN configuration.
 ARG DEN_WEB_UPLOAD_SENTRY_SOURCEMAPS=0

@@ -80,6 +80,13 @@ type ContinueCloudProvisioningOptions = {
 }
 
 export const token = () => randomBytes(32).toString("hex")
+export function publicWorkerTokens(hostToken: string, clientToken: string) {
+  return {
+    owner: hostToken,
+    host: hostToken,
+    client: clientToken,
+  }
+}
 const provisioningSuccessWritableStatuses: WorkerStatus[] = ["provisioning", "failed"]
 const cloudProvisioningInFlight = new Map<WorkerId, Promise<void>>()
 
@@ -381,6 +388,7 @@ async function runCloudProvisioning(input: {
   hostToken: string
   clientToken: string
   activityToken: string
+  scheduledTaskExecutionToken?: string
 }, options: ContinueCloudProvisioningOptions) {
   const provision = options.provisionWorker ?? provisionWorker
   const store = options.store ?? databaseCloudProvisioningStore
@@ -393,6 +401,7 @@ async function runCloudProvisioning(input: {
       hostToken: input.hostToken,
       clientToken: input.clientToken,
       activityToken: input.activityToken,
+      scheduledTaskExecutionToken: input.scheduledTaskExecutionToken,
     })
 
     if (provisioned.status === "healthy" && input.orgId) {
@@ -435,6 +444,7 @@ export async function continueCloudProvisioning(input: {
   hostToken: string
   clientToken: string
   activityToken: string
+  scheduledTaskExecutionToken?: string
 }, options: ContinueCloudProvisioningOptions = {}) {
   const existing = cloudProvisioningInFlight.get(input.workerId)
   if (existing) {

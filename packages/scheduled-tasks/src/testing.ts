@@ -8,15 +8,48 @@ import {
   scheduledTaskSchema,
   type ScheduledTask,
   type ScheduledTaskAttempt,
+  type ScheduledTaskFilesystemScope,
   type ScheduledTaskGrant,
+  type ScheduledTaskPlacement,
   type ScheduledTaskRevision,
   type ScheduledTaskRun,
 } from "@openwork/types/scheduled-tasks"
 import type { Awaitable, ScheduledTaskRepository } from "./ports.js"
-import { scheduledTaskPlacementIdentity } from "./contracts.js"
+import {
+  scheduledTaskPlacementIdentity,
+  type ScheduledTaskRepositoryFilter,
+} from "./contracts.js"
+
+export interface ScheduledTaskRepositoryConformanceFixtureIds {
+  taskId: string
+  revision1Id: string
+  revision2Id: string
+  reviewedRevisionId: string
+  grantId: string
+  run1Id: string
+  run1OverlapTemplateId: string
+  run1DuplicateId: string
+  run2Id: string
+  run2OverlapId: string
+  attemptId: string
+}
+
+export interface ScheduledTaskRepositoryConformanceFixtureOptions {
+  ids?: ScheduledTaskRepositoryConformanceFixtureIds
+  workspaceId?: string
+  placement?: ScheduledTaskPlacement
+  filesystemScope?: ScheduledTaskFilesystemScope
+  authorizedWorkspaceRoots?: readonly string[]
+  targetScope?: ScheduledTaskRepositoryFilter
+  isolationScope?: ScheduledTaskRepositoryFilter
+  actorId?: string
+  revokerId?: string
+  sessionId?: string
+}
 
 export interface ScheduledTaskRepositoryConformanceOptions {
   createRepository(): Awaitable<ScheduledTaskRepository>
+  fixtures?: ScheduledTaskRepositoryConformanceFixtureOptions
 }
 
 export interface ScheduledTaskRepositoryConformanceResult {
@@ -27,22 +60,47 @@ function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`ScheduledTaskRepository conformance: ${message}`)
 }
 
-function createFixtures() {
+const DEFAULT_FIXTURE_IDS: ScheduledTaskRepositoryConformanceFixtureIds = {
+  taskId: "task_conformance",
+  revision1Id: "rev_conformance_1",
+  revision2Id: "rev_conformance_2",
+  reviewedRevisionId: "rev_conformance_3",
+  grantId: "grant_conformance_1",
+  run1Id: "run_conformance_1",
+  run1OverlapTemplateId: "run_conformance_overlap_template",
+  run1DuplicateId: "run_conformance_duplicate",
+  run2Id: "run_conformance_2",
+  run2OverlapId: "run_conformance_overlap_2",
+  attemptId: "attempt_conformance_1",
+}
+
+function createFixtures(options: ScheduledTaskRepositoryConformanceFixtureOptions = {}) {
   const createdAt = 1_000
-  const workspaceId = "ws_conformance"
-  const placement = scheduledTaskPlacementSchema.parse({
-    target: { kind: "local-workspace", workspaceId },
-    schedulerOwner: "local-server",
-    executionAvailability: "app-open",
-    executionPrincipal: { kind: "local-user", identityId: "member_conformance" },
-    capabilityReferences: [{
-      id: "workspace.files.read",
-      source: "openwork",
-      actionClass: "read",
-      reviewedVersion: "1",
-      reviewedDigest: null,
-    }],
-  })
+  const ids = options.ids ?? DEFAULT_FIXTURE_IDS
+  const defaultActorId = "member_conformance"
+  const workspaceId = options.placement?.target.workspaceId
+    ?? options.workspaceId
+    ?? "ws_conformance"
+  const placement = scheduledTaskPlacementSchema.parse(
+    options.placement ?? {
+      target: { kind: "local-workspace", workspaceId },
+      schedulerOwner: "local-server",
+      executionAvailability: "app-open",
+      executionPrincipal: { kind: "local-user", identityId: defaultActorId },
+      capabilityReferences: [{
+        id: "workspace.files.read",
+        source: "openwork",
+        actionClass: "read",
+        reviewedVersion: "1",
+        reviewedDigest: null,
+      }],
+    },
+  )
+  const actorId = options.actorId ?? (
+    placement.executionPrincipal.kind === "den-membership"
+      ? placement.executionPrincipal.membershipId
+      : placement.executionPrincipal.identityId
+  )
   const definition = scheduledTaskDefinitionSchema.parse({
     name: "Repository conformance",
     description: "Portable repository behavior",
@@ -66,12 +124,12 @@ function createFixtures() {
     },
   })
   const revision1 = scheduledTaskRevisionSchema.parse({
-    id: "rev_conformance_1",
-    taskId: "task_conformance",
+    id: ids.revision1Id,
+    taskId: ids.taskId,
     revision: 1,
     definition,
     createdAt,
-    createdBy: "member_conformance",
+    createdBy: actorId,
     reviewedAt: null,
     reviewedBy: null,
   })
@@ -91,7 +149,7 @@ function createFixtures() {
   })
   const revision2 = scheduledTaskRevisionSchema.parse({
     ...revision1,
-    id: "rev_conformance_2",
+    id: ids.revision2Id,
     revision: 2,
     createdAt: createdAt + 1,
   })
@@ -102,25 +160,27 @@ function createFixtures() {
   })
   const reviewedRevision = scheduledTaskRevisionSchema.parse({
     ...revision2,
-    id: "rev_conformance_3",
+    id: ids.reviewedRevisionId,
     revision: 3,
     createdAt: createdAt + 2,
     reviewedAt: createdAt + 2,
-    reviewedBy: "member_conformance",
+    reviewedBy: actorId,
   })
   const grant = scheduledTaskGrantSchema.parse({
-    id: "grant_conformance_1",
+    id: ids.grantId,
     taskId: task1.id,
     revision: 1,
     taskRevisionId: reviewedRevision.id,
     workspaceId,
     placement,
     placementIdentity: scheduledTaskPlacementIdentity(placement),
-    filesystemScope: {
+    filesystemScope: options.filesystemScope ?? {
       kind: "local-workspace-roots",
       roots: ["/conformance/workspace"],
     },
-    authorizedWorkspaceRoots: ["/conformance/workspace"],
+    authorizedWorkspaceRoots: [
+      ...(options.authorizedWorkspaceRoots ?? ["/conformance/workspace"]),
+    ],
     capabilityIds: ["workspace.files.read"],
     actionClasses: ["read"],
     filesystem: { read: true, write: false },
@@ -129,7 +189,7 @@ function createFixtures() {
     communicationPolicy: "deny",
     destructiveActionPolicy: "deny",
     selfModificationPolicy: "deny",
-    grantor: "member_conformance",
+    grantor: actorId,
     reviewedAt: createdAt + 2,
     expiresAt: null,
     revokedAt: null,
@@ -157,6 +217,18 @@ function createFixtures() {
     grant,
     activeTask,
     placement,
+    ids,
+    targetScope: options.targetScope ?? {
+      kind: "target",
+      target: placement.target,
+    },
+    isolationScope: options.isolationScope ?? {
+      kind: "scheduler-owner",
+      schedulerOwner: "den",
+      organizationId: "org_other",
+    },
+    revokerId: options.revokerId ?? actorId,
+    sessionId: options.sessionId ?? "session_conformance_1",
   }
 }
 
@@ -197,14 +269,18 @@ function runFixture(input: {
   })
 }
 
-function attemptFixture(run: ScheduledTaskRun): ScheduledTaskAttempt {
+function attemptFixture(input: {
+  run: ScheduledTaskRun
+  attemptId: string
+  sessionId: string
+}): ScheduledTaskAttempt {
   return scheduledTaskAttemptSchema.parse({
-    id: "attempt_conformance_1",
-    runId: run.id,
+    id: input.attemptId,
+    runId: input.run.id,
     attempt: 1,
     status: "running",
-    sessionId: "session_conformance_1",
-    startedAt: run.claimedAt + 1,
+    sessionId: input.sessionId,
+    startedAt: input.run.claimedAt + 1,
     completedAt: null,
     error: null,
   })
@@ -219,7 +295,7 @@ export async function verifyScheduledTaskRepositoryConformance(
 ): Promise<ScheduledTaskRepositoryConformanceResult> {
   const repository = await options.createRepository()
   const checked: string[] = []
-  const fixtures = createFixtures()
+  const fixtures = createFixtures(options.fixtures)
   try {
     await repository.createTask(fixtures.task1, fixtures.revision1)
     invariant(
@@ -260,25 +336,20 @@ export async function verifyScheduledTaskRepositoryConformance(
       "nextDueAt must expose the earliest enabled occurrence",
     )
     invariant(
-      (await repository.listTasks({
-        kind: "target",
-        target: fixtures.placement.target,
-      })).some((item) => item.task.id === fixtures.activeTask.id),
+      (await repository.listTasks(fixtures.targetScope)).some(
+        (item) => item.task.id === fixtures.activeTask.id,
+      ),
       "target scopes must select tasks bound to that execution target",
     )
     invariant(
-      (await repository.listTasks({
-        kind: "scheduler-owner",
-        schedulerOwner: "den",
-        organizationId: "org_other",
-      })).length === 0,
+      (await repository.listTasks(fixtures.isolationScope)).length === 0,
       "scheduler-owner scopes must not leak tasks from another runtime",
     )
     checked.push("due-selection")
     checked.push("runtime-scope-isolation")
 
     const run = runFixture({
-      id: "run_conformance_1",
+      id: fixtures.ids.run1Id,
       occurrenceId: "occ_conformance_1",
       idempotencyKey: "scheduled:conformance:1",
       task: fixtures.activeTask,
@@ -287,7 +358,7 @@ export async function verifyScheduledTaskRepositoryConformance(
       claimedAt: fixtures.createdAt + 100,
     })
     const overlap = runFixture({
-      id: "run_conformance_overlap_template",
+      id: fixtures.ids.run1OverlapTemplateId,
       occurrenceId: run.occurrenceId,
       idempotencyKey: run.idempotencyKey,
       task: fixtures.activeTask,
@@ -327,7 +398,7 @@ export async function verifyScheduledTaskRepositoryConformance(
         claimedAt: run.claimedAt,
       },
       runFixture({
-        id: "run_conformance_duplicate",
+        id: fixtures.ids.run1DuplicateId,
         occurrenceId: run.occurrenceId,
         idempotencyKey: run.idempotencyKey,
         task: fixtures.activeTask,
@@ -344,7 +415,7 @@ export async function verifyScheduledTaskRepositoryConformance(
     checked.push("atomic-idempotent-claim")
 
     const secondRun = runFixture({
-      id: "run_conformance_2",
+      id: fixtures.ids.run2Id,
       occurrenceId: "occ_conformance_2",
       idempotencyKey: "scheduled:conformance:2",
       task: taskAfterClaim,
@@ -353,7 +424,7 @@ export async function verifyScheduledTaskRepositoryConformance(
       claimedAt: fixtures.createdAt + 200,
     })
     const secondOverlap = runFixture({
-      id: "run_conformance_overlap_2",
+      id: fixtures.ids.run2OverlapId,
       occurrenceId: secondRun.occurrenceId,
       idempotencyKey: secondRun.idempotencyKey,
       task: taskAfterClaim,
@@ -382,7 +453,11 @@ export async function verifyScheduledTaskRepositoryConformance(
     )
     checked.push("atomic-overlap-policy")
 
-    const attempt = attemptFixture(run)
+    const attempt = attemptFixture({
+      run,
+      attemptId: fixtures.ids.attemptId,
+      sessionId: fixtures.sessionId,
+    })
     await repository.createAttempt(attempt)
     invariant(
       (await repository.listAttempts(run.id))[0]?.id === attempt.id,
@@ -422,7 +497,7 @@ export async function verifyScheduledTaskRepositoryConformance(
       fixtures.grant.id,
       fixtures.createdAt + 300,
       "conformance revocation",
-      "member_conformance",
+      fixtures.revokerId,
     )
     invariant(
       revoked.revokedAt === fixtures.createdAt + 300 &&

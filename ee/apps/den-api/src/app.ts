@@ -26,6 +26,7 @@ import { registerDeprecatedSkillHubRoutes } from "./routes/deprecated-skill-hubs
 import { registerDevRoutes } from "./routes/dev/index.js"
 import { registerMcpTokenRoutes } from "./routes/mcp/index.js"
 import { registerMemoryRoutes } from "./routes/memory/index.js"
+import { registerScheduledTaskRoutes } from "./routes/scheduled-tasks/index.js"
 import { registerMeRoutes } from "./routes/me/index.js"
 import { registerOrgRoutes } from "./routes/org/index.js"
 import { registerTelemetryRoutes } from "./routes/telemetry/index.js"
@@ -196,6 +197,7 @@ registerDeprecatedSkillHubRoutes(app)
 registerDevRoutes(app)
 registerMeRoutes(app)
 registerMemoryRoutes(app)
+registerScheduledTaskRoutes(app)
 registerOrgRoutes(app)
 registerVersionRoutes(app)
 registerWebhookRoutes(app)

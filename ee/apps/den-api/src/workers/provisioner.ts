@@ -19,6 +19,7 @@ export type ProvisionInput = {
   hostToken: string
   clientToken: string
   activityToken: string
+  scheduledTaskExecutionToken?: string
 }
 
 export type ProvisionedInstance = {
@@ -296,6 +297,13 @@ exit 1
       { key: "OPENWORK_TOKEN", value: input.clientToken },
       { key: "OPENWORK_HOST_TOKEN", value: input.hostToken },
       { key: "DEN_WORKER_ID", value: input.workerId },
+      ...(input.scheduledTaskExecutionToken
+        ? [
+            { key: "DEN_SCHEDULED_TASKS_WORKER_ENABLED", value: "1" },
+            { key: "DEN_SCHEDULED_TASKS_API_BASE", value: env.workerActivityBaseUrl },
+            { key: "DEN_SCHEDULED_TASKS_EXECUTION_TOKEN", value: input.scheduledTaskExecutionToken },
+          ]
+        : []),
     ],
     serviceDetails: {
       runtime: "node",

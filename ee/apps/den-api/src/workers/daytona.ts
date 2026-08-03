@@ -15,6 +15,7 @@ type ProvisionInput = {
   hostToken: string
   clientToken: string
   activityToken: string
+  scheduledTaskExecutionToken?: string
 }
 type SandboxNameInput = Pick<ProvisionInput, "workerId" | "name">
 
@@ -460,6 +461,16 @@ export function buildOpenWorkStartCommand(input: ProvisionInput) {
     shellQuote(workerActivityHeartbeatUrl(input.workerId)),
     " DEN_ACTIVITY_HEARTBEAT_TOKEN=",
     shellQuote(input.activityToken),
+    ...(input.scheduledTaskExecutionToken
+      ? [
+          " DEN_SCHEDULED_TASKS_WORKER_ENABLED=",
+          shellQuote("1"),
+          " DEN_SCHEDULED_TASKS_API_BASE=",
+          shellQuote(env.workerActivityBaseUrl),
+          " DEN_SCHEDULED_TASKS_EXECUTION_TOKEN=",
+          shellQuote(input.scheduledTaskExecutionToken),
+        ]
+      : []),
     " openwork-server",
     ` --workspace ${shellQuote(env.daytona.runtimeWorkspacePath)}`,
     ` --host 0.0.0.0`,

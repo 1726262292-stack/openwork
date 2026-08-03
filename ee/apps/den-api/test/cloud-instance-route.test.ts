@@ -1189,7 +1189,8 @@ describe("Cloud instance failed self-heal", () => {
 
 describe("Cloud instance ready liveness", () => {
   test("returns waking and starts wake when the preview is dead and the sandbox is stopped", async () => {
-    const worker = fakeWorker("healthy")
+    const worker = storedWorker({ status: "healthy" })
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
     const app = new Hono<{ Variables: OrgRouteVariables }>()
     let probes = 0
     let wakeCalls = 0
@@ -1200,6 +1201,7 @@ describe("Cloud instance ready liveness", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       ensureCloudWorker: async () => worker,
+      cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
       refreshSignedPreview: async () => null,
       probeSignedPreview: async () => {
@@ -1218,6 +1220,7 @@ describe("Cloud instance ready liveness", () => {
     await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     expect(probes).toBe(1)
     expect(wakeCalls).toBe(1)
+    expect(store.recycleClaimAttempts).toBe(1)
   })
 
   test("marks missing sandboxes failed, kicks heal, and reports waking", async () => {
