@@ -183,6 +183,17 @@ jobs:
           CHANNEL_TAG: ${{ inputs.channel_tag || 'alpha-macos-latest' }}
         run: |
           set -euo pipefail
+          # Alpha assets may only ever land on alpha channel releases. This
+          # guard makes it impossible to clobber a stable release (and its
+          # latest-mac.yml) via a mistyped channel_tag dispatch input.
+          case "$CHANNEL_TAG" in
+            alpha-macos-*) ;;
+            *)
+              echo "Refusing to publish alpha assets to non-alpha tag: $CHANNEL_TAG" >&2
+              exit 1
+              ;;
+          esac
+
           if ! gh release view "$CHANNEL_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$CHANNEL_TAG" \
               --repo "$GITHUB_REPOSITORY" \
