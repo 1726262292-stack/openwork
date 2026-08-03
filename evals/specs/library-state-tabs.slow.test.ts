@@ -14,12 +14,26 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
   await using app = await desktop({ name: "library-state-tabs" });
   await createAndSelectWorkspace(app, { path: repoRoot });
   await evalIn(app, `(() => {
-    window.location.hash = "#/settings/extensions";
+    window.location.hash = "#/settings/general";
     return true;
   })()`);
   await waitFor(
     app,
-    `[...document.querySelectorAll("h1, h2")].some((heading) => heading.textContent?.trim() === "Library")
+    `[...document.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Library")`,
+    { timeoutMs: 60_000, label: "Library settings navigation entry" },
+  );
+  const openedLibrary = await evalIn(app, `(() => {
+    const button = [...document.querySelectorAll("button")]
+      .find((entry) => entry.textContent?.trim() === "Library");
+    if (!(button instanceof HTMLElement)) return false;
+    button.click();
+    return true;
+  })()`);
+  expect(openedLibrary).toBe(true);
+  await waitFor(
+    app,
+    `window.location.hash.includes("/settings/extensions")
+      && [...document.querySelectorAll("h1, h2")].some((heading) => heading.textContent?.trim() === "Library")
       && Boolean(document.querySelector('[role="tablist"][aria-label="Library state"]'))
       && [...document.querySelectorAll('[role="tab"]')].some((tab) => tab.textContent?.trim() === "All")
       && [...document.querySelectorAll('[role="tab"]')].some((tab) => (tab.textContent ?? "").includes("Ready to use"))`,
@@ -32,6 +46,11 @@ test.skipIf(!appSpecsEnabled)(title, async () => {
     return /apps? connected/i.test(description?.parentElement?.textContent ?? "");
   })()`);
   expect(headerHasConnectedCount).toBe(false);
+  const descriptionRenderedOnce = await evalIn(
+    app,
+    `document.body.innerText.split("Skills, connections, and tools your agent can use.").length - 1`,
+  );
+  expect(descriptionRenderedOnce).toBe(1);
 
   const clickedReady = await evalIn(app, `(() => {
     const tab = [...document.querySelectorAll('[role="tab"]')]

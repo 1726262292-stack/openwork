@@ -2210,14 +2210,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     }
   };
 
-  if (!props.embedded && !props.standaloneExtensions && route.tab === "extensions") {
-    const extensionPath = extensionsPathForRoute(route);
-    const target = selectedWorkspaceId
-      ? workspaceExtensionsRoute(selectedWorkspaceId, extensionPath)
-      : globalExtensionsRoute(extensionPath);
-    return <Navigate to={target} replace state={location.state} />;
-  }
-
   if (route.redirectPath && !props.embedded) {
     const target = props.standaloneExtensions
       ? selectedWorkspaceId
@@ -2347,6 +2339,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return (
           <ExtensionsView
             busy={busy}
+            hideDescription={props.standaloneExtensions !== true}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
             canEditPlugins={canWriteWorkspacePlugins}
