@@ -62,6 +62,7 @@ type SyncEntry = {
 
 const idleStatus: SessionStatus = { type: "idle" };
 const syncs = new Map<string, SyncEntry>();
+const sessionSnapshotFetchStarts = new WeakMap<OpenworkSessionSnapshot, number>();
 const workspaceSyncDisposeGraceMs = 2_000;
 const retainedSessionTtlMs = 10 * 60_000;
 const idleRetainedSessionTtlMs = 10_000;
@@ -72,13 +73,31 @@ type SyncSubscriptionFactory = (
   signal: AbortSignal,
 ) => Promise<AsyncIterable<unknown>>;
 
+type SessionStatusFetcher = (
+  baseUrl: string,
+  openworkToken: string,
+  signal: AbortSignal,
+) => Promise<Record<string, SessionStatus>>;
+
 const defaultSyncSubscriptionFactory: SyncSubscriptionFactory = async (baseUrl, openworkToken, signal) => {
   const client = createClient(baseUrl, undefined, { token: openworkToken, mode: "openwork" });
   const subscription = await client.event.subscribe(undefined, { signal });
   return subscription.stream;
 };
 
+const defaultSessionStatusFetcher: SessionStatusFetcher = async (baseUrl, openworkToken, signal) => {
+  const client = createClient(baseUrl, undefined, { token: openworkToken, mode: "openwork" });
+  const result = await client.session.status(undefined, { signal });
+  if (result.data !== undefined) return result.data;
+  throw result.error;
+};
+
 let syncSubscriptionFactory = defaultSyncSubscriptionFactory;
+let sessionStatusFetcher = defaultSessionStatusFetcher;
+
+export function markSessionSnapshotFetchStart(snapshot: OpenworkSessionSnapshot, startedAt: number) {
+  sessionSnapshotFetchStarts.set(snapshot, startedAt);
+}
 
 export const snapshotKey = (workspaceId: string, sessionId: string) =>
   ["react-session-snapshot", workspaceId, sessionId] as const;
@@ -1100,6 +1119,7 @@ function startSync(input: SyncOptions, entry: SyncEntry) {
       const stream = await syncSubscriptionFactory(input.baseUrl, entry.openworkToken, connectionController.signal);
       retryDelayMs = 1_000;
       lastEventAt = Date.now();
+      void reconcileSessionRunStatuses(entry, input, connectionController.signal);
       for await (const raw of stream) {
         if (controller.signal.aborted || connectionController.signal.aborted) return;
         lastEventAt = Date.now();
@@ -1137,6 +1157,29 @@ function startSync(input: SyncOptions, entry: SyncEntry) {
     activeConnectionController?.abort();
     controller.abort();
   };
+}
+
+async function reconcileSessionRunStatuses(entry: SyncEntry, input: SyncOptions, signal: AbortSignal) {
+  const startedAt = Date.now();
+  let statuses: Record<string, SessionStatus>;
+  try {
+    statuses = await sessionStatusFetcher(input.baseUrl, entry.openworkToken, signal);
+  } catch {
+    return;
+  }
+  if (signal.aborted) return;
+
+  const records = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId];
+  if (!records) return;
+  for (const sessionId of Object.keys(records)) {
+    useSessionActivityStore.getState().seedSessionRun(
+      input.workspaceId,
+      sessionId,
+      statuses[sessionId] ?? idleStatus,
+      undefined,
+      { snapshotStartedAt: startedAt },
+    );
+  }
 }
 
 export function ensureWorkspaceSessionSync(input: SyncOptions) {
@@ -1204,12 +1247,20 @@ export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionS
   const incoming = snapshotToUIMessages(snapshot);
   const existing = queryClient.getQueryData<UIMessage[]>(key);
 
-  useSessionActivityStore.getState().seedSessionRun(
-    workspaceId,
-    snapshot.session.id,
-    snapshot.status,
-    assistantOutputAfterLatestUser(incoming),
-  );
+  const snapshotStartedAt = sessionSnapshotFetchStarts.get(snapshot);
+  if (typeof snapshotStartedAt === "number") {
+    const record = useSessionActivityStore.getState().recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
+    useSessionActivityStore.getState().seedSessionRun(
+      workspaceId,
+      snapshot.session.id,
+      snapshot.status,
+      assistantOutputAfterLatestUser(incoming),
+      { snapshotStartedAt },
+    );
+    if (snapshotStartedAt >= (record?.runStatusAt ?? 0)) {
+      queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
+    }
+  }
 
   // The snapshot's revert cursor is authoritative: messages at/after it are
   // reverted server-side, so the cache must not keep them alive (a later
@@ -1223,7 +1274,6 @@ export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionS
     snapshot.session.revert?.messageID ?? null,
   ));
 
-  queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   queryClient.setQueryData(todoKey(workspaceId, snapshot.session.id), snapshot.todos);
 }
 
@@ -1340,4 +1390,8 @@ export function __applySessionSyncEventForTest(input: SyncOptions, event: Openco
 
 export function __setWorkspaceSessionSyncSubscriptionFactoryForTest(factory: SyncSubscriptionFactory | null) {
   syncSubscriptionFactory = factory ?? defaultSyncSubscriptionFactory;
+}
+
+export function __setWorkspaceSessionSyncStatusFetcherForTest(fetcher: SessionStatusFetcher | null) {
+  sessionStatusFetcher = fetcher ?? defaultSessionStatusFetcher;
 }
