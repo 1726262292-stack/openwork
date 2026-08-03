@@ -70,6 +70,7 @@ import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { useControlAction, type OpenworkControlAction } from "@/react-app/shell/control/control-provider";
 import { scheduledTasksCreateRoute, scheduledTasksRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { ScheduledTaskEditor } from "./scheduled-task-editor";
+import { formatScheduledTaskWeekdays } from "./scheduled-task-format";
 import type {
   ScheduledTaskDetail,
   ScheduledTaskListItem,
@@ -119,7 +120,7 @@ function scheduleLabel(schedule: ScheduledTaskSchedule) {
   if (schedule.kind === "daily") {
     return `${t("scheduled_tasks.daily")} · ${time} · ${schedule.timezone}`;
   }
-  const days = schedule.daysOfWeek.join(", ");
+  const days = formatScheduledTaskWeekdays(schedule.daysOfWeek);
   return `${t("scheduled_tasks.weekly")} · ${days} · ${time} · ${schedule.timezone}`;
 }
 
