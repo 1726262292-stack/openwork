@@ -19,15 +19,13 @@ export type NotificationKind =
   | "reload"
   | "cloud"
   | "update"
-  | "scheduled-task"
   | "system";
 
 export type NotificationAction =
   | { type: "open-model-picker"; providerIds: string[] }
   | { type: "reload-engine" }
   | { type: "open-extensions-marketplace"; pluginName?: string }
-  | { type: "install-marketplace-plugin"; pluginName: string }
-  | { type: "open-scheduled-task"; workspaceId: string; taskId: string };
+  | { type: "install-marketplace-plugin"; pluginName: string };
 
 export type AppNotification = {
   id: string;
@@ -75,7 +73,7 @@ function createId(now: number): string {
 }
 
 const SEVERITIES: NotificationSeverity[] = ["info", "success", "warning", "error"];
-const KINDS: NotificationKind[] = ["providers", "reload", "cloud", "update", "scheduled-task", "system"];
+const KINDS: NotificationKind[] = ["providers", "reload", "cloud", "update", "system"];
 
 function isSeverity(value: unknown): value is NotificationSeverity {
   return typeof value === "string" && SEVERITIES.some((entry) => entry === value);
@@ -91,10 +89,6 @@ function isAction(value: unknown): value is NotificationAction {
   if (type === "reload-engine") return true;
   if (type === "open-extensions-marketplace") return true;
   if (type === "install-marketplace-plugin") return true;
-  if (type === "open-scheduled-task") {
-    return typeof Reflect.get(value, "workspaceId") === "string"
-      && typeof Reflect.get(value, "taskId") === "string";
-  }
   if (type === "open-model-picker") {
     const providerIds = Reflect.get(value, "providerIds");
     return Array.isArray(providerIds) && providerIds.every((id) => typeof id === "string");

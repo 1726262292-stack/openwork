@@ -2164,21 +2164,11 @@ if (isDevMode) {
     } catch {
       // Best effort — never block the relaunch on a flush failure.
     }
-    const managedRelaunchSentinel =
-      process.env.OPENWORK_ELECTRON_MANAGED_RELAUNCH_SENTINEL?.trim() || "";
-    if (managedRelaunchSentinel) {
-      await writeFile(
-        managedRelaunchSentinel,
-        JSON.stringify({ requestedAt: Date.now(), pid: process.pid }),
-        "utf8",
-      );
-    }
     setTimeout(() => {
-      if (!managedRelaunchSentinel) app.relaunch();
+      app.relaunch();
       // Graceful quit (not app.exit) so before-quit teardown runs and managed
       // sidecars are stopped — a hard exit orphans them and they can hold
-      // ports (e.g. the CDP debug port) the relaunched instance needs. The dev
-      // wrapper owns the replacement process when a sentinel is configured.
+      // ports (e.g. the CDP debug port) the relaunched instance needs.
       app.quit();
     }, 150);
     return { ok: true };

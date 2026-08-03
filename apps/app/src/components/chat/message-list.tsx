@@ -36,10 +36,6 @@ import { GlobTool } from "@/components/tools/glob"
 import { GrepTool } from "@/components/tools/grep"
 import { LspTool } from "@/components/tools/lsp"
 import { OpenWorkSessionCreateTool } from "@/components/tools/openwork-session-create"
-import {
-  isScheduledTaskProposalPart,
-  OpenWorkScheduledTaskProposalTool,
-} from "@/components/tools/openwork-scheduled-task-proposal"
 import { QuestionTool } from "@/components/tools/question"
 import { SkillTool } from "@/components/tools/skill"
 import { TodoWriteTool } from "@/components/tools/todowrite"
@@ -228,10 +224,6 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (part.type === "dynamic-tool" && part.toolName === "openwork_session_create") {
     return <OpenWorkSessionCreateTool part={part} />
-  }
-
-  if (part.type === "dynamic-tool" && isScheduledTaskProposalPart(part)) {
-    return <OpenWorkScheduledTaskProposalTool part={part} />
   }
 
   if (isTaskToolPart(part)) {

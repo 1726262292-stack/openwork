@@ -67,10 +67,6 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
 import {
-  createScheduledTasksModule,
-  type ScheduledTasksModule,
-} from "./scheduled-tasks/module.js";
-import {
   markOpenworkCloudMcpStale,
   reconcilePersistedOpenworkCloudMcp,
   type CloudMcpHealth,
@@ -855,33 +851,15 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   const engineMcpServerState = beginEngineMcpServerState(config);
-  let scheduledTasks: ScheduledTasksModule | null = null;
-  let routes: Route[];
-  try {
-    scheduledTasks = await createScheduledTasksModule({
-      config,
-      logger,
-      resolveWorkspace: (workspaceId) =>
-        resolveWorkspaceWithoutBootstrap(config, workspaceId),
-      createClient: (workspace) => createWorkspaceOpencodeClient(config, workspace),
-    });
-    routes = createRoutes(
-      config,
-      approvals,
-      tokens,
-      env,
-      restartReloadWatchers,
-      engineMcpServerState,
-      logger,
-      scheduledTasks,
-    );
-  } catch (error) {
-    invalidateEngineMcpServerState(config, engineMcpServerState);
-    watcherHandle.close();
-    reloadBaselineRefreshers.delete(config);
-    await scheduledTasks?.stop();
-    throw error;
-  }
+  const routes = createRoutes(
+    config,
+    approvals,
+    tokens,
+    env,
+    restartReloadWatchers,
+    engineMcpServerState,
+    logger,
+  );
 
   const serverOptions: {
     hostname: string;
@@ -1049,12 +1027,8 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     });
   } catch (error) {
     invalidateEngineMcpServerState(config, engineMcpServerState);
-    watcherHandle.close();
-    reloadBaselineRefreshers.delete(config);
-    await scheduledTasks?.stop();
     throw error;
   }
-  scheduledTasks?.start();
 
   // Deliver server-managed provider credentials to the engine on startup. The
   // engine process receives a fixed env allowlist, so credentials materialized
@@ -1069,13 +1043,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       invalidateEngineMcpServerState(config, engineMcpServerState);
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
-      // Stop accepting new mutations before draining in-flight scheduled
-      // executions, then close their owned database handle last.
-      try {
-        await server.stop();
-      } finally {
-        await scheduledTasks?.stop();
-      }
+      await server.stop();
     },
   };
 }
@@ -1312,12 +1280,6 @@ function buildCapabilities(config: ServerConfig): Capabilities {
     mcp: { read: true, write: writeEnabled },
     commands: { read: true, write: writeEnabled },
     config: { read: true, write: writeEnabled },
-    scheduledTasks: {
-      read: writeEnabled,
-      write: writeEnabled,
-      execute: writeEnabled && opencodeConfigured,
-      mode: "running-app",
-    },
 
     approvals: { mode: config.approval.mode, timeoutMs: config.approval.timeoutMs },
     sandbox: { enabled: sandboxEnabled, backend: sandboxBackend },
@@ -1566,7 +1528,6 @@ function createRoutes(
   onWorkspacesChanged: () => void,
   engineMcpServerState: EngineMcpServerState,
   logger: ServerLogger,
-  scheduledTasks: ScheduledTasksModule | null,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1598,13 +1559,6 @@ function createRoutes(
     routes,
     config,
     onWorkspacesChanged,
-    ...(scheduledTasks
-      ? {
-          onWorkspaceRemoved: async (workspaceId: string) => {
-            await scheduledTasks.onWorkspaceRemoved(workspaceId);
-          },
-        }
-      : {}),
     jsonResponse,
     readJsonBody,
     readOptionalJsonBody,
@@ -1615,20 +1569,6 @@ function createRoutes(
     reloadOpencodeEngine: (routeConfig, workspace) =>
       reloadOpencodeEngine(routeConfig, workspace, engineMcpServerState),
   });
-
-  if (scheduledTasks) {
-    scheduledTasks.registerRoutes({
-      routes,
-      jsonResponse,
-      readJsonBody,
-      ensureWritable,
-      requireClientScope,
-      resolveWorkspaceWithoutBootstrap,
-      allowDeterministicTick: () =>
-        process.env.OPENWORK_DEV_MODE === "1"
-        || process.env.NODE_ENV === "test",
-    });
-  }
 
   registerSessionRoutes({
     routes,

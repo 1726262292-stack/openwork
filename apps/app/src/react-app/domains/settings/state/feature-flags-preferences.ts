@@ -20,18 +20,6 @@ export function useFeatureFlagsPreferences() {
 
   const memoryEnabled = prefs.featureFlags?.memory === true;
 
-  const scheduledTasksEnabled = prefs.featureFlags?.scheduledTasks === true;
-
-  const toggleScheduledTasks = useCallback(() => {
-    setPrefs((previous) => ({
-      ...previous,
-      featureFlags: {
-        ...previous.featureFlags,
-        scheduledTasks: !previous.featureFlags?.scheduledTasks,
-      },
-    }));
-  }, [setPrefs]);
-
   const toggleMemory = useCallback(() => {
     setPrefs((previous) => ({
       ...previous,
@@ -47,7 +35,5 @@ export function useFeatureFlagsPreferences() {
     toggleMicrosandboxCreateSandbox,
     memoryEnabled,
     toggleMemory,
-    scheduledTasksEnabled,
-    toggleScheduledTasks,
   };
 }

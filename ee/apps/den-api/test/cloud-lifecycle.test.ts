@@ -74,15 +74,14 @@ function makeStore(input: { workers: TestWorker[]; tokens?: TestWorkerToken[] })
     async updateWorkerStatus(update) {
       const worker = input.workers.find((entry) => entry.id === update.workerId)
       if (!worker) {
-        return false
+        return
       }
       if (update.onlyWhenStatus && worker.status !== update.onlyWhenStatus) {
-        return false
+        return
       }
 
       worker.status = update.status
       updates.push(update)
-      return true
     },
   }
 
@@ -322,52 +321,6 @@ describe("cloud lifecycle wake", () => {
     hold.resolve()
     await Promise.all([first, second])
     expect(worker.status).toBe("healthy")
-  })
-
-  test("does not wake when another replica owns the stopped-to-provisioning transition", async () => {
-    const worker = makeWorker({ status: "stopped" })
-    const { store } = makeStore({ workers: [worker] })
-    let wakeExecutions = 0
-
-    await lifecycle.wakeCloudWorker(worker.id, {
-      store: {
-        ...store,
-        async updateWorkerStatus() { return false },
-      },
-      wakeWorker: async () => {
-        wakeExecutions += 1
-        return { provider: "daytona", url: "https://cloud.example", status: "healthy" }
-      },
-    })
-
-    expect(wakeExecutions).toBe(0)
-    expect(worker.status).toBe("stopped")
-  })
-
-  test("wakes a provisioning worker only when the caller already owns the database transition", async () => {
-    const worker = makeWorker({ status: "provisioning" })
-    const { store, updates } = makeStore({
-      workers: [worker],
-      tokens: [
-        makeToken(worker.id, "host"),
-        makeToken(worker.id, "client"),
-        makeToken(worker.id, "activity"),
-      ],
-    })
-    let wakeExecutions = 0
-
-    await lifecycle.wakeCloudWorker(worker.id, {
-      store,
-      statusAlreadyClaimed: true,
-      wakeWorker: async () => {
-        wakeExecutions += 1
-        return { provider: "daytona", url: "https://cloud.example", status: "healthy" }
-      },
-    })
-
-    expect(wakeExecutions).toBe(1)
-    expect(worker.status).toBe("healthy")
-    expect(updates.map((update) => update.status)).toEqual(["healthy"])
   })
 
   test("keeps a worker provisioning while a Daytona start conflict converges healthy", async () => {

@@ -63,14 +63,14 @@ import {
   preserveWorkspaceRouteSession,
   removeWorkspaceRouteSession,
   sessionIdForLegacyWorkspaceInference,
-  scheduledTasksRoute,
+  automationsRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
 } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   developerMode: boolean;
-  workspaceRoute?: "session" | "scheduled-tasks";
+  workspaceRoute?: "session" | "automations";
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -135,9 +135,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigate(workspaceExtensionsRoute(workspaceId, extensionsRoutePath), options);
       return;
     }
-    if (workspaceRoute === "scheduled-tasks") {
-      if (/^\/scheduled-tasks(?:\/|$)/.test(location.pathname)) return;
-      navigate(scheduledTasksRoute(), options);
+    if (workspaceRoute === "automations") {
+      if (/^\/automations(?:\/|$)/.test(location.pathname)) return;
+      navigate(automationsRoute(), options);
       return;
     }
     navigateToWorkspaceSession(workspaceId, sessionId, options);

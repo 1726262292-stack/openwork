@@ -8,12 +8,6 @@ export type OpenCodeContext = {
   worktree?: string;
   workspaceId?: string;
   workspaceID?: string;
-  ask?: (input: {
-    permission: string;
-    patterns: string[];
-    always: string[];
-    metadata: Record<string, unknown>;
-  }) => Promise<void>;
 };
 
 export type OpenWorkExtensionConnectState = {

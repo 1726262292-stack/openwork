@@ -8,11 +8,10 @@ on:
       - ".github/workflows/publish-ee-images.yml"
       - "ee/apps/den-api/package.json"
       - "ee/apps/den-api/scripts/build.mjs"
-      - "ee/apps/den-api/src/scheduled-tasks/**"
-      - "ee/apps/den-api/test/scheduled-tasks-mysql.test.ts"
+      - "ee/apps/den-api/src/automations/**"
+      - "ee/apps/den-api/src/routes/automations/**"
       - "ee/packages/den-db/**"
-      - "packages/scheduled-tasks/**"
-      - "packages/scheduled-tasks-den/**"
+      - "packages/automations/**"
       - "packaging/docker/Dockerfile.den"
       - "packaging/helm/openwork-ee/values.yaml"
       - "packaging/helm/openwork-ee/templates/migration-job.yaml"
@@ -29,7 +28,7 @@ jobs:
         image: mysql:8
         env:
           MYSQL_ROOT_PASSWORD: repro
-          MYSQL_DATABASE: scheduled_tasks_proof
+          MYSQL_DATABASE: mysql
         ports:
           - 33062:3306
         options: >-
@@ -52,11 +51,8 @@ jobs:
         with:
           version: 11.4.0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Install dependencies
-        run: pnpm install --filter "@openwork-ee/den-api..."
+        run: pnpm install --filter "@openwork-ee/den-db..."
 
       - name: Generate migrations from schema
         run: pnpm --filter @openwork-ee/den-db db:generate
@@ -64,23 +60,7 @@ jobs:
       - name: Run migration readiness tests
         run: pnpm --filter @openwork-ee/den-db test
         env:
-          DEN_DB_MYSQL_TEST_URL: mysql://root:repro@127.0.0.1:33062/scheduled_tasks_proof
-
-      - name: Materialize the disposable MySQL schema
-        run: pnpm --filter @openwork-ee/den-db db:push
-        env:
-          DATABASE_URL: mysql://root:repro@127.0.0.1:33062/scheduled_tasks_proof
-          DEN_DB_ENCRYPTION_KEY: ci-den-db-encryption-key-32-bytes
-
-      - name: Run Scheduled Tasks MySQL conformance
-        run: |
-          pnpm --filter @openwork-ee/den-api typecheck:scheduled-tasks
-          bun test ee/apps/den-api/test/scheduled-tasks-mysql.test.ts
-        env:
-          DEN_SCHEDULED_TASK_MYSQL_TEST_URL: mysql://root:repro@127.0.0.1:33062/scheduled_tasks_proof
-          DEN_DB_ENCRYPTION_KEY: ci-den-db-encryption-key-32-bytes
-          BETTER_AUTH_SECRET: ci-better-auth-secret-32-bytes-long
-          BETTER_AUTH_URL: http://127.0.0.1:8790
+          DEN_DB_MYSQL_TEST_URL: mysql://root:repro@127.0.0.1:33062/mysql
 
       - name: Fail if schema changed without a committed migration
         run: |

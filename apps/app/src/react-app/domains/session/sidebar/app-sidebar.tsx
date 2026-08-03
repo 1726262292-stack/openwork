@@ -844,8 +844,8 @@ export type AppSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
-  scheduledTasksActive?: boolean;
-  onOpenScheduledTasks?: () => void;
+  automationsActive?: boolean;
+  onOpenAutomations?: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   /** Back/forward across recently viewed conversations, rendered at the top of the sidebar. */
@@ -1126,12 +1126,12 @@ export function AppSidebar(props: AppSidebarProps) {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             ) : null}
-            {props.onOpenScheduledTasks ? (
+            {props.onOpenAutomations ? (
               <SidebarDestination
-                active={props.scheduledTasksActive === true}
+                active={props.automationsActive === true}
                 icon={Clock3}
-                label={t("scheduled_tasks.title")}
-                onSelect={props.onOpenScheduledTasks}
+                label="Automations"
+                onSelect={props.onOpenAutomations}
               />
             ) : null}
             <SidebarDestination

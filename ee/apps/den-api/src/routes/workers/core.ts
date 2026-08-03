@@ -23,7 +23,6 @@ import {
   toInstanceResponse,
   toWorkerResponse,
   token,
-  publicWorkerTokens,
   updateWorkerSchema,
   workerIdParamSchema,
 } from "./shared.js"
@@ -250,7 +249,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
     const hostToken = token()
     const clientToken = token()
     const activityToken = token()
-    const scheduledTaskExecutionToken = token()
     await db.insert(WorkerTokenTable).values([
       {
         id: createDenTypeId("workerToken"),
@@ -270,12 +268,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
         scope: "activity",
         token: activityToken,
       },
-      {
-        id: createDenTypeId("workerToken"),
-        worker_id: workerId,
-        scope: "execution",
-        token: scheduledTaskExecutionToken,
-      },
     ])
 
     if (input.destination === "cloud") {
@@ -286,7 +278,6 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
         hostToken,
         clientToken,
         activityToken,
-        scheduledTaskExecutionToken,
       })
     }
 
@@ -310,7 +301,11 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
         },
         user.id,
       ),
-      tokens: publicWorkerTokens(hostToken, clientToken),
+      tokens: {
+        owner: hostToken,
+        host: hostToken,
+        client: clientToken,
+      },
       instance: null,
       launch: input.destination === "cloud" ? { mode: "async", pollAfterMs: 5000 } : { mode: "instant", pollAfterMs: 0 },
     }, input.destination === "cloud" ? 202 : 201)

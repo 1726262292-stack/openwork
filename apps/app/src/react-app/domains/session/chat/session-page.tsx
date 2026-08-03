@@ -145,8 +145,8 @@ export type SessionPageSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
-  scheduledTasksActive?: boolean;
-  onOpenScheduledTasks?: () => void;
+  automationsActive?: boolean;
+  onOpenAutomations?: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
@@ -1059,8 +1059,8 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
-          scheduledTasksActive={props.sidebar.scheduledTasksActive}
-          onOpenScheduledTasks={props.sidebar.onOpenScheduledTasks}
+          automationsActive={props.sidebar.automationsActive}
+          onOpenAutomations={props.sidebar.onOpenAutomations}
           conversationHistory={{
             canGoBack: canGoBackInConversationHistory,
             canGoForward: canGoForwardInConversationHistory,

@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "2e595204-7f75-4647-ba4d-331e8c958cfe",
+  "id": "aa69fec9-6b23-4354-aba5-d777fbf384a5",
   "prevId": "f9927ae3-c4a5-4793-817c-3b82e5da2285",
   "tables": {
     "account": {
@@ -4294,8 +4294,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "scheduled_task_artifact": {
-      "name": "scheduled_task_artifact",
+    "automation_revision": {
+      "name": "automation_revision",
       "columns": {
         "id": {
           "name": "id",
@@ -4304,192 +4304,74 @@
           "notNull": true,
           "autoincrement": false
         },
-        "organization_id": {
-          "name": "organization_id",
+        "automation_id": {
+          "name": "automation_id",
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "run_id": {
-          "name": "run_id",
-          "type": "varchar(64)",
+        "version": {
+          "name": "version",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "attempt_id": {
-          "name": "attempt_id",
-          "type": "varchar(64)",
+        "instructions": {
+          "name": "instructions",
+          "type": "mediumtext",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "enum('file','url')",
+        "schedule_kind": {
+          "name": "schedule_kind",
+          "type": "enum('once','daily','weekly')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "value": {
-          "name": "value",
-          "type": "varchar(8192)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(512)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reference": {
-          "name": "reference",
+        "schedule_config": {
+          "name": "schedule_config",
           "type": "json",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scheduled_task_artifact_org_run": {
-          "name": "scheduled_task_artifact_org_run",
-          "columns": [
-            "organization_id",
-            "run_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scheduled_task_artifact_id": {
-          "name": "scheduled_task_artifact_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scheduled_task_attempt": {
-      "name": "scheduled_task_attempt",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
+        "timezone": {
+          "name": "timezone",
+          "type": "varchar(120)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
+        "provider_id": {
+          "name": "provider_id",
+          "type": "varchar(160)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "run_id": {
-          "name": "run_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attempt": {
-          "name": "attempt",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "enum('starting','running','completed','failed','cancelled','needs-attention','timed-out','ambiguous')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "lease_generation": {
-          "name": "lease_generation",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "lease_token_hash": {
-          "name": "lease_token_hash",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "lease_expires_at": {
-          "name": "lease_expires_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_heartbeat_at": {
-          "name": "last_heartbeat_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "session_id": {
-          "name": "session_id",
+        "model_id": {
+          "name": "model_id",
           "type": "varchar(240)",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp(3)",
+        "maximum_runtime_ms": {
+          "name": "maximum_runtime_ms",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "result_digest": {
-          "name": "result_digest",
+        "digest": {
+          "name": "digest",
           "type": "varchar(128)",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "created_at": {
@@ -4498,32 +4380,31 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "CURRENT_TIMESTAMP(3)"
         }
       },
       "indexes": {
-        "scheduled_task_attempt_number": {
-          "name": "scheduled_task_attempt_number",
+        "automation_revision_version": {
+          "name": "automation_revision_version",
           "columns": [
-            "run_id",
-            "attempt"
+            "automation_id",
+            "version"
           ],
           "isUnique": true
         },
-        "scheduled_task_attempt_worker_lease": {
-          "name": "scheduled_task_attempt_worker_lease",
+        "automation_revision_digest": {
+          "name": "automation_revision_digest",
           "columns": [
-            "worker_id",
-            "status",
-            "lease_expires_at"
+            "automation_id",
+            "digest"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "scheduled_task_attempt_id": {
-          "name": "scheduled_task_attempt_id",
+        "automation_revision_id": {
+          "name": "automation_revision_id",
           "columns": [
             "id"
           ]
@@ -4532,8 +4413,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "scheduled_task_execution_event": {
-      "name": "scheduled_task_execution_event",
+    "automation_run_event": {
+      "name": "automation_run_event",
       "columns": {
         "id": {
           "name": "id",
@@ -4542,22 +4423,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "run_id": {
           "name": "run_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attempt_id": {
-          "name": "attempt_id",
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
@@ -4570,23 +4437,37 @@
           "notNull": true,
           "autoincrement": false
         },
+        "engine_event_id": {
+          "name": "engine_event_id",
+          "type": "varchar(240)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "engine_idempotency_key": {
+          "name": "engine_idempotency_key",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "engine_execution_id": {
+          "name": "engine_execution_id",
+          "type": "varchar(240)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "event_type": {
           "name": "event_type",
-          "type": "varchar(64)",
+          "type": "enum('user','assistant','capability_search','capability_execution','usage','warning','terminal')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "event": {
-          "name": "event",
+        "payload": {
+          "name": "payload",
           "type": "json",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "event_digest": {
-          "name": "event_digest",
-          "type": "varchar(128)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -4597,171 +4478,39 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "(now())"
+          "default": "CURRENT_TIMESTAMP(3)"
         }
       },
       "indexes": {
-        "scheduled_task_event_sequence": {
-          "name": "scheduled_task_event_sequence",
+        "automation_run_event_sequence": {
+          "name": "automation_run_event_sequence",
           "columns": [
-            "attempt_id",
+            "run_id",
             "sequence"
           ],
           "isUnique": true
         },
-        "scheduled_task_event_org_run": {
-          "name": "scheduled_task_event_org_run",
+        "automation_run_engine_event": {
+          "name": "automation_run_engine_event",
           "columns": [
-            "organization_id",
-            "run_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scheduled_task_execution_event_id": {
-          "name": "scheduled_task_execution_event_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scheduled_task_grant_revision": {
-      "name": "scheduled_task_grant_revision",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "task_revision_id": {
-          "name": "task_revision_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "grant": {
-          "name": "grant",
-          "type": "mediumtext",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "placement_identity": {
-          "name": "placement_identity",
-          "type": "varchar(4096)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reviewed_by_member_id": {
-          "name": "reviewed_by_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reviewed_at": {
-          "name": "reviewed_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "revoked_by_member_id": {
-          "name": "revoked_by_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "revocation_reason": {
-          "name": "revocation_reason",
-          "type": "varchar(2000)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scheduled_task_grant_number": {
-          "name": "scheduled_task_grant_number",
-          "columns": [
-            "task_id",
-            "revision"
+            "run_id",
+            "engine_idempotency_key"
           ],
           "isUnique": true
         },
-        "scheduled_task_grant_org_task": {
-          "name": "scheduled_task_grant_org_task",
+        "automation_run_event_created": {
+          "name": "automation_run_event_created",
           "columns": [
-            "organization_id",
-            "task_id"
-          ],
-          "isUnique": false
-        },
-        "scheduled_task_grant_revision": {
-          "name": "scheduled_task_grant_revision",
-          "columns": [
-            "task_revision_id"
+            "run_id",
+            "created_at"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "scheduled_task_grant_revision_id": {
-          "name": "scheduled_task_grant_revision_id",
+        "automation_run_event_id": {
+          "name": "automation_run_event_id",
           "columns": [
             "id"
           ]
@@ -4770,8 +4519,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "scheduled_task_revision": {
-      "name": "scheduled_task_revision",
+    "automation_run": {
+      "name": "automation_run",
       "columns": {
         "id": {
           "name": "id",
@@ -4780,198 +4529,23 @@
           "notNull": true,
           "autoincrement": false
         },
-        "organization_id": {
-          "name": "organization_id",
+        "automation_id": {
+          "name": "automation_id",
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "task_id": {
-          "name": "task_id",
+        "revision_id": {
+          "name": "revision_id",
           "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "definition": {
-          "name": "definition",
-          "type": "mediumtext",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "placement": {
-          "name": "placement",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "placement_identity": {
-          "name": "placement_identity",
-          "type": "varchar(4096)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by_member_id": {
-          "name": "created_by_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reviewed_at": {
-          "name": "reviewed_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "reviewed_by_member_id": {
-          "name": "reviewed_by_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scheduled_task_revision_number": {
-          "name": "scheduled_task_revision_number",
-          "columns": [
-            "task_id",
-            "revision"
-          ],
-          "isUnique": true
-        },
-        "scheduled_task_revision_org_task": {
-          "name": "scheduled_task_revision_org_task",
-          "columns": [
-            "organization_id",
-            "task_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scheduled_task_revision_id": {
-          "name": "scheduled_task_revision_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scheduled_task_run": {
-      "name": "scheduled_task_run",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "task_revision_id": {
-          "name": "task_revision_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "grant_revision_id": {
-          "name": "grant_revision_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_member_id": {
-          "name": "owner_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "execution_member_id": {
-          "name": "execution_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "varchar(240)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "placement": {
-          "name": "placement",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "occurrence_id": {
-          "name": "occurrence_id",
-          "type": "varchar(512)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
         "trigger": {
           "name": "trigger",
-          "type": "enum('manual','scheduled','recovery')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "enum('scheduled','claimed','running','retrying','completed','failed','cancelled','needs-attention','missed','skipped-overlap','ambiguous')",
+          "type": "enum('scheduled','recovery','manual')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -4983,41 +4557,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "dispatch_deadline": {
-          "name": "dispatch_deadline",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "duration_ms": {
-          "name": "duration_ms",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "idempotency_key": {
           "name": "idempotency_key",
           "type": "varchar(512)",
@@ -5025,9 +4564,31 @@
           "notNull": true,
           "autoincrement": false
         },
-        "session_id": {
-          "name": "session_id",
+        "status": {
+          "name": "status",
+          "type": "enum('queued','claimed','running','succeeded','failed','cancelled','skipped')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'queued'"
+        },
+        "lease_owner": {
+          "name": "lease_owner",
           "type": "varchar(240)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
+          "type": "timestamp(3)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5040,11 +4601,68 @@
           "autoincrement": false,
           "default": 0
         },
-        "bounded_usage": {
-          "name": "bounded_usage",
-          "type": "json",
+        "cloud_thread_id": {
+          "name": "cloud_thread_id",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "engine_kind": {
+          "name": "engine_kind",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "engine_receipt": {
+          "name": "engine_receipt",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "engine_sequence": {
+          "name": "engine_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "engine_admitted_at": {
+          "name": "engine_admitted_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model_id": {
+          "name": "model_id",
+          "type": "varchar(240)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "error": {
@@ -5054,11 +4672,18 @@
           "notNull": false,
           "autoincrement": false
         },
-        "needs_attention": {
-          "name": "needs_attention",
-          "type": "json",
+        "result_summary": {
+          "name": "result_summary",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false
+        },
+        "usage": {
+          "name": "usage",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         },
         "cancel_requested_at": {
@@ -5068,16 +4693,16 @@
           "notNull": false,
           "autoincrement": false
         },
-        "retry_not_before": {
-          "name": "retry_not_before",
-          "type": "timestamp(3)",
+        "mcp_token_hash": {
+          "name": "mcp_token_hash",
+          "type": "varchar(128)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "result_digest": {
-          "name": "result_digest",
-          "type": "varchar(128)",
+        "mcp_token_expires_at": {
+          "name": "mcp_token_expires_at",
+          "type": "timestamp(3)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -5100,45 +4725,41 @@
         }
       },
       "indexes": {
-        "scheduled_task_run_occurrence": {
-          "name": "scheduled_task_run_occurrence",
+        "automation_run_occurrence": {
+          "name": "automation_run_occurrence",
           "columns": [
-            "task_revision_id",
-            "trigger",
-            "occurrence_id"
-          ],
-          "isUnique": true
-        },
-        "scheduled_task_run_idempotency": {
-          "name": "scheduled_task_run_idempotency",
-          "columns": [
-            "task_id",
             "idempotency_key"
           ],
           "isUnique": true
         },
-        "scheduled_task_run_worker_queue": {
-          "name": "scheduled_task_run_worker_queue",
+        "automation_run_cloud_thread": {
+          "name": "automation_run_cloud_thread",
           "columns": [
-            "worker_id",
+            "cloud_thread_id"
+          ],
+          "isUnique": true
+        },
+        "automation_run_claimable": {
+          "name": "automation_run_claimable",
+          "columns": [
             "status",
-            "dispatch_deadline"
+            "lease_expires_at"
           ],
           "isUnique": false
         },
-        "scheduled_task_run_org_task": {
-          "name": "scheduled_task_run_org_task",
+        "automation_run_history": {
+          "name": "automation_run_history",
           "columns": [
-            "organization_id",
-            "task_id"
+            "automation_id",
+            "created_at"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "scheduled_task_run_id": {
-          "name": "scheduled_task_run_id",
+        "automation_run_id": {
+          "name": "automation_run_id",
           "columns": [
             "id"
           ]
@@ -5147,8 +4768,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "scheduled_task": {
-      "name": "scheduled_task",
+    "automation": {
+      "name": "automation",
       "columns": {
         "id": {
           "name": "id",
@@ -5171,68 +4792,26 @@
           "notNull": true,
           "autoincrement": false
         },
-        "execution_member_id": {
-          "name": "execution_member_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "worker_id": {
-          "name": "worker_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "varchar(240)",
+        "name": {
+          "name": "name",
+          "type": "varchar(120)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
         "state": {
           "name": "state",
-          "type": "enum('draft','ready','enabled','paused','needs-attention','deleted')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
+          "type": "enum('active','inactive','needs_attention','archived')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": false
+          "default": "'active'"
         },
-        "draft_revision_id": {
-          "name": "draft_revision_id",
+        "current_revision_id": {
+          "name": "current_revision_id",
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "active_revision_id": {
-          "name": "active_revision_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "active_grant_id": {
-          "name": "active_grant_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "active_run_id": {
-          "name": "active_run_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         },
         "next_due_at": {
@@ -5242,15 +4821,22 @@
           "notNull": false,
           "autoincrement": false
         },
-        "needs_attention": {
-          "name": "needs_attention",
+        "latest_run_at": {
+          "name": "latest_run_at",
+          "type": "timestamp(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "needs_attention_reason": {
+          "name": "needs_attention_reason",
           "type": "json",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "deleted_at": {
-          "name": "deleted_at",
+        "archived_at": {
+          "name": "archived_at",
           "type": "timestamp(3)",
           "primaryKey": false,
           "notNull": false,
@@ -5274,26 +4860,19 @@
         }
       },
       "indexes": {
-        "scheduled_task_org_owner": {
-          "name": "scheduled_task_org_owner",
+        "automation_org_owner_state": {
+          "name": "automation_org_owner_state",
           "columns": [
             "organization_id",
-            "owner_member_id"
-          ],
-          "isUnique": false
-        },
-        "scheduled_task_worker_state": {
-          "name": "scheduled_task_worker_state",
-          "columns": [
-            "worker_id",
+            "owner_member_id",
             "state"
           ],
           "isUnique": false
         },
-        "scheduled_task_due": {
-          "name": "scheduled_task_due",
+        "automation_due": {
+          "name": "automation_due",
           "columns": [
-            "enabled",
+            "state",
             "next_due_at"
           ],
           "isUnique": false
@@ -5301,76 +4880,8 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "scheduled_task_id": {
-          "name": "scheduled_task_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "scheduled_task_tick_invocation": {
-      "name": "scheduled_task_tick_invocation",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "request_id": {
-          "name": "request_id",
-          "type": "varchar(240)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "enum('vercel-cron','den-loop')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "request_digest": {
-          "name": "request_digest",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "processed_at": {
-          "name": "processed_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp(3)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "scheduled_task_tick_request": {
-          "name": "scheduled_task_tick_request",
-          "columns": [
-            "request_id"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "scheduled_task_tick_invocation_id": {
-          "name": "scheduled_task_tick_invocation_id",
+        "automation_id": {
+          "name": "automation_id",
           "columns": [
             "id"
           ]
@@ -9958,7 +9469,7 @@
         },
         "scope": {
           "name": "scope",
-          "type": "enum('client','host','activity','execution')",
+          "type": "enum('client','host','activity')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

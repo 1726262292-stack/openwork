@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 import type {
   AgentPartInput,
@@ -91,11 +91,7 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
-import {
-  ScheduledTasksControlActions,
-  ScheduledTasksPage,
-} from "@/react-app/domains/scheduled-tasks/scheduled-tasks-page";
-import { ScheduledTaskNotificationListener } from "@/react-app/domains/scheduled-tasks/scheduled-task-notification-listener";
+import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
@@ -203,7 +199,7 @@ import { useSessionControlActions } from "@/react-app/domains/session/control/se
 import {
   globalExtensionsRoute,
   legacySessionRoute,
-  scheduledTasksRoute,
+  automationsRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
   workspaceSettingsRoute,
@@ -460,20 +456,41 @@ function singlePickedDirectory(selection: string | string[] | null) {
 export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const routeParams = useParams<{ workspaceId?: string; scheduledWorkspaceId?: string; taskId?: string }>();
-  const legacyScheduledTasksRouteRequested = /^\/workspace\/[^/]+\/scheduled-tasks(?:\/|$)/.test(location.pathname);
-  const globalScheduledTasksRouteRequested = /^\/scheduled-tasks(?:\/|$)/.test(location.pathname);
-  const scheduledTasksRouteRequested = legacyScheduledTasksRouteRequested || globalScheduledTasksRouteRequested;
+  const automationsRouteRequested = /^\/automations(?:\/|$)/.test(location.pathname);
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
-  const scheduledTasksEnabled = local.prefs.featureFlags?.scheduledTasks === true;
-  const scheduledTasksRouteActive = scheduledTasksEnabled && scheduledTasksRouteRequested;
-  const scheduledTaskId = scheduledTasksRouteActive ? routeParams.taskId?.trim() || null : null;
-  const scheduledTaskWorkspaceId = scheduledTasksRouteActive
-    ? routeParams.scheduledWorkspaceId?.trim() || routeParams.workspaceId?.trim() || null
-    : null;
+  const automationsRouteActive = automationsRouteRequested;
+  const denSettings = readDenSettings();
+  const [automationsSupported, setAutomationsSupported] = useState(false);
+  useEffect(() => {
+    const authToken = denSettings.authToken?.trim();
+    const organizationId = denSettings.activeOrgId?.trim();
+    if (!denAuth.isSignedIn || !authToken || !organizationId) {
+      setAutomationsSupported(false);
+      return;
+    }
+    let cancelled = false;
+    void createDenClient({ baseUrl: denSettings.baseUrl, token: authToken })
+      .listAutomations(organizationId, { limit: 1 })
+      .then(() => {
+        if (!cancelled) setAutomationsSupported(true);
+      })
+      .catch(() => {
+        if (!cancelled) setAutomationsSupported(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    denAuth.isSignedIn,
+    denAuth.status,
+    denSettings.activeOrgId,
+    denSettings.authToken,
+    denSettings.baseUrl,
+  ]);
+  const automationsNavigationAvailable = automationsSupported;
   const reloadCoordinator = useReloadCoordinator();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
@@ -481,16 +498,6 @@ export function SessionRoute() {
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
 
-  useEffect(() => {
-    if (!scheduledTasksRouteRequested || scheduledTasksEnabled) return;
-    const workspaceId = routeParams.workspaceId?.trim();
-    navigate(workspaceId ? workspaceSessionRoute(workspaceId) : "/", { replace: true });
-  }, [navigate, routeParams.workspaceId, scheduledTasksEnabled, scheduledTasksRouteRequested]);
-
-  useEffect(() => {
-    if (!scheduledTasksEnabled || !legacyScheduledTasksRouteRequested) return;
-    navigate(scheduledTasksRoute(routeParams.workspaceId, routeParams.taskId), { replace: true });
-  }, [legacyScheduledTasksRouteRequested, navigate, routeParams.taskId, routeParams.workspaceId, scheduledTasksEnabled]);
   const [developerMode, setDeveloperMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("openwork.developerMode") === "1";
@@ -545,7 +552,7 @@ export function SessionRoute() {
     runRemoteWorkspaceConnectionCheck,
   } = useWorkspaceRouteState({
     developerMode,
-    workspaceRoute: scheduledTasksRouteActive ? "scheduled-tasks" : "session",
+    workspaceRoute: automationsRouteActive ? "automations" : "session",
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -662,20 +669,6 @@ export function SessionRoute() {
       }),
     [selectedWorkspaceId, sessionsByWorkspaceId],
   );
-  const scheduledTaskTargets = useMemo(
-    () => workspaces.flatMap((workspace) => {
-      const endpoint = endpointForWorkspace(workspace);
-      return endpoint ? [{
-        routeWorkspaceId: workspace.id,
-        workspaceId: endpoint.workspaceId,
-        workspaceRoot: workspace.path?.trim() || "",
-        workspaceLabel: workspace.displayNameResolved,
-        client: endpoint.client,
-      }] : [];
-    }),
-    [endpointForWorkspace, workspaces],
-  );
-
   const remoteAccessRestart = useRemoteAccessRestart({
     isEnabled: () => openworkServerSettings.remoteAccessEnabled === true,
     onHostInfo: setOpenworkServerHostInfoState,
@@ -2424,21 +2417,6 @@ export function SessionRoute() {
         onSessionDeleted={handleRuntimeSessionDeleted}
       />
     ) : null}
-    {scheduledTasksEnabled ? scheduledTaskTargets.map((target) => (
-      <ScheduledTaskNotificationListener
-        key={`${target.client.baseUrl}:${target.workspaceId}`}
-        client={target.client}
-        workspaceId={target.workspaceId}
-        routeWorkspaceId={target.routeWorkspaceId}
-      />
-    )) : null}
-    {scheduledTasksEnabled ? (
-      <ScheduledTasksControlActions
-        client={selectedWorkspaceEndpoint?.client ?? client}
-        workspaceId={selectedWorkspaceEndpoint?.workspaceId || selectedWorkspaceId}
-        routeWorkspaceId={selectedWorkspaceId}
-      />
-    ) : null}
     <SessionPage
       sessionNumberShortcuts={sessionNumberShortcuts}
       selectedSessionId={selectedSessionId}
@@ -2529,13 +2507,9 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={scheduledTasksRouteActive ? t("scheduled_tasks.title") : undefined}
-      primarySlot={scheduledTasksRouteActive ? (
-        <ScheduledTasksPage
-          targets={scheduledTaskTargets}
-          taskWorkspaceId={scheduledTaskWorkspaceId}
-          taskId={scheduledTaskId}
-        />
+      primaryTitle={automationsRouteActive ? "Automations" : undefined}
+      primarySlot={automationsRouteActive ? (
+        <AutomationsPage />
       ) : undefined}
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
@@ -2553,10 +2527,10 @@ export function SessionRoute() {
         newTaskDisabled: !canCreateTask,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
-        scheduledTasksActive: scheduledTasksRouteActive,
-        onOpenScheduledTasks: scheduledTasksEnabled
+        automationsActive: automationsRouteActive,
+        onOpenAutomations: automationsNavigationAvailable
           ? () => {
-              navigate(scheduledTasksRoute());
+              navigate(automationsRoute());
             }
           : undefined,
         onSelectWorkspace: async (workspaceId) => {
