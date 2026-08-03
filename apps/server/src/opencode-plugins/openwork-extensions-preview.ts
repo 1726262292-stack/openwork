@@ -914,8 +914,8 @@ async function proposeScheduledTaskDraft(rawArgs: unknown, context: OpenCodeCont
     state: payload.task.state,
     enabled: payload.task.enabled,
     reviewed: false,
-    limitation: "Runs while OpenWork is running.",
-    route: `/workspace/${encodeURIComponent(payload.task.workspaceId)}/scheduled-tasks/${encodeURIComponent(payload.task.id)}`,
+    limitation: "Scheduled tasks run while the OpenWork app is open.",
+    route: `/scheduled-tasks/${encodeURIComponent(payload.task.workspaceId)}/${encodeURIComponent(payload.task.id)}`,
   };
 }
 

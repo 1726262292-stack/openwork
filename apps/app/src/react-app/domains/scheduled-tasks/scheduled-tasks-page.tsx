@@ -1,22 +1,26 @@
 /** @jsxImportSource react */
 import { useCallback, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowLeft,
-  CalendarClock,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   Copy,
   ExternalLink,
   FileText,
+  MoreHorizontal,
   Pause,
   Pencil,
   Play,
   Plus,
+  ReceiptText,
   RefreshCw,
+  Search,
   ShieldCheck,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -41,13 +45,30 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n";
+import { cn } from "@/lib/utils";
+import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { useControlAction, type OpenworkControlAction } from "@/react-app/shell/control/control-provider";
-import { workspaceScheduledTasksRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
+import { scheduledTasksCreateRoute, scheduledTasksRoute, workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { ScheduledTaskEditor } from "./scheduled-task-editor";
 import type {
   ScheduledTaskDetail,
@@ -62,13 +83,23 @@ const ACTIVE_RUN_STATUSES = new Set<ScheduledTaskRun["status"]>([
   "retrying",
 ]);
 
-type ScheduledTasksPageProps = {
+export type ScheduledTaskTarget = {
   routeWorkspaceId: string;
   workspaceId: string;
   workspaceRoot: string;
+  workspaceLabel: string;
+  client: ScheduledTasksClient;
+};
+
+type ScheduledTasksPageProps = {
+  targets: ScheduledTaskTarget[];
+  taskWorkspaceId: string | null;
   taskId: string | null;
-  client: ScheduledTasksClient | null;
-  workspaces: Array<{ id: string; label: string }>;
+};
+
+type ScheduledTaskListEntry = {
+  item: ScheduledTaskListItem;
+  target: ScheduledTaskTarget;
 };
 
 function formatTime(value: number | null | undefined) {
@@ -102,6 +133,12 @@ function stateLabel(state: ScheduledTaskState) {
     ready: "scheduled_tasks.state_ready",
   } as const;
   return t(keyByState[state]);
+}
+
+function filterLabel(filter: ScheduledTaskFilter) {
+  if (filter === "active") return t("scheduled_tasks.filter_active");
+  if (filter === "paused") return t("scheduled_tasks.filter_paused");
+  return t("scheduled_tasks.filter_all");
 }
 
 function stateBadgeVariant(state: ScheduledTaskState): "default" | "secondary" | "destructive" | "outline" {
@@ -145,7 +182,7 @@ function LimitationNote({ compact = false }: { compact?: boolean }) {
     <div
       className={compact
         ? "flex items-center gap-2 text-xs text-muted-foreground"
-        : "rounded-2xl border border-blue-7/30 bg-blue-2/40 px-4 py-3 text-sm text-blue-11"
+        : "flex items-center gap-2 text-sm text-muted-foreground"
       }
       data-scheduled-task-limitation
     >
@@ -193,145 +230,248 @@ function UnavailableState({ reason }: { reason: string }) {
   );
 }
 
-function TaskListCard({
+type ScheduledTaskFilter = "all" | "active" | "paused";
+type ScheduledTaskSuggestionId = "daily-brief" | "weekly-review" | "follow-up-monitor";
+
+const SCHEDULED_TASK_SUGGESTIONS: Array<{
+  id: ScheduledTaskSuggestionId;
+  titleKey: "scheduled_tasks.suggestion_daily_title" | "scheduled_tasks.suggestion_weekly_title" | "scheduled_tasks.suggestion_follow_up_title";
+  scheduleKey: "scheduled_tasks.suggestion_daily_schedule" | "scheduled_tasks.suggestion_weekly_schedule" | "scheduled_tasks.suggestion_follow_up_schedule";
+  copyKey: "scheduled_tasks.suggestion_daily_copy" | "scheduled_tasks.suggestion_weekly_copy" | "scheduled_tasks.suggestion_follow_up_copy";
+  promptKey: "scheduled_tasks.suggestion_daily_prompt" | "scheduled_tasks.suggestion_weekly_prompt" | "scheduled_tasks.suggestion_follow_up_prompt";
+}> = [
+  {
+    id: "daily-brief",
+    titleKey: "scheduled_tasks.suggestion_daily_title",
+    scheduleKey: "scheduled_tasks.suggestion_daily_schedule",
+    copyKey: "scheduled_tasks.suggestion_daily_copy",
+    promptKey: "scheduled_tasks.suggestion_daily_prompt",
+  },
+  {
+    id: "weekly-review",
+    titleKey: "scheduled_tasks.suggestion_weekly_title",
+    scheduleKey: "scheduled_tasks.suggestion_weekly_schedule",
+    copyKey: "scheduled_tasks.suggestion_weekly_copy",
+    promptKey: "scheduled_tasks.suggestion_weekly_prompt",
+  },
+  {
+    id: "follow-up-monitor",
+    titleKey: "scheduled_tasks.suggestion_follow_up_title",
+    scheduleKey: "scheduled_tasks.suggestion_follow_up_schedule",
+    copyKey: "scheduled_tasks.suggestion_follow_up_copy",
+    promptKey: "scheduled_tasks.suggestion_follow_up_prompt",
+  },
+];
+
+function taskGroupId(item: ScheduledTaskListItem) {
+  if (item.task.state === "needs-attention" || item.task.needsAttention) return "needs-attention";
+  if (item.latestRun && ACTIVE_RUN_STATUSES.has(item.latestRun.status)) return "running";
+  if (item.task.enabled && item.task.nextRunAt !== null) return "upcoming";
+  return "recent";
+}
+
+function suggestionDefinition(workspaceId: string, suggestionId: ScheduledTaskSuggestionId): ScheduledTaskDefinition {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const suggestion = SCHEDULED_TASK_SUGGESTIONS.find((candidate) => candidate.id === suggestionId)!;
+  const schedule: ScheduledTaskSchedule = suggestionId === "weekly-review"
+    ? { kind: "weekly", timezone, daysOfWeek: [5], hour: 16, minute: 0 }
+    : { kind: "weekly", timezone, daysOfWeek: [1, 2, 3, 4, 5], hour: suggestionId === "daily-brief" ? 8 : 9, minute: 0 };
+  return {
+    name: t(suggestion.titleKey),
+    description: t(suggestion.copyKey),
+    prompt: t(suggestion.promptKey),
+    workspaceId,
+    schedule,
+    model: { providerId: null, modelId: null, agent: null },
+    maximumRuntimeMs: 30 * 60 * 1_000,
+    overlapPolicy: "skip",
+    retryPolicy: { maximumAttempts: 1, delayMs: 0 },
+    missedRunPolicy: { kind: "skip", graceMs: 60_000, maximumRecoverableOccurrences: 1 },
+  };
+}
+
+function TaskListRow({
   item,
+  selected,
+  workspaceLabel,
   onOpen,
 }: {
   item: ScheduledTaskListItem;
+  selected: boolean;
+  workspaceLabel: string;
   onOpen: () => void;
 }) {
+  const definition = item.revision.definition;
+  const timing = item.task.nextRunAt === null
+    ? scheduleLabel(definition.schedule)
+    : `${scheduleLabel(definition.schedule)} · ${formatTime(item.task.nextRunAt)}`;
+
   return (
-    <Card
-      variant="outline"
-      size="sm"
-      className="rounded-2xl bg-card/60"
+    <button
+      type="button"
+      className={cn(
+        "group w-full rounded-xl border px-3 py-3 text-left transition-colors",
+        selected
+          ? "border-foreground/60 bg-muted/60 shadow-sm"
+          : "border-transparent hover:border-border hover:bg-muted/35",
+      )}
+      data-open-scheduled-task={item.task.id}
       data-scheduled-task-card={item.task.id}
+      data-scheduled-task-group={taskGroupId(item)}
+      aria-current={selected ? "page" : undefined}
+      onClick={onOpen}
     >
-      <CardHeader>
-        <CardTitle>{item.revision.definition.name}</CardTitle>
-        <CardDescription>{item.revision.definition.description || item.revision.definition.prompt}</CardDescription>
-        <CardAction>
-          <Badge variant={stateBadgeVariant(item.task.state)}>{stateLabel(item.task.state)}</Badge>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-        <div>
-          <span className="block font-medium text-foreground">{t("scheduled_tasks.schedule")}</span>
-          <span>{scheduleLabel(item.revision.definition.schedule)}</span>
-        </div>
-        <div>
-          <span className="block font-medium text-foreground">{t("scheduled_tasks.next_run")}</span>
-          <span>{formatTime(item.task.nextRunAt)}</span>
-        </div>
-        {item.latestRun ? (
-          <div>
-            <span className="block font-medium text-foreground">{t("scheduled_tasks.latest_run")}</span>
-            <span>{item.latestRun.status} · {formatTime(item.latestRun.createdAt)}</span>
-          </div>
-        ) : null}
-        {item.task.needsAttention ? (
-          <div className="text-destructive">
-            <span className="block font-medium">{t("scheduled_tasks.needs_attention")}</span>
-            <span>{item.task.needsAttention.message}</span>
-          </div>
-        ) : null}
-      </CardContent>
-      <CardFooter className="justify-between gap-3">
-        <LimitationNote compact />
-        <Button
-          variant="outline"
-          size="sm"
-          data-open-scheduled-task={item.task.id}
-          aria-label={`${t("scheduled_tasks.open")} ${item.revision.definition.name}`}
-          onClick={onOpen}
-        >
-          {t("scheduled_tasks.open")}
-        </Button>
-      </CardFooter>
-    </Card>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <Clock3 className="size-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">{definition.name}</span>
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{timing}</span>
+          <span className="mt-1.5 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+            <span className={cn("size-1.5 shrink-0 rounded-full", item.task.state === "needs-attention" ? "bg-destructive" : item.task.state === "enabled" ? "bg-green-9" : "bg-muted-foreground/50")} />
+            <span>{stateLabel(item.task.state)}</span>
+            <span aria-hidden="true">·</span>
+            <span className="truncate">{workspaceLabel}</span>
+          </span>
+        </span>
+        <ChevronRight className={cn("mt-1 size-4 shrink-0 text-muted-foreground transition-opacity", selected ? "opacity-100" : "opacity-0 group-hover:opacity-100")} aria-hidden="true" />
+      </div>
+    </button>
   );
 }
 
 function ScheduledTaskList({
   items,
+  selectedTaskId,
+  selectedWorkspaceId,
   canWrite,
   onCreate,
+  onCreateSuggestion,
   onOpen,
 }: {
-  items: ScheduledTaskListItem[];
+  items: ScheduledTaskListEntry[];
+  selectedTaskId: string | null;
+  selectedWorkspaceId: string | null;
   canWrite: boolean;
   onCreate: () => void;
-  onOpen: (taskId: string) => void;
+  onCreateSuggestion: (suggestionId: ScheduledTaskSuggestionId) => void;
+  onOpen: (workspaceId: string, taskId: string) => void;
 }) {
-  const groups = useMemo(() => {
-    const needsAttention: ScheduledTaskListItem[] = [];
-    const running: ScheduledTaskListItem[] = [];
-    const upcoming: ScheduledTaskListItem[] = [];
-    const recent: ScheduledTaskListItem[] = [];
-    for (const item of items) {
-      if (item.task.state === "needs-attention" || item.task.needsAttention) {
-        needsAttention.push(item);
-      } else if (item.latestRun && ACTIVE_RUN_STATUSES.has(item.latestRun.status)) {
-        running.push(item);
-      } else if (item.task.enabled && item.task.nextRunAt !== null) {
-        upcoming.push(item);
-      } else {
-        recent.push(item);
-      }
-    }
-    return [
-      { id: "needs-attention", label: t("scheduled_tasks.group_needs_attention"), items: needsAttention },
-      { id: "running", label: t("scheduled_tasks.group_running"), items: running },
-      { id: "upcoming", label: t("scheduled_tasks.group_upcoming"), items: upcoming },
-      { id: "recent", label: t("scheduled_tasks.group_recent"), items: recent },
-    ];
-  }, [items]);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ScheduledTaskFilter>("all");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredItems = useMemo(() => items.filter((item) => {
+    const matchesQuery = !normalizedQuery || [
+      item.item.revision.definition.name,
+      item.item.revision.definition.description,
+      item.target.workspaceLabel,
+    ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
+    const matchesFilter = filter === "all"
+      || (filter === "paused" && item.item.task.state === "paused")
+      || (filter === "active" && item.item.task.state !== "paused" && item.item.task.state !== "deleted");
+    return matchesQuery && matchesFilter;
+  }), [filter, items, normalizedQuery]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-8" data-testid="scheduled-tasks-list">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">{t("scheduled_tasks.title")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t("scheduled_tasks.subtitle")}</p>
+    <div className="flex min-h-full flex-col" data-testid="scheduled-tasks-list">
+      <div className="space-y-4 border-b border-border px-4 py-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold tracking-tight">{t("scheduled_tasks.title")}</h2>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{t("scheduled_tasks.subtitle")}</p>
+          </div>
+          <Button size="sm" data-testid="scheduled-task-create" disabled={!canWrite} onClick={onCreate}>
+            <Plus aria-hidden="true" />
+            <span>{t("scheduled_tasks.create_short")}</span>
+          </Button>
         </div>
-        <Button data-testid="scheduled-task-create" disabled={!canWrite} onClick={onCreate}>
-          <Plus aria-hidden="true" />
-          {t("scheduled_tasks.create")}
-        </Button>
-      </div>
-      <LimitationNote />
-      {items.length === 0 ? (
-        <Card variant="outline" className="items-center rounded-2xl py-12 text-center">
-          <CalendarClock className="size-9 text-muted-foreground" aria-hidden="true" />
-          <CardHeader>
-            <CardTitle>{t("scheduled_tasks.empty_title")}</CardTitle>
-            <CardDescription>{t("scheduled_tasks.empty_copy")}</CardDescription>
-          </CardHeader>
-          <Button disabled={!canWrite} onClick={onCreate}>{t("scheduled_tasks.create")}</Button>
-        </Card>
-      ) : (
-        <div className="space-y-7">
-          {groups.filter((group) => group.items.length > 0).map((group) => (
-            <section key={group.id} data-scheduled-task-group={group.id}>
-              <div className="mb-3 flex items-center gap-2">
-                <h3 className="text-sm font-medium">{group.label}</h3>
-                <Badge variant="outline">{group.items.length}</Badge>
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                {group.items.map((item) => (
-                  <TaskListCard key={item.task.id} item={item} onOpen={() => onOpen(item.task.id)} />
-                ))}
-              </div>
-            </section>
+        <div className="relative">
+          <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input
+            className="ps-9"
+            value={query}
+            placeholder={t("scheduled_tasks.search_placeholder")}
+            aria-label={t("scheduled_tasks.search_placeholder")}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+        <div className="flex items-center gap-1" role="group" aria-label={t("scheduled_tasks.filters")}>
+          {(["all", "active", "paused"] as const).map((value) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={filter === value ? "secondary" : "ghost"}
+              className="h-8 px-3"
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {filterLabel(value)}
+            </Button>
           ))}
         </div>
-      )}
+      </div>
+
+      <div className="flex-1 space-y-5 px-4 py-4">
+        {filteredItems.length > 0 ? (
+          <div className="space-y-1">
+            {filteredItems.map(({ item, target }) => (
+              <TaskListRow
+                key={`${target.routeWorkspaceId}:${item.task.id}`}
+                item={item}
+                selected={item.task.id === selectedTaskId && target.routeWorkspaceId === selectedWorkspaceId}
+                workspaceLabel={target.workspaceLabel}
+                onOpen={() => onOpen(target.routeWorkspaceId, item.task.id)}
+              />
+            ))}
+          </div>
+        ) : items.length === 0 ? (
+          <Empty className="min-h-52 flex-none border-0 px-6 py-8">
+            <EmptyHeader className="w-full">
+              <EmptyMedia variant="icon"><Clock3 aria-hidden="true" /></EmptyMedia>
+              <EmptyTitle>{t("scheduled_tasks.empty_title")}</EmptyTitle>
+              <EmptyDescription>{t("scheduled_tasks.empty_copy")}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <p className="px-3 py-8 text-center text-sm text-muted-foreground">{t("scheduled_tasks.no_matches")}</p>
+        )}
+
+        {items.length < 4 && !normalizedQuery && filter === "all" ? (
+          <section className="border-t border-border pt-4" aria-labelledby="scheduled-task-suggestions-heading">
+            <h3 id="scheduled-task-suggestions-heading" className="text-xs font-medium text-muted-foreground">{t("scheduled_tasks.suggestions")}</h3>
+            <div className="mt-2 space-y-1">
+              {SCHEDULED_TASK_SUGGESTIONS.map((suggestion) => (
+                <button
+                  key={suggestion.id}
+                  type="button"
+                  className="w-full rounded-xl py-2.5 text-left transition-colors hover:bg-muted/40"
+                  disabled={!canWrite}
+                  onClick={() => onCreateSuggestion(suggestion.id)}
+                >
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-sm font-medium">{t(suggestion.titleKey)}</span>
+                    <span className="truncate text-xs text-muted-foreground">{t(suggestion.scheduleKey)}</span>
+                  </span>
+                  <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">{t(suggestion.copyKey)}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
+
+      <div className="border-t border-border px-4 py-3">
+        <LimitationNote compact />
+      </div>
     </div>
   );
 }
 
 type AuthorityEditorProps = {
   detail: ScheduledTaskDetail;
+  workspaceLabel: string;
   workspaceRoot: string;
   busy: boolean;
   canWrite: boolean;
@@ -354,6 +494,8 @@ function AuthorityEditor(props: AuthorityEditorProps) {
   const [filesystemRead, setFilesystemRead] = useState(existing?.filesystem.read ?? true);
   const [filesystemWrite, setFilesystemWrite] = useState(existing?.filesystem.write ?? false);
   const [grantor, setGrantor] = useState(existing?.grantor ?? t("scheduled_tasks.default_grantor"));
+  const [technicalOpen, setTechnicalOpen] = useState(false);
+  const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
 
   const toggleAction = (action: "read" | "write" | "execute") => {
     setActionClasses((current) => {
@@ -379,30 +521,14 @@ function AuthorityEditor(props: AuthorityEditorProps) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-5">
-        <p className="rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="scheduled-task-authority-workspace">
-          {t("scheduled_tasks.selected_workspace", { workspace: definition.workspaceId })}
-        </p>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="scheduled-task-authorized-roots">{t("scheduled_tasks.authorized_roots")}</Label>
-            <Textarea
-              id="scheduled-task-authorized-roots"
-              data-testid="scheduled-task-authorized-roots"
-              className="min-h-24 font-mono text-xs"
-              value={roots}
-              onChange={(event) => setRoots(event.currentTarget.value)}
-            />
+        <div className="grid gap-3 rounded-xl bg-muted/40 p-3 text-sm sm:grid-cols-2" data-testid="scheduled-task-authority-workspace">
+          <div>
+            <span className="block text-xs text-muted-foreground">{t("scheduled_tasks.workspace")}</span>
+            <span className="mt-0.5 block font-medium">{props.workspaceLabel}</span>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="scheduled-task-capabilities">{t("scheduled_tasks.capability_ids")}</Label>
-            <Textarea
-              id="scheduled-task-capabilities"
-              data-testid="scheduled-task-capabilities"
-              className="min-h-24 font-mono text-xs"
-              value={capabilities}
-              placeholder={t("scheduled_tasks.capability_ids_placeholder")}
-              onChange={(event) => setCapabilities(event.currentTarget.value)}
-            />
+          <div>
+            <span className="block text-xs text-muted-foreground">{t("scheduled_tasks.timeout_minutes")}</span>
+            <span className="mt-0.5 block font-medium">{Math.round(definition.maximumRuntimeMs / 60_000)}</span>
           </div>
         </div>
         <fieldset>
@@ -440,6 +566,32 @@ function AuthorityEditor(props: AuthorityEditorProps) {
           <Label htmlFor="scheduled-task-grantor">{t("scheduled_tasks.reviewed_by")}</Label>
           <Input id="scheduled-task-grantor" value={grantor} onChange={(event) => setGrantor(event.currentTarget.value)} />
         </div>
+        <div className="overflow-hidden rounded-xl border border-border">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/40"
+            aria-expanded={technicalOpen}
+            onClick={() => setTechnicalOpen((current) => !current)}
+          >
+            <span>
+              <span className="block font-medium">{t("scheduled_tasks.technical_scope")}</span>
+              <span className="block text-xs text-muted-foreground">{t("scheduled_tasks.technical_scope_copy")}</span>
+            </span>
+            <ChevronRight className={cn("size-4 shrink-0 text-muted-foreground transition-transform", technicalOpen && "rotate-90")} aria-hidden="true" />
+          </button>
+          {technicalOpen ? (
+            <div className="grid gap-4 border-t border-border p-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="scheduled-task-authorized-roots">{t("scheduled_tasks.authorized_roots")}</Label>
+                <Textarea id="scheduled-task-authorized-roots" data-testid="scheduled-task-authorized-roots" className="min-h-24 font-mono text-xs" value={roots} onChange={(event) => setRoots(event.currentTarget.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="scheduled-task-capabilities">{t("scheduled_tasks.capability_ids")}</Label>
+                <Textarea id="scheduled-task-capabilities" data-testid="scheduled-task-capabilities" className="min-h-24 font-mono text-xs" value={capabilities} placeholder={t("scheduled_tasks.capability_ids_placeholder")} onChange={(event) => setCapabilities(event.currentTarget.value)} />
+              </div>
+            </div>
+          ) : null}
+        </div>
       </CardContent>
       <CardFooter className="justify-end">
         {existing && existing.revokedAt === null ? (
@@ -448,9 +600,7 @@ function AuthorityEditor(props: AuthorityEditorProps) {
             variant="outline"
             className="me-auto text-destructive"
             disabled={!props.canWrite || props.busy}
-            onClick={() => {
-              if (window.confirm(t("scheduled_tasks.revoke_confirm"))) props.onRevoke();
-            }}
+            onClick={() => setRevokeConfirmOpen(true)}
           >
             {t("scheduled_tasks.revoke_authority")}
           </Button>
@@ -475,6 +625,19 @@ function AuthorityEditor(props: AuthorityEditorProps) {
           {t("scheduled_tasks.approve_authority")}
         </Button>
       </CardFooter>
+      <ConfirmModal
+        open={revokeConfirmOpen}
+        title={t("scheduled_tasks.revoke_confirm_title")}
+        message={t("scheduled_tasks.revoke_confirm_copy")}
+        confirmLabel={t("scheduled_tasks.revoke_authority")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onCancel={() => setRevokeConfirmOpen(false)}
+        onConfirm={() => {
+          setRevokeConfirmOpen(false);
+          props.onRevoke();
+        }}
+      />
     </Card>
   );
 }
@@ -506,6 +669,7 @@ function RunHistory({
   busyAction,
   canExecute,
   onCancel,
+  onDownloadReceipt,
   onOpenSession,
   onOpenArtifact,
 }: {
@@ -513,6 +677,7 @@ function RunHistory({
   busyAction: string | null;
   canExecute: boolean;
   onCancel: (runId: string) => void;
+  onDownloadReceipt: (runId: string) => void;
   onOpenSession: (sessionId: string) => void;
   onOpenArtifact: (
     runId: string,
@@ -537,7 +702,7 @@ function RunHistory({
         <CardDescription>{t("scheduled_tasks.run_history_copy")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {detail.runs.map((run) => (
+        {detail.runs.map((run, index) => (
           <div key={run.id} className="rounded-xl border border-border p-4" data-scheduled-task-run={run.id}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -551,6 +716,7 @@ function RunHistory({
                   )}
                   <span className="text-sm font-medium">{run.status}</span>
                   <Badge variant="outline">{run.trigger}</Badge>
+                  {index === 0 ? <span className="text-xs text-muted-foreground">{t("scheduled_tasks.latest_run")}</span> : null}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {formatTime(run.createdAt)} · {formatDuration(run.durationMs)} · {run.attemptCount} {t("scheduled_tasks.attempts")}
@@ -560,12 +726,6 @@ function RunHistory({
                     input: run.boundedUsage.inputTokens ?? 0,
                     output: run.boundedUsage.outputTokens ?? 0,
                     cost: run.boundedUsage.costMicros ?? 0,
-                  })}
-                </p>
-                <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                  {t("scheduled_tasks.revision_binding", {
-                    task: run.taskRevisionId,
-                    grant: run.grantRevisionId,
                   })}
                 </p>
               </div>
@@ -581,6 +741,10 @@ function RunHistory({
                     {t("scheduled_tasks.open_session")}
                   </Button>
                 ) : null}
+                <Button type="button" variant="outline" size="sm" onClick={() => onDownloadReceipt(run.id)}>
+                  <ReceiptText aria-hidden="true" />
+                  {t("scheduled_tasks.download_receipt")}
+                </Button>
                 {ACTIVE_RUN_STATUSES.has(run.status) ? (
                   <Button
                     type="button"
@@ -616,6 +780,12 @@ function RunHistory({
               {run.startedAt ? <li>{t("scheduled_tasks.timeline_started")} · {formatTime(run.startedAt)}</li> : null}
               {run.completedAt ? <li>{t("scheduled_tasks.timeline_completed")} · {formatTime(run.completedAt)}</li> : null}
             </ol>
+            <details className="mt-3 text-xs text-muted-foreground">
+              <summary className="cursor-pointer select-none">{t("scheduled_tasks.diagnostics")}</summary>
+              <p className="mt-2 break-all font-mono text-[10px]">
+                {t("scheduled_tasks.revision_binding", { task: run.taskRevisionId, grant: run.grantRevisionId })}
+              </p>
+            </details>
           </div>
         ))}
       </CardContent>
@@ -627,6 +797,7 @@ function ScheduledTaskDetailView({
   detail,
   routeWorkspaceId,
   workspaceId,
+  workspaceLabel,
   workspaceRoot,
   client,
   capabilities,
@@ -636,6 +807,7 @@ function ScheduledTaskDetailView({
   detail: ScheduledTaskDetail;
   routeWorkspaceId: string;
   workspaceId: string;
+  workspaceLabel: string;
   workspaceRoot: string;
   client: ScheduledTasksClient;
   capabilities: NonNullable<OpenworkServerCapabilities["scheduledTasks"]>;
@@ -646,6 +818,7 @@ function ScheduledTaskDetailView({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const task = detail.task;
   const definition = detail.draftRevision.definition;
   const hasUnreviewedRevision = Boolean(
@@ -666,7 +839,7 @@ function ScheduledTaskDetailView({
 
   const refresh = useCallback(async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["scheduled-tasks", workspaceId] }),
+      queryClient.invalidateQueries({ queryKey: ["scheduled-tasks"] }),
       queryClient.invalidateQueries({ queryKey: ["scheduled-task", workspaceId, task.id] }),
     ]);
   }, [queryClient, task.id, workspaceId]);
@@ -705,9 +878,19 @@ function ScheduledTaskDetailView({
     }
   };
 
+  const downloadReceipt = async (runId: string) => {
+    try {
+      const receipt = await client.getScheduledTaskRunReceipt(workspaceId, task.id, runId);
+      const bytes = new TextEncoder().encode(`${JSON.stringify(receipt, null, 2)}\n`);
+      downloadBlob(bytes.buffer as ArrayBuffer, `${definition.name.replace(/[^a-z0-9]+/gi, "-").toLocaleLowerCase()}-receipt.json`, "application/json");
+    } catch (error) {
+      toast.error(describeError(error));
+    }
+  };
+
   if (editing) {
     return (
-      <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-8">
+      <div className="mx-auto w-full max-w-4xl space-y-6 px-5 py-6 sm:px-6 sm:py-8">
         <Button variant="ghost" onClick={() => setEditing(false)}>
           <ArrowLeft aria-hidden="true" />
           {t("scheduled_tasks.back_to_task")}
@@ -738,56 +921,84 @@ function ScheduledTaskDetailView({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-8" data-testid="scheduled-task-detail">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Button variant="ghost" size="sm" className="-ms-2 mb-2" onClick={onBack}>
+    <div className="mx-auto w-full max-w-4xl space-y-6 px-5 py-6 sm:px-6 sm:py-8" data-testid="scheduled-task-detail">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <Button variant="ghost" size="icon-sm" className="-ms-2 lg:hidden" aria-label={t("scheduled_tasks.back_to_list")} onClick={onBack}>
             <ArrowLeft aria-hidden="true" />
-            {t("scheduled_tasks.title")}
           </Button>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-2xl font-semibold tracking-tight">{definition.name}</h2>
-            <Badge variant={stateBadgeVariant(task.state)}>{stateLabel(task.state)}</Badge>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2">
+              <Badge variant={stateBadgeVariant(task.state)}>{stateLabel(task.state)}</Badge>
+              <span className="truncate text-xs text-muted-foreground">{workspaceLabel}</span>
+            </div>
+            <h2 className="break-words text-xl font-semibold tracking-tight sm:text-2xl">{definition.name}</h2>
+            {definition.description ? <p className="mt-1 break-words text-sm text-muted-foreground">{definition.description}</p> : null}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">{definition.description}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" disabled={!capabilities.write || busyAction !== null} onClick={() => setEditing(true)}>
-            <Pencil aria-hidden="true" />
-            {t("common.edit")}
-          </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
-            variant="outline"
+            type="button"
             size="sm"
-            disabled={!capabilities.write || busyAction !== null}
-            onClick={() => void act("duplicate", async () => {
-              const result = await client.duplicateScheduledTask(workspaceId, task.id);
-              onOpenTask(result.task.id);
-            }, t("scheduled_tasks.duplicated"))}
+            data-testid="scheduled-task-run-once"
+            disabled={!capabilities.execute || busyAction !== null || !hasActiveGrant}
+            onClick={() => void act("run", async () => {
+              await client.runScheduledTaskOnce(workspaceId, task.id);
+            }, t("scheduled_tasks.run_started"))}
           >
-            <Copy aria-hidden="true" />
-            {t("scheduled_tasks.duplicate")}
+            <Play aria-hidden="true" />
+            {t("scheduled_tasks.run_once")}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-destructive"
-            disabled={!capabilities.write || busyAction !== null}
-            onClick={() => {
-              if (!window.confirm(t("scheduled_tasks.delete_confirm"))) return;
-              void act("delete", async () => {
-                await client.deleteScheduledTask(workspaceId, task.id);
-                onBack();
-              }, t("scheduled_tasks.deleted"));
-            }}
-          >
-            <Trash2 aria-hidden="true" />
-            {t("scheduled_tasks.delete")}
+          {task.state === "paused" && definition.schedule.kind !== "manual" ? (
+            <Button type="button" variant="outline" size="sm" data-testid="scheduled-task-resume" disabled={!capabilities.write || busyAction !== null} onClick={() => void act("resume", async () => {
+              await client.resumeScheduledTask(workspaceId, task.id);
+            }, t("scheduled_tasks.resumed"))}>
+              <Play aria-hidden="true" />
+              {t("scheduled_tasks.resume")}
+            </Button>
+          ) : task.enabled || task.state === "needs-attention" ? (
+            <Button type="button" variant="outline" size="sm" data-testid="scheduled-task-pause" disabled={!capabilities.write || busyAction !== null} onClick={() => void act("pause", async () => {
+              await client.pauseScheduledTask(workspaceId, task.id);
+            }, t("scheduled_tasks.paused"))}>
+              <Pause aria-hidden="true" />
+              {t("scheduled_tasks.pause")}
+            </Button>
+          ) : definition.schedule.kind !== "manual" ? (
+            <Button type="button" variant="outline" size="sm" data-testid="scheduled-task-enable" disabled={!capabilities.write || busyAction !== null || !hasActiveGrant || !task.activeRevisionId} onClick={() => void act("enable", async () => {
+              await client.enableScheduledTask(workspaceId, task.id);
+            }, t("scheduled_tasks.enabled"))}>
+              <Play aria-hidden="true" />
+              {t("scheduled_tasks.enable")}
+            </Button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("scheduled_tasks.more_actions")} data-testid="scheduled-task-more-actions" />}>
+              <MoreHorizontal aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={!capabilities.write || busyAction !== null} onClick={() => setEditing(true)}>
+                <Pencil aria-hidden="true" />
+                {t("common.edit")}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={!capabilities.write || busyAction !== null} onClick={() => void act("duplicate", async () => {
+                const result = await client.duplicateScheduledTask(workspaceId, task.id);
+                onOpenTask(result.task.id);
+              }, t("scheduled_tasks.duplicated"))}>
+                <Copy aria-hidden="true" />
+                {t("scheduled_tasks.duplicate")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" disabled={!capabilities.write || busyAction !== null} onClick={() => setDeleteConfirmOpen(true)}>
+                <Trash2 aria-hidden="true" />
+                {t("scheduled_tasks.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="ghost" size="icon-sm" className="hidden lg:inline-flex" aria-label={t("scheduled_tasks.close_detail")} onClick={onBack}>
+            <X aria-hidden="true" />
           </Button>
         </div>
-      </div>
-
-      <LimitationNote />
+      </header>
 
       {hasUnreviewedRevision ? (
         <Alert variant="warning" data-testid="scheduled-task-stale-revision">
@@ -805,23 +1016,29 @@ function ScheduledTaskDetailView({
         </Alert>
       ) : null}
 
-      <Card variant="outline" className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>{t("scheduled_tasks.definition")}</CardTitle>
-          <CardDescription>{scheduleLabel(definition.schedule)}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t("scheduled_tasks.prompt")}</p>
-            <p className="mt-2 whitespace-pre-wrap rounded-xl bg-muted/50 p-4 text-sm">{definition.prompt}</p>
-          </div>
-          <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
-            <div><dt className="text-muted-foreground">{t("scheduled_tasks.next_run")}</dt><dd>{formatTime(task.nextRunAt)}</dd></div>
-            <div><dt className="text-muted-foreground">{t("scheduled_tasks.timeout_minutes")}</dt><dd>{Math.round(definition.maximumRuntimeMs / 60_000)}</dd></div>
-            <div><dt className="text-muted-foreground">{t("scheduled_tasks.provider")}</dt><dd>{definition.model.providerId ?? t("scheduled_tasks.default_value")}</dd></div>
-            <div><dt className="text-muted-foreground">{t("scheduled_tasks.model")}</dt><dd>{definition.model.modelId ?? t("scheduled_tasks.default_value")}</dd></div>
-            <div><dt className="text-muted-foreground">{t("scheduled_tasks.agent")}</dt><dd>{definition.model.agent ?? t("scheduled_tasks.default_value")}</dd></div>
-          </dl>
+      <section aria-labelledby="scheduled-task-instructions-heading">
+        <div className="flex items-center justify-between gap-3">
+          <h3 id="scheduled-task-instructions-heading" className="text-sm font-medium">{t("scheduled_tasks.prompt")}</h3>
+          <Button variant="ghost" size="sm" disabled={!capabilities.write || busyAction !== null} onClick={() => setEditing(true)}>
+            <Pencil aria-hidden="true" />
+            {t("common.edit")}
+          </Button>
+        </div>
+        <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border border-border bg-muted/25 p-4 text-sm leading-6">{definition.prompt}</p>
+      </section>
+
+      <section className="space-y-4" aria-labelledby="scheduled-task-details-heading">
+        <h3 id="scheduled-task-details-heading" className="text-sm font-medium text-muted-foreground">{t("scheduled_tasks.details")}</h3>
+        <dl className="divide-y divide-border overflow-hidden rounded-2xl border border-border text-sm">
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{t("scheduled_tasks.workspace")}</dt><dd className="font-medium">{workspaceLabel}</dd></div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{t("scheduled_tasks.execution_mode")}</dt><dd>{t("scheduled_tasks.fresh_session")}</dd></div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{t("scheduled_tasks.schedule")}</dt><dd>{scheduleLabel(definition.schedule)}{task.nextRunAt === null ? "" : ` · ${t("scheduled_tasks.next_run")} ${formatTime(task.nextRunAt)}`}</dd></div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{t("scheduled_tasks.notifications")}</dt><dd>{t("scheduled_tasks.notifications_copy")}</dd></div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{t("scheduled_tasks.model_runtime")}</dt><dd>{definition.model.providerId ?? t("scheduled_tasks.default_value")} · {definition.model.modelId ?? t("scheduled_tasks.default_value")} · {Math.round(definition.maximumRuntimeMs / 60_000)} {t("scheduled_tasks.minutes")}</dd></div>
+          <div className="grid gap-1 px-4 py-3 sm:grid-cols-[10rem_minmax(0,1fr)]"><dt className="text-muted-foreground">{t("scheduled_tasks.authority_title")}</dt><dd>{hasActiveGrant ? t("scheduled_tasks.reviewed") : t("scheduled_tasks.review_required")}</dd></div>
+        </dl>
+
+        {definition.schedule.kind !== "manual" ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -849,80 +1066,18 @@ function ScheduledTaskDetailView({
               </>
             ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">{t("scheduled_tasks.fixed_policies")}</p>
-        </CardContent>
-        <CardFooter className="flex-wrap gap-2">
-          <Button
-            type="button"
-            data-testid="scheduled-task-run-once"
-            disabled={!capabilities.execute || busyAction !== null || !hasActiveGrant}
-            onClick={() => void act("run", async () => {
-              await client.runScheduledTaskOnce(workspaceId, task.id);
-            }, t("scheduled_tasks.run_started"))}
-          >
-            <Play aria-hidden="true" />
-            {t("scheduled_tasks.run_once")}
-          </Button>
-          {task.state === "paused" && definition.schedule.kind !== "manual" ? (
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="scheduled-task-resume"
-              disabled={!capabilities.write || busyAction !== null}
-              onClick={() => void act("resume", async () => {
-                await client.resumeScheduledTask(workspaceId, task.id);
-              }, t("scheduled_tasks.resumed"))}
-            >
-              <Play aria-hidden="true" />
-              {t("scheduled_tasks.resume")}
-            </Button>
-          ) : task.state === "needs-attention" ? (
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="scheduled-task-pause"
-              disabled={!capabilities.write || busyAction !== null}
-              onClick={() => void act("pause", async () => {
-                await client.pauseScheduledTask(workspaceId, task.id);
-              }, t("scheduled_tasks.paused"))}
-            >
-              <Pause aria-hidden="true" />
-              {t("scheduled_tasks.pause")}
-            </Button>
-          ) : task.enabled ? (
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="scheduled-task-pause"
-              disabled={!capabilities.write || busyAction !== null}
-              onClick={() => void act("pause", async () => {
-                await client.pauseScheduledTask(workspaceId, task.id);
-              }, t("scheduled_tasks.paused"))}
-            >
-              <Pause aria-hidden="true" />
-              {t("scheduled_tasks.pause")}
-            </Button>
-          ) : definition.schedule.kind !== "manual" ? (
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="scheduled-task-enable"
-              disabled={!capabilities.write || busyAction !== null || !hasActiveGrant || !task.activeRevisionId}
-              onClick={() => void act("enable", async () => {
-                await client.enableScheduledTask(workspaceId, task.id);
-              }, t("scheduled_tasks.enabled"))}
-            >
-              <Play aria-hidden="true" />
-              {t("scheduled_tasks.enable")}
-            </Button>
-          ) : null}
-          {!hasActiveGrant ? <span className="text-xs text-muted-foreground">{t("scheduled_tasks.review_before_run")}</span> : null}
-        </CardFooter>
-      </Card>
+        ) : null}
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <LimitationNote compact />
+          <p>{t("scheduled_tasks.fixed_policies")}</p>
+        </div>
+        {!hasActiveGrant ? <p className="text-xs text-muted-foreground">{t("scheduled_tasks.review_before_run")}</p> : null}
+      </section>
 
       <AuthorityEditor
         key={detail.draftRevision.id}
         detail={detail}
+        workspaceLabel={workspaceLabel}
         workspaceRoot={workspaceRoot}
         busy={busyAction === "review"}
         canWrite={capabilities.write}
@@ -941,8 +1096,25 @@ function ScheduledTaskDetailView({
         onCancel={(runId) => void act(`cancel:${runId}`, async () => {
           await client.cancelScheduledTaskRun(workspaceId, task.id, runId);
         }, t("scheduled_tasks.run_cancelled"))}
+        onDownloadReceipt={(runId) => void downloadReceipt(runId)}
         onOpenSession={(sessionId) => navigate(workspaceSessionRoute(routeWorkspaceId, sessionId))}
         onOpenArtifact={(runId, artifact) => void openArtifact(runId, artifact)}
+      />
+      <ConfirmModal
+        open={deleteConfirmOpen}
+        title={t("scheduled_tasks.delete_confirm_title")}
+        message={t("scheduled_tasks.delete_confirm_copy")}
+        confirmLabel={t("scheduled_tasks.delete")}
+        cancelLabel={t("common.cancel")}
+        variant="danger"
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => {
+          setDeleteConfirmOpen(false);
+          void act("delete", async () => {
+            await client.deleteScheduledTask(workspaceId, task.id);
+            onBack();
+          }, t("scheduled_tasks.deleted"));
+        }}
       />
     </div>
   );
@@ -980,7 +1152,7 @@ export function ScheduledTasksControlActions({
     execute: (args) => {
       const value = args && typeof args === "object" ? Reflect.get(args, "taskId") : null;
       const taskId = typeof value === "string" ? value : null;
-      navigate(workspaceScheduledTasksRoute(routeWorkspaceId, taskId));
+      navigate(scheduledTasksRoute(routeWorkspaceId, taskId));
       return { taskId };
     },
   }), [navigate, routeWorkspaceId]);
@@ -993,7 +1165,7 @@ export function ScheduledTasksControlActions({
     sideEffect: "navigation",
     disabled: !routeWorkspaceId,
     execute: () => {
-      navigate(`${workspaceScheduledTasksRoute(routeWorkspaceId)}?create=1`);
+      navigate(scheduledTasksCreateRoute(routeWorkspaceId));
       return { state: "draft", enabled: false };
     },
   }), [navigate, routeWorkspaceId]);
@@ -1086,50 +1258,72 @@ export function ScheduledTasksPage(props: ScheduledTasksPageProps) {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const creating = !props.taskId && searchParams.get("create") === "1";
+  const suggestionId = SCHEDULED_TASK_SUGGESTIONS.some((suggestion) => suggestion.id === searchParams.get("template"))
+    ? searchParams.get("template") as ScheduledTaskSuggestionId
+    : null;
   const [createBusy, setCreateBusy] = useState(false);
+  const requestedCreateWorkspaceId = searchParams.get("workspace")?.trim() || null;
+  const requestedWorkspaceId = props.taskWorkspaceId ?? requestedCreateWorkspaceId;
+  const selectedTarget = requestedWorkspaceId
+    ? props.targets.find((target) => target.routeWorkspaceId === requestedWorkspaceId) ?? null
+    : props.targets[0] ?? null;
+
+  const targetListQueries = useQueries({
+    queries: props.targets.map((target) => ({
+      queryKey: ["scheduled-tasks", target.client.baseUrl, target.workspaceId],
+      enabled: !creating,
+      queryFn: async () => {
+        const capabilities = (await target.client.capabilities()).scheduledTasks;
+        if (!capabilities?.read) return { target, capabilities, items: [] as ScheduledTaskListItem[] };
+        const result = await target.client.listScheduledTasks(target.workspaceId);
+        return { target, capabilities, items: result.items };
+      },
+      refetchInterval: 10_000,
+    })),
+  });
+  const listEntries = targetListQueries.flatMap((query) => query.data?.items.map((item) => ({ item, target: query.data!.target })) ?? []);
+  const listCanWrite = targetListQueries.some((query) => query.data?.capabilities?.write === true);
+  const firstWritableTarget = targetListQueries.find((query) => query.data?.capabilities?.write === true)?.data?.target
+    ?? selectedTarget;
 
   const capabilitiesQuery = useQuery({
-    queryKey: ["scheduled-tasks-capabilities", props.client?.baseUrl],
-    enabled: Boolean(props.client),
-    queryFn: () => props.client!.capabilities(),
+    queryKey: ["scheduled-tasks-capabilities", selectedTarget?.client.baseUrl],
+    enabled: Boolean(selectedTarget),
+    queryFn: () => selectedTarget!.client.capabilities(),
   });
   const capabilities = capabilitiesQuery.data?.scheduledTasks;
-  const listQuery = useQuery({
-    queryKey: ["scheduled-tasks", props.workspaceId],
-    enabled: Boolean(props.client && capabilities?.read && !props.taskId && !creating),
-    queryFn: () => props.client!.listScheduledTasks(props.workspaceId),
-    refetchInterval: 10_000,
-  });
   const detailQuery = useQuery({
-    queryKey: ["scheduled-task", props.workspaceId, props.taskId],
-    enabled: Boolean(props.client && capabilities?.read && props.taskId),
-    queryFn: () => props.client!.getScheduledTask(props.workspaceId, props.taskId!),
+    queryKey: ["scheduled-task", selectedTarget?.client.baseUrl, selectedTarget?.workspaceId, props.taskId],
+    enabled: Boolean(selectedTarget && capabilities?.read && props.taskId),
+    queryFn: () => selectedTarget!.client.getScheduledTask(selectedTarget!.workspaceId, props.taskId!),
     refetchInterval: 5_000,
   });
 
-  const openList = () => navigate(workspaceScheduledTasksRoute(props.routeWorkspaceId));
-  const openTask = (taskId: string) => navigate(workspaceScheduledTasksRoute(props.routeWorkspaceId, taskId));
-  const openCreate = () => navigate(`${workspaceScheduledTasksRoute(props.routeWorkspaceId)}?create=1`);
+  const openList = () => navigate(scheduledTasksRoute());
+  const openTask = (workspaceId: string, taskId: string) => navigate(scheduledTasksRoute(workspaceId, taskId));
+  const openCreate = () => navigate(scheduledTasksCreateRoute(firstWritableTarget?.routeWorkspaceId));
+  const openCreateSuggestion = (template: ScheduledTaskSuggestionId) => navigate(scheduledTasksCreateRoute(firstWritableTarget?.routeWorkspaceId, template));
 
-  if (!props.client) {
+  if (props.targets.length === 0 || !selectedTarget) {
     return <UnavailableState reason={t("scheduled_tasks.server_unavailable")} />;
   }
-  if (capabilitiesQuery.isLoading) return <LoadingState />;
-  if (capabilitiesQuery.error) {
+  const needsSelectedAccess = creating || Boolean(props.taskId);
+  if (needsSelectedAccess && capabilitiesQuery.isLoading) return <LoadingState />;
+  if (needsSelectedAccess && capabilitiesQuery.error) {
     return <ErrorState error={capabilitiesQuery.error} onRetry={() => void capabilitiesQuery.refetch()} />;
   }
-  if (!capabilities) {
+  if (needsSelectedAccess && !capabilities) {
     return <UnavailableState reason={t("scheduled_tasks.upgrade_required")} />;
   }
-  if (!capabilities.read) {
+  if (needsSelectedAccess && !capabilities?.read) {
     return <UnavailableState reason={t("scheduled_tasks.read_unavailable")} />;
   }
 
-  return (
-    <>
-      {creating ? (
-        <div className="mx-auto w-full max-w-5xl space-y-6 px-6 py-8" data-testid="scheduled-task-create-view">
-          <Button variant="ghost" className="-ms-2" onClick={openList}>
+  if (creating) {
+    return (
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto w-full max-w-4xl space-y-6 px-5 py-6 sm:px-6 sm:py-8" data-testid="scheduled-task-create-view">
+          <Button variant="ghost" size="sm" className="-ms-2" onClick={openList}>
             <ArrowLeft aria-hidden="true" />
             {t("scheduled_tasks.title")}
           </Button>
@@ -1137,36 +1331,43 @@ export function ScheduledTasksPage(props: ScheduledTasksPageProps) {
             <h2 className="text-2xl font-semibold tracking-tight">{t("scheduled_tasks.create_title")}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{t("scheduled_tasks.create_copy")}</p>
           </div>
-          <div className="max-w-md space-y-2 rounded-2xl border border-border p-4">
-            <Label htmlFor="scheduled-task-workspace">{t("scheduled_tasks.workspace")}</Label>
-            <select
-              id="scheduled-task-workspace"
-              data-testid="scheduled-task-workspace"
-              className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-              value={props.routeWorkspaceId}
-              onChange={(event) => {
-                navigate(`${workspaceScheduledTasksRoute(event.currentTarget.value)}?create=1`);
-              }}
-            >
-              {props.workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>{workspace.label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">{t("scheduled_tasks.workspace_hint")}</p>
+          <div className="grid gap-4 rounded-2xl border border-border p-5 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,18rem)] sm:items-end">
+            <div>
+              <p className="text-sm font-medium">{t("scheduled_tasks.workspace")}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{t("scheduled_tasks.workspace_hint")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="sr-only" htmlFor="scheduled-task-workspace">{t("scheduled_tasks.workspace")}</Label>
+              <select
+                id="scheduled-task-workspace"
+                data-testid="scheduled-task-workspace"
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                value={selectedTarget.routeWorkspaceId}
+                onChange={(event) => {
+                  navigate(scheduledTasksCreateRoute(event.currentTarget.value, suggestionId));
+                }}
+              >
+                {props.targets.map((target) => (
+                  <option key={target.routeWorkspaceId} value={target.routeWorkspaceId}>{target.workspaceLabel}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <ScheduledTaskEditor
-            workspaceId={props.workspaceId}
+            key={`${selectedTarget.workspaceId}:${suggestionId ?? "blank"}`}
+            workspaceId={selectedTarget.workspaceId}
+            initial={suggestionId ? suggestionDefinition(selectedTarget.workspaceId, suggestionId) : undefined}
             busy={createBusy}
             submitLabel={t("scheduled_tasks.save_draft")}
             onCancel={openList}
-            onPreview={async (schedule) => (await props.client!.previewScheduledTaskSchedule(props.workspaceId, { schedule })).preview}
+            onPreview={async (schedule) => (await selectedTarget.client.previewScheduledTaskSchedule(selectedTarget.workspaceId, { schedule })).preview}
             onSave={async (definition: ScheduledTaskDefinition) => {
               setCreateBusy(true);
               try {
-                const result = await props.client!.createScheduledTaskDraft(props.workspaceId, definition);
-                await queryClient.invalidateQueries({ queryKey: ["scheduled-tasks", props.workspaceId] });
+                const result = await selectedTarget.client.createScheduledTaskDraft(selectedTarget.workspaceId, definition);
+                await queryClient.invalidateQueries({ queryKey: ["scheduled-tasks"] });
                 toast.success(t("scheduled_tasks.draft_created"));
-                openTask(result.task.id);
+                openTask(selectedTarget.routeWorkspaceId, result.task.id);
               } catch (error) {
                 toast.error(describeError(error));
               } finally {
@@ -1175,31 +1376,70 @@ export function ScheduledTasksPage(props: ScheduledTasksPageProps) {
             }}
           />
         </div>
-      ) : props.taskId ? (
-        detailQuery.isLoading ? <LoadingState /> :
-        detailQuery.error ? <ErrorState error={detailQuery.error} onRetry={() => void detailQuery.refetch()} /> :
-        detailQuery.data ? (
+      </div>
+    );
+  }
+
+  const listLoading = targetListQueries.some((query) => query.isLoading) && listEntries.length === 0;
+  const listError = targetListQueries.length > 0 && targetListQueries.every((query) => query.error)
+    ? targetListQueries.find((query) => query.error)?.error
+    : null;
+  const listPane = listLoading ? <LoadingState />
+    : listError ? <ErrorState error={listError} onRetry={() => void Promise.all(targetListQueries.map((query) => query.refetch()))} />
+    : (
+      <ScheduledTaskList
+        items={listEntries}
+        selectedTaskId={props.taskId}
+        selectedWorkspaceId={props.taskWorkspaceId}
+        canWrite={listCanWrite}
+        onCreate={openCreate}
+        onCreateSuggestion={openCreateSuggestion}
+        onOpen={openTask}
+      />
+    );
+
+  const detailPane = props.taskId ? (
+    detailQuery.isLoading ? <LoadingState /> :
+    detailQuery.error ? <ErrorState error={detailQuery.error} onRetry={() => void detailQuery.refetch()} /> :
+    detailQuery.data ? (
           <ScheduledTaskDetailView
             detail={detailQuery.data}
-            routeWorkspaceId={props.routeWorkspaceId}
-            workspaceId={props.workspaceId}
-            workspaceRoot={props.workspaceRoot}
-            client={props.client}
-            capabilities={capabilities}
+            routeWorkspaceId={selectedTarget.routeWorkspaceId}
+            workspaceId={selectedTarget.workspaceId}
+            workspaceLabel={selectedTarget.workspaceLabel}
+            workspaceRoot={selectedTarget.workspaceRoot}
+            client={selectedTarget.client}
+            capabilities={capabilities!}
             onBack={openList}
-            onOpenTask={openTask}
+            onOpenTask={(taskId) => openTask(selectedTarget.routeWorkspaceId, taskId)}
           />
-        ) : <ErrorState error={new Error(t("scheduled_tasks.error_not_found"))} onRetry={() => void detailQuery.refetch()} />
-      ) : (
-        listQuery.isLoading ? <LoadingState /> :
-        listQuery.error ? <ErrorState error={listQuery.error} onRetry={() => void listQuery.refetch()} /> :
-        <ScheduledTaskList
-          items={listQuery.data?.items ?? []}
-          canWrite={capabilities.write}
-          onCreate={openCreate}
-          onOpen={openTask}
-        />
-      )}
-    </>
+    ) : <ErrorState error={new Error(t("scheduled_tasks.error_not_found"))} onRetry={() => void detailQuery.refetch()} />
+  ) : (
+    <div className="flex min-h-full items-center justify-center p-8">
+      <Empty className="max-w-lg flex-none border-0">
+        <EmptyHeader className="w-full">
+          <EmptyMedia variant="icon"><Clock3 aria-hidden="true" /></EmptyMedia>
+          <EmptyTitle>{t("scheduled_tasks.select_title")}</EmptyTitle>
+          <EmptyDescription>{t("scheduled_tasks.select_copy")}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button disabled={!listCanWrite} onClick={openCreate}>
+            <Plus aria-hidden="true" />
+            {t("scheduled_tasks.create")}
+          </Button>
+        </EmptyContent>
+      </Empty>
+    </div>
+  );
+
+  return (
+    <div className="grid h-full min-h-0 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]" data-testid="scheduled-tasks-master-detail">
+      <aside className={cn("min-h-0 overflow-y-auto bg-background/20 lg:border-e lg:border-border", props.taskId ? "hidden lg:block" : "block")}>
+        {listPane}
+      </aside>
+      <section className={cn("min-h-0 overflow-y-auto", props.taskId ? "block" : "hidden lg:block")} aria-label={t("scheduled_tasks.task_detail")}>
+        {detailPane}
+      </section>
+    </div>
   );
 }

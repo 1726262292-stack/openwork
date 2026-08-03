@@ -67,7 +67,7 @@ const scheduledTaskProposalResultSchema = z.object({
   state: z.literal("draft"),
   enabled: z.literal(false),
   reviewed: z.literal(false),
-  limitation: z.literal("Runs while OpenWork is running."),
+  limitation: z.literal("Scheduled tasks run while the OpenWork app is open."),
   route: z.string(),
 });
 
@@ -542,8 +542,8 @@ describe("OpenWorkExtensionsPreview session tools", () => {
       state: "draft",
       enabled: false,
       reviewed: false,
-      limitation: "Runs while OpenWork is running.",
-      route: "/workspace/ws_2/scheduled-tasks/task_created_1",
+      limitation: "Scheduled tasks run while the OpenWork app is open.",
+      route: "/scheduled-tasks/ws_2/task_created_1",
     });
     const request = fake.requests.find((candidate) => (
       candidate.pathname === "/workspace/ws_2/scheduled-tasks"

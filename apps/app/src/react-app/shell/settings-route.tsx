@@ -436,7 +436,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const params = useParams<{ workspaceId?: string }>();
   const routeWorkspaceId = props.workspaceId?.trim() || params.workspaceId?.trim() || "";
   const local = useLocal();
-  const { memoryEnabled, toggleMemory } = useFeatureFlagsPreferences();
+  const {
+    memoryEnabled,
+    toggleMemory,
+    scheduledTasksEnabled,
+    toggleScheduledTasks,
+  } = useFeatureFlagsPreferences();
   const platform = usePlatform();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
@@ -2341,6 +2346,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             memoryEnabled={memoryEnabled}
             onToggleMemory={toggleMemory}
+            scheduledTasksEnabled={scheduledTasksEnabled}
+            onToggleScheduledTasks={toggleScheduledTasks}
           />
         );
       case "extensions":

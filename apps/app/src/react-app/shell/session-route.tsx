@@ -203,8 +203,8 @@ import { useSessionControlActions } from "@/react-app/domains/session/control/se
 import {
   globalExtensionsRoute,
   legacySessionRoute,
+  scheduledTasksRoute,
   workspaceExtensionsRoute,
-  workspaceScheduledTasksRoute,
   workspaceSessionRoute,
   workspaceSettingsRoute,
 } from "./workspace-routes";
@@ -460,19 +460,37 @@ function singlePickedDirectory(selection: string | string[] | null) {
 export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
-  const routeParams = useParams<{ taskId?: string }>();
-  const scheduledTasksRouteActive = /^\/workspace\/[^/]+\/scheduled-tasks(?:\/|$)/.test(location.pathname);
-  const scheduledTaskId = scheduledTasksRouteActive ? routeParams.taskId?.trim() || null : null;
+  const routeParams = useParams<{ workspaceId?: string; scheduledWorkspaceId?: string; taskId?: string }>();
+  const legacyScheduledTasksRouteRequested = /^\/workspace\/[^/]+\/scheduled-tasks(?:\/|$)/.test(location.pathname);
+  const globalScheduledTasksRouteRequested = /^\/scheduled-tasks(?:\/|$)/.test(location.pathname);
+  const scheduledTasksRouteRequested = legacyScheduledTasksRouteRequested || globalScheduledTasksRouteRequested;
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
+  const scheduledTasksEnabled = local.prefs.featureFlags?.scheduledTasks === true;
+  const scheduledTasksRouteActive = scheduledTasksEnabled && scheduledTasksRouteRequested;
+  const scheduledTaskId = scheduledTasksRouteActive ? routeParams.taskId?.trim() || null : null;
+  const scheduledTaskWorkspaceId = scheduledTasksRouteActive
+    ? routeParams.scheduledWorkspaceId?.trim() || routeParams.workspaceId?.trim() || null
+    : null;
   const reloadCoordinator = useReloadCoordinator();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();
   const [activeOrganizationRole, setActiveOrganizationRole] = useState<DenOrgRole | null>(null);
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
   const [openworkServerSettingsVersion, setOpenworkServerSettingsVersion] = useState(0);
+
+  useEffect(() => {
+    if (!scheduledTasksRouteRequested || scheduledTasksEnabled) return;
+    const workspaceId = routeParams.workspaceId?.trim();
+    navigate(workspaceId ? workspaceSessionRoute(workspaceId) : "/", { replace: true });
+  }, [navigate, routeParams.workspaceId, scheduledTasksEnabled, scheduledTasksRouteRequested]);
+
+  useEffect(() => {
+    if (!scheduledTasksEnabled || !legacyScheduledTasksRouteRequested) return;
+    navigate(scheduledTasksRoute(routeParams.workspaceId, routeParams.taskId), { replace: true });
+  }, [legacyScheduledTasksRouteRequested, navigate, routeParams.taskId, routeParams.workspaceId, scheduledTasksEnabled]);
   const [developerMode, setDeveloperMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("openwork.developerMode") === "1";
@@ -644,12 +662,14 @@ export function SessionRoute() {
       }),
     [selectedWorkspaceId, sessionsByWorkspaceId],
   );
-  const scheduledTaskNotificationTargets = useMemo(
+  const scheduledTaskTargets = useMemo(
     () => workspaces.flatMap((workspace) => {
       const endpoint = endpointForWorkspace(workspace);
       return endpoint ? [{
         routeWorkspaceId: workspace.id,
         workspaceId: endpoint.workspaceId,
+        workspaceRoot: workspace.path?.trim() || "",
+        workspaceLabel: workspace.displayNameResolved,
         client: endpoint.client,
       }] : [];
     }),
@@ -2404,19 +2424,21 @@ export function SessionRoute() {
         onSessionDeleted={handleRuntimeSessionDeleted}
       />
     ) : null}
-    {scheduledTaskNotificationTargets.map((target) => (
+    {scheduledTasksEnabled ? scheduledTaskTargets.map((target) => (
       <ScheduledTaskNotificationListener
         key={`${target.client.baseUrl}:${target.workspaceId}`}
         client={target.client}
         workspaceId={target.workspaceId}
         routeWorkspaceId={target.routeWorkspaceId}
       />
-    ))}
-    <ScheduledTasksControlActions
-      client={selectedWorkspaceEndpoint?.client ?? client}
-      workspaceId={selectedWorkspaceEndpoint?.workspaceId || selectedWorkspaceId}
-      routeWorkspaceId={selectedWorkspaceId}
-    />
+    )) : null}
+    {scheduledTasksEnabled ? (
+      <ScheduledTasksControlActions
+        client={selectedWorkspaceEndpoint?.client ?? client}
+        workspaceId={selectedWorkspaceEndpoint?.workspaceId || selectedWorkspaceId}
+        routeWorkspaceId={selectedWorkspaceId}
+      />
+    ) : null}
     <SessionPage
       sessionNumberShortcuts={sessionNumberShortcuts}
       selectedSessionId={selectedSessionId}
@@ -2510,15 +2532,9 @@ export function SessionRoute() {
       primaryTitle={scheduledTasksRouteActive ? t("scheduled_tasks.title") : undefined}
       primarySlot={scheduledTasksRouteActive ? (
         <ScheduledTasksPage
-          routeWorkspaceId={selectedWorkspaceId}
-          workspaceId={selectedWorkspaceEndpoint?.workspaceId || selectedWorkspaceId}
-          workspaceRoot={selectedWorkspaceRoot}
+          targets={scheduledTaskTargets}
+          taskWorkspaceId={scheduledTaskWorkspaceId}
           taskId={scheduledTaskId}
-          client={selectedWorkspaceEndpoint?.client ?? client}
-          workspaces={workspaces.map((workspace) => ({
-            id: workspace.id,
-            label: workspace.displayNameResolved,
-          }))}
         />
       ) : undefined}
       terminalOpen={terminalOpen}
@@ -2538,9 +2554,11 @@ export function SessionRoute() {
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         scheduledTasksActive: scheduledTasksRouteActive,
-        onOpenScheduledTasks: (workspaceId) => {
-          navigate(workspaceScheduledTasksRoute(workspaceId));
-        },
+        onOpenScheduledTasks: scheduledTasksEnabled
+          ? () => {
+              navigate(scheduledTasksRoute());
+            }
+          : undefined,
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
@@ -2572,9 +2590,7 @@ export function SessionRoute() {
           // If we remember what the user last opened here and that session
           // still exists in our local list, navigate. Otherwise stay put.
           const remembered = readLastSessionFor(workspaceId);
-          if (scheduledTasksRouteActive) {
-            navigate(workspaceScheduledTasksRoute(workspaceId));
-          } else if (remembered && remembered !== selectedSessionId) {
+          if (remembered && remembered !== selectedSessionId) {
             const known = sessionsByWorkspaceId[workspaceId];
             if (known?.some((session) => session?.id === remembered)) {
               navigateToWorkspaceSession(workspaceId, remembered);

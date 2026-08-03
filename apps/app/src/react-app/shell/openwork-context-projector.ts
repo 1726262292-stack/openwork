@@ -37,6 +37,16 @@ function decoded(value: string | undefined) {
 }
 
 export function screenFromRoute(route: string): OpenworkScreen {
+  const globalScheduledTasks = route.match(/^\/scheduled-tasks(?:\/([^/]+)\/([^/?#]+))?/);
+  if (globalScheduledTasks) {
+    return {
+      kind: "scheduled-tasks",
+      route,
+      workspaceId: decoded(globalScheduledTasks[1]) ?? "",
+      taskId: decoded(globalScheduledTasks[2]),
+    };
+  }
+
   const scheduledTasks = route.match(/^\/workspace\/([^/]+)\/scheduled-tasks(?:\/([^/?#]+))?/);
   if (scheduledTasks) {
     return {

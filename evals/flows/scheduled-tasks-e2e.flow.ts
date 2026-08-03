@@ -176,6 +176,42 @@ async function setTextControl(ctx: FlowContext, selector: string, value: string)
   })()`);
 }
 
+async function enableScheduledTasksPreview(ctx: FlowContext) {
+  await ctx.eval(`(() => {
+    const key = "openwork.preferences";
+    let preferences = {};
+    try { preferences = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+    const featureFlags = preferences && typeof preferences === "object"
+      && preferences.featureFlags && typeof preferences.featureFlags === "object"
+      ? preferences.featureFlags
+      : {};
+    localStorage.setItem(key, JSON.stringify({
+      ...preferences,
+      featureFlags: { ...featureFlags, scheduledTasks: true },
+    }));
+    location.reload();
+  })()`);
+  await ctx.waitFor("Boolean(window.__openworkControl)", {
+    timeoutMs: 30_000,
+    label: "OpenWork after enabling Scheduled Tasks preview",
+  });
+}
+
+async function openTechnicalScope(ctx: FlowContext) {
+  const alreadyOpen = await ctx.eval(
+    "Boolean(document.querySelector('[data-testid=\"scheduled-task-capabilities\"]'))",
+  );
+  if (alreadyOpen) return;
+  await ctx.clickText("Technical scope", {
+    selector: "button",
+    timeoutMs: 10_000,
+  });
+  await ctx.waitFor(
+    "Boolean(document.querySelector('[data-testid=\"scheduled-task-capabilities\"]'))",
+    { timeoutMs: 10_000, label: "Scheduled Task technical authority scope" },
+  );
+}
+
 async function finishPendingWorkspaceOnboarding(ctx: FlowContext) {
   const providerStep = await ctx.eval(`Boolean([...document.querySelectorAll("button")]
     .find((button) => button.textContent?.includes("Skip and use the free model")))`);
@@ -212,7 +248,7 @@ export default defineFlow({
   steps: [
     {
       name: "The workspace Scheduled Tasks surface is ready",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
         await ctx.waitFor("Boolean(window.__openworkControl)", {
           timeoutMs: 30_000,
           label: "OpenWork semantic control",
@@ -281,6 +317,8 @@ export default defineFlow({
         }
         state.workspaceId = requireString(workspaceId, "workspaceId");
 
+        await enableScheduledTasksPreview(ctx);
+
         await ctx.navigateHash(workspaceScheduledListRoute(state.workspaceId));
         await ctx.waitFor(
           "Boolean(document.querySelector('[data-testid=\"scheduled-tasks-list\"]'))",
@@ -292,9 +330,9 @@ export default defineFlow({
           voiceover: vo[0],
           requireText: [
             "Scheduled Tasks",
-            "No Scheduled Tasks yet",
-            "New Scheduled Task",
-            "Runs while OpenWork is running.",
+            "No scheduled tasks yet",
+            "New scheduled task",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
 
@@ -308,15 +346,21 @@ export default defineFlow({
           claim:
             "Creation binds the task to one workspace and makes name, outcome, exact prompt, schedule, and timezone explicit in a disabled-draft flow.",
           requireText: [
-            "Create Scheduled Task",
+            "Create a scheduled task",
             "Workspace",
-            "Run prompt",
+            "Instructions",
             "Frequency",
-            "IANA timezone",
+            "Manual only",
             "Save disabled draft",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
+        await ctx.eval(`(() => {
+          const select = document.querySelector('[data-testid="scheduled-task-frequency"]');
+          if (!(select instanceof HTMLSelectElement)) throw new Error("Missing frequency selector");
+          select.value = "daily";
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        })()`);
         await ctx.clickText("Preview next five", {
           selector: "button",
           timeoutMs: 10_000,
@@ -325,6 +369,10 @@ export default defineFlow({
           "document.querySelectorAll('[data-testid=\"scheduled-task-preview\"] > li').length === 5",
           { timeoutMs: 30_000, label: "create-form schedule preview" },
         );
+        await ctx.clickText("Advanced settings", {
+          selector: "button",
+          timeoutMs: 10_000,
+        });
         await focusSection(ctx, "#scheduled-task-provider", "center");
         await ctx.screenshot("scheduled-task-create-schedule-execution", {
           claim:
@@ -333,7 +381,7 @@ export default defineFlow({
             "Preview next five",
             "Occurrence 1",
             "Occurrence 5",
-            "Execution",
+            "Advanced settings",
             "Provider",
             "Model",
             "Agent",
@@ -376,7 +424,7 @@ export default defineFlow({
     },
     {
       name: "The first-class editor creates only a disabled manual draft",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
         await ctx.prove("The first-class editor creates a disabled manual Scheduled Task draft without crossing the authority boundary", {
           voiceover: vo[1],
           action: async () => {
@@ -399,7 +447,7 @@ export default defineFlow({
               "Draft",
               "Manual",
               "Authority review",
-              "Runs while OpenWork is running.",
+              "Scheduled tasks run while the OpenWork app is open.",
             ],
             rejectText: ["Enabled"],
           },
@@ -408,7 +456,7 @@ export default defineFlow({
     },
     {
       name: "The manual draft exposes its complete definition and authority review",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
         await ctx.waitFor(
           `Boolean(document.querySelector('[data-testid="scheduled-task-detail"]')) && location.hash.includes(${JSON.stringify(state.taskId)})`,
           { timeoutMs: 30_000, label: "Scheduled Task detail" },
@@ -421,14 +469,18 @@ export default defineFlow({
             TASK_NAME,
             "Draft",
             "Edit",
-            "Duplicate",
-            "Delete",
-            "Task definition",
-            "RUN PROMPT",
+            "Instructions",
+            "Details",
             "Manual",
             "Workspace default",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
+          rejectText: ["Delete"],
+        });
+
+        await ctx.trustedClick("[data-testid='scheduled-task-more-actions']");
+        await ctx.waitForText("Delete", {
+          timeoutMs: 10_000,
         });
 
         const beforeEdit = await readDetail(ctx);
@@ -445,23 +497,31 @@ export default defineFlow({
           "draft revision before opening the editor",
         );
         await ctx.clickText("Edit", {
-          selector: "button",
+          selector: "[role='menuitem']",
           timeoutMs: 10_000,
         });
         await ctx.waitFor(
-          "Boolean(document.querySelector('#scheduled-task-provider'))",
+          "Boolean(document.querySelector('[data-scheduled-task-editor]'))",
           { timeoutMs: 30_000, label: "Scheduled Task editor" },
         );
+        await ctx.clickText("Advanced settings", {
+          selector: "button",
+          timeoutMs: 10_000,
+        });
+        await ctx.waitFor("Boolean(document.querySelector('#scheduled-task-provider'))", {
+          timeoutMs: 10_000,
+          label: "Scheduled Task advanced settings",
+        });
         await focusSection(ctx, "[data-scheduled-task-editor]");
         await ctx.screenshot("scheduled-task-edit-revision", {
           claim:
             "Editing is an explicit revision flow: saving creates a new disabled draft that must be reviewed again before unattended execution.",
           requireText: [
-            "Edit Scheduled Task",
+            "Edit scheduled task",
             "Saving creates a new draft revision",
-            "Run prompt",
+            "Instructions",
             "Schedule",
-            "Execution",
+            "Advanced settings",
             "Cancel",
             "Save",
           ],
@@ -505,6 +565,7 @@ export default defineFlow({
           { timeoutMs: 30_000, label: "Scheduled Task detail after editor tour" },
         );
 
+        await openTechnicalScope(ctx);
         await focusSection(ctx, "[data-testid='scheduled-task-authority']", "start");
         await ctx.screenshot("scheduled-task-authority-boundary", {
           claim:
@@ -569,7 +630,7 @@ export default defineFlow({
     },
     {
       name: "Run once creates a fresh session and durable receipt links",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
         const before = arrayValue(await readDetail(ctx), "runs").length;
         await ctx.trustedClick("[data-testid='scheduled-task-run-once']");
         const runs = await waitForRunCount(
@@ -756,7 +817,7 @@ export default defineFlow({
     },
     {
       name: "Enable and deterministic tick claim exactly one occurrence",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
         await ctx.trustedClick("[data-testid='scheduled-task-enable']");
         await ctx.waitFor(
           "document.body.innerText.includes('Enabled')",
@@ -777,7 +838,7 @@ export default defineFlow({
             "NEXT FIVE OCCURRENCES",
             "Run once",
             "Pause",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
 
@@ -889,7 +950,7 @@ export default defineFlow({
     },
     {
       name: "Restart preserves idempotency and the exact durable task state",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
         try {
           await ctx.control("eval.app.relaunch");
         } catch (error) {
@@ -938,11 +999,11 @@ export default defineFlow({
           requireText: [
             "EVAL daily workspace report",
             "Enabled",
-            "Task definition",
+            "Instructions",
             "Next run",
             "Run history and timeline",
             "completed",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
 
@@ -954,16 +1015,16 @@ export default defineFlow({
         await focusSection(ctx, "[data-testid='scheduled-tasks-list']");
         await ctx.screenshot("scheduled-tasks-upcoming-list", {
           claim:
-            "The workspace overview groups enabled work under Upcoming and summarizes state, schedule, next run, latest run, and the running-app limitation on every card.",
+            "The workspace overview keeps search and state filters visible while compact rows summarize the task, schedule, state, and workspace.",
           requireText: [
             "Scheduled Tasks",
-            "Upcoming",
+            "Search scheduled tasks",
+            "Active",
+            "Paused",
             "EVAL daily workspace report",
             "Enabled",
-            "Schedule",
-            "Next run",
-            "Latest run",
-            "Runs while OpenWork is running.",
+            "Scheduled Tasks eval",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
         await ctx.navigateHash(workspaceScheduledRoute(state.workspaceId, state.taskId));
@@ -975,7 +1036,8 @@ export default defineFlow({
     },
     {
       name: "Denied unattended approval becomes needs-attention and pause blocks claims",
-      run: async (ctx) => {
+      run: async (ctx: FlowContext) => {
+        await openTechnicalScope(ctx);
         const authorityBefore = await readDetail(ctx);
         const grantBefore = requireString(
           recordValue(recordValue(authorityBefore, "grant"), "id"),
@@ -1047,7 +1109,7 @@ export default defineFlow({
             "Pause",
             "Run history and timeline",
             "needs-attention",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
         await ctx.eval(
@@ -1115,7 +1177,7 @@ export default defineFlow({
             "Next run",
             "Run once",
             "Pause",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
           rejectText: ["OpenWork needs your review before this task can continue."],
         });
@@ -1136,7 +1198,7 @@ export default defineFlow({
             "Paused",
             "Resume",
             "Run once",
-            "Runs while OpenWork is running.",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
 
@@ -1148,14 +1210,14 @@ export default defineFlow({
         await focusSection(ctx, "[data-testid='scheduled-tasks-list']");
         await ctx.screenshot("scheduled-tasks-paused-list", {
           claim:
-            "The final workspace overview moves the paused task into Drafts and recent while preserving its schedule, latest audited run, and honest running-app limitation.",
+            "The final workspace overview keeps the paused task compact, searchable, and visibly scoped to its workspace.",
           requireText: [
-            "Drafts and recent",
-            "EVAL daily workspace report",
+            "Search scheduled tasks",
+            "Active",
             "Paused",
-            "Latest run",
-            "completed",
-            "Runs while OpenWork is running.",
+            "EVAL daily workspace report",
+            "Scheduled Tasks eval",
+            "Scheduled tasks run while the OpenWork app is open.",
           ],
         });
       },
@@ -1166,9 +1228,9 @@ export default defineFlow({
 });
 
 function workspaceScheduledRoute(workspaceId: string, taskId: string) {
-  return `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(taskId)}`;
+  return `/scheduled-tasks/${encodeURIComponent(workspaceId)}/${encodeURIComponent(taskId)}`;
 }
 
-function workspaceScheduledListRoute(workspaceId: string) {
-  return `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks`;
+function workspaceScheduledListRoute(_workspaceId: string) {
+  return "/scheduled-tasks";
 }

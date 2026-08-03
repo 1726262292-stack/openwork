@@ -146,7 +146,7 @@ export type SessionPageSidebarProps = {
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
   scheduledTasksActive?: boolean;
-  onOpenScheduledTasks?: (workspaceId: string) => void;
+  onOpenScheduledTasks?: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;

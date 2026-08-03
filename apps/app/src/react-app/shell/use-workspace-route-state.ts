@@ -63,7 +63,7 @@ import {
   preserveWorkspaceRouteSession,
   removeWorkspaceRouteSession,
   sessionIdForLegacyWorkspaceInference,
-  workspaceScheduledTasksRoute,
+  scheduledTasksRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
 } from "./workspace-routes";
@@ -136,11 +136,12 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       return;
     }
     if (workspaceRoute === "scheduled-tasks") {
-      navigate(workspaceScheduledTasksRoute(workspaceId), options);
+      if (/^\/scheduled-tasks(?:\/|$)/.test(location.pathname)) return;
+      navigate(scheduledTasksRoute(), options);
       return;
     }
     navigateToWorkspaceSession(workspaceId, sessionId, options);
-  }, [extensionsRouteActive, extensionsRoutePath, navigate, navigateToWorkspaceSession, workspaceRoute]);
+  }, [extensionsRouteActive, extensionsRoutePath, location.pathname, navigate, navigateToWorkspaceSession, workspaceRoute]);
 
   const { markRouteReady: markBootRouteReady } = useBootState();
   const [loading, setLoading] = useState(true);

@@ -188,11 +188,17 @@ describe("OpenWork context projector", () => {
       workspaceId: "workspace-a",
       taskId: "task-a",
     });
+    expect(screenFromRoute("/scheduled-tasks/workspace-a/task-a")).toEqual({
+      kind: "scheduled-tasks",
+      route: "/scheduled-tasks/workspace-a/task-a",
+      workspaceId: "workspace-a",
+      taskId: "task-a",
+    });
   });
 
   test("projects a Scheduled Task as an OpenWork-owned resource", () => {
     const context = contextForRoute(
-      "/workspace/workspace-a/scheduled-tasks/task-a",
+      "/scheduled-tasks/workspace-a/task-a",
     );
 
     expect(context.screen).toMatchObject({

@@ -232,11 +232,13 @@ if (process.env.OPENWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], { cwd: desktopRoot });
 }
 
-// The server imports runtime Zod contracts from the shared types package.
-// Build those Node entry points before the server so Electron never resolves
-// a raw TypeScript export in its in-process Node runtime.
+// The server imports runtime contracts from the shared types and Scheduled
+// Tasks packages. Build those Node entry points before the server so Electron
+// never resolves a raw TypeScript export (or a missing package dist file) in
+// its in-process Node runtime.
 console.log("[electron-dev] Building shared runtime contracts...");
 runSync(pnpmCmd, ["--filter", "@openwork/types", "build"], { cwd: repoRoot });
+runSync(pnpmCmd, ["--filter", "@openwork/scheduled-tasks", "build"], { cwd: repoRoot });
 
 // Build the server TS → JS so Electron can import it in-process
 console.log("[electron-dev] Building openwork-server (tsc)...");

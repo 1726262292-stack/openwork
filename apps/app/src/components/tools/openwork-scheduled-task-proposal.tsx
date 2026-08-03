@@ -1,6 +1,6 @@
 "use client"
 
-import { AlertTriangle, CalendarClock, ShieldCheck } from "lucide-react"
+import { AlertTriangle, Clock3, ShieldCheck } from "lucide-react"
 import type { DynamicToolUIPart } from "ai"
 import { useNavigate } from "react-router-dom"
 
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Tool } from "@/components/ui/tool"
 import { parseRecord } from "@/lib/capability-call"
 import { t } from "@/i18n"
-import { workspaceScheduledTasksRoute } from "@/react-app/shell/workspace-routes"
+import { scheduledTasksRoute } from "@/react-app/shell/workspace-routes"
 
 type ScheduledTaskProposalReceipt = {
   taskId: string
@@ -77,8 +77,8 @@ export function OpenWorkScheduledTaskProposalTool({ part }: { part: DynamicToolU
   if (!receipt) return <Tool toolPart={part} title={t("scheduled_tasks.proposal_complete")} />
 
   const openDraft = () => {
-    const fallback = workspaceScheduledTasksRoute(receipt.workspaceId, receipt.taskId)
-    navigate(receipt.route.startsWith("/workspace/") ? receipt.route : fallback)
+    const fallback = scheduledTasksRoute(receipt.workspaceId, receipt.taskId)
+    navigate(receipt.route.startsWith("/scheduled-tasks/") ? receipt.route : fallback)
   }
 
   return (
@@ -89,7 +89,7 @@ export function OpenWorkScheduledTaskProposalTool({ part }: { part: DynamicToolU
     >
       <div className="flex items-start gap-3 border-b border-dls-border px-4 py-3">
         <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full border border-amber-6/35 bg-amber-3/30 text-amber-11">
-          <CalendarClock className="size-4" aria-hidden="true" />
+          <Clock3 className="size-4" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-dls-primary">{t("scheduled_tasks.proposal_title")}</h3>
