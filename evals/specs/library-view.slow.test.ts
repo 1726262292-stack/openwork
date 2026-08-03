@@ -178,6 +178,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     },
     body: JSON.stringify({
       name: pluginName,
+      sourceRepositoryUrl: "https://github.com/anthropics/knowledge-work-plugins",
       components: [{ type: "skill", input: { rawSourceText } }],
     }),
   });
@@ -274,10 +275,15 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   if (!novaConnection) throw new Error(`Nova's library omitted ${connection.name}: ${novaAccess.text.slice(0, 500)}`);
   expect(novaConnection.transport).toBe("mcp");
   expect(novaConnection.state).toBe("needs_signin");
+  const catalogName = "Anthropic Knowledge Work Plugins";
   expect(novaItems.some((item) => {
     return item.type === "plugin"
       && libraryItemId(item) !== pluginId
-      && edgesForAccessItem(item).some((edge) => edge.kind === "org_wide" || edge.kind === "catalog");
+      && edgesForAccessItem(item).some((edge) => {
+        return edge.kind === "catalog"
+          && isRecord(edge.marketplace)
+          && edge.marketplace.name === catalogName;
+      });
   })).toBe(true);
 
   const capabilities = await denFetch(casey, "/v1/resources/marketplace-capabilities", {
@@ -304,24 +310,26 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   try {
     await waitFor(
       browser,
-      `(() => {
-        const text = document.body.innerText;
-        const connectionRow = [...document.querySelectorAll('[data-library-item-type="connection"]')]
-          .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
-        const rowState = connectionRow && [...connectionRow.querySelectorAll("span")]
-          .some((entry) => entry.textContent?.trim() === "Needs your sign-in");
-        const filterState = [...document.querySelectorAll('[aria-label="Library filters"] button')]
-          .some((entry) => /^Needs sign-in · \\d+ ×$/.test((entry.textContent ?? "").trim()));
-        return text.includes("Library")
-          && text.includes(${JSON.stringify(pluginName)})
-          && Boolean(connectionRow)
-          && Boolean(rowState)
-          && filterState
-          && [...document.querySelectorAll("[data-library-list] span")].some((entry) =>
-            (entry.textContent ?? "").replace(/\\s+/g, " ").includes("Shared by Casey")
-          );
-      })()`,
-      { timeoutMs: 60_000, label: "member library, shared plugin, connection sign-in state, and Casey provenance" },
+       `(() => {
+         const text = document.body.innerText;
+         const connectionRow = [...document.querySelectorAll('[data-library-item-type="connection"]')]
+           .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+         const tabs = [...document.querySelectorAll('[role="tab"]')].map((entry) => (entry.textContent ?? "").trim());
+         const signInCaption = document.querySelector('[data-library-section="needs_signin"] h2');
+         const fromFacet = [...document.querySelectorAll('[aria-label="Library filters"] label')]
+           .some((entry) => (entry.textContent ?? "").includes("From ·"));
+         return [...document.querySelectorAll("h1")].some((entry) => entry.textContent?.trim() === "Library")
+           && text.includes(${JSON.stringify(pluginName)})
+           && Boolean(connectionRow)
+           && tabs.some((label) => label.startsWith("Needs your sign-in"))
+           && tabs.some((label) => label.startsWith("Ready to use"))
+           && signInCaption?.textContent?.trim() === "NEEDS YOUR SIGN-IN"
+           && fromFacet
+           && [...document.querySelectorAll("[data-library-source]")].some((entry) =>
+             (entry.textContent ?? "").replace(/\\s+/g, " ").includes("Shared by Casey")
+           );
+       })()`,
+       { timeoutMs: 60_000, label: "frame 16 member library, state tabs, shared plugin, and sign-in section" },
     );
   } catch (error) {
     const pageState = await evalIn(browser, `({ href: location.href, text: document.body.innerText.slice(0, 1000) })`);
@@ -348,6 +356,17 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     return descriptionIndex >= 0 && tabIndex >= 0 && descriptionIndex < tabIndex;
   })()`);
   expect(descriptionBeforeTabs).toBe(true);
+  const stateTabsAndFromFacetMatch = await evalIn(browser, `(() => {
+    const tabs = [...document.querySelectorAll('[role="tab"]')]
+      .map((entry) => (entry.textContent ?? "").trim());
+    const filters = document.querySelector('[aria-label="Library filters"]');
+    return tabs.some((label) => label === "All")
+      && tabs.some((label) => label.startsWith("Needs your sign-in"))
+      && tabs.some((label) => label.startsWith("Ready to use"))
+      && !tabs.some((label) => label === "Mine" || label === "Shared with me")
+      && Boolean(filters && (filters.textContent ?? "").includes("From ·"));
+  })()`);
+  expect(stateTabsAndFromFacetMatch).toBe(true);
   const kindPillRowHasCounts = await evalIn(browser, `(() => {
     const filters = document.querySelector('[aria-label="Library filters"]');
     return Boolean(filters && /Connections · \\d+/.test(filters.textContent ?? ""));
@@ -360,11 +379,96 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
     return Boolean(signIn?.getAttribute("href")?.includes("your-connections"));
   })()`);
   expect(connectionHasSignInLink).toBe(true);
-  const pluginRowsHaveNoComponentCount = await evalIn(browser, `(() => {
-    const rows = [...document.querySelectorAll('[data-library-item-type="plugin"]')];
-    return rows.length > 0 && rows.every((row) => !/\\b\\d+\\s+components?\\b/i.test(row.textContent ?? ""));
+  const catalogNameOccurrenceCount = await evalIn(
+    browser,
+    `document.body.innerText.split(${JSON.stringify(catalogName)}).length - 1`,
+  );
+  expect(catalogNameOccurrenceCount).toBe(1);
+  const absorbedBoilerplateAndChipLanes = await evalIn(browser, `(() => {
+    const caption = document.querySelector('[data-library-section="needs_signin"] h2');
+    const connectionRow = [...document.querySelectorAll('[data-library-item-type="connection"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+    const pluginRow = [...document.querySelectorAll('[data-library-item-type="plugin"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(pluginName)}));
+    const connectionChipCount = connectionRow?.querySelectorAll('[data-library-chip]').length ?? 0;
+    const pluginChipCount = pluginRow?.querySelectorAll('[data-library-chip]').length ?? 0;
+    return caption?.textContent?.trim() === "NEEDS YOUR SIGN-IN"
+      && connectionChipCount > 0
+      && connectionChipCount <= 2
+      && pluginChipCount === 1;
   })()`);
-  expect(pluginRowsHaveNoComponentCount).toBe(true);
+  expect(absorbedBoilerplateAndChipLanes).toBe(true);
+  await waitFor(browser, `(() => {
+    const pluginRow = [...document.querySelectorAll('[data-library-item-type="plugin"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(pluginName)}));
+    return Boolean(pluginRow && [...pluginRow.querySelectorAll('img')]
+      .some((image) => image.src.includes("github.com/anthropics.png")));
+  })()`, { timeoutMs: 30_000, label: "GitHub owner avatar on the spec plugin row" });
+  const pluginChipIsNeutral = await evalIn(browser, `(() => {
+    const pluginRow = [...document.querySelectorAll('[data-library-item-type="plugin"]')]
+      .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(pluginName)}));
+    const kindChip = pluginRow?.querySelector('[data-library-chip]');
+    return kindChip instanceof HTMLElement
+      && getComputedStyle(kindChip).backgroundColor !== "rgb(254, 243, 199)";
+  })()`);
+  expect(pluginChipIsNeutral).toBe(true);
+
+  const needsSignInTabClicked = await evalIn(browser, `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')]
+      .find((entry) => (entry.textContent ?? "").trim().startsWith("Needs your sign-in"));
+    if (!(tab instanceof HTMLElement)) return false;
+    tab.click();
+    return true;
+  })()`);
+  expect(needsSignInTabClicked).toBe(true);
+  await waitFor(browser, `(() => {
+    const rows = [...document.querySelectorAll('[data-library-item-type]')];
+    const connectionRow = rows.find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+    return Boolean(connectionRow)
+      && rows.length > 0
+      && rows.every((entry) => entry.getAttribute("data-library-item-type") === "connection")
+      && !document.querySelector('[data-library-item-type="plugin"]');
+  })()`, { timeoutMs: 60_000, label: "only connections after selecting the needs-sign-in state tab" });
+  const allTabClicked = await evalIn(browser, `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')]
+      .find((entry) => (entry.textContent ?? "").trim() === "All");
+    if (!(tab instanceof HTMLElement)) return false;
+    tab.click();
+    return true;
+  })()`);
+  expect(allTabClicked).toBe(true);
+  await waitFor(browser, `Boolean(document.querySelector('[data-library-item-type="plugin"]'))`, {
+    timeoutMs: 60_000,
+    label: "ready plugin rows after returning to the All state tab",
+  });
+
+  const readyTabClicked = await evalIn(browser, `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')]
+      .find((entry) => (entry.textContent ?? "").trim().startsWith("Ready to use"));
+    if (!(tab instanceof HTMLElement)) return false;
+    tab.click();
+    return true;
+  })()`);
+  expect(readyTabClicked).toBe(true);
+  await waitFor(browser, `(() => {
+    const rows = [...document.querySelectorAll('[data-library-item-type]')];
+    return rows.length > 0
+      && Boolean(document.querySelector('[data-library-item-type="plugin"]'))
+      && !rows.some((entry) => entry.getAttribute("data-library-item-state") === "needs_signin");
+  })()`, { timeoutMs: 60_000, label: "only ready rows after selecting the ready-to-use state tab" });
+  const allTabRestored = await evalIn(browser, `(() => {
+    const tab = [...document.querySelectorAll('[role="tab"]')]
+      .find((entry) => (entry.textContent ?? "").trim() === "All");
+    if (!(tab instanceof HTMLElement)) return false;
+    tab.click();
+    return true;
+  })()`);
+  expect(allTabRestored).toBe(true);
+  await waitFor(browser, `Boolean([...document.querySelectorAll('[data-library-item-type="connection"]')]
+    .find((entry) => (entry.textContent ?? "").includes(${JSON.stringify(connection.name)})))`, {
+    timeoutMs: 60_000,
+    label: "needs-sign-in connection after returning to All",
+  });
 
   const mcpFilterClicked = await evalIn(browser, `(() => {
     const filter = [...document.querySelectorAll('[aria-label="Library filters"] button')]
@@ -391,7 +495,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   expect(connectionScrolledIntoView).toBe(true);
   await new Promise((resolve) => setTimeout(resolve, 250));
 
-  await using roll = photoRoll("library-v2");
+  await using roll = photoRoll("library-logos");
   await evalIn(browser, `document.querySelector("[data-dashboard-hero]")?.scrollIntoView({ block: "start" })`);
   await new Promise((resolve) => setTimeout(resolve, 250));
   const desktopHeaderShot = await screenshot(browser);
@@ -407,8 +511,8 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   await new Promise((resolve) => setTimeout(resolve, 250));
   const desktopShot = await screenshot(browser);
   const desktopSeen = await validate(desktopShot, [
-    "A library lists plugin and connection rows with kind and provenance chips",
-    "A connection row shows a needs sign-in state with a Sign in action",
+    "Rows show logo or monogram tiles in aligned lanes with neutral kind chips and a quiet right-hand source column",
+    "An amber needs-sign-in row shows a dark Sign in button under a NEEDS YOUR SIGN-IN caption",
   ]);
   await roll.add(desktopShot, desktopSeen);
   expect(desktopSeen.ok, desktopSeen.why).toBe(true);
@@ -430,4 +534,13 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   ]);
   await roll.add(mobileShot, mobileSeen);
   expect(mobileSeen.ok, mobileSeen.why).toBe(true);
+
+  await navigate(browser.client, `${webUrl}/dashboard/library?focus=${encodeURIComponent(`connection-${connection.id}`)}`);
+  await waitFor(browser, `(() => {
+    const row = document.querySelector('[data-library-focused][data-library-item-type="connection"]');
+    return Boolean(row && (row.textContent ?? "").includes(${JSON.stringify(connection.name)}));
+  })()`, {
+    timeoutMs: 60_000,
+    label: "focused connection row from the library deep link",
+  });
 });
