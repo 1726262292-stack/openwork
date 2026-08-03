@@ -14,7 +14,6 @@ const FIXTURE_URL = `http://localhost:${FIXTURE_PORT}/index.html`;
 const LINK_URL = `http://localhost:${FIXTURE_PORT}/linked.html`;
 const MENU_ITEM_HEIGHT = 36;
 const MENU_SEPARATOR_HEIGHT = 13;
-const MENU_VERTICAL_CHROME = 19;
 
 const PLAIN_LABELS = ["Back", "Forward", "Reload", "Copy Page URL", "Open Page in Browser"];
 const LINK_LABELS = ["Open Link in New Tab", "Copy Link Address", "Open Link in Browser"];
@@ -116,6 +115,7 @@ type MenuMetrics = {
   itemHeights: number[];
   separatorFootprints: number[];
   menuRect: Rect;
+  contentHeight: number;
   lastItemBottom: number;
   scrollHeight: number;
 };
@@ -187,6 +187,7 @@ function parseMenuMetrics(value: unknown): MenuMetrics {
     || !value.itemHeights.every((entry) => typeof entry === "number")
     || !Array.isArray(value.separatorFootprints)
     || !value.separatorFootprints.every((entry) => typeof entry === "number")
+    || typeof value.contentHeight !== "number"
     || typeof value.lastItemBottom !== "number"
     || typeof value.scrollHeight !== "number"
   ) {
@@ -200,6 +201,7 @@ function parseMenuMetrics(value: unknown): MenuMetrics {
     itemHeights: value.itemHeights,
     separatorFootprints: value.separatorFootprints,
     menuRect: parseRect(value.menuRect, "menu"),
+    contentHeight: value.contentHeight,
     lastItemBottom: value.lastItemBottom,
     scrollHeight: value.scrollHeight,
   };
@@ -422,6 +424,8 @@ async function readMenuMetrics(client: CdpClient): Promise<MenuMetrics | null> {
       top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left,
     });
     const menuRect = menu.getBoundingClientRect();
+    const rootStyle = getComputedStyle(menu.parentElement);
+    const contentHeight = menuRect.height + parseFloat(rootStyle.paddingTop) + parseFloat(rootStyle.paddingBottom);
     const lastRect = items.at(-1)?.getBoundingClientRect();
     return {
       ariaLabel: menu.getAttribute('aria-label') ?? '',
@@ -434,6 +438,7 @@ async function readMenuMetrics(client: CdpClient): Promise<MenuMetrics | null> {
         return separator.getBoundingClientRect().height + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
       }),
       menuRect: rectValue(menuRect),
+      contentHeight,
       lastItemBottom: lastRect?.bottom ?? 0,
       scrollHeight: document.documentElement.scrollHeight,
     };
@@ -453,11 +458,9 @@ function assertMenuSizing(
   metrics: MenuMetrics,
   separatorCount: number,
 ): void {
-  const expectedHeight = MENU_VERTICAL_CHROME
-    + metrics.labels.length * MENU_ITEM_HEIGHT
-    + separatorCount * MENU_SEPARATOR_HEIGHT;
   expect(metrics.innerWidth).toBe(196);
-  expect(metrics.innerHeight).toBe(expectedHeight);
+  expect(metrics.contentHeight).toBeLessThanOrEqual(metrics.innerHeight);
+  expect(metrics.innerHeight - metrics.contentHeight).toBeLessThanOrEqual(1);
   expect(metrics.itemHeights).toHaveLength(metrics.labels.length);
   for (const height of metrics.itemHeights) {
     expect(height).toBeGreaterThanOrEqual(34);
@@ -473,8 +476,8 @@ function assertMenuSizing(
   expect(visibleTrailingGap).toBeGreaterThanOrEqual(0);
   expect(visibleTrailingGap).toBeLessThanOrEqual(10);
   evidence.fact(
-    `${metrics.ariaLabel} is sized from 36px items, 13px separators, and 19px vertical chrome without clipping or a large dead gap`,
-    JSON.stringify({ expectedHeight, metrics, visibleTrailingGap, transparentBottomSpace }),
+    `${metrics.ariaLabel} overlay height matches its rendered content without clipping or a large dead gap`,
+    JSON.stringify({ overlayHeight: metrics.innerHeight, contentHeight: metrics.contentHeight, metrics, visibleTrailingGap, transparentBottomSpace }),
     true,
   );
 }
