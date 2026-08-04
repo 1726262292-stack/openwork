@@ -2034,9 +2034,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 props.cloudMcpSubmissionState.issue?.recommendedAction,
               ].filter(Boolean).join(" ")}
             </span>
-            <button type="button" className="font-medium hover:underline" onClick={handleRetryCloudSubmission}>
-              Retry
-            </button>
+            {props.cloudMcpSubmissionState.issue?.retryable !== false ? (
+              <button type="button" className="font-medium hover:underline" onClick={handleRetryCloudSubmission}>
+                Retry
+              </button>
+            ) : null}
             <button type="button" className="font-medium hover:underline" onClick={props.onOpenConnect}>
               Open Connect
             </button>
