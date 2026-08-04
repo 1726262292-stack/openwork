@@ -144,6 +144,18 @@ export type ExternalMcpTool = {
   };
 };
 
+export type ExternalMcpToolPolicyView = {
+  allDisabled: boolean;
+  disabledTools: string[];
+  updatedBy: string | null;
+  updatedAt: string | null;
+};
+
+export type ExternalMcpToolCatalog = {
+  tools: ExternalMcpTool[];
+  policy: ExternalMcpToolPolicyView;
+};
+
 export type ExternalMcpToolRun = {
   referenceId: string;
   durationMs: number;
@@ -202,6 +214,18 @@ export class ExternalMcpToolRunError extends Error {
   }
 }
 
+export class ExternalMcpToolPolicyBlockedError extends ExternalMcpToolRunError {
+  readonly disabledBy: string | null;
+  readonly disabledAt: string | null;
+
+  constructor(message: string, disabledBy: string | null, disabledAt: string | null) {
+    super(message, null, null);
+    this.name = "ExternalMcpToolPolicyBlockedError";
+    this.disabledBy = disabledBy;
+    this.disabledAt = disabledAt;
+  }
+}
+
 export type ExternalMcpPreset = {
   presetId: string;
   displayName: string;
@@ -238,12 +262,43 @@ export const mcpConnectionQueryKeys = {
   telegram: (orgId?: string | null) => [...mcpConnectionQueryKeys.all, "telegram", orgId ?? "none"] as const,
 };
 
+function isExternalMcpTool(value: unknown): value is ExternalMcpTool {
+  if (!isRecord(value) || typeof value.name !== "string" || !isRecord(value.inputSchema)) return false;
+  if (value.title !== undefined && typeof value.title !== "string") return false;
+  if (value.description !== undefined && typeof value.description !== "string") return false;
+  if (value.outputSchema !== undefined && !isRecord(value.outputSchema)) return false;
+  const annotations = value.annotations;
+  if (annotations === undefined) return true;
+  if (!isRecord(annotations)) return false;
+  return ["title", "readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"].every((key) => (
+    annotations[key] === undefined
+    || typeof annotations[key] === (key === "title" ? "string" : "boolean")
+  ));
+}
+
+function parseExternalMcpToolPolicy(value: unknown): ExternalMcpToolPolicyView | null {
+  if (
+    !isRecord(value)
+    || typeof value.allDisabled !== "boolean"
+    || !Array.isArray(value.disabledTools)
+    || !value.disabledTools.every((toolName) => typeof toolName === "string")
+    || (value.updatedBy !== null && typeof value.updatedBy !== "string")
+    || (value.updatedAt !== null && typeof value.updatedAt !== "string")
+  ) return null;
+  return {
+    allDisabled: value.allDisabled,
+    disabledTools: value.disabledTools,
+    updatedBy: value.updatedBy,
+    updatedAt: value.updatedAt,
+  };
+}
+
 export function useMcpConnectionTools(connectionId: string, enabled: boolean) {
   const { orgId } = useOrgDashboard();
   return useQuery({
     enabled: enabled && Boolean(orgId),
     queryKey: mcpConnectionQueryKeys.tools(orgId, connectionId),
-    queryFn: async (): Promise<ExternalMcpTool[]> => {
+    queryFn: async (): Promise<ExternalMcpToolCatalog> => {
       const { response, payload } = await requestJson(
         `/v1/mcp-connections/${encodeURIComponent(connectionId)}/tools`,
         { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
@@ -252,9 +307,40 @@ export function useMcpConnectionTools(connectionId: string, enabled: boolean) {
       if (!response.ok) {
         throw getRequestError(payload, response, `Failed to inspect MCP tools (${response.status}).`);
       }
-      const record = payload as { tools?: ExternalMcpTool[] };
-      return record.tools ?? [];
+      if (!isRecord(payload) || !Array.isArray(payload.tools)) {
+        throw new Error("MCP tool catalog response was incomplete.");
+      }
+      const policy = parseExternalMcpToolPolicy(payload.policy);
+      if (!policy || !payload.tools.every(isExternalMcpTool)) {
+        throw new Error("MCP tool catalog response was incomplete.");
+      }
+      return { tools: payload.tools, policy };
     },
+  });
+}
+
+export function useUpdateMcpConnectionToolPolicy(connectionId: string) {
+  const queryClient = useQueryClient();
+  const { orgId } = useOrgDashboard();
+  return useMutation({
+    mutationFn: async (input: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools">): Promise<ExternalMcpToolPolicyView> => {
+      const { response, payload } = await requestJson(
+        `/v1/mcp-connections/${encodeURIComponent(connectionId)}/tool-policy`,
+        {
+          method: "PUT",
+          headers: getOrgScopeHeaders(requireOrgId(orgId)),
+          body: JSON.stringify(input),
+        },
+        30000,
+      );
+      if (!response.ok) {
+        throw getRequestError(payload, response, `Failed to update MCP tool policy (${response.status}).`);
+      }
+      const policy = isRecord(payload) ? parseExternalMcpToolPolicy(payload.policy) : null;
+      if (!policy) throw new Error("MCP tool policy response was incomplete.");
+      return policy;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: mcpConnectionQueryKeys.tools(orgId, connectionId) }),
   });
 }
 
@@ -277,6 +363,13 @@ export function useRunMcpConnectionTool(connectionId: string) {
         RUN_TOOL_REQUEST_TIMEOUT_MS,
       );
       if (!response.ok) {
+        if (response.status === 403 && isRecord(payload) && payload.error === "policy_blocked") {
+          throw new ExternalMcpToolPolicyBlockedError(
+            typeof payload.message === "string" ? payload.message : "This tool is disabled by organization policy.",
+            typeof payload.disabledBy === "string" ? payload.disabledBy : null,
+            typeof payload.disabledAt === "string" ? payload.disabledAt : null,
+          );
+        }
         const requestError = getRequestError(payload, response, `Failed to run MCP tool (${response.status}).`);
         throw new ExternalMcpToolRunError(
           requestError.message,

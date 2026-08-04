@@ -451,6 +451,23 @@ function mcpResult(message) {
               required: ["text"],
             },
           },
+          {
+            name: "mock_batch",
+            description: "Echo a batch of items (nested schema for form-fallback testing).",
+            inputSchema: {
+              type: "object",
+              properties: {
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: { text: { type: "string" } },
+                  },
+                },
+              },
+              required: ["items"],
+            },
+          },
           ...(extraToolName ? [{
             name: extraToolName,
             title: extraToolTitle || extraToolName,
@@ -472,6 +489,17 @@ function mcpResult(message) {
         ],
       };
     case "tools/call":
+      if (message.params?.name === "mock_batch") {
+        const items = message.params?.arguments?.items;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Received ${Array.isArray(items) ? items.length : 0} items.`,
+            },
+          ],
+        };
+      }
       if (errorToolName && message.params?.name === errorToolName) {
         return {
           isError: true,
