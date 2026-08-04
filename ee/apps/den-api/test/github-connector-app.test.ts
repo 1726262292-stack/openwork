@@ -77,17 +77,69 @@ describe("github connector app helpers", () => {
       installationId: 777,
     })
 
-    expect(requests.map((request) => request.url)).toEqual([
+    const requestUrls = requests.map((request) => request.url)
+    expect(requestUrls.slice(0, 2)).toEqual([
       "https://api.github.com/app/installations/777/access_tokens",
-      "https://api.github.com/installation/repositories",
+      "https://api.github.com/installation/repositories?per_page=100&page=1",
+    ])
+    expect(requestUrls.slice(2).sort()).toEqual([
       "https://api.github.com/repos/different-ai/openwork/contents/.claude-plugin/marketplace.json",
       "https://api.github.com/repos/different-ai/opencode/contents/.claude-plugin/marketplace.json",
       "https://api.github.com/repos/different-ai/opencode/contents/.claude-plugin/plugin.json",
+    ].sort())
+    expect(requestUrls.filter((url) => url.includes("/repos/different-ai/opencode/contents/"))).toEqual([
+      "https://api.github.com/repos/different-ai/opencode/contents/.claude-plugin/marketplace.json",
+      "https://api.github.com/repos/different-ai/opencode/contents/.claude-plugin/plugin.json",
     ])
+    expect(requestUrls).not.toContain("https://api.github.com/installation/repositories?per_page=100&page=2")
     expect(repositories).toEqual([
       { defaultBranch: "main", fullName: "different-ai/openwork", hasPluginManifest: true, id: 42, manifestKind: "marketplace", marketplacePluginCount: 3, private: true },
       { defaultBranch: "dev", fullName: "different-ai/opencode", hasPluginManifest: true, id: 99, manifestKind: "plugin", marketplacePluginCount: null, private: false },
     ])
+  })
+
+  test("follows pagination when an installation exposes more than one page of repositories", async () => {
+    const requestUrls: string[] = []
+    const repositories = await listGithubInstallationRepositories({
+      config: { appId: "123456", privateKey: privateKeyPem },
+      fetchFn: async (url) => {
+        const requestUrl = String(url)
+        requestUrls.push(requestUrl)
+
+        if (requestUrl.endsWith("/access_tokens")) {
+          return new Response(JSON.stringify({ token: "installation-token" }), { status: 201 })
+        }
+
+        const parsedUrl = new URL(requestUrl)
+        if (parsedUrl.pathname === "/installation/repositories") {
+          const page = parsedUrl.searchParams.get("page")
+          const firstId = page === "1" ? 1 : page === "2" ? 101 : null
+          const count = page === "1" ? 100 : page === "2" ? 30 : 0
+          return new Response(JSON.stringify({
+            repositories: firstId === null
+              ? []
+              : Array.from({ length: count }, (_, index) => {
+                  const id = firstId + index
+                  return { default_branch: "main", full_name: `different-ai/repo-${id}`, id, private: false }
+                }),
+          }), { status: 200 })
+        }
+
+        if (requestUrl.includes("/contents/.claude-plugin/")) {
+          return new Response(JSON.stringify({ message: "not found" }), { status: 404 })
+        }
+
+        return new Response(JSON.stringify({ message: "not found" }), { status: 404 })
+      },
+      installationId: 777,
+    })
+
+    expect(repositories).toHaveLength(130)
+    expect(repositories[0]?.id).toBe(1)
+    expect(repositories[129]?.id).toBe(130)
+    expect(requestUrls).toContain("https://api.github.com/installation/repositories?per_page=100&page=1")
+    expect(requestUrls).toContain("https://api.github.com/installation/repositories?per_page=100&page=2")
+    expect(requestUrls).not.toContain("https://api.github.com/installation/repositories?per_page=100&page=3")
   })
 
   test("builds install URLs and validates signed state tokens", async () => {
