@@ -2448,13 +2448,6 @@ export function SessionRoute() {
           modelPicker.setOpen(true);
           return result;
         },
-        onConnectCloudProvider: async (cloudProviderId) => {
-          const result = await sessionProviderAuthStore.connectCloudProvider(cloudProviderId);
-          modelPicker.setRecentProviderIds(new Set([cloudProviderId]));
-          modelPicker.setQuery("");
-          modelPicker.setOpen(true);
-          return result;
-        },
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),

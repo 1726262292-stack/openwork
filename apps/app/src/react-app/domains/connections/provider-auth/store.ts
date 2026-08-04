@@ -161,10 +161,11 @@ export type ProviderAuthMethod = {
   type: "oauth" | "api" | "cloud";
   label: string;
   methodIndex?: number;
-  cloudProviderId?: string;
-  description?: string;
-  env?: string[];
-  modelCount?: number;
+};
+
+export type CloudProviderSyncError = {
+  kind: "error" | "conflict" | "needs_credential" | "needs_server";
+  message: string;
 };
 
 export type ProviderAuthProvider = {
@@ -188,6 +189,7 @@ export type ProviderAuthStoreSnapshot = {
   providerAuthProviders: ProviderAuthProvider[];
   cloudOrgProviders: DenOrgLlmProvider[];
   importedCloudProviders: Record<string, CloudImportedProvider>;
+  lastSyncError: Record<string, CloudProviderSyncError>;
 };
 
 type CreateProviderAuthStoreOptions = {
@@ -220,7 +222,12 @@ type MutableState = {
   providerAuthReturnFocusTarget: ProviderReturnFocusTarget;
   cloudOrgProviders: DenOrgLlmProvider[];
   importedCloudProviders: Record<string, CloudImportedProvider>;
+  lastSyncError: Record<string, CloudProviderSyncError>;
 };
+
+class CloudProviderImportConflictError extends Error {}
+class CloudProviderNeedsCredentialError extends Error {}
+class CloudProviderNeedsServerError extends Error {}
 
 function providerListModelEntitlementOptions(
   providerList: ProviderListResponse | null | undefined,
@@ -253,6 +260,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     providerAuthReturnFocusTarget: "none",
     cloudOrgProviders: [],
     importedCloudProviders: {},
+    lastSyncError: {},
   };
 
   let cloudOrgProvidersLoadKey = "";
@@ -345,6 +353,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       providerAuthProviders: getProviderAuthProviders(),
       cloudOrgProviders: state.cloudOrgProviders,
       importedCloudProviders: state.importedCloudProviders,
+      lastSyncError: state.lastSyncError,
     };
   };
 
@@ -361,26 +370,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (Object.is(state[key], value)) return;
     mutateState((current) => ({ ...current, [key]: value }));
   };
-
-  const buildCloudProviderMethod = (
-    provider: DenOrgLlmProvider,
-  ): ProviderAuthMethod => ({
-    type: "cloud",
-    label:
-      provider.name.trim().toLowerCase() ===
-      provider.providerId.trim().toLowerCase()
-        ? "Use organization provider"
-        : `Use ${provider.name}`,
-    cloudProviderId: provider.id,
-    description:
-      provider.models.length > 0
-        ? `${provider.models.length} curated model${
-            provider.models.length === 1 ? "" : "s"
-          } managed by your organization.`
-        : "Use the provider and credential managed by your organization.",
-    env: getCloudProviderEnv(provider.providerConfig),
-    modelCount: provider.models.length,
-  });
 
   const readCloudProviderBaseUrl = (provider: DenOrgLlmProviderConnection) => {
     const options = provider.providerConfig.options;
@@ -882,7 +871,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         (entry) => entry.providerId === localProviderId && entry.cloudProviderId !== provider.id,
       )
     ) {
-      throw new Error(
+      throw new CloudProviderImportConflictError(
         `${localProviderId} is already imported from another cloud provider. Remove it before importing this one.`,
       );
     }
@@ -892,13 +881,17 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       !cloudManagedKey &&
       options.providerConnectedIds().includes(localProviderId)
     ) {
-      throw new Error(
+      throw new CloudProviderImportConflictError(
         `${localProviderId} is already connected in this workspace. Disconnect it before importing the cloud-managed version.`,
       );
     }
 
     const configFile = await readProjectConfigFile() as { content?: string } | null;
-    if (!configFile?.content?.trim() || existingImported || cloudManagedKey) {
+    if (
+      !configFile?.content?.trim() ||
+      existingImported ||
+      (cloudManagedKey && localProviderId !== "openwork")
+    ) {
       return;
     }
 
@@ -913,7 +906,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       !Array.isArray(providerSection) &&
       localProviderId in (providerSection as Record<string, unknown>)
     ) {
-      throw new Error(
+      throw new CloudProviderImportConflictError(
         `${localProviderId} already has a provider block in opencode.jsonc. Remove it before importing the cloud-managed version.`,
       );
     }
@@ -1159,7 +1152,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     methods: Record<string, ProviderAuthMethod[]>,
     availableProviders: ProviderAuthProvider[],
     workerType: "local" | "remote",
-    cloudProviders: DenOrgLlmProvider[],
   ) => {
     const restrictToCloud = options.checkDesktopAppRestriction({ restriction: "allowCustomProviders" });
     const merged = Object.fromEntries(
@@ -1215,30 +1207,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       });
     }
 
-    for (const provider of cloudProviders) {
-      const id = getCloudManagedProviderId(provider);
-      if (!id) continue;
-      if (
-        !isProviderAllowedByDesktopPolicy({
-          providerId: id,
-          restrictToCloud,
-          checkRestriction: options.checkDesktopAppRestriction,
-        })
-      ) {
-        continue;
-      }
-      const existing = merged[id] ?? [];
-      if (
-        existing.some(
-          (method) =>
-            method.type === "cloud" && method.cloudProviderId === provider.id,
-        )
-      ) {
-        continue;
-      }
-      merged[id] = [...existing, buildCloudProviderMethod(provider)];
-    }
-
     return merged;
   };
 
@@ -1248,14 +1216,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.not_connected"));
     }
     const methods = unwrap(await c.provider.auth());
-    const cloudProviders = await refreshCloudOrgProviders().catch(
-      () => [] as DenOrgLlmProvider[],
-    );
     return buildProviderAuthMethods(
       methods as Record<string, ProviderAuthMethod[]>,
       getProviderAuthProviders(),
       workerType,
-      cloudProviders,
     );
   };
 
@@ -1550,7 +1514,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const { envEntries, primaryApiKey } = resolveCloudProviderCredentials(provider);
       const env = getCloudProviderEnv(provider.providerConfig);
       if (!primaryApiKey && env.length > 0) {
-        throw new Error(`${provider.name} does not have a stored organization credential yet.`);
+        throw new CloudProviderNeedsCredentialError(
+          `${provider.name} does not have a stored organization credential yet.`,
+        );
       }
 
       await assertCloudProviderImportSafe(provider);
@@ -1558,7 +1524,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (envEntries.length > 0) {
         const openworkClient = options.openworkServer.getSnapshot().openworkServerClient;
         if (!openworkClient) {
-          throw new Error(
+          throw new CloudProviderNeedsServerError(
             `${provider.name} needs environment variables (${envEntries
               .map((entry) => entry.key)
               .join(", ")}) but the OpenWork server is not available.`,
@@ -1628,8 +1594,42 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
+  const describeCloudProviderSyncError = (error: unknown): CloudProviderSyncError => ({
+    kind: error instanceof CloudProviderImportConflictError
+      ? "conflict"
+      : error instanceof CloudProviderNeedsCredentialError
+        ? "needs_credential"
+        : error instanceof CloudProviderNeedsServerError
+          ? "needs_server"
+          : "error",
+    message: describeProviderError(error, "Cloud provider sync failed."),
+  });
+
+  const setCloudProviderSyncError = (
+    cloudProviderId: string,
+    error: CloudProviderSyncError | null,
+  ) => {
+    const current = state.lastSyncError[cloudProviderId];
+    if (!error && !current) return;
+    if (error && current?.kind === error.kind && current.message === error.message) return;
+    const next = { ...state.lastSyncError };
+    if (error) {
+      next[cloudProviderId] = error;
+    } else {
+      delete next[cloudProviderId];
+    }
+    setStateField("lastSyncError", next);
+  };
+
   async function connectCloudProvider(cloudProviderId: string) {
-    return await connectCloudProviderInternal(cloudProviderId);
+    try {
+      const result = await connectCloudProviderInternal(cloudProviderId);
+      setCloudProviderSyncError(cloudProviderId, null);
+      return result;
+    } catch (error) {
+      setCloudProviderSyncError(cloudProviderId, describeCloudProviderSyncError(error));
+      throw error;
+    }
   }
 
   async function removeCloudProviderInternal(
@@ -1689,6 +1689,17 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return message;
   };
 
+  const recordCloudProviderSyncError = (
+    cloudProviderId: string,
+    reason: CloudProviderSyncReason,
+    error: unknown,
+  ) => {
+    const syncError = describeCloudProviderSyncError(error);
+    setCloudProviderSyncError(cloudProviderId, syncError);
+    console.warn(`[cloud-provider-sync:${reason}] ${syncError.message}`);
+    return syncError.message;
+  };
+
   const getCloudProviderSyncContextKey = () => {
     const settings = readDenSettings();
     return [
@@ -1737,8 +1748,16 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // server target (patchRuntimeProviders throws without it). Running before
     // the target resolves made the baseline read fall back to an empty source
     // and re-import every org provider — engine dispose churn on settings open.
-    const target = await resolveOpenworkConfigTarget("write");
-    if (!target.canUseOpenworkServer || !target.openworkClient || !target.openworkWorkspaceId) {
+    const [readTarget, target] = await Promise.all([
+      resolveOpenworkConfigTarget("read"),
+      resolveOpenworkConfigTarget("write"),
+    ]);
+    if (
+      !readTarget.canUseOpenworkServer ||
+      !target.canUseOpenworkServer ||
+      !target.openworkClient ||
+      !target.openworkWorkspaceId
+    ) {
       return;
     }
 
@@ -1754,22 +1773,46 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const failures: string[] = [];
     const processedLiveProviderIds = new Set<string>();
     let configChanged = false;
+    const restrictToCloud = options.checkDesktopAppRestriction({ restriction: "allowCustomProviders" });
+
+    const canSyncProvider = (provider: DenOrgLlmProvider) =>
+      isProviderAllowedByDesktopPolicy({
+        providerId: getCloudManagedProviderId(provider),
+        restrictToCloud,
+        checkRestriction: options.checkDesktopAppRestriction,
+      });
+
+    const shouldSkipTerminalConflict = (cloudProviderId: string) =>
+      reason !== "manual" && state.lastSyncError[cloudProviderId]?.kind === "conflict";
 
     for (const importedProvider of Object.values(importedProviders)) {
       const liveProvider = liveProviderMap.get(importedProvider.cloudProviderId);
       if (!liveProvider) {
         try {
           await removeCloudProviderInternal(importedProvider.cloudProviderId, { silent: true });
+          setCloudProviderSyncError(importedProvider.cloudProviderId, null);
           configChanged = true;
         } catch (error) {
-          failures.push(logCloudProviderSyncError(reason, error));
+          failures.push(recordCloudProviderSyncError(importedProvider.cloudProviderId, reason, error));
         }
         continue;
       }
 
       processedLiveProviderIds.add(liveProvider.id);
 
+      if (!canSyncProvider(liveProvider) || shouldSkipTerminalConflict(liveProvider.id)) {
+        continue;
+      }
+
       if (!isCloudProviderOutOfSync(liveProvider, importedProvider)) {
+        setCloudProviderSyncError(liveProvider.id, null);
+        continue;
+      }
+      if (!liveProvider.hasApiKey && getCloudProviderEnv(liveProvider.providerConfig).length > 0) {
+        setCloudProviderSyncError(liveProvider.id, {
+          kind: "needs_credential",
+          message: `${liveProvider.name} does not have a stored organization credential yet.`,
+        });
         continue;
       }
 
@@ -1782,9 +1825,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         // reconnect aborted on a stale in-memory connected-providers guard,
         // so the workspace kept the first-import snapshot forever (#2346).
         await connectCloudProviderInternal(liveProvider.id, { silent: true });
+        setCloudProviderSyncError(liveProvider.id, null);
         configChanged = true;
       } catch (error) {
-        failures.push(logCloudProviderSyncError(reason, error));
+        failures.push(recordCloudProviderSyncError(liveProvider.id, reason, error));
       }
     }
 
@@ -1797,9 +1841,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (nextImportedProviders[liveProvider.id]) {
         continue;
       }
+      if (!canSyncProvider(liveProvider) || shouldSkipTerminalConflict(liveProvider.id)) {
+        continue;
+      }
+      if (!liveProvider.hasApiKey && getCloudProviderEnv(liveProvider.providerConfig).length > 0) {
+        setCloudProviderSyncError(liveProvider.id, {
+          kind: "needs_credential",
+          message: `${liveProvider.name} does not have a stored organization credential yet.`,
+        });
+        continue;
+      }
 
       try {
         await connectCloudProviderInternal(liveProvider.id, { silent: true });
+        setCloudProviderSyncError(liveProvider.id, null);
         configChanged = true;
         const firstModel = liveProvider.models[0] ?? null;
         newlyImported.push({
@@ -1810,7 +1865,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           firstModelName: firstModel?.name ?? firstModel?.id,
         });
       } catch (error) {
-        failures.push(logCloudProviderSyncError(reason, error));
+        failures.push(recordCloudProviderSyncError(liveProvider.id, reason, error));
       }
     }
 
@@ -1998,6 +2053,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     refreshSnapshot();
     emitChange();
     if (workspaceChanged) {
+      setStateField("lastSyncError", {});
       void refreshImportedCloudProviders();
     }
     if (!hasCloudProviderSyncPrerequisites()) {
@@ -2032,6 +2088,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             ...current,
             cloudOrgProviders: [],
             providerAuthMethods: {},
+            lastSyncError: {},
           }));
           void runCloudProviderSync("sign_in");
         } else {
@@ -2074,6 +2131,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
               cloudOrgProviders: [],
               providerAuthMethods: {},
               importedCloudProviders: {},
+              lastSyncError: {},
             }));
             refreshSnapshot();
             emitChange();
