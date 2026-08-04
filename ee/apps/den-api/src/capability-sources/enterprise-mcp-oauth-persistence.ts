@@ -33,6 +33,7 @@ import {
   type ExternalMcpConnectionRow,
 } from "./external-mcp-connections.js"
 import { externalMcpCallbackUrl } from "./external-mcp-oauth-contract.js"
+import { invalidateExternalMcpSessions } from "./external-mcp-session-pool.js"
 import { normalizeConnectedAccountScopes, normalizeOAuthClientExtra } from "./oauth-credentials.js"
 
 const MAX_PENDING_AUTHORIZATIONS = 8
@@ -176,6 +177,13 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
 
   private get isPerMember(): boolean {
     return this.connection.credentialMode === "per_member"
+  }
+
+  private async invalidateSessions(): Promise<void> {
+    await invalidateExternalMcpSessions(
+      this.connection.id,
+      this.isPerMember ? this.member?.orgMembershipId : undefined,
+    )
   }
 
   private assertCurrentIdentity(connection: ExternalMcpConnectionRow): void {
@@ -400,6 +408,7 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
         assertCommitActive(input.context)
       })
       await this.refreshConnection()
+      await this.invalidateSessions()
     },
 
     invalidate: async (input: {
@@ -433,6 +442,7 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
         assertCommitActive(input.context)
       })
       await this.refreshConnection()
+      await this.invalidateSessions()
     },
   }
 

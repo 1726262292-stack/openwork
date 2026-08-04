@@ -105,6 +105,7 @@ import {
   diagnoseExternalMcpToolCall,
   externalMcpToolCallInspectionForError,
 } from "../../capability-sources/external-mcp-tool-inspection.js"
+import { invalidateExternalMcpSessions } from "../../capability-sources/external-mcp-session-pool.js"
 import { resolvePluginArchResourceRole, type PluginArchActorContext } from "./plugin-system/access.js"
 import {
   ensureOrganizationAdmin,
@@ -1361,6 +1362,7 @@ async function handleExternalMcpOAuthCallback(input: {
       input.requestId,
       state,
     )
+    await invalidateExternalMcpSessions(connection.id, member?.orgMembershipId)
   } catch (error) {
     try {
       await abandonAuthorization(connection, state, member, input.requestId)
@@ -1553,6 +1555,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           message: "This connection changed while the issuer was being reviewed. Reload and review the current provider metadata again.",
         }, 409)
       }
+      await invalidateExternalMcpSessions(result.connection.id)
       return c.json({
         currentIssuer: result.connection.oauthConfiguration?.authorizationServerIssuer ?? null,
         advertisedIssuers,
@@ -2397,6 +2400,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           message: "A marketplace plugin now owns this connection's server and authentication settings. Reload before editing.",
         }, 409)
       }
+      await invalidateExternalMcpSessions(result.connection.id)
 
       const context = { memberTeams: [], organizationContext: payload, session: c.get("session") } satisfies PluginArchActorContext
       const provenance = await requiredByForConnections({
@@ -2530,6 +2534,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       if (!removed) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
       }
+      await invalidateExternalMcpSessions(externalMcpConnectionId)
       return c.json({ ok: true })
     },
   )
@@ -2560,6 +2565,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       if (!removed) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
       }
+      await invalidateExternalMcpSessions(externalMcpConnectionId)
       return c.json({ ok: true })
     },
   )
@@ -2597,6 +2603,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       if (result.status === "not_connected") {
         return c.json({ error: "connection_not_found", message: "Nothing was connected." }, 404)
       }
+      await invalidateExternalMcpSessions(externalMcpConnectionId, payload.currentMember.id)
       return c.json({ ok: true })
     },
   )
@@ -2766,6 +2773,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           }
           if (repair.status === "repaired" || repair.status === "unchanged") {
             connection = repair.connection
+            if (repair.status === "repaired") await invalidateExternalMcpSessions(connection.id)
           } else {
             const refreshed = await getExternalMcpConnection({
               organizationId: payload.organization.id,

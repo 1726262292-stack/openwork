@@ -53,6 +53,7 @@ const EnvSchema = z.object({
   OPENWORK_DEV_MODE: z.string().optional(),
   DEN_BOTID_PROTECTION_ENABLED: z.string().optional(),
   DEN_ALLOW_PRIVATE_MCP_URLS: z.string().optional(),
+  DEN_EXTERNAL_MCP_SESSION_REUSE: z.string().optional(),
   DEN_DIAGNOSTICS_ORIGIN: z.string().optional(),
   DEN_DIAGNOSTICS_BEARER_TOKEN: z.string().optional(),
   DEN_GATEWAY_KEY: z.string().optional(),
@@ -395,6 +396,9 @@ const orgMode = parseDenOrgMode(parsed.DEN_ORG_MODE)
 // (OPENWORK_DEV_MODE=1) is exempt automatically so evals against a local
 // stand-in server keep working.
 const allowPrivateMcpUrls = devMode || (parsed.DEN_ALLOW_PRIVATE_MCP_URLS ?? "0").trim() === "1"
+const externalMcpSessionReuseEnabled = !["0", "false"].includes(
+  (parsed.DEN_EXTERNAL_MCP_SESSION_REUSE ?? "1").trim().toLowerCase(),
+)
 const requireEmailVerification = parsed.DEN_REQUIRE_EMAIL_VERIFICATION === undefined
   ? orgMode === "multi_org" && !devMode
   : parsed.DEN_REQUIRE_EMAIL_VERIFICATION.trim().toLowerCase() !== "false"
@@ -436,6 +440,7 @@ export const env = {
   devMode,
   botIdProtectionEnabled,
   allowPrivateMcpUrls,
+  externalMcpSessionReuseEnabled,
   diagnostics: {
     origin: diagnosticsOrigin,
     bearerToken: diagnosticsBearerToken,
