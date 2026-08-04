@@ -647,6 +647,10 @@ export function getYourConnectionsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/your-connections`;
 }
 
+export function getToolTesterRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/tool-tester`;
+}
+
 export function getLibraryRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/library`;
 }
