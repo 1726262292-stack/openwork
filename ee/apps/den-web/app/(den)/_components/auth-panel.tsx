@@ -203,6 +203,7 @@ export function AuthPanel({
   hideEmailField = false,
   hideLockedEmailSummary = false,
   emailFirstFlow = false,
+  resolveEmailFirstOnPrefill = false,
   eyebrow = "Account",
   bare = false,
   signUpContent,
@@ -217,6 +218,7 @@ export function AuthPanel({
   hideEmailField?: boolean;
   hideLockedEmailSummary?: boolean;
   emailFirstFlow?: boolean;
+  resolveEmailFirstOnPrefill?: boolean;
   eyebrow?: string;
   // When true the panel renders without its own `den-frame`/padding, so a parent
   // (the unified split auth card) can own the surface. Defaults to a self-framed
@@ -229,6 +231,7 @@ export function AuthPanel({
   const router = useRouter();
   const pathname = usePathname();
   const prefillRef = useRef<string | null>(null);
+  const resolvedLoginOptionPrefillRef = useRef<string | null>(null);
   const [passwordResetRequested, setPasswordResetRequested] = useState(false);
   const [passwordResetBusy, setPasswordResetBusy] = useState(false);
   const [passwordResetInfo, setPasswordResetInfo] = useState("");
@@ -401,7 +404,62 @@ export function AuthPanel({
     setAuthName("");
     setPassword("");
     setVerificationCode("");
+    resolvedLoginOptionPrefillRef.current = null;
   }, [initialMode, prefillKey, prefilledEmail, setAuthMode, setAuthName, setEmail, setPassword, setVerificationCode]);
+
+  useEffect(() => {
+    const trimmedEmail = prefilledEmail?.trim() ?? "";
+    const key = prefillKey ?? trimmedEmail;
+    if (!emailFirstFlow || !resolveEmailFirstOnPrefill || !trimmedEmail || resolvedLoginOptionPrefillRef.current === key || loginOption || loginOptionBusy) {
+      return;
+    }
+
+    let cancelled = false;
+    resolvedLoginOptionPrefillRef.current = key;
+
+    async function resolvePrefilledLoginOption() {
+      setLoginOptionBusy(true);
+      setLoginOptionError(null);
+      setLoginOption(null);
+      setPassword("");
+      setAuthName("");
+
+      try {
+        const { response, payload } = await requestJson(`/v1/auth/login-options?email=${encodeURIComponent(trimmedEmail)}`, { method: "GET" }, 12000);
+        if (cancelled) {
+          return;
+        }
+        if (!response.ok) {
+          setLoginOptionError(getErrorMessage(payload, response.status === 403 ? "We could not verify this sign-in attempt. Please refresh and try again." : `Could not check sign-in options (${response.status}).`));
+          return;
+        }
+
+        const nextOption = readLoginOption(payload);
+        if (!nextOption) {
+          setLoginOptionError("The sign-in options response was incomplete. Try again.");
+          return;
+        }
+
+        setEmail(trimmedEmail);
+        setAuthMode(nextOption.nextStep === "new_account" ? "sign-up" : "sign-in");
+        setLoginOption(nextOption);
+      } catch (error) {
+        if (!cancelled) {
+          setLoginOptionError(error instanceof Error ? error.message : "Could not check sign-in options.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoginOptionBusy(false);
+        }
+      }
+    }
+
+    void resolvePrefilledLoginOption();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [emailFirstFlow, loginOption, loginOptionBusy, prefillKey, prefilledEmail, resolveEmailFirstOnPrefill, setAuthMode, setAuthName, setEmail, setPassword]);
 
   const switchMode = (mode: AuthMode) => {
     if (mode === authMode && !passwordResetRequested) {
@@ -534,6 +592,7 @@ export function AuthPanel({
   const signedInEmail = user?.email?.trim() || "";
   const emailFirstPanelActive = emailFirstFlow && !isSingleOrgSsoMode && !verificationRequired && !isPasswordResetRequest;
   const emailFirstFormBusy = loginOptionBusy || authBusy || desktopRedirectBusy;
+  const waitingForPrefilledLoginOption = resolveEmailFirstOnPrefill && Boolean(prefilledEmail?.trim()) && !loginOption;
 
   if (isSignedInWithDesktopHandoff) {
     return (
@@ -603,7 +662,13 @@ export function AuthPanel({
           />
         ) : null}
 
-        {emailFirstStep === "email" ? (
+        {waitingForPrefilledLoginOption ? (
+          <div className="den-frame-inset rounded-[1.5rem] px-4 py-3 text-center text-sm text-[var(--dls-text-secondary)]" aria-live="polite">
+            {loginOptionBusy ? "Checking the workspace sign-in method..." : "Could not check the workspace sign-in method. Refresh and try again."}
+          </div>
+        ) : null}
+
+        {!waitingForPrefilledLoginOption && emailFirstStep === "email" ? (
           <form className="grid gap-4" onSubmit={resolveEmailFirstStep}>
             <label className="grid gap-2">
               <span className="den-label">Email</span>
@@ -627,7 +692,7 @@ export function AuthPanel({
           </form>
         ) : null}
 
-        {emailFirstStep === "sso" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "sso" ? (
           <button
             type="button"
             className="den-button-primary w-full"
@@ -639,7 +704,7 @@ export function AuthPanel({
           </button>
         ) : null}
 
-        {emailFirstStep === "google" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "google" ? (
           <SocialButton
             onClick={() => void beginSocialAuth("google")}
             disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
@@ -649,7 +714,7 @@ export function AuthPanel({
           </SocialButton>
         ) : null}
 
-        {emailFirstStep === "github" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "github" ? (
           <SocialButton
             onClick={() => void beginSocialAuth("github")}
             disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
@@ -659,7 +724,7 @@ export function AuthPanel({
           </SocialButton>
         ) : null}
 
-        {emailFirstStep === "password" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "password" ? (
           <form
             className="grid gap-4"
             onSubmit={async (event) => {
@@ -699,7 +764,7 @@ export function AuthPanel({
           </form>
         ) : null}
 
-        {emailFirstStep === "new_account" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "new_account" ? (
           <form
             className="grid gap-4"
             onSubmit={async (event) => {
@@ -707,17 +772,21 @@ export function AuthPanel({
               await handleAuthNavigation(next);
             }}
           >
-            <label className="grid gap-2">
-              <span className="den-label">Email</span>
-              <input
-                className="den-input"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                required
-              />
-            </label>
+            {!hideEmailField ? (
+              <label className="grid gap-2">
+                <span className="den-label">Email</span>
+                <input
+                  className="den-input disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  readOnly={lockEmail}
+                  disabled={lockEmail}
+                  required
+                />
+              </label>
+            ) : null}
             <label className="grid gap-2">
               <span className="den-label">Name</span>
               <input
@@ -729,16 +798,20 @@ export function AuthPanel({
                 required
               />
             </label>
-            <div className="den-divider" aria-hidden="true">
-              <span>or</span>
-            </div>
-            <SocialButton
-              onClick={() => void beginSocialAuth("google")}
-              disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
-            >
-              <GoogleLogo />
-              <span>Sign up with Google</span>
-            </SocialButton>
+            {!hideSocialAuth ? (
+              <>
+                <div className="den-divider" aria-hidden="true">
+                  <span>or</span>
+                </div>
+                <SocialButton
+                  onClick={() => void beginSocialAuth("google")}
+                  disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
+                >
+                  <GoogleLogo />
+                  <span>Sign up with Google</span>
+                </SocialButton>
+              </>
+            ) : null}
             <label className="grid gap-2">
               <span className="den-label">Password</span>
               <input
