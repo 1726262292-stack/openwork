@@ -57,7 +57,6 @@ import { SessionEmptyHero } from "./session-empty-hero";
 import type { NewTaskComposerContext } from "./new-task-composer";
 import type { SessionCloudMcpMaintenanceState } from "../../connections/use-session-mcp-maintenance";
 import { OwDotTicker } from "../../../shell/dot-ticker";
-import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
@@ -1139,7 +1138,6 @@ export function SessionPage(props: SessionPageProps) {
                   <TooltipContent>Find in conversation (⌘F)</TooltipContent>
                 </Tooltip>
               ) : null}
-              <NotificationBell />
               <Tooltip>
                 <TooltipTrigger
                   render={

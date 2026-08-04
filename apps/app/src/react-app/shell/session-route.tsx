@@ -19,6 +19,7 @@ import { captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { trackSessionActive, trackTaskStarted } from "@/app/lib/den-telemetry";
 import { buildDiagnosticsBundleJson } from "@/app/lib/diagnostics-bundle";
 import { downloadTextAsFile } from "@/app/lib/download";
+import { canCreateWorkspaces } from "@/app/lib/workspace-creation-policy";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
@@ -1534,6 +1535,7 @@ export function SessionRoute() {
   ]);
 
   const handleOpenCreateWorkspace = useCallback(() => {
+    if (!canCreateWorkspaces()) return;
     // Respect the org-level `allowMultipleWorkspaces` restriction (dev
     // #1505). If the checker returns true, the admin has disabled
     // adding further workspaces; surface a friendly notice instead of
@@ -2317,6 +2319,8 @@ export function SessionRoute() {
   const handleChatFirstTask = useCallback((prompt: string, attachments?: ComposerAttachment[]) => {
     void (async () => {
       if (!isDesktopRuntime()) {
+        // The cloud workspace is provisioned by Den; boot takeover covers the pre-attach state.
+        if (!canCreateWorkspaces()) return;
         handleOpenCreateWorkspace();
         return;
       }
@@ -2345,6 +2349,7 @@ export function SessionRoute() {
       { name: "projectLabel", type: "string", required: false, description: "Optional project name used to group the workspace's sessions in analytics." },
     ],
     execute: async (args) => {
+      if (!canCreateWorkspaces()) return { ok: false, error: "workspace creation is unavailable" };
       const parsed = args as { path?: string; projectLabel?: string } | undefined;
       const folder = parsed?.path?.trim();
       if (!folder) return { ok: false, error: "path is required" };

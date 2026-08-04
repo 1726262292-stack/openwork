@@ -10,12 +10,12 @@ import {
   ChevronRight,
   Columns2,
   FolderPlus,
+  LayoutGrid,
   MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
   Plus,
-  Puzzle,
   Search,
   Share2,
   Trash2,
@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Settings,
   FolderOpen,
+  SquarePen,
   Tag,
   X,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
 import { OpenWorkDenHelpLink } from "../../workspace/openwork-den-help-link";
+import { NotificationBell } from "../../../shell/notification-center";
 import type {
   WorkspaceConnectionState,
   WorkspaceSessionGroup,
@@ -44,6 +46,7 @@ import {
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { useBrandLogoUrl } from "../../cloud/brand-theme";
+import { canCreateWorkspaces } from "../../../../app/lib/workspace-creation-policy";
 
 import {
   Sidebar,
@@ -1111,6 +1114,19 @@ export function AppSidebar(props: AppSidebarProps) {
         ) : null}
         <SidebarHeader className="pb-0 pe-0">
           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                data-sidebar-new-chat
+                aria-label={t("session.new_task")}
+                tooltip={t("session.new_task")}
+                disabled={props.newTaskDisabled}
+                onClick={() => props.onCreateTaskInWorkspace(props.selectedWorkspaceId)}
+              >
+                <SquarePen />
+                <span className="flex-1 truncate">{t("session.new_task")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             {props.onOpenSessionSearch ? (
               <SidebarMenuItem>
                 <SidebarMenuButton
@@ -1136,10 +1152,13 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
             <SidebarDestination
               active={props.extensionsActive === true}
-              icon={Puzzle}
+              icon={LayoutGrid}
               label={t("settings.tab_extensions")}
               onSelect={props.onOpenExtensions}
             />
+            <SidebarMenuItem>
+              <NotificationBell variant="sidebar-row" />
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>
         <SidebarSplitPill
@@ -1163,15 +1182,17 @@ export function AppSidebar(props: AppSidebarProps) {
               <span className={SIDEBAR_SECTION_LABEL}>
                 {t("workspace_list.title")}
               </span>
-              <button
-                type="button"
-                className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-foreground"
-                onClick={props.onOpenCreateWorkspace}
-                aria-label={t("workspace_list.add_workspace")}
-                title={t("workspace_list.add_workspace")}
-              >
-                <Plus className="size-3.5" />
-              </button>
+              {canCreateWorkspaces() ? (
+                <button
+                  type="button"
+                  className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                  onClick={props.onOpenCreateWorkspace}
+                  aria-label={t("workspace_list.add_workspace")}
+                  title={t("workspace_list.add_workspace")}
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              ) : null}
             </div>
             <Reorder.Group
               as="div"
@@ -2237,9 +2258,9 @@ type SessionMenuItemProps = {
 
 function SessionNumberShortcutSlot({ digit }: { digit: number | undefined }) {
   const ctx = useSidebarContext();
-  const label = digit === undefined
-    ? null
-    : sessionNumberShortcutLabel(ctx.sessionNumberShortcutOs, digit);
+  if (digit === undefined) return null;
+
+  const label = sessionNumberShortcutLabel(ctx.sessionNumberShortcutOs, digit);
 
   return (
     <span
@@ -2250,14 +2271,12 @@ function SessionNumberShortcutSlot({ digit }: { digit: number | undefined }) {
         ctx.sessionNumberShortcutOs === "macos" ? "w-8" : "w-11",
       )}
     >
-      {label ? (
-        <kbd
-          data-session-shortcut-badge={digit}
-          className="inline-flex h-5 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/80 px-1.5 font-sans text-[10px] font-medium leading-none tracking-tight text-sidebar-foreground/70 shadow-xs"
-        >
-          {label}
-        </kbd>
-      ) : null}
+      <kbd
+        data-session-shortcut-badge={digit}
+        className="inline-flex h-5 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/80 px-1.5 font-sans text-[10px] font-medium leading-none tracking-tight text-sidebar-foreground/70 shadow-xs"
+      >
+        {label}
+      </kbd>
     </span>
   );
 }

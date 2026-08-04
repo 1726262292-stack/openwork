@@ -5,6 +5,7 @@
  * in one call -- mirrors what cli.ts does but returns a handle instead
  * of owning the process lifecycle.
  */
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
@@ -53,6 +54,79 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
   let managedOpencodeIdentity: string | null = null;
+  let stopRuntimeConfigFileRefresh: (() => void) | null = null;
+  let server: ServeResult | null = null;
+  let stopPromise: Promise<void> | null = null;
+
+  const releaseResources = async (): Promise<void> => {
+    const errors: unknown[] = [];
+
+    const identity = managedOpencodeIdentity;
+    managedOpencodeIdentity = null;
+    if (identity) {
+      try {
+        clearTrustedOpencodeProcess(config, identity);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    const opencode = managedOpencode;
+    managedOpencode = null;
+    if (opencode) {
+      try {
+        await opencode.close();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    const httpServer = server;
+    server = null;
+    if (httpServer) {
+      try {
+        await httpServer.stop();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    const unsubscribe = stopRuntimeConfigFileRefresh;
+    stopRuntimeConfigFileRefresh = null;
+    if (unsubscribe) {
+      try {
+        unsubscribe();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Failed to stop embedded OpenWork server");
+    }
+  };
+
+  const stop = (): Promise<void> => {
+    stopPromise ??= releaseResources();
+    return stopPromise;
+  };
+
+  const duringStartup = async <T>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      return await operation();
+    } catch (startupError) {
+      try {
+        await stop();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [startupError, cleanupError],
+          "Embedded OpenWork server startup failed and cleanup was incomplete",
+        );
+      }
+      throw startupError;
+    }
+  };
 
   if (!config.readOnly) {
     await ensureLocalWorkspaceFiles(config.workspaces);
@@ -65,15 +139,15 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       // instance rebuild, and keepOpenworkRuntimeConfigFileFresh synchronizes it
       // on every runtime-DB write — so disposes always pick up current state.
       const { path: runtimeConfigPath } = await writeOpenworkRuntimeConfigFile(config, workspace.id);
-      keepOpenworkRuntimeConfigFileFresh(config, workspace.id);
+      stopRuntimeConfigFileRefresh = keepOpenworkRuntimeConfigFileFresh(config, workspace.id);
       const cwd = options.opencodeCwd
         || process.env.OPENWORK_MANAGED_OPENCODE_CWD?.trim()
         || workspace.path;
-      await mkdir(cwd, { recursive: true });
+      await duringStartup(() => mkdir(cwd, { recursive: true }));
       await sweepLegacyOpenCodeConfig(config).catch(() => undefined);
-      const opencodeModelsUrl = await resolveOpencodeModelsUrl();
+      const opencodeModelsUrl = await duringStartup(() => resolveOpencodeModelsUrl());
 
-      managedOpencode = await createManagedOpencodeServer({
+      managedOpencode = await duringStartup(() => createManagedOpencodeServer({
         bin: options.opencodeBin || process.env.OPENWORK_OPENCODE_BIN,
         cwd,
         excludedPorts: [config.port],
@@ -85,7 +159,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           OPENCODE_CONFIG: runtimeConfigPath,
           OPENCODE_MODELS_URL: opencodeModelsUrl,
         },
-      });
+      }));
 
       config.opencodeBaseUrl = managedOpencode.url;
       config.opencodeUsername = managedOpencode.username;
@@ -103,10 +177,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         entry.opencodePassword = managedOpencode.password;
         entry.directory = entry.path;
       }
+      // The identity only needs to be unique per managed-process boot; a
+      // random nonce provides that without routing the engine credentials
+      // through the fast identity hash.
       managedOpencodeIdentity = [
         managedOpencode.pid ?? "unknown",
-        managedOpencode.username,
-        managedOpencode.password,
+        randomUUID(),
       ].join(":");
       registerTrustedOpencodeProcess(config, {
         baseUrl: managedOpencode.url,
@@ -116,7 +192,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     }
   }
 
-  const server = await startServer(config);
+  server = await duringStartup(() => startServer(config));
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
@@ -133,12 +209,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     managedOpencode: managedOpencode
       ? { pid: managedOpencode.pid ?? null, isAlive: managedOpencode.isAlive }
       : null,
-    async stop() {
-      if (managedOpencodeIdentity) {
-        clearTrustedOpencodeProcess(config, managedOpencodeIdentity);
-      }
-      await managedOpencode?.close();
-      await server.stop();
-    },
+    stop,
   };
 }

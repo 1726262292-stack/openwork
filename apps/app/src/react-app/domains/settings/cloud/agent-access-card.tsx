@@ -76,6 +76,16 @@ function buildCloudMcpContext(input: {
   };
 }
 
+function missingCloudMcpContextMessage(input: {
+  client: OpenworkServerClient | null;
+  workspaceId: string | null;
+}): string {
+  if (!input.workspaceId?.trim()) return "Select a workspace before running agent access diagnostics.";
+  if (!input.client?.baseUrl.trim()) return "Connect to the workspace server before running agent access diagnostics.";
+  if (!readDenSettings().activeOrgId?.trim()) return "Select an organization before running agent access diagnostics.";
+  return "Agent access diagnostics are unavailable for the current workspace.";
+}
+
 export function readyCloudMcpToolIds(health: OpenworkCloudMcpHealth | null): string[] {
   if (!health?.usable) return [];
   return health.tools.present.filter((tool) => OPENWORK_CLOUD_EXPECTED_TOOLS.some((expected) => expected === tool));
@@ -112,7 +122,10 @@ export function AgentAccessCard(props: {
   };
 
   const testNow = async () => {
-    if (!props.client || !context) return;
+    if (!props.client || !context) {
+      setError(missingCloudMcpContextMessage(props));
+      return;
+    }
     setBusy("test");
     setError(null);
     try {
@@ -136,7 +149,10 @@ export function AgentAccessCard(props: {
   };
 
   const refreshEngineConnection = async () => {
-    if (!props.client || !context) return;
+    if (!props.client || !context) {
+      setError(missingCloudMcpContextMessage(props));
+      return;
+    }
     setBusy("refresh");
     setError(null);
     try {
@@ -181,7 +197,10 @@ export function AgentAccessCard(props: {
   };
 
   const repairAndTest = async () => {
-    if (!props.client || !context) return;
+    if (!props.client || !context) {
+      setError(missingCloudMcpContextMessage(props));
+      return;
+    }
     setBusy("repair");
     setError(null);
     try {
@@ -447,4 +466,3 @@ function AgentAccessAdvanced(props: {
     </div>
   );
 }
-

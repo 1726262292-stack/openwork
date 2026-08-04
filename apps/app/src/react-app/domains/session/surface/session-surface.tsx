@@ -67,6 +67,7 @@ import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-m
 import { deriveOpenTargets, selectAutoOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
 import {
+  markSessionSnapshotFetchStart,
   seedSessionState,
   snapshotKey as reactSnapshotKey,
   statusKey as reactStatusKey,
@@ -741,7 +742,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
   );
   const snapshotQuery = useQuery<OpenworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
-    queryFn: async () => (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, { limit: 140 })).item,
+    queryFn: async () => {
+      const startedAt = Date.now();
+      const item = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, { limit: 140 })).item;
+      markSessionSnapshotFetchStart(item, startedAt);
+      return item;
+    },
     staleTime: 500,
   });
 
@@ -2028,9 +2034,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 props.cloudMcpSubmissionState.issue?.recommendedAction,
               ].filter(Boolean).join(" ")}
             </span>
-            <button type="button" className="font-medium hover:underline" onClick={handleRetryCloudSubmission}>
-              Retry
-            </button>
+            {props.cloudMcpSubmissionState.issue?.retryable !== false ? (
+              <button type="button" className="font-medium hover:underline" onClick={handleRetryCloudSubmission}>
+                Retry
+              </button>
+            ) : null}
             <button type="button" className="font-medium hover:underline" onClick={props.onOpenConnect}>
               Open Connect
             </button>

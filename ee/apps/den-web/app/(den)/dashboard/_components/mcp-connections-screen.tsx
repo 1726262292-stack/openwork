@@ -1661,8 +1661,8 @@ function McpToolCatalog({ connection }: { connection: ExternalMcpConnection }) {
   const [visibleToolLimit, setVisibleToolLimit] = useState(MCP_TOOL_PAGE_SIZE);
   const filteredTools = useMemo(() => {
     const needle = toolSearch.trim().toLowerCase();
-    if (!needle) return catalog.data ?? [];
-    return (catalog.data ?? []).filter((tool) =>
+    if (!needle) return catalog.data?.tools ?? [];
+    return (catalog.data?.tools ?? []).filter((tool) =>
       [tool.name, tool.title, tool.annotations?.title, tool.description]
         .some((value) => value?.toLowerCase().includes(needle)),
     );
@@ -1688,7 +1688,7 @@ function McpToolCatalog({ connection }: { connection: ExternalMcpConnection }) {
         </DenButton>
       </div>
 
-      {catalog.data && catalog.data.length > 0 ? (
+      {catalog.data && catalog.data.tools.length > 0 ? (
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="w-full sm:max-w-sm">
             <DenInput
@@ -1704,8 +1704,8 @@ function McpToolCatalog({ connection }: { connection: ExternalMcpConnection }) {
           </div>
           <p className="shrink-0 text-[11px] font-medium text-gray-500" role="status">
             {toolSearch.trim()
-              ? `${filteredTools.length} of ${catalog.data.length} tools`
-              : `${catalog.data.length} ${catalog.data.length === 1 ? "tool" : "tools"} exposed`}
+              ? `${filteredTools.length} of ${catalog.data.tools.length} tools`
+              : `${catalog.data.tools.length} ${catalog.data.tools.length === 1 ? "tool" : "tools"} exposed`}
           </p>
         </div>
       ) : null}
@@ -1719,7 +1719,7 @@ function McpToolCatalog({ connection }: { connection: ExternalMcpConnection }) {
         <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[12px] leading-5 text-red-700">
           {catalog.error instanceof Error ? catalog.error.message : "Could not read this MCP's tools."}
         </div>
-      ) : catalog.data?.length === 0 ? (
+      ) : catalog.data?.tools.length === 0 ? (
         <div className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-3 text-[12px] text-gray-500">
           This MCP is connected but does not currently expose any tools.
         </div>

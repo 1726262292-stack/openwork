@@ -1209,6 +1209,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (!isOpenAiProvider) continue;
       merged[id] = providerMethods.filter((method) => {
         if (method.type !== "oauth") return true;
+        // Browser mode can't complete the ChatGPT sign-in flows, so only API keys
+        // are offered off-desktop.
+        if (!isDesktopRuntime()) return false;
         const label = method.label.toLowerCase();
         const isHeadless = /headless|device/.test(label);
         return workerType === "remote" ? isHeadless : !isHeadless;
