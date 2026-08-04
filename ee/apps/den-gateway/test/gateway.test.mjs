@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createGatewayApp } from "../src/app.ts"
+import { resolveGatewayBuildVersion } from "../src/env.ts"
 
 const silentLogger = {
   log() {},
@@ -165,6 +166,16 @@ function startUpstream() {
   })
   return { server, observed }
 }
+
+describe("gateway build version", () => {
+  test("prefers the explicit version and falls back to Render's commit", () => {
+    expect(resolveGatewayBuildVersion({ denGatewayVersion: " openwork-0.19.0 ", renderGitCommit: " render-sha " })).toBe("openwork-0.19.0")
+    expect(resolveGatewayBuildVersion({ renderGitCommit: " render-sha " })).toBe("render-sha")
+    expect(resolveGatewayBuildVersion({ denGatewayVersion: "  ", renderGitCommit: " render-sha " })).toBe("render-sha")
+    expect(resolveGatewayBuildVersion({ denGatewayVersion: "  ", renderGitCommit: "\t" })).toBeUndefined()
+    expect(resolveGatewayBuildVersion({})).toBeUndefined()
+  })
+})
 
 describe("den-gateway static UI", () => {
   test("serves index, falls back for deep routes, hard-404s asset misses, rejects traversal, and caches assets immutably", async () => {
