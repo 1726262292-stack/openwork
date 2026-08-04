@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Loader2, Minus, MoreHorizontal, Pencil, Plug, Puzzle, RefreshCw, Search, Server, Trash2, Users, Wrench } from "lucide-react";
 import { buttonVariants, DenButton } from "../../_components/ui/button";
@@ -10,7 +10,7 @@ import { DenInput } from "../../_components/ui/input";
 import { DenNotice } from "../../_components/ui/notice";
 import { DenSelect } from "../../_components/ui/select";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
-import { getPluginRoute } from "../../_lib/den-org";
+import { getPluginRoute, getToolTesterRoute } from "../../_lib/den-org";
 import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { IntegrationIcon } from "./integration-icon";
 import { Microsoft365Dialog } from "./microsoft-365-dialog";
@@ -264,9 +264,13 @@ export function McpConnectionsScreen() {
   const deleteConnection = useDeleteMcpConnection();
   const saveNativeClient = useSaveNativeProviderClient();
   const reviewIssuer = useReviewMcpIssuer();
+  const resolveSmartBarConnection = useResolveMcpConnection();
 
   const [formOpen, setFormOpen] = useState(false);
   const [formPreset, setFormPreset] = useState<ExternalMcpPreset | null>(null);
+  const [formInitialView, setFormInitialView] = useState<"smart" | "advanced" | undefined>();
+  const [formInitialUrl, setFormInitialUrl] = useState("");
+  const [formInitialName, setFormInitialName] = useState("");
   const [editingConnection, setEditingConnection] = useState<ExternalMcpConnection | null>(null);
   const [configuringOAuthClient, setConfiguringOAuthClient] = useState(false);
   const [issuerReviewConnection, setIssuerReviewConnection] = useState<ExternalMcpConnection | null>(null);
@@ -279,10 +283,17 @@ export function McpConnectionsScreen() {
   const [pollingConnectionId, setPollingConnectionId] = useState<string | null>(null);
   const [oauthClientConfigurationRequiredIds, setOAuthClientConfigurationRequiredIds] = useState<string[]>([]);
   const [connectionActionError, setConnectionActionError] = useState<{ connectionId: string; message: string } | null>(null);
-  const [connectionActionNotice, setConnectionActionNotice] = useState<string | null>(null);
+  const [connectionActionNotice, setConnectionActionNotice] = useState<ReactNode | null>(null);
   const [toolsConnectionId, setToolsConnectionId] = useState<string | null>(null);
+  const [smartQuery, setSmartQuery] = useState("");
+  const [smartBarState, setSmartBarState] = useState<"idle" | "waiting" | "resolving" | "done" | "error">("idle");
+  const [smartBarError, setSmartBarError] = useState<unknown>(null);
+  const [smartBarResolution, setSmartBarResolution] = useState<McpConnectionResolution | null>(null);
+  const [smartBarSubmitting, setSmartBarSubmitting] = useState(false);
+  const [instantAddingPresetId, setInstantAddingPresetId] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const handledQuickAddId = useRef<string | null>(null);
+  const smartBarRequestId = useRef(0);
 
   function openQuickAdd(id: string) {
     if (id === GOOGLE_WORKSPACE_QUICK_ADD_ID) {
@@ -301,9 +312,79 @@ export function McpConnectionsScreen() {
 
     const preset = presets.find((entry) => entry.presetId === id);
     if (!preset) return;
+    setFormInitialView(undefined);
+    setFormInitialUrl("");
+    setFormInitialName("");
     setFormPreset(preset);
     setFormOpen(true);
   }
+
+  function openAdvancedSetup(initialName = "", initialUrl = "") {
+    createConnection.reset();
+    setFormPreset(null);
+    setFormInitialView("advanced");
+    setFormInitialName(initialName);
+    setFormInitialUrl(initialUrl);
+    setFormOpen(true);
+  }
+
+  function manageConnection(connectionId: string) {
+    const connection = connections.find((entry) => entry.id === connectionId);
+    if (!connection) return;
+    updateConnection.reset();
+    setConfiguringOAuthClient(false);
+    setEditingConnection(connection);
+  }
+
+  const smartBarInputKind = classifySmartAddInput(smartQuery);
+  const smartBarResolutionMode = smartBarInputKind === "url" || smartBarInputKind === "domain";
+
+  useEffect(() => {
+    const requestId = smartBarRequestId.current + 1;
+    smartBarRequestId.current = requestId;
+    setSmartBarResolution(null);
+    setSmartBarError(null);
+    if (!smartBarResolutionMode) {
+      setSmartBarState("idle");
+      return;
+    }
+
+    setSmartBarState("waiting");
+    const timer = window.setTimeout(async () => {
+      setSmartBarState("resolving");
+      try {
+        const result = await resolveSmartBarConnection.mutateAsync(smartQuery.trim());
+        if (smartBarRequestId.current !== requestId) return;
+        setSmartBarResolution(result);
+        setSmartBarState("done");
+      } catch (resolveFailure) {
+        if (smartBarRequestId.current !== requestId) return;
+        setSmartBarError(resolveFailure);
+        setSmartBarState("error");
+      }
+    }, SMART_RESOLVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [smartQuery, smartBarResolutionMode]);
+
+  const smartBarMatch = smartBarState === "done" ? smartBarResolution?.match ?? null : null;
+  const smartBarName = smartBarMatch?.suggestedName ?? smartBarResolution?.preset?.displayName ?? "";
+  const smartBarPlan = smartBarMatch
+    ? planSmartAdd(smartBarMatch.discovery, { name: smartBarName, url: smartBarMatch.url })
+    : null;
+  // Keep curated preset requirements authoritative over a probe that would
+  // otherwise look one-click, matching the smart dialog's planning rules.
+  const smartBarBlockers = smartBarPlan
+    ? smartBarPlan.readiness !== "one_click"
+      ? smartBarPlan.reasons
+      : smartBarResolution?.preset?.requiresOAuthClient
+        ? ["This provider needs a pre-registered OAuth app."]
+        : smartBarResolution?.preset?.authType === "apikey"
+          ? ["This provider needs your org's API key."]
+          : []
+    : [];
+  const smartBarOneClick = smartBarPlan?.readiness === "one_click" && smartBarBlockers.length === 0
+    ? smartBarPlan
+    : null;
 
   useEffect(() => {
     const quickAddId = searchParams.get("quickAdd");
@@ -405,6 +486,81 @@ export function McpConnectionsScreen() {
         message: createError instanceof Error ? createError.message : "Failed to create the MCP connection.",
       });
       throw createError;
+    }
+  }
+
+  async function handleSmartBarSubmit() {
+    if (!smartBarOneClick) return;
+    setSmartBarSubmitting(true);
+    setConnectionActionError(null);
+    setConnectionActionNotice(null);
+    try {
+      await handleCreate(smartBarOneClick.input, {
+        startOAuth: smartBarOneClick.input.authType === "oauth" && smartBarOneClick.input.credentialMode === "shared",
+      });
+      setSmartQuery("");
+      setConnectionActionNotice(`${smartBarOneClick.input.name} added for everyone in ${orgContext?.organization.name ?? "the organization"}.`);
+      await refetch();
+    } catch (submitError) {
+      setConnectionActionError({
+        connectionId: "smart-bar",
+        message: submitError instanceof Error ? submitError.message : "Failed to add the MCP connection.",
+      });
+    } finally {
+      setSmartBarSubmitting(false);
+    }
+  }
+
+  async function handleUndoInstantAdd(connectionId: string) {
+    setConnectionActionError(null);
+    try {
+      await deleteConnection.mutateAsync(connectionId);
+      setConnectionActionNotice(null);
+      await refetch();
+    } catch (deleteError) {
+      setConnectionActionError({
+        connectionId,
+        message: deleteError instanceof Error ? deleteError.message : "Failed to undo the connector addition.",
+      });
+    }
+  }
+
+  async function handleInstantAdd(preset: ExternalMcpPreset) {
+    setInstantAddingPresetId(preset.presetId);
+    setConnectionActionError(null);
+    setConnectionActionNotice(null);
+    try {
+      const created = await createConnection.mutateAsync({
+        name: preset.displayName,
+        url: preset.url,
+        authType: "none",
+        credentialMode: "shared",
+        access: { orgWide: true, memberIds: [], teamIds: [] },
+      });
+      const orgName = orgContext?.organization.name ?? "the organization";
+      const toolTesterHref = `${getToolTesterRoute(orgSlug)}?connectionId=${encodeURIComponent(created.id)}`;
+      setConnectionActionNotice(
+        <>
+          {preset.displayName} added for everyone in {orgName}.{" "}
+          <Link href={toolTesterHref} className="font-semibold underline underline-offset-2">Test tools</Link>
+          {" · "}
+          <button
+            type="button"
+            className="font-semibold underline underline-offset-2"
+            onClick={() => void handleUndoInstantAdd(created.id)}
+          >
+            Undo
+          </button>
+        </>,
+      );
+      await refetch();
+    } catch (createError) {
+      setConnectionActionError({
+        connectionId: preset.presetId,
+        message: createError instanceof Error ? createError.message : "Failed to add the MCP connection.",
+      });
+    } finally {
+      setInstantAddingPresetId(null);
     }
   }
 
@@ -514,27 +670,130 @@ export function McpConnectionsScreen() {
         </div>
       ) : null}
 
-      <div className="mb-6">
-        <DenButton
-          type="button"
-          icon={Server}
-          onClick={() => {
-            setFormPreset(null);
-            setFormOpen(true);
-          }}
-        >
-          Add MCP
-        </DenButton>
-      </div>
-
       <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Quick add</h3>
       <div className="mb-8">
-        <ConnectorQuickAddGrid
-          connections={connections}
-          presets={presets}
-          telegramConnected={Boolean(telegramConnection.data)}
-          onSelect={openQuickAdd}
-        />
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <DenInput
+              icon={Search}
+              iconSize={20}
+              value={smartQuery}
+              onChange={(event) => setSmartQuery(event.target.value)}
+              placeholder="Search connectors — or paste any MCP server URL to add it"
+              data-testid="connector-smart-bar"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => openAdvancedSetup()}
+            className="shrink-0 text-[12px] font-medium text-gray-500 underline decoration-gray-300 underline-offset-4 transition hover:text-gray-900"
+          >
+            Advanced setup
+          </button>
+        </div>
+        <p className="mt-1.5 text-[11px] text-gray-400">
+          Typing filters the tiles below. Pasting a URL checks the server and offers to add it right here.
+        </p>
+
+        {smartBarState === "waiting" || smartBarState === "resolving" ? (
+          <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-[13px] text-gray-500" role="status">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Checking the server…
+          </div>
+        ) : null}
+
+        {smartBarState === "error" ? (
+          <div className="mt-4 rounded-2xl border border-red-100 bg-red-50 px-4 py-3.5 text-[13px] text-red-700" role="alert">
+            {smartBarError instanceof Error ? smartBarError.message : "The lookup failed. Try again, or set the server up manually."}
+          </div>
+        ) : null}
+
+        {smartBarState === "done" && !smartBarMatch ? (
+          <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3.5 text-[13px] leading-5 text-gray-600">
+            <span>{smartBarResolution?.reason ?? (smartBarResolution?.preset
+              ? `We found ${smartBarResolution.preset.displayName}, but couldn't verify the server automatically.`
+              : `We couldn't find an MCP server for "${smartQuery.trim()}".`)}</span>
+            <button
+              type="button"
+              onClick={() => openAdvancedSetup(
+                smartBarResolution?.preset?.displayName ?? "",
+                smartBarResolution?.preset?.url ?? (smartBarInputKind === "domain" ? `https://${smartQuery.trim()}` : smartQuery.trim()),
+              )}
+              className="shrink-0 font-medium underline underline-offset-2"
+            >
+              Advanced setup
+            </button>
+          </div>
+        ) : null}
+
+        {smartBarMatch ? (
+          <div data-testid="smart-bar-result-card" className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <IntegrationIcon name={smartBarName} serviceUrl={smartBarMatch.url} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[14px] font-semibold text-gray-900">{smartBarName}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-gray-400">{smartBarMatch.url}</p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <DenButton
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => openAdvancedSetup(smartBarName, smartBarMatch.url)}
+                >
+                  Options
+                </DenButton>
+                <DenButton
+                  variant="primary"
+                  size="sm"
+                  loading={smartBarSubmitting}
+                  disabled={!smartBarOneClick}
+                  onClick={() => void handleSmartBarSubmit()}
+                  data-testid="smart-bar-submit"
+                >
+                  Add connection
+                </DenButton>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-700">{smartAddAuthLabel(smartBarMatch.discovery)}</span>
+              {typeof smartBarMatch.discovery.tools.count === "number" ? (
+                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-700">
+                  {smartBarMatch.discovery.tools.count} tool{smartBarMatch.discovery.tools.count === 1 ? "" : "s"}
+                </span>
+              ) : null}
+              {smartBarOneClick ? (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">Ready to add</span>
+              ) : null}
+            </div>
+            {smartBarBlockers.length > 0 ? (
+              <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2.5 text-[12px] text-amber-800">
+                Needs a little more setup: {smartBarBlockers.join(" · ")}{" "}
+                <button
+                  type="button"
+                  onClick={() => openAdvancedSetup(smartBarName, smartBarMatch.url)}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  Continue setup
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-5">
+          <ConnectorQuickAddGrid
+            connections={connections}
+            presets={presets}
+            telegramConnected={Boolean(telegramConnection.data)}
+            onSelect={openQuickAdd}
+            filter={smartBarResolutionMode ? "" : smartQuery}
+            onManage={manageConnection}
+            onInstantAdd={(preset) => void handleInstantAdd(preset)}
+            instantAddingPresetId={instantAddingPresetId}
+          />
+        </div>
       </div>
 
       <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Your connectors</h3>
@@ -597,11 +856,17 @@ export function McpConnectionsScreen() {
       <AddConnectionDialog
         open={formOpen}
         preset={formPreset}
+        initialView={formInitialView}
+        initialUrl={formInitialUrl}
+        initialName={formInitialName}
         submitting={createConnection.isPending}
         error={createConnection.error}
         onClose={() => {
           setFormOpen(false);
           setFormPreset(null);
+          setFormInitialView(undefined);
+          setFormInitialUrl("");
+          setFormInitialName("");
         }}
         onSubmit={handleCreate}
       />
@@ -2240,6 +2505,9 @@ function EditConnectionDialog({
 function AddConnectionDialog({
   open,
   preset,
+  initialView,
+  initialUrl,
+  initialName,
   submitting,
   error,
   onClose,
@@ -2247,6 +2515,9 @@ function AddConnectionDialog({
 }: {
   open: boolean;
   preset: ExternalMcpPreset | null;
+  initialView?: "smart" | "advanced";
+  initialUrl?: string;
+  initialName?: string;
   submitting: boolean;
   error: unknown;
   onClose: () => void;
@@ -2288,7 +2559,7 @@ function AddConnectionDialog({
 
   useEffect(() => {
     if (!open) return;
-    setView(preset ? "advanced" : "smart");
+    setView(initialView ?? (preset ? "advanced" : "smart"));
     setSmartQuery("");
     setSmartState("idle");
     setSmartError(null);
@@ -2296,8 +2567,8 @@ function AddConnectionDialog({
     setSmartName("");
     smartRequestId.current += 1;
     smartResolveDelayRef.current = SMART_RESOLVE_DELAY_MS;
-    setName(preset?.displayName ?? "");
-    setUrl(preset?.url ?? "");
+    setName(preset?.displayName ?? initialName ?? "");
+    setUrl(preset?.url ?? initialUrl ?? "");
     setAuthType(preset?.authType ?? "oauth");
     setCredentialMode("per_member");
     setApiKey("");
@@ -2314,7 +2585,7 @@ function AddConnectionDialog({
     setAccessMode("everyone");
     setSelectedTeamIds([]);
     setSelectedMemberIds([]);
-  }, [open, preset]);
+  }, [initialName, initialUrl, initialView, open, preset]);
 
   const teams = useMemo(() => orgContext?.teams ?? [], [orgContext?.teams]);
   const members = useMemo(

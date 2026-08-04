@@ -31,13 +31,14 @@ describe("connector and marketplace polish", () => {
     expect(screen).not.toContain('badgeLabel="Preview"');
   });
 
-  test("uses one Add MCP action and the approved connector copy", () => {
+  test("uses the smart connector bar and the approved connector copy", () => {
     const screen = readDashboardComponent("mcp-connections-screen.tsx");
 
     expect(screen).toContain('title="Connectors"');
     expect(screen).toContain('badgeLabel="Beta"');
     expect(screen).toContain('description="Connectors is where you can add MCP servers that your whole team can use."');
-    expect(screen).toContain("Add MCP");
+    expect(screen).toContain('data-testid="connector-smart-bar"');
+    expect(screen).not.toMatch(/>\s*Add MCP\s*</);
     expect(screen).not.toContain("<ImportPluginConnectionDialog");
   });
 
