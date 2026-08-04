@@ -14,16 +14,20 @@ on:
         default: ""
         type: string
   push:
+    branches:
+      - "dev"
     tags:
       - "v*"
   pull_request:
     paths:
       - ".github/workflows/publish-ee-images.yml"
       - "packaging/docker/Dockerfile.den"
+      - "packaging/docker/Dockerfile.den-gateway"
       - "packaging/docker/Dockerfile.den-web"
       - "packaging/docker/Dockerfile.inference"
       - "packaging/helm/openwork-ee/**"
       - "ee/apps/den-api/**"
+      - "ee/apps/den-gateway/**"
       - "ee/apps/den-web/**"
       - "ee/apps/inference/**"
       - "ee/packages/**"
@@ -33,6 +37,10 @@ on:
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "package.json"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/dev' }}
 
 permissions:
   contents: read
@@ -68,7 +76,7 @@ jobs:
             chart_version="${GITHUB_REF_NAME#v}"
           fi
 
-          if [ "$publish" = "true" ] && [ -z "$chart_version" ]; then
+          if [ "$publish" = "true" ] && [ -z "$chart_version" ] && [ "${GITHUB_EVENT_NAME}" != "push" ]; then
             echo "chart_version is required when manually publishing from a non-tag ref" >&2
             exit 1
           fi
@@ -108,14 +116,14 @@ jobs:
             --destination dist/charts
 
       - name: Log in to GHCR for Helm
-        if: ${{ needs.artifact-version.outputs.publish == 'true' }}
+        if: ${{ needs.artifact-version.outputs.publish == 'true' && needs.artifact-version.outputs.chart_version != '' }}
         run: |
           printf '%s' "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
             --username "${{ github.actor }}" \
             --password-stdin
 
       - name: Publish chart
-        if: ${{ needs.artifact-version.outputs.publish == 'true' }}
+        if: ${{ needs.artifact-version.outputs.publish == 'true' && needs.artifact-version.outputs.chart_version != '' }}
         run: helm push "dist/charts/openwork-ee-${{ needs.artifact-version.outputs.chart_version }}.tgz" "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts"
 
   ee-images:
@@ -187,6 +195,7 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.image }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -234,7 +243,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: ${{ (github.event_name == 'pull_request' || github.ref == 'refs/heads/dev') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           load: ${{ github.event_name == 'pull_request' }}
           push: ${{ needs.artifact-version.outputs.publish == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -252,7 +261,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ (github.event_name == 'pull_request' || github.ref == 'refs/heads/dev') && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -323,3 +332,42 @@ jobs:
 
           docker logs "$container_id" || true
           exit 1
+
+  # The gateway is stateless (it serves the SPA and proxies), so dev CD is safe.
+  # den-api and engine-snapshot dev CD are deliberate follow-ups because they
+  # require migration and sandbox recycle handling.
+  redeploy-den-gateway:
+    needs: [artifact-version, ee-images]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Redeploy den-gateway on Render
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_DEN_GATEWAY_SERVICE_ID: ${{ secrets.RENDER_DEN_GATEWAY_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RENDER_DEN_GATEWAY_SERVICE_ID:-}" ] || [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::notice::Render gateway credentials unavailable; skipping redeploy..."
+            echo "Render gateway redeploy skipped because credentials are unavailable." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          response="$(curl -s -w '\n%{http_code}' -X POST \
+            "https://api.render.com/v1/services/${RENDER_DEN_GATEWAY_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          code="$(printf '%s' "$response" | tail -1)"
+          body="$(printf '%s' "$response" | sed '$d')"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::POST /deploys returned HTTP $code: $body"
+            exit 1
+          fi
+
+          {
+            echo
+            echo "Triggered a den-gateway deploy so it pulls the fresh dev image."
+          } >> "$GITHUB_STEP_SUMMARY"
