@@ -425,7 +425,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          # Recovery dispatches build from the workflow ref so release fixes can
+          # complete an existing draft without moving its published tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Enable git long paths (Windows)
