@@ -35,11 +35,19 @@ describe("OpenWork Connect status", () => {
     expect(resolveOpenWorkConnectStatus(false, maintenance("ready"))).toBeNull();
   });
 
-  test("maps the shared lifecycle to checking, ready, and needs attention", () => {
-    expect(resolveOpenWorkConnectStatus(true, undefined)).toMatchObject({
-      state: "checking",
-      label: "Checking",
+  test("shows the verified Cloud connection while workspace maintenance is idle", () => {
+    expect(resolveOpenWorkConnectStatus(true, undefined)).toEqual({
+      state: "ready",
+      label: "Ready",
+      description: "Signed in to OpenWork Cloud. Connected service tools will be checked when a workspace is active.",
     });
+    expect(resolveOpenWorkConnectStatus(true, maintenance("idle"))).toMatchObject({
+      state: "ready",
+      label: "Ready",
+    });
+  });
+
+  test("maps the active lifecycle to checking, ready, and needs attention", () => {
     expect(resolveOpenWorkConnectStatus(true, maintenance("checking"))).toMatchObject({
       state: "checking",
       label: "Checking",
