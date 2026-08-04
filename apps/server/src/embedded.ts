@@ -5,6 +5,7 @@
  * in one call -- mirrors what cli.ts does but returns a handle instead
  * of owning the process lifecycle.
  */
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
@@ -103,10 +104,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         entry.opencodePassword = managedOpencode.password;
         entry.directory = entry.path;
       }
+      // The identity only needs to be unique per managed-process boot; a
+      // random nonce provides that without routing the engine credentials
+      // through the fast identity hash.
       managedOpencodeIdentity = [
         managedOpencode.pid ?? "unknown",
-        managedOpencode.username,
-        managedOpencode.password,
+        randomUUID(),
       ].join(":");
       registerTrustedOpencodeProcess(config, {
         baseUrl: managedOpencode.url,
