@@ -773,11 +773,23 @@ function resolveCreatorName(context: PluginArchActorContext["organizationContext
   return member?.user.name.trim() || member?.user.email || null
 }
 
-function toToolPolicyResponse(policy: ExternalMcpToolPolicy | null | undefined) {
+/**
+ * Display names only — never an email fallback: this label reaches non-admin
+ * members through the tools endpoint and agent policy_blocked errors.
+ */
+function resolvePolicyEditorLabel(context: PluginArchActorContext["organizationContext"], memberId: string): string | null {
+  const member = context.members.find((entry) => entry.id === memberId)
+  return member?.user.name.trim() || null
+}
+
+function toToolPolicyResponse(
+  policy: ExternalMcpToolPolicy | null | undefined,
+  options: { includeAttribution: boolean },
+) {
   return {
     allDisabled: policy?.allDisabled ?? false,
     disabledTools: policy?.disabledTools ?? [],
-    updatedBy: policy?.updatedByName ?? null,
+    updatedBy: options.includeAttribution ? policy?.updatedByName ?? null : null,
     updatedAt: policy?.updatedAt ?? null,
   }
 }
@@ -1699,7 +1711,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       if (!connection) {
         return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
       }
-      return c.json({ policy: toToolPolicyResponse(connection.toolPolicy) })
+      return c.json({ policy: toToolPolicyResponse(connection.toolPolicy, { includeAttribution: true }) })
     },
   )
 
@@ -1731,7 +1743,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
       }
 
       const body = c.req.valid("json")
-      const updatedByName = resolveCreatorName(payload, payload.currentMember.id)
+      const updatedByName = resolvePolicyEditorLabel(payload, payload.currentMember.id)
       const policy: ExternalMcpToolPolicy = {
         version: 1,
         allDisabled: body.allDisabled,
@@ -1745,7 +1757,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         payload.organization.id,
         policy,
       )
-      return c.json({ policy: toToolPolicyResponse(policy) })
+      return c.json({ policy: toToolPolicyResponse(policy, { includeAttribution: true }) })
     },
   )
 
@@ -1828,7 +1840,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
               },
             } : {}),
           })),
-          policy: toToolPolicyResponse(connection.toolPolicy),
+          policy: toToolPolicyResponse(connection.toolPolicy, { includeAttribution: isAdmin }),
         })
       } catch (error) {
         const diagnostic = externalMcpDiagnosticForResponse(error, c.get("requestId"), "MCP_TOOL_DISCOVERY")
