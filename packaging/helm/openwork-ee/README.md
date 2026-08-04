@@ -9,7 +9,7 @@ Initial Helm chart for the OpenWork EE Den stack:
 - optional Ingress for web and API hosts
 - pre-install/pre-upgrade migration Job scaffold
 
-For a single Linux host or LXC without Kubernetes, see [the native tarball guide](../../../docs/linux-native-tarball.md).
+For a single Linux host or LXC without Kubernetes, see [the native tarball guide](https://github.com/different-ai/openwork/blob/dev/packages/docs/start-here/linux-native-tarball.mdx).
 
 ## Install
 

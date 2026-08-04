@@ -1,13 +1,16 @@
-# Deploy OpenWork EE on Linux with the native tarball
-
-Status: self-host operator guide (community-supported, best effort)
-Related: `scripts/den/selfhost`, `packaging/helm/openwork-ee`, [GitHub issue #2084](https://github.com/different-ai/openwork/issues/2084)
+---
+title: "Self-host Den on Linux with the native tarball"
+description: "Install the Den API and web app on a single Linux host or Proxmox LXC with systemd, no Docker or Kubernetes."
+---
 
 This path installs Den natively on one Linux host with systemd, without Docker
-or Kubernetes. It is ideal for a Proxmox LXC or a small VM. This is a
-community-supported, best-effort path. The [Helm chart](../packaging/helm/openwork-ee/README.md)
-remains the recommended production path. See the cloud guides for
-[AWS](aws-eks-helm.md), [Azure](azure-aks-helm.md), and [Google Cloud](gcp-gke-helm.md).
+or Kubernetes. It is ideal for a Proxmox LXC or a small VM. The [Helm chart](https://github.com/different-ai/openwork/tree/dev/packaging/helm/openwork-ee)
+remains the recommended production path, as described in the [self-host overview](/start-here/self-host). See the cloud guides for
+[AWS](https://github.com/different-ai/openwork/blob/dev/docs/aws-eks-helm.md), [Azure](https://github.com/different-ai/openwork/blob/dev/docs/azure-aks-helm.md), and [Google Cloud](https://github.com/different-ai/openwork/blob/dev/docs/gcp-gke-helm.md).
+
+<Note>
+**This path is community-supported on a best-effort basis.**
+</Note>
 
 ## What this deploys
 
@@ -26,7 +29,7 @@ installed on the host. The installer does not install any other host packages.
 
 ## Use the tarball or something else?
 
-Kubernetes operators should use the [Helm chart](../packaging/helm/openwork-ee/README.md).
+Kubernetes operators should use the [Helm chart](https://github.com/different-ai/openwork/tree/dev/packaging/helm/openwork-ee).
 Docker Compose remains available for local and development use. Use the native
 tarball for plain Linux hosts and LXC containers where nested Docker is
 unwanted.

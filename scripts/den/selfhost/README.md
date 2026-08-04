@@ -8,7 +8,7 @@
 
 The archive includes Den API, Den Web, their production dependencies, and Node.js.
 
-See the full operator guide at https://github.com/different-ai/openwork/blob/dev/docs/linux-native-tarball.md
+See the full operator guide at https://github.com/different-ai/openwork/blob/dev/packages/docs/start-here/linux-native-tarball.mdx
 
 ## Install
 
