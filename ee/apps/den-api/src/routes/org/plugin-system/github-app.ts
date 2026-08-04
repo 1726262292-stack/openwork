@@ -79,6 +79,8 @@ export type GithubInstallStatePayload = {
 
 const GITHUB_API_BASE = "https://api.github.com"
 const GITHUB_API_VERSION = "2022-11-28"
+const GITHUB_REPOSITORY_MAX_PAGES = 30
+const GITHUB_REPOSITORY_PAGE_SIZE = 100
 
 function base64UrlEncode(value: unknown) {
   const buffer = typeof value === "string"
@@ -358,38 +360,54 @@ function normalizeGithubRepository(entry: unknown): GithubRepositorySummary | nu
 
 export async function listGithubInstallationRepositories(input: { config: GithubConnectorAppConfig; fetchFn?: GithubFetch; installationId: number }) {
   const token = await createGithubInstallationAccessToken(input)
-  const response = await requestGithubJson<{ repositories?: unknown[] }>({
-    fetchFn: input.fetchFn,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    path: "/installation/repositories",
-  })
-
-  if (!Array.isArray(response.body.repositories)) {
-    return []
-  }
-
-  const repositories: GithubRepositorySummary[] = []
-  for (const entry of response.body.repositories) {
-    const normalized = normalizeGithubRepository(entry)
-    if (!normalized) {
-      continue
+  const normalizedRepositories: GithubRepositorySummary[] = []
+  for (let page = 1; page <= GITHUB_REPOSITORY_MAX_PAGES; page += 1) {
+    const response = await requestGithubJson<{ repositories?: unknown[] }>({
+      fetchFn: input.fetchFn,
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      path: `/installation/repositories?per_page=${GITHUB_REPOSITORY_PAGE_SIZE}&page=${page}`,
+    })
+    const pageRepositories = response.body.repositories
+    if (!Array.isArray(pageRepositories) || pageRepositories.length === 0) {
+      break
     }
 
-    const manifest = await detectRepositoryManifest({
-      fetchFn: input.fetchFn,
-      ownerAndRepo: normalized.fullName,
-      token,
-    })
-
-    repositories.push({
-      ...normalized,
-      hasPluginManifest: manifest.manifestKind !== null,
-      manifestKind: manifest.manifestKind,
-      marketplacePluginCount: manifest.marketplacePluginCount,
-    })
+    for (const entry of pageRepositories) {
+      const normalized = normalizeGithubRepository(entry)
+      if (normalized) {
+        normalizedRepositories.push(normalized)
+      }
+    }
+    if (pageRepositories.length < GITHUB_REPOSITORY_PAGE_SIZE) {
+      break
+    }
   }
+
+  const repositories = new Array<GithubRepositorySummary>(normalizedRepositories.length)
+  let nextIndex = 0
+  const workerCount = Math.max(1, Math.min(8, normalizedRepositories.length))
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < normalizedRepositories.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const normalized = normalizedRepositories[index]
+      const manifest = await detectRepositoryManifest({
+        fetchFn: input.fetchFn,
+        ownerAndRepo: normalized.fullName,
+        token,
+      })
+
+      repositories[index] = {
+        ...normalized,
+        hasPluginManifest: manifest.manifestKind !== null,
+        manifestKind: manifest.manifestKind,
+        marketplacePluginCount: manifest.marketplacePluginCount,
+      }
+    }
+  })
+  await Promise.all(workers)
 
   return repositories
 }

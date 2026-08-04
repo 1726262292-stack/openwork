@@ -529,17 +529,7 @@ export function useGithubAccountRepositories(connectorAccountId: string | null) 
     enabled: Boolean(connectorAccountId),
     queryKey: [...integrationQueryKeys.repos("github", connectorAccountId), "connected-account"] as const,
     queryFn: async (): Promise<IntegrationRepo[]> => {
-      const { response, payload } = await requestJson(
-        `/v1/connectors/github/accounts/${encodeURIComponent(connectorAccountId ?? "")}/repositories?limit=100`,
-        { method: "GET" },
-        20000,
-      );
-
-      if (!response.ok) {
-        throw new Error(getErrorMessage(payload, `Failed to load GitHub repositories (${response.status}).`));
-      }
-
-      return isRecord(payload) && Array.isArray(payload.items)
+      const parseRepositories = (payload: unknown): IntegrationRepo[] => isRecord(payload) && Array.isArray(payload.items)
         ? payload.items.flatMap((entry) => {
             if (!isRecord(entry)) {
               return [];
@@ -573,6 +563,27 @@ export function useGithubAccountRepositories(connectorAccountId: string | null) 
             } satisfies IntegrationRepo];
           })
         : [];
+      const repositories: IntegrationRepo[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 30; page += 1) {
+        const { response, payload } = await requestJson(
+          `/v1/connectors/github/accounts/${encodeURIComponent(connectorAccountId ?? "")}/repositories?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          { method: "GET" },
+          20000,
+        );
+
+        if (!response.ok) {
+          throw new Error(getErrorMessage(payload, `Failed to load GitHub repositories (${response.status}).`));
+        }
+
+        repositories.push(...parseRepositories(payload));
+        const nextCursor = isRecord(payload) ? asString(payload.nextCursor) : null;
+        if (!nextCursor) {
+          break;
+        }
+        cursor = nextCursor;
+      }
+      return repositories;
     },
   });
 }
