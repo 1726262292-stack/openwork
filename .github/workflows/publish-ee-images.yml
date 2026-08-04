@@ -124,8 +124,10 @@ jobs:
     name: Build Den self-host bundle (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: artifact-version
+    # Build runs repository-controlled code on pull requests, so it must never
+    # hold a write-capable token. Release upload happens in den-selfhost-release.
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         include:
@@ -137,6 +139,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -170,11 +174,25 @@ jobs:
           path: dist-selfhost/openwork-den-${{ matrix.platform }}-${{ matrix.arch }}-*.tar.gz
           if-no-files-found: error
 
-      - name: Attach bundle to GitHub release
-        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+  den-selfhost-release:
+    name: Attach Den self-host bundle to release
+    runs-on: ubuntu-latest
+    needs: den-selfhost-bundle
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: openwork-den-*
+          path: dist-selfhost
+          merge-multiple: true
+
+      - name: Attach bundles to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist-selfhost/openwork-den-${{ matrix.platform }}-${{ matrix.arch }}-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+        run: gh release upload "$GITHUB_REF_NAME" dist-selfhost/openwork-den-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
 
   ee-images:
     name: Build ${{ matrix.image }}
