@@ -247,7 +247,7 @@ export function useCloudMcpSubmitReadiness(
         }
         const result = await ensureCloudMcpSubmissionReadiness({
           providerModel,
-          check: () => client.getOpenworkCloudMcpHealth(activeWorkspaceId, providerModel),
+          check: () => client.getOpenworkCloudMcpHealth(activeWorkspaceId, providerModel, { probe: true }),
           repair: async () => {
             const repaired = await syncCloudControlMcpInBackground({
               client,
