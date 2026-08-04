@@ -209,6 +209,8 @@ function InviteAuthPanel({
         hideEmailField
         hideLockedEmailSummary
         hideSocialAuth
+        emailFirstFlow
+        resolveEmailFirstOnPrefill
         signUpContent={{
           title: "Create your account.",
           copy: "Choose a password for your invited email.",
