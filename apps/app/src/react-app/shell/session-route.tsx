@@ -1345,12 +1345,23 @@ export function SessionRoute() {
                 // This remains inside the post-readiness send closure so a blocked
                 // Cloud submission cannot create a run or report that one started.
                 const projectDimension = readWorkspaceProjectDimension(selectedWorkspaceId);
-                const telemetryDimensions = projectDimension
-                  ? [{
-                      type: "project",
-                      label: projectDimension.label,
-                    }]
-                  : undefined;
+                const modelSelection = sessionModelSelection ? "manual" : "default";
+                const telemetryDimensions = [
+                  ...(projectDimension ? [{
+                    type: "project",
+                    label: projectDimension.label,
+                  }] : []),
+                  ...(sendModel ? [{
+                    type: "model",
+                    value: `${sendModel.providerID}/${sendModel.modelID}`,
+                    label: `${sendModel.providerID}/${sendModel.modelID}`,
+                  }] : []),
+                  {
+                    type: "model_selection",
+                    value: modelSelection,
+                    label: modelSelection,
+                  },
+                ];
                 trackSessionActive(targetSessionId, telemetryDimensions);
                 trackTaskStarted(targetSessionId, telemetryDimensions);
 
