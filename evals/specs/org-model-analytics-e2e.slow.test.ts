@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { access, cp, copyFile, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -87,6 +87,15 @@ async function prepareElectronNativeBinding(): Promise<void> {
   if (!repoRoot.includes(" ")) return;
   const desktopNodeModules = join(repoRoot, "apps", "desktop", "node_modules");
   const source = await realpath(join(desktopNodeModules, "better-sqlite3"));
+  // better-sqlite3 >= 13 ships ABI-stable prebuilds; no Electron rebuild is needed
+  // (its gyp build is a stamp-only no-op that produces no build/Release binding).
+  try {
+    await access(join(source, "prebuilds", `${process.platform}-${process.arch}.node`));
+    process.env.OPENWORK_ELECTRON_SKIP_NATIVE_REBUILD = "1";
+    return;
+  } catch {
+    // No prebuild for this platform: fall through to the temp-dir rebuild.
+  }
   const electronPackage: unknown = JSON.parse(await readFile(join(desktopNodeModules, "electron", "package.json"), "utf8"));
   const electronVersion = isRecord(electronPackage) && typeof electronPackage.version === "string" ? electronPackage.version : "";
   if (!electronVersion) throw new Error("Could not resolve the Electron version for the native witness build.");
