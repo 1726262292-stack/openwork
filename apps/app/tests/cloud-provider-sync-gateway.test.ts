@@ -79,13 +79,13 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
-function cloudProviderPayload() {
+function cloudProviderPayload(options: { conflict?: boolean } = {}) {
   return {
     id: "lpr_test",
-    source: "custom",
-    providerId: "openai",
-    name: "Team OpenAI",
-    providerConfig: { env: ["OPENAI_API_KEY"] },
+    source: options.conflict ? "openwork" : "custom",
+    providerId: options.conflict ? "openwork" : "openai",
+    name: options.conflict ? "OpenWork Models" : "Team OpenAI",
+    providerConfig: { env: [options.conflict ? "OPENWORK_API_KEY" : "OPENAI_API_KEY"] },
     hasApiKey: true,
     apiKey: "sk-test",
     models: [
@@ -107,7 +107,9 @@ function installCloudSession(storage: Storage) {
   storage.setItem("openwork.den.activeOrgId", "org_test");
 }
 
-function createProviderAuthTestStore() {
+function createProviderAuthTestStore(
+  configCapabilities: { read: boolean; write: boolean } = { read: true, write: true },
+) {
   const opencodeClient = createClient("https://engine.example", "/tmp/workspace_test", {
     token: "engine-token",
     mode: "openwork",
@@ -144,7 +146,7 @@ function createProviderAuthTestStore() {
       getSnapshot: () => ({
         openworkServerStatus: "connected",
         openworkServerClient: openworkClient,
-        openworkServerCapabilities: { config: { read: true, write: true } },
+        openworkServerCapabilities: { config: configCapabilities },
       }),
     },
     setProviders: (value) => {
@@ -170,7 +172,10 @@ function createProviderAuthTestStore() {
   };
 }
 
-function installProviderSyncFetch(requests: RecordedRequest[]) {
+function installProviderSyncFetch(
+  requests: RecordedRequest[],
+  options: { conflict?: boolean } = {},
+) {
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
     value: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -183,10 +188,10 @@ function installProviderSyncFetch(requests: RecordedRequest[]) {
       });
 
       if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers") {
-        return jsonResponse({ llmProviders: [cloudProviderPayload()] });
+        return jsonResponse({ llmProviders: [cloudProviderPayload(options)] });
       }
       if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers/lpr_test/connect") {
-        return jsonResponse({ llmProvider: cloudProviderPayload() });
+        return jsonResponse({ llmProvider: cloudProviderPayload(options) });
       }
       if (url.origin === "https://server.example" && url.pathname === "/workspace/ws_1/config" && method === "GET") {
         return jsonResponse({ opencode: {}, openwork: {} });
@@ -198,7 +203,9 @@ function installProviderSyncFetch(requests: RecordedRequest[]) {
         return jsonResponse({ ok: true });
       }
       if (url.origin === "https://server.example" && url.pathname === "/workspace/ws_1/opencode-config") {
-        return jsonResponse(null);
+        return jsonResponse(options.conflict
+          ? { content: '{"provider":{"openwork":{"name":"Local OpenWork"}}}' }
+          : null);
       }
       if (url.origin === "https://server.example" && url.pathname === "/workspace/ws_1/engine/reload") {
         return jsonResponse({ ok: true, reloadedAt: 1 });
@@ -286,5 +293,45 @@ describe("cloud provider sync in gateway mode", () => {
     expect(store.getSnapshot().importedCloudProviders.lpr_test?.providerId).toBe("lpr_test");
     expect(store.getSnapshot().providerAuthError).toBeNull();
     expect(reloadCount()).toBe(0);
+  });
+
+  test("does not spin imports when workspace config is read-only", async () => {
+    const storage = installWindow({ origin: "https://self-hosted.example" });
+    installCloudSession(storage);
+    const requests: RecordedRequest[] = [];
+    installProviderSyncFetch(requests);
+    const { store } = createProviderAuthTestStore({ read: true, write: false });
+
+    await store.runCloudProviderSync("settings_cloud_opened");
+
+    expect(requests).toEqual([]);
+    expect(store.getSnapshot().lastSyncError).toEqual({});
+  });
+
+  test("records a hand-authored OpenWork collision once and skips later automatic retries", async () => {
+    const storage = installWindow({ origin: "https://self-hosted.example" });
+    installCloudSession(storage);
+    const requests: RecordedRequest[] = [];
+    installProviderSyncFetch(requests, { conflict: true });
+    const { store } = createProviderAuthTestStore();
+
+    await store.runCloudProviderSync("settings_cloud_opened");
+
+    expect(store.getSnapshot().lastSyncError.lpr_test).toMatchObject({
+      kind: "conflict",
+      message: expect.stringContaining("openwork already has a provider block"),
+    });
+    expect(store.getSnapshot().importedCloudProviders.lpr_test).toBeUndefined();
+    const firstConnectCount = requests.filter(
+      (request) => request.url === "https://den.example/api/den/v1/llm-providers/lpr_test/connect",
+    ).length;
+    expect(firstConnectCount).toBe(1);
+
+    await store.runCloudProviderSync("app_resume");
+
+    const secondConnectCount = requests.filter(
+      (request) => request.url === "https://den.example/api/den/v1/llm-providers/lpr_test/connect",
+    ).length;
+    expect(secondConnectCount).toBe(firstConnectCount);
   });
 });
