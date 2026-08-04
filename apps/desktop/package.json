@@ -15,11 +15,12 @@
     "dev:electron": "node ./scripts/electron-dev.mjs",
     "build": "node ./scripts/electron-build.mjs",
     "build:electron": "node ./scripts/electron-build.mjs",
+    "rebuild:electron-native": "electron-rebuild --force --which-module better-sqlite3",
     "package:electron": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.yml",
     "package:electron:cloud": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.cloud.yml",
     "package:electron:enterprise": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.enterprise.yml",
     "package:electron:dir": "pnpm run build:electron && pnpm exec electron-builder --config electron-builder.yml --dir",
-    "electron": "pnpm exec electron ./electron/main.mjs",
+    "electron": "pnpm run rebuild:electron-native && pnpm exec electron ./electron/main.mjs",
     "check:electron": "node ./scripts/check-electron-bridge.mjs",
     "typecheck:electron": "pnpm --dir ../server exec tsc -p ../desktop/tsconfig.electron.json --noEmit",
     "prepare:sidecar": "node ./scripts/prepare-sidecar.mjs",
@@ -38,8 +39,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "@openwork/types": "workspace:*",
-    "electron": "^35.0.0",
+    "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
     "electron-devtools-installer": "^4.0.0"
   },
