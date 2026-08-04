@@ -465,7 +465,9 @@ export function buildOpenWorkStartCommand(input: ProvisionInput) {
     ` --host 0.0.0.0`,
     ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
     ` --cors '*'`,
-    ` --approval manual`,
+    // This single-user worker's SPA has no approvals responder, so manual mode makes gated writes such as chat-attachment uploads time out to 403.
+    // Auto matches the desktop sidecar's approvalMode; viewer tokens remain blocked by scope checks.
+    ` --approval auto`,
     ` --verbose`,
   ].join("")
   const script = `
