@@ -1,12 +1,14 @@
 # web.openworklabs.com engine channel:
-# Nightly snapshot from dev HEAD, named <base>-dev-<short-sha>.
-# Releases still re-pin to the release snapshot and the next nightly moves it back
-# to dev. This known ping-pong will be resolved by an explicit channel var later.
+# Per-push snapshot from dev HEAD, named <base>-dev-<short-sha>, with a nightly backstop.
+# DAYTONA_PIN_CHANNEL resolves pin ping-pong: release pinning defers to the dev channel.
+# Set DAYTONA_PIN_CHANNEL=release to stop this pipeline; the next release re-pins.
 # Sandboxes roll forward via the existing stopped+stale recycle.
 
 name: Dev Daytona Snapshot
 
 on:
+  push:
+    branches: ["dev"]
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
@@ -21,6 +23,7 @@ permissions:
   contents: read
 
 concurrency:
+  # Per-push runs queue/batch naturally; in-flight snapshot publishes are never cancelled.
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
@@ -30,7 +33,22 @@ jobs:
     if: github.repository == 'different-ai/openwork'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
+      - name: Check channel
+        id: channel
+        shell: bash
+        env:
+          DAYTONA_PIN_CHANNEL: ${{ vars.DAYTONA_PIN_CHANNEL }}
+        run: |
+          if [ "$DAYTONA_PIN_CHANNEL" != "dev" ]; then
+            echo "::notice::Dev engine channel is disabled; set repository variable DAYTONA_PIN_CHANNEL=dev to enable."
+            echo "Skipped: dev engine channel is disabled (set \`DAYTONA_PIN_CHANNEL=dev\` to enable)." >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout dev source
+        if: steps.channel.outputs.enabled == 'true'
         uses: actions/checkout@v6
         with:
           ref: dev
@@ -38,6 +56,7 @@ jobs:
 
       - name: Resolve snapshot name
         id: resolve
+        if: steps.channel.outputs.enabled == 'true'
         shell: bash
         env:
           DAYTONA_SNAPSHOT_NAME_BASE: ${{ vars.DAYTONA_SNAPSHOT_NAME_BASE }}
@@ -55,6 +74,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Install Daytona CLI
+        if: steps.channel.outputs.enabled == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -96,6 +116,7 @@ jobs:
 
       - name: Check whether snapshot already exists
         id: existing
+        if: steps.channel.outputs.enabled == 'true'
         shell: bash
         env:
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
@@ -126,12 +147,12 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        if: steps.existing.outputs.exists != 'true' || inputs.force == true
+        if: steps.channel.outputs.enabled == 'true' && (steps.existing.outputs.exists != 'true' || inputs.force == true)
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push snapshot
         id: publish
-        if: steps.existing.outputs.exists != 'true' || inputs.force == true
+        if: steps.channel.outputs.enabled == 'true' && (steps.existing.outputs.exists != 'true' || inputs.force == true)
         shell: bash
         env:
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
@@ -155,7 +176,7 @@ jobs:
           ./scripts/create-daytona-openwork-snapshot.sh "${DAYTONA_SNAPSHOT_NAME}"
 
       - name: Checkout snapshot pin automation
-        if: vars.DAYTONA_CLOUD_ENV_GROUP_ID != ''
+        if: steps.channel.outputs.enabled == 'true' && vars.DAYTONA_CLOUD_ENV_GROUP_ID != ''
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
@@ -165,6 +186,7 @@ jobs:
 
       - name: Update production snapshot pin
         id: pin
+        if: steps.channel.outputs.enabled == 'true'
         shell: bash
         env:
           DAYTONA_CLOUD_ENV_GROUP_ID: ${{ vars.DAYTONA_CLOUD_ENV_GROUP_ID }}
@@ -202,7 +224,7 @@ jobs:
         # den-api keeps serving the previous DAYTONA_SNAPSHOT until it redeploys.
         # Without this the pin moves but `latestVersion` stays stale and no
         # sandbox ever recycles - observed for real on v0.18.11.
-        if: steps.pin.outcome == 'success'
+        if: steps.channel.outputs.enabled == 'true' && steps.pin.outcome == 'success'
         shell: bash
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}

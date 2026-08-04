@@ -170,8 +170,15 @@ jobs:
           echo "Publishing Daytona snapshot: ${DAYTONA_SNAPSHOT_NAME}"
           ./scripts/create-daytona-openwork-snapshot.sh "${DAYTONA_SNAPSHOT_NAME}"
 
+      - name: Note skipped release pin
+        if: vars.DAYTONA_PIN_CHANNEL == 'dev'
+        shell: bash
+        run: |
+          echo "::notice::web engine channel is 'dev'; release snapshot pin skipped (set DAYTONA_PIN_CHANNEL=release to restore release pinning)"
+          echo "Skipped release snapshot pin: web engine channel is \`dev\`. Set \`DAYTONA_PIN_CHANNEL=release\` to restore release pinning." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout snapshot pin automation
-        if: steps.publish.outcome == 'success' && vars.DAYTONA_CLOUD_ENV_GROUP_ID != ''
+        if: steps.publish.outcome == 'success' && vars.DAYTONA_CLOUD_ENV_GROUP_ID != '' && vars.DAYTONA_PIN_CHANNEL != 'dev'
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
@@ -181,7 +188,7 @@ jobs:
 
       - name: Update production snapshot pin
         id: pin
-        if: steps.publish.outcome == 'success'
+        if: steps.publish.outcome == 'success' && vars.DAYTONA_PIN_CHANNEL != 'dev'
         shell: bash
         env:
           DAYTONA_CLOUD_ENV_GROUP_ID: ${{ vars.DAYTONA_CLOUD_ENV_GROUP_ID }}
@@ -219,7 +226,7 @@ jobs:
         # den-api keeps serving the previous DAYTONA_SNAPSHOT until it redeploys.
         # Without this the pin moves but `latestVersion` stays stale and no
         # sandbox ever recycles - observed for real on v0.18.11.
-        if: steps.pin.outcome == 'success'
+        if: steps.pin.outcome == 'success' && vars.DAYTONA_PIN_CHANNEL != 'dev'
         shell: bash
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
