@@ -130,6 +130,31 @@ export function cloudWorkspaceUpdateAvailable(instance: DenCloudInstance | null)
   return instance.imageVersion === null || instance.imageVersion !== instance.latestVersion;
 }
 
+// Stopped instances already recycle on wake; this only nudges running stale instances,
+// skips while any client-visible run is active, and attempts once per target version so
+// failed or already_current attempts cannot retry-loop.
+export function shouldAutoUpdateCloudWorkspace(input: {
+  gatewayMode: boolean;
+  visible: boolean;
+  status: "provisioning" | "waking" | "ready" | "failed" | null;
+  updateAvailable: boolean;
+  updating: boolean;
+  requestFailed: boolean;
+  hasActiveRun: boolean;
+  latestVersion: string | null;
+  lastAttemptedVersion: string | null;
+}): boolean {
+  return input.gatewayMode
+    && input.visible
+    && input.status === "ready"
+    && input.updateAvailable
+    && !input.updating
+    && !input.requestFailed
+    && !input.hasActiveRun
+    && input.latestVersion !== null
+    && input.latestVersion !== input.lastAttemptedVersion;
+}
+
 export function cloudWorkspaceStatusHasReadyContent(variant: CloudWorkspacePillVariant): boolean {
   return variant === "ready" || variant === "stale";
 }

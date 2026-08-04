@@ -206,6 +206,20 @@ describe("den-gateway static UI", () => {
     expect(html).not.toContain("client-token")
     expect(html).not.toContain("host-token")
   })
+
+  test("identifies the configured gateway build in the runtime marker and status", async () => {
+    const root = await makeWebRoot()
+    const gateway = startGateway({ webRoot: root, buildVersion: "openwork-0.19.0" })
+    const base = serverBase(gateway)
+
+    const index = await fetch(`${base}/`)
+    const health = await fetch(`${base}/__gw/health`)
+    const ready = await fetch(`${base}/__gw/ready`)
+
+    expect(await index.text()).toContain("window.__OPENWORK_GATEWAY__ = {\"version\":1,\"build\":\"openwork-0.19.0\"}")
+    await expect(health.json()).resolves.toEqual({ ok: true, service: "den-gateway", build: "openwork-0.19.0" })
+    await expect(ready.json()).resolves.toEqual({ ok: true, service: "den-gateway", build: "openwork-0.19.0" })
+  })
 })
 
 describe("den-gateway proxy", () => {
