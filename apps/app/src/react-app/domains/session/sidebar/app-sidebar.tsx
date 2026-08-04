@@ -9,12 +9,12 @@ import {
   ChevronRight,
   Columns2,
   FolderPlus,
+  LayoutGrid,
   MoreHorizontal,
   Pencil,
   Pin,
   PinOff,
   Plus,
-  Puzzle,
   Search,
   Share2,
   Trash2,
@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Settings,
   FolderOpen,
+  SquarePen,
   Tag,
   X,
 } from "lucide-react";
@@ -30,6 +31,7 @@ import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
 import { OpenWorkDenHelpLink } from "../../workspace/openwork-den-help-link";
+import { NotificationBell } from "../../../shell/notification-center";
 import type {
   WorkspaceConnectionState,
   WorkspaceSessionGroup,
@@ -1108,6 +1110,19 @@ export function AppSidebar(props: AppSidebarProps) {
         ) : null}
         <SidebarHeader className="pb-0 pe-0">
           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                data-sidebar-new-chat
+                aria-label={t("session.new_task")}
+                tooltip={t("session.new_task")}
+                disabled={props.newTaskDisabled}
+                onClick={() => props.onCreateTaskInWorkspace(props.selectedWorkspaceId)}
+              >
+                <SquarePen />
+                <span className="flex-1 truncate">{t("session.new_task")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             {props.onOpenSessionSearch ? (
               <SidebarMenuItem>
                 <SidebarMenuButton
@@ -1125,10 +1140,13 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
             <SidebarDestination
               active={props.extensionsActive === true}
-              icon={Puzzle}
+              icon={LayoutGrid}
               label={t("settings.tab_extensions")}
               onSelect={props.onOpenExtensions}
             />
+            <SidebarMenuItem>
+              <NotificationBell variant="sidebar-row" />
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>
         <SidebarSplitPill
