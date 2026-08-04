@@ -1,0 +1,233 @@
+# web.openworklabs.com engine channel:
+# Nightly snapshot from dev HEAD, named <base>-dev-<short-sha>.
+# Releases still re-pin to the release snapshot and the next nightly moves it back
+# to dev. This known ping-pong will be resolved by an explicit channel var later.
+# Sandboxes roll forward via the existing stopped+stale recycle.
+
+name: Dev Daytona Snapshot
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if the snapshot for the current dev HEAD already exists"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  publish-daytona-snapshot:
+    name: Build and Push Dev Daytona Snapshot
+    if: github.repository == 'different-ai/openwork'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout dev source
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Resolve snapshot name
+        id: resolve
+        shell: bash
+        env:
+          DAYTONA_SNAPSHOT_NAME_BASE: ${{ vars.DAYTONA_SNAPSHOT_NAME_BASE }}
+          DEFAULT_SNAPSHOT_REGION: ${{ vars.DAYTONA_SNAPSHOT_REGION }}
+        run: |
+          set -euo pipefail
+
+          short_sha="$(git rev-parse --short=7 HEAD)"
+          snapshot_name="${DAYTONA_SNAPSHOT_NAME_BASE:-openwork}-dev-${short_sha}"
+          snapshot_region="${DEFAULT_SNAPSHOT_REGION:-}"
+          {
+            echo "snapshot_name=$snapshot_name"
+            echo "snapshot_region=$snapshot_region"
+            echo "short_sha=$short_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install Daytona CLI
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          case "$(uname -s)" in
+            Linux) platform="linux" ;;
+            Darwin) platform="darwin" ;;
+            *)
+              echo "Unsupported OS: $(uname -s)" >&2
+              exit 1
+              ;;
+          esac
+
+          case "$(uname -m)" in
+            x86_64|amd64) arch="amd64" ;;
+            aarch64|arm64) arch="arm64" ;;
+            *)
+              echo "Unsupported architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          asset_name="daytona-${platform}-${arch}"
+          install_dir="$HOME/.local/bin"
+          mkdir -p "$install_dir"
+
+          release_json="$(gh api repos/daytonaio/daytona/releases/latest)"
+          asset_url="$(python3 -c 'import json, sys; data = json.load(sys.stdin); name = sys.argv[1]; print(next(asset["browser_download_url"] for asset in data["assets"] if asset["name"] == name))' "$asset_name" <<<"$release_json")"
+
+          curl -fL "$asset_url" -o "$install_dir/daytona"
+          chmod +x "$install_dir/daytona"
+
+          echo "$install_dir" >> "$GITHUB_PATH"
+          export PATH="$install_dir:$PATH"
+
+          daytona version
+
+      - name: Check whether snapshot already exists
+        id: existing
+        shell: bash
+        env:
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          DAYTONA_API_URL: ${{ vars.DAYTONA_API_URL }}
+          DAYTONA_TARGET: ${{ vars.DAYTONA_TARGET }}
+          DAYTONA_SNAPSHOT_NAME: ${{ steps.resolve.outputs.snapshot_name }}
+          FORCE_REBUILD: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DAYTONA_API_KEY:-}" ]; then
+            echo "Missing required secret: DAYTONA_API_KEY" >&2
+            exit 1
+          fi
+
+          export DAYTONA_CONFIG_DIR="$RUNNER_TEMP/daytona"
+          mkdir -p "$DAYTONA_CONFIG_DIR"
+          daytona login --api-key "$DAYTONA_API_KEY"
+
+          snapshot_list="$(daytona snapshot list)"
+          if grep -Fq -- "$DAYTONA_SNAPSHOT_NAME" <<<"$snapshot_list"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if [ "${FORCE_REBUILD:-false}" != "true" ]; then
+              echo "Snapshot already exists; skipping rebuild: ${DAYTONA_SNAPSHOT_NAME}" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.exists != 'true' || inputs.force == true
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push snapshot
+        id: publish
+        if: steps.existing.outputs.exists != 'true' || inputs.force == true
+        shell: bash
+        env:
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          DAYTONA_API_URL: ${{ vars.DAYTONA_API_URL }}
+          DAYTONA_TARGET: ${{ vars.DAYTONA_TARGET }}
+          DAYTONA_SNAPSHOT_REGION: ${{ steps.resolve.outputs.snapshot_region }}
+          DAYTONA_SNAPSHOT_NAME: ${{ steps.resolve.outputs.snapshot_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DAYTONA_API_KEY:-}" ]; then
+            echo "Missing required secret: DAYTONA_API_KEY" >&2
+            exit 1
+          fi
+
+          export DAYTONA_CONFIG_DIR="$RUNNER_TEMP/daytona"
+          mkdir -p "$DAYTONA_CONFIG_DIR"
+          daytona login --api-key "$DAYTONA_API_KEY"
+
+          echo "Publishing Daytona snapshot: ${DAYTONA_SNAPSHOT_NAME}"
+          ./scripts/create-daytona-openwork-snapshot.sh "${DAYTONA_SNAPSHOT_NAME}"
+
+      - name: Checkout snapshot pin automation
+        if: vars.DAYTONA_CLOUD_ENV_GROUP_ID != ''
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: .snapshot-pin-automation
+          sparse-checkout: scripts/update-daytona-snapshot-pin.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Update production snapshot pin
+        id: pin
+        shell: bash
+        env:
+          DAYTONA_CLOUD_ENV_GROUP_ID: ${{ vars.DAYTONA_CLOUD_ENV_GROUP_ID }}
+          DAYTONA_SNAPSHOT_NAME: ${{ steps.resolve.outputs.snapshot_name }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DAYTONA_CLOUD_ENV_GROUP_ID:-}" ]; then
+            echo "::notice::DAYTONA_CLOUD_ENV_GROUP_ID is not configured; skipping production snapshot pin update."
+            {
+              echo "### Daytona snapshot pin"
+              echo
+              echo "Skipped: repository variable \`DAYTONA_CLOUD_ENV_GROUP_ID\` is not configured."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::error::Missing required secret: RENDER_API_KEY"
+            exit 1
+          fi
+
+          result="$(node .snapshot-pin-automation/scripts/update-daytona-snapshot-pin.mjs \
+            --env-group-id "$DAYTONA_CLOUD_ENV_GROUP_ID" \
+            --snapshot "$DAYTONA_SNAPSHOT_NAME")"
+          echo "$result"
+          {
+            echo "### Daytona snapshot pin"
+            echo
+            echo "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Redeploy den-api so the new pin takes effect
+        # Render does not redeploy services when an env group value changes, so
+        # den-api keeps serving the previous DAYTONA_SNAPSHOT until it redeploys.
+        # Without this the pin moves but `latestVersion` stays stale and no
+        # sandbox ever recycles - observed for real on v0.18.11.
+        if: steps.pin.outcome == 'success'
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_DEN_SERVICE_ID: ${{ secrets.RENDER_DEN_CONTROL_PLANE_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RENDER_DEN_SERVICE_ID:-}" ] || [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::notice::Render den-api credentials unavailable; skipping redeploy. The pin will take effect on the next den-api deploy."
+            exit 0
+          fi
+
+          response="$(curl -s -w '\n%{http_code}' -X POST \
+            "https://api.render.com/v1/services/${RENDER_DEN_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          code="$(printf '%s' "$response" | tail -1)"
+          body="$(printf '%s' "$response" | sed '$d')"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::POST /deploys returned HTTP $code: $body"
+            exit 1
+          fi
+
+          {
+            echo
+            echo "Triggered a den-api deploy so the new pin takes effect."
+          } >> "$GITHUB_STEP_SUMMARY"
