@@ -18,6 +18,7 @@ import {
   PluginConfigObjectTable,
   PluginTable,
   type ExternalMcpOAuthConfiguration,
+  type ExternalMcpToolPolicy,
 } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../../db.js"
@@ -63,9 +64,11 @@ import {
   normalizeExternalMcpIdentityUrl,
   repairExternalMcpOAuthIssuer,
   replaceExternalMcpConnectionAccess,
+  setExternalMcpConnectionToolPolicy,
   updateExternalMcpConnection,
   type ExternalMcpConnectionRow,
 } from "../../capability-sources/external-mcp-connections.js"
+import { evaluateToolPolicy } from "../../capability-sources/external-mcp-tool-policy.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { listNativeProviderUsableEntries } from "../../capability-sources/native-provider-connections.js"
 import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
@@ -415,8 +418,25 @@ const connectionToolSchema = z.object({
   annotations: connectionToolAnnotationsSchema.optional(),
 }).meta({ ref: "ExternalMcpConnectionTool" })
 
+const connectionToolPolicySchema = z.object({
+  allDisabled: z.boolean(),
+  disabledTools: z.array(z.string()),
+  updatedBy: z.string().nullable(),
+  updatedAt: z.string().datetime().nullable(),
+}).meta({ ref: "ExternalMcpConnectionToolPolicy" })
+
+const connectionToolPolicyInputSchema = z.object({
+  allDisabled: z.boolean(),
+  disabledTools: z.array(z.string().trim().min(1).max(255)).max(500),
+}).meta({ ref: "ExternalMcpConnectionToolPolicyInput" })
+
+const connectionToolPolicyResponseSchema = z.object({
+  policy: connectionToolPolicySchema,
+}).meta({ ref: "ExternalMcpConnectionToolPolicyResponse" })
+
 const connectionToolListResponseSchema = z.object({
   tools: z.array(connectionToolSchema),
+  policy: connectionToolPolicySchema,
 }).meta({ ref: "ExternalMcpConnectionToolListResponse" })
 
 const runConnectionToolBodySchema = z.object({
@@ -476,6 +496,18 @@ const connectionNotReadySchema = z.object({
   error: z.literal("connection_not_ready"),
   message: z.string(),
 }).meta({ ref: "ExternalMcpConnectionNotReadyError" })
+
+const connectionToolPolicyBlockedSchema = z.object({
+  error: z.literal("policy_blocked"),
+  message: z.string(),
+  disabledBy: z.string().nullable(),
+  disabledAt: z.string().datetime().nullable(),
+}).meta({ ref: "ExternalMcpConnectionToolPolicyBlockedError" })
+
+const connectionToolRunForbiddenSchema = z.union([
+  forbiddenSchema,
+  connectionToolPolicyBlockedSchema,
+]).meta({ ref: "ExternalMcpConnectionToolRunForbiddenError" })
 
 const connectionCreatedResponseSchema = connectionResponseSchema.extend({
   links: z.object({
@@ -739,6 +771,15 @@ function tokenEndpointAuthMethod(value: unknown): "client_secret_basic" | "clien
 function resolveCreatorName(context: PluginArchActorContext["organizationContext"], memberId: string): string | null {
   const member = context.members.find((entry) => entry.id === memberId)
   return member?.user.name.trim() || member?.user.email || null
+}
+
+function toToolPolicyResponse(policy: ExternalMcpToolPolicy | null | undefined) {
+  return {
+    allDisabled: policy?.allDisabled ?? false,
+    disabledTools: policy?.disabledTools ?? [],
+    updatedBy: policy?.updatedByName ?? null,
+    updatedAt: policy?.updatedAt ?? null,
+  }
 }
 
 function legacyExternalMcpConnectionIdsFromPayload(payload: Record<string, unknown> | null): string[] {
@@ -1635,6 +1676,80 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
   )
 
   app.get(
+    "/v1/mcp-connections/:connectionId/tool-policy",
+    describeRoute({
+      tags: ["Capability Sources"],
+      summary: "Get the tool policy for an External MCP Connection",
+      responses: {
+        200: jsonResponse("External MCP tool policy.", connectionToolPolicyResponseSchema),
+        401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
+        403: jsonResponse("The caller must be a workspace owner or admin.", forbiddenSchema),
+        404: jsonResponse("Unknown connection.", connectionNotFoundSchema),
+      },
+    }),
+    orgRoleRoute(["admin"]),
+    paramValidator(connectionParamsSchema),
+    async (c) => {
+      const payload = c.get("organizationContext")
+      const { connectionId } = c.req.valid("param")
+      const connection = await getExternalMcpConnection({
+        organizationId: payload.organization.id,
+        connectionId: normalizeDenTypeId("externalMcpConnection", connectionId),
+      })
+      if (!connection) {
+        return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
+      }
+      return c.json({ policy: toToolPolicyResponse(connection.toolPolicy) })
+    },
+  )
+
+  app.put(
+    "/v1/mcp-connections/:connectionId/tool-policy",
+    describeRoute({
+      tags: ["Capability Sources"],
+      summary: "Update the tool policy for an External MCP Connection",
+      responses: {
+        200: jsonResponse("External MCP tool policy updated.", connectionToolPolicyResponseSchema),
+        401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
+        403: jsonResponse("The caller must be a workspace owner or admin.", forbiddenSchema),
+        404: jsonResponse("Unknown connection.", connectionNotFoundSchema),
+      },
+    }),
+    orgRoleRoute(["admin"]),
+    paramValidator(connectionParamsSchema),
+    jsonValidator(connectionToolPolicyInputSchema),
+    async (c) => {
+      const payload = c.get("organizationContext")
+      const { connectionId } = c.req.valid("param")
+      const externalMcpConnectionId = normalizeDenTypeId("externalMcpConnection", connectionId)
+      const connection = await getExternalMcpConnection({
+        organizationId: payload.organization.id,
+        connectionId: externalMcpConnectionId,
+      })
+      if (!connection) {
+        return c.json({ error: "connection_not_found", message: "Unknown connection." }, 404)
+      }
+
+      const body = c.req.valid("json")
+      const updatedByName = resolveCreatorName(payload, payload.currentMember.id)
+      const policy: ExternalMcpToolPolicy = {
+        version: 1,
+        allDisabled: body.allDisabled,
+        disabledTools: [...new Set(body.disabledTools)],
+        updatedByOrgMembershipId: payload.currentMember.id,
+        ...(updatedByName ? { updatedByName } : {}),
+        updatedAt: new Date().toISOString(),
+      }
+      await setExternalMcpConnectionToolPolicy(
+        connection.id,
+        payload.organization.id,
+        policy,
+      )
+      return c.json({ policy: toToolPolicyResponse(policy) })
+    },
+  )
+
+  app.get(
     "/v1/mcp-connections/:connectionId/tools",
     describeRoute({
       tags: ["Capability Sources"],
@@ -1713,6 +1828,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
               },
             } : {}),
           })),
+          policy: toToolPolicyResponse(connection.toolPolicy),
         })
       } catch (error) {
         const diagnostic = externalMcpDiagnosticForResponse(error, c.get("requestId"), "MCP_TOOL_DISCOVERY")
@@ -1741,7 +1857,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         200: jsonResponse("The MCP tool completed.", connectionToolRunResponseSchema),
         400: jsonResponse("Invalid tool name or arguments.", invalidRequestSchema),
         401: jsonResponse("The caller must be signed in.", unauthorizedSchema),
-        403: jsonResponse("The caller must be a workspace owner/admin and have access to this connection.", forbiddenSchema),
+        403: jsonResponse("The caller must be a workspace owner/admin, have access, and be allowed by tool policy.", connectionToolRunForbiddenSchema),
         404: jsonResponse("Unknown connection.", connectionNotFoundSchema),
         409: jsonResponse("The connection has no usable credential for this member.", connectionNotReadySchema),
         413: jsonResponse("The tool arguments exceeded the request size limit.", connectionToolRequestTooLargeSchema),
@@ -1792,6 +1908,16 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           error: "connection_not_ready",
           message: credential.message,
         }, 409)
+      }
+
+      const policyDecision = evaluateToolPolicy(connection.toolPolicy, toolName)
+      if (policyDecision.blocked) {
+        return c.json({
+          error: "policy_blocked",
+          message: `${toolName} is disabled for your organization.`,
+          disabledBy: policyDecision.disabledBy ?? null,
+          disabledAt: policyDecision.disabledAt ?? null,
+        }, 403)
       }
 
       const startedAt = Date.now()

@@ -9,6 +9,7 @@ import {
   ExternalMcpConnectionAccessGrantTable,
   ExternalMcpConnectionTable,
   type ExternalMcpOAuthConfiguration,
+  type ExternalMcpToolPolicy,
   MarketplaceAccessGrantTable,
   MarketplacePluginTable,
   MarketplaceTable,
@@ -387,6 +388,20 @@ export async function getExternalMcpConnection(input: {
     ))
     .limit(1)
   return rows[0] ?? null
+}
+
+export async function setExternalMcpConnectionToolPolicy(
+  connectionId: ExternalMcpConnectionId,
+  organizationId: OrganizationId,
+  policy: ExternalMcpToolPolicy,
+): Promise<void> {
+  await db
+    .update(ExternalMcpConnectionTable)
+    .set({ toolPolicy: policy })
+    .where(and(
+      eq(ExternalMcpConnectionTable.organizationId, organizationId),
+      eq(ExternalMcpConnectionTable.id, connectionId),
+    ))
 }
 
 export async function listActiveExternalMcpConnectionBindings(input: {
