@@ -20,6 +20,7 @@ import {
   Sparkles,
   type LucideIcon,
   Users,
+  Wrench,
   X,
 } from "lucide-react";
 import { useDenFlow } from "../../_providers/den-flow-provider";
@@ -41,6 +42,7 @@ import {
   getMcpConnectionsRoute,
   getManagedBrandIconUrl,
   getMembersRoute,
+  getToolTesterRoute,
   getYourConnectionsRoute,
   getOrgDashboardRoute,
   getOrgSettingsRoute,
@@ -287,6 +289,9 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getYourConnectionsRoute(orgSlug))) {
     return "Your Connections";
   }
+  if (pathname.startsWith(getToolTesterRoute(orgSlug))) {
+    return "Tool Tester";
+  }
   if (pathname.startsWith(getBillingRoute(orgSlug))) {
     return "Billing";
   }
@@ -445,6 +450,13 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
           label: "Your Connections",
           icon: Plug,
           badge: "Beta",
+        }]
+      : []),
+    ...(mcpConnectionsEnabled && access.isAdmin && activeOrg
+      ? [{
+          href: getToolTesterRoute(activeOrg.slug),
+          label: "Tool Tester",
+          icon: Wrench,
         }]
       : []),
     ...(showWeb

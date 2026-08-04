@@ -134,6 +134,15 @@ export type ExternalMcpOAuthConfiguration = {
   discovery?: Record<string, unknown>
 }
 
+export type ExternalMcpToolPolicy = {
+  version: 1
+  allDisabled: boolean
+  disabledTools: string[]
+  updatedByOrgMembershipId?: string
+  updatedByName?: string
+  updatedAt?: string
+}
+
 export type ExternalMcpCredentialHealth = {
   version: 1
   status: "ready" | "reconnect_required"
@@ -184,6 +193,7 @@ export const ExternalMcpConnectionTable = mysqlTable(
      * working until an administrator migrates them.
      */
     oauthConfiguration: compatJsonColumn<ExternalMcpOAuthConfiguration>("oauth_configuration"),
+    toolPolicy: compatJsonColumn<ExternalMcpToolPolicy>("tool_policy"),
     /**
      * How the connection's credential relates to people:
      * - "shared": one org-level credential (this row's token columns, or
