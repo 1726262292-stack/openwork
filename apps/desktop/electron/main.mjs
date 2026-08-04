@@ -218,8 +218,7 @@ function resolveAppIconPath() {
       : []),
     // Repo-relative path to the Electron resource icon set.
     path.resolve(__dirname, "../resources/icons/icon.png"),
-    // Packaged: electron-builder copies extraResources but we fall back to this
-    // if custom packaging ever exposes the icon here.
+    // Packaged Windows and Linux builds ship runtime icons via extraResources.
     path.join(process.resourcesPath ?? "", "icons", "linux", "512x512.png"),
     path.join(process.resourcesPath ?? "", "icons", "icon.png"),
   ];
