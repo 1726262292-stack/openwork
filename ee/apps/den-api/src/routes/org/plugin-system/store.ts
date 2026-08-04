@@ -5915,6 +5915,31 @@ function importedObjectMetadata(input: { objectType: ConnectorMappingRow["object
   }
 }
 
+export function deriveGithubImportedObjectProjection(input: { objectType: ConnectorMappingRow["objectType"]; path: string; rawSourceText: string }) {
+  const metadata = importedObjectMetadata({ objectType: input.objectType, path: input.path, rawSourceText: input.rawSourceText })
+  const frontmatterRecord = metadata.metadata && typeof metadata.metadata.frontmatter === "object"
+    ? metadata.metadata.frontmatter as Record<string, unknown>
+    : null
+  const hasFrontmatter = frontmatterRecord && Object.keys(frontmatterRecord).length > 0
+  // Skill projections need the full SKILL.md: deriveSkillProjection parses and
+  // validates the frontmatter itself, so stripping it here made every GitHub
+  // connector skill import fail with invalid_skill_frontmatter.
+  const projectionRawSource = input.objectType !== "skill" && hasFrontmatter
+    ? parseMarkdownFrontmatter(input.rawSourceText).body
+    : input.rawSourceText
+  return {
+    metadata,
+    projection: deriveProjection({
+      objectType: input.objectType,
+      value: {
+        metadata: metadata.metadata,
+        normalizedPayloadJson: metadata.normalizedPayloadJson,
+        rawSourceText: projectionRawSource,
+      },
+    }),
+  }
+}
+
 async function findActiveConnectorSourceBinding(input: {
   connectorMappingId: ConnectorMappingId
   externalLocator: string
@@ -5947,25 +5972,10 @@ async function materializeGithubImportedObject(input: {
   const organizationId = input.context.organizationContext.organization.id
   const createdByOrgMembershipId = input.context.organizationContext.currentMember.id
   const now = new Date()
-  const metadata = importedObjectMetadata({
+  const { metadata, projection } = deriveGithubImportedObjectProjection({
     objectType: input.connectorMapping.objectType,
     path: input.externalLocator,
     rawSourceText: input.rawSourceText,
-  })
-  const frontmatterRecord = metadata.metadata && typeof metadata.metadata.frontmatter === "object"
-    ? metadata.metadata.frontmatter as Record<string, unknown>
-    : null
-  const hasFrontmatter = frontmatterRecord && Object.keys(frontmatterRecord).length > 0
-  const projectionRawSource = hasFrontmatter
-    ? parseMarkdownFrontmatter(input.rawSourceText).body
-    : input.rawSourceText
-  const projection = deriveProjection({
-    objectType: input.connectorMapping.objectType,
-    value: {
-      metadata: metadata.metadata,
-      normalizedPayloadJson: metadata.normalizedPayloadJson,
-      rawSourceText: projectionRawSource,
-    },
   })
   const fileName = input.externalLocator.split("/").filter(Boolean).at(-1) ?? input.externalLocator
   const fileExtension = fileName.includes(".") ? fileName.split(".").at(-1) ?? null : null
