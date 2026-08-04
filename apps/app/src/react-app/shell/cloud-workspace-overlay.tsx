@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { AnimatePresence, LazyMotion, domMax, m, useReducedMotion } from "motion/react";
 
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
+import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
 import { softCardClass } from "@/react-app/domains/workspace/modal-styles";
 import {
   cloudWorkspaceBootIsSlow,
@@ -17,6 +18,7 @@ import {
   cloudWorkspaceTakeoverCopy,
   formatCloudWorkspaceElapsed,
   mapCloudWorkspaceState,
+  shouldAutoUpdateCloudWorkspace,
   type CloudWorkspaceBootStage,
   type CloudWorkspaceMainContentDecision,
   type CloudWorkspaceViewModel,
@@ -90,6 +92,7 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
   const [requestFailed, setRequestFailed] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [takeoverActive, setTakeoverActive] = useState(false);
+  const lastAttemptedVersion = useRef<string | null>(null);
   const gatewayMode = isOpenworkGatewayRuntime();
   const settingsSnapshot = useSyncExternalStore(
     subscribeToDenSettings,
@@ -173,6 +176,25 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
         setRequestFailed(true);
       });
   }, [denClient, gatewayMode, orgId, refresh, updating]);
+
+  useEffect(() => {
+    const hasActiveRun = Object.values(useSessionActivityStore.getState().recordsByWorkspaceId)
+      .some((records) => Object.values(records).some((record) => record.runActive));
+    const latestVersion = instance?.latestVersion ?? null;
+    if (!shouldAutoUpdateCloudWorkspace({
+      gatewayMode,
+      visible,
+      status: instance?.status ?? null,
+      updateAvailable: viewModel.updateAvailable,
+      updating,
+      requestFailed,
+      hasActiveRun,
+      latestVersion,
+      lastAttemptedVersion: lastAttemptedVersion.current,
+    })) return;
+    lastAttemptedVersion.current = latestVersion;
+    updateNow();
+  }, [gatewayMode, instance, requestFailed, updateNow, updating, viewModel.updateAvailable, visible]);
 
   const value = useMemo<CloudWorkspaceStatusContextValue>(() => ({
     gatewayMode,
