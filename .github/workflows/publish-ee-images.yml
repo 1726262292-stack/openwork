@@ -13,6 +13,11 @@ on:
         required: false
         default: ""
         type: string
+      redeploy_den_api:
+        description: Redeploy den-api on Render so it pulls the latest published dev image
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - "dev"
@@ -337,7 +342,8 @@ jobs:
 
   # The gateway is stateless (it serves the SPA and proxies), so dev CD is safe.
   # den-api and engine-snapshot dev CD are deliberate follow-ups because they
-  # require migration and sandbox recycle handling.
+  # require migration and sandbox recycle handling. Until den-api CD lands,
+  # operators redeploy den-api with the `redeploy_den_api` dispatch input below.
   redeploy-den-gateway:
     needs: [artifact-version, ee-images]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
@@ -372,4 +378,43 @@ jobs:
           {
             echo
             echo "Triggered a den-gateway deploy so it pulls the fresh dev image."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Manual den-api deploy lever. Migrations already run on every dev push via
+  # den-db-migrate.yml, so recycling the service onto the current published dev
+  # image is safe; full den-api dev CD remains a deliberate follow-up.
+  redeploy-den-api:
+    needs: [artifact-version, ee-images]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.redeploy_den_api == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Redeploy den-api on Render
+        shell: bash
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_DEN_API_SERVICE_ID: ${{ secrets.RENDER_DEN_API_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RENDER_DEN_API_SERVICE_ID:-}" ] || [ -z "${RENDER_API_KEY:-}" ]; then
+            echo "::notice::Render den-api credentials unavailable; skipping redeploy..."
+            echo "Render den-api redeploy skipped because credentials are unavailable." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          response="$(curl -s -w '\n%{http_code}' -X POST \
+            "https://api.render.com/v1/services/${RENDER_DEN_API_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          code="$(printf '%s' "$response" | tail -1)"
+          body="$(printf '%s' "$response" | sed '$d')"
+          if [ "$code" -ge 400 ]; then
+            echo "::error::POST /deploys returned HTTP $code: $body"
+            exit 1
+          fi
+
+          {
+            echo
+            echo "Triggered a den-api deploy so it pulls the latest published dev image."
           } >> "$GITHUB_STEP_SUMMARY"
