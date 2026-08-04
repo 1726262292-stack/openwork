@@ -1,5 +1,6 @@
 import {
   createDenClient,
+  readDenSettings,
   writeDenSettings,
   type DenDesktopHandoffExchange,
 } from "./den";
@@ -56,12 +57,18 @@ export async function exchangeHandoffAndSignIn(
         window.sessionStorage.setItem(DEN_HANDOFF_AUTO_CONTINUE_KEY, String(Date.now()));
       } catch {}
     }
+    // Prefer the caller-provided org (install-link bootstrap), then the org the
+    // server resolved for this session. When neither is known, keep whatever is
+    // already stored: overwriting with null strands fresh profiles without an
+    // organization, which disables Connect and skips org onboarding.
+    const activeOrg = options.activeOrg ?? exchange.organization ?? null;
+    const storedSettings = readDenSettings();
     writeDenSettings({
       baseUrl: options.baseUrl,
       authToken: exchange.token,
-      activeOrgId: options.activeOrg?.id ?? null,
-      activeOrgSlug: options.activeOrg?.slug ?? null,
-      activeOrgName: options.activeOrg?.name ?? null,
+      activeOrgId: activeOrg ? activeOrg.id : storedSettings.activeOrgId,
+      activeOrgSlug: activeOrg ? activeOrg.slug ?? null : storedSettings.activeOrgSlug,
+      activeOrgName: activeOrg ? activeOrg.name ?? null : storedSettings.activeOrgName,
     });
 
     dispatchDenSessionUpdated({

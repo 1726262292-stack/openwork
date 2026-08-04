@@ -8,6 +8,7 @@ import { z } from "zod"
 import { authenticatedRoute, jsonValidator, publicRoute } from "../../middleware/index.js"
 import { db } from "../../db.js"
 import { env, type DenOrgMode } from "../../env.js"
+import { resolveUserOrganizations } from "../../orgs.js"
 import { denTypeIdSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 import { enforceRateLimit } from "../../utils/rate-limit.js"
@@ -41,6 +42,11 @@ const desktopHandoffExchangeResponseSchema = z.object({
     email: z.string().email(),
     name: z.string().nullable(),
   }),
+  organization: z.object({
+    id: denTypeIdSchema("organization"),
+    slug: z.string(),
+    name: z.string(),
+  }).nullable(),
 }).meta({ ref: "DesktopHandoffExchangeResponse" })
 
 const desktopHandoffStatusResponseSchema = z.object({
@@ -568,6 +574,7 @@ export function registerDesktopAuthRoutes<T extends { Variables: AuthContextVari
           email: row.user.email,
           name: row.user.name,
         },
+        activeOrganizationId: row.session.activeOrganizationId,
       }
     })
 
@@ -578,7 +585,27 @@ export function registerDesktopAuthRoutes<T extends { Variables: AuthContextVari
       }, 404)
     }
 
-    return c.json(exchange)
+    // Tell the desktop which organization this sign-in belongs to so the app
+    // never has to guess (or race /v1/me/orgs) right after a handoff. Falls
+    // back to null when the session has no resolvable organization; the app
+    // then repairs through its normal org-resolution path.
+    let organization: { id: string; slug: string; name: string } | null = null
+    try {
+      const resolved = await resolveUserOrganizations({
+        userId: normalizeDenTypeId("user", exchange.user.id),
+        activeOrganizationId: exchange.activeOrganizationId,
+      })
+      const activeOrg = resolved.orgs.find((org) => org.id === resolved.activeOrgId) ?? null
+      organization = activeOrg ? { id: activeOrg.id, slug: activeOrg.slug, name: activeOrg.name } : null
+    } catch {
+      organization = null
+    }
+
+    return c.json({
+      token: exchange.token,
+      user: exchange.user,
+      organization,
+    })
     },
   )
 }
