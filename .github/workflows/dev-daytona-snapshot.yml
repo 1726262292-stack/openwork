@@ -51,7 +51,7 @@ jobs:
       # Every commit on dev has passed PR review (Warden L24-F6Z).
       - name: Checkout dev source at the triggering commit
         if: steps.channel.outputs.enabled == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -130,7 +130,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: steps.channel.outputs.enabled == 'true' && (steps.existing.outputs.exists != 'true' || inputs.force == true)
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.9.0
 
       - name: Build and push snapshot
         id: publish
@@ -159,7 +159,7 @@ jobs:
 
       - name: Checkout snapshot pin automation
         if: steps.channel.outputs.enabled == 'true' && vars.DAYTONA_CLOUD_ENV_GROUP_ID != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .snapshot-pin-automation
