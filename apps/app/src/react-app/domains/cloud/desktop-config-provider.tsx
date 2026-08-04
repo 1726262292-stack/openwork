@@ -76,6 +76,34 @@ export function resolveConnectStateToPush(config: DenDesktopConfig): boolean | n
   return typeof config.connectEnabled === "boolean" ? config.connectEnabled : null;
 }
 
+export const CONNECT_STATE_PUSH_RETRY_DELAY_MS = 3_000;
+export const CONNECT_STATE_PUSH_MAX_ATTEMPTS = 20;
+
+/**
+ * Push the Connect switch to the local server until it is actually accepted.
+ * On a fresh install the local server (or its host token) may not be ready
+ * when the first push fires; dropping that push would strand the on-disk
+ * default (`connectEnabled: false`) forever. Resolves true once delivered.
+ */
+export async function deliverConnectState(
+  attempt: () => Promise<boolean>,
+  wait: (delayMs: number) => Promise<void>,
+  isCancelled: () => boolean,
+): Promise<boolean> {
+  for (let attemptIndex = 0; attemptIndex < CONNECT_STATE_PUSH_MAX_ATTEMPTS; attemptIndex += 1) {
+    if (isCancelled()) return false;
+    try {
+      if (await attempt()) return true;
+    } catch {
+      // The local server may still be starting; retry below.
+    }
+    if (isCancelled()) return false;
+    await wait(CONNECT_STATE_PUSH_RETRY_DELAY_MS);
+  }
+
+  return false;
+}
+
 type DesktopConfigItem = (typeof DESKTOP_CONFIG_ITEMS)[number];
 type DesktopConfigAction = {
   item: DesktopConfigItem;
@@ -370,16 +398,24 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     if (lastPushedConnectEnabledRef.current === connectEnabled) return;
     let cancelled = false;
 
-    void (async () => {
-      const connection = await resolveOpenworkConnection();
-      if (cancelled || !connection.normalizedBaseUrl || !connection.resolvedHostToken) return;
-      lastPushedConnectEnabledRef.current = connectEnabled;
-      await createOpenworkServerClient({
-        baseUrl: connection.normalizedBaseUrl,
-        token: connection.resolvedToken,
-        hostToken: connection.resolvedHostToken,
-      }).setConnectState(connectEnabled);
-    })().catch(() => null);
+    void deliverConnectState(
+      async () => {
+        const connection = await resolveOpenworkConnection();
+        if (!connection.normalizedBaseUrl || !connection.resolvedHostToken) return false;
+        await createOpenworkServerClient({
+          baseUrl: connection.normalizedBaseUrl,
+          token: connection.resolvedToken,
+          hostToken: connection.resolvedHostToken,
+        }).setConnectState(connectEnabled);
+        return true;
+      },
+      (delayMs) => new Promise((resolveWait) => window.setTimeout(resolveWait, delayMs)),
+      () => cancelled,
+    ).then((delivered) => {
+      if (delivered && !cancelled) {
+        lastPushedConnectEnabledRef.current = connectEnabled;
+      }
+    }).catch(() => null);
 
     return () => {
       cancelled = true;

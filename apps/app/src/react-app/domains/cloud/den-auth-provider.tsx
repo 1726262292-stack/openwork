@@ -55,6 +55,7 @@ export type DenAuthStatus =
 
 export const DEN_AUTH_SIGNAL_RETRY_COOLDOWN_MS = 5_000;
 export const DEN_AUTH_UNAVAILABLE_RETRY_INTERVAL_MS = 30_000;
+export const DEN_AUTH_ORG_REPAIR_INTERVAL_MS = 30_000;
 const DEN_ORG_RESOLUTION_RETRY_DELAYS_MS = [0, 200, 600];
 
 export async function resolveDenActiveOrganizationWithRetry(
@@ -289,10 +290,26 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
       retryUnavailableSession,
       DEN_AUTH_UNAVAILABLE_RETRY_INTERVAL_MS,
     );
+    // A signed-in session without an organization is a stranded first
+    // sign-in (e.g. org discovery was rate limited during a handoff). Keep
+    // repairing in the background until an organization resolves.
+    const repairMissingOrganization = () => {
+      if (statusRef.current !== "signed_in") return;
+      const settings = readDenSettings();
+      if (!settings.authToken?.trim() || settings.activeOrgId?.trim()) return;
+      void resolveDenActiveOrganizationWithRetry(() =>
+        ensureDenActiveOrganization({ forceServerSync: true })
+      );
+    };
+    const orgRepairInterval = window.setInterval(
+      repairMissingOrganization,
+      DEN_AUTH_ORG_REPAIR_INTERVAL_MS,
+    );
     return () => {
       window.removeEventListener("online", retryUnavailableSession);
       window.removeEventListener("focus", retryUnavailableSession);
       window.clearInterval(retryInterval);
+      window.clearInterval(orgRepairInterval);
     };
   }, [refresh]);
 

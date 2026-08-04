@@ -376,9 +376,16 @@ type DenAuthResult = {
   token: string | null;
 };
 
+export type DenDesktopHandoffExchangeOrganization = {
+  id: string;
+  slug: string | null;
+  name: string | null;
+};
+
 export type DenDesktopHandoffExchange = {
   user: DenUser | null;
   token: string | null;
+  organization: DenDesktopHandoffExchangeOrganization | null;
 };
 
 const defaultBootstrapBaseUrls = resolveDenBaseUrls({
@@ -1175,6 +1182,24 @@ function getToken(payload: unknown): string | null {
     return null;
   }
   return payload.token.trim() || null;
+}
+
+function getExchangeOrganization(payload: unknown): DenDesktopHandoffExchangeOrganization | null {
+  if (!isRecord(payload) || !isRecord(payload.organization)) {
+    return null;
+  }
+
+  const organization = payload.organization;
+  const id = typeof organization.id === "string" ? organization.id.trim() : "";
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    slug: typeof organization.slug === "string" && organization.slug.trim() ? organization.slug.trim() : null,
+    name: typeof organization.name === "string" && organization.name.trim() ? organization.name.trim() : null,
+  };
 }
 
 function getOrgList(payload: unknown): DenOrgSummary[] {
@@ -2253,7 +2278,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         method: "POST",
         body: { grant },
       });
-      return { user: getUser(payload), token: getToken(payload) };
+      return { user: getUser(payload), token: getToken(payload), organization: getExchangeOrganization(payload) };
     },
 
     async listOrgs(): Promise<{ orgs: DenOrgSummary[]; activeOrgId: string | null; activeOrgSlug: string | null; defaultOrgId: string | null }> {
