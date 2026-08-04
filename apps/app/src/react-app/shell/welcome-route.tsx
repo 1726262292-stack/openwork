@@ -13,6 +13,7 @@ import {
   type WorkspaceList,
 } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
+import { canCreateWorkspaces } from "../../app/lib/workspace-creation-policy";
 import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
@@ -370,6 +371,7 @@ export function WelcomeRoute() {
 
   const handleGetStarted = useCallback(async () => {
     if (!isDesktopRuntime()) {
+      if (!canCreateWorkspaces()) return;
       // Non-desktop: fall back to the modal for remote workspace creation.
       dispatch({ type: "open" });
       return;
