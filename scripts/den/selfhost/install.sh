@@ -59,9 +59,11 @@ mv -f "$PREFIX/config-dir.tmp.$$" "$PREFIX/config-dir"
 if [ ! -e "$CONFIG_DIR/den.env" ]; then
   install -m 0600 "$BUNDLE_DIR/share/den.env.example" "$CONFIG_DIR/den.env"
 fi
-chmod 0600 "$CONFIG_DIR/den.env"
 if [ "$NO_USER" -eq 0 ]; then
-  chown openwork-den:openwork-den "$CONFIG_DIR/den.env"
+  chown root:openwork-den "$CONFIG_DIR/den.env"
+  chmod 0640 "$CONFIG_DIR/den.env"
+else
+  chmod 0600 "$CONFIG_DIR/den.env"
 fi
 
 escape_sed() {

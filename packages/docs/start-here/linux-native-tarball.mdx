@@ -98,9 +98,9 @@ For non-standard installs, `install.sh` accepts `--prefix PATH`,
 ## Configuration reference
 
 The installer creates `/etc/openwork-den/den.env` from the bundled example and
-preserves that file on later installs. Keep it readable only by the service
-user. The web origin values must match the public URL served by the reverse
-proxy.
+preserves that file on later installs. It stays root-owned and group-readable by
+the `openwork-den` service user, but the service user cannot modify it. The web
+origin values must match the public URL served by the reverse proxy.
 
 | Group | Key | Purpose |
 |---|---|---|

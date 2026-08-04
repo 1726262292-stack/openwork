@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, chmod, copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +11,24 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..", "..");
 const templateRoot = path.join(scriptDir, "selfhost");
 const nodeVersion = "22.22.0";
+const nodeArchives = new Map([
+  ["darwin-arm64", {
+    fileName: "node-v22.22.0-darwin-arm64.tar.gz",
+    sha256: "5ed4db0fcf1eaf84d91ad12462631d73bf4576c1377e192d222e48026a902640",
+  }],
+  ["darwin-x64", {
+    fileName: "node-v22.22.0-darwin-x64.tar.gz",
+    sha256: "5ea50c9d6dea3dfa3abb66b2656f7a4e1c8cef23432b558d45fb538c7b5dedce",
+  }],
+  ["linux-arm64", {
+    fileName: "node-v22.22.0-linux-arm64.tar.gz",
+    sha256: "25ba95dfb96871fa2ef977f11f95ea90818c8fa15c0f2110771db08d4ba423be",
+  }],
+  ["linux-x64", {
+    fileName: "node-v22.22.0-linux-x64.tar.gz",
+    sha256: "c33c39ed9c80deddde77c960d00119918b9e352426fd604ba41638d6526a4744",
+  }],
+]);
 const supportedPlatforms = new Set(["darwin", "linux"]);
 const supportedArchitectures = new Set(["arm64", "x64"]);
 
@@ -94,14 +113,26 @@ async function stageNode(destination, options, workDir) {
     return;
   }
 
-  const distribution = `node-v${nodeVersion}-${options.platform}-${options.arch}`;
-  const url = `https://nodejs.org/dist/v${nodeVersion}/${distribution}.tar.gz`;
+  const archiveMetadata = nodeArchives.get(`${options.platform}-${options.arch}`);
+  if (!archiveMetadata) {
+    throw new Error(`No pinned Node ${nodeVersion} SHA256 for ${options.platform}-${options.arch}`);
+  }
+  const distribution = archiveMetadata.fileName.replace(/\.tar\.gz$/, "");
+  const url = `https://nodejs.org/dist/v${nodeVersion}/${archiveMetadata.fileName}`;
   console.log(`[den-selfhost] Downloading ${url}`);
   const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!response.ok) throw new Error(`Node download failed: HTTP ${response.status} ${url}`);
-  const archive = path.join(workDir, distribution + ".tar.gz");
+  const contents = Buffer.from(await response.arrayBuffer());
+  const actualSha256 = createHash("sha256").update(contents).digest("hex");
+  if (actualSha256 !== archiveMetadata.sha256) {
+    throw new Error(
+      `Node runtime checksum mismatch for ${archiveMetadata.fileName}: expected ${archiveMetadata.sha256}, got ${actualSha256}`,
+    );
+  }
+  console.log(`[den-selfhost] Verified Node runtime SHA256 ${actualSha256} (${archiveMetadata.fileName})`);
+  const archive = path.join(workDir, archiveMetadata.fileName);
   const extracted = path.join(workDir, "node-runtime");
-  await writeFile(archive, Buffer.from(await response.arrayBuffer()));
+  await writeFile(archive, contents);
   await mkdir(extracted);
   await run("tar", ["-xzf", archive, "-C", extracted, distribution + "/bin/node"]);
   await copyFile(path.join(extracted, distribution, "bin", "node"), destination);
@@ -203,6 +234,8 @@ async function main() {
   try {
     await mkdir(deployRoot, { recursive: true });
     await mkdir(bundleRoot, { recursive: true });
+    await mkdir(path.join(bundleRoot, "bin"), { recursive: true });
+    await stageNode(path.join(bundleRoot, "bin", "node"), options, workDir);
     console.log("[den-selfhost] Building Den API and Den Web");
     await run("pnpm", ["--filter", "@openwork/types", "build"], { env: buildEnv });
     await run("pnpm", ["--filter", "@openwork-ee/den-api", "build"], { env: buildEnv });
@@ -221,8 +254,6 @@ async function main() {
     }
     await pointWorkspacePackagesAtDist(path.join(deployRoot, "den-api", "node_modules"));
 
-    await mkdir(path.join(bundleRoot, "bin"), { recursive: true });
-    await stageNode(path.join(bundleRoot, "bin", "node"), options, workDir);
     await copyDeployedServices(deployRoot, bundleRoot);
     await cp(templateRoot, bundleRoot, { recursive: true });
     await writeFile(path.join(bundleRoot, "VERSION"), `${options.version}\n`, "utf8");
