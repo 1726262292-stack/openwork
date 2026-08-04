@@ -7,10 +7,17 @@ import {
   selectEffectiveOnboardingPrompts,
 } from "@openwork/types/den/desktop-policies";
 import { createDenClient, normalizeDenDesktopConfig } from "../src/app/lib/den";
+import { resolveConnectStateToPush } from "../src/react-app/domains/cloud/desktop-config-provider";
 
 const originalFetch = globalThis.fetch;
 
 describe("Den desktop config client", () => {
+  test("only pushes an explicit Connect policy", () => {
+    expect(resolveConnectStateToPush({})).toBeNull();
+    expect(resolveConnectStateToPush({ connectEnabled: false })).toBe(false);
+    expect(resolveConnectStateToPush({ connectEnabled: true })).toBe(true);
+  });
+
   afterEach(() => {
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   DenApiError,
+  ensureDenActiveOrganization,
   isDenSessionRevokedError,
   mergePassiveDenSettings,
   readDenSettings,
@@ -10,6 +11,7 @@ import {
 import { resolveDenAuthFailureStatus } from "../src/react-app/domains/cloud/den-auth-provider";
 
 const originalWindow = globalThis.window;
+const originalFetch = globalThis.fetch;
 
 function memoryStorage(): Storage {
   const map = new Map<string, string>();
@@ -39,6 +41,10 @@ afterEach(() => {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: originalWindow,
+  });
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: originalFetch,
   });
 });
 
@@ -147,6 +153,43 @@ describe("mergePassiveDenSettings", () => {
     expect(window.localStorage.getItem("openwork.den.activeOrgId")).toBe("org_stored");
     expect(window.localStorage.getItem("openwork.den.activeOrgSlug")).toBe("stored-org");
     expect(window.localStorage.getItem("openwork.den.activeOrgName")).toBe("Stored Org");
+  });
+});
+
+describe("ensureDenActiveOrganization", () => {
+  test("preserves the selected organization when the server temporarily returns none", async () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: memoryStorage(),
+        dispatchEvent: () => true,
+      },
+    });
+    writeDenSettings({
+      baseUrl: "https://den.test",
+      authToken: "tok_stored",
+      activeOrgId: "org_stored",
+      activeOrgSlug: "stored-org",
+      activeOrgName: "Stored Org",
+    });
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      value: (async () => new Response(JSON.stringify({
+        orgs: [],
+        activeOrgId: null,
+        activeOrgSlug: null,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) satisfies typeof fetch,
+    });
+
+    await expect(ensureDenActiveOrganization()).resolves.toBeNull();
+    expect(readDenSettings()).toMatchObject({
+      activeOrgId: "org_stored",
+      activeOrgSlug: "stored-org",
+      activeOrgName: "Stored Org",
+    });
   });
 });
 

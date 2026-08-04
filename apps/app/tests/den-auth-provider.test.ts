@@ -4,9 +4,17 @@ import { DenApiError } from "../src/app/lib/den";
 import {
   DEN_AUTH_SIGNAL_RETRY_COOLDOWN_MS,
   hasRetainedDenSession,
+  resolveDenActiveOrganizationWithRetry,
   resolveDenAuthFailureStatus,
   shouldRetryDenAuthOnSignal,
 } from "../src/react-app/domains/cloud/den-auth-provider";
+
+const resolvedOrganization = {
+  id: "org_invited",
+  name: "Invited organization",
+  slug: "invited-organization",
+  role: "member",
+};
 
 describe("resolveDenAuthFailureStatus", () => {
   test("only treats a confirmed unauthorized response as signed out", () => {
@@ -81,5 +89,28 @@ describe("shouldRetryDenAuthOnSignal", () => {
         lastAttemptAt: 1_000,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveDenActiveOrganizationWithRetry", () => {
+  test("recovers when an invited organization is temporarily unavailable", async () => {
+    let attempts = 0;
+    const waits: number[] = [];
+
+    const result = await resolveDenActiveOrganizationWithRetry(
+      async () => {
+        attempts += 1;
+        if (attempts === 1) throw new TypeError("Failed to fetch");
+        if (attempts === 2) return null;
+        return resolvedOrganization;
+      },
+      async (delayMs) => {
+        waits.push(delayMs);
+      },
+    );
+
+    expect(result).toEqual(resolvedOrganization);
+    expect(attempts).toBe(3);
+    expect(waits).toEqual([200, 600]);
   });
 });
