@@ -1113,12 +1113,6 @@ export async function ensureDenActiveOrganization(options?: { forceServerSync?: 
     null;
 
   if (!targetOrg) {
-    writeDenSettings({
-      ...settings,
-      activeOrgId: null,
-      activeOrgSlug: null,
-      activeOrgName: null,
-    }, { persistBootstrap: false });
     return null;
   }
 

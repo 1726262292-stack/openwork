@@ -72,6 +72,10 @@ const DESKTOP_CONFIG_ITEMS = [
   "onboardingPromptDescriptions",
 ] as const satisfies readonly (keyof DenDesktopConfig)[];
 
+export function resolveConnectStateToPush(config: DenDesktopConfig): boolean | null {
+  return typeof config.connectEnabled === "boolean" ? config.connectEnabled : null;
+}
+
 type DesktopConfigItem = (typeof DESKTOP_CONFIG_ITEMS)[number];
 type DesktopConfigAction = {
   item: DesktopConfigItem;
@@ -358,10 +362,11 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     };
   }, [desktopConfigHandler, isSignedIn]);
 
-  const connectEnabled = config.connectEnabled === true;
+  const connectEnabled = resolveConnectStateToPush(config);
 
   useEffect(() => {
     if (loading) return;
+    if (connectEnabled === null) return;
     if (lastPushedConnectEnabledRef.current === connectEnabled) return;
     let cancelled = false;
 
