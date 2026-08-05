@@ -848,6 +848,10 @@ jobs:
       needs.resolve-release.result == 'success' &&
       needs.publish-electron.result == 'success' &&
       needs.publish-release.result == 'success'
+    # AUR is a community distribution channel hosted on aur.archlinux.org.
+    # Outages there (e.g. "The AUR is down due to maintenance", 2026-08-04)
+    # must not mark an otherwise-published release run as failed.
+    continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
