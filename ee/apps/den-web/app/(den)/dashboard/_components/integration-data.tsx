@@ -1010,6 +1010,44 @@ export function useSetConnectorInstanceAutoImport() {
   });
 }
 
+export function useSyncConnectorInstanceNow() {
+  const queryClient = useQueryClient();
+  const { runReauthableAction } = useOrgDashboard();
+
+  return useMutation({
+    mutationFn: async (connectorInstanceId: string) => {
+      let enqueuedCount: number | null = null;
+      await runReauthableAction("sync-connector-instance", async () => {
+        const { response, payload } = await requestJson(
+          `/v1/connector-instances/${encodeURIComponent(connectorInstanceId)}/sync-now`,
+          { method: "POST" },
+          15000,
+        );
+
+        if (!response.ok) {
+          throw getRequestError(payload, response, `Failed to sync connector instance (${response.status}).`);
+        }
+
+        const item = isRecord(payload) && isRecord(payload.item) ? payload.item : null;
+        if (!item || typeof item.enqueuedCount !== "number") {
+          throw new Error("Connector sync response was incomplete.");
+        }
+        enqueuedCount = item.enqueuedCount;
+      });
+      if (enqueuedCount === null) {
+        throw new Error("Connector sync response was incomplete.");
+      }
+      return enqueuedCount;
+    },
+    onSuccess: (_result, connectorInstanceId) => {
+      queryClient.invalidateQueries({ queryKey: integrationQueryKeys.all });
+      queryClient.invalidateQueries({
+        queryKey: integrationQueryKeys.connectorInstanceConfiguration(connectorInstanceId),
+      });
+    },
+  });
+}
+
 export function useRemoveConnectorInstance() {
   const queryClient = useQueryClient();
   const { runReauthableAction } = useOrgDashboard();

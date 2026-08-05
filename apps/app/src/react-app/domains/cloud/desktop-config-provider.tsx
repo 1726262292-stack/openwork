@@ -26,7 +26,7 @@ import {
   setDenBootstrapConfig,
   type DenDesktopConfig,
 } from "../../../app/lib/den";
-import { applyBrandAppName, applyBrandIcon } from "../../../app/lib/desktop";
+import { applyBrandAppName, applyBrandIcon, getBrandIconState } from "../../../app/lib/desktop";
 import { createOpenworkServerClient } from "../../../app/lib/openwork-server";
 import {
   denSessionUpdatedEvent,
@@ -38,6 +38,7 @@ import { useDenAuth } from "./den-auth-provider";
 import {
   bootstrapBrandingFromDesktopConfig,
   bootstrapBrandingNeedsSync,
+  brandIconReconcileAction,
 } from "./workspace-branding-restart";
 import { useProviderSyncStatePush } from "./use-provider-sync-state-push";
 
@@ -180,6 +181,44 @@ type DesktopConfigProviderProps = {
   children: ReactNode;
 };
 
+// Rewrites desktop-bootstrap.json branding to match `normalizedConfig` so a
+// cleared wordmark/icon cannot resurrect from the install/connect snapshot on
+// the next relaunch. No-op when the bootstrap already matches.
+function syncBootstrapBranding(normalizedConfig: DenDesktopConfig): void {
+  if (!isDesktopRuntime()) return;
+  const bootstrap = readDenBootstrapConfig();
+  if (!bootstrapBrandingNeedsSync(bootstrap, normalizedConfig)) return;
+  const branding = bootstrapBrandingFromDesktopConfig(normalizedConfig);
+  void setDenBootstrapConfig(
+    {
+      ...bootstrap,
+      brandAppName: branding.brandAppName,
+      brandLogoUrl: branding.brandLogoUrl,
+      brandIconUrl: branding.brandIconUrl,
+    },
+    { dispatchSettingsChanged: false },
+  ).catch(() => undefined);
+}
+
+// Level-based safety net behind the edge-triggered config diff: the shell
+// (Electron main) restores its cached/bootstrap brand icon on every launch,
+// so when a clear's edge is missed (stale localStorage cache, failed IPC,
+// org/base-URL switch changing the cache key), nothing would ever tell the
+// shell to reset and the branded icon would persist forever. After every
+// fresh config fetch, compare the shell's applied state to the config and
+// re-assert the expected icon plus the bootstrap branding snapshot.
+async function reconcileShellBranding(latestConfig: DenDesktopConfig): Promise<void> {
+  if (!isDesktopRuntime()) return;
+  const normalizedConfig = normalizeDenDesktopConfig(latestConfig);
+  syncBootstrapBranding(normalizedConfig);
+  const action = brandIconReconcileAction(normalizedConfig, await getBrandIconState());
+  if (!action) return;
+  const result = await applyBrandIcon(action.apply);
+  if (!result.ok) {
+    console.warn(`[brand-icon] Desktop icon reconcile was not applied: ${result.reason ?? "unknown failure"}`);
+  }
+}
+
 type DesktopConfigState = {
   config: DenDesktopConfig;
   loading: boolean;
@@ -248,20 +287,8 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     const shouldSyncBootstrapBranding = actions.some((action) =>
       isBootstrapBrandingActionItem(action.item),
     );
-    if (shouldSyncBootstrapBranding && isDesktopRuntime()) {
-      const bootstrap = readDenBootstrapConfig();
-      if (bootstrapBrandingNeedsSync(bootstrap, normalizedConfig)) {
-        const branding = bootstrapBrandingFromDesktopConfig(normalizedConfig);
-        void setDenBootstrapConfig(
-          {
-            ...bootstrap,
-            brandAppName: branding.brandAppName,
-            brandLogoUrl: branding.brandLogoUrl,
-            brandIconUrl: branding.brandIconUrl,
-          },
-          { dispatchSettingsChanged: false },
-        ).catch(() => undefined);
-      }
+    if (shouldSyncBootstrapBranding) {
+      syncBootstrapBranding(normalizedConfig);
     }
 
     currentDesktopConfigRef.current = normalizedConfig;
@@ -277,6 +304,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
       const nextConfig = devRefreshDesktopConfigRef.current;
       applyDesktopConfigActions(nextConfig);
       bumpProviderSyncRefreshVersion();
+      void reconcileShellBranding(nextConfig).catch(() => undefined);
       return nextConfig;
     }
 
@@ -312,6 +340,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
 
       writeCachedDesktopConfig(cacheKey, nextConfig);
       applyDesktopConfigActions(nextConfig);
+      void reconcileShellBranding(nextConfig).catch(() => undefined);
       return nextConfig;
     } catch (error) {
       if (currentRun !== refreshRunRef.current) {

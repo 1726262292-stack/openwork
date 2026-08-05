@@ -77,10 +77,15 @@ export type GithubInstallStatePayload = {
   userId: string
 }
 
-const GITHUB_API_BASE = "https://api.github.com"
 const GITHUB_API_VERSION = "2022-11-28"
 const GITHUB_REPOSITORY_MAX_PAGES = 30
 const GITHUB_REPOSITORY_PAGE_SIZE = 100
+
+// Overridable so @openwork/testkit specs can point the connector at a mock GitHub witness.
+function githubApiBase(): string {
+  const override = process.env.GITHUB_CONNECTOR_API_BASE?.trim()
+  return override ? override.replace(/\/+$/, "") : "https://api.github.com"
+}
 
 function base64UrlEncode(value: unknown) {
   const buffer = typeof value === "string"
@@ -214,7 +219,7 @@ async function requestGithubJson<TResponse>(input: {
   allowStatuses?: number[]
 }) {
   const fetchFn = input.fetchFn ?? fetch
-  const response = await fetchFn(`${GITHUB_API_BASE}${input.path}`, {
+  const response = await fetchFn(`${githubApiBase()}${input.path}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "openwork-den-api",
