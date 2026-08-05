@@ -10,6 +10,7 @@ pnpm release:prepare:dry     # rehearse the bump (no mutation)
 pnpm release:prepare         # bump + lockfile + review + commit + tag (patch)
 pnpm release:ship            # push the tag (+ dev sync), print the run URL
 pnpm release:ship:watch      # same, then tail the workflow run
+pnpm release:cut             # prepare + ship:watch in one command (patch release)
 ```
 
 ## Prerequisites
