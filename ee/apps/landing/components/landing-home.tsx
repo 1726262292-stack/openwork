@@ -6,7 +6,6 @@ import { useMemo, useState } from "react";
 
 import { BrandLogo } from "./lp-brand-logos";
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
-import { LandingBackground } from "./landing-background";
 import {
   defaultLandingDemoFlowId,
   landingDemoFlows,
@@ -17,6 +16,7 @@ import { LandingHeroPrompt } from "./landing-hero-prompt";
 import { LpCopyBar } from "./lp-copy-bar";
 import { LpCta } from "./lp-cta";
 import { LpGatewayDiagram } from "./lp-gateway-diagram";
+import { LpHeroBackground } from "./lp-hero-background";
 import { LpParityTable } from "./lp-parity-table";
 import {
   LpAlphaBadge,
@@ -163,7 +163,7 @@ function DemoPlaceholder({ surface }: { surface: Exclude<DemoSurface, "desktop">
   const isWeb = surface === "web";
 
   return (
-    <div className="flex min-h-[520px] items-center justify-center rounded-[18px] bg-white px-8 text-center">
+    <div className="flex min-h-[520px] items-center justify-center rounded-[16px] bg-white px-8 text-center">
       <div className="max-w-md">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lp-tonal)]">
           {isWeb ? (
@@ -200,7 +200,7 @@ export function LandingHome(props: Props) {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LandingBackground />
+      <LpHeroBackground />
 
       <div className="relative z-10">
         <SiteNav
@@ -248,7 +248,7 @@ export function LandingHome(props: Props) {
                   skills, scheduled tasks, browser automation — on any model. Plus
                   an MCP gateway Cowork doesn&apos;t have.
                 </p>
-                <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-muted)]">
+                <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-body)]">
                   Free &amp; open source. Desktop for macOS, Windows, and Linux. Web
                   in alpha.
                 </p>
@@ -285,7 +285,7 @@ export function LandingHome(props: Props) {
           </section>
 
           <section className="mt-16 md:mt-20" aria-label="OpenWork product demo">
-            <div className="rounded-[24px] bg-[rgba(240,244,249,0.75)] p-2">
+            <div className="rounded-[24px] bg-[var(--lp-tonal)] p-2">
               <div className="grid grid-cols-1 gap-1 p-1 sm:grid-cols-3">
                 {demoSurfaces.map((surface) => {
                   const active = surface.id === activeSurface;
@@ -299,7 +299,7 @@ export function LandingHome(props: Props) {
                       className={`relative flex h-12 items-center justify-center gap-2 rounded-[14px] px-3 text-[13px] transition-colors duration-150 ${
                         active
                           ? "text-[var(--lp-ink)]"
-                          : "text-[var(--lp-muted)] hover:text-[var(--lp-ink)]"
+                          : "text-[var(--lp-body)] hover:text-[var(--lp-ink)]"
                       }`}
                     >
                       {active ? (
@@ -331,7 +331,7 @@ export function LandingHome(props: Props) {
                 >
                   {activeSurface === "desktop" ? (
                     <div>
-                      <div className="overflow-hidden rounded-[18px] bg-white p-4 md:p-6">
+                      <div className="overflow-hidden rounded-[16px] bg-white p-4 md:p-6">
                         <LandingAppDemoPanel
                           flows={landingDemoFlows}
                           activeFlowId={activeDemo.id}
@@ -351,7 +351,7 @@ export function LandingHome(props: Props) {
                                 className={`relative rounded-full px-4 py-2 text-[13px] transition-colors duration-150 ${
                                   active
                                     ? "bg-white text-[var(--lp-ink)]"
-                                    : "text-[var(--lp-muted)] hover:text-[var(--lp-ink)]"
+                                    : "text-[var(--lp-body)] hover:text-[var(--lp-ink)]"
                                 }`}
                               >
                                 {flow.categoryLabel}
@@ -406,10 +406,10 @@ export function LandingHome(props: Props) {
                     {provider.logo ? (
                       <BrandLogo
                         name={provider.logo}
-                        className="lp-logo h-[21px] w-[21px] shrink-0 opacity-60 transition-opacity duration-150 group-hover:opacity-100"
+                        className="lp-logo h-[21px] w-[21px] shrink-0 opacity-70 transition-opacity duration-150 group-hover:opacity-100"
                       />
                     ) : null}
-                    <span className="opacity-60 transition-opacity duration-150 group-hover:opacity-100">
+                    <span className="opacity-70 transition-opacity duration-150 group-hover:opacity-100">
                       {provider.label}
                     </span>
                   </div>
@@ -450,22 +450,23 @@ export function LandingHome(props: Props) {
 
             <div className="mt-10 grid gap-6 lg:grid-cols-2">
               <div
-                className="flex min-h-[520px] flex-col justify-between rounded-[24px] bg-cover bg-center p-7"
+                className="relative flex min-h-[520px] flex-col justify-between overflow-hidden rounded-[24px] bg-cover bg-center p-7"
                 style={{ backgroundImage: "url('/enterprise-showcase-bg.jpg')" }}
               >
                 <div className="flex flex-col gap-3">
-                  <div className="ml-auto max-w-[390px] rounded-full bg-white/90 px-5 py-3 text-right text-[13px] leading-5 text-[var(--lp-ink)]">
-                    Like all replies on this thread and export the users to CSV
+                  <div className="ml-auto max-w-[390px] rounded-full bg-white/90 px-5 py-3 text-right text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
+                    Like all replies and export users to CSV
                   </div>
-                  <div className="max-w-[360px] rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)]">
+                  <div className="max-w-[360px] rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
                     Opening the thread in Chrome — 42 replies loaded
                   </div>
-                  <div className="flex max-w-[330px] items-center gap-2 rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)]">
+                  <div className="flex max-w-[330px] items-center gap-2 rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
                     <CheckCircle2 className="h-3.5 w-3.5 text-[var(--lp-status)]" />
                     tweet_replies.csv saved to Desktop
                   </div>
                 </div>
-                <div>
+                <div className="absolute inset-x-0 bottom-0 h-44 rounded-b-[24px] bg-gradient-to-t from-white/85 via-white/45 to-transparent" />
+                <div className="relative z-10">
                   <div className="text-[14px] text-[rgba(1,22,39,0.65)]">
                     Browser automation
                   </div>
@@ -670,7 +671,7 @@ export function LandingHome(props: Props) {
             />
           </div>
 
-          <div className="mt-[120px]">
+          <div className="mt-16">
             <SiteFooter />
           </div>
         </main>

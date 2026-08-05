@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 
 import { BookCallForm } from "./book-call-form";
-import { LandingBackground } from "./landing-background";
 import { LpAnalyticsPanel } from "./lp-analytics-panel";
 import { LpCta } from "./lp-cta";
+import { LpHeroBackground } from "./lp-hero-background";
 import { LpSectionHeader, LpTonalCard } from "./lp-primitives";
 import { LpSsoCard } from "./lp-sso-card";
 import { SiteFooter } from "./site-footer";
@@ -109,7 +109,7 @@ export function LandingEnterprise(props: Props) {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LandingBackground />
+      <LpHeroBackground />
       <div className="relative z-10">
         <SiteNav
           stars={props.stars}
@@ -268,7 +268,7 @@ export function LandingEnterprise(props: Props) {
             />
           </div>
 
-          <div className="mt-[120px]"><SiteFooter /></div>
+          <div className="mt-16"><SiteFooter /></div>
         </main>
       </div>
     </div>

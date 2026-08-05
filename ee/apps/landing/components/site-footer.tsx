@@ -4,7 +4,7 @@ import { OpenCodeLogo } from "./opencode-logo";
 export function SiteFooter() {
   return (
     <footer className="pt-10 text-sm text-gray-500">
-      <div className="flex flex-col items-start justify-between gap-6 border-t border-gray-200 pt-10 md:flex-row md:items-center">
+      <div className="flex flex-col items-start justify-between gap-6 border-t border-[var(--lp-border)] pt-10 md:flex-row md:items-center">
         <div className="flex flex-col gap-2">
           <div className="font-medium text-gray-800">Powered by</div>
           <a

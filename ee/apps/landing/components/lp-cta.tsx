@@ -20,8 +20,8 @@ export function LpCta({
 }: LpCtaProps) {
   return (
     <section className="flex flex-col justify-between gap-10 rounded-[24px] bg-[var(--lp-tonal)] px-7 py-12 md:flex-row md:items-center md:px-14 md:py-[72px]">
-      <div className="max-w-[560px]">
-        <h2 className="text-[34px] font-light leading-[41px] tracking-[-0.015em] text-[var(--lp-ink)] md:text-[40px] md:leading-[48px]">
+      <div className="max-w-[640px]">
+        <h2 className="[text-wrap:balance] text-[34px] font-light leading-[41px] tracking-[-0.015em] text-[var(--lp-ink)] md:text-[40px] md:leading-[48px]">
           {heading}
         </h2>
         <p className="mt-4 text-[15px] leading-[23px] text-[var(--lp-body)]">

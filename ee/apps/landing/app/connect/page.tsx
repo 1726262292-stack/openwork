@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { LandingBackground } from "../../components/landing-background";
 import { LpCopyBar } from "../../components/lp-copy-bar";
 import { LpCta } from "../../components/lp-cta";
 import { LpGatewayDiagram } from "../../components/lp-gateway-diagram";
+import { LpHeroBackground } from "../../components/lp-hero-background";
 import { LpSectionHeader, LpTickBlock } from "../../components/lp-primitives";
 import { LpTerminalStory } from "../../components/lp-terminal-story";
 import { SiteFooter } from "../../components/site-footer";
@@ -44,7 +44,7 @@ export default async function ConnectPage() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LandingBackground />
+      <LpHeroBackground />
       <div className="relative z-10">
         <SiteNav
           stars={github.stars}
@@ -69,7 +69,7 @@ export default async function ConnectPage() {
                 <p className="text-[16px] leading-[25px]">
                   The MCP gateway for your whole org. Add a server or skill once — every teammate and agent gets it instantly, with auth, roles, and policies applied on the way through.
                 </p>
-                <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-muted)]">One URL. Works in OpenWork and any MCP-compatible client.</p>
+                <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-body)]">One URL. Works in OpenWork and any MCP-compatible client.</p>
               </div>
             </div>
             <div className="mt-10 flex flex-col items-start gap-5 sm:flex-row sm:items-center">
@@ -77,7 +77,7 @@ export default async function ConnectPage() {
                 <a href={CLOUD_SIGNUP_URL} className="lp-pill-primary">Get started free</a>
                 <a href="/docs" className="lp-pill-secondary">Read the docs</a>
               </div>
-              <span className="text-[13.5px] text-[var(--lp-muted)] sm:ml-2">No install for your team · First 5 seats free</span>
+              <span className="text-[13.5px] text-[var(--lp-body)] sm:ml-2">No install for your team · First 5 seats free</span>
             </div>
           </section>
 
@@ -118,7 +118,7 @@ export default async function ConnectPage() {
               trust="First 5 seats free · Works with any MCP client"
             />
           </div>
-          <div className="mt-[120px]"><SiteFooter /></div>
+          <div className="mt-16"><SiteFooter /></div>
         </main>
       </div>
     </div>

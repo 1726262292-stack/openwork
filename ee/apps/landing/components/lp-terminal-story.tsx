@@ -8,25 +8,25 @@ const terminalLineCount = 9;
 function TerminalLine({ index }: { index: number }) {
   if (index === 0) {
     return (
-      <div className="text-[#e2e8f0]">
-        <span className="text-[#7dd3fc]">❯</span> share my skills and MCPs with my OpenWork org
+      <div className="text-[#E2E8F0]">
+        <span className="text-[#7DD3FC]">❯</span> share my skills and MCPs with my OpenWork org
       </div>
     );
   }
   if (index === 1) {
-    return <div className="text-[#e2e8f0]"><span className="text-[#34d399]">✓ found granola</span> MCP</div>;
+    return <div className="text-[#E2E8F0]"><span className="text-[#34D399]">✓ found granola</span> MCP</div>;
   }
   if (index === 2) {
-    return <div className="text-[#e2e8f0]">✓ packed <span className="text-[#fbbf24]">meeting-brief</span> skill from SKILL.md</div>;
+    return <div className="text-[#E2E8F0]"><span className="text-[#34D399]">✓</span> packed <span className="text-[#FBBF24]">meeting-brief</span> skill from SKILL.md</div>;
   }
   if (index === 3) {
-    return <div className="text-[#e2e8f0]">✓ added <span className="text-[#7dd3fc]">review-pr</span> command</div>;
+    return <div className="text-[#E2E8F0]"><span className="text-[#34D399]">✓</span> added <span className="text-[#7DD3FC]">review-pr</span> command</div>;
   }
-  if (index === 4) return <div className="mt-3 text-[#64748b]">› bundling</div>;
-  if (index === 5) return <div className="pl-4 text-[#64748b]">mcp/granola.json</div>;
-  if (index === 6) return <div className="pl-4 text-[#64748b]">skills/meeting-brief/SKILL.md</div>;
-  if (index === 7) return <div className="pl-4 text-[#64748b]">commands/review-pr.md</div>;
-  return <div className="mt-3 text-[#e2e8f0]">✓ Shared with your org — one link for the whole team</div>;
+  if (index === 4) return <div className="mt-3 text-[#64748B]">› bundling</div>;
+  if (index === 5) return <div className="pl-4 text-[#64748B]">mcp/granola.json</div>;
+  if (index === 6) return <div className="pl-4 text-[#64748B]">skills/meeting-brief/SKILL.md</div>;
+  if (index === 7) return <div className="pl-4 text-[#64748B]">commands/review-pr.md</div>;
+  return <div className="mt-3 text-[#E2E8F0]"><span className="text-[#34D399]">✓</span> Shared with your org — one link for the whole team</div>;
 }
 
 function TrafficLights() {
@@ -86,7 +86,7 @@ export function LpTerminalStory() {
             <TerminalLine key={index} index={index} />
           ))}
           {started && visibleLines < terminalLineCount ? (
-            <span className="inline-block h-[15px] w-[7px] animate-pulse bg-[#7dd3fc] align-middle" />
+            <span className="inline-block h-[15px] w-[7px] animate-pulse bg-[#7DD3FC] align-middle" />
           ) : null}
         </div>
       </div>

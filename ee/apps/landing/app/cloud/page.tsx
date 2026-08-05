@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Globe2, Layers3, Plug } from "lucide-react";
 
-import { LandingBackground } from "../../components/landing-background";
 import { LandingSharePackageCard } from "../../components/landing-share-package-card";
 import { LpCloudConsole } from "../../components/lp-cloud-console";
 import { LpCta } from "../../components/lp-cta";
+import { LpHeroBackground } from "../../components/lp-hero-background";
 import { LpAlphaBadge, LpArrowLink, LpSectionHeader, LpTonalCard } from "../../components/lp-primitives";
 import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
@@ -44,7 +44,7 @@ export default async function CloudPage() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LandingBackground />
+      <LpHeroBackground />
       <div className="relative z-10">
         <SiteNav
           stars={github.stars}
@@ -74,7 +74,7 @@ export default async function CloudPage() {
                 <a href={CLOUD_SIGNUP_URL} className="lp-pill-primary">Get started free</a>
                 <a href={callHref} className="lp-pill-secondary">Talk to sales</a>
               </div>
-              <span className="text-[13.5px] text-[var(--lp-muted)] sm:ml-2">First 5 seats free</span>
+              <span className="text-[13.5px] text-[var(--lp-body)] sm:ml-2">First 5 seats free</span>
             </div>
           </section>
 
@@ -131,7 +131,7 @@ export default async function CloudPage() {
               trust="First 5 seats free · MCP Gateway included · Desktop, web, and any MCP client"
             />
           </div>
-          <div className="mt-[120px]"><SiteFooter /></div>
+          <div className="mt-16"><SiteFooter /></div>
         </main>
       </div>
     </div>

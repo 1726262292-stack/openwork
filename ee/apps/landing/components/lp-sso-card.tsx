@@ -31,7 +31,7 @@ export function LpSsoCard() {
         <button type="button" className="lp-pill-secondary lp-pill-sm">Edit connection</button>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+      <div className="mt-5 grid items-stretch gap-3 sm:grid-cols-2">
         <div className="rounded-[10px] bg-[#F8FAFC] p-4">
           <div className="text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">PROVIDER</div>
           <div className="mt-2 text-[14px] font-semibold text-[var(--lp-ink)]">okta · SAML</div>
