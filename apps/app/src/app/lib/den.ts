@@ -47,6 +47,12 @@ import type {
   OpenWorkExtensionSourceFormat,
 } from "../extensions";
 
+declare global {
+  interface Window {
+    __openworkOrgDropWarnings?: string[];
+  }
+}
+
 export const STORAGE_BASE_URL = "openwork.den.baseUrl";
 const LEGACY_STORAGE_API_BASE_URL = "openwork.den.apiBaseUrl";
 const STORAGE_AUTH_TOKEN = "openwork.den.authToken";
@@ -995,7 +1001,34 @@ export function mergePassiveDenSettings(current: DenSettings, next: DenSettings)
   };
 }
 
-export function writeDenSettings(next: DenSettings, options?: { persistBootstrap?: boolean }) {
+function warnOnUnexpectedActiveOrgDrop(input: {
+  previousActiveOrgId: string | null | undefined;
+  nextActiveOrgId: string | null | undefined;
+  intentionalActiveOrgClear?: boolean;
+}) {
+  if (!import.meta.env.DEV || typeof window === "undefined" || input.intentionalActiveOrgClear) {
+    return;
+  }
+
+  const previousActiveOrgId = input.previousActiveOrgId?.trim() ?? "";
+  const nextActiveOrgId = input.nextActiveOrgId?.trim() ?? "";
+  if (!previousActiveOrgId || nextActiveOrgId) return;
+
+  const message = `[den-settings] activeOrgId dropped unexpectedly from ${previousActiveOrgId}`;
+  const stack = new Error(message).stack ?? message;
+  try {
+    window.__openworkOrgDropWarnings ??= [];
+    window.__openworkOrgDropWarnings.push(stack);
+    console.warn(stack);
+  } catch {
+    // Diagnostics must never block the settings write they observe.
+  }
+}
+
+export function writeDenSettings(
+  next: DenSettings,
+  options?: { persistBootstrap?: boolean; intentionalActiveOrgClear?: boolean },
+) {
   if (typeof window === "undefined") {
     return;
   }
@@ -1020,6 +1053,12 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
   ) {
     return;
   }
+
+  warnOnUnexpectedActiveOrgDrop({
+    previousActiveOrgId: previous.activeOrgId,
+    nextActiveOrgId: activeOrgId,
+    intentionalActiveOrgClear: options?.intentionalActiveOrgClear,
+  });
 
   if (isDesktopRuntime()) {
     window.localStorage.removeItem(STORAGE_BASE_URL);
@@ -1078,6 +1117,14 @@ export function writeDenSettings(next: DenSettings, options?: { persistBootstrap
 export function clearDenSession(options?: { includeBaseUrls?: boolean }) {
   if (typeof window === "undefined") {
     return;
+  }
+
+  if (import.meta.env.DEV) {
+    warnOnUnexpectedActiveOrgDrop({
+      previousActiveOrgId: readDenSettings().activeOrgId,
+      nextActiveOrgId: null,
+      intentionalActiveOrgClear: true,
+    });
   }
 
   if (options?.includeBaseUrls) {
