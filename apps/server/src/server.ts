@@ -1280,7 +1280,6 @@ function buildCapabilities(config: ServerConfig): Capabilities {
   const inboxEnabled = resolveInboxEnabled();
   const outboxEnabled = resolveOutboxEnabled();
   const maxBytes = resolveInboxMaxBytes();
-  const toyUiEnabled = resolveToyUiEnabled();
   const browserProvider = resolveBrowserProvider();
   const opencodeConfigured = config.workspaces.some((workspace) => Boolean(workspace.baseUrl?.trim()));
   return {
@@ -1296,7 +1295,6 @@ function buildCapabilities(config: ServerConfig): Capabilities {
 
     approvals: { mode: config.approval.mode, timeoutMs: config.approval.timeoutMs },
     sandbox: { enabled: sandboxEnabled, backend: sandboxBackend },
-    ui: { toy: toyUiEnabled },
     tokens: { scoped: true, scopes: ["owner", "collaborator", "viewer"] },
     proxy: {
       opencode: opencodeConfigured,
@@ -1350,12 +1348,6 @@ function resolveInboxMaxBytes(): number {
   // uploads should be bounded here (memory: formData buffers the body) and by
   // downstream provider/tool limits rather than an arbitrary small cap.
   return 250_000_000;
-}
-
-function resolveToyUiEnabled(): boolean {
-  const raw = (process.env.OPENWORK_TOY_UI ?? "").trim().toLowerCase();
-  if (!raw) return true;
-  return ["1", "true", "yes", "on"].includes(raw);
 }
 
 // Dev-only log sink target. When OPENWORK_DEV_LOG_FILE is set to a path, the
@@ -1564,7 +1556,6 @@ function createRoutes(
     createWorkspaceOpencodeClient,
     refreshRegistrationFromLiveStatus: refreshEngineMcpRegistrationFromLiveStatus,
     serializeWorkspace,
-    resolveToyUiEnabled,
     resolveDevLogPath,
     createOpenAiRealtimeVoiceSession,
   });
