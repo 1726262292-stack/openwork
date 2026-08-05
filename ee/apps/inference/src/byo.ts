@@ -12,6 +12,12 @@ import {
   type InferenceJwtIdentity,
 } from "./den-jwt.js"
 import { db } from "./db.js"
+import { isDevMode } from "./env.js"
+import {
+  isAllowedByoUpstream,
+  resolveHostname,
+  type ResolveHostname,
+} from "./byo-upstream-security.js"
 
 const byoPathPrefix = "/api/v1/byo"
 const chatCompletionsSuffix = "/chat/completions"
@@ -38,6 +44,7 @@ export type ByoDependencies = {
   findProvider: (llmProviderId: string) => Promise<Provider | null>
   listTeamIds: (orgMembershipId: string) => Promise<string[]>
   listProviderAccess: (llmProviderId: string) => Promise<ProviderAccess[]>
+  resolveHostname: ResolveHostname
   fetch: typeof fetch
 }
 
@@ -87,6 +94,7 @@ const defaultDependencies: ByoDependencies = {
   findProvider,
   listTeamIds,
   listProviderAccess,
+  resolveHostname,
   fetch,
 }
 
@@ -317,6 +325,13 @@ export function registerByoRoutes(
     if (!upstreamBase) {
       return openAiError(502, "provider_upstream_unconfigured", "The LLM provider has no supported upstream API URL.")
     }
+    if (!await isAllowedByoUpstream({
+      rawUrl: upstreamBase,
+      allowInsecureLoopback: isDevMode,
+      resolveHostname: dependencies.resolveHostname,
+    })) {
+      return openAiError(502, "provider_upstream_unsafe", "The LLM provider upstream API URL is not allowed.")
+    }
     const credential = primaryProviderCredential(provider.apiKey)
     if (!credential) {
       return openAiError(502, "provider_credential_missing", "The LLM provider has no usable API credential.")
@@ -338,6 +353,7 @@ export function registerByoRoutes(
         headers: sanitizeHeaders(c.req.raw, credential, openworkRequestId),
         body: c.req.method === "POST" ? c.req.raw.body : null,
         duplex: "half",
+        redirect: "manual",
       }
       upstream = await dependencies.fetch(upstreamUrl, upstreamInit)
     } catch (error) {

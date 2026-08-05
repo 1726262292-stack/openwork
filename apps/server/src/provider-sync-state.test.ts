@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -94,6 +94,40 @@ describe("provider sync state file", () => {
       appliedProviderIds: ["lpr_one"],
     });
     expect(JSON.stringify(status)).not.toContain("provider-sync-secret");
+  });
+
+  test("writes the state file with owner-only permissions", async () => {
+    if (process.platform === "win32") return;
+    const config = await createConfig();
+    await writeProviderSyncState(config, {
+      enabled: true,
+      token: "provider-sync-secret",
+      expiresAt: "2030-01-02T00:00:00.000Z",
+      denBaseUrl: "https://app.openworklabs.com/api/den",
+      orgId: "org_1",
+    });
+
+    const path = join(config.configPath ?? "", "..", "provider-sync-state.json");
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  });
+
+  test("tightens a pre-existing state file on the next write", async () => {
+    if (process.platform === "win32") return;
+    const config = await createConfig();
+    const path = join(config.configPath ?? "", "..", "provider-sync-state.json");
+    await writeFile(path, "{}\n", "utf8");
+    await chmod(path, 0o644);
+    expect((await stat(path)).mode & 0o777).toBe(0o644);
+
+    await writeProviderSyncState(config, {
+      enabled: true,
+      token: "provider-sync-secret",
+      expiresAt: "2030-01-02T00:00:00.000Z",
+      denBaseUrl: "https://app.openworklabs.com/api/den",
+      orgId: "org_1",
+    });
+
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   test("preserves applied ownership on disable and rejects malformed files", async () => {

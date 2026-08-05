@@ -25,10 +25,10 @@ import type { Hono, MiddlewareHandler } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
+import { assertPublicUrl } from "../../capability-sources/url-guard.js"
 import { organizationOrgProviderSyncEnabled } from "../../capability-sources/org-provider-sync-rollout.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
-import { getModelsDevProvider } from "../../llm/models-dev.js"
 import { DEN_JWT_SIGNING_ALGORITHM, getDenAuthIssuer } from "../../mcp/jwt-policy.js"
 import {
   orgMemberRoute,
@@ -65,6 +65,10 @@ const PROVIDER_SYNC_JWT_SIGNING_ALGORITHMS = [DEN_JWT_SIGNING_ALGORITHM]
 const TOKEN_USE_CLAIM = `${env.mcpClaimNamespace}/token_use`
 const ORG_ID_CLAIM = `${env.mcpClaimNamespace}/org_id`
 const ORG_MEMBERSHIP_ID_CLAIM = `${env.mcpClaimNamespace}/org_membership_id`
+const fallbackProviderBaseUrls: Record<string, string> = {
+  openrouter: "https://openrouter.ai/api/v1",
+  openai: "https://api.openai.com/v1",
+}
 
 const tokenResponseSchema = z.object({
   token: z.string(),
@@ -290,40 +294,104 @@ async function mintToken(input: {
   }
 }
 
-function hasConfiguredUpstream(providerConfig: Record<string, unknown>) {
-  if (readString(providerConfig.baseURL) || readString(providerConfig.baseUrl) || readString(providerConfig.api)) {
+function resolveUpstreamBase(providerConfig: Record<string, unknown>, providerId: string) {
+  const options = providerConfig.options
+  return (isRecord(options) ? readString(options.baseURL) : null)
+    ?? readString(providerConfig.api)
+    ?? fallbackProviderBaseUrls[providerId]
+    ?? null
+}
+
+function isLoopbackHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  return normalized === "localhost"
+    || normalized.endsWith(".localhost")
+    || normalized === "::1"
+    || /^127\./.test(normalized)
+}
+
+function isBlockedProviderHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  return isLoopbackHostname(normalized)
+    || normalized === "metadata.google.internal"
+    || normalized.endsWith(".metadata.google.internal")
+}
+
+async function isAllowedProviderUpstream(rawUrl: string) {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  if (
+    env.devMode
+    && url.protocol === "http:"
+    && !url.username
+    && !url.password
+    && isLoopbackHostname(url.hostname)
+  ) {
     return true
   }
+  if (isBlockedProviderHostname(url.hostname)) return false
 
-  const options = providerConfig.options
-  return isRecord(options) && (readString(options.baseURL) !== null || readString(options.baseUrl) !== null)
+  try {
+    await assertPublicUrl(rawUrl)
+    return true
+  } catch {
+    return false
+  }
 }
 
-function isSensitiveConfigKey(key: string) {
-  return /^(?:api[-_]?key|authorization|access[-_]?token|secret)$/i.test(key)
-}
-
-function sanitizeConfigValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sanitizeConfigValue)
-  }
-  if (!isRecord(value)) {
-    return value
-  }
-
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => !isSensitiveConfigKey(key))
-      .map(([key, entry]) => [key, sanitizeConfigValue(entry)]),
-  )
+const modelModalitySchema = z.enum(["text", "audio", "image", "video", "pdf"])
+const modelCostSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cache_read: z.number().optional(),
+  cache_write: z.number().optional(),
+  context_over_200k: z.object({
+    input: z.number(),
+    output: z.number(),
+    cache_read: z.number().optional(),
+    cache_write: z.number().optional(),
+  }).optional(),
+})
+const modelConfigFieldSchemas = {
+  id: z.string(),
+  name: z.string(),
+  family: z.string(),
+  release_date: z.string(),
+  attachment: z.boolean(),
+  reasoning: z.boolean(),
+  temperature: z.boolean(),
+  tool_call: z.boolean(),
+  interleaved: z.union([
+    z.literal(true),
+    z.object({ field: z.enum(["reasoning", "reasoning_content", "reasoning_details"]) }),
+  ]),
+  cost: modelCostSchema,
+  limit: z.object({
+    context: z.number(),
+    input: z.number().optional(),
+    output: z.number(),
+  }),
+  modalities: z.object({
+    input: z.array(modelModalitySchema).optional(),
+    output: z.array(modelModalitySchema).optional(),
+  }),
+  experimental: z.boolean(),
+  status: z.enum(["alpha", "beta", "deprecated", "active"]),
 }
 
 function sanitizeModelConfig(modelConfig: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(modelConfig)
-      .filter(([key]) => !isSensitiveConfigKey(key))
-      .map(([key, value]) => [key, sanitizeConfigValue(value)]),
-  )
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, schema] of Object.entries(modelConfigFieldSchemas)) {
+    const value = modelConfig[key]
+    if (value === undefined) continue
+    const parsed = schema.safeParse(value)
+    if (parsed.success) sanitized[key] = parsed.data
+  }
+  return sanitized
 }
 
 function stableSerialize(value: unknown): string {
@@ -404,20 +472,16 @@ async function listSyncedProviders(principal: ProviderSyncPrincipal): Promise<Sy
 
   const syncedProviders: SyncedProvider[] = []
   for (const provider of providers.sort((left, right) => left.id.localeCompare(right.id))) {
-    let hasUpstream = hasConfiguredUpstream(provider.providerConfig)
-    if (!hasUpstream) {
-      try {
-        hasUpstream = await getModelsDevProvider(provider.providerId) !== null
-      } catch (error) {
-        logger.warn("provider sync upstream lookup failed", {
-          llmProviderId: provider.id,
-          providerId: provider.providerId,
-          error,
-        })
-      }
-    }
-    if (!hasUpstream) {
+    const upstreamBase = resolveUpstreamBase(provider.providerConfig, provider.providerId)
+    if (!upstreamBase) {
       logger.warn("provider sync skipped provider without an upstream", {
+        llmProviderId: provider.id,
+        providerId: provider.providerId,
+      })
+      continue
+    }
+    if (!await isAllowedProviderUpstream(upstreamBase)) {
+      logger.warn("provider sync skipped provider with an unsafe upstream", {
         llmProviderId: provider.id,
         providerId: provider.providerId,
       })

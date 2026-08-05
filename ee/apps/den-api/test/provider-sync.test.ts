@@ -52,10 +52,12 @@ const memberSessionId = createDenTypeId("session")
 const ownerSessionToken = `provider-sync-owner-${ownerSessionId}`
 const memberSessionToken = `provider-sync-member-${memberSessionId}`
 const providerId = createDenTypeId("llmProvider")
+const unsafeProviderId = createDenTypeId("llmProvider")
 const openworkProviderId = createDenTypeId("llmProvider")
 const inaccessibleProviderId = createDenTypeId("llmProvider")
 const ownerProviderAccessId = createDenTypeId("llmProviderAccess")
 const memberProviderAccessId = createDenTypeId("llmProviderAccess")
+const unsafeProviderAccessId = createDenTypeId("llmProviderAccess")
 const openworkProviderAccessId = createDenTypeId("llmProviderAccess")
 const providerUpdatedAt = new Date("2025-01-01T00:00:00.000Z")
 let ownerCookie = ""
@@ -111,15 +113,15 @@ async function setOrganizationMetadata(metadata: Record<string, unknown> | null)
 async function cleanup() {
   await db.delete(schema.LlmProviderModelTable).where(drizzle.inArray(
     schema.LlmProviderModelTable.llmProviderId,
-    [providerId, openworkProviderId, inaccessibleProviderId],
+    [providerId, unsafeProviderId, openworkProviderId, inaccessibleProviderId],
   ))
   await db.delete(schema.LlmProviderAccessTable).where(drizzle.inArray(
     schema.LlmProviderAccessTable.llmProviderId,
-    [providerId, openworkProviderId, inaccessibleProviderId],
+    [providerId, unsafeProviderId, openworkProviderId, inaccessibleProviderId],
   ))
   await db.delete(schema.LlmProviderTable).where(drizzle.inArray(
     schema.LlmProviderTable.id,
-    [providerId, openworkProviderId, inaccessibleProviderId],
+    [providerId, unsafeProviderId, openworkProviderId, inaccessibleProviderId],
   ))
   await db.delete(schema.AuthSessionTable).where(drizzle.inArray(
     schema.AuthSessionTable.id,
@@ -210,11 +212,27 @@ beforeAll(async () => {
         id: "private-openai-compatible",
         name: "Private OpenAI Compatible",
         npm: "@ai-sdk/openai-compatible",
-        api: "https://private-provider.test/v1",
+        api: "https://1.1.1.1/v1",
         env: ["PRIVATE_PROVIDER_API_KEY"],
       },
       apiKey: "sync-secret-api-key",
       updatedAt: providerUpdatedAt,
+    },
+    {
+      id: unsafeProviderId,
+      organizationId,
+      createdByOrgMembershipId: ownerMemberId,
+      source: "custom",
+      providerId: "unsafe-provider",
+      name: "Unsafe Provider",
+      providerConfig: {
+        id: "unsafe-provider",
+        name: "Unsafe Provider",
+        npm: "@ai-sdk/openai-compatible",
+        api: "https://169.254.169.254/latest",
+        env: ["UNSAFE_PROVIDER_API_KEY"],
+      },
+      apiKey: "unsafe-provider-secret",
     },
     {
       id: openworkProviderId,
@@ -245,13 +263,20 @@ beforeAll(async () => {
     modelConfig: {
       id: "private-model",
       name: "Private Model",
-      apiKey: "nested-model-secret",
+      "x-api-key": "nested-model-secret",
+      password: "model-password",
+      client_secret: "model-client-secret",
+      api_token: "model-api-token",
+      reasoning: true,
+      limit: { context: 128_000, output: 8_192, password: "nested-limit-secret" },
+      modalities: { input: ["text"], output: ["text"] },
       options: { temperature: 0.2 },
     },
   })
   await db.insert(schema.LlmProviderAccessTable).values([
     { id: ownerProviderAccessId, llmProviderId: providerId, orgMembershipId: ownerMemberId },
     { id: memberProviderAccessId, llmProviderId: providerId, orgMembershipId: memberId },
+    { id: unsafeProviderAccessId, llmProviderId: unsafeProviderId, orgMembershipId: memberId },
     { id: openworkProviderAccessId, llmProviderId: openworkProviderId, orgMembershipId: memberId },
     {
       id: createDenTypeId("llmProviderAccess"),
@@ -392,7 +417,9 @@ test("organization provider sync mints scoped JWTs and returns revocable provide
       modelConfig: {
         id: "private-model",
         name: "Private Model",
-        options: { temperature: 0.2 },
+        reasoning: true,
+        limit: { context: 128_000, output: 8_192 },
+        modalities: { input: ["text"], output: ["text"] },
       },
     }],
   }])
@@ -407,6 +434,11 @@ test("organization provider sync mints scoped JWTs and returns revocable provide
   const serializedProviders = JSON.stringify(providersPayload)
   expect(serializedProviders).not.toContain("sync-secret-api-key")
   expect(serializedProviders).not.toContain("nested-model-secret")
+  expect(serializedProviders).not.toContain("model-password")
+  expect(serializedProviders).not.toContain("model-client-secret")
+  expect(serializedProviders).not.toContain("model-api-token")
+  expect(serializedProviders).not.toContain("nested-limit-secret")
+  expect(serializedProviders).not.toContain("unsafe-provider-secret")
   expect(serializedProviders).not.toContain("openwork-secret")
   expect(serializedProviders).not.toContain("owner-only-secret")
 

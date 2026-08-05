@@ -384,6 +384,10 @@ test(title, async ({ evidence, place }) => {
   // OpenWork Models offer is absent.
   await closeModelPicker(appA);
   const memberASessionHash = stringField(await evalIn(appA, "window.location.hash"));
+  expect(await evalIn(appA, `(() => {
+    window.__OPENWORK_EVAL_DESKTOP_REQUEST_URLS__ = [];
+    return true;
+  })()`)).toBe(true);
   const openedProviderSettings = await evalIn(
     appA,
     `window.__openworkControl.execute("route.settings.providers", null)`,
@@ -407,6 +411,33 @@ test(title, async ({ evidence, place }) => {
     `${providerName} is visibly listed with its Organization badge and ${localProviderId}; no OpenWork Models offer is rendered.`,
     true,
   );
+  await expect.poll(async () => evalIn(appA, `(() => {
+    return [...document.querySelectorAll("button")].some((button) => {
+      if ((button.textContent ?? "").trim() !== "Import" || button.disabled) return false;
+      let ancestor = button.parentElement;
+      for (let depth = 0; ancestor && depth < 6; depth += 1, ancestor = ancestor.parentElement) {
+        if ((ancestor.textContent ?? "").includes(${JSON.stringify(providerName)})) return true;
+      }
+      return false;
+    });
+  })()`), { timeout: 15_000, interval: 500 }).toBe(true);
+  const requestedServerManagedImport = await evalIn(appA, `(() => {
+    const button = [...document.querySelectorAll("button")].find((entry) => {
+      if ((entry.textContent ?? "").trim() !== "Import" || entry.disabled) return false;
+      let ancestor = entry.parentElement;
+      for (let depth = 0; ancestor && depth < 6; depth += 1, ancestor = ancestor.parentElement) {
+        if ((ancestor.textContent ?? "").includes(${JSON.stringify(providerName)})) return true;
+      }
+      return false;
+    });
+    button?.click();
+    return Boolean(button);
+  })()`);
+  expect(requestedServerManagedImport).toBe(true);
+  await expect.poll(async () => evalIn(
+    appA,
+    `document.body.innerText.includes(${JSON.stringify(`${providerName} is managed by OpenWork server.`)})`,
+  ), { timeout: 10_000, interval: 250 }).toBe(true);
   await evalIn(appA, `window.location.hash = ${JSON.stringify(memberASessionHash)}`);
   await expect.poll(
     async () => evalIn(
@@ -421,6 +452,23 @@ test(title, async ({ evidence, place }) => {
   await chat(appA, markerA, localProviderId);
   const aChatRequest = [...requestLog].reverse().find((entry) => entry.method === "POST" && entry.path.includes("chat/completions"));
   const upstreamUsedOrgKey = aChatRequest?.authorization === `Bearer ${orgApiKey}`;
+  const observedRendererRequestUrls = strings(await evalIn(
+    appA,
+    `window.__OPENWORK_EVAL_DESKTOP_REQUEST_URLS__ ?? []`,
+  ));
+  const credentialConnectionPath = `/v1/llm-providers/${encodeURIComponent(providerId)}/connect`;
+  const credentialConnectionRequests = observedRendererRequestUrls.filter((url) =>
+    url.includes(credentialConnectionPath)
+  );
+  expect(observedRendererRequestUrls.some((url) =>
+    url.includes("/v1/llm-providers") && !url.includes("/connect")
+  )).toBe(true);
+  expect(credentialConnectionRequests).toEqual([]);
+  evidence.fact(
+    "In server-managed mode, the renderer never requests the credential-bearing provider connection endpoint",
+    `Renderer request instrumentation observed credential-free provider metadata traffic, zero ${credentialConnectionPath} requests, provider ${localProviderId} materialization, and completed chat ${markerA}.`,
+    true,
+  );
   evidence.fact(
     "The inference proxy, not the desktop, attached the organization credential",
     `Mock upstream Authorization matched the org key while desktop state exposed only hasToken=${providerSyncHasToken}: ${aChatRequest?.authorization ?? "missing"}.`,

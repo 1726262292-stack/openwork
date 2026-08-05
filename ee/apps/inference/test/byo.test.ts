@@ -130,11 +130,14 @@ async function signInferenceToken(input: {
 
 type TestAppOptions = {
   providerOrganizationId?: typeof organizationId
+  upstreamBase?: string
   accessRows?: Array<{
     orgMembershipId: typeof orgMembershipId | null
     teamId: typeof teamId | null
   }>
   teamIds?: Array<typeof teamId>
+  resolveHostname?: (hostname: string) => Promise<ReadonlyArray<{ address: string }>>
+  fetch?: typeof fetch
 }
 
 function createTestApp(options: TestAppOptions = {}) {
@@ -160,7 +163,7 @@ function createTestApp(options: TestAppOptions = {}) {
         organizationId: options.providerOrganizationId ?? organizationId,
         providerId: "openai",
         providerConfig: {
-          options: { baseURL: `${serverOrigin}/upstream` },
+          options: { baseURL: options.upstreamBase ?? `${serverOrigin}/upstream` },
         },
         apiKey: JSON.stringify({
           OPENAI_API_KEY: "organization-provider-key",
@@ -174,7 +177,8 @@ function createTestApp(options: TestAppOptions = {}) {
     async listProviderAccess() {
       return options.accessRows ?? [{ orgMembershipId: null, teamId: null }]
     },
-    fetch,
+    resolveHostname: options.resolveHostname ?? (async () => [{ address: "93.184.216.34" }]),
+    fetch: options.fetch ?? fetch,
   })
   return { app, checkedIdentities }
 }
@@ -271,6 +275,77 @@ test("honors team-scoped provider access for GET /models", async () => {
   assert.equal(response.status, 200)
   assert.equal(upstreamRequests.length, 1)
   assert.equal(upstreamRequests[0]?.url, "/upstream/models")
+})
+
+for (const input of [
+  { label: "loopback", upstreamBase: "https://127.0.0.1/v1" },
+  { label: "cloud metadata", upstreamBase: "https://169.254.169.254/latest" },
+  { label: "private 10.x", upstreamBase: "https://10.42.0.9/v1" },
+  { label: "private 192.168.x", upstreamBase: "https://192.168.10.20/v1" },
+  { label: "plain HTTP public host", upstreamBase: "http://93.184.216.34/v1" },
+]) {
+  test(`rejects a ${input.label} BYO upstream before fetch`, async () => {
+    let fetchCalls = 0
+    const token = await signInferenceToken()
+    const { app } = createTestApp({
+      upstreamBase: input.upstreamBase,
+      async fetch() {
+        fetchCalls += 1
+        return Response.json({ ok: true })
+      },
+    })
+    const response = await requestByo(app, token, { body: "{}" })
+
+    assert.equal(response.status, 502)
+    assert.equal((await readError(response)).code, "provider_upstream_unsafe")
+    assert.equal(fetchCalls, 0)
+  })
+}
+
+test("rejects a hostname that resolves to a blocked address", async () => {
+  let fetchCalls = 0
+  const token = await signInferenceToken()
+  const { app } = createTestApp({
+    upstreamBase: "https://provider.example/v1",
+    async resolveHostname(hostname) {
+      assert.equal(hostname, "provider.example")
+      return [
+        { address: "93.184.216.34" },
+        { address: "10.0.0.8" },
+      ]
+    },
+    async fetch() {
+      fetchCalls += 1
+      return Response.json({ ok: true })
+    },
+  })
+  const response = await requestByo(app, token, { body: "{}" })
+
+  assert.equal(response.status, 502)
+  assert.equal((await readError(response)).code, "provider_upstream_unsafe")
+  assert.equal(fetchCalls, 0)
+})
+
+test("allows a public HTTPS hostname that resolves only to public addresses", async () => {
+  const fetchedUrls: string[] = []
+  const token = await signInferenceToken()
+  const { app } = createTestApp({
+    upstreamBase: "https://provider.example/v1",
+    async resolveHostname() {
+      return [
+        { address: "93.184.216.34" },
+        { address: "2606:4700:4700::1111" },
+      ]
+    },
+    async fetch(input) {
+      fetchedUrls.push(String(input))
+      return Response.json({ ok: true })
+    },
+  })
+  const response = await requestByo(app, token, { body: "{}" })
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(fetchedUrls, ["https://provider.example/v1/chat/completions"])
 })
 
 for (const input of [

@@ -25,6 +25,9 @@ test("rejects BYO inference JWTs when Den JWT environment is unset", async () =>
     async listProviderAccess() {
       throw new Error("Access lookup must not run when JWT auth is disabled")
     },
+    async resolveHostname() {
+      throw new Error("DNS lookup must not run when JWT auth is disabled")
+    },
     async fetch() {
       throw new Error("Upstream fetch must not run when JWT auth is disabled")
     },

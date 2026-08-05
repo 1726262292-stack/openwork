@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProviderSyncServerState } from "@openwork/types/den/provider-sync";
 import { z } from "zod";
@@ -6,7 +6,6 @@ import { z } from "zod";
 import { readBoundedRegularTextFile } from "./jsonc.js";
 import { runtimeStorageDir } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
-import { ensureDir } from "./utils.js";
 
 const PROVIDER_SYNC_STATE_FILE = "provider-sync-state.json";
 const PROVIDER_SYNC_STATE_MAX_BYTES = 128 * 1024;
@@ -119,8 +118,13 @@ async function persistProviderSyncState(
   state: PersistedProviderSyncState,
 ): Promise<PersistedProviderSyncState> {
   const parsed = persistedProviderSyncStateSchema.parse(state);
-  await ensureDir(runtimeStorageDir(config));
-  await writeFile(providerSyncStatePath(config), `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  const target = providerSyncStatePath(config);
+  await mkdir(runtimeStorageDir(config), { recursive: true, mode: 0o700 });
+  await writeFile(target, `${JSON.stringify(parsed, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  if (process.platform !== "win32") await chmod(target, 0o600);
   return parsed;
 }
 

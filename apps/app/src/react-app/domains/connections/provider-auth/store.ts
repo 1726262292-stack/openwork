@@ -1560,17 +1560,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     try {
+      if (await openworkServerHandlesProviderSync()) {
+        const provider = state.cloudOrgProviders.find((entry) => entry.id === cloudProviderId);
+        return {
+          message: provider
+            ? `${provider.name} is managed by OpenWork server.`
+            : "This organization provider is managed by OpenWork server.",
+          materialized: false,
+        };
+      }
       const den = createDenClient({
         baseUrl: settings.baseUrl,
         token,
       });
       const provider = await den.getOrgLlmProviderConnection(orgId, cloudProviderId);
-      if (await openworkServerHandlesProviderSync()) {
-        return {
-          message: `${provider.name} is managed by OpenWork server.`,
-          materialized: false,
-        };
-      }
       const localProviderId = getCloudManagedProviderId(provider);
       assertProviderAllowedByDesktopPolicy(localProviderId);
       const existingImported = state.importedCloudProviders[cloudProviderId] ?? null;

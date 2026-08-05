@@ -61,6 +61,7 @@ export type BrowserProxyState = {
 
 declare global {
   interface Window {
+    __OPENWORK_EVAL_DESKTOP_REQUEST_URLS__?: string[];
     __OPENWORK_ELECTRON__?: {
       invokeDesktop?: <C extends DesktopCommandName>(
         command: C,
@@ -311,6 +312,8 @@ async function desktopFetchThroughMain(
     headers = init?.headers ? Object.fromEntries(new Headers(init.headers).entries()) : undefined;
     body = typeof init?.body === "string" ? init.body : undefined;
   }
+
+  window.__OPENWORK_EVAL_DESKTOP_REQUEST_URLS__?.push(url);
 
   const diagnosticsDeadlineAtMs = options.agentContextDiagnosticsDeadlineAtMs;
   const result = await invokeElectronHelper("__fetch", url, {
