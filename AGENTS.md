@@ -25,6 +25,27 @@ OpenWork is a practical control surface for agentic work:
 
 If you open a PR, you must run tests and report what you ran (commands + result).
 
+### Keep PR branches current with `dev`
+
+Immediately before opening or updating a PR, and again before handing it off
+as ready to review or merge:
+
+1. Fetch canonical `dev` and rebase the owned feature branch onto the exact
+   fetched `upstream/dev` head. Do not merge `dev` into the feature branch.
+2. Verify that fetched `upstream/dev` commit is the branch's merge base and
+   record the exact base and head SHAs in the PR handoff.
+3. If the feature branch is already published, update only that branch with
+   `git push --force-with-lease`. Prefer an explicit expected remote-head lease
+   when available. If the lease fails, fetch and reconcile again rather than
+   overwriting unexpected remote work.
+4. Resolve rebase conflicts for the intended feature on top of current `dev`
+   and rerun the checks affected by those resolutions.
+
+Never use plain `--force`, rewrite another contributor's branch without
+explicit coordination, or force-push `dev`, `main`, or another shared base.
+Here, forced rebasing means rewriting only the owned feature branch and
+publishing it safely with `--force-with-lease`.
+
 For runtime-observable changes, include the `@openwork/testkit` evidence tape.
 Custom screenshots and recordings may supplement that tape, but never determine the
 pass/fail verdict. If validation cannot run, say why and give exact repro steps.
