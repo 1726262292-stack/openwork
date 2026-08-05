@@ -13,6 +13,7 @@ export interface DenClientState {
 
 export interface ConnectState {
   ok: boolean;
+  status: "available" | "missing" | "invalid" | "unreadable" | null;
   connectEnabled: boolean | null;
   raw: unknown;
 }
@@ -73,7 +74,7 @@ export async function readConnectState(app: Surface): Promise<ConnectState> {
       token = token || (localStorage.getItem("openwork.server.token") ?? "").trim();
     }
     if (!baseUrl || !token) {
-      return { ok: false, connectEnabled: null, raw: { error: "Local server credentials are unavailable." } };
+      return { ok: false, status: null, connectEnabled: null, raw: { error: "Local server credentials are unavailable." } };
     }
     try {
       const response = await fetch(
@@ -85,6 +86,10 @@ export async function readConnectState(app: Surface): Promise<ConnectState> {
       try { raw = text ? JSON.parse(text) : null; } catch {}
       return {
         ok: response.ok,
+        status: raw && typeof raw === "object"
+          && (raw.status === "available" || raw.status === "missing" || raw.status === "invalid" || raw.status === "unreadable")
+          ? raw.status
+          : null,
         connectEnabled: raw && typeof raw === "object" && typeof raw.connectEnabled === "boolean"
           ? raw.connectEnabled
           : null,
@@ -93,6 +98,7 @@ export async function readConnectState(app: Surface): Promise<ConnectState> {
     } catch (error) {
       return {
         ok: false,
+        status: null,
         connectEnabled: null,
         raw: { error: error instanceof Error ? error.message : String(error) },
       };
@@ -101,6 +107,9 @@ export async function readConnectState(app: Surface): Promise<ConnectState> {
   if (!isRecord(value)) throw new Error("The desktop returned an invalid Connect state.");
   return {
     ok: value.ok === true,
+    status: value.status === "available" || value.status === "missing" || value.status === "invalid" || value.status === "unreadable"
+      ? value.status
+      : null,
     connectEnabled: typeof value.connectEnabled === "boolean" ? value.connectEnabled : null,
     raw: value.raw,
   };
