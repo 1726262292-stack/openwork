@@ -83,8 +83,11 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
   );
 
   const enumerationStatuses: number[] = [];
-  // Every probe is a distinct nonexistent address and uses a distinct forwarded address, isolating the domain-miss bucket.
-  for (let request = 0; request < 25; request += 1) {
+  // Every probe is a distinct nonexistent address from a distinct forwarded address, isolating the
+  // domain-miss bucket (30 per 10 minutes), so exceeding it proves account discovery stays bounded
+  // even when an attacker spreads across IP addresses and never repeats an address.
+  const enumerationProbes = 40;
+  for (let request = 0; request < enumerationProbes; request += 1) {
     const result = await denFetch(
       den.ref,
       `/v1/auth/login-options?email=${encodeURIComponent(`nonexistent-${request}@${domain}`)}`,
@@ -96,7 +99,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
   expect(enumerationStatuses).toContain(429);
   evidence.fact(
     "Distinct nonexistent addresses at one domain are throttled",
-    `Observed 25 nonexistent emails from distinct forwarded addresses with status distribution ${statusDistribution(enumerationStatuses)}.`,
+    `Observed ${enumerationProbes} nonexistent emails from distinct forwarded addresses with status distribution ${statusDistribution(enumerationStatuses)}.`,
     enumerationStatuses.includes(429),
   );
 });

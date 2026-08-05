@@ -474,9 +474,16 @@ const loginOptionsRateLimitedSchema = z.object({
 }).meta({ ref: "LoginOptionsRateLimitedError" })
 
 const LOGIN_OPTIONS_IDENTITY_RATE_LIMIT_MAX = 20
-const LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_MAX = 120
-const LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX = 20
 const LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS = 60_000
+// Domain buckets deliberately use a LONG window instead of a bigger per-minute
+// count. Coworkers need burst tolerance (a whole team signing in at once);
+// enumeration is bounded by SUSTAINED throughput. Against the previous flat
+// 20/min domain bucket both sustained rates are strictly lower: 120 per 10 min
+// = 12/min overall, and 30 misses per 10 min = 3/min for the account-discovery
+// path that actually leaks which addresses exist.
+const LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_WINDOW_MS = 600_000
+const LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_MAX = 120
+const LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX = 30
 // A generous domain bucket bounds distributed enumeration without recreating coworker lockouts;
 // only unresolved addresses pay the tighter miss bucket.
 
@@ -509,11 +516,11 @@ async function checkLoginOptionsRateLimit(keys: ReturnType<typeof loginOptionsRa
     }
   }
 
-  return checkRateLimit(keys.domain, LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_MAX, LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS, now)
+  return checkRateLimit(keys.domain, LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_MAX, LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_WINDOW_MS, now)
 }
 
 function checkLoginOptionsMissRateLimit(key: string) {
-  return checkRateLimit(key, LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX, LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS, Date.now())
+  return checkRateLimit(key, LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX, LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_WINDOW_MS, Date.now())
 }
 
 async function getLoginOptionAccounts(email: string) {

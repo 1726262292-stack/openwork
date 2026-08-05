@@ -79,9 +79,13 @@ const rateLimitedSchema = z.object({
 }).meta({ ref: "RateLimitedError" })
 
 const SSO_RESOLVE_IDENTITY_RATE_LIMIT_MAX = 20
-const SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX = 120
-const SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX = 20
 const SSO_RESOLVE_RATE_LIMIT_WINDOW_MS = 60_000
+// See the login-options buckets: a long domain window buys burst tolerance for
+// a coworker sign-in wave while keeping SUSTAINED per-domain throughput below
+// the previous flat 20/min (120 per 10 min = 12/min; 30 misses per 10 min = 3/min).
+const SSO_RESOLVE_DOMAIN_RATE_LIMIT_WINDOW_MS = 600_000
+const SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX = 120
+const SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX = 30
 // A generous domain bucket bounds distributed enumeration without recreating coworker lockouts;
 // only unresolved addresses pay the tighter miss bucket.
 
@@ -234,11 +238,11 @@ async function checkSsoResolveRateLimit(keys: ReturnType<typeof ssoResolveRateLi
     }
   }
 
-  return checkRateLimit(keys.domain, SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX, SSO_RESOLVE_RATE_LIMIT_WINDOW_MS, now)
+  return checkRateLimit(keys.domain, SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX, SSO_RESOLVE_DOMAIN_RATE_LIMIT_WINDOW_MS, now)
 }
 
 function checkSsoResolveMissRateLimit(key: string) {
-  return checkRateLimit(key, SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX, SSO_RESOLVE_RATE_LIMIT_WINDOW_MS, Date.now())
+  return checkRateLimit(key, SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX, SSO_RESOLVE_DOMAIN_RATE_LIMIT_WINDOW_MS, Date.now())
 }
 
 async function setRequestActiveOrganization(
