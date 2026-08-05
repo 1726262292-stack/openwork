@@ -94,20 +94,28 @@ function forward(
   requests: FaultRequest[],
 ): void {
   const path = incoming.url ?? "/";
-  const target = new URL(path, upstream);
   const onResponse = (response: IncomingMessage): void => {
     const status = response.statusCode ?? 502;
     requests.push({ method: incoming.method ?? "GET", path, status, faulted, at: Date.now() });
     writeUpstreamResponse(client, status, response.statusMessage, forwardedHeaders(response.headers));
     response.pipe(client);
   };
+  // Pin the upstream origin and take only the path from the caller. An
+  // absolute-form request target (legal for proxy requests) would otherwise
+  // steer this fetch at an arbitrary host, because `new URL(absolute, base)`
+  // discards the base.
+  const requested = new URL(path, "http://request-target.invalid");
   const options = {
+    protocol: upstream.protocol,
+    hostname: upstream.hostname,
+    port: upstream.port,
+    path: `${requested.pathname}${requested.search}`,
     method: incoming.method ?? "GET",
-    headers: forwardedHeaders(incoming.headers, target.host),
+    headers: forwardedHeaders(incoming.headers, upstream.host),
   };
-  const outbound = target.protocol === "https:"
-    ? httpsRequest(target, options, onResponse)
-    : httpRequest(target, options, onResponse);
+  const outbound = upstream.protocol === "https:"
+    ? httpsRequest(options, onResponse)
+    : httpRequest(options, onResponse);
   outbound.on("error", (error) => {
     if (client.headersSent) {
       client.destroy(error);
