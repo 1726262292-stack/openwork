@@ -92,6 +92,7 @@ const SLACK_CREDENTIAL = /\bxox[a-z]-[A-Za-z0-9-]+|\bxoxe(?:-\d)?-[A-Za-z0-9-]+/
 const BEARER_CREDENTIAL = /(\bBearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi
 const GITHUB_CREDENTIAL = /\bgh[pousr]_[A-Za-z0-9]{20,}/gi
 const LONG_OPAQUE_CREDENTIAL = /[A-Za-z0-9_~+/=-]{40,}/g
+const MEMBER_RESPONSE_STRING_FIELDS = ["error", "error_description", "error_uri", "message"]
 
 export class ExternalMcpLifecycleDeadlineError extends Error {
   constructor() {
@@ -252,6 +253,23 @@ function isProviderTokenErrorExcerpt(excerpt: string): boolean {
     return isRecord(parsed) && parsed.ok === false && typeof parsed.error === "string"
   } catch {
     return false
+  }
+}
+
+function memberFacingProviderResponseExcerpt(text: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (!isRecord(parsed)) return undefined
+    const allowed: Record<string, unknown> = {}
+    if (typeof parsed.ok === "boolean") allowed.ok = parsed.ok
+    for (const field of MEMBER_RESPONSE_STRING_FIELDS) {
+      const value = parsed[field]
+      if (typeof value === "string") allowed[field] = redactSensitiveString(value)
+    }
+    if (Object.keys(allowed).length === 0) return undefined
+    return JSON.stringify(allowed).slice(0, EXTERNAL_MCP_PROVIDER_RESPONSE_EXCERPT_CHARS)
+  } catch {
+    return undefined
   }
 }
 
@@ -1376,12 +1394,18 @@ function classifyError(error: unknown, fallbackPhase: ExternalMcpDiagnosticPhase
 export class ExternalMcpDiagnosticError extends Error {
   readonly diagnostic: ExternalMcpDiagnostic
   readonly safeCauseChain: ExternalMcpSafeCause[]
+  #providerResponseLogExcerpt: string | undefined
 
-  constructor(diagnostic: ExternalMcpDiagnostic, cause?: unknown) {
+  constructor(diagnostic: ExternalMcpDiagnostic, cause?: unknown, providerResponseLogExcerpt?: string) {
     super(diagnostic.message, cause === undefined ? undefined : { cause })
     this.name = "ExternalMcpDiagnosticError"
     this.diagnostic = diagnostic
     this.safeCauseChain = cause === undefined ? [] : safeExternalMcpCauseChain(cause)
+    this.#providerResponseLogExcerpt = providerResponseLogExcerpt
+  }
+
+  providerResponseExcerptForLog(): string | undefined {
+    return this.#providerResponseLogExcerpt
   }
 }
 
@@ -1401,6 +1425,7 @@ export class ExternalMcpDiagnosticTracker {
   private providerRequestId: string | null = null
   private providerDeclaredError: ProviderDeclaredErrorEvidence | null = null
   private providerResponseExcerpt: string | null = null
+  private providerResponseLogExcerpt: string | null = null
   private providerResponseExcerptPhase: ExternalMcpDiagnosticPhase | null = null
   private backgroundFailure: { phase: ExternalMcpDiagnosticPhase; error: unknown } | null = null
 
@@ -1425,6 +1450,7 @@ export class ExternalMcpDiagnosticTracker {
     this.providerRequestId = null
     this.providerDeclaredError = null
     this.providerResponseExcerpt = null
+    this.providerResponseLogExcerpt = null
     this.providerResponseExcerptPhase = null
     this.backgroundFailure = null
   }
@@ -1494,9 +1520,14 @@ export class ExternalMcpDiagnosticTracker {
     this.providerDeclaredError = evidence
   }
 
-  recordProviderResponseExcerpt(excerpt: string, phase: ExternalMcpDiagnosticPhase): void {
-    this.providerResponseExcerpt = excerpt
-    this.providerResponseExcerptPhase = phase
+  recordProviderResponseExcerpt(input: {
+    memberExcerpt?: string
+    logExcerpt: string
+    phase: ExternalMcpDiagnosticPhase
+  }): void {
+    this.providerResponseExcerpt = input.memberExcerpt ?? null
+    this.providerResponseLogExcerpt = input.logExcerpt
+    this.providerResponseExcerptPhase = input.phase
   }
 
   providerToolError(result?: unknown): ExternalMcpDiagnosticError {
@@ -1648,7 +1679,11 @@ export class ExternalMcpDiagnosticTracker {
       ...(this.providerRequestId ? { providerRequestId: this.providerRequestId } : {}),
       ...(this.providerResponseExcerpt ? { providerResponseExcerpt: this.providerResponseExcerpt } : {}),
     }
-    return new ExternalMcpDiagnosticError(diagnostic, error)
+    return new ExternalMcpDiagnosticError(
+      diagnostic,
+      error,
+      this.providerResponseLogExcerpt ?? undefined,
+    )
   }
 }
 
@@ -1820,13 +1855,21 @@ async function responseTextExcerptWithinLimit(response: Response, limit: number)
   }
 }
 
-async function providerResponseExcerpt(response: Response): Promise<string | null> {
+async function providerResponseExcerpts(response: Response): Promise<{
+  memberExcerpt?: string
+  logExcerpt: string
+} | null> {
   try {
     const text = await responseTextExcerptWithinLimit(
       response.clone(),
       EXTERNAL_MCP_PROVIDER_RESPONSE_EXCERPT_CHARS,
     )
-    return text === null ? null : redactedProviderResponseExcerpt(text)
+    if (text === null) return null
+    const memberExcerpt = memberFacingProviderResponseExcerpt(text)
+    return {
+      ...(memberExcerpt ? { memberExcerpt } : {}),
+      logExcerpt: redactedProviderResponseExcerpt(text),
+    }
   } catch {
     return null
   }
@@ -1961,9 +2004,12 @@ export function createExternalMcpDiagnosticFetch(input: {
       input.tracker.recordHttpStatus(response.status)
       input.tracker.recordProviderRequestId(response.headers)
       if (!response.ok || (response.ok && isOAuthTokenPhase(phase) && contentType === "application/json")) {
-        const excerpt = await providerResponseExcerpt(response)
-        if (excerpt && (!response.ok || isProviderTokenErrorExcerpt(excerpt))) {
-          input.tracker.recordProviderResponseExcerpt(excerpt, phase)
+        const excerpts = await providerResponseExcerpts(response)
+        if (excerpts && (!response.ok || (excerpts.memberExcerpt && isProviderTokenErrorExcerpt(excerpts.memberExcerpt)))) {
+          input.tracker.recordProviderResponseExcerpt({
+            ...excerpts,
+            phase,
+          })
         }
       }
       const challenge = response.headers.get("www-authenticate") ?? ""
@@ -2054,9 +2100,13 @@ export function externalMcpDiagnosticForLog(error: unknown, referenceId: string,
   const diagnosticError = error instanceof ExternalMcpDiagnosticError
     ? error
     : new ExternalMcpDiagnosticTracker(referenceId).error(error, fallbackPhase)
+  const providerResponseLogExcerpt = diagnosticError.providerResponseExcerptForLog()
   return {
     diagnostic: diagnosticError.diagnostic,
     causeChain: diagnosticError.safeCauseChain,
+    ...(providerResponseLogExcerpt
+      ? { providerResponseLogExcerpt }
+      : {}),
   }
 }
 
