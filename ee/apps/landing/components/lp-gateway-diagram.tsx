@@ -45,7 +45,7 @@ export function LpGatewayDiagram() {
       <Connector />
 
       <div className="flex w-full shrink-0 flex-col items-center rounded-[20px] border-[1.5px] border-[var(--lp-ink)] bg-white px-5 py-[26px] text-center md:w-[216px]">
-        <Plug className="mb-3 h-6 w-6" strokeWidth={1.8} aria-hidden="true" />
+        <Plug className="mb-3 h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
         <div className="text-[16px] font-semibold text-[var(--lp-ink)]">
           OpenWork Connect
         </div>

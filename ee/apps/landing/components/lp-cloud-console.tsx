@@ -43,7 +43,7 @@ function TrafficLights() {
 
 export function LpCloudConsole() {
   return (
-    <div className="overflow-hidden rounded-[20px] bg-white shadow-[0_24px_48px_rgba(1,22,39,0.10)]">
+    <div className="overflow-hidden rounded-[20px] border border-[#EDF1F6] bg-white">
       <div className="flex h-12 items-center gap-3 border-b border-[#e1e4e8] px-5">
         <TrafficLights />
         <span className="text-[12px] font-medium text-[var(--lp-muted)]">OpenWork Cloud — Acme Inc</span>
@@ -64,7 +64,7 @@ export function LpCloudConsole() {
                 key={item.label}
                 className={`flex h-8 items-center justify-between rounded-[8px] px-2 text-[12.5px] transition-none hover:bg-[#eceff3] ${
                   item.child ? "ml-3 pl-3" : ""
-                } ${item.active ? "border border-[#e1e4e8] bg-white font-medium text-[var(--lp-ink)]" : "text-[var(--lp-muted)]"}`}
+                } ${item.active ? "bg-white font-medium text-[var(--lp-ink)] shadow-[0_1px_2px_rgba(1,22,39,0.06)]" : "text-[var(--lp-muted)]"}`}
               >
                 <span>{item.label}</span>
                 {item.badge ? <span className="text-[8px] font-bold tracking-[0.08em] text-[var(--lp-blue)]">{item.badge}</span> : null}
@@ -72,7 +72,7 @@ export function LpCloudConsole() {
               </div>
             ))}
           </nav>
-          <div className="mt-auto flex items-center gap-2 rounded-[10px] bg-white p-2.5">
+          <div className="mt-5 flex items-center gap-2 rounded-[10px] bg-white p-2.5">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--lp-ink)] text-[10px] text-white">A</span>
             <div><div className="text-[11.5px] font-medium text-[var(--lp-ink)]">Acme Inc</div><div className="text-[10px] text-[var(--lp-faint)]">Owner</div></div>
           </div>
@@ -84,12 +84,12 @@ export function LpCloudConsole() {
               <h2 className="text-[15.5px] font-semibold text-[var(--lp-ink)]">Bring your Own Keys</h2>
               <p className="mt-1 text-[12px] text-[var(--lp-muted)]">Models › provisioned for every seat — keys never leave the org.</p>
             </div>
-            <button type="button" className="inline-flex h-8 items-center self-start rounded-full bg-[var(--lp-ink)] px-4 text-[12px] font-medium text-white active:scale-[0.97]">Add provider</button>
+            <button type="button" className="inline-flex h-9 items-center self-start rounded-full bg-[var(--lp-ink)] px-4 text-[12px] font-medium text-white active:scale-[0.97]">Add provider</button>
           </div>
 
           <div className="mt-8 flex flex-col gap-3">
             {providers.map((provider) => (
-              <div key={provider.name} className="group flex min-h-[68px] items-center gap-3 rounded-[10px] border border-[#f1f5f9] px-3.5 py-2.5 transition-colors duration-150 hover:bg-[#f8fafc]">
+              <div key={provider.name} className="group flex min-h-[68px] items-center gap-3 rounded-[10px] bg-[#F8FAFC] px-3.5 py-2.5 transition-colors duration-150 hover:bg-[#F1F5F9]">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-[#f1f5f9] text-[var(--lp-muted)]">
                   {provider.logo === "azure" ? <span className="text-[12px] font-semibold">Az</span> : <BrandLogo name={provider.logo} className="h-[18px] w-[18px]" />}
                 </span>
@@ -112,7 +112,7 @@ export function LpCloudConsole() {
             <div className="text-[11px] font-semibold tracking-[0.1em] text-[var(--lp-muted)]">ORG DEFAULT</div>
             <div className="mt-3 flex items-center justify-between gap-4">
               <div><div className="text-[13px] font-medium text-[var(--lp-ink)]">Claude Sonnet 4.5</div><div className="mt-1 text-[11.5px] text-[var(--lp-muted)]">AWS Bedrock · available to all teams</div></div>
-              <span className="rounded-full bg-white px-3 py-1.5 text-[11px] text-[var(--lp-muted)]">Edit policy</span>
+              <span className="inline-flex h-9 items-center rounded-full bg-white px-3 text-[11px] text-[var(--lp-muted)]">Edit policy</span>
             </div>
           </div>
         </div>

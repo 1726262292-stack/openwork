@@ -89,7 +89,7 @@ function StatCard({ icon, title, value, sub, tone }: StatCardProps) {
 
 export function LpAnalyticsPanel() {
   return (
-    <div className="overflow-hidden rounded-[16px] border border-[var(--lp-border)] bg-white">
+    <div className="overflow-hidden rounded-[16px] border border-[#EDF1F6] bg-white">
       <div className="flex min-h-[510px]">
         <aside className="hidden w-44 shrink-0 border-r border-[#e3e7ee] bg-[#F8FAFC] p-3 sm:block">
           <div className="mb-5 flex items-center gap-2 rounded-[10px] bg-white px-3 py-2.5">
@@ -130,10 +130,10 @@ export function LpAnalyticsPanel() {
               <p className="mt-1 text-[12px] text-[#637291]">Across every OpenWork client and workspace</p>
             </div>
             <div className="flex gap-2">
-              <span className="inline-flex h-8 items-center rounded-full border border-[#d8e0ec] bg-white px-3 text-[11.5px] text-[#30405F]">
+              <span className="inline-flex h-9 items-center rounded-full border border-[#d8e0ec] bg-white px-3 text-[11.5px] text-[#30405F]">
                 All teams
               </span>
-              <button className="inline-flex h-8 items-center rounded-full bg-[#07192C] px-3 text-[11.5px] text-white" type="button">
+              <button className="inline-flex h-9 items-center rounded-full bg-[#07192C] px-3 text-[11.5px] text-white" type="button">
                 Export CSV
               </button>
             </div>

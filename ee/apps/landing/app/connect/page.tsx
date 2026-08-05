@@ -4,13 +4,13 @@ import { LpCopyBar } from "../../components/lp-copy-bar";
 import { LpCta } from "../../components/lp-cta";
 import { LpGatewayDiagram } from "../../components/lp-gateway-diagram";
 import { LpHeroBackground } from "../../components/lp-hero-background";
-import { LpSectionHeader, LpTickBlock } from "../../components/lp-primitives";
+import { LpSectionHeader } from "../../components/lp-primitives";
 import { LpTerminalStory } from "../../components/lp-terminal-story";
 import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
 import { getGithubData } from "../../lib/github";
 
-const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
+const CLOUD_SIGNUP_URL = "https://app.openworklabs.com";
 const GATEWAY_URL = "https://api.openworklabs.com/mcp/agent";
 
 export const metadata: Metadata = {
@@ -89,18 +89,18 @@ export default async function ConnectPage() {
 
           <section className="mt-[120px]">
             <LpSectionHeader label="How it works" heading="One setup. Every teammate." />
-            <div className="mt-10">
-              <LpTickBlock>
-                <div className="grid md:grid-cols-3">
-                  {steps.map((step, index) => (
-                    <div key={step.number} className={`min-h-[250px] p-8 ${index > 0 ? "border-t border-[var(--lp-border)] md:border-l md:border-t-0" : ""}`}>
-                      <div className="font-pixel text-[22px] text-[var(--lp-faint)]">{step.number}</div>
-                      <h2 className="mt-8 text-[17px] font-semibold">{step.title}</h2>
-                      <p className="mt-3 max-w-[300px] text-[14px] leading-[22px] text-[var(--lp-body)]">{step.body}</p>
-                    </div>
-                  ))}
+            <div className="mt-10 grid items-start gap-10 md:grid-cols-3">
+              {steps.map((step) => (
+                <div key={step.number}>
+                  <div className="font-pixel text-[40px] leading-none text-[var(--lp-faint)]">
+                    {step.number}
+                  </div>
+                  <h2 className="mt-3 text-[17px] font-medium">{step.title}</h2>
+                  <p className="mt-2 max-w-[300px] text-[14px] leading-[22px] text-[var(--lp-body)]">
+                    {step.body}
+                  </p>
                 </div>
-              </LpTickBlock>
+              ))}
             </div>
           </section>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { CheckCircle2, Globe2, Monitor, SquareTerminal } from "lucide-react";
+import { CheckCircle2, Globe, Monitor, SquareTerminal } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { BrandLogo } from "./lp-brand-logos";
@@ -13,6 +13,7 @@ import {
 } from "./landing-demo-flows";
 import { LandingFaq } from "./landing-faq";
 import { LandingHeroPrompt } from "./landing-hero-prompt";
+import { OpenCodeLogo } from "./opencode-logo";
 import { LpCopyBar } from "./lp-copy-bar";
 import { LpCta } from "./lp-cta";
 import { LpGatewayDiagram } from "./lp-gateway-diagram";
@@ -22,7 +23,6 @@ import {
   LpAlphaBadge,
   LpArrowLink,
   LpSectionHeader,
-  LpTickBlock,
   LpTonalCard
 } from "./lp-primitives";
 import { SiteFooter } from "./site-footer";
@@ -31,13 +31,15 @@ import { SiteNav } from "./site-nav";
 type Props = {
   stars: string;
   downloadHref: string;
+  windowsDownloadHref: string;
+  linuxDownloadHref: string;
   callHref: string;
   isMobileVisitor: boolean;
 };
 
 type DemoSurface = "desktop" | "web" | "connect";
 
-const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
+const CLOUD_SIGNUP_URL = "https://app.openworklabs.com";
 const GATEWAY_URL = "https://api.openworklabs.com/mcp/agent";
 
 const demoSurfaces: {
@@ -167,9 +169,9 @@ function DemoPlaceholder({ surface }: { surface: Exclude<DemoSurface, "desktop">
       <div className="max-w-md">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lp-tonal)]">
           {isWeb ? (
-            <Globe2 className="h-5 w-5" strokeWidth={1.6} />
+            <Globe className="h-5 w-5" strokeWidth={1.75} />
           ) : (
-            <SquareTerminal className="h-5 w-5" strokeWidth={1.6} />
+            <SquareTerminal className="h-5 w-5" strokeWidth={1.75} />
           )}
         </div>
         <div className="mt-5 flex items-center justify-center gap-2 text-[18px] font-medium text-[var(--lp-ink)]">
@@ -249,8 +251,7 @@ export function LandingHome(props: Props) {
                   an MCP gateway Cowork doesn&apos;t have.
                 </p>
                 <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-body)]">
-                  Free &amp; open source. Desktop for macOS, Windows, and Linux. Web
-                  in alpha.
+                  Free &amp; open source.
                 </p>
               </div>
             </div>
@@ -263,7 +264,7 @@ export function LandingHome(props: Props) {
                   target={primaryExternal ? "_blank" : undefined}
                   rel={primaryExternal ? "noreferrer" : undefined}
                 >
-                  Download for free
+                  Download for macOS
                 </a>
                 <a
                   href={props.callHref}
@@ -281,6 +282,35 @@ export function LandingHome(props: Props) {
                 </span>
                 <span>Combinator</span>
               </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-x-1.5 gap-y-2 text-[13.5px] text-[var(--lp-muted)]">
+              <span>Also available:</span>
+              <a
+                href={props.windowsDownloadHref}
+                className="text-[var(--lp-ink)] underline decoration-transparent underline-offset-4 transition-colors hover:decoration-current"
+              >
+                Windows
+              </a>
+              <span>—</span>
+              <LpAlphaBadge />
+              <span>·</span>
+              <a
+                href={props.linuxDownloadHref}
+                className="text-[var(--lp-ink)] underline decoration-transparent underline-offset-4 transition-colors hover:decoration-current"
+              >
+                Linux
+              </a>
+              <span>—</span>
+              <LpAlphaBadge />
+            </div>
+
+            <LandingHeroPrompt className="mt-12 max-w-[900px]" />
+
+            <div className="mt-4 flex items-center gap-2 text-[13.5px] text-[var(--lp-muted)]">
+              <span>Powered by</span>
+              <OpenCodeLogo className="h-[14px] w-auto opacity-80" />
+              <span>— everything from opencode just works.</span>
             </div>
           </section>
 
@@ -386,36 +416,32 @@ export function LandingHome(props: Props) {
           </section>
 
           <section className="mt-[120px]">
-            <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            <div className="mb-8">
               <h2 className="max-w-[680px] text-[16px] font-normal text-[var(--lp-ink)]">
                 Bring any model — or provision centrally for your whole org
               </h2>
-              <a href="/docs" className="lp-pill-secondary lp-pill-sm">
-                See all 50+ providers
-              </a>
             </div>
-            <LpTickBlock>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7">
-                {providers.map((provider, index) => (
+            <div className="rounded-[24px] bg-[var(--lp-tonal)] px-10 py-7">
+              <div className="flex items-center justify-between gap-6 overflow-x-auto">
+                {providers.map((provider) => (
                   <div
                     key={provider.label}
-                    className={`group flex h-24 items-center justify-center gap-2.5 px-3 text-center text-[14.5px] font-medium text-[var(--lp-muted)] ${
-                      index > 0 ? "border-l border-[var(--lp-border)]" : ""
-                    }`}
+                    className="group flex shrink-0 items-center gap-2.5 text-[15px] font-medium text-[var(--lp-muted)] opacity-70 transition-opacity duration-150 hover:opacity-100"
                   >
                     {provider.logo ? (
                       <BrandLogo
                         name={provider.logo}
-                        className="lp-logo h-[21px] w-[21px] shrink-0 opacity-70 transition-opacity duration-150 group-hover:opacity-100"
+                        className="lp-logo h-[21px] w-[21px] shrink-0"
                       />
                     ) : null}
-                    <span className="opacity-70 transition-opacity duration-150 group-hover:opacity-100">
-                      {provider.label}
-                    </span>
+                    <span>{provider.label}</span>
                   </div>
                 ))}
               </div>
-            </LpTickBlock>
+            </div>
+            <div className="mt-5">
+              <LpArrowLink href="/docs">See all 50+ providers</LpArrowLink>
+            </div>
           </section>
 
           <section className="mt-[120px]" id="comparison">
@@ -461,7 +487,10 @@ export function LandingHome(props: Props) {
                     Opening the thread in Chrome — 42 replies loaded
                   </div>
                   <div className="flex max-w-[330px] items-center gap-2 rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-[var(--lp-status)]" />
+                    <CheckCircle2
+                      className="h-5 w-5 text-[var(--lp-status)]"
+                      strokeWidth={1.75}
+                    />
                     tweet_replies.csv saved to Desktop
                   </div>
                 </div>
@@ -509,7 +538,7 @@ export function LandingHome(props: Props) {
 
               <LpTonalCard className="group flex min-h-[260px] flex-col justify-between p-6">
                 <div className="lp-icon-chip flex h-11 w-11 items-center justify-center rounded-full bg-white transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:rotate-[8deg]">
-                  <Globe2 className="h-5 w-5" strokeWidth={1.6} />
+                  <Globe className="h-5 w-5" strokeWidth={1.75} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2 text-[14px] text-[var(--lp-muted)]">
@@ -561,60 +590,77 @@ export function LandingHome(props: Props) {
                   same account.
                 </p>
               }
-            />
+              />
             <div className="mt-10">
-              <LpTickBlock>
-                <div className="grid md:grid-cols-3">
-                  <div className="group flex min-h-[330px] flex-col items-start p-8">
-                    <Monitor className="lp-draw-icon h-[22px] w-[22px]" strokeWidth={1.6} />
-                    <h3 className="mt-6 text-[17px] font-medium">On your desktop</h3>
-                    <p className="mt-3 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)]">
-                      Stable on macOS — Windows and Linux in alpha. Local-first, no
-                      account needed.
-                    </p>
-                    <a
-                      href={props.downloadHref}
-                      className="lp-pill-primary lp-pill-sm mt-auto"
-                    >
-                      Download
-                    </a>
-                  </div>
-
-                  <div className="group flex min-h-[330px] flex-col items-start border-t border-[var(--lp-border)] p-8 transition-colors duration-150 hover:border-[var(--lp-ink)] md:border-l md:border-t-0">
-                    <Globe2 className="lp-draw-icon h-[22px] w-[22px]" strokeWidth={1.6} />
-                    <h3 className="mt-6 flex items-center gap-2 text-[17px] font-medium">
-                      In your browser <LpAlphaBadge />
-                    </h3>
-                    <p className="mt-3 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)]">
-                      OpenWork Web. Nothing to install — sign in and run your first
-                      task.
-                    </p>
-                    <a
-                      href="https://app.openworklabs.com"
-                      className="lp-pill-secondary lp-pill-sm mt-auto"
-                    >
-                      Open in browser
-                    </a>
-                  </div>
-
-                  <div className="group flex min-h-[330px] flex-col items-start border-t border-[var(--lp-border)] p-8 transition-colors duration-150 hover:border-[var(--lp-ink)] md:border-l md:border-t-0">
-                    <SquareTerminal className="lp-draw-icon h-[22px] w-[22px]" strokeWidth={1.6} />
-                    <h3 className="mt-6 text-[17px] font-medium">From your agent</h3>
-                    <p className="mt-3 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)]">
-                      In Claude Code, Cursor, or Codex? One pasted prompt installs
-                      and sets up OpenWork for you.
-                    </p>
-                    <LandingHeroPrompt className="mt-6 w-full" />
-                  </div>
+              <div className="grid items-start gap-6 md:grid-cols-3">
+                <div className="group rounded-[24px] bg-[var(--lp-tonal)] p-7">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white">
+                    <Monitor
+                      className="lp-draw-icon h-5 w-5 text-[var(--lp-ink)]"
+                      strokeWidth={1.75}
+                    />
+                  </span>
+                  <h3 className="mt-4 text-[17px] font-medium">On your desktop</h3>
+                  <p className="mt-2 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)] md:min-h-[66px]">
+                    Stable on macOS — Windows and Linux in alpha. Local-first, no
+                    account needed.
+                  </p>
+                  <a
+                    href={props.downloadHref}
+                    className="lp-pill-primary lp-pill-sm mt-5"
+                  >
+                    Download for macOS
+                  </a>
                 </div>
-              </LpTickBlock>
+
+                <div className="group rounded-[24px] bg-[var(--lp-tonal)] p-7">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white">
+                    <Globe
+                      className="lp-draw-icon h-5 w-5 text-[var(--lp-ink)]"
+                      strokeWidth={1.75}
+                    />
+                  </span>
+                  <h3 className="mt-4 flex items-center gap-2 text-[17px] font-medium">
+                    In your browser <LpAlphaBadge />
+                  </h3>
+                  <p className="mt-2 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)] md:min-h-[66px]">
+                    OpenWork Web. Nothing to install — sign in and run your first
+                    task.
+                  </p>
+                  <a
+                    href="https://app.openworklabs.com"
+                    className="lp-pill-secondary lp-pill-sm mt-5"
+                  >
+                    Open in browser
+                  </a>
+                </div>
+
+                <div className="group rounded-[24px] bg-[var(--lp-tonal)] p-7">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white">
+                    <SquareTerminal
+                      className="lp-draw-icon h-5 w-5 text-[var(--lp-ink)]"
+                      strokeWidth={1.75}
+                    />
+                  </span>
+                  <h3 className="mt-4 text-[17px] font-medium">From your agent</h3>
+                  <p className="mt-2 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)] md:min-h-[66px]">
+                    In Claude Code, Cursor, or Codex? One pasted prompt installs
+                    and sets up OpenWork for you.
+                  </p>
+                  <LandingHeroPrompt compact className="mt-5" />
+                </div>
+              </div>
             </div>
           </section>
 
           <section className="mt-[120px]">
-            <LpSectionHeader label="Where to next" heading="Take it to your team." />
+            <LpSectionHeader
+              label="Where to next"
+              heading="Take it to your team."
+              size="small"
+            />
             <div className="mt-10 grid gap-6 md:grid-cols-3">
-              <LpTonalCard className="flex min-h-[240px] flex-col justify-between p-6">
+              <LpTonalCard className="flex min-h-[190px] flex-col justify-between p-6">
                 <div className="text-[14px] text-[var(--lp-muted)]">For you</div>
                 <div>
                   <h3 className="text-[19px] font-medium">Run it on your machine</h3>
@@ -627,7 +673,7 @@ export function LandingHome(props: Props) {
                 </div>
               </LpTonalCard>
 
-              <LpTonalCard className="flex min-h-[240px] flex-col justify-between p-6">
+              <LpTonalCard className="flex min-h-[190px] flex-col justify-between p-6">
                 <div className="text-[14px] text-[var(--lp-muted)]">For teams</div>
                 <div>
                   <h3 className="text-[19px] font-medium">Manage it centrally</h3>
@@ -641,7 +687,7 @@ export function LandingHome(props: Props) {
                 </div>
               </LpTonalCard>
 
-              <LpTonalCard className="flex min-h-[240px] flex-col justify-between p-6">
+              <LpTonalCard className="flex min-h-[190px] flex-col justify-between p-6">
                 <div className="text-[14px] text-[var(--lp-muted)]">For enterprises</div>
                 <div>
                   <h3 className="text-[19px] font-medium">Own your AI stack</h3>
@@ -657,7 +703,7 @@ export function LandingHome(props: Props) {
             </div>
           </section>
 
-          <div className="mt-[120px]">
+          <div className="mt-[120px] [&_h2]:!text-[36px] [&_h2]:!leading-[42px]">
             <LandingFaq />
           </div>
 

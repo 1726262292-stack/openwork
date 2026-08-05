@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
+import { Check, CheckCircle2 } from "lucide-react";
 
 import { LpAlphaBadge } from "./lp-primitives";
 import { OpenWorkMark } from "./openwork-mark";
@@ -41,21 +42,10 @@ function OpenWorkCheck({ delay }: { delay: number }) {
       whileInView={{ scale: 1, opacity: 1 }}
       viewport={{ once: true, amount: 0.8 }}
       transition={{ duration: reduceMotion ? 0 : 0.16, delay: reduceMotion ? 0 : delay }}
-      className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--lp-ink)] text-white"
+      className="inline-flex items-center justify-center text-[var(--lp-ink)]"
       aria-label="Included"
     >
-      <svg
-        viewBox="0 0 12 12"
-        className="h-2.5 w-2.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="m2.2 6.2 2.3 2.2 5.2-5" />
-      </svg>
+      <CheckCircle2 className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
     </motion.span>
   );
 }
@@ -70,18 +60,11 @@ function CoworkCell({ support }: { support: CoworkSupport }) {
   }
 
   return (
-    <svg
-      viewBox="0 0 16 16"
-      className="h-4 w-4 text-[var(--lp-faint)]"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <Check
+      className="h-5 w-5 text-[var(--lp-faint)]"
+      strokeWidth={1.75}
       aria-label="Included"
-    >
-      <path d="m3 8 3 3 7-7" />
-    </svg>
+    />
   );
 }
 
@@ -91,7 +74,7 @@ export function LpParityTable() {
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[720px]">
-        <div className="flex items-center border-y border-[var(--lp-border)] px-5 py-3.5">
+        <div className="flex items-center border-b border-[var(--lp-border)] px-5 py-3.5">
           <div className="flex-1 text-[12px] font-semibold tracking-[0.1em] text-[var(--lp-faint)]">
             CAPABILITY
           </div>
@@ -111,7 +94,7 @@ export function LpParityTable() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.35 }}
             transition={{ duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : index * 0.04 }}
-            className={`group flex items-center border-b border-[#f1f5f9] px-5 py-[15px] transition-colors duration-150 hover:bg-[var(--lp-tonal)] ${
+            className={`group flex items-center border-b border-[#F1F5F9] px-5 py-[15px] transition-colors duration-150 hover:bg-[var(--lp-tonal)] ${
               row.highlighted ? "rounded-[10px] bg-[#f0f7ff]" : ""
             }`}
           >

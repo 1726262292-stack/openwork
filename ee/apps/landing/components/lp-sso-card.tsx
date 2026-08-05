@@ -25,14 +25,14 @@ export function LpSsoCard() {
   };
 
   return (
-    <div className="rounded-[16px] border border-[var(--lp-border)] bg-white p-5">
+    <div className="rounded-[24px] bg-[var(--lp-tonal)] p-6">
       <div className="flex items-center justify-between gap-4">
         <h3 className="text-[14px] font-semibold text-[var(--lp-ink)]">Current connection</h3>
         <button type="button" className="lp-pill-secondary lp-pill-sm">Edit connection</button>
       </div>
 
       <div className="mt-5 grid items-stretch gap-3 sm:grid-cols-2">
-        <div className="rounded-[10px] bg-[#F8FAFC] p-4">
+        <div className="rounded-[10px] bg-white p-4">
           <div className="text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">PROVIDER</div>
           <div className="mt-2 text-[14px] font-semibold text-[var(--lp-ink)]">okta · SAML</div>
           <div className="mt-2 flex items-center gap-2 text-[12px] text-[var(--lp-muted)]">
@@ -40,7 +40,7 @@ export function LpSsoCard() {
             Domain verified: acme.dev
           </div>
         </div>
-        <div className="rounded-[10px] bg-[#F8FAFC] p-4">
+        <div className="rounded-[10px] bg-white p-4">
           <div className="text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">STATUS</div>
           <div className="mt-2 flex items-center gap-2 text-[14px] font-semibold text-[#059669]">
             <span className="h-2 w-2 rounded-full bg-[#10B981]" /> Active
@@ -49,25 +49,27 @@ export function LpSsoCard() {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-col gap-3 rounded-[10px] border border-[#F1F5F9] px-4 py-3 sm:flex-row sm:items-center">
-        <span className="w-24 shrink-0 text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">SIGN-IN URL</span>
-        <code className="mono min-w-0 flex-1 overflow-x-auto text-[12px] text-[var(--lp-ink)]">{signInUrl}</code>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-[var(--lp-border)] bg-white px-3 text-[12px] text-[var(--lp-ink)] active:scale-[0.97]"
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      <div className="mt-2.5 flex flex-col gap-2.5">
+        <div className="flex flex-col gap-3 rounded-[10px] bg-white px-4 py-3 sm:flex-row sm:items-center">
+          <span className="w-24 shrink-0 text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">SIGN-IN URL</span>
+          <code className="mono min-w-0 flex-1 overflow-x-auto text-[12px] text-[var(--lp-ink)]">{signInUrl}</code>
+          <button
+            type="button"
+            onClick={() => void copy()}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[var(--lp-tonal)] px-3 text-[12px] text-[var(--lp-ink)] active:scale-[0.97]"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
 
-      <div className="mt-3 flex flex-col gap-2 rounded-[10px] border border-[#F1F5F9] px-4 py-3 sm:flex-row sm:items-center">
-        <span className="w-24 shrink-0 text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">SCIM</span>
-        <span className="flex-1 text-[12px] text-[var(--lp-body)]">143 seats synced from Okta · hourly</span>
-        <span className="flex items-center gap-1.5 text-[12px] font-medium text-[#059669]">
-          <span className="h-2 w-2 rounded-full bg-[#10B981]" /> Healthy
-        </span>
+        <div className="flex flex-col gap-2 rounded-[10px] bg-white px-4 py-3 sm:flex-row sm:items-center">
+          <span className="w-24 shrink-0 text-[10px] font-bold tracking-[0.1em] text-[var(--lp-faint)]">SCIM</span>
+          <span className="flex-1 text-[12px] text-[var(--lp-body)]">143 seats synced from Okta · hourly</span>
+          <span className="flex items-center gap-1.5 text-[12px] font-medium text-[#059669]">
+            <span className="h-2 w-2 rounded-full bg-[#10B981]" /> Healthy
+          </span>
+        </div>
       </div>
     </div>
   );

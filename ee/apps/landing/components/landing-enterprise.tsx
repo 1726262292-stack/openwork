@@ -5,7 +5,7 @@ import {
   Check,
   Cloud,
   Database,
-  Globe2,
+  Globe,
   Monitor,
   Server,
   ShieldCheck
@@ -15,7 +15,7 @@ import { BookCallForm } from "./book-call-form";
 import { LpAnalyticsPanel } from "./lp-analytics-panel";
 import { LpCta } from "./lp-cta";
 import { LpHeroBackground } from "./lp-hero-background";
-import { LpSectionHeader, LpTonalCard } from "./lp-primitives";
+import { LpSectionHeader } from "./lp-primitives";
 import { LpSsoCard } from "./lp-sso-card";
 import { SiteFooter } from "./site-footer";
 import { SiteNav } from "./site-nav";
@@ -64,7 +64,7 @@ const deployments = [
     tagClass: "text-[var(--lp-blue)]",
     title: "OpenWork Web",
     body: "The same workspace in the browser, with your org’s models, skills, and policies.",
-    icon: Globe2
+    icon: Globe
   },
   {
     tag: "FOR TEAMS",
@@ -154,10 +154,10 @@ export function LandingEnterprise(props: Props) {
               <a href="/docs" className="lp-pill-secondary">Read the docs</a>
             </div>
             <div className="mt-7 flex flex-wrap gap-2.5">
-              <span className="lp-pill-secondary lp-pill-sm gap-2"><span className="h-2 w-2 rounded-full bg-[#F59E0B]" />SOC 2 Type II — in progress</span>
-              <span className="lp-pill-secondary lp-pill-sm">SAML SSO + SCIM</span>
-              <span className="lp-pill-secondary lp-pill-sm">Audit logs</span>
-              <span className="lp-pill-secondary lp-pill-sm">Self-host or managed</span>
+              <span className="lp-pill-secondary lp-pill-sm !h-9 gap-2 !text-[13px]"><span className="h-2 w-2 rounded-full bg-[#F59E0B]" />SOC 2 Type II — in progress</span>
+              <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">SAML SSO + SCIM</span>
+              <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">Audit logs</span>
+              <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">Self-host or managed</span>
             </div>
           </section>
 
@@ -168,7 +168,7 @@ export function LandingEnterprise(props: Props) {
                 const Icon = pillar.icon;
                 return (
                   <div key={pillar.title}>
-                    <Icon className="h-6 w-6" strokeWidth={1.5} />
+                    <Icon className="h-5 w-5 text-[var(--lp-ink)]" strokeWidth={1.75} />
                     <h3 className="mt-6 text-[17px] font-semibold">{pillar.title}</h3>
                     <p className="mt-3 text-[14px] leading-[22px] text-[var(--lp-body)]">{pillar.body}</p>
                   </div>
@@ -214,16 +214,19 @@ export function LandingEnterprise(props: Props) {
                   <>
                     <div className="flex items-start justify-between gap-3">
                       <div className={`text-[11px] font-bold tracking-[0.08em] ${deployment.tagClass}`}>{deployment.tag}</div>
-                      <Icon className="h-5 w-5 text-[var(--lp-muted)]" strokeWidth={1.5} />
+                      <Icon className="h-5 w-5 text-[var(--lp-ink)]" strokeWidth={1.75} />
                     </div>
                     <h3 className="mt-6 text-[17px] font-semibold">{deployment.title}</h3>
                     <p className="mt-2 text-[13.5px] leading-[21px] text-[var(--lp-body)]">{deployment.body}</p>
                   </>
                 );
-                return deployment.tonal ? (
-                  <LpTonalCard key={deployment.title} className="rounded-[14px] p-[22px_20px]">{content}</LpTonalCard>
-                ) : (
-                  <div key={deployment.title} className="rounded-[14px] bg-white p-[22px_20px]">{content}</div>
+                return (
+                  <div
+                    key={deployment.title}
+                    className={`rounded-[24px] bg-[var(--lp-tonal)] p-7 ${deployment.tonal ? "ring-[1.5px] ring-inset ring-[var(--lp-ink)]" : ""}`}
+                  >
+                    {content}
+                  </div>
                 );
               })}
             </div>
@@ -247,7 +250,7 @@ export function LandingEnterprise(props: Props) {
             <LpSectionHeader label="Compliance" heading="Compliance, in the open." />
             <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {compliance.map((item) => (
-                <div key={item.title} className="rounded-[14px] bg-white p-5 shadow-[0_1px_3px_rgba(1,22,39,0.08)]">
+                <div key={item.title} className="rounded-[14px] bg-white p-5 shadow-[0_2px_8px_rgba(1,22,39,0.04)]">
                   <h3 className="text-[16px] font-semibold">{item.title}</h3>
                   <p className="mt-3 text-[13.5px] leading-[21px] text-[var(--lp-body)]">{item.body}</p>
                 </div>

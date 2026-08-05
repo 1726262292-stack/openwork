@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Globe2, Layers3, Plug } from "lucide-react";
+import { Globe, Layers, Plug } from "lucide-react";
 
 import { LandingSharePackageCard } from "../../components/landing-share-package-card";
 import { LpCloudConsole } from "../../components/lp-cloud-console";
@@ -10,7 +10,7 @@ import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
 import { getGithubData } from "../../lib/github";
 
-const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
+const CLOUD_SIGNUP_URL = "https://app.openworklabs.com";
 
 export const metadata: Metadata = {
   title: "OpenWork Cloud — the dashboard for your whole org",
@@ -80,32 +80,32 @@ export default async function CloudPage() {
 
           <section className="mt-[88px]" aria-label="OpenWork Cloud console preview"><LpCloudConsole /></section>
 
-          <section className="mt-[120px] grid gap-5 lg:grid-cols-3">
-            <LpTonalCard className="flex min-h-[270px] flex-col p-6">
-              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white"><Plug className="h-5 w-5" strokeWidth={1.6} /></span>
+          <section className="mt-[120px] grid gap-6 lg:grid-cols-3">
+            <LpTonalCard className="flex flex-col p-7 ring-[1.5px] ring-inset ring-[var(--lp-ink)]">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white"><Plug className="h-5 w-5 text-[var(--lp-ink)]" strokeWidth={1.75} /></span>
               <h2 className="mt-8 text-[16.5px] font-semibold">OpenWork Connect</h2>
               <p className="mt-3 text-[14px] leading-[22px] text-[var(--lp-body)]">The MCP gateway. Set up MCPs once — shared with everyone, policies included.</p>
               <div className="mt-auto pt-6"><LpArrowLink href="/connect">Explore Connect</LpArrowLink></div>
             </LpTonalCard>
-            <div className="flex min-h-[270px] flex-col rounded-[16px] bg-white p-6 shadow-[0_8px_24px_rgba(1,22,39,0.06)]">
-              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--lp-tonal)]"><Globe2 className="h-5 w-5" strokeWidth={1.6} /></span>
+            <LpTonalCard className="flex flex-col p-7">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white"><Globe className="h-5 w-5 text-[var(--lp-ink)]" strokeWidth={1.75} /></span>
               <h2 className="mt-8 flex items-center gap-2 text-[16.5px] font-semibold">OpenWork Web <LpAlphaBadge /></h2>
               <p className="mt-3 text-[14px] leading-[22px] text-[var(--lp-body)]">The whole workspace — and this dashboard — in the browser. Nothing to install.</p>
               <div className="mt-auto pt-6"><LpArrowLink href="https://app.openworklabs.com">Open in browser</LpArrowLink></div>
-            </div>
-            <div className="flex min-h-[270px] flex-col rounded-[16px] bg-white p-6 shadow-[0_8px_24px_rgba(1,22,39,0.06)]">
-              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--lp-tonal)]"><Layers3 className="h-5 w-5" strokeWidth={1.6} /></span>
+            </LpTonalCard>
+            <LpTonalCard className="flex flex-col p-7">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white"><Layers className="h-5 w-5 text-[var(--lp-ink)]" strokeWidth={1.75} /></span>
               <h2 className="mt-8 text-[16.5px] font-semibold">Everything speaks MCP</h2>
               <p className="mt-3 text-[14px] leading-[22px] text-[var(--lp-body)]">Whatever you manage here is exposed over MCP — usable from OpenWork or any MCP client.</p>
               <div className="mt-auto pt-6"><LpArrowLink href="/connect">See how MCP works</LpArrowLink></div>
-            </div>
+            </LpTonalCard>
           </section>
 
           <section className="mt-[120px]">
             <LpSectionHeader label="The dashboard" heading="Run agents like a fleet, not a folder of setups." />
-            <div className="mt-10 grid border-y border-[var(--lp-border)] md:grid-cols-2">
-              {dashboardFeatures.map((feature, index) => (
-                <div key={feature.title} className={`min-h-[190px] p-7 md:p-8 ${index % 2 === 1 ? "md:border-l md:border-[var(--lp-border)]" : ""} ${index > 1 ? "border-t border-[var(--lp-border)]" : index === 1 ? "border-t border-[var(--lp-border)] md:border-t-0" : ""}`}>
+            <div className="mt-10 grid gap-6 md:grid-cols-2">
+              {dashboardFeatures.map((feature) => (
+                <div key={feature.title} className="rounded-[24px] bg-[var(--lp-tonal)] p-7">
                   <h3 className="text-[17px] font-semibold">{feature.title}</h3>
                   <p className="mt-3 max-w-[470px] text-[14.5px] leading-[23px] text-[var(--lp-body)]">{feature.body}</p>
                 </div>

@@ -5,13 +5,15 @@ type LpSectionHeaderProps = {
   heading: string;
   headingLines?: string[];
   right?: ReactNode;
+  size?: "major" | "small";
 };
 
 export function LpSectionHeader({
   label,
   heading,
   headingLines,
-  right
+  right,
+  size = "major"
 }: LpSectionHeaderProps) {
   const lines = headingLines ?? [heading];
 
@@ -21,7 +23,13 @@ export function LpSectionHeader({
         <div className="mb-3 text-[15px] font-normal text-[var(--lp-muted)]">
           {label}
         </div>
-        <h2 className="text-[36px] font-light leading-[42px] tracking-[-0.015em] text-[var(--lp-ink)] md:text-[44px] md:leading-[50px]">
+        <h2
+          className={`font-light tracking-[-0.015em] text-[var(--lp-ink)] ${
+            size === "small"
+              ? "text-[36px] leading-[42px]"
+              : "text-[36px] leading-[42px] md:text-[44px] md:leading-[50px]"
+          }`}
+        >
           {lines.map((line) => (
             <span key={line} className="block">
               {line}
@@ -50,30 +58,6 @@ type LpContainerProps = {
   children: ReactNode;
   className?: string;
 };
-
-export function LpTickBlock({ children, className }: LpContainerProps) {
-  return (
-    <div
-      className={`relative border-y border-[var(--lp-border)] ${className ?? ""}`}
-    >
-      {children}
-      {[
-        "-left-[4px] -top-[8px]",
-        "-right-[4px] -top-[8px]",
-        "-bottom-[7px] -left-[4px]",
-        "-bottom-[7px] -right-[4px]"
-      ].map((position) => (
-        <span
-          key={position}
-          aria-hidden="true"
-          className={`pointer-events-none absolute z-10 bg-[var(--lp-page)] px-px text-[9px] font-normal leading-none text-[var(--lp-faint)] ${position}`}
-        >
-          +
-        </span>
-      ))}
-    </div>
-  );
-}
 
 export function LpTonalCard({ children, className }: LpContainerProps) {
   return (

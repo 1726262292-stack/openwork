@@ -91,7 +91,7 @@ export function LpTerminalStory() {
         </div>
       </div>
 
-      <div className="min-h-[410px] overflow-hidden rounded-[24px] bg-[var(--lp-tonal)]">
+      <div className="self-start overflow-hidden rounded-[24px] bg-[var(--lp-tonal)]">
         <div className="flex h-12 items-center justify-between border-b border-[#e5e7eb] px-5">
           <div className="flex items-center gap-3">
             <TrafficLights />
@@ -103,7 +103,7 @@ export function LpTerminalStory() {
           initial={false}
           animate={{ opacity: showTeammate ? 1 : 0, y: showTeammate ? 0 : 8 }}
           transition={{ duration: reduceMotion ? 0 : 0.25 }}
-          className="flex min-h-[362px] flex-col p-6"
+          className="flex flex-col p-6"
           aria-hidden={!showTeammate}
         >
           <div className="max-w-[390px] rounded-[14px] bg-white px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)]">
@@ -116,9 +116,9 @@ export function LpTerminalStory() {
           <p className="mt-5 max-w-[430px] text-[13px] leading-5 text-[var(--lp-ink)]">
             Your brief is ready — deal history, latest notes, and 3 talking points. Saved to your desktop.
           </p>
-          <div className="mt-auto flex items-center justify-between gap-3 rounded-full bg-white py-1.5 pl-4 pr-1.5 text-[12.5px] text-[var(--lp-faint)]">
+          <div className="mt-8 flex items-center justify-between gap-3 rounded-full bg-white py-1.5 pl-4 pr-1.5 text-[12.5px] text-[var(--lp-faint)]">
             <span>Describe your task</span>
-            <span className="inline-flex h-8 items-center rounded-full bg-[var(--lp-ink)] px-4 text-[12px] font-medium text-white">Run Task</span>
+            <span className="inline-flex h-9 items-center rounded-full bg-[var(--lp-ink)] px-4 text-[12px] font-medium text-white">Run Task</span>
           </div>
         </motion.div>
       </div>
