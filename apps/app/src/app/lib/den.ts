@@ -53,6 +53,7 @@ const STORAGE_AUTH_TOKEN = "openwork.den.authToken";
 const STORAGE_ACTIVE_ORG_ID = "openwork.den.activeOrgId";
 const STORAGE_ACTIVE_ORG_SLUG = "openwork.den.activeOrgSlug";
 const STORAGE_ACTIVE_ORG_NAME = "openwork.den.activeOrgName";
+const DESKTOP_CONFIG_CACHE_PREFIX = "openwork.den.desktopConfig:";
 export const CLOUD_MCP_SYNC_MARKER_STORAGE_KEY = "openwork.den.mcp.sync";
 const ORG_PROXY_HEADER = "x-openwork-legacy-org-id";
 const DEFAULT_DEN_TIMEOUT_MS = 12_000;
@@ -386,6 +387,7 @@ export type DenDesktopHandoffExchange = {
   user: DenUser | null;
   token: string | null;
   organization: DenDesktopHandoffExchangeOrganization | null;
+  connectEnabled: boolean | null;
 };
 
 const defaultBootstrapBaseUrls = resolveDenBaseUrls({
@@ -967,6 +969,54 @@ export function readDenSettings(): DenSettings {
   };
 }
 
+export function getDenDesktopConfigCacheKey(): string {
+  const settings = readDenSettings();
+  const baseUrl = settings.baseUrl.trim();
+  const activeOrgId = settings.activeOrgId?.trim() ?? "";
+  if (!baseUrl) return "";
+  return `${DESKTOP_CONFIG_CACHE_PREFIX}${baseUrl}::${activeOrgId}`;
+}
+
+export function readCachedDenDesktopConfig(key: string): DenDesktopConfig | null {
+  if (typeof window === "undefined" || !key) return null;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return normalizeDenDesktopConfig(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedDenDesktopConfig(key: string, config: DenDesktopConfig) {
+  if (typeof window === "undefined" || !key) return;
+  try {
+    window.localStorage.setItem(
+      key,
+      JSON.stringify(normalizeDenDesktopConfig(config)),
+    );
+  } catch {
+    // Quota / private-browsing failures are non-fatal — we just miss the cache next boot.
+  }
+}
+
+export function seedDenDesktopConfigConnectPolicy(input: {
+  organizationId: string;
+  connectEnabled: boolean | null;
+}): boolean {
+  if (input.connectEnabled === null) return false;
+
+  const organizationId = input.organizationId.trim();
+  const activeOrgId = readDenSettings().activeOrgId?.trim() ?? "";
+  if (!organizationId || activeOrgId !== organizationId) return false;
+
+  const key = getDenDesktopConfigCacheKey();
+  const cached = readCachedDenDesktopConfig(key) ?? {};
+  writeCachedDenDesktopConfig(key, { ...cached, connectEnabled: input.connectEnabled });
+  return true;
+}
+
 function mergePassiveDenField(
   current: string | null | undefined,
   next: string | null | undefined,
@@ -1200,6 +1250,13 @@ function getExchangeOrganization(payload: unknown): DenDesktopHandoffExchangeOrg
     slug: typeof organization.slug === "string" && organization.slug.trim() ? organization.slug.trim() : null,
     name: typeof organization.name === "string" && organization.name.trim() ? organization.name.trim() : null,
   };
+}
+
+function getExchangeConnectEnabled(payload: unknown): boolean | null {
+  if (!isRecord(payload) || typeof payload.connectEnabled !== "boolean") {
+    return null;
+  }
+  return payload.connectEnabled;
 }
 
 function getOrgList(payload: unknown): DenOrgSummary[] {
@@ -2278,7 +2335,12 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         method: "POST",
         body: { grant },
       });
-      return { user: getUser(payload), token: getToken(payload), organization: getExchangeOrganization(payload) };
+      return {
+        user: getUser(payload),
+        token: getToken(payload),
+        organization: getExchangeOrganization(payload),
+        connectEnabled: getExchangeConnectEnabled(payload),
+      };
     },
 
     async listOrgs(): Promise<{ orgs: DenOrgSummary[]; activeOrgId: string | null; activeOrgSlug: string | null; defaultOrgId: string | null }> {
