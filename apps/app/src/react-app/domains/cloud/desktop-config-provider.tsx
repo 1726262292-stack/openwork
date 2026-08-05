@@ -20,10 +20,13 @@ import {
   createDenClient,
   DenApiError,
   ensureDenActiveOrganization,
+  getDenDesktopConfigCacheKey,
   normalizeDenDesktopConfig,
+  readCachedDenDesktopConfig,
   readDenBootstrapConfig,
   readDenSettings,
   setDenBootstrapConfig,
+  writeCachedDenDesktopConfig,
   type DenDesktopConfig,
 } from "../../../app/lib/den";
 import { applyBrandAppName, applyBrandIcon } from "../../../app/lib/desktop";
@@ -59,7 +62,6 @@ const DesktopConfigContext = createContext<DesktopConfigStore | undefined>(
 
 const DEFAULT_DESKTOP_CONFIG: DenDesktopConfig = {};
 const DESKTOP_CONFIG_REFRESH_MS = 60 * 60 * 1000;
-const DESKTOP_CONFIG_CACHE_PREFIX = "openwork.den.desktopConfig:";
 const DESKTOP_CONFIG_ITEMS = [
   ...desktopPolicyKeys,
   "allowedDesktopVersions",
@@ -113,38 +115,6 @@ type DesktopConfigAction = {
 
 function isBootstrapBrandingActionItem(item: DesktopConfigItem): boolean {
   return item === "brandAppName" || item === "brandLogoUrl" || item === "brandIconUrl";
-}
-
-function getDesktopConfigCacheKey(): string {
-  const settings = readDenSettings();
-  const baseUrl = settings.baseUrl.trim();
-  const activeOrgId = settings.activeOrgId?.trim() ?? "";
-  if (!baseUrl) return "";
-  return `${DESKTOP_CONFIG_CACHE_PREFIX}${baseUrl}::${activeOrgId}`;
-}
-
-function readCachedDesktopConfig(key: string): DenDesktopConfig | null {
-  if (typeof window === "undefined" || !key) return null;
-
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) return null;
-    return normalizeDenDesktopConfig(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedDesktopConfig(key: string, config: DenDesktopConfig) {
-  if (typeof window === "undefined" || !key) return;
-  try {
-    window.localStorage.setItem(
-      key,
-      JSON.stringify(normalizeDenDesktopConfig(config)),
-    );
-  } catch {
-    // Quota / private-browsing failures are non-fatal — we just miss the cache next boot.
-  }
 }
 
 function desktopConfigItemMatches(
@@ -280,7 +250,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     const settings = readDenSettings();
     const token = settings.authToken?.trim() ?? "";
     const activeOrgId = settings.activeOrgId?.trim() ?? "";
-    const cacheKey = getDesktopConfigCacheKey();
+    const cacheKey = getDenDesktopConfigCacheKey();
 
     if (!isSignedIn || !token || !activeOrgId) {
       applyDesktopConfigActions(DEFAULT_DESKTOP_CONFIG);
@@ -288,7 +258,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
       return DEFAULT_DESKTOP_CONFIG;
     }
 
-    const cached = readCachedDesktopConfig(cacheKey);
+    const cached = readCachedDenDesktopConfig(cacheKey);
     if (cached) {
       applyDesktopConfigActions(cached);
     }
@@ -305,7 +275,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
 
       if (currentRun !== refreshRunRef.current) return nextConfig;
 
-      writeCachedDesktopConfig(cacheKey, nextConfig);
+      writeCachedDenDesktopConfig(cacheKey, nextConfig);
       applyDesktopConfigActions(nextConfig);
       return nextConfig;
     } catch (error) {
@@ -361,8 +331,8 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
       return;
     }
 
-    const cacheKey = getDesktopConfigCacheKey();
-    const cached = readCachedDesktopConfig(cacheKey);
+    const cacheKey = getDenDesktopConfigCacheKey();
+    const cached = readCachedDenDesktopConfig(cacheKey);
     applyDesktopConfigActions(cached ?? DEFAULT_DESKTOP_CONFIG);
     setDesktopConfigState((current) => ({ ...current, loading: !cached }));
     void desktopConfigHandler();
