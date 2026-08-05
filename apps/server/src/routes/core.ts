@@ -366,10 +366,12 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   });
 
   addRoute(routes, "GET", "/experimental/provider-sync/enabled", "client", async () => {
+    const status = await readProviderSyncStatus(config);
     return jsonResponse({
       ok: true,
       schemaVersion: 1,
-      enabled: (await readProviderSyncStatus(config)).enabled,
+      enabled: status.enabled,
+      appliedProviderIds: status.appliedProviderIds,
     });
   });
 

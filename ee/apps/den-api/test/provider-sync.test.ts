@@ -1,9 +1,6 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import {
-  INFERENCE_TOKEN_AUDIENCE,
-  INFERENCE_TOKEN_TTL_SECONDS,
-  INFERENCE_TOKEN_USE,
   PROVIDER_SYNC_TOKEN_AUDIENCE,
   PROVIDER_SYNC_TOKEN_TTL_SECONDS,
   PROVIDER_SYNC_TOKEN_USE,
@@ -12,7 +9,6 @@ import { verifyJwsAccessToken } from "better-auth/oauth2"
 import { serializeSignedCookie } from "better-call"
 
 const API_ORIGIN = "http://127.0.0.1:8790"
-const INFERENCE_ORIGIN = "https://inference.provider-sync.test"
 
 process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_test_model_team_inheritance"
 process.env.DB_MODE ??= "mysql"
@@ -21,7 +17,6 @@ process.env.BETTER_AUTH_SECRET ??= "provider-sync-auth-secret-1234567890"
 process.env.BETTER_AUTH_URL ??= API_ORIGIN
 process.env.CORS_ORIGINS ??= API_ORIGIN
 process.env.DEN_ORG_PROVIDER_SYNC_DEFAULT = "1"
-process.env.INFERENCE_PROXY_BASE_URL = INFERENCE_ORIGIN
 
 let app: typeof import("../src/app.js").default
 let db: typeof import("../src/db.js").db
@@ -212,7 +207,8 @@ beforeAll(async () => {
         id: "private-openai-compatible",
         name: "Private OpenAI Compatible",
         npm: "@ai-sdk/openai-compatible",
-        api: "https://1.1.1.1/v1",
+        api: "https://ignored-provider-sync.test/v1",
+        options: { baseURL: "https://1.1.1.1/v1" },
         env: ["PRIVATE_PROVIDER_API_KEY"],
       },
       apiKey: "sync-secret-api-key",
@@ -223,16 +219,20 @@ beforeAll(async () => {
       organizationId,
       createdByOrgMembershipId: ownerMemberId,
       source: "custom",
-      providerId: "unsafe-provider",
-      name: "Unsafe Provider",
+      providerId: "on-prem-provider",
+      name: "On-Prem Provider",
       providerConfig: {
-        id: "unsafe-provider",
-        name: "Unsafe Provider",
-        npm: "@ai-sdk/openai-compatible",
-        api: "https://169.254.169.254/latest",
-        env: ["UNSAFE_PROVIDER_API_KEY"],
+        id: "on-prem-provider",
+        name: "On-Prem Provider",
+        npm: "@ai-sdk/anthropic",
+        api: "http://10.0.0.8/v1",
+        env: ["ON_PREM_ACCESS_KEY", "ON_PREM_SECRET_KEY"],
       },
-      apiKey: "unsafe-provider-secret",
+      apiKey: JSON.stringify({
+        ON_PREM_ACCESS_KEY: "on-prem-access-key",
+        ON_PREM_SECRET_KEY: "on-prem-secret-key",
+      }),
+      updatedAt: providerUpdatedAt,
     },
     {
       id: openworkProviderId,
@@ -306,7 +306,7 @@ afterAll(async () => {
   mock.restore()
 })
 
-test("organization provider sync mints scoped JWTs and returns revocable provider snapshots", async () => {
+test("organization provider sync mints scoped JWTs and returns secret-bearing revocable provider snapshots", async () => {
   const disabledMintResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/token`, {
     method: "POST",
     headers: { cookie: memberCookie, origin: API_ORIGIN },
@@ -323,13 +323,6 @@ test("organization provider sync mints scoped JWTs and returns revocable provide
   const initialProviderSyncToken = tokenFromPayload(await initialMintResponse.json())
 
   await setOrganizationMetadata({ capabilities: { orgProviderSync: false } })
-  const disabledInferenceResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/inference-token`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${initialProviderSyncToken}` },
-  }))
-  expect(disabledInferenceResponse.status).toBe(403)
-  await expect(disabledInferenceResponse.json()).resolves.toMatchObject({ error: "org_provider_sync_disabled" })
-
   const disabledProvidersResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/providers`, {
     headers: { authorization: `Bearer ${initialProviderSyncToken}` },
   }))
@@ -365,85 +358,107 @@ test("organization provider sync mints scoped JWTs and returns revocable provide
   })
   expect(providerSyncPayload.exp).toBe(Number(providerSyncPayload.iat) + PROVIDER_SYNC_TOKEN_TTL_SECONDS)
 
-  const sessionInferenceResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/inference-token`, {
-    method: "POST",
+  const sessionProvidersResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/providers`, {
     headers: { cookie: memberCookie, origin: API_ORIGIN },
   }))
-  expect(sessionInferenceResponse.status).toBe(200)
-  const sessionInferenceToken = tokenFromPayload(await sessionInferenceResponse.json())
-  const sessionInferencePayload = await verifyToken(sessionInferenceToken, INFERENCE_TOKEN_AUDIENCE)
-  expect(sessionInferencePayload).toMatchObject({
-    sub: memberUserId,
-    aud: INFERENCE_TOKEN_AUDIENCE,
-    [tokenUseClaim]: INFERENCE_TOKEN_USE,
-    [orgIdClaim]: organizationId,
-    [membershipIdClaim]: memberId,
-  })
+  expect(sessionProvidersResponse.status).toBe(401)
 
-  const inferenceResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/inference-token`, {
+  const createApiKeyResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/api-keys`, {
     method: "POST",
-    headers: { authorization: `Bearer ${providerSyncToken}` },
+    headers: { cookie: ownerCookie, origin: API_ORIGIN, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Provider sync denial" }),
   }))
-  expect(inferenceResponse.status).toBe(200)
-  const inferenceToken = tokenFromPayload(await inferenceResponse.json())
-  const inferencePayload = await verifyToken(inferenceToken, INFERENCE_TOKEN_AUDIENCE)
-  expect(inferencePayload).toMatchObject({
-    sub: memberUserId,
-    aud: INFERENCE_TOKEN_AUDIENCE,
-    iss: `${env.betterAuthUrl}/api/auth`,
-    [tokenUseClaim]: INFERENCE_TOKEN_USE,
-    [orgIdClaim]: organizationId,
-    [membershipIdClaim]: memberId,
-  })
-  expect(inferencePayload.exp).toBe(Number(inferencePayload.iat) + INFERENCE_TOKEN_TTL_SECONDS)
+  expect(createApiKeyResponse.status).toBe(201)
+  const createdApiKey = await responseJson(createApiKeyResponse)
+  if (typeof createdApiKey.key !== "string") throw new Error("Organization API key was not returned")
+  const apiKeyProvidersResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/providers`, {
+    headers: { authorization: `Bearer ${createdApiKey.key}` },
+  }))
+  expect(apiKeyProvidersResponse.status).toBe(401)
+  const createdApiKeyRecord = isRecord(createdApiKey.apiKey) ? createdApiKey.apiKey : null
+  if (!createdApiKeyRecord || typeof createdApiKeyRecord.id !== "string") {
+    throw new Error("Organization API key id was not returned")
+  }
+  const deleteApiKeyResponse = await app.fetch(new Request(
+    `${API_ORIGIN}/v1/api-keys/${createdApiKeyRecord.id}`,
+    { method: "DELETE", headers: { cookie: ownerCookie, origin: API_ORIGIN } },
+  ))
+  expect(deleteApiKeyResponse.status).toBe(204)
 
   const providersResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/providers`, {
     headers: { authorization: `Bearer ${providerSyncToken}` },
   }))
   expect(providersResponse.status).toBe(200)
   const providersPayload = await responseJson(providersResponse)
-  expect(providersPayload.providers).toEqual([{
-    id: providerId,
-    localProviderId: providerId,
-    name: "Private OpenAI Compatible",
-    source: "custom",
-    providerId: "private-openai-compatible",
-    updatedAt: providerUpdatedAt.toISOString(),
-    baseUrl: `${INFERENCE_ORIGIN}/api/v1/byo/${providerId}`,
-    npm: "@ai-sdk/openai-compatible",
-    models: [{
-      modelId: "private-model",
-      name: "Private Model",
-      modelConfig: {
-        id: "private-model",
+  expect(providersPayload.providers).toEqual(expect.arrayContaining([
+    {
+      id: providerId,
+      localProviderId: providerId,
+      name: "Private OpenAI Compatible",
+      source: "custom",
+      providerId: "private-openai-compatible",
+      updatedAt: providerUpdatedAt.toISOString(),
+      baseUrl: "https://1.1.1.1/v1",
+      npm: "@ai-sdk/openai-compatible",
+      env: ["PRIVATE_PROVIDER_API_KEY"],
+      apiKey: "sync-secret-api-key",
+      apiKeys: null,
+      models: [{
+        modelId: "private-model",
         name: "Private Model",
-        reasoning: true,
-        limit: { context: 128_000, output: 8_192 },
-        modalities: { input: ["text"], output: ["text"] },
+        modelConfig: {
+          id: "private-model",
+          name: "Private Model",
+          reasoning: true,
+          limit: { context: 128_000, output: 8_192 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+      }],
+    },
+    {
+      id: unsafeProviderId,
+      localProviderId: unsafeProviderId,
+      name: "On-Prem Provider",
+      source: "custom",
+      providerId: "on-prem-provider",
+      updatedAt: providerUpdatedAt.toISOString(),
+      baseUrl: "http://10.0.0.8/v1",
+      npm: "@ai-sdk/anthropic",
+      env: ["ON_PREM_ACCESS_KEY", "ON_PREM_SECRET_KEY"],
+      apiKey: null,
+      apiKeys: {
+        ON_PREM_ACCESS_KEY: "on-prem-access-key",
+        ON_PREM_SECRET_KEY: "on-prem-secret-key",
       },
-    }],
-  }])
-  const syncedProviders = providersPayload.providers
-  if (!Array.isArray(syncedProviders) || !isRecord(syncedProviders[0])) {
+      models: [],
+    },
+  ]))
+  const syncedProviders = Array.isArray(providersPayload.providers)
+    ? providersPayload.providers.filter(isRecord)
+    : []
+  expect(syncedProviders).toHaveLength(2)
+  const syncedProvider = syncedProviders.find((provider) => provider.id === providerId)
+  if (!syncedProvider) {
     throw new Error("Provider snapshot did not include a provider")
   }
-  const localProviderId = syncedProviders[0].localProviderId
+  const localProviderId = syncedProvider.localProviderId
   expect(localProviderId).toBe(providerId)
   expect(localProviderId).toMatch(/^lpr_/)
   expect(localProviderId).not.toMatch(/^lpr_lpr_/)
   const serializedProviders = JSON.stringify(providersPayload)
-  expect(serializedProviders).not.toContain("sync-secret-api-key")
+  expect(serializedProviders).toContain("sync-secret-api-key")
+  expect(serializedProviders).toContain("on-prem-secret-key")
   expect(serializedProviders).not.toContain("nested-model-secret")
   expect(serializedProviders).not.toContain("model-password")
   expect(serializedProviders).not.toContain("model-client-secret")
   expect(serializedProviders).not.toContain("model-api-token")
   expect(serializedProviders).not.toContain("nested-limit-secret")
-  expect(serializedProviders).not.toContain("unsafe-provider-secret")
   expect(serializedProviders).not.toContain("openwork-secret")
   expect(serializedProviders).not.toContain("owner-only-secret")
 
   const etag = providersResponse.headers.get("etag")
   expect(etag).toBe(`"${providersPayload.etag}"`)
+  expect(providersResponse.headers.get("cache-control")).toBe("no-store")
   const notModifiedResponse = await app.fetch(new Request(`${API_ORIGIN}/v1/provider-sync/providers`, {
     headers: {
       authorization: `Bearer ${providerSyncToken}`,
@@ -451,6 +466,7 @@ test("organization provider sync mints scoped JWTs and returns revocable provide
     },
   }))
   expect(notModifiedResponse.status).toBe(304)
+  expect(notModifiedResponse.headers.get("cache-control")).toBe("no-store")
 
   const deleteAccessResponse = await app.fetch(new Request(
     `${API_ORIGIN}/v1/llm-providers/${providerId}/access/${memberProviderAccessId}`,
@@ -473,6 +489,9 @@ test("organization provider sync mints scoped JWTs and returns revocable provide
   }))
   expect(revokedAccessResponse.status).toBe(200)
   const revokedAccessPayload = await responseJson(revokedAccessResponse)
-  expect(revokedAccessPayload.providers).toEqual([])
+  const revokedProviderIds = Array.isArray(revokedAccessPayload.providers)
+    ? revokedAccessPayload.providers.filter(isRecord).map((provider) => provider.id)
+    : []
+  expect(revokedProviderIds).toEqual([unsafeProviderId])
   expect(revokedAccessResponse.headers.get("etag")).not.toBe(etag)
 })

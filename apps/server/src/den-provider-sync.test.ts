@@ -8,7 +8,6 @@ import type { SyncedProvider } from "@openwork/types/den/provider-sync";
 import { startDenProviderSync, type DenProviderSyncHandle } from "./den-provider-sync.js";
 import {
   readProviderSyncState,
-  updateProviderSyncState,
   writeProviderSyncState,
 } from "./provider-sync-state.js";
 import { readGlobalRuntimeOpencodeConfig, runtimeProviderMap } from "./runtime-opencode-config-store.js";
@@ -109,6 +108,10 @@ function syncedProvider(input: {
   baseUrl: string;
   modelId: string;
   modelName: string | null;
+  apiKey?: string | null;
+  apiKeys?: Record<string, string> | null;
+  env?: string[];
+  npm?: string;
 }): SyncedProvider {
   return {
     id: input.id,
@@ -118,7 +121,10 @@ function syncedProvider(input: {
     providerId: null,
     updatedAt: input.updatedAt,
     baseUrl: input.baseUrl,
-    npm: "@ai-sdk/openai-compatible",
+    npm: input.npm ?? "@ai-sdk/openai-compatible",
+    env: input.env ?? [],
+    apiKey: input.apiKey ?? null,
+    apiKeys: input.apiKeys ?? null,
     models: [{ modelId: input.modelId, name: input.modelName, modelConfig: null }],
   };
 }
@@ -134,6 +140,7 @@ describe("Den provider sync loop", () => {
     const handle = startDenProviderSync({
       config,
       env: { OPENWORK_PROVIDER_SYNC_INTERVAL_MS: "60000" },
+      envStore: { upsertMany: async () => undefined },
       fetchImpl: (url, init) => globalThis.fetch(url, init),
       reloadOpencodeEngine: async () => undefined,
     });
@@ -163,21 +170,28 @@ describe("Den provider sync loop", () => {
         localProviderId: "lpr_den_provider_one",
         name: "Org OpenAI",
         updatedAt: "2029-01-01T00:00:00.000Z",
-        baseUrl: "https://app.openworklabs.com/api/den/api/v1/byo/lpr_den_provider_one",
+        baseUrl: "https://api.openai.com/v1",
         modelId: "gpt-5",
         modelName: "GPT-5",
+        apiKey: "org-openai-key",
+        env: ["OPENAI_API_KEY"],
       }),
       syncedProvider({
         id: "lpr_den_provider_two",
         localProviderId: "lpr_den_provider_two",
         name: "Org Anthropic",
         updatedAt: "2029-01-01T00:00:00.000Z",
-        baseUrl: "https://app.openworklabs.com/api/den/api/v1/byo/lpr_den_provider_two",
+        baseUrl: "http://10.0.0.8/v1",
         modelId: "claude-sonnet-4-5",
         modelName: null,
+        apiKeys: {
+          ANTHROPIC_API_KEY: "org-anthropic-key",
+          ANTHROPIC_REGION: "on-prem-region",
+        },
+        env: ["ANTHROPIC_API_KEY", "ANTHROPIC_REGION"],
+        npm: "@ai-sdk/anthropic",
       }),
     ];
-    let inferenceTokenCount = 0;
     const denCalls: HttpCall[] = [];
     const ifNoneMatches: Array<string | undefined> = [];
     const den = await startHttpServer(async (request, response) => {
@@ -197,19 +211,12 @@ describe("Den provider sync loop", () => {
         sendJson(response, 200, { providers, etag });
         return;
       }
-      if (request.url === "/v1/provider-sync/inference-token" && request.method === "POST") {
-        inferenceTokenCount += 1;
-        sendJson(response, 200, {
-          token: `inference-jwt-${inferenceTokenCount}`,
-          expiresAt: new Date(now + 15 * 60_000).toISOString(),
-        });
-        return;
-      }
       sendJson(response, 404, { error: "not_found" });
     });
 
     const engineCalls: HttpCall[] = [];
     const syncEvents: string[] = [];
+    const envUpserts: Array<{ key: string; value: string }> = [];
     const engine = await startHttpServer(async (request, response) => {
       syncEvents.push(`${request.method} ${request.url}`);
       engineCalls.push({
@@ -232,6 +239,12 @@ describe("Den provider sync loop", () => {
     const handle = startDenProviderSync({
       config,
       env: { OPENWORK_PROVIDER_SYNC_INTERVAL_MS: "60000" },
+      envStore: {
+        upsertMany: async (entries) => {
+          syncEvents.push("env upsert");
+          envUpserts.push(...entries);
+        },
+      },
       now: () => now,
       fetchImpl: (url, init) => globalThis.fetch(url, init),
       engineFetchImpl: (url, init) => globalThis.fetch(url, init),
@@ -248,19 +261,25 @@ describe("Den provider sync loop", () => {
       lpr_den_provider_one: {
         name: "Org OpenAI",
         npm: "@ai-sdk/openai-compatible",
-        options: { baseURL: "https://app.openworklabs.com/api/den/api/v1/byo/lpr_den_provider_one" },
+        env: ["OPENAI_API_KEY"],
+        options: { baseURL: "https://api.openai.com/v1" },
         models: { "gpt-5": { name: "GPT-5" } },
       },
       lpr_den_provider_two: {
         name: "Org Anthropic",
-        npm: "@ai-sdk/openai-compatible",
-        options: { baseURL: "https://app.openworklabs.com/api/den/api/v1/byo/lpr_den_provider_two" },
+        npm: "@ai-sdk/anthropic",
+        env: ["ANTHROPIC_API_KEY", "ANTHROPIC_REGION"],
+        options: { baseURL: "http://10.0.0.8/v1" },
         models: { "claude-sonnet-4-5": {} },
       },
     });
     expect(engineCalls.map((call) => [call.method, call.path, call.body])).toEqual([
-      ["PUT", "/auth/lpr_den_provider_one", { type: "api", key: "inference-jwt-1" }],
-      ["PUT", "/auth/lpr_den_provider_two", { type: "api", key: "inference-jwt-1" }],
+      ["PUT", "/auth/lpr_den_provider_one", { type: "api", key: "org-openai-key" }],
+      ["PUT", "/auth/lpr_den_provider_two", { type: "api", key: "org-anthropic-key" }],
+    ]);
+    expect(envUpserts).toEqual([
+      { key: "ANTHROPIC_API_KEY", value: "org-anthropic-key" },
+      { key: "ANTHROPIC_REGION", value: "on-prem-region" },
     ]);
     expect(Object.keys(runtimeProviderMap(await readGlobalRuntimeOpencodeConfig(config)))).toEqual(
       providers.map((provider) => provider.localProviderId),
@@ -268,7 +287,8 @@ describe("Den provider sync loop", () => {
     expect(engineCalls.slice(0, 2).map((call) => call.path)).toEqual(
       providers.map((provider) => `/auth/${provider.localProviderId}`),
     );
-    expect(syncEvents.slice(0, 3)).toEqual([
+    expect(syncEvents.slice(0, 4)).toEqual([
+      "env upsert",
       "PUT /auth/lpr_den_provider_one",
       "PUT /auth/lpr_den_provider_two",
       "reload",
@@ -278,40 +298,38 @@ describe("Den provider sync loop", () => {
     denMode = "not-modified";
     await handle.kick();
     expect(reloadCount).toBe(1);
-    expect(engineCalls.slice(2).map((call) => [call.method, call.path, call.body])).toEqual([
-      ["PUT", "/auth/lpr_den_provider_one", { type: "api", key: "inference-jwt-1" }],
-      ["PUT", "/auth/lpr_den_provider_two", { type: "api", key: "inference-jwt-1" }],
-    ]);
+    expect(engineCalls).toHaveLength(2);
     expect(ifNoneMatches.at(-1)).toBe("etag-1");
 
     denMode = "providers";
     etag = "etag-2";
-    providers = [providers[0]];
+    const retainedProvider = providers[0];
+    if (!retainedProvider) throw new Error("Expected a retained provider");
+    providers = [retainedProvider];
     await handle.kick();
     expect(reloadCount).toBe(2);
     expect(ifNoneMatches.at(-1)).toBe("etag-1");
     expect(Object.keys(runtimeProviderMap(await readGlobalRuntimeOpencodeConfig(config)))).toEqual([
       "lpr_den_provider_one",
     ]);
-    expect(engineCalls.slice(4).map((call) => [call.method, call.path, call.body])).toEqual([
-      ["PUT", "/auth/lpr_den_provider_one", { type: "api", key: "inference-jwt-2" }],
+    expect(engineCalls.slice(2).map((call) => [call.method, call.path, call.body])).toEqual([
       ["DELETE", "/auth/lpr_den_provider_two", null],
     ]);
 
-    await updateProviderSyncState(config, (current) => ({
-      ...current,
-      applied: {
-        ...current.applied,
-        inferenceTokenExpiresAt: new Date(now + 60_000).toISOString(),
-      },
-    }));
-    denMode = "not-modified";
+    denMode = "providers";
+    etag = "etag-3";
+    providers = [{
+      ...retainedProvider,
+      updatedAt: "2029-01-01T00:01:00.000Z",
+      apiKey: "org-openai-key-rotated",
+    }];
     await handle.kick();
     expect(reloadCount).toBe(2);
     expect(ifNoneMatches.at(-1)).toBe("etag-2");
-    expect(engineCalls.slice(6).map((call) => [call.method, call.path, call.body])).toEqual([
-      ["PUT", "/auth/lpr_den_provider_one", { type: "api", key: "inference-jwt-3" }],
+    expect(engineCalls.slice(3).map((call) => [call.method, call.path, call.body])).toEqual([
+      ["PUT", "/auth/lpr_den_provider_one", { type: "api", key: "org-openai-key-rotated" }],
     ]);
+    expect(JSON.stringify(await readProviderSyncState(config))).not.toContain("org-openai-key");
 
     await writeProviderSyncState(config, {
       enabled: false,
@@ -330,7 +348,6 @@ describe("Den provider sync loop", () => {
     expect((await readProviderSyncState(config)).applied).toEqual({
       etag: null,
       providers: {},
-      inferenceTokenExpiresAt: null,
     });
     now += 1;
   });
@@ -353,6 +370,7 @@ describe("Den provider sync loop", () => {
     const handle = startDenProviderSync({
       config,
       env: { OPENWORK_PROVIDER_SYNC_INTERVAL_MS: "60000" },
+      envStore: { upsertMany: async () => undefined },
       now: () => Date.parse("2029-01-01T00:00:00.000Z"),
       fetchImpl: (url, init) => globalThis.fetch(url, init),
       reloadOpencodeEngine: async () => undefined,

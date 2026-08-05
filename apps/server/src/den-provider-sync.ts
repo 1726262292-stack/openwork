@@ -1,14 +1,12 @@
 import {
-  INFERENCE_TOKEN_TTL_SECONDS,
-  PROVIDER_SYNC_INFERENCE_TOKEN_PATH,
   PROVIDER_SYNC_PROVIDERS_PATH,
-  type InferenceTokenResponse,
   type SyncedProvider,
   type SyncedProvidersResponse,
 } from "@openwork/types/den/provider-sync";
 import { z } from "zod";
 
 import { createEngineProviderAuthDelivery } from "./engine-provider-auth.js";
+import type { EnvService } from "./env-file.js";
 import { readActivatedEnterpriseDenOrigin } from "./enterprise-den-origin.js";
 import { writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import {
@@ -26,10 +24,6 @@ import { findManagedEngineWorkspace } from "./workspaces.js";
 
 const DEFAULT_PROVIDER_SYNC_INTERVAL_MS = 5_000;
 const MIN_PROVIDER_SYNC_INTERVAL_MS = 1_000;
-const INFERENCE_REFRESH_WINDOW_MS = Math.min(
-  5 * 60_000,
-  Math.floor(INFERENCE_TOKEN_TTL_SECONDS * 1_000 / 3),
-);
 const AUTHORIZATION_ERROR_PREFIX = "provider_sync_authorization_failed:";
 
 type ProviderSyncEnv = Record<string, string | undefined>;
@@ -50,6 +44,7 @@ export type StartDenProviderSyncInput = {
   logger?: DenProviderSyncLogger;
   fetchImpl?: ProviderSyncFetch;
   engineFetchImpl?: ProviderSyncFetch;
+  envStore: Pick<EnvService, "upsertMany">;
   now?: () => number;
   readEnterpriseOrigin?: () => Promise<string | null>;
   reloadOpencodeEngine: (workspace: WorkspaceInfo) => Promise<void>;
@@ -77,6 +72,9 @@ const syncedProviderSchema = z.object({
     }
   }, "Provider base URL must not contain credentials"),
   npm: z.string().min(1),
+  env: z.array(z.string().min(1)),
+  apiKey: z.string().nullable(),
+  apiKeys: z.record(z.string(), z.string()).nullable(),
   models: z.array(syncedProviderModelSchema),
 }).strict();
 
@@ -98,11 +96,6 @@ const syncedProvidersResponseSchema = z.object({
   }
 });
 
-const inferenceTokenResponseSchema = z.object({
-  token: z.string().min(1),
-  expiresAt: z.string().datetime({ offset: true }),
-}).strict();
-
 function resolveIntervalMs(env: ProviderSyncEnv): number {
   const parsed = Number(env.OPENWORK_PROVIDER_SYNC_INTERVAL_MS?.trim());
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_PROVIDER_SYNC_INTERVAL_MS;
@@ -121,12 +114,6 @@ function isExpired(timestamp: string | null, now: number): boolean {
   if (!timestamp) return true;
   const expiresAt = Date.parse(timestamp);
   return !Number.isFinite(expiresAt) || expiresAt <= now;
-}
-
-function inferenceTokenNeedsRefresh(timestamp: string | null, now: number): boolean {
-  if (!timestamp) return true;
-  const expiresAt = Date.parse(timestamp);
-  return !Number.isFinite(expiresAt) || expiresAt - now <= INFERENCE_REFRESH_WINDOW_MS;
 }
 
 async function allowedDenBaseUrl(
@@ -163,6 +150,7 @@ function providerEntry(provider: SyncedProvider): Record<string, unknown> {
   return {
     name: provider.name,
     npm: provider.npm,
+    env: provider.env,
     options: { baseURL: provider.baseUrl },
     models: Object.fromEntries(provider.models.map((model) => [
       model.modelId,
@@ -223,26 +211,31 @@ async function parseProvidersResponse(response: Response): Promise<SyncedProvide
   return parsed.data;
 }
 
-async function mintInferenceToken(
-  fetchImpl: ProviderSyncFetch,
-  denBaseUrl: string,
-  providerSyncToken: string,
-): Promise<InferenceTokenResponse> {
-  const response = await fetchImpl(`${denBaseUrl}${PROVIDER_SYNC_INFERENCE_TOKEN_PATH}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${providerSyncToken}`,
-    },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (response.status === 401 || response.status === 403) {
-    throw new Error(`${AUTHORIZATION_ERROR_PREFIX}${response.status}`);
+function resolveProviderCredentials(providers: SyncedProvider[]): {
+  credentials: Map<string, string>;
+  envEntries: Array<{ key: string; value: string }>;
+} {
+  const credentials = new Map<string, string>();
+  const envValues = new Map<string, string>();
+  for (const provider of providers) {
+    const apiKeys = provider.apiKeys ?? {};
+    const orderedNames = [
+      ...provider.env.filter((name) => name in apiKeys),
+      ...Object.keys(apiKeys).filter((name) => !provider.env.includes(name)),
+    ];
+    for (const name of orderedNames) {
+      const value = apiKeys[name]?.trim();
+      if (value) envValues.set(name, value);
+    }
+    const primaryApiKey = provider.apiKey?.trim()
+      || orderedNames.map((name) => apiKeys[name]?.trim() ?? "").find(Boolean)
+      || "";
+    if (primaryApiKey) credentials.set(provider.localProviderId, primaryApiKey);
   }
-  if (!response.ok) throw new Error(`provider_sync_inference_token_failed:${response.status}`);
-  const parsed = inferenceTokenResponseSchema.safeParse(await response.json());
-  if (!parsed.success) throw new Error("provider_sync_invalid_inference_token_response");
-  return parsed.data;
+  return {
+    credentials,
+    envEntries: [...envValues].map(([key, value]) => ({ key, value })),
+  };
 }
 
 async function persistTickResult(input: {
@@ -267,7 +260,7 @@ export function startDenProviderSync(input: StartDenProviderSyncInput): DenProvi
   const now = input.now ?? Date.now;
   const readEnterpriseOrigin = input.readEnterpriseOrigin ?? (() => readActivatedEnterpriseDenOrigin());
   const authDelivery = createEngineProviderAuthDelivery();
-  let currentInferenceToken: string | null = null;
+  let hasProviderSnapshot = false;
   let stopped = false;
   let inFlight: Promise<void> | null = null;
 
@@ -276,11 +269,8 @@ export function startDenProviderSync(input: StartDenProviderSyncInput): DenProvi
     const tickNow = now();
 
     if (!state.enabled) {
-      currentInferenceToken = null;
+      hasProviderSnapshot = false;
       const appliedIds = Object.keys(state.applied.providers);
-      if (appliedIds.length > 0) {
-        await applyProviderPatch(input, Object.fromEntries(appliedIds.map((id) => [id, null])));
-      }
       const authResult = await authDelivery.sync({
         config: input.config,
         retainedProviderIds: new Set(),
@@ -290,10 +280,11 @@ export function startDenProviderSync(input: StartDenProviderSyncInput): DenProvi
       });
       if (authResult.failed.length > 0) throw new Error("provider_sync_engine_auth_purge_failed");
       if (appliedIds.length === 0) return;
+      await applyProviderPatch(input, Object.fromEntries(appliedIds.map((id) => [id, null])));
       await persistTickResult({
         config: input.config,
         expectedUpdatedAt: state.updatedAt,
-        applied: { etag: null, providers: {}, inferenceTokenExpiresAt: null },
+        applied: { etag: null, providers: {} },
         lastSyncAt: new Date(tickNow).toISOString(),
         lastError: null,
       });
@@ -319,7 +310,7 @@ export function startDenProviderSync(input: StartDenProviderSyncInput): DenProvi
       Accept: "application/json",
       Authorization: `Bearer ${state.token}`,
     };
-    if (state.applied.etag) headers["If-None-Match"] = state.applied.etag;
+    if (hasProviderSnapshot && state.applied.etag) headers["If-None-Match"] = state.applied.etag;
     const response = await fetchImpl(`${denBaseUrl}${PROVIDER_SYNC_PROVIDERS_PATH}`, {
       method: "GET",
       headers,
@@ -338,52 +329,33 @@ export function startDenProviderSync(input: StartDenProviderSyncInput): DenProvi
     if (response.status !== 304 && !response.ok) {
       throw new Error(`provider_sync_providers_failed:${response.status}`);
     }
+    if (response.status === 304 && !hasProviderSnapshot) {
+      throw new Error("provider_sync_unexpected_not_modified");
+    }
 
     let nextApplied = state.applied;
-    let providersChanged = false;
     let pendingProviderPatch: Record<string, unknown> | null = null;
     if (response.status !== 304) {
       const payload = await parseProvidersResponse(response);
       const diff = providerPatch(payload.providers, state.applied.providers);
-      providersChanged = diff.changed;
-      if (providersChanged) pendingProviderPatch = diff.patch;
+      if (diff.changed) pendingProviderPatch = diff.patch;
       nextApplied = {
-        ...nextApplied,
         etag: payload.etag,
         providers: appliedProviders(payload.providers),
       };
-    }
-
-    const currentProviderIds = Object.keys(nextApplied.providers);
-    const shouldRefreshInferenceToken = currentProviderIds.length > 0
-      && (
-        !currentInferenceToken
-        || providersChanged
-        || inferenceTokenNeedsRefresh(nextApplied.inferenceTokenExpiresAt, tickNow)
-      );
-    if (shouldRefreshInferenceToken) {
-      const inference = await mintInferenceToken(fetchImpl, denBaseUrl, state.token);
-      currentInferenceToken = inference.token;
-      nextApplied = { ...nextApplied, inferenceTokenExpiresAt: inference.expiresAt };
-    }
-    if (currentInferenceToken || providersChanged) {
-      const credentials = new Map<string, string>();
-      if (currentInferenceToken) {
-        for (const providerId of currentProviderIds) {
-          credentials.set(providerId, currentInferenceToken);
-        }
-      }
+      const { credentials, envEntries } = resolveProviderCredentials(payload.providers);
+      if (envEntries.length > 0) await input.envStore.upsertMany(envEntries);
       const authResult = await authDelivery.sync({
         config: input.config,
-        retainedProviderIds: new Set(currentProviderIds),
+        retainedProviderIds: new Set(credentials.keys()),
         credentials,
-        force: true,
         fetchImpl: input.engineFetchImpl,
         logger: input.logger ? { error: (message, attributes) => input.logger?.log("error", message, attributes) } : undefined,
       });
       if (authResult.failed.length > 0) throw new Error("provider_sync_engine_auth_delivery_failed");
+      if (pendingProviderPatch) await applyProviderPatch(input, pendingProviderPatch);
+      hasProviderSnapshot = true;
     }
-    if (pendingProviderPatch) await applyProviderPatch(input, pendingProviderPatch);
 
     await persistTickResult({
       config: input.config,

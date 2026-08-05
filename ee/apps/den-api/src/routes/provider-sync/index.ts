@@ -8,11 +8,6 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import {
-  INFERENCE_BYO_PATH_PREFIX,
-  INFERENCE_TOKEN_AUDIENCE,
-  INFERENCE_TOKEN_TTL_SECONDS,
-  INFERENCE_TOKEN_USE,
-  PROVIDER_SYNC_INFERENCE_TOKEN_PATH,
   PROVIDER_SYNC_PROVIDERS_PATH,
   PROVIDER_SYNC_TOKEN_AUDIENCE,
   PROVIDER_SYNC_TOKEN_PATH,
@@ -25,10 +20,10 @@ import type { Hono, MiddlewareHandler } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
-import { assertPublicUrl } from "../../capability-sources/url-guard.js"
 import { organizationOrgProviderSyncEnabled } from "../../capability-sources/org-provider-sync-rollout.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
+import { decodeProviderCredential, readProviderEnvNames } from "../../llm/provider-credentials.js"
 import { DEN_JWT_SIGNING_ALGORITHM, getDenAuthIssuer } from "../../mcp/jwt-policy.js"
 import {
   orgMemberRoute,
@@ -91,6 +86,9 @@ const syncedProvidersResponseSchema = z.object({
     updatedAt: z.string().datetime(),
     baseUrl: z.string(),
     npm: z.string(),
+    env: z.array(z.string()),
+    apiKey: z.string().nullable(),
+    apiKeys: z.record(z.string(), z.string()).nullable(),
     models: z.array(syncedProviderModelSchema),
   })),
   etag: z.string(),
@@ -232,21 +230,9 @@ function providerSyncFailure(result: Exclude<ProviderSyncVerification, { ok: tru
   })
 }
 
-const optionalProviderSyncAuth: MiddlewareHandler<{ Variables: ProviderSyncRouteVariables }> = async (c, next) => {
-  c.set("providerSyncPrincipal", null)
-  if (c.get("user") || c.get("apiKey")) {
-    return orgMemberRoute()(c, next)
-  }
-
-  const verification = await verifyProviderSyncRequest(c.req.raw.headers)
-  if (!verification.ok) {
-    return providerSyncFailure(verification)
-  }
-
-  c.set("providerSyncPrincipal", verification.principal)
-  await next()
-}
-
+// The route behind this middleware returns provider credentials. It verifies
+// the provider-sync JWT directly and never falls back to a user session or an
+// organization API key resolved by the general authentication middleware.
 const providerSyncAuth: MiddlewareHandler<{ Variables: ProviderSyncRouteVariables }> = async (c, next) => {
   const verification = await verifyProviderSyncRequest(c.req.raw.headers)
   if (!verification.ok) {
@@ -294,53 +280,12 @@ async function mintToken(input: {
   }
 }
 
-function resolveUpstreamBase(providerConfig: Record<string, unknown>, providerId: string) {
+function resolveUpstreamBase(providerConfig: Record<string, unknown>, providerId: string | null) {
   const options = providerConfig.options
   return (isRecord(options) ? readString(options.baseURL) : null)
     ?? readString(providerConfig.api)
-    ?? fallbackProviderBaseUrls[providerId]
+    ?? (providerId ? fallbackProviderBaseUrls[providerId] : null)
     ?? null
-}
-
-function isLoopbackHostname(hostname: string) {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
-  return normalized === "localhost"
-    || normalized.endsWith(".localhost")
-    || normalized === "::1"
-    || /^127\./.test(normalized)
-}
-
-function isBlockedProviderHostname(hostname: string) {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
-  return isLoopbackHostname(normalized)
-    || normalized === "metadata.google.internal"
-    || normalized.endsWith(".metadata.google.internal")
-}
-
-async function isAllowedProviderUpstream(rawUrl: string) {
-  let url: URL
-  try {
-    url = new URL(rawUrl)
-  } catch {
-    return false
-  }
-  if (
-    env.devMode
-    && url.protocol === "http:"
-    && !url.username
-    && !url.password
-    && isLoopbackHostname(url.hostname)
-  ) {
-    return true
-  }
-  if (isBlockedProviderHostname(url.hostname)) return false
-
-  try {
-    await assertPublicUrl(rawUrl)
-    return true
-  } catch {
-    return false
-  }
 }
 
 const modelModalitySchema = z.enum(["text", "audio", "image", "video", "pdf"])
@@ -439,6 +384,7 @@ async function listSyncedProviders(principal: ProviderSyncPrincipal): Promise<Sy
       source: LlmProviderTable.source,
       providerId: LlmProviderTable.providerId,
       providerConfig: LlmProviderTable.providerConfig,
+      apiKey: LlmProviderTable.apiKey,
       updatedAt: LlmProviderTable.updatedAt,
     })
     .from(LlmProviderTable)
@@ -480,14 +426,6 @@ async function listSyncedProviders(principal: ProviderSyncPrincipal): Promise<Sy
       })
       continue
     }
-    if (!await isAllowedProviderUpstream(upstreamBase)) {
-      logger.warn("provider sync skipped provider with an unsafe upstream", {
-        llmProviderId: provider.id,
-        providerId: provider.providerId,
-      })
-      continue
-    }
-
     const providerModels = (modelsByProviderId.get(provider.id) ?? [])
       .sort((left, right) => left.modelId.localeCompare(right.modelId))
       .map((model) => ({
@@ -496,6 +434,7 @@ async function listSyncedProviders(principal: ProviderSyncPrincipal): Promise<Sy
         modelConfig: sanitizeModelConfig(model.modelConfig),
       }))
 
+    const credential = decodeProviderCredential(provider.apiKey)
     syncedProviders.push({
       id: provider.id,
       localProviderId: provider.id,
@@ -503,8 +442,11 @@ async function listSyncedProviders(principal: ProviderSyncPrincipal): Promise<Sy
       source: provider.source,
       providerId: provider.providerId,
       updatedAt: provider.updatedAt.toISOString(),
-      baseUrl: `${env.inferenceProxyBaseUrl}${INFERENCE_BYO_PATH_PREFIX}/${provider.id}`,
-      npm: "@ai-sdk/openai-compatible",
+      baseUrl: upstreamBase,
+      npm: readString(provider.providerConfig.npm) ?? "@ai-sdk/openai-compatible",
+      env: readProviderEnvNames(provider.providerConfig),
+      apiKey: credential.apiKey,
+      apiKeys: credential.apiKeys,
       models: providerModels,
     })
   }
@@ -553,72 +495,12 @@ export function registerProviderSyncRoutes<T extends { Variables: ProviderSyncRo
     },
   )
 
-  app.post(
-    PROVIDER_SYNC_INFERENCE_TOKEN_PATH,
-    describeRoute({
-      tags: ["Authentication"],
-      summary: "Mint provider-sync inference token",
-      description: "Exchanges a signed-in session or provider-sync token for a short-lived inference token.",
-      responses: {
-        200: jsonResponse("Inference token minted successfully.", tokenResponseSchema),
-        401: jsonResponse("The caller's session or provider-sync token was invalid.", unauthorizedSchema),
-        403: jsonResponse("Provider sync is disabled, membership was revoked, or the caller used an API key.", z.union([forbiddenSchema, providerSyncDisabledSchema])),
-      },
-    }),
-    tokenRoute,
-    optionalProviderSyncAuth,
-    async (c) => {
-      const providerSyncPrincipal = c.get("providerSyncPrincipal")
-      if (providerSyncPrincipal) {
-        if (!syncEnabled(providerSyncPrincipal.organizationMetadata)) {
-          return c.json({
-            error: "org_provider_sync_disabled",
-            message: "Organization provider sync is not enabled for this organization.",
-          }, 403)
-        }
-
-        return c.json(await mintToken({
-          userId: providerSyncPrincipal.userId,
-          organizationId: providerSyncPrincipal.organizationId,
-          membershipId: providerSyncPrincipal.membershipId,
-          audience: INFERENCE_TOKEN_AUDIENCE,
-          tokenUse: INFERENCE_TOKEN_USE,
-          ttlSeconds: INFERENCE_TOKEN_TTL_SECONDS,
-        }))
-      }
-
-      if (c.get("apiKey")) {
-        return c.json({
-          error: "forbidden",
-          message: "Use a signed-in user session or provider-sync token to mint inference tokens.",
-        }, 403)
-      }
-
-      const organizationContext = c.get("organizationContext")
-      if (!organizationContext || !syncEnabled(organizationContext.organization.metadata)) {
-        return c.json({
-          error: "org_provider_sync_disabled",
-          message: "Organization provider sync is not enabled for this organization.",
-        }, 403)
-      }
-
-      return c.json(await mintToken({
-        userId: organizationContext.currentMember.userId,
-        organizationId: organizationContext.organization.id,
-        membershipId: organizationContext.currentMember.id,
-        audience: INFERENCE_TOKEN_AUDIENCE,
-        tokenUse: INFERENCE_TOKEN_USE,
-        ttlSeconds: INFERENCE_TOKEN_TTL_SECONDS,
-      }))
-    },
-  )
-
   app.get(
     PROVIDER_SYNC_PROVIDERS_PATH,
     describeRoute({
       tags: ["LLM Providers"],
       summary: "List synchronized organization providers",
-      description: "Returns the non-secret provider snapshot accessible to the provider-sync token's organization member.",
+      description: "Returns the secret-bearing provider snapshot to an authenticated openwork-server sync client.",
       responses: {
         200: jsonResponse("Provider snapshot returned successfully.", syncedProvidersResponseSchema),
         304: emptyResponse("The provider snapshot has not changed."),
@@ -640,6 +522,7 @@ export function registerProviderSyncRoutes<T extends { Variables: ProviderSyncRo
         }, 403)
       }
 
+      c.header("Cache-Control", "no-store")
       const providers = await listSyncedProviders(principal)
       const etag = createHash("sha256").update(stableSerialize(providers)).digest("hex")
       c.header("ETag", `"${etag}"`)

@@ -1,20 +1,12 @@
 export const ORG_PROVIDER_SYNC_CAPABILITY = "orgProviderSync";
 
 export const PROVIDER_SYNC_TOKEN_USE = "provider-sync";
-export const INFERENCE_TOKEN_USE = "inference";
 
 export const PROVIDER_SYNC_TOKEN_AUDIENCE = "openwork-provider-sync";
-export const INFERENCE_TOKEN_AUDIENCE = "openwork-inference";
 
 export const PROVIDER_SYNC_TOKEN_TTL_SECONDS = 24 * 60 * 60;
-export const INFERENCE_TOKEN_TTL_SECONDS = 15 * 60;
 
 export type ProviderSyncTokenResponse = {
-  token: string;
-  expiresAt: string;
-};
-
-export type InferenceTokenResponse = {
   token: string;
   expiresAt: string;
 };
@@ -25,6 +17,10 @@ export type SyncedProviderModel = {
   modelConfig: Record<string, unknown> | null;
 };
 
+/**
+ * Secret-bearing provider materialization payload. This contract is only for
+ * Den-to-openwork-server requests and must never be exposed to a renderer.
+ */
 export type SyncedProvider = {
   id: string;
   /**
@@ -40,6 +36,9 @@ export type SyncedProvider = {
   updatedAt: string;
   baseUrl: string;
   npm: string;
+  env: string[];
+  apiKey: string | null;
+  apiKeys: Record<string, string> | null;
   models: SyncedProviderModel[];
 };
 
@@ -57,7 +56,4 @@ export type ProviderSyncServerState = {
 };
 
 export const PROVIDER_SYNC_TOKEN_PATH = "/v1/provider-sync/token";
-export const PROVIDER_SYNC_INFERENCE_TOKEN_PATH =
-  "/v1/provider-sync/inference-token";
 export const PROVIDER_SYNC_PROVIDERS_PATH = "/v1/provider-sync/providers";
-export const INFERENCE_BYO_PATH_PREFIX = "/api/v1/byo";

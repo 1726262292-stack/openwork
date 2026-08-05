@@ -20,9 +20,6 @@ const EnvSchema = z
     INFERENCE_WEBHOOK_SECRET: z.string().optional(),
     INFERENCE_CREDITS_PER_DOLLAR: z.string().optional(),
     VOICE_SESSION_COST_UNITS: z.string().optional(),
-    DEN_JWT_ISSUER: z.string().optional(),
-    DEN_JWKS_URL: z.string().optional(),
-    DEN_CLAIM_NAMESPACE: z.string().optional(),
   })
   .superRefine((value, ctx) => {
     const mode =
@@ -45,17 +42,6 @@ const EnvSchema = z
             code: z.ZodIssueCode.custom,
             path: [key],
             message: `${key} is required in planetscale mode`,
-          });
-        }
-      }
-    }
-    if (!value.DEN_JWT_ISSUER?.trim()) {
-      for (const key of ["DEN_JWKS_URL", "DEN_CLAIM_NAMESPACE"] as const) {
-        if (value[key]?.trim()) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [key],
-            message: `${key} requires DEN_JWT_ISSUER`,
           });
         }
       }
@@ -133,9 +119,6 @@ const planetscale: PlanetScaleCredentials | null =
       }
     : null;
 
-const denJwtIssuer = optionalString(parsed.DEN_JWT_ISSUER);
-const normalizedDenJwtIssuer = denJwtIssuer ? normalizeUrl(denJwtIssuer) : null;
-
 export const env = {
   port: parsePort(parsed.PORT),
   corsOrigins: splitCsv(parsed.CORS_ORIGINS),
@@ -153,14 +136,4 @@ export const env = {
   webhookSecret: optionalString(parsed.INFERENCE_WEBHOOK_SECRET),
   creditsPerDollar: parseCreditsPerDollar(parsed.INFERENCE_CREDITS_PER_DOLLAR),
   voiceSessionCostUnits: parseVoiceSessionCostUnits(parsed.VOICE_SESSION_COST_UNITS),
-  denJwtIssuer: normalizedDenJwtIssuer,
-  denJwksUrl: normalizedDenJwtIssuer
-    ? normalizeUrl(optionalString(parsed.DEN_JWKS_URL) ?? `${normalizedDenJwtIssuer}/jwks`)
-    : null,
-  denClaimNamespace: normalizedDenJwtIssuer
-    ? normalizeUrl(
-        optionalString(parsed.DEN_CLAIM_NAMESPACE)
-          ?? normalizedDenJwtIssuer.replace(/\/api\/auth$/, ""),
-      )
-    : null,
 };

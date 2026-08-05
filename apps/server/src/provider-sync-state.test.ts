@@ -58,7 +58,7 @@ describe("provider sync state file", () => {
     expect(inspection.state).toMatchObject({
       enabled: false,
       token: null,
-      applied: { etag: null, providers: {}, inferenceTokenExpiresAt: null },
+      applied: { etag: null, providers: {} },
       lastError: null,
     });
   });
@@ -77,7 +77,6 @@ describe("provider sync state file", () => {
       applied: {
         etag: "etag-1",
         providers: { lpr_one: { denProviderId: "provider_1", updatedAt: "2030-01-01T00:00:00.000Z" } },
-        inferenceTokenExpiresAt: "2030-01-01T00:15:00.000Z",
       },
       lastSyncAt: "2030-01-01T00:00:00.000Z",
     }));
@@ -203,6 +202,24 @@ describe("provider sync state file", () => {
       appliedProviderIds: [],
     });
     expect(JSON.stringify(diagnostics)).not.toContain("provider-sync-secret");
+
+    await updateProviderSyncState(config, (current) => ({
+      ...current,
+      applied: {
+        etag: "etag-1",
+        providers: {
+          lpr_one: { denProviderId: "provider_1", updatedAt: "2030-01-01T00:00:00.000Z" },
+        },
+      },
+    }));
+    const enabled = await fetch(`${baseUrl}/experimental/provider-sync/enabled`, {
+      headers: { authorization: `Bearer ${config.token}` },
+    });
+    expect(enabled.status).toBe(200);
+    expect(await enabled.json()).toMatchObject({
+      enabled: true,
+      appliedProviderIds: ["lpr_one"],
+    });
 
     const readback = await fetch(`${baseUrl}/experimental/provider-sync/state`, { headers });
     expect(readback.status).toBe(200);

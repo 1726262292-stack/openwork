@@ -80,6 +80,10 @@ export const getCloudManagedProviderId = (
 export const isCloudManagedProviderKey = (providerId: string) =>
   /^lpr_/i.test(providerId) || providerId.trim() === "openwork";
 
+export const isCloudProviderServerManaged = (
+  state: { enabled: boolean; appliedProviderIds: string[] } | null,
+  cloudProviderId: string,
+) => state?.enabled === true && state.appliedProviderIds.includes(cloudProviderId);
 
 export const getProviderModelIds = (
   provider: Pick<DenOrgLlmProvider, "models">,

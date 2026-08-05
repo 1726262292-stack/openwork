@@ -1,9 +1,6 @@
-import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
 import { expect, onTestFinished } from "vitest";
-import { allocateFreePorts } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/fraimz";
 import { daytonaSandbox } from "@openwork/hosts";
 import {
@@ -17,13 +14,12 @@ import {
 import type { DenSession } from "@openwork/behaviors";
 import { app, needs, server, test, unmetNeeds } from "@openwork/testkit";
 import type { App, NeedsSpec } from "@openwork/testkit";
-import { INFERENCE_BYO_PATH_PREFIX } from "../../packages/types/src/den/provider-sync.ts";
 
 const requirements: NeedsSpec = { optIn: ["OPENWORK_EVAL_APP_SPECS"], vision: true };
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `org provider sharing skipped — needs: ${missingRequirements.join(", ")}`
-  : "organization providers appear live, proxy credentials, and respect member revocation";
+  : "organization providers appear live, authenticate directly, and respect member revocation";
 
 const providerName = "Organization BYO Eval";
 const providerKey = "org-byo-eval";
@@ -31,7 +27,6 @@ const modelId = "org-byo-eval-model";
 const sandboxA = process.env.OPENWORK_EVAL_DAYTONA_SANDBOX_A?.trim() ?? "";
 const sandboxB = process.env.OPENWORK_EVAL_DAYTONA_SANDBOX_B?.trim() ?? "";
 const requestTimeoutMs = 10_000;
-const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 type RequestLog = { method: string; path: string; authorization: string | null };
 
@@ -218,15 +213,10 @@ test(title, async ({ evidence, place }) => {
   if (!upstreamAddress || typeof upstreamAddress === "string") throw new Error("Mock upstream did not bind a TCP port.");
   const upstreamBaseUrl = `http://127.0.0.1:${upstreamAddress.port}/v1`;
 
-  const [proxyPort] = await allocateFreePorts(1);
-  if (proxyPort === undefined) throw new Error("Could not allocate an inference proxy port.");
-  const proxyBaseUrl = `http://127.0.0.1:${proxyPort}`;
-
   await using den = await server({
     place,
     env: {
       DEN_ORG_PROVIDER_SYNC_DEFAULT: "1",
-      INFERENCE_PROXY_BASE_URL: proxyBaseUrl,
     },
     org: {
       name: `Org Provider Sharing ${runId}`,
@@ -237,45 +227,6 @@ test(title, async ({ evidence, place }) => {
       },
     },
   });
-  if (!den.denEnv) throw new Error("Org provider sharing currently requires the local Den lane with den.denEnv.");
-  const denJwtIssuer = new URL("/api/auth", den.ref.webUrl);
-  if (denJwtIssuer.hostname === "127.0.0.1") denJwtIssuer.hostname = "localhost";
-
-  const inference = spawn("pnpm", ["--dir", "ee/apps/inference", "dev"], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      PORT: String(proxyPort),
-      DATABASE_URL: den.denEnv.databaseUrl,
-      DB_MODE: "mysql",
-      DEN_DB_ENCRYPTION_KEY: den.denEnv.dbEncryptionKey,
-      DEN_JWKS_URL: `${den.ref.apiUrl}/api/auth/jwks`,
-      DEN_JWT_ISSUER: denJwtIssuer.toString(),
-      OPENWORK_DEV_MODE: "1",
-      INFERENCE_WEBHOOK_SECRET: `eval-webhook-${runId}`,
-    },
-    stdio: "pipe",
-  });
-  let inferenceLog = "";
-  inference.stdout?.on("data", (chunk: Buffer) => { inferenceLog += chunk.toString(); });
-  inference.stderr?.on("data", (chunk: Buffer) => { inferenceLog += chunk.toString(); });
-  onTestFinished(async () => {
-    if (inference.exitCode === null) inference.kill("SIGTERM");
-    await Promise.race([
-      new Promise<void>((resolve) => inference.once("exit", () => resolve())),
-      delay(5_000).then(() => {
-        if (inference.exitCode === null) inference.kill("SIGKILL");
-      }),
-    ]);
-  });
-  await expect.poll(async () => {
-    try {
-      return (await fetch(`${proxyBaseUrl}/health`, { signal: AbortSignal.timeout(2_000) })).ok;
-    } catch {
-      if (inference.exitCode !== null) throw new Error(`Inference proxy exited with ${inference.exitCode}:\n${inferenceLog.slice(-4_000)}`);
-      return false;
-    }
-  }, { timeout: 60_000, interval: 500 }).toBe(true);
 
   const memberA = den.members.a;
   const memberB = den.members.b;
@@ -333,7 +284,7 @@ test(title, async ({ evidence, place }) => {
     syncState = await providerSyncState(appA);
     const provider = record(record(sharedRuntime).effectiveRuntime).provider;
     const localProvider = record(record(provider)[localProviderId]);
-    return stringField(record(localProvider.options).baseURL).includes(`${INFERENCE_BYO_PATH_PREFIX}/${providerId}`)
+    return stringField(record(localProvider.options).baseURL) === upstreamBaseUrl
       && record(syncState).enabled === true
       && record(syncState).hasToken === true
       && strings(record(syncState).appliedProviderIds).includes(localProviderId);
@@ -347,9 +298,15 @@ test(title, async ({ evidence, place }) => {
   expect(providerSyncHasToken).toBe(true);
   expect(record(syncState).appliedProviderIds).toContain(localProviderId);
   expect(JSON.stringify(syncState)).not.toContain("sk-org-byo-eval");
+  const rendererVisibleState = stringField(await evalIn(appA, `(() => JSON.stringify({
+    localStorage: Object.fromEntries(Object.entries(localStorage)),
+    sessionStorage: Object.fromEntries(Object.entries(sessionStorage)),
+    visibleText: document.body.innerText,
+  }))()`));
+  expect(rendererVisibleState).not.toContain(orgApiKey);
   evidence.fact(
-    "The desktop holds a short-lived provider-sync/inference token; the org key appears in neither the runtime config nor the state route",
-    `Host-scoped state reports enabled=true, hasToken=true, and appliedProviderIds includes ${localProviderId}; runtime, managed redaction, and state contain no sk-org-byo-eval value.`,
+    "The organization credential reaches openwork-server without transiting renderer-visible state",
+    `Host-scoped state reports enabled=true, hasToken=true, and appliedProviderIds includes ${localProviderId}; runtime config, managed redaction, sync status, renderer storage, and visible DOM contain no sk-org-byo-eval value.`,
     true,
   );
   await waitForModel(appA, true);
@@ -447,7 +404,8 @@ test(title, async ({ evidence, place }) => {
     { timeout: 15_000, interval: 500 },
   ).toBe(true);
 
-  // Frame 4: only the server-side proxy may attach the organization's secret.
+  // Frame 4: the engine authenticates directly to the provider upstream. The
+  // renderer observes metadata but never requests Den's credential payload.
   const markerA = `member-a-${runId}`;
   await chat(appA, markerA, localProviderId);
   const aChatRequest = [...requestLog].reverse().find((entry) => entry.method === "POST" && entry.path.includes("chat/completions"));
@@ -470,8 +428,8 @@ test(title, async ({ evidence, place }) => {
     true,
   );
   evidence.fact(
-    "The inference proxy, not the desktop, attached the organization credential",
-    `Mock upstream Authorization matched the org key while desktop state exposed only hasToken=${providerSyncHasToken}: ${aChatRequest?.authorization ?? "missing"}.`,
+    "The engine authenticates directly to the provider upstream with the organization credential",
+    `Mock upstream received ${aChatRequest?.path ?? "no chat request"} with the expected Authorization value while renderer-visible sync state exposed only hasToken=${providerSyncHasToken}.`,
     upstreamUsedOrgKey && providerSyncHasToken,
   );
   expect(upstreamUsedOrgKey).toBe(true);
@@ -517,7 +475,7 @@ test(title, async ({ evidence, place }) => {
     const memberBSyncState = await providerSyncState(appB);
     const provider = record(record(memberBRuntime).effectiveRuntime).provider;
     const localProvider = record(record(provider)[localProviderId]);
-    return stringField(record(localProvider.options).baseURL).includes(`${INFERENCE_BYO_PATH_PREFIX}/${providerId}`)
+    return stringField(record(localProvider.options).baseURL) === upstreamBaseUrl
       && record(memberBSyncState).lastError === null
       && strings(record(memberBSyncState).appliedProviderIds).includes(localProviderId);
   }, { timeout: 30_000, interval: 1_000 }).toBe(true);

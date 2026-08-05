@@ -13,6 +13,7 @@ import {
   getProviderModelIds,
   isCloudManagedProviderKey,
   isCloudProviderOutOfSync,
+  isCloudProviderServerManaged,
 } from "../src/react-app/domains/connections/provider-auth/cloud-provider-config";
 
 const LPR_ID = "lpr_openrouter";
@@ -112,6 +113,9 @@ describe("cloud provider runtime patch (re-import diff #2346)", () => {
     expect(isCloudManagedProviderKey("openwork")).toBe(true);
     expect(isCloudManagedProviderKey("openai")).toBe(false);
     expect(isCloudManagedProviderKey("anthropic")).toBe(false);
+    const state = { enabled: true, appliedProviderIds: ["lpr_synced"] };
+    expect(isCloudProviderServerManaged(state, "lpr_synced")).toBe(true);
+    expect(isCloudProviderServerManaged(state, "lpr_not_synced")).toBe(false);
   });
 
   test("out-of-sync detection flags a changed Den model list", () => {

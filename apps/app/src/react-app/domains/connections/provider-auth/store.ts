@@ -70,6 +70,7 @@ import {
   getProviderModelIds,
   isCloudManagedProviderKey,
   isCloudProviderOutOfSync,
+  isCloudProviderServerManaged,
   resolveCloudProviderCredentials,
 } from "./cloud-provider-config";
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
@@ -268,15 +269,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       && options.serverManagedProviderSync?.() !== false;
   };
 
+  const readOpenworkServerProviderSyncState = async () => {
+    const client = options.openworkServer.getSnapshot().openworkServerClient;
+    if (!client) return null;
+    try {
+      return await client.providerSyncState();
+    } catch {
+      return null;
+    }
+  };
+
   const openworkServerHandlesProviderSync = async () => {
     if (rendererCloudProviderSyncHandledElsewhere()) return true;
-    const client = options.openworkServer.getSnapshot().openworkServerClient;
-    if (!client) return false;
-    try {
-      return (await client.providerSyncState()).enabled;
-    } catch {
-      return false;
-    }
+    return (await readOpenworkServerProviderSyncState())?.enabled === true;
   };
 
   const emitChange = () => {
@@ -1560,7 +1565,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     try {
-      if (await openworkServerHandlesProviderSync()) {
+      const providerSyncState = await readOpenworkServerProviderSyncState();
+      if (isCloudProviderServerManaged(providerSyncState, cloudProviderId)) {
         const provider = state.cloudOrgProviders.find((entry) => entry.id === cloudProviderId);
         return {
           message: provider

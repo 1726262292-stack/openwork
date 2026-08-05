@@ -30,7 +30,6 @@ const localProviderIdSchema = z.string().regex(/^lpr_[A-Za-z0-9_-]+$/);
 const appliedStateSchema = z.object({
   etag: z.string().nullable(),
   providers: z.record(localProviderIdSchema, appliedProviderSchema),
-  inferenceTokenExpiresAt: nullableTimestampSchema,
 }).strict();
 
 const persistedProviderSyncStateSchema = z.object({
@@ -73,7 +72,6 @@ function defaultProviderSyncState(): PersistedProviderSyncState {
     applied: {
       etag: null,
       providers: {},
-      inferenceTokenExpiresAt: null,
     },
     lastSyncAt: null,
     lastError: null,
@@ -162,7 +160,7 @@ export async function writeProviderSyncState(
       orgId: next.orgId,
       updatedAt: Date.now(),
       applied: targetChanged
-        ? { ...current.applied, etag: null, inferenceTokenExpiresAt: null }
+        ? { ...current.applied, etag: null }
         : current.applied,
       lastError: null,
     };

@@ -1336,7 +1336,7 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       body: state,
       timeoutMs: timeouts.config,
     }),
-    providerSyncState: () => requestJson<{ enabled: boolean }>(baseUrl, "/experimental/provider-sync/enabled", {
+    providerSyncState: () => requestJson<{ enabled: boolean; appliedProviderIds: string[] }>(baseUrl, "/experimental/provider-sync/enabled", {
       token,
       hostToken,
       timeoutMs: timeouts.config,

@@ -855,6 +855,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const providerSync = startDenProviderSync({
     config,
     env: process.env,
+    envStore: env,
     logger,
     reloadOpencodeEngine: (workspace) => reloadOpencodeEngine(config, workspace, engineMcpServerState),
   });
