@@ -1884,7 +1884,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           `[cloud-provider-sync:${reason}] Provider materialization is handled server-side.`,
         );
       }
-      if (!disposed && (getOpenworkGatewayOrigin() || serverManagedProviderSync === true)) {
+      if (!disposed && serverManagedProviderSync === true) {
         await refreshProviders({ force: true });
       }
       return { outcome: "handled_server_side" };
