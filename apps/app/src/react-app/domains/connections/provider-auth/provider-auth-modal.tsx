@@ -197,6 +197,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         } satisfies ProviderAuthEntry];
       })
       .sort(compareProviders);
+    const entriesWithoutOpenWorkOffer = nextEntries.filter(
+      (entry) => entry.id.trim().toLowerCase() !== OPENWORK_MODELS_PROVIDER_ID || entry.connected,
+    );
 
     if (props.showOpenWorkModelsSubscribe) {
       const connectedToOpenWork = connected.has(OPENWORK_MODELS_PROVIDER_ID);
@@ -208,11 +211,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           connected: connectedToOpenWork,
           env: [],
         },
-        ...nextEntries.filter((entry) => entry.id.trim().toLowerCase() !== OPENWORK_MODELS_PROVIDER_ID),
+        ...entriesWithoutOpenWorkOffer.filter(
+          (entry) => entry.id.trim().toLowerCase() !== OPENWORK_MODELS_PROVIDER_ID,
+        ),
       ];
     }
 
-    return nextEntries;
+    return entriesWithoutOpenWorkOffer;
   }, [isRemoteWorker, props.authMethods, props.connectedProviderIds, props.providers, props.showOpenWorkModelsSubscribe]);
 
   const selectedEntry = useMemo(

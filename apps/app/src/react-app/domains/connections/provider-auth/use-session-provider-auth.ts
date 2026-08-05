@@ -9,7 +9,7 @@ import type { Client, ProviderListItem, WorkspaceDisplay } from "@/app/types";
 import { readDenSettings } from "@/app/lib/den";
 import { denSessionUpdatedEvent, denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
-import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
+import { useCheckDesktopRestriction, useDesktopConfig } from "@/react-app/domains/cloud/desktop-config-provider";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
 import { useReloadCoordinator } from "@/react-app/shell/reload-coordinator";
@@ -62,6 +62,11 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
   } = input;
   const denAuth = useDenAuth();
   const checkDesktopRestriction = useCheckDesktopRestriction();
+  const desktopConfig = useDesktopConfig();
+  const serverManagedProviderSyncRef = useRef<boolean | null>(null);
+  serverManagedProviderSyncRef.current = desktopConfig.loading
+    ? null
+    : desktopConfig.config.orgProviderSyncEnabled === true;
   const reloadCoordinator = useReloadCoordinator();
   const { markReloadRequired } = reloadCoordinator;
   const onboardingProviderAuthPendingRef = useRef(false);
@@ -103,6 +108,7 @@ export function useSessionProviderAuth(input: UseSessionProviderAuthInput) {
         providerDefaults: () => stateRef.current.providerDefaults,
         providerConnectedIds: () => stateRef.current.providerConnectedIds,
         disabledProviders: () => stateRef.current.disabledProviderIds,
+        serverManagedProviderSync: () => serverManagedProviderSyncRef.current,
         checkDesktopAppRestriction: checkDesktopRestriction,
         providerBaseUrl: () => stateRef.current.opencodeBaseUrl,
         selectedWorkspaceDisplay: () =>

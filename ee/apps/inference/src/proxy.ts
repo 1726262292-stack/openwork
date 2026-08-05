@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import type { Context, Hono } from "hono"
+import { registerByoRoutes } from "./byo.js"
 import { env } from "./env.js"
 import type { findActiveInferenceKey as findActiveInferenceKeyFn, getOpenRouterProviderKey as getOpenRouterProviderKeyFn } from "./keys.js"
 import type { ensureUsableBuckets as ensureUsableBucketsFn } from "./limits.js"
@@ -686,6 +687,7 @@ export function registerProxyRoutes(app: Hono, dependencies: ProxyDependencies =
     ), { status: upstream.status, statusText: upstream.statusText, headers })
   }
 
+  registerByoRoutes(app)
   app.all("/api/v1", handleApiRequest)
   app.all("/api/v1/*", handleApiRequest)
 }

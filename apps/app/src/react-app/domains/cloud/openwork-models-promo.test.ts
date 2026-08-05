@@ -7,6 +7,7 @@ declare const expect: (value: unknown) => {
 
 import { DEFAULT_DEN_BASE_URL, HOSTED_DEFAULT_DEN_BASE_URL, setDenBootstrapConfig } from "../../../app/lib/den";
 import {
+  hasNonOpenworkConnectedProvider,
   hasOpenWorkModelsAvailable,
   isOpenWorkModelsPromoEligible,
   isOpenWorkModelsPromoEligibleForDenBaseUrl,
@@ -29,6 +30,19 @@ describe("OpenWork Models promo eligibility", () => {
     expect(isOpenWorkModelsPromoEligible()).toBe(false);
     expect(shouldShowOpenWorkModelsPromo()).toBe(false);
     expect(wasOpenWorkModelsStartupPromoShown()).toBe(true);
+  });
+
+  test("suppresses promotions when another provider is connected", () => {
+    const providers = [{ id: "opencode" }, { id: "lpr_org-openai" }];
+    expect(hasNonOpenworkConnectedProvider(providers)).toBe(true);
+    expect(hasNonOpenworkConnectedProvider([{ id: "anthropic" }])).toBe(true);
+    expect(isOpenWorkModelsPromoEligibleForDenBaseUrl(HOSTED_DEFAULT_DEN_BASE_URL, providers)).toBe(false);
+  });
+
+  test("does not count OpenCode or OpenWork Models as another provider", () => {
+    const providers = [{ id: "opencode" }, { id: "openwork" }];
+    expect(hasNonOpenworkConnectedProvider(providers)).toBe(false);
+    expect(isOpenWorkModelsPromoEligibleForDenBaseUrl(HOSTED_DEFAULT_DEN_BASE_URL, providers)).toBe(true);
   });
 });
 

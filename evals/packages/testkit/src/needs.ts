@@ -1,5 +1,6 @@
 export interface NeedsSpec {
   model?: "tool-capable";
+  vision?: boolean;
   env?: string[];
   optIn?: string[];
   daytona?: boolean;
@@ -32,6 +33,9 @@ export function unmetNeeds(spec: NeedsSpec, env: NodeJS.ProcessEnv): string[] {
     if (!present(env, "OPENAI_API_KEY") && !present(env, "ANTHROPIC_API_KEY")) {
       missing.push("set OPENAI_API_KEY or ANTHROPIC_API_KEY");
     }
+  }
+  if (spec.vision && !present(env, "OPENAI_API_KEY") && !present(env, "ANTHROPIC_API_KEY")) {
+    missing.push("set OPENAI_API_KEY or ANTHROPIC_API_KEY");
   }
   if (spec.daytona && env.OPENWORK_EVAL_DAYTONA?.trim() !== "1") {
     missing.push("set OPENWORK_EVAL_DAYTONA=1");

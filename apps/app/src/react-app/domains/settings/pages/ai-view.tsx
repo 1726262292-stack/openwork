@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { ArrowRight, CheckCircle2, KeyRound, RefreshCw, X } from "lucide-react";
 
 import { t } from "@/i18n";
+import { compareProviderTiers } from "@/app/utils/providers";
+import { hasNonOpenworkConnectedProvider } from "@/react-app/domains/cloud/openwork-models-promo";
 import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge } from "../settings-section";
@@ -81,6 +83,10 @@ function providerStatusTone(label: string): "ready" | "warning" | "neutral" {
 
 export function AiSettingsView(props: AiSettingsViewProps) {
   const organizationProviderLabel = props.organizationName?.trim() || t("settings.provider_source_organization");
+  const hasOtherConnectedProvider = hasNonOpenworkConnectedProvider(props.connectedProviders);
+  const connectedProviders = [...props.connectedProviders].sort((a, b) =>
+    compareProviderTiers(a, b, { hasOnlyManagedFallback: !hasOtherConnectedProvider })
+  );
 
   return (
     <LayoutStack>
@@ -115,7 +121,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
 
-        {props.showOpenWorkModelsSubscribe ? (
+        {props.showOpenWorkModelsSubscribe && !hasOtherConnectedProvider ? (
           <LayoutSectionItem className="relative overflow-hidden rounded-2xl border border-blue-6 bg-blue-2/30 px-4 py-4">
             <button
               type="button"
@@ -160,9 +166,9 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           </LayoutSectionItem>
         ) : null}
 
-        {props.connectedProviders.length > 0 ? (
+        {connectedProviders.length > 0 ? (
           <div className="space-y-2">
-            {props.connectedProviders.map((provider) => {
+            {connectedProviders.map((provider) => {
               const orgManaged = isCloudManagedProviderKey(provider.id);
               const managedByCloud = orgManaged || props.cloudProviderIds?.has(provider.id) === true;
               const sourceLabel = orgManaged
@@ -211,7 +217,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           </div>
         ) : null}
 
-        {props.showOpenWorkModelsConnect ? (
+        {props.showOpenWorkModelsConnect && !hasOtherConnectedProvider ? (
           <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed border-dls-border px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <ProviderIcon providerId="openwork" size={20} className="text-muted-foreground" />
@@ -238,7 +244,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           </LayoutSectionItem>
         ) : null}
 
-        {props.showOpenWorkModelsSyncing ? (
+        {props.showOpenWorkModelsSyncing && !hasOtherConnectedProvider ? (
           <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-6/50 bg-amber-2/20 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <ProviderIcon providerId="openwork" size={20} className="text-amber-11" />

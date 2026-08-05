@@ -15,6 +15,7 @@ export default defineConfig({
     "den/inference": "src/den/inference.ts",
     "den/mcp-connection-action": "src/den/mcp-connection-action.ts",
     "den/microsoft-365": "src/den/microsoft-365.ts",
+    "den/provider-sync": "src/den/provider-sync.ts",
   },
   tsconfig: "./tsconfig.json",
   format: ["esm"],

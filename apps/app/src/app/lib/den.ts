@@ -12,6 +12,10 @@ import type {
   CreateAutomation,
   UpdateAutomation,
 } from "@openwork/types/automations";
+import {
+  PROVIDER_SYNC_TOKEN_PATH,
+  type ProviderSyncTokenResponse,
+} from "@openwork/types/den/provider-sync";
 
 // Re-export the shared schema under the local alias so React consumers
 // (e.g. the cloud domain's desktop-config provider) can import it alongside
@@ -147,7 +151,9 @@ export type DenBootstrapConfig = DenBaseUrls & {
   enterpriseActivation?: DenEnterpriseActivation | null;
 };
 
-export type DenDesktopConfig = SharedDesktopConfig;
+export type DenDesktopConfig = SharedDesktopConfig & {
+  orgProviderSyncEnabled?: boolean;
+};
 
 export type DenCanonicalOrgRole = "super-admin" | "owner" | "admin" | "member";
 export type DenOrgRole = string;
@@ -467,7 +473,11 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
 }
 
 export function normalizeDenDesktopConfig(payload: unknown): DenDesktopConfig {
-  return normalizeDesktopConfig(payload);
+  const normalized = normalizeDesktopConfig(payload);
+  if (!isRecord(payload) || typeof payload.orgProviderSyncEnabled !== "boolean") {
+    return normalized;
+  }
+  return { ...normalized, orgProviderSyncEnabled: payload.orgProviderSyncEnabled };
 }
 
 function readTimestampRecord(value: unknown): Record<string, string> {
@@ -2160,6 +2170,20 @@ async function requestJson<T>(
     throw new DenApiError(raw.status, code, message, isRecord(payload) ? payload.details : undefined);
   }
   return raw.json as T;
+}
+
+export async function mintProviderSyncToken(orgId: string): Promise<ProviderSyncTokenResponse> {
+  const settings = readDenSettings();
+  const token = settings.authToken?.trim() ?? "";
+  const organizationId = orgId.trim();
+  if (!token || !organizationId) {
+    throw new DenApiError(401, "session_required", "A Den session and organization are required.");
+  }
+  return requestJson<ProviderSyncTokenResponse>(resolveDenBaseUrls(settings), PROVIDER_SYNC_TOKEN_PATH, {
+    method: "POST",
+    token,
+    organizationId,
+  });
 }
 
 async function ensureActiveOrganization(

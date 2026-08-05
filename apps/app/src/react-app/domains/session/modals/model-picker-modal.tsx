@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { readDenSettings } from "@/app/lib/den";
 import { modelEquals, resolveProviderDisplayName } from "../../../../app/utils";
+import { compareProviderTiers } from "../../../../app/utils/providers";
 import type { ModelOption, ModelRef } from "../../../../app/types";
 import { isRecommendedModel } from "../../../../app/defaults";
 import { ProviderIcon } from "../../../design-system/provider-icon";
@@ -29,6 +30,7 @@ import { useDenAuth } from "../../cloud/den-auth-provider";
 import { usePlatform } from "../../../kernel/platform";
 import {
   getOpenWorkModelsActionUrl,
+  hasNonOpenworkConnectedProvider,
   hasOpenWorkModelsProvider,
   hideOpenWorkModelsPromo,
   useOpenWorkModelsPromoEligibility,
@@ -126,7 +128,12 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
   const denAuth = useDenAuth();
   const navigate = useNavigate();
   const platform = usePlatform();
-  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const connectedProviderRefs = useMemo(
+    () => props.options.map((option) => ({ id: option.providerID })),
+    [props.options],
+  );
+  const hasOtherConnectedProvider = hasNonOpenworkConnectedProvider(connectedProviderRefs);
+  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility(connectedProviderRefs);
   const organizationModelsSettingsUrl = props.organizationModelsSettingsUrl;
   const organizationProviderLabel = useMemo(
     () => readDenSettings().activeOrgName?.trim() || t("settings.provider_source_organization"),
@@ -203,13 +210,10 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
       group.recommended.sort((a, b) => a.title.localeCompare(b.title));
       group.other.sort((a, b) => a.title.localeCompare(b.title));
     }
-    return groups.sort((a, b) => {
-      if (a.isDisabled !== b.isDisabled) return a.isDisabled ? 1 : -1;
-      if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
-      if (a.hasCurrent !== b.hasCurrent) return a.hasCurrent ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [filteredOptions, props.current, disabledSet]);
+    return groups.sort((a, b) => compareProviderTiers(a, b, {
+      hasOnlyManagedFallback: !hasOtherConnectedProvider,
+    }));
+  }, [filteredOptions, props.current, disabledSet, hasOtherConnectedProvider]);
 
   // Auto-expand on search
   useEffect(() => {
@@ -258,7 +262,8 @@ export function ModelPickerModal(props: ModelPickerModalProps) {
     () => hasOpenWorkModelsProvider(props.options.map((option) => option.providerID)),
     [props.options],
   );
-  const showOpenWorkModelsSyncing = Boolean(props.openWorkModelsEntitled) && !openWorkModelsAvailable;
+  const showOpenWorkModelsSyncing =
+    Boolean(props.openWorkModelsEntitled) && !openWorkModelsAvailable && !hasOtherConnectedProvider;
   const showOpenWorkModelsPromo = useMemo(
     () =>
       openWorkModelsPromoEligible &&

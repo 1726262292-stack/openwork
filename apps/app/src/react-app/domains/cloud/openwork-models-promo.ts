@@ -31,16 +31,30 @@ export function areOpenWorkModelsPromosDisabled() {
   return isSelfHostedControlPlane();
 }
 
-export function isOpenWorkModelsPromoEligibleForDenBaseUrl(baseUrl: string) {
-  return !areOpenWorkModelsPromosDisabled() && isDefaultControlPlaneUrl(baseUrl, HOSTED_DEFAULT_DEN_BASE_URL);
+export function hasNonOpenworkConnectedProvider(items: ReadonlyArray<{ id: string }>) {
+  return items.some((item) => {
+    const id = item.id.trim().toLowerCase();
+    return id !== "opencode" && id !== OPENWORK_MODELS_PROVIDER_ID;
+  });
 }
 
-export function isOpenWorkModelsPromoEligible() {
-  return isOpenWorkModelsPromoEligibleForDenBaseUrl(readDenSettings().baseUrl);
+export function isOpenWorkModelsPromoEligibleForDenBaseUrl(
+  baseUrl: string,
+  connectedProviders: ReadonlyArray<{ id: string }> = [],
+) {
+  return !areOpenWorkModelsPromosDisabled() &&
+    !hasNonOpenworkConnectedProvider(connectedProviders) &&
+    isDefaultControlPlaneUrl(baseUrl, HOSTED_DEFAULT_DEN_BASE_URL);
 }
 
-export function useOpenWorkModelsPromoEligibility() {
-  return useSyncExternalStore(
+export function isOpenWorkModelsPromoEligible(connectedProviders: ReadonlyArray<{ id: string }> = []) {
+  return isOpenWorkModelsPromoEligibleForDenBaseUrl(readDenSettings().baseUrl, connectedProviders);
+}
+
+export function useOpenWorkModelsPromoEligibility(
+  connectedProviders: ReadonlyArray<{ id: string }> = [],
+) {
+  const controlPlaneEligible = useSyncExternalStore(
     (notify) => {
       if (typeof window === "undefined") return () => undefined;
       window.addEventListener(denSettingsChangedEvent, notify);
@@ -49,6 +63,7 @@ export function useOpenWorkModelsPromoEligibility() {
     isOpenWorkModelsPromoEligible,
     isOpenWorkModelsPromoEligible,
   );
+  return controlPlaneEligible && !hasNonOpenworkConnectedProvider(connectedProviders);
 }
 
 export type OpenWorkModelPreview = {

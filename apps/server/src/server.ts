@@ -24,6 +24,7 @@ import { defaultWorkspaceOpenworkConfig, ensureWorkspaceFiles, readRawOpencodeCo
 import { sanitizeCommandName, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { resetManagedProviderAuthCache, syncManagedProviderAuth } from "./managed-provider-auth.js";
+import { startDenProviderSync } from "./den-provider-sync.js";
 import { EnvService } from "./env-file.js";
 import {
   normalizeResourceSnapshot,
@@ -851,6 +852,12 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   const engineMcpServerState = beginEngineMcpServerState(config);
+  const providerSync = startDenProviderSync({
+    config,
+    env: process.env,
+    logger,
+    reloadOpencodeEngine: (workspace) => reloadOpencodeEngine(config, workspace, engineMcpServerState),
+  });
   const routes = createRoutes(
     config,
     approvals,
@@ -859,6 +866,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     restartReloadWatchers,
     engineMcpServerState,
     logger,
+    providerSync.kick,
   );
 
   const serverOptions: {
@@ -1026,6 +1034,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       idleTimeout: 120,
     });
   } catch (error) {
+    providerSync.stop();
     invalidateEngineMcpServerState(config, engineMcpServerState);
     watcherHandle.close();
     reloadBaselineRefreshers.delete(config);
@@ -1042,6 +1051,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   return {
     ...server,
     stop: async () => {
+      providerSync.stop();
       invalidateEngineMcpServerState(config, engineMcpServerState);
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
@@ -1530,6 +1540,7 @@ function createRoutes(
   onWorkspacesChanged: () => void,
   engineMcpServerState: EngineMcpServerState,
   logger: ServerLogger,
+  kickProviderSync: () => Promise<void>,
 ): Route[] {
   const routes: Route[] = [];
   registerCoreRoutes({
@@ -1538,6 +1549,7 @@ function createRoutes(
     tokens,
     env,
     managedProviderAuthLogger: toManagedProviderAuthLogger(logger),
+    kickProviderSync,
     serverVersion: SERVER_VERSION,
     opencodeVersion: OPENCODE_VERSION,
     jsonResponse,

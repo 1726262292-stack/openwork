@@ -90,7 +90,7 @@ async function replaceOrganizationMetadata(metadata: Record<string, unknown>) {
     .where(drizzle.eq(schema.OrganizationTable.id, organizationId))
 }
 
-async function putCapabilities(capabilities: { installLinks?: boolean | null; mcpConnections?: boolean | null; cloud?: boolean | null }) {
+async function putCapabilities(capabilities: { installLinks?: boolean | null; mcpConnections?: boolean | null; cloud?: boolean | null; orgProviderSync?: boolean | null }) {
   return routeApp().request(`http://den.local/v1/admin/organizations/${organizationId}/capabilities`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -220,6 +220,11 @@ test("admin capability routes show effective defaults while preserving raw overr
   expect(disableCloud.status).toBe(200)
   await expect(disableCloud.json()).resolves.toMatchObject({ capabilities: { cloud: false } })
   expect(readCapabilityMetadata(await readOrganizationMetadata())).toMatchObject({ installLinks: true, cloud: false })
+
+  const enableProviderSync = await putCapabilities({ orgProviderSync: true })
+  expect(enableProviderSync.status).toBe(200)
+  await expect(enableProviderSync.json()).resolves.toMatchObject({ capabilities: { orgProviderSync: true } })
+  expect(readCapabilityMetadata(await readOrganizationMetadata())).toMatchObject({ orgProviderSync: true })
 
   await replaceOrganizationMetadata({ connectEnabled: true, capabilities: { installLinks: true } })
   const disableFlatEnabledConnect = await putCapabilities({ mcpConnections: false })

@@ -129,6 +129,7 @@ import { useCheckDesktopRestriction, useDesktopConfig } from "@/react-app/domain
 import { useRestrictionNotice } from "@/react-app/domains/cloud/restriction-notice-provider";
 import { useCloudProviderAutoSync } from "@/react-app/domains/cloud/use-cloud-provider-auto-sync";
 import {
+  hasNonOpenworkConnectedProvider,
   hasOpenWorkModelsAvailable,
   hideOpenWorkModelsPromo,
   useOpenWorkModelsPromoEligibility,
@@ -695,6 +696,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         providerDefaults: () => routeStateRef.current.providerDefaults,
         providerConnectedIds: () => routeStateRef.current.providerConnectedIds,
         disabledProviders: () => routeStateRef.current.disabledProviders,
+        serverManagedProviderSync: () => desktopConfig.config.orgProviderSyncEnabled === true,
         checkDesktopAppRestriction: checkDesktopRestriction,
         providerBaseUrl: () => routeStateRef.current.providerBaseUrl,
         selectedWorkspaceDisplay: () => routeStateRef.current.selectedWorkspaceDisplay,
@@ -718,7 +720,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           });
         },
       }),
-    [checkDesktopRestriction, openworkServerStore, reloadCoordinator.markReloadRequired],
+    [checkDesktopRestriction, desktopConfig.config.orgProviderSyncEnabled, openworkServerStore, reloadCoordinator.markReloadRequired],
   );
   const extensionsStore = useMemo(
     () =>
@@ -852,7 +854,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     [providerAuthSnapshot.cloudOrgProviders, providerAuthSnapshot.importedCloudProviders],
   );
   const [openWorkModelsPromoHidden, setOpenWorkModelsPromoHidden] = useState(isOpenWorkModelsPromoHidden);
-  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const connectedProviderItemsForPromo = useMemo(() => {
+    const connected = new Set(providerConnectedIds);
+    return providers.filter((provider) => connected.has(provider.id));
+  }, [providerConnectedIds, providers]);
+  const hasOtherConnectedProvider = hasNonOpenworkConnectedProvider(connectedProviderItemsForPromo);
+  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility(connectedProviderItemsForPromo);
   // Entitled = Den/import says OpenWork Models is included. Available = local
   // engine actually exposes selectable openwork models.
   const openWorkModelsEntitled = cloudSession.isSignedIn && hasOpenWorkCloudProvider;
@@ -860,16 +867,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     providerConnectedIds,
     providers,
   });
-  const showOpenWorkModelsSyncing = openWorkModelsEntitled && !openWorkModelsAvailable;
+  const showOpenWorkModelsSyncing =
+    openWorkModelsEntitled && !openWorkModelsAvailable && !hasOtherConnectedProvider;
   const showOpenWorkModelsSubscribe =
     openWorkModelsPromoEligible &&
     !openWorkModelsEntitled &&
     !openWorkModelsAvailable &&
+    !hasOtherConnectedProvider &&
     !openWorkModelsPromoHidden;
   const showOpenWorkModelsConnect =
     openWorkModelsPromoEligible &&
     !openWorkModelsEntitled &&
     !openWorkModelsAvailable &&
+    !hasOtherConnectedProvider &&
     openWorkModelsPromoHidden;
 
   useEffect(() => {

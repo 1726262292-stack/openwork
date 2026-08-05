@@ -29,6 +29,7 @@ import { registerMemoryRoutes } from "./routes/memory/index.js"
 import { registerAutomationRoutes } from "./routes/automations/index.js"
 import { registerMeRoutes } from "./routes/me/index.js"
 import { registerOrgRoutes } from "./routes/org/index.js"
+import { registerProviderSyncRoutes, type ProviderSyncContextVariables } from "./routes/provider-sync/index.js"
 import { registerTelemetryRoutes } from "./routes/telemetry/index.js"
 import { registerVersionRoutes } from "./routes/version/index.js"
 import { registerWebhookRoutes } from "./routes/webhooks/index.js"
@@ -37,7 +38,7 @@ import type { AuthContextVariables } from "./session.js"
 import { sessionMiddleware } from "./session.js"
 import { isOperationalErrorPath, normalizeOperationalErrorResponse, operationalErrorResponse } from "./operational-errors.js"
 
-type AppVariables = RequestIdVariables & AuthContextVariables & Partial<UserOrganizationsContext> & Partial<OrganizationContextVariables> & Partial<MemberTeamsContext>
+type AppVariables = RequestIdVariables & AuthContextVariables & Partial<UserOrganizationsContext> & Partial<OrganizationContextVariables> & Partial<MemberTeamsContext> & Partial<ProviderSyncContextVariables>
 
 const healthResponseSchema = z.object({
   ok: z.literal(true),
@@ -199,6 +200,7 @@ registerMeRoutes(app)
 registerMemoryRoutes(app)
 registerAutomationRoutes(app)
 registerOrgRoutes(app)
+registerProviderSyncRoutes(app)
 registerVersionRoutes(app)
 registerWebhookRoutes(app)
 registerWorkerRoutes(app)

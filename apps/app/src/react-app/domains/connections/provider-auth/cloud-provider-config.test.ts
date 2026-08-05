@@ -15,6 +15,7 @@ import {
   buildCloudProviderConfig,
   getCloudManagedProviderId,
   getProviderModelIds,
+  isCloudManagedProviderKey,
   isCloudProviderOutOfSync,
 } from "./cloud-provider-config";
 
@@ -51,6 +52,16 @@ const importedFrom = (provider: DenOrgLlmProvider): CloudImportedProvider => ({
   updatedAt: provider.updatedAt,
   modelIds: getProviderModelIds(provider),
   importedAt: 1,
+});
+
+describe("cloud-managed provider ids", () => {
+  test("uses a synced Den provider id verbatim for manual imports", () => {
+    const provider = makeProvider([makeModel("model-a")]);
+    const syncedProviderId = provider.id;
+
+    expect(isCloudManagedProviderKey(syncedProviderId)).toBe(true);
+    expect(getCloudManagedProviderId(provider)).toBe(syncedProviderId);
+  });
 });
 
 describe("isCloudProviderOutOfSync", () => {

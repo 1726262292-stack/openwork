@@ -6,6 +6,7 @@ import {
   type AgentContextDiagnosticsRequest,
 } from "@openwork/types/agent-context-diagnostics";
 import { normalizeBaseUrl } from "@openwork/types/url";
+import type { ProviderSyncServerState } from "@openwork/types/den/provider-sync";
 import {
   AGENT_CONTEXT_DIAGNOSTICS_REQUEST_TIMEOUT_MS,
   requestAgentContextDiagnosticsPayload,
@@ -1328,6 +1329,24 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     setConnectState: (connectEnabled: boolean) => requestJson<OpenworkConnectState>(baseUrl, "/experimental/connect/state", { token, hostToken, method: "PUT", body: { connectEnabled }, timeoutMs: timeouts.config }),
+    setProviderSyncState: (state: ProviderSyncServerState) => requestJson<{ ok: boolean }>(baseUrl, "/experimental/provider-sync/state", {
+      token,
+      hostToken,
+      method: "PUT",
+      body: state,
+      timeoutMs: timeouts.config,
+    }),
+    providerSyncState: () => requestJson<{ enabled: boolean }>(baseUrl, "/experimental/provider-sync/enabled", {
+      token,
+      hostToken,
+      timeoutMs: timeouts.config,
+    }),
+    kickProviderSync: () => requestJson<{ ok: boolean }>(baseUrl, "/experimental/provider-sync/kick", {
+      token,
+      hostToken,
+      method: "POST",
+      timeoutMs: timeouts.config,
+    }),
     callExtensionAction: (payload: OpenworkExtensionActionCall) =>
       requestJson<OpenworkExtensionActionResult>(baseUrl, "/experimental/extensions/call", {
         token,

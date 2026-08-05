@@ -72,6 +72,11 @@
       "development": "./src/den/mcp-connection-action.ts",
       "default": "./src/den/mcp-connection-action.ts"
     },
+    "./den/provider-sync": {
+      "types": "./src/den/provider-sync.ts",
+      "development": "./src/den/provider-sync.ts",
+      "default": "./src/den/provider-sync.ts"
+    },
     "./workspace": {
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",

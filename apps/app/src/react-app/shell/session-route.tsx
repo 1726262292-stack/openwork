@@ -95,7 +95,7 @@ import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/ch
 import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
-import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
+import { useCheckDesktopRestriction, useOrgRestrictions } from "@/react-app/domains/cloud/desktop-config-provider";
 import { useRestrictionNotice } from "@/react-app/domains/cloud/restriction-notice-provider";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -500,6 +500,7 @@ export function SessionRoute() {
   const automationsNavigationAvailable = automationsEnabled && automationsSupported;
   const reloadCoordinator = useReloadCoordinator();
   const checkDesktopRestriction = useCheckDesktopRestriction();
+  const orgProviderSyncEnabled = useOrgRestrictions().orgProviderSyncEnabled === true;
   const restrictionNotice = useRestrictionNotice();
   const [activeOrganizationRole, setActiveOrganizationRole] = useState<DenOrgRole | null>(null);
   const [openworkServerHostInfoState, setOpenworkServerHostInfoState] = useState<OpenworkServerInfo | null>(null);
@@ -866,9 +867,26 @@ export function SessionRoute() {
       cancelled = true;
     };
   }, [denAuth.isSignedIn, denAuth.status, denSessionVersion]);
+  const runSessionCloudProviderSync = useCallback(async (reason: "model_picker_open" | "new_chat") => {
+    let serverManaged = orgProviderSyncEnabled;
+    if (!serverManaged && selectedWorkspaceEndpoint?.client) {
+      serverManaged = await selectedWorkspaceEndpoint.client.providerSyncState()
+        .then((state) => state.enabled)
+        .catch(() => false);
+    }
+    if (serverManaged) {
+      if (reason === "new_chat") {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1_000));
+        await selectedWorkspaceEndpoint?.client.kickProviderSync();
+      }
+      await refreshProviderListQueries(getReactQueryClient());
+      return;
+    }
+    await sessionProviderAuthStore.runCloudProviderSync(reason);
+  }, [orgProviderSyncEnabled, selectedWorkspaceEndpoint?.client, sessionProviderAuthStore]);
   const handleModelPickerOpen = useCallback(() => {
-    void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
-  }, [sessionProviderAuthStore]);
+    void runSessionCloudProviderSync("model_picker_open");
+  }, [runSessionCloudProviderSync]);
   const openWorkModelsEntitled = useMemo(() => {
     if (!denAuth.isSignedIn) return false;
     const fromOrg = sessionProviderAuthSnapshot.cloudOrgProviders.some(
@@ -940,7 +958,9 @@ export function SessionRoute() {
   const selectedModelUsesCloudProvider = Boolean(
     local.prefs.defaultModel && isCloudManagedProviderKey(local.prefs.defaultModel.providerID),
   );
-  const selectedModelProviderList = selectedModelUsesCloudProvider
+  // With server-side org provider sync, the active query is fresher than the
+  // renderer's one-time cloud-sync snapshot.
+  const selectedModelProviderList = selectedModelUsesCloudProvider && !orgProviderSyncEnabled
     ? cloudProviderList
     : providerListQuery.data;
   const entitledOrgDefaultModel = useMemo(() =>
@@ -1206,7 +1226,7 @@ export function SessionRoute() {
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
         if (open) {
-          void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+          void runSessionCloudProviderSync("model_picker_open");
         }
       },
       onModelChange: (model: ModelRef) => {
@@ -1427,6 +1447,7 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionProviderAuthStore,
+    runSessionCloudProviderSync,
     sessionsByWorkspaceId,
     submitWithCloudMcpReadiness,
     token,
@@ -1464,7 +1485,7 @@ export function SessionRoute() {
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
         if (open) {
-          void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+          void runSessionCloudProviderSync("model_picker_open");
         }
       },
       onModelChange: (model: ModelRef) => {
@@ -1530,6 +1551,7 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     sessionProviderAuthStore,
+    runSessionCloudProviderSync,
     setSelectedAgent,
   ]);
 
@@ -1681,7 +1703,7 @@ export function SessionRoute() {
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
       if (workspaceId === selectedWorkspaceId) {
-        void sessionProviderAuthStore.runCloudProviderSync("new_chat");
+        await runSessionCloudProviderSync("new_chat");
       }
       captureAnalyticsEvent("task_created", {
         source: "new_task",
@@ -1730,7 +1752,7 @@ export function SessionRoute() {
       }
       return null;
     }
-  }, [endpointForWorkspace, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, selectedWorkspaceId, sessionProviderAuthStore, workspaces]);
+  }, [endpointForWorkspace, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, runSessionCloudProviderSync, selectedWorkspaceId, workspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2617,7 +2639,7 @@ export function SessionRoute() {
                 await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
               );
               if (workspaceId === selectedWorkspaceId) {
-                void sessionProviderAuthStore.runCloudProviderSync("new_chat");
+                await runSessionCloudProviderSync("new_chat");
               }
               const firstTaskPrompt = prompt.trim();
               if (firstTaskPrompt) {

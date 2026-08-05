@@ -42,6 +42,7 @@ export interface OrgShape {
 
 export interface ServerOptions {
   place: Place;
+  env?: Record<string, string>;
   mocks?: Record<string, MockBoot>;
   org?: OrgShape;
   reuse?: DenRef;
@@ -54,7 +55,9 @@ export interface Den extends AsyncDisposable {
   members: Record<string, DenSession>;
   mocks: Record<string, MockHandle>;
   database?: DbHandle;
+  databaseUrl?: string;
   ports?: { api: number; web: number };
+  denEnv?: { databaseUrl: string; dbEncryptionKey: string };
 }
 
 interface SpawnedService {
@@ -534,7 +537,13 @@ export async function server(options: ServerOptions): Promise<Den> {
       OPENWORK_DEV_MODE: "1",
       PROVISIONER_MODE: "stub",
     };
-    const api = spawnService("den-api", "dev:den:api", apiPort, { ...commonEnv, DEN_BIND_HOST: "127.0.0.1" }, join(logsDir, "api.log"));
+    const api = spawnService("den-api", "dev:den:api", apiPort, {
+      ...commonEnv,
+      ...options.env,
+      DATABASE_URL: database.url,
+      DEN_DB_ENCRYPTION_KEY: DATABASE_ENCRYPTION_KEY,
+      DEN_BIND_HOST: "127.0.0.1",
+    }, join(logsDir, "api.log"));
     services.push(api);
     const web = spawnService("den-web", "dev:den:web", webPort, {
       DEN_WEB_HOST: "127.0.0.1",
@@ -560,7 +569,12 @@ export async function server(options: ServerOptions): Promise<Den> {
       members: organization.members,
       mocks: bootedMocks.handles,
       database,
+      databaseUrl: database.url,
       ports: { api: apiPort, web: webPort },
+      denEnv: {
+        databaseUrl: database.url,
+        dbEncryptionKey: DATABASE_ENCRYPTION_KEY,
+      },
       async [Symbol.asyncDispose](): Promise<void> {
         if (disposed) return;
         disposed = true;

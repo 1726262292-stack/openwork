@@ -39,6 +39,7 @@ import {
   bootstrapBrandingFromDesktopConfig,
   bootstrapBrandingNeedsSync,
 } from "./workspace-branding-restart";
+import { useProviderSyncStatePush } from "./use-provider-sync-state-push";
 
 export type DesktopConfigStore = {
   config: DenDesktopConfig;
@@ -68,6 +69,7 @@ const DESKTOP_CONFIG_ITEMS = [
   "brandIconUrl",
   "brandAccentColor",
   "connectEnabled",
+  "orgProviderSyncEnabled",
   "onboardingPrompts",
   "onboardingPromptDescriptions",
 ] as const satisfies readonly (keyof DenDesktopConfig)[];
@@ -202,6 +204,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
   const { config, loading } = desktopConfigState;
   // Bumped whenever the browser tells us the Den session or settings changed.
   const [settingsVersion, bumpSettingsVersion] = useReducer((value: number) => value + 1, 0);
+  const [providerSyncRefreshVersion, bumpProviderSyncRefreshVersion] = useReducer((value: number) => value + 1, 0);
   // Monotonic run id — same guard-against-stale-resolution pattern as DenAuthProvider.
   const refreshRunRef = useRef(0);
   const lastPushedConnectEnabledRef = useRef<boolean | null>(null);
@@ -273,6 +276,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     if (import.meta.env.DEV && requireFresh && devRefreshDesktopConfigRef.current) {
       const nextConfig = devRefreshDesktopConfigRef.current;
       applyDesktopConfigActions(nextConfig);
+      bumpProviderSyncRefreshVersion();
       return nextConfig;
     }
 
@@ -285,6 +289,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     if (!isSignedIn || !token || !activeOrgId) {
       applyDesktopConfigActions(DEFAULT_DESKTOP_CONFIG);
       setDesktopConfigState((current) => ({ ...current, loading: false }));
+      bumpProviderSyncRefreshVersion();
       return DEFAULT_DESKTOP_CONFIG;
     }
 
@@ -333,6 +338,7 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
     } finally {
       if (currentRun === refreshRunRef.current) {
         setDesktopConfigState((current) => ({ ...current, loading: false }));
+        bumpProviderSyncRefreshVersion();
       }
     }
   }, [applyDesktopConfigActions, isSignedIn]);
@@ -421,6 +427,13 @@ export function DesktopConfigProvider({ children }: DesktopConfigProviderProps) 
       cancelled = true;
     };
   }, [connectEnabled, loading]);
+
+  useProviderSyncStatePush({
+    config,
+    loading,
+    isSignedIn,
+    refreshVersion: providerSyncRefreshVersion,
+  });
 
   // Dev-only: expose a bridge so evals can inject config directly without
   // requiring a cloud sign-in. This simply applies the config to React state.

@@ -1204,7 +1204,13 @@ export function registerOrgLlmProviderRoutes<T extends { Variables: OrgRouteVari
         }, 409)
       }
 
-      await db.delete(LlmProviderAccessTable).where(eq(LlmProviderAccessTable.id, access.id))
+      await db.transaction(async (tx) => {
+        await tx.delete(LlmProviderAccessTable).where(eq(LlmProviderAccessTable.id, access.id))
+        await tx
+          .update(LlmProviderTable)
+          .set({ updatedAt: new Date() })
+          .where(eq(LlmProviderTable.id, provider.id))
+      })
       return c.body(null, 204)
     },
   )

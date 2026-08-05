@@ -5,6 +5,8 @@ import { ChevronDown, Settings2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import type { ModelOption, ModelRef } from "@/app/types";
+import { compareProviderTiers } from "@/app/utils/providers";
+import { t } from "@/i18n";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
   Popover,
@@ -22,6 +24,7 @@ import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-co
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import {
   getOpenWorkModelsActionUrl,
+  hasNonOpenworkConnectedProvider,
   hasOpenWorkModelsProvider,
   hideOpenWorkModelsPromo,
   useOpenWorkModelsPromoEligibility,
@@ -33,6 +36,7 @@ import {
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
 import { filterEntitledModelOptions } from "@/react-app/domains/connections/provider-auth/provider-policy";
+import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import {
   Command,
   CommandCollection,
@@ -98,7 +102,7 @@ function useModelOptions(open: boolean) {
 
     const options = getConnectedProviderItems(data)
       .flatMap((provider) =>
-        Object.entries(provider.models).map(([id, model]) => ({
+        Object.entries(provider.models).map(([id, model]): ModelOption => ({
           providerID: provider.id,
           modelID: id,
           title: model.name,
@@ -108,13 +112,17 @@ function useModelOptions(open: boolean) {
           behaviorDescription: "",
           behaviorValue: null,
           isFree: false,
+          source: isCloudManagedProviderKey(provider.id) ? "cloud" : undefined,
         })),
       );
 
-    return filterEntitledModelOptions(options, {
-      restrictToCloud,
-      checkRestriction: checkDesktopRestriction,
-    });
+    return {
+      connectedProviders: getConnectedProviderItems(data),
+      modelOptions: filterEntitledModelOptions(options, {
+        restrictToCloud,
+        checkRestriction: checkDesktopRestriction,
+      }),
+    };
   }, [checkDesktopRestriction, data]);
 }
 
@@ -134,13 +142,17 @@ type ModelSelectOpenWorkItem = {
 type ModelSelectItem = ModelSelectModelItem | ModelSelectOpenWorkItem;
 
 type ModelSelectGroup = {
+  providerId: string;
   value: string;
   items: ModelSelectItem[];
   promo: boolean;
 };
 
-function groupByProvider(modelOptions: ModelOption[]): ModelSelectGroup[] {
-  const groups = new Map<string, ModelSelectModelItem[]>();
+function groupByProvider(
+  modelOptions: ModelOption[],
+  options: { hasOnlyManagedFallback: boolean },
+): ModelSelectGroup[] {
+  const groups = new Map<string, { label: string; items: ModelSelectModelItem[] }>();
 
   for (const option of modelOptions) {
     const providerLabel = option.description ?? getProviderDisplayName(option.providerID);
@@ -149,27 +161,33 @@ function groupByProvider(modelOptions: ModelOption[]): ModelSelectGroup[] {
       id: `${option.providerID}:${option.modelID}`,
       option,
     };
-    const existing = groups.get(providerLabel);
+    const existing = groups.get(option.providerID);
 
     if (existing) {
-      existing.push(item);
+      existing.items.push(item);
       continue;
     }
 
-    groups.set(providerLabel, [item]);
+    groups.set(option.providerID, { label: providerLabel, items: [item] });
   }
 
   return [...groups.entries()]
-    .map(([providerLabel, options]) => ({
-      value: providerLabel,
-      items: [...options].sort((a, b) => a.option.title.localeCompare(b.option.title)),
+    .map(([providerId, group]) => ({
+      providerId,
+      value: group.label,
+      items: [...group.items].sort((a, b) => a.option.title.localeCompare(b.option.title)),
       promo: false,
     }))
-    .sort((a, b) => a.value.localeCompare(b.value));
+    .sort((a, b) => compareProviderTiers(
+      { id: a.providerId, name: a.value },
+      { id: b.providerId, name: b.value },
+      options,
+    ));
 }
 
 function openWorkModelsGroup(): ModelSelectGroup {
   return {
+    providerId: OPENWORK_MODELS_PROVIDER_ID,
     value: OPENWORK_MODELS_PROVIDER_NAME,
     promo: true,
     items: OPENWORK_MODEL_PREVIEWS.map((model) => ({
@@ -211,11 +229,11 @@ export function ModelSelect({
   const [search, setSearch] = React.useState("");
   const [promoHidden, setPromoHidden] = React.useState(isOpenWorkModelsPromoHidden);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const modelOptions = useModelOptions(open);
+  const { modelOptions, connectedProviders } = useModelOptions(open);
   const denAuth = useDenAuth();
   const navigate = useNavigate();
   const platform = usePlatform();
-  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
+  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility(connectedProviders);
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const canAddProviders = !checkDesktopRestriction({ restriction: "allowCustomProviders" });
 
@@ -257,7 +275,9 @@ export function ModelSelect({
     () => hasOpenWorkModelsProvider(modelOptions.map((option) => option.providerID)),
     [modelOptions],
   );
-  const showOpenWorkModelsSyncing = openWorkModelsEntitled && !openWorkModelsAvailable;
+  const hasOtherConnectedProvider = hasNonOpenworkConnectedProvider(connectedProviders);
+  const showOpenWorkModelsSyncing =
+    openWorkModelsEntitled && !openWorkModelsAvailable && !hasOtherConnectedProvider;
   const showOpenWorkModelsPromo = React.useMemo(
     () =>
       openWorkModelsPromoEligible &&
@@ -268,11 +288,13 @@ export function ModelSelect({
   );
 
   const groups = React.useMemo(() => {
-    const providerGroups = groupByProvider(modelOptions);
+    const providerGroups = groupByProvider(modelOptions, {
+      hasOnlyManagedFallback: !hasOtherConnectedProvider,
+    });
     return showOpenWorkModelsPromo
       ? [openWorkModelsGroup(), ...providerGroups]
       : providerGroups;
-  }, [modelOptions, showOpenWorkModelsPromo]);
+  }, [hasOtherConnectedProvider, modelOptions, showOpenWorkModelsPromo]);
 
   const handleSelect = (option: ModelOption) => {
     onChange({ providerID: option.providerID, modelID: option.modelID });
@@ -386,7 +408,7 @@ export function ModelSelect({
           <CommandList>
             {(group: ModelSelectGroup) => (
               <CommandGroup
-                key={group.value}
+                key={group.providerId}
                 items={group.items}
               >
                 <CommandGroupLabel className={group.promo ? "flex items-baseline justify-between gap-2" : undefined}>
@@ -448,6 +470,11 @@ export function ModelSelect({
                               getProviderDisplayName(option.providerID)}
                           </span>
                         </span>
+                        {option.source === "cloud" ? (
+                          <span className="shrink-0 rounded-md bg-blue-3/50 px-1.5 py-0.5 text-[10px] font-medium text-blue-11/70">
+                            {t("settings.provider_source_organization")}
+                          </span>
+                        ) : null}
                       </CommandItem>
                     );
                   }}

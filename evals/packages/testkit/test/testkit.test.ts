@@ -26,6 +26,15 @@ test("needs accepts a tool-capable model and provider key", () => {
   ));
 });
 
+test("needs requires a provider key only when vision is enabled", () => {
+  assert.doesNotThrow(() => checkNeeds({}, {}));
+  assert.throws(
+    () => checkNeeds({ vision: true }, {}),
+    (error) => error instanceof SkipError && error.message === "needs: set OPENAI_API_KEY or ANTHROPIC_API_KEY",
+  );
+  assert.doesNotThrow(() => checkNeeds({ vision: true }, { ANTHROPIC_API_KEY: "test-key" }));
+});
+
 test("needs throws a named SkipError for every unsatisfied resource", () => {
   assert.throws(
     () => checkNeeds({ model: "tool-capable", env: ["EXTRA_REQUIRED"], optIn: ["EXACT_OPT_IN"], daytona: true }, {}),

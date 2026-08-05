@@ -33,6 +33,7 @@ import { appLogger } from "../../observability/logger.js"
 import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
+import { organizationOrgProviderSyncEnabled } from "../../capability-sources/org-provider-sync-rollout.js"
 import { normalizeOrganizationCapabilities, readOrganizationCapabilityOverrides } from "../../organization-capabilities.js"
 import { DEFAULT_ORGANIZATION_LIMITS, normalizeOrganizationMetadata } from "../../organization-limits.js"
 import { env } from "../../env.js"
@@ -84,6 +85,7 @@ const updateOrganizationCapabilitiesSchema = z.object({
     installLinks: z.boolean().nullable().optional(),
     mcpConnections: z.boolean().nullable().optional(),
     cloud: z.boolean().nullable().optional(),
+    orgProviderSync: z.boolean().nullable().optional(),
   }),
 })
 
@@ -268,6 +270,9 @@ function readAdminVisibleOrganizationCapabilities(metadata: Record<string, unkno
     installLinks: organizationInstallLinksEnabled(metadata, { gatingEnabled: false }),
     mcpConnections: memberFacingMcpConnectionsEnabled(metadata, { gatingEnabled: false }),
     cloud: organizationCloudEnabled(metadata, { orgMode: env.orgMode }),
+    orgProviderSync: organizationOrgProviderSyncEnabled(metadata, {
+      defaultEnabled: env.orgProviderSyncDefaultEnabled,
+    }),
   }
 }
 
@@ -276,7 +281,7 @@ function readUnmanagedCapabilityMetadata(metadata: Record<string, unknown>): Rec
   const capabilities: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(raw)) {
-    if (key !== "installLinks" && key !== "mcpConnections" && key !== "cloud") {
+    if (key !== "installLinks" && key !== "mcpConnections" && key !== "cloud" && key !== "orgProviderSync") {
       capabilities[key] = value
     }
   }
@@ -1396,6 +1401,14 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           delete capabilities.cloud
         } else {
           capabilities.cloud = cloud
+        }
+      }
+      const orgProviderSync = body.data.capabilities.orgProviderSync
+      if (orgProviderSync !== undefined) {
+        if (orgProviderSync === null) {
+          delete capabilities.orgProviderSync
+        } else {
+          capabilities.orgProviderSync = orgProviderSync
         }
       }
 

@@ -1,5 +1,7 @@
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
+import { isCloudManagedProviderKey } from "../../react-app/domains/connections/provider-auth/cloud-provider-config";
+
 const PINNED_PROVIDER_ORDER = ["opencode", "openai", "anthropic"] as const;
 
 export const providerPriorityRank = (id: string) => {
@@ -20,6 +22,27 @@ export const compareProviders = (
   const aName = (a.name ?? a.id).trim();
   const bName = (b.name ?? b.id).trim();
   return aName.localeCompare(bName);
+};
+
+function providerTier(id: string, hasOnlyManagedFallback: boolean) {
+  const normalized = id.trim().toLowerCase();
+  if (hasOnlyManagedFallback && normalized === "openwork") return 0;
+  if (normalized === "openwork") return 2;
+  if (isCloudManagedProviderKey(normalized)) return 0;
+  if (normalized !== "opencode") return 1;
+  return 3;
+}
+
+/** Organization-shared, local/custom, OpenWork Models, then built-in fallback. */
+export const compareProviderTiers = (
+  a: { id: string; name?: string },
+  b: { id: string; name?: string },
+  options: { hasOnlyManagedFallback: boolean },
+) => {
+  const tierDiff = providerTier(a.id, options.hasOnlyManagedFallback) -
+    providerTier(b.id, options.hasOnlyManagedFallback);
+  if (tierDiff !== 0) return tierDiff;
+  return (a.name ?? a.id).trim().localeCompare((b.name ?? b.id).trim());
 };
 
 export const filterProviderList = (

@@ -102,7 +102,7 @@ type CloudProviderSyncReason =
 
 let lastGlobalProviderDisposeRefreshAt = 0;
 const globalCloudProviderSyncByContext = new Map<string, Promise<void>>();
-let loggedGatewayCloudProviderSyncSkip = false;
+let loggedServerManagedCloudProviderSyncSkip = false;
 
 function enqueueGlobalCloudProviderSync(
   contextKey: string,
@@ -196,6 +196,7 @@ type CreateProviderAuthStoreOptions = {
   providerDefaults: () => Record<string, string>;
   providerConnectedIds: () => string[];
   disabledProviders: () => string[];
+  serverManagedProviderSync?: () => boolean | null;
   checkDesktopAppRestriction: DesktopAppRestrictionChecker;
   selectedWorkspaceDisplay: () => WorkspaceDisplay;
   providerBaseUrl: () => string;
@@ -260,6 +261,23 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudOrgProvidersInFlight: Promise<DenOrgLlmProvider[]> | null = null;
   let cloudProviderSyncTail: Promise<void> = Promise.resolve();
   let cloudProviderSyncContextKey = "";
+
+  const rendererCloudProviderSyncHandledElsewhere = () => {
+    if (disposed || getOpenworkGatewayOrigin()) return true;
+    return Boolean(options.serverManagedProviderSync)
+      && options.serverManagedProviderSync?.() !== false;
+  };
+
+  const openworkServerHandlesProviderSync = async () => {
+    if (rendererCloudProviderSyncHandledElsewhere()) return true;
+    const client = options.openworkServer.getSnapshot().openworkServerClient;
+    if (!client) return false;
+    try {
+      return (await client.providerSyncState()).enabled;
+    } catch {
+      return false;
+    }
+  };
 
   const emitChange = () => {
     for (const listener of listeners) listener();
@@ -1547,6 +1565,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         token,
       });
       const provider = await den.getOrgLlmProviderConnection(orgId, cloudProviderId);
+      if (await openworkServerHandlesProviderSync()) {
+        return {
+          message: `${provider.name} is managed by OpenWork server.`,
+          materialized: false,
+        };
+      }
       const localProviderId = getCloudManagedProviderId(provider);
       assertProviderAllowedByDesktopPolicy(localProviderId);
       const existingImported = state.importedCloudProviders[cloudProviderId] ?? null;
@@ -1621,7 +1645,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
       refreshSnapshot();
       emitChange();
-      return `${t("status.connected")} ${provider.name}`;
+      return {
+        message: `${t("status.connected")} ${provider.name}`,
+        materialized: true,
+      };
     } catch (error) {
       const message = describeProviderError(error, "Failed to connect organization provider.");
       if (!optionsArg?.silent) {
@@ -1632,7 +1659,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function connectCloudProvider(cloudProviderId: string) {
-    return await connectCloudProviderInternal(cloudProviderId);
+    return (await connectCloudProviderInternal(cloudProviderId)).message;
   }
 
   async function removeCloudProviderInternal(
@@ -1732,7 +1759,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   };
 
   async function performCloudProviderSync(reason: CloudProviderSyncReason) {
-    if (!hasCloudProviderSyncPrerequisites()) {
+    if (rendererCloudProviderSyncHandledElsewhere() || !hasCloudProviderSyncPrerequisites()) {
       return;
     }
 
@@ -1741,6 +1768,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // the target resolves made the baseline read fall back to an empty source
     // and re-import every org provider — engine dispose churn on settings open.
     const target = await resolveOpenworkConfigTarget("write");
+    if (await openworkServerHandlesProviderSync()) return;
     if (!target.canUseOpenworkServer || !target.openworkClient || !target.openworkWorkspaceId) {
       return;
     }
@@ -1753,12 +1781,14 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return;
     }
     const liveProviders = await refreshCloudOrgProviders({ force: true });
+    if (await openworkServerHandlesProviderSync()) return;
     const liveProviderMap = new Map(liveProviders.map((provider) => [provider.id, provider]));
     const failures: string[] = [];
     const processedLiveProviderIds = new Set<string>();
     let configChanged = false;
 
     for (const importedProvider of Object.values(importedProviders)) {
+      if (rendererCloudProviderSyncHandledElsewhere()) return;
       const liveProvider = liveProviderMap.get(importedProvider.cloudProviderId);
       if (!liveProvider) {
         try {
@@ -1784,7 +1814,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         // remove-then-reconnect dance could leave the block deleted if the
         // reconnect aborted on a stale in-memory connected-providers guard,
         // so the workspace kept the first-import snapshot forever (#2346).
-        await connectCloudProviderInternal(liveProvider.id, { silent: true });
+        const result = await connectCloudProviderInternal(liveProvider.id, { silent: true });
+        if (!result.materialized) return;
         configChanged = true;
       } catch (error) {
         failures.push(logCloudProviderSyncError(reason, error));
@@ -1794,6 +1825,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const nextImportedProviders = state.importedCloudProviders;
     const newlyImported: Array<{ id: string; name: string; providerId: string; firstModelId?: string; firstModelName?: string }> = [];
     for (const liveProvider of liveProviders) {
+      if (rendererCloudProviderSyncHandledElsewhere()) return;
       if (processedLiveProviderIds.has(liveProvider.id)) {
         continue;
       }
@@ -1802,7 +1834,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
 
       try {
-        await connectCloudProviderInternal(liveProvider.id, { silent: true });
+        const result = await connectCloudProviderInternal(liveProvider.id, { silent: true });
+        if (!result.materialized) return;
         configChanged = true;
         const firstModel = liveProvider.models[0] ?? null;
         newlyImported.push({
@@ -1837,12 +1870,22 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function runCloudProviderSync(reason: CloudProviderSyncReason) {
-    if (getOpenworkGatewayOrigin()) {
-      if (!loggedGatewayCloudProviderSyncSkip) {
-        loggedGatewayCloudProviderSyncSkip = true;
+    if (options.serverManagedProviderSync) {
+      // Den auth and desktop-config listeners observe the same sign-in event.
+      // Yield once so the latest rollout state wins instead of starting the
+      // legacy renderer materializer with the signed-out default config.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    const serverManagedProviderSync = options.serverManagedProviderSync?.();
+    if (await openworkServerHandlesProviderSync()) {
+      if (!disposed && (getOpenworkGatewayOrigin() || serverManagedProviderSync === true) && !loggedServerManagedCloudProviderSyncSkip) {
+        loggedServerManagedCloudProviderSyncSkip = true;
         console.info(
-          `[cloud-provider-sync:${reason}] Provider materialization is handled server-side in gateway mode.`,
+          `[cloud-provider-sync:${reason}] Provider materialization is handled server-side.`,
         );
+      }
+      if (!disposed && (getOpenworkGatewayOrigin() || serverManagedProviderSync === true)) {
+        await refreshProviders({ force: true });
       }
       return { outcome: "handled_server_side" };
     }

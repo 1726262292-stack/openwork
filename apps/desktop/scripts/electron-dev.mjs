@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
+import os from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -264,7 +265,25 @@ const resolvedStartUrl = await waitForVite(startUrl);
 // Native dependencies installed for the host Node ABI must be rebuilt before
 // Electron loads the embedded server and terminal runtime.
 console.log("[electron-dev] Rebuilding native dependencies for Electron...");
-runSync(pnpmCmd, ["--filter", "@openwork/desktop", "run", "rebuild:electron-native"], { cwd: repoRoot });
+let nativeRebuildEnv = process.env;
+try {
+  const realHome = os.userInfo().homedir;
+  if (realHome !== process.env.HOME) {
+    // A synthetic eval-surface HOME under a path with spaces breaks node-gyp include paths;
+    // native artifacts are shared in node_modules, and the gyp header cache belongs in the real home.
+    nativeRebuildEnv = {
+      ...process.env,
+      HOME: realHome,
+      ...(process.platform === "win32" ? { USERPROFILE: realHome } : {}),
+    };
+  }
+} catch {
+  // Keep the current environment when the account home cannot be resolved.
+}
+runSync(pnpmCmd, ["--filter", "@openwork/desktop", "run", "rebuild:electron-native"], {
+  cwd: repoRoot,
+  env: nativeRebuildEnv,
+});
 
 // Optional Electron CDP for external debugging / raw CDP clients.
 // NOT required for the built-in browser (uses native webContents APIs).

@@ -9,6 +9,11 @@ import {
 } from "../connect-state.js";
 import type { CloudMcpLiveStatusObserver } from "../cloud-mcp-health.js";
 import { readOpenWorkConnectSkillCatalog, renderOpenWorkConnectSkillInstruction } from "../connect-skill-catalog.js";
+import {
+  parseProviderSyncServerState,
+  readProviderSyncStatus,
+  writeProviderSyncState,
+} from "../provider-sync-state.js";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
 import { syncManagedProviderAuth } from "../managed-provider-auth.js";
 import { ApiError } from "../errors.js";
@@ -67,6 +72,7 @@ interface RegisterCoreRoutesOptions {
     warn: (message: string, attributes?: Record<string, unknown>) => void;
     error: (message: string, attributes?: Record<string, unknown>) => void;
   };
+  kickProviderSync: () => Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -126,6 +132,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     resolveDevLogPath,
     createOpenAiRealtimeVoiceSession,
     managedProviderAuthLogger,
+    kickProviderSync,
   } = options;
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
   const envPendingChangesByRuntime = new Map<string, boolean>();
@@ -348,6 +355,51 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     }
     await writeConnectState(config, { connectEnabled: body.connectEnabled });
     return jsonResponse({ ok: true, schemaVersion: 1, ...(await getConnectSnapshot(config, connectSnapshotBaseOptions)) });
+  });
+
+  addRoute(routes, "GET", "/experimental/provider-sync/state", "host", async () => {
+    return jsonResponse({
+      ok: true,
+      schemaVersion: 1,
+      ...(await readProviderSyncStatus(config)),
+    });
+  });
+
+  addRoute(routes, "GET", "/experimental/provider-sync/enabled", "client", async () => {
+    return jsonResponse({
+      ok: true,
+      schemaVersion: 1,
+      enabled: (await readProviderSyncStatus(config)).enabled,
+    });
+  });
+
+  addRoute(routes, "PUT", "/experimental/provider-sync/state", "host", async (ctx) => {
+    ensureWritable(config);
+    const body = await readJsonBody(ctx.request);
+    const state = parseProviderSyncServerState(body);
+    if (!state) {
+      throw new ApiError(
+        400,
+        "invalid_payload",
+        "enabled, token, expiresAt, denBaseUrl, and orgId must match the provider sync state contract",
+      );
+    }
+    await writeProviderSyncState(config, state);
+    void kickProviderSync();
+    return jsonResponse({
+      ok: true,
+      schemaVersion: 1,
+      ...(await readProviderSyncStatus(config)),
+    });
+  });
+
+  addRoute(routes, "POST", "/experimental/provider-sync/kick", "client", async () => {
+    await kickProviderSync();
+    return jsonResponse({
+      ok: true,
+      schemaVersion: 1,
+      ...(await readProviderSyncStatus(config)),
+    });
   });
 
   addRoute(routes, "GET", "/experimental/extensions/actions", "client", async (ctx) => {
