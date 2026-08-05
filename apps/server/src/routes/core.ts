@@ -9,6 +9,7 @@ import {
 } from "../connect-state.js";
 import type { CloudMcpLiveStatusObserver } from "../cloud-mcp-health.js";
 import { readOpenWorkConnectSkillCatalog, renderOpenWorkConnectSkillInstruction } from "../connect-skill-catalog.js";
+import { readOpenWorkAutomationCatalog, renderOpenWorkAutomationInstruction } from "../connect-automation-catalog.js";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
 import { syncManagedProviderAuth } from "../managed-provider-auth.js";
 import { ApiError } from "../errors.js";
@@ -337,6 +338,17 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       schemaVersion: 1,
       skills,
       instruction: renderOpenWorkConnectSkillInstruction(skills),
+    });
+  });
+
+  addRoute(routes, "GET", "/experimental/connect/automations", "client", async (_ctx) => {
+    // Owner-scoped through the same openwork-cloud connection as skills.
+    const index = await readOpenWorkAutomationCatalog(config);
+    return jsonResponse({
+      ok: true,
+      schemaVersion: 1,
+      index,
+      instruction: renderOpenWorkAutomationInstruction(index),
     });
   });
 

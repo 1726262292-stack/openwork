@@ -11,6 +11,7 @@ import {
 } from "./agent-instruction-compose.js";
 import {
   composeSkillAuthoringInstruction,
+  resolveOpenWorkAutomationInstruction,
   resolveOpenWorkConnectSkillInstruction,
   resolveOpenWorkExtensionDiscoveryInstruction,
   type OpenCodeContext,
@@ -895,12 +896,13 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
   return {
   "experimental.chat.system.transform": async (input: unknown, output: { system: string[] }) => {
     const mergedInput = mergeTransformInputWithFactoryContext(input, factoryContext);
-    const [extensionInstruction, skillInstruction] = await Promise.all([
+    const [extensionInstruction, skillInstruction, automationInstruction] = await Promise.all([
       resolveOpenWorkExtensionDiscoveryInstruction(mergedInput, fetch, {
         client: engineMcpStatusClient,
         directory: engineMcpStatusDirectory,
       }),
       resolveOpenWorkConnectSkillInstruction(mergedInput, fetch),
+      resolveOpenWorkAutomationInstruction(mergedInput, fetch),
     ]);
     const skillAuthoring = composeSkillAuthoringInstruction(extensionInstruction);
     if (process.env.OPENWORK_DEV_MODE === "1") {
@@ -917,6 +919,7 @@ export const OpenWorkExtensionsPreview = async (factoryInput?: unknown) => {
       createInstructionSection("agent-surface", OPENWORK_AGENT_SURFACE_INSTRUCTION),
       createInstructionSection("skill-authoring", skillAuthoring.prompt),
       createInstructionSection("connect-skills", skillInstruction),
+      createInstructionSection("automations", automationInstruction),
       createInstructionSection("browser", OPENWORK_BROWSER_INSTRUCTION),
     );
     output.system.push(...composeAgentInstructions(sections));
