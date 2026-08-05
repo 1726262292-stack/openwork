@@ -1185,7 +1185,7 @@ export function AppSidebar(props: AppSidebarProps) {
               {canCreateWorkspaces() ? (
                 <button
                   type="button"
-                  className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground/60 opacity-0 transition-[color,background-color,opacity] hover:bg-sidebar-accent hover:text-foreground group-hover/workspaces-header:opacity-100 group-focus-within/workspaces-header:opacity-100"
+                  className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-foreground"
                   onClick={props.onOpenCreateWorkspace}
                   aria-label={t("workspace_list.add_workspace")}
                   title={t("workspace_list.add_workspace")}
@@ -1472,7 +1472,7 @@ function WorkspaceHeader({
         )}
       </SidebarGlyphSlot>
       <div
-        className="min-w-0 flex-1 cursor-grab touch-none pr-14 active:cursor-grabbing"
+        className="min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-14 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-10 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-14 pr-2"
         onPointerDown={onTitlePointerDown}
       >
         <span className="block ow-fade-truncate">{label}</span>
@@ -1602,7 +1602,7 @@ function WorkspaceSidebarGroup({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-5 text-muted-foreground"
+                  className="size-5 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
                     ctx.onCreateTaskInWorkspace(workspace.id);
@@ -1611,7 +1611,7 @@ function WorkspaceSidebarGroup({
                   aria-label={t("session.new_task")}
                   title={t("session.new_task")}
                 >
-                  <SquarePen className="size-3.5" />
+                  <Plus className="size-4" />
                 </Button>
                 <WorkspaceActionsMenu
                   workspace={workspace}
