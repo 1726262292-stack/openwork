@@ -1,4 +1,5 @@
 import { createAndSelectWorkspace, signInDesktopAs } from "@openwork/behaviors";
+import type { Surface } from "@openwork/cdp";
 import { desktop } from "@openwork/hosts";
 import type { DesktopHandle, Host } from "@openwork/hosts";
 import type { Den } from "./server.ts";
@@ -14,6 +15,8 @@ export interface AppOptions {
   profileDir?: string;
   /** Eval-only delay before the desktop starts its embedded OpenWork server. */
   localServerDelayMs?: number;
+  /** Observe a fresh profile after workspace setup but before Cloud sign-in. */
+  beforeSignIn?: (surface: Surface) => Promise<void>;
 }
 
 /** A signed-in desktop; its Electron profile root is available at handle.profileDir. */
@@ -48,6 +51,7 @@ export async function app(options: AppOptions): Promise<App> {
     // Add workspace entry, so a member's workspace exists before they connect.
     const path = `/tmp/openwork-${options.as}-${Date.now()}`;
     await createAndSelectWorkspace(surface, { path });
+    await options.beforeSignIn?.(surface);
     await signInDesktopAs(surface, options.den.ref, member);
     const { workspaceId } = await createAndSelectWorkspace(surface, { path });
     return {

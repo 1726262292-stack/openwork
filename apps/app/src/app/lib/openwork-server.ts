@@ -644,6 +644,7 @@ export type OpenworkArtifactList = {
 export type OpenworkConnectState = {
   ok: true;
   schemaVersion: 1;
+  status: "available" | "missing" | "invalid" | "unreadable";
   connectEnabled: boolean;
   cloudMcpPresent: boolean;
   googleWorkspace: { legacyConfigured: boolean };
@@ -1327,6 +1328,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
       requestJson<OpenworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<OpenworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
     capabilities: () => requestJson<OpenworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    getConnectState: (workspaceId?: string | null) => {
+      const query = new URLSearchParams();
+      if (workspaceId?.trim()) query.set("workspaceId", workspaceId.trim());
+      const suffix = query.size ? `?${query.toString()}` : "";
+      return requestJson<OpenworkConnectState>(baseUrl, `/experimental/connect/state${suffix}`, { token, hostToken, timeoutMs: timeouts.config });
+    },
     setConnectState: (connectEnabled: boolean) => requestJson<OpenworkConnectState>(baseUrl, "/experimental/connect/state", { token, hostToken, method: "PUT", body: { connectEnabled }, timeoutMs: timeouts.config }),
     callExtensionAction: (payload: OpenworkExtensionActionCall) =>
       requestJson<OpenworkExtensionActionResult>(baseUrl, "/experimental/extensions/call", {
