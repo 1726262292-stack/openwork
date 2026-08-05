@@ -482,20 +482,18 @@ function sha256Hex(value: string) {
   return createHash("sha256").update(value).digest("hex")
 }
 
-function readEmailDomain(email: string) {
-  const atIndex = email.lastIndexOf("@")
-  return atIndex > 0 && atIndex < email.length - 1 ? email.slice(atIndex + 1) : "unknown"
+export function loginOptionsRateLimitKeys(headers: Headers, email: string) {
+  // Per-domain limiting was removed: shared corporate domains and NAT made it a coworker-vs-coworker limiter, not an abuse boundary.
+  return [
+    `auth-login-options:ip:${sha256Hex(readRequestAddress(headers))}`,
+    `auth-login-options:email:${sha256Hex(email)}`,
+  ]
 }
 
 async function checkLoginOptionsRateLimit(headers: Headers, email: string) {
   const now = Date.now()
-  const keys = [
-    `auth-login-options:ip:${sha256Hex(readRequestAddress(headers))}`,
-    `auth-login-options:email:${sha256Hex(email)}`,
-    `auth-login-options:domain:${sha256Hex(readEmailDomain(email))}`,
-  ]
 
-  for (const key of keys) {
+  for (const key of loginOptionsRateLimitKeys(headers, email)) {
     const retryAfter = await checkRateLimit(key, 20, 60_000, now)
     if (retryAfter !== null) {
       return retryAfter
