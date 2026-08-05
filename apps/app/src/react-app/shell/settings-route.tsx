@@ -1690,7 +1690,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   useCloudProviderAutoSync(() => connectionsStore.syncCloudControlMcp());
 
   useEffect(() => {
-    if (route.tab !== "cloud-providers") return;
+    if (route.tab !== "cloud-providers" && route.tab !== "ai") return;
     void providerAuthStore.runCloudProviderSync("settings_cloud_opened");
   }, [providerAuthStore, route.tab]);
 
@@ -2189,14 +2189,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             cloudProvidersView={
               <CloudProvidersView
                 embedded
+                checkDesktopAppRestriction={checkDesktopRestriction}
                 cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
                 connectCloudProvider={providerAuthStore.connectCloudProvider}
                 importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
+                importsUnavailable={
+                  openworkServerSnapshot.openworkServerCapabilities?.config?.read === false ||
+                  openworkServerSnapshot.openworkServerCapabilities?.config?.write === false
+                }
+                lastSyncError={providerAuthSnapshot.lastSyncError}
+                openworkServerAvailable={Boolean(openworkServerSnapshot.openworkServerClient)}
                 onOpenAccount={openCloudAccountSettings}
                 refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
-                refreshImportedCloudProviders={providerAuthStore.refreshImportedCloudProviders}
-                removeCloudProvider={providerAuthStore.removeCloudProvider}
-                session={denSession}
+                runCloudProviderSync={providerAuthStore.runCloudProviderSync}
               />
             }
           />
@@ -2343,14 +2348,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "cloud-providers":
         return (
           <CloudProvidersView
+            checkDesktopAppRestriction={checkDesktopRestriction}
             cloudOrgProviders={providerAuthSnapshot.cloudOrgProviders}
             connectCloudProvider={providerAuthStore.connectCloudProvider}
             importedCloudProviders={providerAuthSnapshot.importedCloudProviders}
+            importsUnavailable={
+              openworkServerSnapshot.openworkServerCapabilities?.config?.read === false ||
+              openworkServerSnapshot.openworkServerCapabilities?.config?.write === false
+            }
+            lastSyncError={providerAuthSnapshot.lastSyncError}
+            openworkServerAvailable={Boolean(openworkServerSnapshot.openworkServerClient)}
             onOpenAccount={openCloudAccountSettings}
             refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
-            refreshImportedCloudProviders={providerAuthStore.refreshImportedCloudProviders}
-            removeCloudProvider={providerAuthStore.removeCloudProvider}
-            session={denSession}
+            runCloudProviderSync={providerAuthStore.runCloudProviderSync}
           />
         );
       case "advanced":
@@ -2574,7 +2584,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         )}
         onSelect={providerAuthStore.startProviderAuth}
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
-        onConnectCloudProvider={providerAuthStore.connectCloudProvider}
         onSubmitOAuth={providerAuthStore.completeProviderAuthOAuth}
         onRefreshProviders={providerAuthStore.refreshProviders}
         showOpenWorkModelsSubscribe={showOpenWorkModelsSubscribe}
