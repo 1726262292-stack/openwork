@@ -8,6 +8,14 @@ import {
   safeExternalMcpCauseChain,
 } from "../src/capability-sources/external-mcp-diagnostics.js"
 
+const SAFE_SLACK_ERROR = "Slack-style provider error: invalid_refresh_token"
+const AUTHORIZATION_CODE = "SECRETVALUE123"
+const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureABCD"
+const SLACK_REFRESH_TOKEN = "xoxe-1-1234567890-abcdef"
+const BEARER_TOKEN = "Bearer abcdefghijklmnopqrstuvwx"
+const GITHUB_TOKEN = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"
+const OPAQUE_TOKEN = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
+
 describe("Slack MCP diagnostic compatibility", () => {
   test("preserves the SDK StreamableHTTPError name and numeric status code", () => {
     const error = new StreamableHTTPError(400, "provider rejected initialize")
@@ -55,7 +63,7 @@ describe("Slack MCP diagnostic compatibility", () => {
 
   test("surfaces a bounded SDK OAuth error description in the diagnostic message", () => {
     const providerError = new InvalidGrantError(
-      'Slack-style provider error: invalid_refresh_token {"access_token":"must-not-appear"}',
+      `${SAFE_SLACK_ERROR}; authorization_code=${AUTHORIZATION_CODE}; ${JWT}; ${SLACK_REFRESH_TOKEN}; {"access_token":"must-not-appear"}`,
     )
     const wrapped = new Error("Enterprise MCP refresh failed", { cause: providerError })
     const diagnostic = new ExternalMcpDiagnosticTracker("req_slack_refresh").error(
@@ -65,8 +73,12 @@ describe("Slack MCP diagnostic compatibility", () => {
     const serialized = JSON.stringify(diagnostic)
 
     expect(diagnostic.message).toContain("InvalidGrantError")
-    expect(diagnostic.message).toContain("invalid_refresh_token")
-    expect(serialized).toContain("invalid_refresh_token")
+    expect(diagnostic.message).toContain(SAFE_SLACK_ERROR)
+    expect(diagnostic.message).toContain("authorization_code=[redacted]")
+    expect(serialized).toContain(SAFE_SLACK_ERROR)
+    expect(serialized).not.toContain(AUTHORIZATION_CODE)
+    expect(serialized).not.toContain(JWT)
+    expect(serialized).not.toContain(SLACK_REFRESH_TOKEN)
     expect(serialized).not.toContain("must-not-appear")
     expect(diagnostic.providerErrorMessage?.length).toBeLessThanOrEqual(300)
   })
@@ -79,6 +91,15 @@ describe("Slack MCP diagnostic compatibility", () => {
       fetch: async () => Response.json({
         ok: false,
         error: "invalid_refresh_token",
+        error_description: [
+          SAFE_SLACK_ERROR,
+          `authorization_code=${AUTHORIZATION_CODE}`,
+          JWT,
+          SLACK_REFRESH_TOKEN,
+          BEARER_TOKEN,
+          GITHUB_TOKEN,
+          OPAQUE_TOKEN,
+        ].join("; "),
         refresh_token: "must-not-appear",
       }),
     })
@@ -91,8 +112,22 @@ describe("Slack MCP diagnostic compatibility", () => {
     const finalError = new Error("A signed authorization transaction is required")
     Object.defineProperty(finalError, "code", { value: "MCP_OAUTH_AUTHORIZATION_ID_REQUIRED" })
     const diagnostic = tracker.error(finalError, "CONTINUITY_REFRESH").diagnostic
+    const serialized = JSON.stringify(diagnostic)
 
-    expect(diagnostic.message).toContain("invalid_refresh_token")
-    expect(JSON.stringify(diagnostic)).not.toContain("must-not-appear")
+    expect(diagnostic.message).toContain(SAFE_SLACK_ERROR)
+    expect(diagnostic.message).toContain("authorization_code=[redacted]")
+    expect(serialized).not.toContain("must-not-appear")
+    for (const secret of [
+      AUTHORIZATION_CODE,
+      JWT,
+      SLACK_REFRESH_TOKEN,
+      "abcdefghijklmnopqrstuvwx",
+      GITHUB_TOKEN,
+      OPAQUE_TOKEN,
+    ]) {
+      expect(serialized).not.toContain(secret)
+    }
+    expect(diagnostic.providerResponseExcerpt?.length).toBeLessThanOrEqual(600)
+    expect(diagnostic.providerErrorMessage?.length).toBeLessThanOrEqual(300)
   })
 })

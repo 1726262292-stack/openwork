@@ -12,6 +12,15 @@ import {
   type EnterpriseMcpDiagnosticEvent,
 } from "../src/index.js"
 import { createEnterpriseMcpRequestObserver } from "../src/request-observer.js"
+import { redactedResponseBodyExcerpt } from "../src/response-body-excerpt.js"
+
+const SAFE_SLACK_ERROR = "Slack-style provider error: invalid_refresh_token"
+const AUTHORIZATION_CODE = "SECRETVALUE123"
+const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureABCD"
+const SLACK_REFRESH_TOKEN = "xoxe-1-1234567890-abcdef"
+const BEARER_TOKEN = "Bearer abcdefghijklmnopqrstuvwx"
+const GITHUB_TOKEN = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456"
+const OPAQUE_TOKEN = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
 
 const tokenResponseSchema = z.object({
   ok: z.boolean().optional(),
@@ -205,5 +214,44 @@ describe("Slack-style MCP compatibility", () => {
     assert.match(failed.responseBodyExcerpt ?? "", /\[redacted\]/)
     assert.doesNotMatch(failed.responseBodyExcerpt ?? "", /must-not-appear|also-secret/)
     assert.ok((failed.responseBodyExcerpt?.length ?? 0) <= 2_000)
+  })
+
+  it("redacts credential content inside non-sensitive fields and raw text", () => {
+    const errorDescription = [
+      SAFE_SLACK_ERROR,
+      `authorization_code=${AUTHORIZATION_CODE}`,
+      JWT,
+      SLACK_REFRESH_TOKEN,
+      BEARER_TOKEN,
+      GITHUB_TOKEN,
+      OPAQUE_TOKEN,
+    ].join("; ")
+    const excerpt = redactedResponseBodyExcerpt(JSON.stringify({
+      error_description: errorDescription,
+      access_token: "key-based-secret",
+    }))
+
+    assert.match(excerpt, new RegExp(SAFE_SLACK_ERROR))
+    assert.match(excerpt, /authorization_code=\[redacted\]/)
+    assert.match(excerpt, /"access_token":"\[redacted\]"/)
+    for (const secret of [
+      AUTHORIZATION_CODE,
+      JWT,
+      SLACK_REFRESH_TOKEN,
+      "abcdefghijklmnopqrstuvwx",
+      GITHUB_TOKEN,
+      OPAQUE_TOKEN,
+      "key-based-secret",
+    ]) {
+      assert.doesNotMatch(excerpt, new RegExp(secret))
+    }
+    assert.ok(excerpt.length <= 2_000)
+
+    const rawExcerpt = redactedResponseBodyExcerpt(
+      `not-json ${SAFE_SLACK_ERROR}; authorization_code=${AUTHORIZATION_CODE}; ${JWT}; ${SLACK_REFRESH_TOKEN}`,
+    )
+    assert.match(rawExcerpt, new RegExp(SAFE_SLACK_ERROR))
+    assert.match(rawExcerpt, /authorization_code=\[redacted\]/)
+    assert.doesNotMatch(rawExcerpt, new RegExp(`${AUTHORIZATION_CODE}|${JWT}|${SLACK_REFRESH_TOKEN}`))
   })
 })
