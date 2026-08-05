@@ -1078,6 +1078,7 @@ function serializeConnectorMapping(row: ConnectorMappingRow) {
 
 function serializeConnectorSyncEvent(row: ConnectorSyncEventRow) {
   return {
+    attemptCount: row.attemptCount,
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
     connectorInstanceId: row.connectorInstanceId,
     connectorTargetId: row.connectorTargetId,
@@ -1085,6 +1086,7 @@ function serializeConnectorSyncEvent(row: ConnectorSyncEventRow) {
     eventType: row.eventType,
     externalEventRef: row.externalEventRef,
     id: row.id,
+    nextAttemptAt: row.nextAttemptAt ? row.nextAttemptAt.toISOString() : null,
     remoteId: row.remoteId,
     sourceRevisionRef: row.sourceRevisionRef,
     startedAt: row.startedAt.toISOString(),
@@ -4063,8 +4065,54 @@ export async function retryConnectorSyncEvent(input: { connectorSyncEventId: Con
   const row = await getConnectorSyncEventRow(input.context.organizationContext.organization.id, input.connectorSyncEventId)
   if (!row) throw new PluginArchRouteFailure(404, "connector_sync_event_not_found", "Connector sync event not found.")
   await ensureEditableConnectorInstance(input.context, row.connectorInstanceId)
-  await db.update(ConnectorSyncEventTable).set({ completedAt: null, startedAt: new Date(), status: "queued" }).where(eq(ConnectorSyncEventTable.id, row.id))
+  await db.update(ConnectorSyncEventTable).set({
+    attemptCount: 0,
+    completedAt: null,
+    nextAttemptAt: null,
+    startedAt: new Date(),
+    status: "queued",
+  }).where(eq(ConnectorSyncEventTable.id, row.id))
   return { id: row.id }
+}
+
+export async function syncConnectorInstanceNow(input: { connectorInstanceId: ConnectorInstanceId; context: PluginArchActorContext }) {
+  const instance = await ensureEditableConnectorInstance(input.context, input.connectorInstanceId)
+  const targets = await db
+    .select()
+    .from(ConnectorTargetTable)
+    .where(eq(ConnectorTargetTable.connectorInstanceId, instance.id))
+    .orderBy(asc(ConnectorTargetTable.createdAt), asc(ConnectorTargetTable.id))
+
+  let enqueuedCount = 0
+  for (const target of targets) {
+    const activeEvents = await db
+      .select({ id: ConnectorSyncEventTable.id })
+      .from(ConnectorSyncEventTable)
+      .where(and(
+        eq(ConnectorSyncEventTable.connectorTargetId, target.id),
+        inArray(ConnectorSyncEventTable.status, ["queued", "running"]),
+      ))
+      .limit(1)
+    if (activeEvents[0]) continue
+
+    await db.insert(ConnectorSyncEventTable).values({
+      connectorInstanceId: instance.id,
+      connectorTargetId: target.id,
+      connectorType: target.connectorType,
+      eventType: "manual_resync",
+      externalEventRef: null,
+      id: createDenTypeId("connectorSyncEvent"),
+      organizationId: instance.organizationId,
+      remoteId: target.remoteId,
+      sourceRevisionRef: null,
+      startedAt: new Date(),
+      status: "queued",
+      summaryJson: { trigger: "manual" },
+    })
+    enqueuedCount += 1
+  }
+
+  return { enqueuedCount }
 }
 
 function githubConnectorAppConfig() {
@@ -5500,6 +5548,7 @@ async function buildConnectorAutomationContext(input: { connectorInstance: Conne
   }
 
   return {
+    automation: true,
     memberTeams: [],
     session: null,
     organizationContext: {
@@ -5598,6 +5647,73 @@ async function maybeAutoImportGithubConnectorInstance(input: {
     })),
     sourceRevisionRef: applied.sourceRevisionRef,
   }
+}
+
+export async function executeGithubConnectorSyncEvent(input: { connectorSyncEventId: ConnectorSyncEventId }) {
+  const eventRows = await db
+    .select()
+    .from(ConnectorSyncEventTable)
+    .where(eq(ConnectorSyncEventTable.id, input.connectorSyncEventId))
+    .limit(1)
+  const event = eventRows[0]
+  if (!event || event.connectorType !== "github") {
+    throw new Error("GitHub connector sync event not found.")
+  }
+
+  const connectorInstance = await getConnectorInstanceRow(event.organizationId, event.connectorInstanceId)
+  if (!connectorInstance || connectorInstance.connectorType !== "github") {
+    throw new Error("GitHub connector instance not found for sync event.")
+  }
+  if (!event.connectorTargetId) {
+    throw new Error("GitHub connector target is missing from sync event.")
+  }
+  const connectorTarget = await getConnectorTargetRow(event.organizationId, event.connectorTargetId)
+  if (!connectorTarget || connectorTarget.connectorType !== "github") {
+    throw new Error("GitHub connector target not found for sync event.")
+  }
+
+  const startedAt = new Date()
+  const autoImportSummary = await maybeAutoImportGithubConnectorInstance({
+    connectorInstance,
+    connectorSyncEventId: event.id,
+    connectorTarget,
+  })
+  const completedAt = new Date()
+  const eventStatus: ConnectorSyncEventRow["status"] = !autoImportSummary.autoImported
+    ? "ignored"
+    : autoImportSummary.materializedConfigObjectCount > 0
+      ? "completed"
+      : "partial"
+  const summaryJson = {
+    ...(event.summaryJson ?? {}),
+    outcome: eventStatus,
+    error: null,
+    autoImportApplied: autoImportSummary.autoImported,
+    autoImportNewPlugins: autoImportSummary.autoImportNewPlugins,
+    classification: autoImportSummary.classification,
+    resolvedSourceRevisionRef: autoImportSummary.sourceRevisionRef,
+    discoveredPluginCount: autoImportSummary.discoveredPluginCount,
+    createdMarketplace: autoImportSummary.createdMarketplace,
+    createdPluginCount: autoImportSummary.createdPluginCount,
+    createdPlugins: autoImportSummary.createdPlugins,
+    materializedConfigObjectCount: autoImportSummary.materializedConfigObjectCount,
+    materializedConfigObjects: autoImportSummary.materializedConfigObjects,
+    startedAt: startedAt.toISOString(),
+    completedAt: completedAt.toISOString(),
+    durationMs: completedAt.getTime() - startedAt.getTime(),
+  }
+
+  await db.update(ConnectorSyncEventTable).set({
+    completedAt,
+    nextAttemptAt: null,
+    status: eventStatus,
+    summaryJson,
+  }).where(and(
+    eq(ConnectorSyncEventTable.id, event.id),
+    eq(ConnectorSyncEventTable.status, "running"),
+  ))
+
+  return { status: eventStatus }
 }
 
 async function getGithubDiscoveryFileTexts(input: {
@@ -6760,6 +6876,199 @@ export async function githubSetup(input: {
   }
 }
 
+type GithubWebhookTargetRow = {
+  instance: ConnectorInstanceRow
+  target: ConnectorTargetRow
+}
+
+async function listActiveGithubWebhookTargets(installationId: number) {
+  return db
+    .select({ instance: ConnectorInstanceTable, target: ConnectorTargetTable })
+    .from(ConnectorTargetTable)
+    .innerJoin(ConnectorInstanceTable, eq(ConnectorTargetTable.connectorInstanceId, ConnectorInstanceTable.id))
+    .innerJoin(ConnectorAccountTable, eq(ConnectorInstanceTable.connectorAccountId, ConnectorAccountTable.id))
+    .where(and(
+      eq(ConnectorTargetTable.connectorType, "github"),
+      eq(ConnectorTargetTable.organizationId, ConnectorInstanceTable.organizationId),
+      eq(ConnectorAccountTable.organizationId, ConnectorInstanceTable.organizationId),
+      eq(ConnectorAccountTable.connectorType, "github"),
+      eq(ConnectorAccountTable.remoteId, String(installationId)),
+      eq(ConnectorAccountTable.status, "active"),
+      eq(ConnectorInstanceTable.status, "active"),
+    ))
+}
+
+function githubWebhookTargetMatchesRepository(input: {
+  repositoryFullName: string
+  repositoryId: number
+  row: GithubWebhookTargetRow
+}) {
+  const targetConfig = input.row.target.targetConfigJson
+  const storedRepositoryId = targetConfig.repositoryId
+  return typeof storedRepositoryId === "number"
+    ? storedRepositoryId === input.repositoryId
+    : input.row.target.remoteId === input.repositoryFullName
+}
+
+function renamedRepositoryPreviousFullName(payload: Record<string, unknown>, repositoryFullName: string) {
+  const changes = isRecord(payload.changes) ? payload.changes : null
+  const repositoryChange = changes && isRecord(changes.repository) ? changes.repository : null
+  const nameChange = repositoryChange && isRecord(repositoryChange.name) ? repositoryChange.name : null
+  const previousName = nameChange && typeof nameChange.from === "string" ? nameChange.from.trim() : ""
+  if (!previousName) return ""
+  if (previousName.includes("/")) return previousName
+  const owner = repositoryFullName.split("/")[0]?.trim() ?? ""
+  return owner ? `${owner}/${previousName}` : previousName
+}
+
+async function handleGithubRepositoryRenamed(input: {
+  deliveryId: string
+  installationId: number
+  payload: Record<string, unknown>
+  repositoryFullName?: string
+  repositoryId?: number
+}) {
+  const repositoryFullName = input.repositoryFullName
+  const repositoryId = input.repositoryId
+  if (!repositoryFullName || !repositoryId) {
+    return 0
+  }
+  const previousFullName = renamedRepositoryPreviousFullName(input.payload, repositoryFullName)
+  if (!previousFullName) {
+    return 0
+  }
+
+  const rows = await listActiveGithubWebhookTargets(input.installationId)
+  const matches = rows.filter((row) => githubWebhookTargetMatchesRepository({
+    repositoryFullName: previousFullName,
+    repositoryId,
+    row,
+  }))
+  for (const row of matches) {
+    const now = new Date()
+    await db.update(ConnectorTargetTable).set({
+      remoteId: repositoryFullName,
+      targetConfigJson: {
+        ...row.target.targetConfigJson,
+        repositoryFullName,
+      },
+      updatedAt: now,
+    }).where(eq(ConnectorTargetTable.id, row.target.id))
+    await db.update(ConnectorInstanceTable).set({
+      remoteId: repositoryFullName,
+      updatedAt: now,
+    }).where(eq(ConnectorInstanceTable.id, row.instance.id))
+
+    await db.insert(ConnectorSyncEventTable).values({
+      completedAt: now,
+      connectorInstanceId: row.instance.id,
+      connectorTargetId: row.target.id,
+      connectorType: "github",
+      eventType: "repository",
+      externalEventRef: input.deliveryId,
+      id: createDenTypeId("connectorSyncEvent"),
+      organizationId: row.instance.organizationId,
+      remoteId: repositoryFullName,
+      sourceRevisionRef: null,
+      startedAt: now,
+      status: "completed",
+      summaryJson: {
+        action: "renamed",
+        deliveryId: input.deliveryId,
+        from: previousFullName,
+        to: repositoryFullName,
+        trigger: "webhook",
+      },
+    })
+
+    const activeEvents = await db
+      .select({ id: ConnectorSyncEventTable.id })
+      .from(ConnectorSyncEventTable)
+      .where(and(
+        eq(ConnectorSyncEventTable.connectorTargetId, row.target.id),
+        inArray(ConnectorSyncEventTable.status, ["queued", "running"]),
+      ))
+      .limit(1)
+    if (!activeEvents[0]) {
+      await db.insert(ConnectorSyncEventTable).values({
+        connectorInstanceId: row.instance.id,
+        connectorTargetId: row.target.id,
+        connectorType: "github",
+        eventType: "manual_resync",
+        externalEventRef: input.deliveryId,
+        id: createDenTypeId("connectorSyncEvent"),
+        organizationId: row.instance.organizationId,
+        remoteId: repositoryFullName,
+        sourceRevisionRef: null,
+        startedAt: now,
+        status: "queued",
+        summaryJson: { trigger: "webhook" },
+      })
+    }
+  }
+  return matches.length
+}
+
+function removedGithubRepositories(payload: Record<string, unknown>) {
+  return Array.isArray(payload.repositories_removed)
+    ? payload.repositories_removed.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.id !== "number" || typeof entry.full_name !== "string") return []
+        const repositoryFullName = entry.full_name.trim()
+        return repositoryFullName ? [{ repositoryFullName, repositoryId: entry.id }] : []
+      })
+    : []
+}
+
+async function handleGithubInstallationRepositoriesRemoved(input: {
+  deliveryId: string
+  installationId: number
+  payload: Record<string, unknown>
+}) {
+  const removed = removedGithubRepositories(input.payload)
+  if (removed.length === 0) return 0
+  const rows = await listActiveGithubWebhookTargets(input.installationId)
+  let matchedCount = 0
+  for (const row of rows) {
+    const repository = removed.find((entry) => githubWebhookTargetMatchesRepository({ ...entry, row }))
+    if (!repository) continue
+    matchedCount += 1
+    const now = new Date()
+    await db.update(ConnectorTargetTable).set({
+      targetConfigJson: {
+        ...row.target.targetConfigJson,
+        status: "disabled",
+      },
+      updatedAt: now,
+    }).where(eq(ConnectorTargetTable.id, row.target.id))
+    await db.update(ConnectorInstanceTable).set({
+      status: "disabled",
+      updatedAt: now,
+    }).where(eq(ConnectorInstanceTable.id, row.instance.id))
+    await db.insert(ConnectorSyncEventTable).values({
+      completedAt: now,
+      connectorInstanceId: row.instance.id,
+      connectorTargetId: row.target.id,
+      connectorType: "github",
+      eventType: "installation_repositories",
+      externalEventRef: input.deliveryId,
+      id: createDenTypeId("connectorSyncEvent"),
+      organizationId: row.instance.organizationId,
+      remoteId: row.target.remoteId,
+      sourceRevisionRef: null,
+      startedAt: now,
+      status: "completed",
+      summaryJson: {
+        action: "removed",
+        deliveryId: input.deliveryId,
+        repositoryFullName: repository.repositoryFullName,
+        repositoryId: repository.repositoryId,
+        trigger: "webhook",
+      },
+    })
+  }
+  return matchedCount
+}
+
 export async function enqueueGithubWebhookSync(input: {
   deliveryId: string
   event: "installation" | "installation_repositories" | "push" | "repository"
@@ -6788,6 +7097,28 @@ export async function enqueueGithubWebhookSync(input: {
         }
         return { accepted: true as const, queued: false as const }
       }
+    }
+    if (input.event === "repository" && input.payload.action === "renamed") {
+      const matchedCount = await handleGithubRepositoryRenamed({
+        deliveryId: input.deliveryId,
+        installationId: input.installationId,
+        payload: input.payload,
+        repositoryFullName: input.repositoryFullName,
+        repositoryId: input.repositoryId,
+      })
+      return matchedCount > 0
+        ? { accepted: true as const, queued: true as const }
+        : { accepted: false as const, reason: "event ignored" }
+    }
+    if (input.event === "installation_repositories" && input.payload.action === "removed") {
+      const matchedCount = await handleGithubInstallationRepositoriesRemoved({
+        deliveryId: input.deliveryId,
+        installationId: input.installationId,
+        payload: input.payload,
+      })
+      return matchedCount > 0
+        ? { accepted: true as const, queued: false as const }
+        : { accepted: false as const, reason: "event ignored" }
     }
     return { accepted: false as const, reason: "event ignored" }
   }
@@ -6830,94 +7161,30 @@ export async function enqueueGithubWebhookSync(input: {
       ))
       .limit(1)
 
-    // Generate the sync event id up front so config object versions created during auto-import
-    // can be linked back to the triggering sync event.
-    const id = existing[0]?.id ?? createDenTypeId("connectorSyncEvent")
+    if (existing[0]) continue
 
-    type AutoImportSummary = Awaited<ReturnType<typeof maybeAutoImportGithubConnectorInstance>>
-    const startedAt = new Date()
-    let autoImportSummary: AutoImportSummary | null = null
-    let autoImportError: string | null = null
-    try {
-      autoImportSummary = await maybeAutoImportGithubConnectorInstance({
-        connectorInstance: row.instance,
-        connectorSyncEventId: id,
-        connectorTarget: row.target,
-      })
-    } catch (error) {
-      autoImportError = error instanceof Error ? error.message : String(error)
-      // Surface the failure instead of swallowing it silently so a sync that records an event
-      // but never creates a version is diagnosable.
-      logger.error("github connector auto-import failed", {
-        connector_target_id: row.target.id,
-        delivery_id: input.deliveryId,
-        error: autoImportError,
-      })
-    }
-
-    const completedAt = new Date()
-    const eventStatus = autoImportError
-      ? "failed" as const
-      : !autoImportSummary
-        ? "queued" as const
-        : !autoImportSummary.autoImported
-          ? "ignored" as const
-          : autoImportSummary.materializedConfigObjectCount > 0
-            ? "completed" as const
-            : "partial" as const
-
-    const summaryJson = {
-      // Inputs
-      deliveryId: input.deliveryId,
-      headSha: input.headSha,
-      installationId: input.installationId,
-      ref: input.ref,
-      repositoryFullName: input.repositoryFullName,
-      repositoryId: input.repositoryId,
-      // Outcome
-      outcome: eventStatus,
-      error: autoImportError,
-      autoImportApplied: autoImportSummary?.autoImported ?? false,
-      autoImportNewPlugins: autoImportSummary?.autoImportNewPlugins ?? null,
-      classification: autoImportSummary?.classification ?? null,
-      resolvedSourceRevisionRef: autoImportSummary?.sourceRevisionRef ?? null,
-      discoveredPluginCount: autoImportSummary?.discoveredPluginCount ?? 0,
-      createdMarketplace: autoImportSummary?.createdMarketplace ?? null,
-      createdPluginCount: autoImportSummary?.createdPluginCount ?? 0,
-      createdPlugins: autoImportSummary?.createdPlugins ?? [],
-      materializedConfigObjectCount: autoImportSummary?.materializedConfigObjectCount ?? 0,
-      materializedConfigObjects: autoImportSummary?.materializedConfigObjects ?? [],
-      // Timing
-      startedAt: startedAt.toISOString(),
-      completedAt: completedAt.toISOString(),
-      durationMs: completedAt.getTime() - startedAt.getTime(),
-    }
-
-    if (existing[0]) {
-      await db.update(ConnectorSyncEventTable).set({
-        completedAt,
-        externalEventRef: input.deliveryId,
-        startedAt,
-        status: eventStatus,
-        summaryJson,
-      }).where(eq(ConnectorSyncEventTable.id, id))
-    } else {
-      await db.insert(ConnectorSyncEventTable).values({
-        completedAt,
-        connectorInstanceId: row.instance.id,
-        connectorTargetId: row.target.id,
-        connectorType: "github",
-        eventType: "push",
-        externalEventRef: input.deliveryId,
-        id,
-        organizationId: row.instance.organizationId,
-        remoteId: input.repositoryFullName,
-        sourceRevisionRef: input.headSha,
-        startedAt,
-        status: eventStatus,
-        summaryJson,
-      })
-    }
+    const id = createDenTypeId("connectorSyncEvent")
+    await db.insert(ConnectorSyncEventTable).values({
+      connectorInstanceId: row.instance.id,
+      connectorTargetId: row.target.id,
+      connectorType: "github",
+      eventType: "push",
+      externalEventRef: input.deliveryId,
+      id,
+      organizationId: row.instance.organizationId,
+      remoteId: input.repositoryFullName,
+      sourceRevisionRef: input.headSha,
+      startedAt: new Date(),
+      status: "queued",
+      summaryJson: {
+        deliveryId: input.deliveryId,
+        headSha: input.headSha,
+        installationId: input.installationId,
+        ref: input.ref,
+        repositoryFullName: input.repositoryFullName,
+        repositoryId: input.repositoryId,
+      },
+    })
     queuedIds.push(id)
   }
 
