@@ -473,6 +473,13 @@ const loginOptionsRateLimitedSchema = z.object({
   message: z.string(),
 }).meta({ ref: "LoginOptionsRateLimitedError" })
 
+const LOGIN_OPTIONS_IDENTITY_RATE_LIMIT_MAX = 20
+const LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_MAX = 120
+const LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX = 20
+const LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS = 60_000
+// A generous domain bucket bounds distributed enumeration without recreating coworker lockouts;
+// only unresolved addresses pay the tighter miss bucket.
+
 function readRequestAddress(headers: Headers) {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
   return forwarded || headers.get("x-real-ip")?.trim() || "unknown"
@@ -483,24 +490,30 @@ function sha256Hex(value: string) {
 }
 
 export function loginOptionsRateLimitKeys(headers: Headers, email: string) {
-  // Per-domain limiting was removed: shared corporate domains and NAT made it a coworker-vs-coworker limiter, not an abuse boundary.
-  return [
-    `auth-login-options:ip:${sha256Hex(readRequestAddress(headers))}`,
-    `auth-login-options:email:${sha256Hex(email)}`,
-  ]
+  const domainHash = sha256Hex(email.slice(email.lastIndexOf("@") + 1).trim().toLowerCase())
+  return {
+    ip: `auth-login-options:ip:${sha256Hex(readRequestAddress(headers))}`,
+    email: `auth-login-options:email:${sha256Hex(email)}`,
+    domain: `auth-login-options:domain:${domainHash}`,
+    domainMiss: `auth-login-options:domain-miss:${domainHash}`,
+  }
 }
 
-async function checkLoginOptionsRateLimit(headers: Headers, email: string) {
+async function checkLoginOptionsRateLimit(keys: ReturnType<typeof loginOptionsRateLimitKeys>) {
   const now = Date.now()
 
-  for (const key of loginOptionsRateLimitKeys(headers, email)) {
-    const retryAfter = await checkRateLimit(key, 20, 60_000, now)
+  for (const key of [keys.ip, keys.email]) {
+    const retryAfter = await checkRateLimit(key, LOGIN_OPTIONS_IDENTITY_RATE_LIMIT_MAX, LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS, now)
     if (retryAfter !== null) {
       return retryAfter
     }
   }
 
-  return null
+  return checkRateLimit(keys.domain, LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_MAX, LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS, now)
+}
+
+function checkLoginOptionsMissRateLimit(key: string) {
+  return checkRateLimit(key, LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX, LOGIN_OPTIONS_RATE_LIMIT_WINDOW_MS, Date.now())
 }
 
 async function getLoginOptionAccounts(email: string) {
@@ -612,7 +625,8 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
         }, botProtection.status)
       }
 
-      const retryAfter = await checkLoginOptionsRateLimit(c.req.raw.headers, email)
+      const rateLimitKeys = loginOptionsRateLimitKeys(c.req.raw.headers, email)
+      const retryAfter = await checkLoginOptionsRateLimit(rateLimitKeys)
       if (retryAfter !== null) {
         c.header("Retry-After", String(retryAfter))
         return c.json({
@@ -630,6 +644,16 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
         : null
       const requirement = singletonSsoRequirement ?? await findEnterpriseAuthRequirementForEmailDomain(email)
       const accounts = requirement ? [] : await getLoginOptionAccounts(email)
+      if (!requirement && accounts.length === 0) {
+        const missRetryAfter = await checkLoginOptionsMissRateLimit(rateLimitKeys.domainMiss)
+        if (missRetryAfter !== null) {
+          c.header("Retry-After", String(missRetryAfter))
+          return c.json({
+            error: "rate_limited",
+            message: "Too many sign-in option attempts. Try again later.",
+          }, 429)
+        }
+      }
       const allowPublicSignup = env.orgMode !== "single_org" || env.singleOrg.allowPublicSignup
       const nextStep = resolveLoginOptionKind({ requireSso: Boolean(requirement), accounts, allowNewAccount: allowPublicSignup })
 

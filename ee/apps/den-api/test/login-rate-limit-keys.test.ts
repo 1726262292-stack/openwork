@@ -22,29 +22,31 @@ beforeAll(async () => {
   ssoResolveRateLimitKeys = orgRoutes.ssoResolveRateLimitKeys
 })
 
-test("login options rate-limit keys include only the IP and email", () => {
+test("login options rate-limit keys include IP, email, domain, and domain miss", () => {
   const headers = new Headers({ "x-forwarded-for": "203.0.113.42, 10.0.0.1" })
   const keys = loginOptionsRateLimitKeys(headers, "jordan@company.test")
 
-  expect(keys).toEqual([
-    `auth-login-options:ip:${sha256Hex("203.0.113.42")}`,
-    `auth-login-options:email:${sha256Hex("jordan@company.test")}`,
-  ])
-  expect(keys.some((key) => key.includes(":domain:"))).toBe(false)
+  expect(keys).toEqual({
+    ip: `auth-login-options:ip:${sha256Hex("203.0.113.42")}`,
+    email: `auth-login-options:email:${sha256Hex("jordan@company.test")}`,
+    domain: `auth-login-options:domain:${sha256Hex("company.test")}`,
+    domainMiss: `auth-login-options:domain-miss:${sha256Hex("company.test")}`,
+  })
 })
 
-test("SSO resolution rate-limit keys include only the IP and normalized email", () => {
+test("SSO resolution rate-limit keys include IP, normalized email, domain, and domain miss", () => {
   const headers = new Headers({ "x-real-ip": "203.0.113.43" })
   const keys = ssoResolveRateLimitKeys(headers, " Jordan@Company.Test ")
 
-  expect(keys).toEqual([
-    `org-sso-resolve:ip:${sha256Hex("203.0.113.43")}`,
-    `org-sso-resolve:email:${sha256Hex("jordan@company.test")}`,
-  ])
-  expect(keys.some((key) => key.includes(":domain:"))).toBe(false)
+  expect(keys).toEqual({
+    ip: `org-sso-resolve:ip:${sha256Hex("203.0.113.43")}`,
+    email: `org-sso-resolve:email:${sha256Hex("jordan@company.test")}`,
+    domain: `org-sso-resolve:domain:${sha256Hex("company.test")}`,
+    domainMiss: `org-sso-resolve:domain-miss:${sha256Hex("company.test")}`,
+  })
 })
 
-test("coworkers at one domain have distinct endpoint key sets", () => {
+test("coworkers at one domain have distinct email keys and shared domain keys", () => {
   const headers = new Headers({ "x-forwarded-for": "203.0.113.44" })
   const firstLoginKeys = loginOptionsRateLimitKeys(headers, "first@company.test")
   const secondLoginKeys = loginOptionsRateLimitKeys(headers, "second@company.test")
@@ -53,8 +55,12 @@ test("coworkers at one domain have distinct endpoint key sets", () => {
 
   expect(firstLoginKeys).not.toEqual(secondLoginKeys)
   expect(firstSsoKeys).not.toEqual(secondSsoKeys)
-  expect(firstLoginKeys[0]).toBe(secondLoginKeys[0])
-  expect(firstSsoKeys[0]).toBe(secondSsoKeys[0])
-  expect(firstLoginKeys[1]).not.toBe(secondLoginKeys[1])
-  expect(firstSsoKeys[1]).not.toBe(secondSsoKeys[1])
+  expect(firstLoginKeys.ip).toBe(secondLoginKeys.ip)
+  expect(firstSsoKeys.ip).toBe(secondSsoKeys.ip)
+  expect(firstLoginKeys.email).not.toBe(secondLoginKeys.email)
+  expect(firstSsoKeys.email).not.toBe(secondSsoKeys.email)
+  expect(firstLoginKeys.domain).toBe(secondLoginKeys.domain)
+  expect(firstSsoKeys.domain).toBe(secondSsoKeys.domain)
+  expect(firstLoginKeys.domainMiss).toBe(secondLoginKeys.domainMiss)
+  expect(firstSsoKeys.domainMiss).toBe(secondSsoKeys.domainMiss)
 })

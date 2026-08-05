@@ -78,6 +78,13 @@ const rateLimitedSchema = z.object({
   message: z.string(),
 }).meta({ ref: "RateLimitedError" })
 
+const SSO_RESOLVE_IDENTITY_RATE_LIMIT_MAX = 20
+const SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX = 120
+const SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX = 20
+const SSO_RESOLVE_RATE_LIMIT_WINDOW_MS = 60_000
+// A generous domain bucket bounds distributed enumeration without recreating coworker lockouts;
+// only unresolved addresses pay the tighter miss bucket.
+
 const singleOrgSsoStatusResponseSchema = z.object({
   configured: z.boolean(),
   organizationSlug: z.string(),
@@ -208,24 +215,30 @@ function normalizeResolveEmail(email: string) {
 
 export function ssoResolveRateLimitKeys(headers: Headers, email: string) {
   const normalizedEmail = normalizeResolveEmail(email)
-  // Per-domain limiting was removed: shared corporate domains and NAT made it a coworker-vs-coworker limiter, not an abuse boundary.
-  return [
-    `org-sso-resolve:ip:${sha256Hex(getRequestAddress(headers))}`,
-    `org-sso-resolve:email:${sha256Hex(normalizedEmail)}`,
-  ]
+  const domainHash = sha256Hex(normalizedEmail.slice(normalizedEmail.lastIndexOf("@") + 1))
+  return {
+    ip: `org-sso-resolve:ip:${sha256Hex(getRequestAddress(headers))}`,
+    email: `org-sso-resolve:email:${sha256Hex(normalizedEmail)}`,
+    domain: `org-sso-resolve:domain:${domainHash}`,
+    domainMiss: `org-sso-resolve:domain-miss:${domainHash}`,
+  }
 }
 
-async function checkSsoResolveRateLimit(headers: Headers, email: string) {
+async function checkSsoResolveRateLimit(keys: ReturnType<typeof ssoResolveRateLimitKeys>) {
   const now = Date.now()
 
-  for (const key of ssoResolveRateLimitKeys(headers, email)) {
-    const retryAfter = await checkRateLimit(key, 20, 60_000, now)
+  for (const key of [keys.ip, keys.email]) {
+    const retryAfter = await checkRateLimit(key, SSO_RESOLVE_IDENTITY_RATE_LIMIT_MAX, SSO_RESOLVE_RATE_LIMIT_WINDOW_MS, now)
     if (retryAfter !== null) {
       return retryAfter
     }
   }
 
-  return null
+  return checkRateLimit(keys.domain, SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX, SSO_RESOLVE_RATE_LIMIT_WINDOW_MS, now)
+}
+
+function checkSsoResolveMissRateLimit(key: string) {
+  return checkRateLimit(key, SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX, SSO_RESOLVE_RATE_LIMIT_WINDOW_MS, Date.now())
 }
 
 async function setRequestActiveOrganization(
@@ -560,7 +573,8 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         }, botProtection.status)
       }
 
-      const retryAfter = await checkSsoResolveRateLimit(c.req.raw.headers, query.email)
+      const rateLimitKeys = ssoResolveRateLimitKeys(c.req.raw.headers, query.email)
+      const retryAfter = await checkSsoResolveRateLimit(rateLimitKeys)
       if (retryAfter !== null) {
         c.header("Retry-After", String(retryAfter))
         return c.json({
@@ -581,9 +595,21 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
         })
       }
 
+      const method = await resolveNonSsoSignInMethodForEmail(query.email)
+      if (method === "signup") {
+        const missRetryAfter = await checkSsoResolveMissRateLimit(rateLimitKeys.domainMiss)
+        if (missRetryAfter !== null) {
+          c.header("Retry-After", String(missRetryAfter))
+          return c.json({
+            error: "rate_limited",
+            message: "Too many sign-in resolution attempts. Try again later.",
+          }, 429)
+        }
+      }
+
       return c.json({
         requireSso: false,
-        method: await resolveNonSsoSignInMethodForEmail(query.email),
+        method,
       })
     },
   )
