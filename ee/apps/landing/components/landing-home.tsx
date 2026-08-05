@@ -1,13 +1,12 @@
 "use client";
-import { AnimatePresence, motion, useInView } from "framer-motion";
-import { ArrowRight, Users } from "lucide-react";
-import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
 
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { CheckCircle2, Globe2, Monitor, SquareTerminal } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import { BrandLogo } from "./lp-brand-logos";
 import { LandingAppDemoPanel } from "./landing-app-demo-panel";
 import { LandingBackground } from "./landing-background";
-import { LandingCloudWorkersCard } from "./landing-cloud-workers-card";
-import { LandingConnectMcp } from "./landing-connect-mcp";
 import {
   defaultLandingDemoFlowId,
   landingDemoFlows,
@@ -15,10 +14,19 @@ import {
 } from "./landing-demo-flows";
 import { LandingFaq } from "./landing-faq";
 import { LandingHeroPrompt } from "./landing-hero-prompt";
-import { LandingSharePackageCard } from "./landing-share-package-card";
+import { LpCopyBar } from "./lp-copy-bar";
+import { LpCta } from "./lp-cta";
+import { LpGatewayDiagram } from "./lp-gateway-diagram";
+import { LpParityTable } from "./lp-parity-table";
+import {
+  LpAlphaBadge,
+  LpArrowLink,
+  LpSectionHeader,
+  LpTickBlock,
+  LpTonalCard
+} from "./lp-primitives";
 import { SiteFooter } from "./site-footer";
 import { SiteNav } from "./site-nav";
-import { WaitlistForm } from "./waitlist-form";
 
 type Props = {
   stars: string;
@@ -27,412 +35,645 @@ type Props = {
   isMobileVisitor: boolean;
 };
 
-const externalLinkProps = (href: string) =>
-  /^https?:\/\//.test(href)
-    ? { rel: "noreferrer", target: "_blank" as const }
-    : {};
+type DemoSurface = "desktop" | "web" | "connect";
 
-// Mobile visitors can't install a desktop app, so the primary CTA points them to
-// the cloud sign-up screen instead of the download page.
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com?mode=sign-up";
+const GATEWAY_URL = "https://api.openworklabs.com/mcp/agent";
+
+const demoSurfaces: {
+  id: DemoSurface;
+  label: string;
+  alpha?: boolean;
+}[] = [
+  { id: "desktop", label: "Desktop" },
+  { id: "web", label: "OpenWork Web", alpha: true },
+  { id: "connect", label: "Connect — MCP Gateway" }
+];
+
+type ProviderLogoName =
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "aws"
+  | "openrouter"
+  | "mistral";
+
+const providers: { label: string; logo?: ProviderLogoName }[] = [
+  { label: "OpenAI", logo: "openai" },
+  { label: "Anthropic", logo: "anthropic" },
+  { label: "Gemini", logo: "gemini" },
+  { label: "Bedrock", logo: "aws" },
+  { label: "Azure AI Foundry" },
+  { label: "OpenRouter", logo: "openrouter" },
+  { label: "Mistral", logo: "mistral" }
+];
+
+type TaskToggleProps = {
+  enabled: boolean;
+  onToggle: () => void;
+  label: string;
+};
+
+function TaskToggle({ enabled, onToggle, label }: TaskToggleProps) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <button
+      type="button"
+      aria-label={`${enabled ? "Disable" : "Enable"} ${label}`}
+      aria-pressed={enabled}
+      onClick={onToggle}
+      className={`lp-toggle-track relative h-5 w-[34px] shrink-0 rounded-full transition-colors duration-200 ${
+        enabled ? "bg-[var(--lp-ink)]" : "bg-[#cbd5e1]"
+      }`}
+    >
+      <motion.span
+        animate={{ x: enabled ? 15 : 1 }}
+        transition={{ duration: reduceMotion ? 0 : 0.15, ease: "easeOut" }}
+        className="lp-toggle-knob absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white"
+      />
+    </button>
+  );
+}
+
+function ScheduledTasksCard() {
+  const [standup, setStandup] = useState(true);
+  const [cleanup, setCleanup] = useState(true);
+  const [invoice, setInvoice] = useState(false);
+
+  const tasks = [
+    {
+      title: "Daily standup digest",
+      schedule: "Every weekday · 9:00 AM · posts to Slack",
+      enabled: standup,
+      toggle: () => setStandup((value) => !value)
+    },
+    {
+      title: "Weekly CRM cleanup",
+      schedule: "Fridays · 5:00 PM · HubSpot MCP",
+      enabled: cleanup,
+      toggle: () => setCleanup((value) => !value)
+    },
+    {
+      title: "Invoice chaser",
+      schedule: "1st of the month · drafts follow-up emails",
+      enabled: invoice,
+      toggle: () => setInvoice((value) => !value)
+    }
+  ];
+
+  return (
+    <LpTonalCard className="flex min-h-[520px] flex-col justify-between p-7">
+      <div className="flex flex-col gap-3">
+        {tasks.map((task) => (
+          <div
+            key={task.title}
+            className="flex items-center justify-between gap-4 rounded-[12px] bg-white px-4 py-3.5"
+          >
+            <div>
+              <div className="text-[14px] font-medium text-[var(--lp-ink)]">
+                {task.title}
+              </div>
+              <div className="mt-1 text-[12px] text-[var(--lp-muted)]">
+                {task.schedule}
+              </div>
+            </div>
+            <TaskToggle
+              enabled={task.enabled}
+              onToggle={task.toggle}
+              label={task.title}
+            />
+          </div>
+        ))}
+      </div>
+      <div>
+        <div className="flex items-center gap-2 text-[14px] text-[var(--lp-muted)]">
+          Scheduled tasks <LpAlphaBadge />
+        </div>
+        <p className="mt-2 max-w-[430px] text-[16px] leading-6 text-[var(--lp-ink)]">
+          Run any prompt on a schedule or trigger. Set it once and let it handle
+          itself.
+        </p>
+      </div>
+    </LpTonalCard>
+  );
+}
+
+function DemoPlaceholder({ surface }: { surface: Exclude<DemoSurface, "desktop"> }) {
+  const isWeb = surface === "web";
+
+  return (
+    <div className="flex min-h-[520px] items-center justify-center rounded-[18px] bg-white px-8 text-center">
+      <div className="max-w-md">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lp-tonal)]">
+          {isWeb ? (
+            <Globe2 className="h-5 w-5" strokeWidth={1.6} />
+          ) : (
+            <SquareTerminal className="h-5 w-5" strokeWidth={1.6} />
+          )}
+        </div>
+        <div className="mt-5 flex items-center justify-center gap-2 text-[18px] font-medium text-[var(--lp-ink)]">
+          {isWeb ? "OpenWork Web" : "OpenWork Connect"}
+          {isWeb ? <LpAlphaBadge /> : null}
+        </div>
+        <p className="mt-2 text-[14px] leading-[22px] text-[var(--lp-muted)]">
+          {isWeb
+            ? "The same workspace in your browser — same skills, tasks, and team setup."
+            : "One MCP gateway URL gives every client your org’s skills, servers, roles, and policies."}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
-  const [activeUseCase, setActiveUseCase] = useState(0);
-  const enterpriseShowcaseRef = useRef<HTMLElement>(null);
-  const showEnterpriseShowcase = useInView(enterpriseShowcaseRef, {
-    once: true,
-    margin: "-15% 0px"
-  });
-
+  const [activeSurface, setActiveSurface] = useState<DemoSurface>("desktop");
+  const reduceMotion = useReducedMotion();
   const activeDemo = useMemo(
     () => landingDemoFlows.find((flow) => flow.id === activeDemoId) ?? landingDemoFlows[0],
     [activeDemoId]
   );
-
-  const callLinkProps = externalLinkProps(props.callHref);
+  const primaryHref = props.isMobileVisitor ? CLOUD_SIGNUP_URL : props.downloadHref;
+  const primaryExternal = /^https?:\/\//.test(primaryHref);
+  const callExternal = /^https?:\/\//.test(props.callHref);
 
   return (
-    <div className="relative min-h-screen overflow-hidden text-[#011627]">
+    <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
       <LandingBackground />
 
-      <div className="relative z-10 flex min-h-screen flex-col items-center pb-3 pt-1 md:pb-4 md:pt-2">
-        <div className="w-full">
-          <SiteNav
-            stars={props.stars}
-            downloadHref={props.downloadHref}
-            callUrl={props.callHref}
-            mobilePrimaryHref={CLOUD_SIGNUP_URL}
-            mobilePrimaryLabel="Get Started for Free"
-            active="home"
-          />
-        </div>
+      <div className="relative z-10">
+        <SiteNav
+          stars={props.stars}
+          downloadHref={props.downloadHref}
+          callUrl={props.callHref}
+          mobilePrimaryHref={CLOUD_SIGNUP_URL}
+          mobilePrimaryLabel="Get started for free"
+          active="home"
+        />
 
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-16 px-6 pb-24 md:gap-20 md:px-8 md:pb-28">
-          <section className="max-w-4xl pt-8 md:pt-12">
-            <h1 className="mb-5 text-4xl font-medium leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
-              The open source
-              <br />
-              Claude Cowork
-              <br />
-              <span className="font-pixel inline-block align-middle text-[1.05em] font-normal">
-                alternative.
-              </span>
-            </h1>
-            <p className="mb-6 max-w-4xl text-lg leading-relaxed text-gray-700 md:mb-7 md:text-xl">
-              OpenWork is the desktop app that lets you use 50+ LLMs, bring your
-              own keys, and share your setups seamlessly with your team.
-            </p>
+        <main className="mx-auto w-full max-w-[1176px] px-6 pb-8">
+          <section className="pt-16 md:pt-[88px]">
+            <div className="flex flex-col justify-between gap-10 lg:flex-row lg:items-end">
+              <h1 className="max-w-[640px] text-[46px] font-light leading-[51px] tracking-[-0.02em] md:text-[58px] md:leading-[62px]">
+                <motion.span
+                  className="block"
+                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.4 }}
+                >
+                  The open source
+                </motion.span>
+                <motion.span
+                  className="block"
+                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.4, delay: reduceMotion ? 0 : 0.08 }}
+                >
+                  Claude Cowork
+                </motion.span>
+                <motion.span
+                  className="font-pixel block font-normal"
+                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.4, delay: reduceMotion ? 0 : 0.16 }}
+                >
+                  alternative.
+                </motion.span>
+              </h1>
 
-            <div className="mt-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-                {props.isMobileVisitor ? (
-                  <a
-                    href={CLOUD_SIGNUP_URL}
-                    className="doc-button inline-flex items-center gap-2"
-                    {...externalLinkProps(CLOUD_SIGNUP_URL)}
-                  >
-                    Get Started for Free <ArrowRight size={18} />
-                  </a>
-                ) : (
-                  <Link
-                    href="/download"
-                    className="doc-button inline-flex items-center gap-2"
-                  >
-                    Download for free <ArrowRight size={18} />
-                  </Link>
-                )}
+              <div className="max-w-[440px] pb-1">
+                <p className="text-[16px] leading-[25px] text-[var(--lp-ink)]">
+                  Everything your team uses Claude Cowork for — chat on your files,
+                  skills, scheduled tasks, browser automation — on any model. Plus
+                  an MCP gateway Cowork doesn&apos;t have.
+                </p>
+                <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-muted)]">
+                  Free &amp; open source. Desktop for macOS, Windows, and Linux. Web
+                  in alpha.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-10 flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <a
+                  href={primaryHref}
+                  className="lp-pill-primary"
+                  target={primaryExternal ? "_blank" : undefined}
+                  rel={primaryExternal ? "noreferrer" : undefined}
+                >
+                  Download for free
+                </a>
                 <a
                   href={props.callHref}
-                  className="secondary-button"
-                  {...callLinkProps}
+                  className="lp-pill-secondary"
+                  target={callExternal ? "_blank" : undefined}
+                  rel={callExternal ? "noreferrer" : undefined}
                 >
-                  Contact sales
+                  Talk to sales
                 </a>
               </div>
-
-              <div className="flex items-center gap-2 opacity-80 sm:ml-4">
-                <span className="text-[13px] font-medium text-gray-500">
-                  Backed by
+              <div className="flex items-center gap-2 text-[13.5px] text-[var(--lp-muted)] sm:ml-2">
+                <span>Backed by</span>
+                <span className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-[#fb651e] text-[11px] font-bold text-white">
+                  Y
                 </span>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] bg-[#ff6600] text-[11px] font-bold leading-none text-white">
-                    Y
-                  </div>
-                  <span className="text-[13px] font-semibold tracking-tight text-gray-600">
-                    Combinator
-                  </span>
-                </div>
+                <span>Combinator</span>
               </div>
             </div>
-            {props.isMobileVisitor ? null : <LandingHeroPrompt className="mt-10 hidden md:block" />}
           </section>
 
-          {props.isMobileVisitor ? (
-            <section
-              id="mobile-signup"
-              className="landing-shell-soft -mt-6 rounded-xl p-6 md:hidden"
-            >
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-400">
-                Mobile signup
-              </div>
-              <h2 className="mb-3 text-2xl font-medium leading-tight text-[#011627]">
-                Start on mobile. Continue on desktop.
-              </h2>
-              <p className="mb-5 text-[15px] leading-7 text-gray-600">
-                OpenWork is a desktop app. Sign up here from your phone and keep the
-                desktop install flow handy for when you switch to your computer.
-              </p>
-              <WaitlistForm contactHref={props.callHref} />
-              <p className="mt-4 text-[13px] leading-6 text-gray-500">
-                Best path on mobile: landing, signup, then download on desktop.
-              </p>
-            </section>
-          ) : null}
+          <section className="mt-16 md:mt-20" aria-label="OpenWork product demo">
+            <div className="rounded-[24px] bg-[rgba(240,244,249,0.75)] p-2">
+              <div className="grid grid-cols-1 gap-1 p-1 sm:grid-cols-3">
+                {demoSurfaces.map((surface) => {
+                  const active = surface.id === activeSurface;
 
-          <section className="relative flex flex-col gap-6 overflow-hidden md:gap-8">
-            <div className="landing-shell relative flex flex-col overflow-hidden rounded-2xl">
-              <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-white/50 bg-gradient-to-b from-white/90 to-white/60 px-4">
-                <div className="flex gap-1.5">
-                  <div className="h-3 w-3 rounded-full border border-[#e0443e]/20 bg-[#ff5f56]/90 shadow-sm"></div>
-                  <div className="h-3 w-3 rounded-full border border-[#dea123]/20 bg-[#ffbd2e]/90 shadow-sm"></div>
-                  <div className="h-3 w-3 rounded-full border border-[#1aab29]/20 bg-[#27c93f]/90 shadow-sm"></div>
-                </div>
-                <div className="absolute left-1/2 -translate-x-1/2 text-[12px] font-medium tracking-wide text-gray-500">
-                  OpenWork
-                </div>
-              </div>
- 
-              <div className="bg-white p-4 md:p-6">
-                <LandingAppDemoPanel
-                  flows={landingDemoFlows}
-                  activeFlowId={activeDemo.id}
-                  onSelectFlow={setActiveDemoId}
-                  timesById={landingDemoFlowTimes}
-                />
-              </div>
-
-              <div className="relative z-10 mb-4 flex w-full flex-col items-start justify-between gap-4 px-2 md:flex-row md:items-center">
-                <div className="landing-chip flex w-full flex-wrap gap-2 overflow-x-auto rounded-full p-1.5 md:w-[600px]">
-                  {landingDemoFlows.map((flow) => {
-                    const isActive = flow.id === activeDemo.id;
-
-                    return (
-                      <button
-                        key={flow.id}
-                        type="button"
-                        onClick={() => setActiveDemoId(flow.id)}
-                        aria-pressed={isActive}
-                        className={`relative cursor-pointer whitespace-nowrap rounded-full px-5 py-2 text-sm font-medium transition-colors ${
-                          isActive
-                            ? "text-[#011627]"
-                            : "text-gray-600 hover:text-gray-900"
-                        }`}
-                      >
-                        {isActive ? (
-                          <motion.div
-                            layoutId="active-pill"
-                            className="absolute inset-0 rounded-full border border-gray-100 bg-white shadow-sm"
-                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                          />
-                        ) : null}
-                        <span className="relative z-10">{flow.categoryLabel}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="min-h-[44px] text-left md:text-right">
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={activeDemo.id}
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -5 }}
-                      transition={{ duration: 0.2 }}
+                  return (
+                    <button
+                      key={surface.id}
+                      type="button"
+                      onClick={() => setActiveSurface(surface.id)}
+                      aria-pressed={active}
+                      className={`relative flex h-12 items-center justify-center gap-2 rounded-[14px] px-3 text-[13px] transition-colors duration-150 ${
+                        active
+                          ? "text-[var(--lp-ink)]"
+                          : "text-[var(--lp-muted)] hover:text-[var(--lp-ink)]"
+                      }`}
                     >
-                      <div className="text-lg font-medium text-[#011627]">
-                        {activeDemo.title}
-                      </div>
-                      <div className="ml-auto mt-1 max-w-md text-sm text-gray-500">
-                        {activeDemo.description}
-                      </div>
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
+                      {active ? (
+                        <motion.span
+                          layoutId="home-demo-surface"
+                          className="absolute inset-0 rounded-[14px] bg-white shadow-[0_1px_3px_rgba(1,22,39,0.08)]"
+                          transition={{ duration: reduceMotion ? 0 : 0.25, ease: [0.22, 1, 0.36, 1] }}
+                        />
+                      ) : null}
+                      <span className="relative z-10 flex items-center gap-2">
+                        {surface.id === "desktop" ? (
+                          <span className="h-2 w-2 rounded-full bg-[var(--lp-status-dot)]" />
+                        ) : null}
+                        {surface.label}
+                        {surface.alpha ? <LpAlphaBadge /> : null}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={activeSurface}
+                  initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.2 }}
+                >
+                  {activeSurface === "desktop" ? (
+                    <div>
+                      <div className="overflow-hidden rounded-[18px] bg-white p-4 md:p-6">
+                        <LandingAppDemoPanel
+                          flows={landingDemoFlows}
+                          activeFlowId={activeDemo.id}
+                          onSelectFlow={setActiveDemoId}
+                          timesById={landingDemoFlowTimes}
+                        />
+                      </div>
+                      <div className="flex flex-col justify-between gap-4 px-2 pb-3 pt-4 lg:flex-row lg:items-center">
+                        <div className="flex flex-wrap gap-2">
+                          {landingDemoFlows.map((flow) => {
+                            const active = flow.id === activeDemo.id;
+                            return (
+                              <button
+                                key={flow.id}
+                                type="button"
+                                onClick={() => setActiveDemoId(flow.id)}
+                                className={`relative rounded-full px-4 py-2 text-[13px] transition-colors duration-150 ${
+                                  active
+                                    ? "bg-white text-[var(--lp-ink)]"
+                                    : "text-[var(--lp-muted)] hover:text-[var(--lp-ink)]"
+                                }`}
+                              >
+                                {flow.categoryLabel}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <AnimatePresence mode="wait" initial={false}>
+                          <motion.div
+                            key={activeDemo.id}
+                            initial={reduceMotion ? false : { opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={reduceMotion ? undefined : { opacity: 0 }}
+                            className="max-w-[420px] text-left lg:text-right"
+                          >
+                            <div className="text-[15px] font-medium text-[var(--lp-ink)]">
+                              {activeDemo.title}
+                            </div>
+                            <div className="mt-1 text-[13px] leading-5 text-[var(--lp-muted)]">
+                              {activeDemo.description}
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  ) : (
+                    <DemoPlaceholder surface={activeSurface} />
+                  )}
+                </motion.div>
+              </AnimatePresence>
             </div>
           </section>
 
-          <LandingConnectMcp />
-
-          <section
-            ref={enterpriseShowcaseRef}
-            className="landing-shell rounded-[2.5rem] p-8 md:p-12"
-          >
-            <div className="mb-4 flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">
-              <Users size={18} />
-              For Teams &amp; Enterprises
+          <section className="mt-[120px]">
+            <div className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+              <h2 className="max-w-[680px] text-[16px] font-normal text-[var(--lp-ink)]">
+                Bring any model — or provision centrally for your whole org
+              </h2>
+              <a href="/docs" className="lp-pill-secondary lp-pill-sm">
+                See all 50+ providers
+              </a>
             </div>
-            <h2 className="mb-16 max-w-2xl text-3xl font-medium leading-[1.15] tracking-tight md:text-4xl lg:text-5xl">
-              Build skills, workflows, connections once.<br />Share a link. Your team runs it instantly.
-            </h2>
-
-            <div className="flex flex-col gap-12 lg:flex-row lg:gap-20">
-              <div className="flex w-full flex-col gap-10 lg:w-1/3">
-                <button
-                  type="button"
-                  className={`text-left transition-opacity ${
-                    activeUseCase === 0
-                      ? "opacity-100"
-                      : "opacity-50 hover:opacity-100"
-                  }`}
-                  onClick={() => setActiveUseCase(0)}
-                >
-                  <h3 className={`mb-2 text-xl font-medium ${
-                    activeUseCase === 0 ? "text-[#011627]" : "text-gray-800"
-                  }`}>
-                    Share everything in one link.
-                  </h3>
-                  <p className={`text-sm leading-relaxed ${
-                    activeUseCase === 0 ? "text-[#011627]" : "text-gray-600"
-                  }`}>
-                    Create skills, MCPs, plugins, and configs on your desktop.
-                    Generate a single link that packages your entire setup for
-                    your team.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  className={`text-left transition-opacity ${
-                    activeUseCase === 1
-                      ? "opacity-100"
-                      : "opacity-50 hover:opacity-100"
-                  }`}
-                  onClick={() => setActiveUseCase(1)}
-                >
-                  <h3 className={`mb-2 text-xl font-medium ${
-                    activeUseCase === 1 ? "text-[#011627]" : "text-gray-800"
-                  }`}>
-                    Import in one click.
-                  </h3>
-                  <p className={`text-sm leading-relaxed ${
-                    activeUseCase === 1 ? "text-[#011627]" : "text-gray-600"
-                  }`}>
-                    Your teammate opens the link and imports everything. Skills,
-                    MCPs, plugins, configs. No terminal, no setup guide, no
-                    technical knowledge needed.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  className={`text-left transition-opacity ${
-                    activeUseCase === 2
-                      ? "opacity-100"
-                      : "opacity-50 hover:opacity-100"
-                  }`}
-                  onClick={() => setActiveUseCase(2)}
-                >
-                  <h3 className={`mb-2 text-xl font-medium ${
-                    activeUseCase === 2 ? "text-[#011627]" : "text-gray-800"
-                  }`}>
-                    Ready to run.
-                  </h3>
-                  <p className={`text-sm leading-relaxed ${
-                    activeUseCase === 2 ? "text-[#011627]" : "text-gray-600"
-                  }`}>
-                    Everything imported. Skills already executing.
-                  </p>
-                </button>
+            <LpTickBlock>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7">
+                {providers.map((provider, index) => (
+                  <div
+                    key={provider.label}
+                    className={`group flex h-24 items-center justify-center gap-2.5 px-3 text-center text-[14.5px] font-medium text-[var(--lp-muted)] ${
+                      index > 0 ? "border-l border-[var(--lp-border)]" : ""
+                    }`}
+                  >
+                    {provider.logo ? (
+                      <BrandLogo
+                        name={provider.logo}
+                        className="lp-logo h-[21px] w-[21px] shrink-0 opacity-60 transition-opacity duration-150 group-hover:opacity-100"
+                      />
+                    ) : null}
+                    <span className="opacity-60 transition-opacity duration-150 group-hover:opacity-100">
+                      {provider.label}
+                    </span>
+                  </div>
+                ))}
               </div>
+            </LpTickBlock>
+          </section>
 
+          <section className="mt-[120px]" id="comparison">
+            <LpSectionHeader
+              label="OpenWork vs Claude Cowork"
+              heading="Feature parity. Zero lock-in."
+              right={
+                <a href="/docs" className="lp-pill-secondary lp-pill-sm">
+                  See the migration guide
+                </a>
+              }
+            />
+            <p className="mt-6 max-w-[640px] text-[16px] leading-[25px] text-[var(--lp-body)]">
+              If your team runs on Claude Cowork today, everything keeps working —
+              and you stop being tied to one vendor, one model, and one deployment.
+            </p>
+            <div className="mt-10">
+              <LpParityTable />
+            </div>
+          </section>
+
+          <section className="mt-[120px]" id="product">
+            <LpSectionHeader
+              label="In the box"
+              heading="Built for real work."
+              right={
+                <a href="#comparison" className="lp-pill-secondary lp-pill-sm">
+                  Compare all features
+                </a>
+              }
+            />
+
+            <div className="mt-10 grid gap-6 lg:grid-cols-2">
               <div
-                className="relative flex min-h-[400px] w-full items-center justify-center overflow-hidden rounded-3xl border border-gray-100 bg-cover bg-center p-6 lg:w-2/3 md:p-10"
+                className="flex min-h-[520px] flex-col justify-between rounded-[24px] bg-cover bg-center p-7"
                 style={{ backgroundImage: "url('/enterprise-showcase-bg.jpg')" }}
               >
-                {showEnterpriseShowcase ? (
-                  <div className="grid w-full [&>*]:col-start-1 [&>*]:row-start-1">
-                    <motion.div
-                      animate={{ opacity: activeUseCase === 0 ? 1 : 0 }}
-                      transition={{ duration: 0.2 }}
-                      className={`z-10 flex w-full justify-center ${activeUseCase !== 0 ? "pointer-events-none" : ""}`}
-                    >
-                      <LandingSharePackageCard />
-                    </motion.div>
-                    <motion.div
-                      animate={{ opacity: activeUseCase === 1 ? 1 : 0 }}
-                      transition={{ duration: 0.2 }}
-                      className={`z-10 flex w-full justify-center ${activeUseCase !== 1 ? "pointer-events-none" : ""}`}
-                    >
-                      <LandingCloudWorkersCard />
-                    </motion.div>
-                    <motion.div
-                      animate={{ opacity: activeUseCase === 2 ? 1 : 0 }}
-                      transition={{ duration: 0.2 }}
-                      className={`z-10 flex w-full justify-center ${activeUseCase !== 2 ? "pointer-events-none" : ""}`}
-                    >
-                        <div className="flex w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                          {/* App chrome */}
-                          <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50/80 px-4 py-2.5">
-                            <div className="flex gap-1.5">
-                              <div className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
-                              <div className="h-2.5 w-2.5 rounded-full bg-yellow-400/70" />
-                              <div className="h-2.5 w-2.5 rounded-full bg-green-400/70" />
-                            </div>
-                            <div className="text-[12px] font-medium text-gray-500">OpenWork</div>
-                          </div>
-
-                          <div className="flex flex-1">
-                            {/* Sidebar */}
-                            <div className="hidden w-[180px] flex-col border-r border-gray-100 bg-gray-50/50 p-3 sm:flex">
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex items-center justify-between rounded-2xl bg-white px-2.5 py-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-400" />
-                                    <span className="text-[11px] font-medium text-[#011627]">Meeting Brief</span>
-                                  </div>
-                                  <span className="text-[9px] text-green-600">Active</span>
-                                </div>
-                                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-400" />
-                                    <span className="text-[11px] font-medium text-gray-600">Contract Reviewer</span>
-                                  </div>
-                                </div>
-                                <div className="flex items-center justify-between rounded-lg px-2.5 py-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="h-6 w-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-400" />
-                                    <span className="text-[11px] font-medium text-gray-600">Outreach CRM</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-4 flex flex-col gap-1 border-t border-gray-100 pt-3">
-                                <div className="truncate rounded-2xl bg-white px-2.5 py-1.5 text-[10px] text-gray-500">
-                                  Generate brief for Acme...
-                                  <span className="ml-1 text-gray-400">1s ago</span>
-                                </div>
-                                <div className="truncate px-2.5 py-1.5 text-[10px] text-gray-400">
-                                  Review NDA draft...
-                                  <span className="ml-1">12m ago</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Main content - chat */}
-                            <div className="flex flex-1 flex-col">
-                              <div className="flex flex-1 flex-col gap-4 p-4">
-                                {/* User prompt */}
-                                <div className="self-end rounded-2xl rounded-br-md bg-gray-100 px-4 py-2.5 text-[12px] leading-relaxed text-[#011627]">
-                                  Prepare a meeting brief for tomorrow&apos;s call with Acme Corp. Pull context from HubSpot and Notion.
-                                </div>
-
-                                {/* Execution timeline */}
-                                <div className="flex flex-col gap-1 pl-1">
-                                  <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                                    <span className="text-gray-300">&rsaquo;</span> Execution 1 step — Queried HubSpot MCP for deal history
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                                    <span className="text-gray-300">&rsaquo;</span> Execution 2 steps — Pulled Notion meeting notes
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                                    <span className="text-gray-300">&rsaquo;</span> Execution 1 step — Generated brief and saved to desktop
-                                  </div>
-                                </div>
-
-                                {/* Response */}
-                                <div className="text-[12px] leading-relaxed text-[#011627]">
-                                  I&apos;ve prepared your meeting brief for the Acme Corp call. It includes deal history, recent notes, and 3 talking points.
-                                </div>
-                              </div>
-
-                              {/* Input bar */}
-                              <div className="border-t border-gray-100 p-3">
-                                <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
-                                  <span className="text-[12px] text-gray-400">Describe your task</span>
-                                  <span className="rounded-full bg-[#011627] px-3 py-1 text-[10px] font-medium text-white">Run Task</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                    </motion.div>
+                <div className="flex flex-col gap-3">
+                  <div className="ml-auto max-w-[390px] rounded-full bg-white/90 px-5 py-3 text-right text-[13px] leading-5 text-[var(--lp-ink)]">
+                    Like all replies on this thread and export the users to CSV
                   </div>
-                ) : (
-                  <div className="z-10 flex w-full justify-center">
-                    <div className="landing-shell h-[320px] w-full max-w-lg rounded-xl border border-dashed border-gray-200" />
+                  <div className="max-w-[360px] rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)]">
+                    Opening the thread in Chrome — 42 replies loaded
                   </div>
-                )}
+                  <div className="flex max-w-[330px] items-center gap-2 rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)]">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-[var(--lp-status)]" />
+                    tweet_replies.csv saved to Desktop
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[14px] text-[rgba(1,22,39,0.65)]">
+                    Browser automation
+                  </div>
+                  <p className="mt-2 max-w-[430px] text-[16px] leading-6 text-[var(--lp-ink)]">
+                    Agents click, scroll, extract, and fill forms in a real browser —
+                    across the tools your team already uses.
+                  </p>
+                </div>
               </div>
+
+              <ScheduledTasksCard />
+            </div>
+
+            <div className="mt-6 grid gap-6 md:grid-cols-3">
+              <LpTonalCard className="group flex min-h-[260px] flex-col justify-between p-6">
+                <div className="lp-icon-chip flex h-11 w-11 items-center justify-center rounded-full bg-white transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:rotate-[8deg]">
+                  <BrandLogo name="github" className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-[14px] text-[var(--lp-muted)]">Import existing repos</div>
+                  <p className="mt-2 text-[15.5px] leading-[23px] text-[var(--lp-ink)]">
+                    Point OpenWork at any repository and start working with full
+                    context.
+                  </p>
+                </div>
+              </LpTonalCard>
+
+              <LpTonalCard className="group flex min-h-[260px] flex-col justify-between p-6">
+                <div className="lp-icon-chip flex h-11 w-11 items-center justify-center rounded-full bg-white transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:rotate-[8deg]">
+                  <BrandLogo name="anthropic" className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-[14px] text-[var(--lp-muted)]">Anthropic plugins</div>
+                  <p className="mt-2 text-[15.5px] leading-[23px] text-[var(--lp-ink)]">
+                    Anthropic-compatible plugins and skills run as-is. No porting,
+                    no wrappers.
+                  </p>
+                </div>
+              </LpTonalCard>
+
+              <LpTonalCard className="group flex min-h-[260px] flex-col justify-between p-6">
+                <div className="lp-icon-chip flex h-11 w-11 items-center justify-center rounded-full bg-white transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:rotate-[8deg]">
+                  <Globe2 className="h-5 w-5" strokeWidth={1.6} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 text-[14px] text-[var(--lp-muted)]">
+                    OpenWork Web <LpAlphaBadge />
+                  </div>
+                  <p className="mt-2 text-[15.5px] leading-[23px] text-[var(--lp-ink)]">
+                    The same workspace in your browser. Nothing to install.
+                  </p>
+                </div>
+              </LpTonalCard>
             </div>
           </section>
 
-          <LandingFaq />
+          <section className="mt-[120px]">
+            <LpSectionHeader
+              label="OpenWork Connect"
+              heading="Set up your MCPs once. Your whole team has them."
+              headingLines={["Set up your MCPs once.", "Your whole team has them."]}
+              right={
+                <a href="/connect" className="lp-pill-secondary lp-pill-sm">
+                  Explore OpenWork Connect
+                </a>
+              }
+            />
+            <p className="mt-6 max-w-[640px] text-[16px] leading-[25px] text-[var(--lp-body)]">
+              OpenWork Connect is our MCP gateway. Add a server or skill to your org
+              once — every teammate and agent gets it instantly, in OpenWork and in
+              any MCP-compatible client. Claude Cowork has no equivalent.
+            </p>
+            <div className="mt-10">
+              <LpGatewayDiagram />
+            </div>
+            <div className="mt-6">
+              <LpCopyBar value={GATEWAY_URL} />
+            </div>
+            <p className="mt-3 text-[13.5px] text-[var(--lp-muted)]">
+              One URL for your whole org — skills, MCPs, roles, and policies
+              included. Works with your OpenWork account.
+            </p>
+          </section>
 
-          <SiteFooter />
-        </div>
+          <section className="mt-[120px]">
+            <LpSectionHeader
+              label="Get started"
+              heading="Use it today — your way."
+              right={
+                <p className="max-w-[340px] text-left text-[14.5px] leading-[22px] text-[var(--lp-body)] md:text-right">
+                  Three doors into the same workspace. Same skills, same gateway,
+                  same account.
+                </p>
+              }
+            />
+            <div className="mt-10">
+              <LpTickBlock>
+                <div className="grid md:grid-cols-3">
+                  <div className="group flex min-h-[330px] flex-col items-start p-8">
+                    <Monitor className="lp-draw-icon h-[22px] w-[22px]" strokeWidth={1.6} />
+                    <h3 className="mt-6 text-[17px] font-medium">On your desktop</h3>
+                    <p className="mt-3 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)]">
+                      Stable on macOS — Windows and Linux in alpha. Local-first, no
+                      account needed.
+                    </p>
+                    <a
+                      href={props.downloadHref}
+                      className="lp-pill-primary lp-pill-sm mt-auto"
+                    >
+                      Download
+                    </a>
+                  </div>
+
+                  <div className="group flex min-h-[330px] flex-col items-start border-t border-[var(--lp-border)] p-8 transition-colors duration-150 hover:border-[var(--lp-ink)] md:border-l md:border-t-0">
+                    <Globe2 className="lp-draw-icon h-[22px] w-[22px]" strokeWidth={1.6} />
+                    <h3 className="mt-6 flex items-center gap-2 text-[17px] font-medium">
+                      In your browser <LpAlphaBadge />
+                    </h3>
+                    <p className="mt-3 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)]">
+                      OpenWork Web. Nothing to install — sign in and run your first
+                      task.
+                    </p>
+                    <a
+                      href="https://app.openworklabs.com"
+                      className="lp-pill-secondary lp-pill-sm mt-auto"
+                    >
+                      Open in browser
+                    </a>
+                  </div>
+
+                  <div className="group flex min-h-[330px] flex-col items-start border-t border-[var(--lp-border)] p-8 transition-colors duration-150 hover:border-[var(--lp-ink)] md:border-l md:border-t-0">
+                    <SquareTerminal className="lp-draw-icon h-[22px] w-[22px]" strokeWidth={1.6} />
+                    <h3 className="mt-6 text-[17px] font-medium">From your agent</h3>
+                    <p className="mt-3 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)]">
+                      In Claude Code, Cursor, or Codex? One pasted prompt installs
+                      and sets up OpenWork for you.
+                    </p>
+                    <LandingHeroPrompt className="mt-6 w-full" />
+                  </div>
+                </div>
+              </LpTickBlock>
+            </div>
+          </section>
+
+          <section className="mt-[120px]">
+            <LpSectionHeader label="Where to next" heading="Take it to your team." />
+            <div className="mt-10 grid gap-6 md:grid-cols-3">
+              <LpTonalCard className="flex min-h-[240px] flex-col justify-between p-6">
+                <div className="text-[14px] text-[var(--lp-muted)]">For you</div>
+                <div>
+                  <h3 className="text-[19px] font-medium">Run it on your machine</h3>
+                  <p className="mt-2 text-[14.5px] leading-[22px] text-[var(--lp-body)]">
+                    The free desktop app. Your files, your keys, fully local-first.
+                  </p>
+                  <div className="mt-4">
+                    <LpArrowLink href={primaryHref}>Download free</LpArrowLink>
+                  </div>
+                </div>
+              </LpTonalCard>
+
+              <LpTonalCard className="flex min-h-[240px] flex-col justify-between p-6">
+                <div className="text-[14px] text-[var(--lp-muted)]">For teams</div>
+                <div>
+                  <h3 className="text-[19px] font-medium">Manage it centrally</h3>
+                  <p className="mt-2 text-[14.5px] leading-[22px] text-[var(--lp-body)]">
+                    Deploy skills, MCPs, and models to every seat with OpenWork
+                    Cloud.
+                  </p>
+                  <div className="mt-4">
+                    <LpArrowLink href="/cloud">Explore Cloud</LpArrowLink>
+                  </div>
+                </div>
+              </LpTonalCard>
+
+              <LpTonalCard className="flex min-h-[240px] flex-col justify-between p-6">
+                <div className="text-[14px] text-[var(--lp-muted)]">For enterprises</div>
+                <div>
+                  <h3 className="text-[19px] font-medium">Own your AI stack</h3>
+                  <p className="mt-2 text-[14.5px] leading-[22px] text-[var(--lp-body)]">
+                    Self-sovereign AI — your models, your infrastructure. Managed or
+                    self-hosted.
+                  </p>
+                  <div className="mt-4">
+                    <LpArrowLink href="/enterprise">See Enterprise</LpArrowLink>
+                  </div>
+                </div>
+              </LpTonalCard>
+            </div>
+          </section>
+
+          <div className="mt-[120px]">
+            <LandingFaq />
+          </div>
+
+          <div className="mt-[120px]">
+            <LpCta
+              heading="Give your whole team an agent."
+              sub="Free on desktop. Central management in Cloud. Private instances for enterprise."
+              primary={{ label: "Download for free →", href: primaryHref }}
+              secondary={{ label: "Talk to sales", href: props.callHref }}
+              trust="Free & open source · No account required to start"
+            />
+          </div>
+
+          <div className="mt-[120px]">
+            <SiteFooter />
+          </div>
+        </main>
       </div>
     </div>
   );
