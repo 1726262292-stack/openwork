@@ -26,7 +26,7 @@ describe("Slack MCP diagnostic compatibility", () => {
     }])
   })
 
-  test("logs a bounded, redacted provider body excerpt for a non-2xx MCP response", async () => {
+  test("uses the same structured provider excerpt for members and logs", async () => {
     const tracker = new ExternalMcpDiagnosticTracker("req_slack_excerpt")
     const diagnosticFetch = createExternalMcpDiagnosticFetch({
       endpoint: "https://provider.example.test/mcp",
@@ -59,21 +59,24 @@ describe("Slack MCP diagnostic compatibility", () => {
     expect(logged.diagnostic.providerResponseExcerpt).toBe('{"error":"unsupported_protocol_version"}')
     expect(logged.diagnostic.providerResponseExcerpt?.length).toBeLessThanOrEqual(600)
     expect(logged.diagnostic.providerResponseExcerpt).not.toContain("weird_field")
-    expect(logged.providerResponseLogExcerpt).toContain("weird_field")
-    expect(logged.providerResponseLogExcerpt).toContain("[redacted]")
+    expect(logged.providerResponseLog?.excerpt).toBe(logged.diagnostic.providerResponseExcerpt)
+    expect(logged.providerResponseLog?.contentType).toBe("application/json")
+    expect(logged.providerResponseLog?.bodyChars).toBeGreaterThan(0)
+    expect(JSON.stringify(logged.providerResponseLog)).not.toContain("weird_field")
     expect(JSON.stringify(logged)).not.toContain("xoxp-must-not-appear")
     expect(JSON.stringify(logged)).not.toContain("also-must-not-appear")
     expect(JSON.stringify(logged)).not.toContain("xoxp-secret-under-arbitrary-key")
     expect(logged.causeChain).toEqual([{ name: "StreamableHTTPError", code: "400" }])
   })
 
-  test("omits non-JSON response bodies from member diagnostics but keeps a redacted log excerpt", async () => {
+  test("omits non-JSON response content while logging only type and length", async () => {
+    const html = `<html>provider failed with xoxp-secret-under-arbitrary-key</html>`
     const tracker = new ExternalMcpDiagnosticTracker("req_html_excerpt")
     const diagnosticFetch = createExternalMcpDiagnosticFetch({
       endpoint: "https://provider.example.test/mcp",
       tracker,
       fetch: async () => new Response(
-        `<html>provider failed with xoxp-secret-under-arbitrary-key</html>`,
+        html,
         { status: 500, headers: { "content-type": "text/html" } },
       ),
     })
@@ -89,9 +92,42 @@ describe("Slack MCP diagnostic compatibility", () => {
     const logged = externalMcpDiagnosticForLog(diagnosticError, "ignored", "MCP_INITIALIZE")
 
     expect(logged.diagnostic.providerResponseExcerpt).toBeUndefined()
-    expect(logged.providerResponseLogExcerpt).toContain("<html>")
-    expect(logged.providerResponseLogExcerpt).toContain("[redacted]")
-    expect(logged.providerResponseLogExcerpt).not.toContain("xoxp-secret-under-arbitrary-key")
+    expect(logged.providerResponseLog).toEqual({
+      contentType: "text/html",
+      bodyChars: html.length,
+    })
+    expect(JSON.stringify(logged)).not.toContain("<html>")
+    expect(JSON.stringify(logged)).not.toContain("xoxp-secret-under-arbitrary-key")
+  })
+
+  test("allowlists JSON-RPC error code and message for members and logs", async () => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_json_rpc_excerpt")
+    const diagnosticFetch = createExternalMcpDiagnosticFetch({
+      endpoint: "https://provider.example.test/mcp",
+      tracker,
+      fetch: async () => Response.json({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: "unsupported protocol version", data: "drop-me" },
+      }, { status: 400 }),
+    })
+    await diagnosticFetch("https://provider.example.test/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    })
+    const diagnosticError = tracker.error(
+      new StreamableHTTPError(400, "provider rejected initialize"),
+      "MCP_INITIALIZE",
+    )
+    const logged = externalMcpDiagnosticForLog(diagnosticError, "ignored", "MCP_INITIALIZE")
+
+    expect(logged.diagnostic.providerResponseExcerpt).toBe(
+      '{"error_code":-32600,"error_message":"unsupported protocol version"}',
+    )
+    expect(logged.providerResponseLog?.excerpt).toBe(logged.diagnostic.providerResponseExcerpt)
+    expect(JSON.stringify(logged)).not.toContain("drop-me")
+    expect(JSON.stringify(logged)).not.toContain("jsonrpc")
   })
 
   test("surfaces a bounded SDK OAuth error description in the diagnostic message", () => {
@@ -145,7 +181,9 @@ describe("Slack MCP diagnostic compatibility", () => {
 
     const finalError = new Error("A signed authorization transaction is required")
     Object.defineProperty(finalError, "code", { value: "MCP_OAUTH_AUTHORIZATION_ID_REQUIRED" })
-    const diagnostic = tracker.error(finalError, "CONTINUITY_REFRESH").diagnostic
+    const diagnosticError = tracker.error(finalError, "CONTINUITY_REFRESH")
+    const diagnostic = diagnosticError.diagnostic
+    const logged = externalMcpDiagnosticForLog(diagnosticError, "ignored", "CONTINUITY_REFRESH")
     const serialized = JSON.stringify(diagnostic)
 
     expect(diagnostic.message).toContain(SAFE_SLACK_ERROR)
@@ -153,6 +191,8 @@ describe("Slack MCP diagnostic compatibility", () => {
     expect(diagnostic.providerResponseExcerpt).toContain('"error":"invalid_refresh_token"')
     expect(diagnostic.providerResponseExcerpt).toContain('"error_description"')
     expect(diagnostic.providerResponseExcerpt).not.toContain("weird_field")
+    expect(logged.providerResponseLog?.excerpt).toBe(diagnostic.providerResponseExcerpt)
+    expect(JSON.stringify(logged.providerResponseLog)).not.toContain("weird_field")
     expect(serialized).not.toContain("must-not-appear")
     expect(serialized).not.toContain("xoxp-secret-under-arbitrary-key")
     for (const secret of [

@@ -84,15 +84,21 @@ export const EXTERNAL_MCP_SSE_RESPONSE_LIMIT_BYTES = 16 * 1024 * 1024
 const EXTERNAL_MCP_PROVIDER_DECLARED_ERROR_SNIFF_LIMIT_BYTES = 64 * 1024
 const EXTERNAL_MCP_PROVIDER_RESPONSE_EXCERPT_CHARS = 600
 const EXTERNAL_MCP_OAUTH_PROVIDER_DETAIL_CHARS = 300
-const SENSITIVE_RESPONSE_KEY = /token|secret|password|assertion|code|key|authorization/i
-const SENSITIVE_JSON_VALUE = /("(?:[^"\\]|\\.)*(?:token|secret|password|assertion|code|key|authorization)(?:[^"\\]|\\.)*"\s*:\s*)("(?:[^"\\]|\\.)*(?:"|$)|[^,}\]]*)/gi
 const SENSITIVE_TEXT_PAIR = /((?:token|secret|password|assertion|code|key|authorization)[\w-]*\s*[=:]\s*)[^\s&"',;)]+/gi
+const SENSITIVE_QUOTED_TEXT_PAIR = /(["'][\w-]*(?:token|secret|password|assertion|code|key|authorization)[\w-]*["']\s*:\s*["'])[^"']*(["'])/gi
 const JWT_CREDENTIAL = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}/g
 const SLACK_CREDENTIAL = /\bxox[a-z]-[A-Za-z0-9-]+|\bxoxe(?:-\d)?-[A-Za-z0-9-]+/gi
 const BEARER_CREDENTIAL = /(\bBearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi
 const GITHUB_CREDENTIAL = /\bgh[pousr]_[A-Za-z0-9]{20,}/gi
 const LONG_OPAQUE_CREDENTIAL = /[A-Za-z0-9_~+/=-]{40,}/g
-const MEMBER_RESPONSE_STRING_FIELDS = ["error", "error_description", "error_uri", "message"]
+const PROVIDER_RESPONSE_STRING_FIELDS = ["error_description", "error_uri", "message"]
+const PROVIDER_RESPONSE_CONTENT_TYPE_CHARS = 120
+
+type ProviderResponseLog = {
+  contentType: string
+  bodyChars: number
+  excerpt?: string
+}
 
 export class ExternalMcpLifecycleDeadlineError extends Error {
   constructor() {
@@ -212,35 +218,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function redactSensitiveString(value: string): string {
   return value
+    .replace(SENSITIVE_QUOTED_TEXT_PAIR, "$1[redacted]$2")
     .replace(SENSITIVE_TEXT_PAIR, "$1[redacted]")
     .replace(JWT_CREDENTIAL, "[redacted]")
     .replace(SLACK_CREDENTIAL, "[redacted]")
     .replace(BEARER_CREDENTIAL, "$1[redacted]")
     .replace(GITHUB_CREDENTIAL, "[redacted]")
     .replace(LONG_OPAQUE_CREDENTIAL, "[redacted]")
-}
-
-function redactResponseJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactResponseJsonValue)
-  if (typeof value === "string") return redactSensitiveString(value)
-  if (!isRecord(value)) return value
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
-    key,
-    SENSITIVE_RESPONSE_KEY.test(key) ? "[redacted]" : redactResponseJsonValue(entry),
-  ]))
-}
-
-function redactedProviderResponseExcerpt(text: string, limit = EXTERNAL_MCP_PROVIDER_RESPONSE_EXCERPT_CHARS): string {
-  let redacted = redactSensitiveString(text.replace(SENSITIVE_JSON_VALUE, '$1"[redacted]"'))
-  try {
-    const parsed: unknown = JSON.parse(text)
-    const serialized = JSON.stringify(redactResponseJsonValue(parsed))
-    if (serialized !== undefined) redacted = serialized
-  } catch {
-    // The bounded excerpt may end mid-JSON; the conservative regex still
-    // redacts values whose sensitive key is visible.
-  }
-  return redacted.slice(0, limit)
 }
 
 function isOAuthTokenPhase(phase: ExternalMcpDiagnosticPhase): boolean {
@@ -256,13 +240,27 @@ function isProviderTokenErrorExcerpt(excerpt: string): boolean {
   }
 }
 
-function memberFacingProviderResponseExcerpt(text: string): string | undefined {
+function structuredProviderResponseExcerpt(text: string): string | undefined {
   try {
     const parsed: unknown = JSON.parse(text)
     if (!isRecord(parsed)) return undefined
     const allowed: Record<string, unknown> = {}
     if (typeof parsed.ok === "boolean") allowed.ok = parsed.ok
-    for (const field of MEMBER_RESPONSE_STRING_FIELDS) {
+    if (typeof parsed.error === "string") {
+      allowed.error = redactSensitiveString(parsed.error)
+    } else if (isRecord(parsed.error)) {
+      if (
+        typeof parsed.error.code === "number"
+        && Number.isSafeInteger(parsed.error.code)
+        && String(parsed.error.code).length <= 16
+      ) {
+        allowed.error_code = parsed.error.code
+      }
+      if (typeof parsed.error.message === "string") {
+        allowed.error_message = redactSensitiveString(parsed.error.message)
+      }
+    }
+    for (const field of PROVIDER_RESPONSE_STRING_FIELDS) {
       const value = parsed[field]
       if (typeof value === "string") allowed[field] = redactSensitiveString(value)
     }
@@ -271,6 +269,11 @@ function memberFacingProviderResponseExcerpt(text: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function providerResponseContentType(contentType: string): string {
+  const bounded = contentType.slice(0, PROVIDER_RESPONSE_CONTENT_TYPE_CHARS)
+  return /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(bounded) ? bounded : "unknown"
 }
 
 function stringProperty(value: unknown, key: string): string | undefined {
@@ -655,8 +658,8 @@ function oauthProviderDetail(error: unknown): string | undefined {
         ?? (current instanceof Error ? current.message : stringProperty(current, "message"))
       if (!description) return name
       const prefix = `${name}: `
-      const redacted = redactedProviderResponseExcerpt(
-        description,
+      const redacted = redactSensitiveString(description).slice(
+        0,
         Math.max(0, EXTERNAL_MCP_OAUTH_PROVIDER_DETAIL_CHARS - prefix.length),
       )
       return `${prefix}${redacted}`.slice(0, EXTERNAL_MCP_OAUTH_PROVIDER_DETAIL_CHARS)
@@ -1394,18 +1397,18 @@ function classifyError(error: unknown, fallbackPhase: ExternalMcpDiagnosticPhase
 export class ExternalMcpDiagnosticError extends Error {
   readonly diagnostic: ExternalMcpDiagnostic
   readonly safeCauseChain: ExternalMcpSafeCause[]
-  #providerResponseLogExcerpt: string | undefined
+  #providerResponseLog: ProviderResponseLog | undefined
 
-  constructor(diagnostic: ExternalMcpDiagnostic, cause?: unknown, providerResponseLogExcerpt?: string) {
+  constructor(diagnostic: ExternalMcpDiagnostic, cause?: unknown, providerResponseLog?: ProviderResponseLog) {
     super(diagnostic.message, cause === undefined ? undefined : { cause })
     this.name = "ExternalMcpDiagnosticError"
     this.diagnostic = diagnostic
     this.safeCauseChain = cause === undefined ? [] : safeExternalMcpCauseChain(cause)
-    this.#providerResponseLogExcerpt = providerResponseLogExcerpt
+    this.#providerResponseLog = providerResponseLog
   }
 
-  providerResponseExcerptForLog(): string | undefined {
-    return this.#providerResponseLogExcerpt
+  providerResponseForLog(): ProviderResponseLog | undefined {
+    return this.#providerResponseLog
   }
 }
 
@@ -1425,7 +1428,7 @@ export class ExternalMcpDiagnosticTracker {
   private providerRequestId: string | null = null
   private providerDeclaredError: ProviderDeclaredErrorEvidence | null = null
   private providerResponseExcerpt: string | null = null
-  private providerResponseLogExcerpt: string | null = null
+  private providerResponseLog: ProviderResponseLog | null = null
   private providerResponseExcerptPhase: ExternalMcpDiagnosticPhase | null = null
   private backgroundFailure: { phase: ExternalMcpDiagnosticPhase; error: unknown } | null = null
 
@@ -1450,7 +1453,7 @@ export class ExternalMcpDiagnosticTracker {
     this.providerRequestId = null
     this.providerDeclaredError = null
     this.providerResponseExcerpt = null
-    this.providerResponseLogExcerpt = null
+    this.providerResponseLog = null
     this.providerResponseExcerptPhase = null
     this.backgroundFailure = null
   }
@@ -1522,11 +1525,11 @@ export class ExternalMcpDiagnosticTracker {
 
   recordProviderResponseExcerpt(input: {
     memberExcerpt?: string
-    logExcerpt: string
+    log: ProviderResponseLog
     phase: ExternalMcpDiagnosticPhase
   }): void {
     this.providerResponseExcerpt = input.memberExcerpt ?? null
-    this.providerResponseLogExcerpt = input.logExcerpt
+    this.providerResponseLog = input.log
     this.providerResponseExcerptPhase = input.phase
   }
 
@@ -1652,7 +1655,7 @@ export class ExternalMcpDiagnosticTracker {
     const capturedOAuthProviderDetail = this.providerResponseExcerpt
       && this.providerResponseExcerptPhase
       && isOAuthTokenPhase(this.providerResponseExcerptPhase)
-      ? redactedProviderResponseExcerpt(this.providerResponseExcerpt, EXTERNAL_MCP_OAUTH_PROVIDER_DETAIL_CHARS)
+      ? this.providerResponseExcerpt.slice(0, EXTERNAL_MCP_OAUTH_PROVIDER_DETAIL_CHARS)
       : undefined
     const safeOAuthProviderDetail = oauthProviderDetail(error)
       ?? oauthProviderDetail(source.error)
@@ -1682,7 +1685,7 @@ export class ExternalMcpDiagnosticTracker {
     return new ExternalMcpDiagnosticError(
       diagnostic,
       error,
-      this.providerResponseLogExcerpt ?? undefined,
+      this.providerResponseLog ?? undefined,
     )
   }
 }
@@ -1857,7 +1860,7 @@ async function responseTextExcerptWithinLimit(response: Response, limit: number)
 
 async function providerResponseExcerpts(response: Response): Promise<{
   memberExcerpt?: string
-  logExcerpt: string
+  log: ProviderResponseLog
 } | null> {
   try {
     const text = await responseTextExcerptWithinLimit(
@@ -1865,10 +1868,16 @@ async function providerResponseExcerpts(response: Response): Promise<{
       EXTERNAL_MCP_PROVIDER_RESPONSE_EXCERPT_CHARS,
     )
     if (text === null) return null
-    const memberExcerpt = memberFacingProviderResponseExcerpt(text)
+    const memberExcerpt = structuredProviderResponseExcerpt(text)
     return {
       ...(memberExcerpt ? { memberExcerpt } : {}),
-      logExcerpt: redactedProviderResponseExcerpt(text),
+      log: {
+        contentType: providerResponseContentType(
+          (response.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "",
+        ),
+        bodyChars: text.length,
+        ...(memberExcerpt ? { excerpt: memberExcerpt } : {}),
+      },
     }
   } catch {
     return null
@@ -2100,12 +2109,12 @@ export function externalMcpDiagnosticForLog(error: unknown, referenceId: string,
   const diagnosticError = error instanceof ExternalMcpDiagnosticError
     ? error
     : new ExternalMcpDiagnosticTracker(referenceId).error(error, fallbackPhase)
-  const providerResponseLogExcerpt = diagnosticError.providerResponseExcerptForLog()
+  const providerResponseLog = diagnosticError.providerResponseForLog()
   return {
     diagnostic: diagnosticError.diagnostic,
     causeChain: diagnosticError.safeCauseChain,
-    ...(providerResponseLogExcerpt
-      ? { providerResponseLogExcerpt }
+    ...(providerResponseLog
+      ? { providerResponseLog }
       : {}),
   }
 }

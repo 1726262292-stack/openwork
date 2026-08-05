@@ -1,6 +1,9 @@
 import type { EnterpriseMcpFetch, EnterpriseMcpRequestPhase } from "./contracts.js"
 import { classifyEnterpriseMcpRequest } from "./request-observer.js"
-import { redactedResponseBodyExcerpt } from "./response-body-excerpt.js"
+import {
+  ENTERPRISE_MCP_RESPONSE_BODY_EXCERPT_CHARS,
+  redactedSensitiveResponseString,
+} from "./response-body-excerpt.js"
 
 type OAuthErrorCode = "invalid_grant" | "invalid_client" | "invalid_scope" | "access_denied" | "server_error"
 type TokenRequestPhase = Extract<EnterpriseMcpRequestPhase, "oauth-token-exchange" | "oauth-token-refresh">
@@ -35,6 +38,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isTokenRequestPhase(phase: EnterpriseMcpRequestPhase): phase is TokenRequestPhase {
   return phase === "oauth-token-exchange" || phase === "oauth-token-refresh"
+}
+
+function structuredTokenResponseExcerpt(response: Record<string, unknown>): string {
+  const allowed: Record<string, unknown> = {}
+  if (typeof response.ok === "boolean") allowed.ok = response.ok
+  for (const field of ["error", "error_description", "error_uri", "message"]) {
+    const value = response[field]
+    if (typeof value === "string") allowed[field] = redactedSensitiveResponseString(value)
+  }
+  return JSON.stringify(allowed).slice(0, ENTERPRISE_MCP_RESPONSE_BODY_EXCERPT_CHARS)
 }
 
 function jsonResponse(body: Record<string, unknown>, source: Response, status: number): Response {
@@ -95,7 +108,7 @@ export function createEnterpriseMcpTokenResponseCompat(input: {
         requestPhase,
         outcome: "failed",
         httpStatus: translated.status,
-        responseBodyExcerpt: redactedResponseBodyExcerpt(text),
+        responseBodyExcerpt: structuredTokenResponseExcerpt(parsed),
       })
       return translated
     }
@@ -111,7 +124,7 @@ export function createEnterpriseMcpTokenResponseCompat(input: {
         requestPhase,
         outcome: "succeeded",
         httpStatus: translated.status,
-        responseBodyExcerpt: redactedResponseBodyExcerpt(text),
+        responseBodyExcerpt: structuredTokenResponseExcerpt(parsed),
       })
       return translated
     }

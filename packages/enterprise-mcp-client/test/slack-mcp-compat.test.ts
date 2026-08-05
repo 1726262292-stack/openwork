@@ -65,6 +65,7 @@ describe("Slack-style MCP compatibility", () => {
         ok: false,
         error: "invalid_code",
         access_token: "must-not-be-diagnosed",
+        weird_field: "xoxp-arbitrary",
       }),
       onTranslation: (translation) => translations.push({
         kind: "request",
@@ -104,6 +105,7 @@ describe("Slack-style MCP compatibility", () => {
     assert.equal(translation.httpStatus, 400)
     assert.match(translation.responseBodyExcerpt ?? "", /invalid_code/)
     assert.doesNotMatch(translation.responseBodyExcerpt ?? "", /must-not-be-diagnosed/)
+    assert.doesNotMatch(translation.responseBodyExcerpt ?? "", /weird_field|xoxp-arbitrary/)
   })
 
   it("normalizes a non-Bearer token_type while preserving other token fields", async () => {
