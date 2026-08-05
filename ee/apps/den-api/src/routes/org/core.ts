@@ -206,22 +206,19 @@ function normalizeResolveEmail(email: string) {
   return email.trim().toLowerCase()
 }
 
-function getResolveEmailDomain(email: string) {
-  const normalized = normalizeResolveEmail(email)
-  const atIndex = normalized.lastIndexOf("@")
-  return atIndex > 0 && atIndex < normalized.length - 1 ? normalized.slice(atIndex + 1) : "unknown"
+export function ssoResolveRateLimitKeys(headers: Headers, email: string) {
+  const normalizedEmail = normalizeResolveEmail(email)
+  // Per-domain limiting was removed: shared corporate domains and NAT made it a coworker-vs-coworker limiter, not an abuse boundary.
+  return [
+    `org-sso-resolve:ip:${sha256Hex(getRequestAddress(headers))}`,
+    `org-sso-resolve:email:${sha256Hex(normalizedEmail)}`,
+  ]
 }
 
 async function checkSsoResolveRateLimit(headers: Headers, email: string) {
-  const normalizedEmail = normalizeResolveEmail(email)
   const now = Date.now()
-  const keys = [
-    `org-sso-resolve:ip:${sha256Hex(getRequestAddress(headers))}`,
-    `org-sso-resolve:email:${sha256Hex(normalizedEmail)}`,
-    `org-sso-resolve:domain:${sha256Hex(getResolveEmailDomain(normalizedEmail))}`,
-  ]
 
-  for (const key of keys) {
+  for (const key of ssoResolveRateLimitKeys(headers, email)) {
     const retryAfter = await checkRateLimit(key, 20, 60_000, now)
     if (retryAfter !== null) {
       return retryAfter
