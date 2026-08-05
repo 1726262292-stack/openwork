@@ -275,7 +275,10 @@ export async function startMockGithub(options: StartMockGithubOptions): Promise<
       }
       sendJson(response, 404, { message: "not found" });
     } catch (error) {
-      sendJson(response, 500, { message: error instanceof Error ? error.message : String(error) });
+      // Log the detail server-side; never echo error text into the HTTP body
+      // (CodeQL js/stack-trace-exposure), even in a local test witness.
+      console.error(`[mock-github] request handler failed: ${error instanceof Error ? error.message : String(error)}`);
+      sendJson(response, 500, { message: "mock github internal error" });
     }
   });
 
