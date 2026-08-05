@@ -10,8 +10,13 @@ export interface AppOptions {
   place: Place;
   host?: Host;
   model?: string;
+  /** Reuse this caller-owned local Electron profile root instead of creating one. */
+  profileDir?: string;
+  /** Eval-only delay before the desktop starts its embedded OpenWork server. */
+  localServerDelayMs?: number;
 }
 
+/** A signed-in desktop; its Electron profile root is available at handle.profileDir. */
 export interface App extends DesktopHandle {
   workspaceId: string;
 }
@@ -22,15 +27,21 @@ export async function app(options: AppOptions): Promise<App> {
     const available = ["admin", ...Object.keys(options.den.members)].join(", ");
     throw new Error(`Unknown Den member ${JSON.stringify(options.as)}. Available: ${available}`);
   }
+  const env: Record<string, string> = {};
+  if (options.model) env.OPENWORK_EVAL_MODEL = options.model;
+  if (options.localServerDelayMs !== undefined) {
+    env.OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS = String(options.localServerDelayMs);
+  }
   const surface = await desktop({
     name: `testkit-${options.as}`,
     host: options.host ?? options.place.host(),
+    profileDir: options.profileDir,
     bootstrap: {
       baseUrl: options.den.ref.webUrl,
       apiBaseUrl: options.den.ref.webUrl,
       requireSignin: false,
     },
-    env: options.model ? { OPENWORK_EVAL_MODEL: options.model } : undefined,
+    env: Object.keys(env).length > 0 ? env : undefined,
   });
   try {
     // Workspace first, then the org sign-in: the signed-in org shell offers no

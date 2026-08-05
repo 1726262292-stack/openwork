@@ -33,6 +33,8 @@ export interface DesktopOptions {
     requireSignin?: boolean;
   };
   env?: Record<string, string>;
+  /** Exact caller-owned Electron profile root, for restart scenarios. */
+  profileDir?: string;
   timeoutMs?: number;
 }
 
@@ -108,6 +110,7 @@ export async function desktop(opts: DesktopOptions = {}): Promise<DesktopHandle>
     host = opts.host ?? await resolveHost();
     handle = await host.spawnElectron(opts.name ?? "spec", {
       profile: "fresh",
+      profileDir: opts.profileDir,
       bootstrap: opts.bootstrap,
       env: opts.env,
     });
