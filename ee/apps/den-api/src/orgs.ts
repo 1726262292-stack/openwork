@@ -40,7 +40,7 @@ import {
   type OrganizationPermissionRecord,
 } from "./organization-access.js"
 import { ensureDefaultDesktopPolicyForOrganization } from "./desktop-policies.js"
-import { isProtectedOrganizationRoleName } from "./organization-role-hierarchy.js"
+import { isProtectedOrganizationRoleName, shouldRevokeSessionsForRoleChange } from "./organization-role-hierarchy.js"
 import { isSingleOrgOwnerEmailEligible, resolveSingleOrgMembershipRole } from "./single-org-policy.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
@@ -1774,10 +1774,14 @@ export async function updateOrganizationMemberRole(input: {
       orgMembershipId: updated.member.id,
       userId: updated.member.userId,
     })
-    await revokeMembershipSessionCredentials({
-      organizationId: input.organizationId,
-      userId: updated.member.userId,
-    })
+    // Revocation prevents a live session from retaining access it just lost.
+    // An upgrade removes no access, so there is nothing to revoke.
+    if (shouldRevokeSessionsForRoleChange(updated.previousRole, updated.nextRole)) {
+      await revokeMembershipSessionCredentials({
+        organizationId: input.organizationId,
+        userId: updated.member.userId,
+      })
+    }
   }
 
   return updated
