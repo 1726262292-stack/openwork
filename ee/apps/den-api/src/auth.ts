@@ -1037,8 +1037,9 @@ export const auth = betterAuth({
           return normalizeDenTypeId("organization", activeOrganizationId);
         },
       },
-      customAccessTokenClaims: ({ referenceId, resource, scopes }) => {
+      customAccessTokenClaims: ({ referenceId, resources, scopes }) => {
         const claims: Record<string, string> = {};
+        const resource = resources?.[0];
         const mcpResource = typeof resource === "string" ? normalizeMcpOAuthResource(resource) : null;
         if (hasMcpScope(scopes) || mcpResource) {
           claims[DEN_MCP_TOKEN_USE_CLAIM] = "mcp";
