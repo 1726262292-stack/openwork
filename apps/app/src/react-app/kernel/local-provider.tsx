@@ -49,12 +49,10 @@ export type LocalPreferences = {
   featureFlags: {
     microsandboxCreateSandbox: boolean;
     /**
-     * Automations preview. Client-only and per-device. Gates every desktop
-     * Automations affordance — the sidebar entry, the /automations route, and
-     * the Den availability probe — until the user opts into the preview. The
-     * Den APIs stay callable (owner-scoped + authz'd), but this desktop only
-     * registers as an execution runner while the preview is enabled. Off by
-     * default.
+     * Automations preview. Client-only and per-device. Hidden entirely on web;
+     * desktop gates the sidebar entry, /automations route, Den availability
+     * probe, and runner registration until the user opts in. The Den APIs stay
+     * callable (owner-scoped + authz'd). Off by default.
      */
     automations: boolean;
     /**

@@ -2227,6 +2227,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             memoryEnabled={memoryEnabled}
             onToggleMemory={toggleMemory}
+            showAutomations={isDesktopRuntime()}
             automationsEnabled={automationsEnabled}
             onToggleAutomations={toggleAutomations}
           />
