@@ -405,8 +405,8 @@ importers:
         specifier: ^0.2.5
         version: 0.2.5(@modelcontextprotocol/sdk@1.29.0(patch_hash=b9b29e6a319e94ea968476aa440eb8586b5da9db6b8011ce749c384d186f8a10)(zod@4.3.6))(hono-rate-limiter@0.4.2(hono@4.12.34))(hono@4.12.34)(zod@4.3.6)
       '@hono/node-server':
-        specifier: 2.0.11
-        version: 2.0.11(hono@4.12.34)
+        specifier: 2.0.12
+        version: 2.0.12(hono@4.12.34)
       '@hono/otel':
         specifier: 1.1.2
         version: 1.1.2(hono@4.12.34)
@@ -475,7 +475,7 @@ importers:
         version: link:../../../packages/types
       '@sentry/hono':
         specifier: 10.64.0
-        version: 10.64.0(@hono/node-server@2.0.11(hono@4.12.34))(@sentry/node@10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)
+        version: 10.64.0(@hono/node-server@2.0.12(hono@4.12.34))(@sentry/node@10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)
       '@sentry/node':
         specifier: 10.64.0
         version: 10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
@@ -553,8 +553,8 @@ importers:
   ee/apps/den-gateway:
     dependencies:
       '@hono/node-server':
-        specifier: 2.0.11
-        version: 2.0.11(hono@4.12.34)
+        specifier: 2.0.12
+        version: 2.0.12(hono@4.12.34)
       '@openwork-ee/utils':
         specifier: workspace:*
         version: link:../../packages/utils
@@ -672,8 +672,8 @@ importers:
         specifier: ^0.201.0
         version: 0.201.0
       '@hono/node-server':
-        specifier: 2.0.11
-        version: 2.0.11(hono@4.12.34)
+        specifier: 2.0.12
+        version: 2.0.12(hono@4.12.34)
       '@openwork-ee/den-db':
         specifier: workspace:*
         version: link:../../packages/den-db
@@ -731,8 +731,8 @@ importers:
   ee/apps/enterprise-mock-lab:
     dependencies:
       '@hono/node-server':
-        specifier: 2.0.11
-        version: 2.0.11(hono@4.12.34)
+        specifier: 2.0.12
+        version: 2.0.12(hono@4.12.34)
       '@openwork/enterprise-mcp-mock-server':
         specifier: workspace:*
         version: link:../../../packages/enterprise-mcp-mock-server
@@ -756,8 +756,8 @@ importers:
   ee/apps/inference:
     dependencies:
       '@hono/node-server':
-        specifier: 2.0.11
-        version: 2.0.11(hono@4.12.34)
+        specifier: 2.0.12
+        version: 2.0.12(hono@4.12.34)
       '@openwork-ee/den-db':
         specifier: workspace:*
         version: link:../../packages/den-db
@@ -769,7 +769,7 @@ importers:
         version: link:../../../packages/types
       '@sentry/hono':
         specifier: ^10.65.0
-        version: 10.65.0(@hono/node-server@2.0.11(hono@4.12.34))(@sentry/node@10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)
+        version: 10.65.0(@hono/node-server@2.0.12(hono@4.12.34))(@sentry/node@10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)
       '@sentry/node':
         specifier: ^10.65.0
         version: 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
@@ -1947,8 +1947,8 @@ packages:
     peerDependencies:
       hono: 4.12.34
 
-  '@hono/node-server@2.0.11':
-    resolution: {integrity: sha512-bjD221KPLoJTWUwso1J6fGKiTXEUFedG/s0visavY4zakFPkeGURMRNly+FhBHs7T8Dz4qHaZIMX9ZoJHSJtKA==}
+  '@hono/node-server@2.0.12':
+    resolution: {integrity: sha512-eWpQYr67tqJLeaSUl0Q+TquuYfUdTibpOJlUMV2FfUP7+KqCC5TufnwnlXL6mobZBJbGAYRd7ZvEBDCbLInjhg==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: 4.12.34
@@ -9715,7 +9715,7 @@ snapshots:
     dependencies:
       hono: 4.12.34
 
-  '@hono/node-server@2.0.11(hono@4.12.34)':
+  '@hono/node-server@2.0.12(hono@4.12.34)':
     dependencies:
       hono: 4.12.34
 
@@ -11308,22 +11308,22 @@ snapshots:
     dependencies:
       '@sentry/core': 10.64.0
 
-  '@sentry/hono@10.64.0(@hono/node-server@2.0.11(hono@4.12.34))(@sentry/node@10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)':
+  '@sentry/hono@10.64.0(@hono/node-server@2.0.12(hono@4.12.34))(@sentry/node@10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@sentry/core': 10.64.0
       hono: 4.12.34
     optionalDependencies:
-      '@hono/node-server': 2.0.11(hono@4.12.34)
+      '@hono/node-server': 2.0.12(hono@4.12.34)
       '@sentry/node': 10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
 
-  '@sentry/hono@10.65.0(@hono/node-server@2.0.11(hono@4.12.34))(@sentry/node@10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)':
+  '@sentry/hono@10.65.0(@hono/node-server@2.0.12(hono@4.12.34))(@sentry/node@10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1)))(hono@4.12.34)':
     dependencies:
       '@opentelemetry/api': 1.9.1
       '@sentry/core': 10.65.0
       hono: 4.12.34
     optionalDependencies:
-      '@hono/node-server': 2.0.11(hono@4.12.34)
+      '@hono/node-server': 2.0.12(hono@4.12.34)
       '@sentry/node': 10.65.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
 
   '@sentry/nextjs@10.64.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.9.0(@opentelemetry/api@1.9.1))(next@16.2.11(@opentelemetry/api@1.9.1)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(webpack@5.108.4(postcss@8.5.23))':
