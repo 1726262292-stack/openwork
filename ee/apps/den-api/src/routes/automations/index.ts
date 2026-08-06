@@ -108,37 +108,32 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
     const requestedCursor = Number(c.req.header("Last-Event-ID") ?? "0")
     let cursor = Number.isSafeInteger(requestedCursor) && requestedCursor >= 0 ? requestedCursor : 0
     return streamSSE(c, async (stream) => {
-      const disconnected = automationRunnerAuth.connected(identity)
       let lastKeepaliveAt = 0
       let lastOwnerCheckAt = Date.now()
-      try {
-        while (!stream.aborted) {
-          // A held-open stream must not outlive the credential or membership.
-          if (Date.now() >= identity.expiresAt) break
-          if (Date.now() - lastOwnerCheckAt >= 15_000) {
-            if (!(await service.isActiveRunnerOwner(identity))) break
-            lastOwnerCheckAt = Date.now()
-          }
-          const notifications = await service.runnerNotifications(identity, cursor)
-          for (const notification of notifications) {
-            cursor = notification.id
-            const payload = automationRunnerNotificationSchema.parse({
-              type: notification.event_type === "work_available"
-                ? "automation_work_available"
-                : "automation_cancellation_available",
-              cursor: String(notification.id),
-            })
-            await stream.writeSSE({ id: payload.cursor, event: payload.type, data: JSON.stringify(payload) })
-          }
-          if (notifications.length === 0 && Date.now() - lastKeepaliveAt >= 15_000) {
-            await service.touchDesktopRunner(identity)
-            await stream.writeSSE({ event: "keepalive", data: "{}" })
-            lastKeepaliveAt = Date.now()
-          }
-          await stream.sleep(1_000)
+      while (!stream.aborted) {
+        // A held-open stream must not outlive the credential or membership.
+        if (Date.now() >= identity.expiresAt) break
+        if (Date.now() - lastOwnerCheckAt >= 15_000) {
+          if (!(await service.isActiveRunnerOwner(identity))) break
+          lastOwnerCheckAt = Date.now()
         }
-      } finally {
-        disconnected()
+        const notifications = await service.runnerNotifications(identity, cursor)
+        for (const notification of notifications) {
+          cursor = notification.id
+          const payload = automationRunnerNotificationSchema.parse({
+            type: notification.event_type === "work_available"
+              ? "automation_work_available"
+              : "automation_cancellation_available",
+            cursor: String(notification.id),
+          })
+          await stream.writeSSE({ id: payload.cursor, event: payload.type, data: JSON.stringify(payload) })
+        }
+        if (notifications.length === 0 && Date.now() - lastKeepaliveAt >= 15_000) {
+          await service.touchDesktopRunner(identity)
+          await stream.writeSSE({ event: "keepalive", data: "{}" })
+          lastKeepaliveAt = Date.now()
+        }
+        await stream.sleep(1_000)
       }
     })
   })
@@ -324,7 +319,7 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
     orgMemberRoute(), paramValidator(idParamsSchema),
     async (c) => {
       const owner = scope(c)
-      if (!automationRunnerAuth.hasConnected(owner)) {
+      if (!(await service.hasOnlineDesktopRunner(owner))) {
         return c.json({ error: "runner_unavailable", message: "No desktop runner is online" }, 409)
       }
       try {

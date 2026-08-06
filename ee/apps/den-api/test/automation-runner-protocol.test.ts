@@ -140,6 +140,18 @@ test("every runner endpoint re-checks that the token owner is still an active me
   assert.match(sse, /if \(!\(await service\.isActiveRunnerOwner\(identity\)\)\) break/)
 })
 
+test("manual runs use durable runner presence across Den API replicas", () => {
+  const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
+  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
+
+  assert.match(routesSource, /await service\.hasOnlineDesktopRunner\(owner\)/)
+  assert.doesNotMatch(routesSource, /automationRunnerAuth\.hasConnected/)
+  assert.match(serviceSource, /DESKTOP_RUNNER_ONLINE_WINDOW_MS = 45_000/)
+  assert.match(serviceSource, /automationRepository\.hasRecentDesktopRunner\(/)
+  assert.match(repositorySource, /gt\(AutomationRunnerTable\.last_seen_at, new Date\(input\.seenAfter\)\)/)
+})
+
 test("every dispatch path revalidates the owner's model access", () => {
   const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const tick = serviceSource.slice(serviceSource.indexOf("async tick"), serviceSource.indexOf("async stop"))
