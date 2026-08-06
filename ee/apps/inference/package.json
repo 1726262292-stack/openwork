@@ -11,7 +11,7 @@
     "start": "node --import ./dist/instrumentation.js dist/server.js"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.10",
+    "@hono/node-server": "2.0.11",
     "@openwork-ee/den-db": "workspace:*",
     "@openwork-ee/utils": "workspace:*",
     "@openwork/types": "workspace:*",
@@ -19,7 +19,7 @@
     "@sentry/node": "^10.65.0",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.45.2",
-    "hono": "4.12.27",
+    "hono": "4.12.34",
     "zod": "^4.3.6"
   },
   "devDependencies": {
