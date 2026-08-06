@@ -144,9 +144,11 @@ test("manual runs use durable runner presence across Den API replicas", () => {
   const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
   const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
+  const runnerAuthSource = readFileSync(join(import.meta.dir, "../src/automations/runner-auth.ts"), "utf8")
 
   assert.match(routesSource, /await service\.hasOnlineDesktopRunner\(owner\)/)
   assert.doesNotMatch(routesSource, /automationRunnerAuth\.hasConnected/)
+  assert.doesNotMatch(runnerAuthSource, /connections = new Map/)
   assert.match(serviceSource, /DESKTOP_RUNNER_ONLINE_WINDOW_MS = 45_000/)
   assert.match(serviceSource, /automationRepository\.hasRecentDesktopRunner\(/)
   assert.match(repositorySource, /gt\(AutomationRunnerTable\.last_seen_at, new Date\(input\.seenAfter\)\)/)
