@@ -4,6 +4,9 @@ export const MCP_AUTHORIZATION_WINDOW_CLOSED_MESSAGE =
 export const MCP_AUTHORIZATION_TIMEOUT_MESSAGE =
   "OpenWork could not confirm the connection. Review the provider error in this window, then try again.";
 
+export const MCP_AUTHORIZATION_UNCONFIRMED_CONNECTED_MESSAGE =
+  "The provider responded, but OpenWork could not confirm this account connection. Review the provider configuration, then try again.";
+
 export type McpAuthorizationPollOutcome = "connected" | "window_closed" | "timeout" | "pending";
 
 export function resolveMcpAuthorizationPollOutcome(input: {

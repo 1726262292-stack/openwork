@@ -1,5 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
+import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js"
 import { z } from "zod"
@@ -65,6 +65,7 @@ const optionsSchema = z.object({
 type Session = {
   client: Client
   transport: StreamableHTTPClientTransport
+  serverUrl: URL
   oauthProvider?: EnterpriseMcpOAuthProvider
   observer: EnterpriseMcpRequestObserver
   controller: AbortController
@@ -280,6 +281,7 @@ export function createEnterpriseMcpClient(options: EnterpriseMcpClientOptions): 
     return {
       client,
       transport,
+      serverUrl,
       oauthProvider,
       observer,
       controller,
@@ -464,6 +466,9 @@ export function createEnterpriseMcpClient(options: EnterpriseMcpClientOptions): 
         operationPhase: "connection-handshake",
         operation: async (session) => {
           try {
+            const hadOAuthCredential = session.oauthProvider
+              ? Boolean(await session.oauthProvider.tokens())
+              : false
             await connectWithProtocolVersionFallback({
               session,
               connectionId: input.connection.id,
@@ -482,6 +487,29 @@ export function createEnterpriseMcpClient(options: EnterpriseMcpClientOptions): 
             // implementing tools/list at all.
             if (session.client.getServerCapabilities()?.tools) {
               await session.client.listTools(undefined, session.requestOptions)
+            }
+            // OAuth connections must not be treated as member-connected merely
+            // because a provider exposes initialize and tools/list publicly.
+            // When no member credential exists, proactively run OAuth discovery
+            // so providers such as BigQuery can return an authorization URL
+            // without first issuing an MCP-level 401 challenge.
+            if (session.oauthProvider && !hadOAuthCredential) {
+              const authResult = await auth(session.oauthProvider, {
+                serverUrl: session.serverUrl,
+                fetchFn: session.observer.fetch,
+              })
+              const authorizeUrl = session.oauthProvider.authorizeUrl
+              if (authResult === "REDIRECT") {
+                if (!authorizeUrl) {
+                  throw new Error("The OAuth provider requested authorization without an authorization URL.")
+                }
+                try {
+                  await closeWithinDeadline(() => session.client.close(), closeTimeoutMs)
+                } catch {
+                  // The bounded cleanup attempt must not discard a valid authorization URL.
+                }
+                return { status: "needs_auth", authorizeUrl }
+              }
             }
             try {
               await closeWithinDeadline(() => session.client.close(), closeTimeoutMs)

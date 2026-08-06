@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { openMcpAuthorizationWindow, safeMcpAuthorizationUrl, showMcpAuthorizationError } from "./mcp-authorization-url";
 import {
   MCP_AUTHORIZATION_TIMEOUT_MESSAGE,
+  MCP_AUTHORIZATION_UNCONFIRMED_CONNECTED_MESSAGE,
   MCP_AUTHORIZATION_WINDOW_CLOSED_MESSAGE,
   resolveMcpAuthorizationPollOutcome,
 } from "./mcp-account-authorization-state";
@@ -87,9 +88,18 @@ export function useMcpAccountAuthorization(onConnected?: () => void) {
       authorizationWindow = openMcpAuthorizationWindow();
       const result = await startOAuth.mutateAsync(connectionId);
       if (result.status === "connected") {
-        authorizationWindow.close();
-        void refetch();
-        finishConnected();
+        const refreshed = await refetch();
+        const connection = refreshed.data?.find((entry) => entry.id === connectionId);
+        if (connection?.connectedForMe && connection.needsReconnect !== true) {
+          authorizationWindow.close();
+          finishConnected();
+        } else {
+          finishFailed(
+            connectionId,
+            authorizationWindow,
+            MCP_AUTHORIZATION_UNCONFIRMED_CONNECTED_MESSAGE,
+          );
+        }
         return;
       }
       if (!result.authorizeUrl) {

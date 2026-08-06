@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   MCP_AUTHORIZATION_TIMEOUT_MESSAGE,
+  MCP_AUTHORIZATION_UNCONFIRMED_CONNECTED_MESSAGE,
   MCP_AUTHORIZATION_WINDOW_CLOSED_MESSAGE,
   resolveMcpAuthorizationPollOutcome,
 } from "../app/(den)/dashboard/_components/mcp-account-authorization-state";
@@ -39,5 +40,10 @@ describe("resolveMcpAuthorizationPollOutcome", () => {
       elapsedMs: 89_999,
       timeoutMs: 90_000,
     })).toBe("pending");
+  });
+
+  test("explains when the start response cannot be confirmed for the member", () => {
+    expect(MCP_AUTHORIZATION_UNCONFIRMED_CONNECTED_MESSAGE).toContain("could not confirm");
+    expect(MCP_AUTHORIZATION_UNCONFIRMED_CONNECTED_MESSAGE).toContain("provider configuration");
   });
 });
