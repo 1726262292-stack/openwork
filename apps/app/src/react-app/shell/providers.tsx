@@ -50,7 +50,11 @@ type AppProvidersProps = {
 
 function AutomationRunnerBridgeGate() {
   const { prefs } = useLocal();
-  return <AutomationRunnerBridge enabled={prefs.featureFlags?.automations === true} />;
+  return (
+    <AutomationRunnerBridge
+      enabled={isDesktopRuntime() && prefs.featureFlags?.automations === true}
+    />
+  );
 }
 
 function EnterpriseAwareAppProviders({ children }: AppProvidersProps) {
