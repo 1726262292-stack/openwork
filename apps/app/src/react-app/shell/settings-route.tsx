@@ -2315,6 +2315,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 installedPlugins={extensionItems.installedCloudPlugins}
                 orgMcpItems={orgMcpConnectionItems}
                 organizationName={cloudSession.activeOrgName}
+                orgMcpError={orgMcpConnections.error}
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 removeCloudPlugin={(pluginId) => { void extensionsStore.removeCloudOrgPlugin(pluginId); }}
                 orgMcpConnectingId={orgMcpConnections.connectingId}
