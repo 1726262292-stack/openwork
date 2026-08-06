@@ -1,8 +1,10 @@
 diff --git a/dist/index.mjs b/dist/index.mjs
-index fc9d7f415780e9a011b86df222adf32a6e04a026..4fc2d585a3794bd2acc907d9e9f4699e5d30de0b 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -53,1 +53,6 @@ const drizzleAdapter = (db, config) => {
+@@ -55,7 +55,12 @@ const drizzleAdapter = (db, config) => {
+ 		}
+ 		const withReturning = async (model, builder, data, where) => {
+ 			if (config.provider !== "mysql") return (await builder.returning())[0];
 -			await builder.execute();
 +			const mutationResult = await builder.execute();
 +			const mysqlResult = Array.isArray(mutationResult) ? mutationResult[0] : mutationResult;
@@ -10,7 +12,10 @@ index fc9d7f415780e9a011b86df222adf32a6e04a026..4fc2d585a3794bd2acc907d9e9f4699e
 +				const affectedRows = mysqlResult?.affectedRows ?? mysqlResult?.rowsAffected ?? mysqlResult?.changes;
 +				if (affectedRows === 0) return null;
 +			}
-@@ -434,7 +434,8 @@ const drizzleAdapter = (db, config) => {
+ 			const schemaModel = getSchema(model);
+ 			const builderVal = builder.config?.values;
+ 			if (where?.length) {
+@@ -467,7 +472,8 @@ const drizzleAdapter = (db, config) => {
  						const targetId = target[idField] ?? target.id;
  						if (targetId === void 0 || targetId === null || !idColumn) return null;
  						const delRes = await tx.delete(schemaModel).where(eq(idColumn, targetId)).execute();

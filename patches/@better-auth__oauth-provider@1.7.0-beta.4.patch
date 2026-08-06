@@ -1,8 +1,9 @@
 diff --git a/dist/index.mjs b/dist/index.mjs
-index 9b6a5d94a72cf1ad13235c1f76ca5f57d4380d2e..7c9d0e8bbd4e8a522f2ab4db5d7424a7dcb6bf31 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -439,2 +439,12 @@ async function createOpaqueAccessToken(ctx, opts, user, client, scopes, payload,
+@@ -511,6 +511,16 @@ async function invalidateRefreshFamily(ctx, clientId, userId) {
+ 		}]
+ 	});
  }
 +const REFRESH_TOKEN_ROTATION_GRACE_MS = 30_000;
 +// Only token hashes are stored, so an overlap replay can issue another
@@ -14,19 +15,17 @@ index 9b6a5d94a72cf1ad13235c1f76ca5f57d4380d2e..7c9d0e8bbd4e8a522f2ab4db5d7424a7
 +	const revokedAgeMs = Date.now() - revokedAt.getTime();
 +	return revokedAgeMs >= 0 && revokedAgeMs <= REFRESH_TOKEN_ROTATION_GRACE_MS;
 +}
- /**
-@@ -521,11 +531,32 @@ async function createRefreshToken(ctx, opts, user, referenceId, client, scopes, p
+ async function createRefreshToken(ctx, opts, user, referenceId, client, scopes, payload, originalRefresh, authTime, resources) {
+ 	const iat = payload.iat ?? Math.floor(Date.now() / 1e3);
+ 	const exp = payload?.exp ?? iat + (opts.refreshTokenExpiresIn ?? 2592e3);
+@@ -547,15 +557,36 @@ async function createRefreshToken(ctx, opts, user, referenceId, client, scopes, p
+ 			value: null
+ 		}],
+ 		update: { revoked: /* @__PURE__ */ new Date(iat * 1e3) }
 -	})) throw new APIError("BAD_REQUEST", {
 -		error_description: "invalid refresh token",
 -		error: "invalid_grant"
 -	});
--	return {
--		id: (await ctx.context.adapter.create({
--			model: "oauthRefreshToken",
--			data: newRow
--		})).id,
--		token: await encodeRefreshToken(opts, token, sessionId)
--	};
 +	})) {
 +		const racedRefresh = await ctx.context.adapter.findOne({
 +			model: "oauthRefreshToken",
@@ -55,11 +54,22 @@ index 9b6a5d94a72cf1ad13235c1f76ca5f57d4380d2e..7c9d0e8bbd4e8a522f2ab4db5d7424a7
 +		}]
 +	});
 +	if (!originalRefreshStillPresent) await invalidateRefreshFamily(ctx, client.clientId, user.id);
-+	return {
+ 	return {
+-		id: (await ctx.context.adapter.create({
+-			model: "oauthRefreshToken",
+-			data: newRow
+-		})).id,
 +		id: replacement.id,
-+		token: await encodeRefreshToken(opts, token, sessionId)
-+	};
-@@ -842 +873,2 @@ async function handleRefreshTokenGrant(ctx, opts) {
+ 		token: await encodeRefreshToken(opts, token, sessionId)
+ 	};
+ }
+@@ -840,7 +871,8 @@ async function handleRefreshTokenGrant(ctx, opts) {
+ 		error_description: "invalid refresh token",
+ 		error: "invalid_grant"
+ 	});
 -	if (refreshToken.revoked) {
 +	const replayedWithinRotationGrace = Boolean(refreshToken.revoked) && isRefreshTokenRotationWithinGrace(refreshToken);
 +	if (refreshToken.revoked && !replayedWithinRotationGrace) {
+ 		await invalidateRefreshFamily(ctx, client_id, refreshToken.userId);
+ 		throw new APIError("BAD_REQUEST", {
+ 			error_description: "invalid refresh token",

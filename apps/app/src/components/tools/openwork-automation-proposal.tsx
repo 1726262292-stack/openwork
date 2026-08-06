@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { AlertTriangle, CalendarClock, Check } from "lucide-react"
 import type { DynamicToolUIPart } from "ai"
-import { useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { automationProposalSchema, AUTOMATION_FREE_MODEL, type AutomationProposal } from "@openwork/types/automations"
