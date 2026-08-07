@@ -144,14 +144,18 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     label: "composer editor ready",
   });
   const prompt = "Show the deterministic Markdown reply.";
-  const composed = await evalIn(app, `(() => {
+  const focused = await evalIn(app, `(() => {
     const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
-    if (!(editor instanceof HTMLElement)) return "missing editor";
+    if (!(editor instanceof HTMLElement)) return false;
     editor.focus();
-    document.execCommand("insertText", false, ${JSON.stringify(prompt)});
-    return editor.innerText;
+    return true;
   })()`);
-  expect(composed).toBe(prompt);
+  expect(focused).toBe(true);
+  await app.client.send("Input.insertText", { text: prompt });
+  await waitFor(app, `document.querySelector('[contenteditable="true"][data-lexical-editor="true"]')?.innerText === ${JSON.stringify(prompt)}`, {
+    timeoutMs: 10_000,
+    label: "prompt entered in composer",
+  });
   await clickButton(app, "Run task", { timeoutMs: 30_000 });
 
   await waitFor(app, `(() => {
