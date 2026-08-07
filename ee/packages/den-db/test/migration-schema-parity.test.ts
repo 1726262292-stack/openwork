@@ -255,6 +255,27 @@ async function migrationOwnedIndexes() {
   return indexes
 }
 
+async function migrationAddedColumns() {
+  const entries = await readdir(migrationsFolder)
+  const columns = new Map<string, Set<string>>()
+  const addColumnRegex = /ALTER\s+TABLE\s+`([^`]+)`\s+ADD(?:\s+COLUMN)?\s+`([^`]+)`/gi
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".sql")) continue
+
+    const sql = await readFile(join(migrationsFolder, entry), "utf8")
+    let match = addColumnRegex.exec(sql)
+    while (match) {
+      const tableColumns = columns.get(match[1]) ?? new Set<string>()
+      tableColumns.add(match[2])
+      columns.set(match[1], tableColumns)
+      match = addColumnRegex.exec(sql)
+    }
+  }
+
+  return columns
+}
+
 function exportTableNames(statements: string[]) {
   return statements
     .map(createTableName)
@@ -262,15 +283,42 @@ function exportTableNames(statements: string[]) {
     .sort()
 }
 
-function statementForSeed(statement: string) {
-  if (createTableName(statement) !== "worker") {
-    return statement
-  }
+function statementForSeed(statement: string, addedColumns: Map<string, Set<string>>) {
+  const tableName = createTableName(statement)
+  if (!tableName) return statement
+
+  const columns = addedColumns.get(tableName)
+  if (!columns?.size) return statement
 
   return statement
-    .replace(/\n\s*`last_heartbeat_at` timestamp\(3\),/i, "")
-    .replace(/\n\s*`last_active_at` timestamp\(3\),/i, "")
+    .split("\n")
+    .filter((line) => {
+      const columnName = /^\s*`([^`]+)`/.exec(line)?.[1]
+      return !columnName || !columns.has(columnName)
+    })
+    .join("\n")
 }
+
+test("seed schema excludes columns supplied by committed migrations", () => {
+  const statement = [
+    "CREATE TABLE `oauthAccessToken` (",
+    "  `id` varchar(64) NOT NULL,",
+    "  `authorization_code_id` varchar(64),",
+    "  `token` text NOT NULL",
+    ")",
+  ].join("\n")
+  const addedColumns = new Map([["oauthAccessToken", new Set(["authorization_code_id"])]])
+
+  assert.equal(
+    statementForSeed(statement, addedColumns),
+    [
+      "CREATE TABLE `oauthAccessToken` (",
+      "  `id` varchar(64) NOT NULL,",
+      "  `token` text NOT NULL",
+      ")",
+    ].join("\n"),
+  )
+})
 
 function seedShouldSkipIndex(statement: string) {
   return /^CREATE\s+INDEX\s+`worker_last_(?:heartbeat|active)_at`\s+ON\s+`worker`/i.test(statement)
@@ -281,15 +329,16 @@ async function seedNonMigrationOwnedTables(
   exportStatements: string[],
   nonMigrationOwnedTables: Set<string>,
   migrationCreatedIndexes: Set<string>,
+  migrationColumns: Map<string, Set<string>>,
 ) {
   // The committed migrations start after the original auth/system schema. They do not
   // create the export tables in nonMigrationOwnedTables, so those tables are seeded
-  // before replay. The worker table is seeded from export with the two columns that
-  // 0002 adds removed, letting the full migration chain replay deterministically.
+  // before replay. Columns added by committed ALTER TABLE migrations are removed from
+  // the current export first, letting the full migration chain replay deterministically.
   for (const statement of exportStatements) {
     const tableName = createTableName(statement)
     if (tableName && nonMigrationOwnedTables.has(tableName)) {
-      await connection.query(statementForSeed(statement))
+      await connection.query(statementForSeed(statement, migrationColumns))
     }
   }
 
@@ -444,13 +493,14 @@ test("migrations replay to exported schema and config object version inserts", {
     const exportStatements = splitSqlStatements(exportSql)
     const ownedTables = await migrationOwnedTables()
     const ownedIndexes = await migrationOwnedIndexes()
+    const addedColumns = await migrationAddedColumns()
     const nonMigrationOwnedTableNames = exportTableNames(exportStatements).filter((tableName) => !ownedTables.has(tableName))
     const nonMigrationOwnedTables = new Set(nonMigrationOwnedTableNames)
 
     migratedConnection = await mysql.createConnection(mysqlConnectionConfigFor(mysqlUrl, migratedDatabase))
     exportedConnection = await mysql.createConnection(mysqlConnectionConfigFor(mysqlUrl, exportedDatabase))
 
-    await seedNonMigrationOwnedTables(migratedConnection, exportStatements, nonMigrationOwnedTables, ownedIndexes)
+    await seedNonMigrationOwnedTables(migratedConnection, exportStatements, nonMigrationOwnedTables, ownedIndexes, addedColumns)
 
     const migratedDb = drizzle(migratedConnection)
     await migrate(migratedDb, { migrationsFolder })
