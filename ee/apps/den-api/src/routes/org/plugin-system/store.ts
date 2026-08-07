@@ -2761,6 +2761,10 @@ export async function listMarketplaces(input: { context: PluginArchActorContext;
 
 async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext) {
   const organizationId = context.organizationContext.organization.id
+  if (await defaultOpenWorkMarketplaceSeedComplete(organizationId)) {
+    return
+  }
+
   await db.transaction(async (tx) => {
     const organization = (await tx
       .select({ id: OrganizationTable.id })
@@ -2803,6 +2807,114 @@ async function ensureDefaultOpenWorkMarketplace(context: PluginArchActorContext)
       marketplaceId: marketplace.id,
     })
   })
+}
+
+async function defaultOpenWorkMarketplaceSeedComplete(organizationId: OrganizationId) {
+  const defaultMarketplaces = await db
+    .select({ id: MarketplaceTable.id, logoUrl: MarketplaceTable.logoUrl, name: MarketplaceTable.name })
+    .from(MarketplaceTable)
+    .where(and(
+      eq(MarketplaceTable.organizationId, organizationId),
+      inArray(MarketplaceTable.name, [DEFAULT_ANTHROPIC_MARKETPLACE_NAME, DEFAULT_OPENWORK_MARKETPLACE_NAME]),
+      eq(MarketplaceTable.status, "active"),
+      isNull(MarketplaceTable.deletedAt),
+    ))
+  const marketplaceIdByName = new Map(defaultMarketplaces.map((marketplace) => [marketplace.name, marketplace.id]))
+  const anthropicMarketplaceId = marketplaceIdByName.get(DEFAULT_ANTHROPIC_MARKETPLACE_NAME)
+  const openWorkMarketplaceId = marketplaceIdByName.get(DEFAULT_OPENWORK_MARKETPLACE_NAME)
+  if (!anthropicMarketplaceId || !openWorkMarketplaceId) {
+    return false
+  }
+  if (!defaultMarketplaces.some((marketplace) => marketplace.name === DEFAULT_ANTHROPIC_MARKETPLACE_NAME && marketplace.logoUrl === DEFAULT_ANTHROPIC_MARKETPLACE_LOGO_URL)) {
+    return false
+  }
+  if (!defaultMarketplaces.some((marketplace) => marketplace.name === DEFAULT_OPENWORK_MARKETPLACE_NAME && marketplace.logoUrl === DEFAULT_OPENWORK_MARKETPLACE_LOGO_URL)) {
+    return false
+  }
+
+  const marketplaceIds = [anthropicMarketplaceId, openWorkMarketplaceId]
+  const marketplaceGrantRows = await db
+    .select({ marketplaceId: MarketplaceAccessGrantTable.marketplaceId, role: MarketplaceAccessGrantTable.role })
+    .from(MarketplaceAccessGrantTable)
+    .where(and(
+      eq(MarketplaceAccessGrantTable.organizationId, organizationId),
+      inArray(MarketplaceAccessGrantTable.marketplaceId, marketplaceIds),
+      eq(MarketplaceAccessGrantTable.orgWide, true),
+      eq(MarketplaceAccessGrantTable.role, "viewer"),
+      isNull(MarketplaceAccessGrantTable.removedAt),
+    ))
+  const marketplaceGrants = new Set(marketplaceGrantRows.map((grant) => grant.marketplaceId))
+  if (!marketplaceIds.every((marketplaceId) => marketplaceGrants.has(marketplaceId))) {
+    return false
+  }
+
+  const anthropicPluginEntries = DEFAULT_ANTHROPIC_STARTER_PLUGINS
+  const openWorkPluginEntries = DEFAULT_OPENWORK_EXTENSION_MANIFESTS.map((manifest) => ({ description: manifest.description, name: manifest.name }))
+  const defaultPluginEntries = [...anthropicPluginEntries, ...openWorkPluginEntries]
+  const defaultPluginRows = await db
+    .select({ id: PluginTable.id, name: PluginTable.name, description: PluginTable.description })
+    .from(PluginTable)
+    .where(and(
+      eq(PluginTable.organizationId, organizationId),
+      inArray(PluginTable.name, defaultPluginEntries.map((entry) => entry.name)),
+      eq(PluginTable.status, "active"),
+      isNull(PluginTable.deletedAt),
+    ))
+
+  const pluginIdByEntry = new Map<string, PluginId>()
+  for (const entry of defaultPluginEntries) {
+    const plugin = defaultPluginRows.find((row) => row.name === entry.name && row.description === entry.description)
+    if (!plugin) {
+      return false
+    }
+    pluginIdByEntry.set(defaultMarketplacePluginEntryKey(entry), plugin.id)
+  }
+
+  const pluginIds = Array.from(pluginIdByEntry.values())
+  const pluginGrantRows = await db
+    .select({ pluginId: PluginAccessGrantTable.pluginId })
+    .from(PluginAccessGrantTable)
+    .where(and(
+      eq(PluginAccessGrantTable.organizationId, organizationId),
+      inArray(PluginAccessGrantTable.pluginId, pluginIds),
+      eq(PluginAccessGrantTable.orgWide, true),
+      eq(PluginAccessGrantTable.role, "viewer"),
+      isNull(PluginAccessGrantTable.removedAt),
+    ))
+  const pluginGrants = new Set(pluginGrantRows.map((grant) => grant.pluginId))
+  if (!pluginIds.every((pluginId) => pluginGrants.has(pluginId))) {
+    return false
+  }
+
+  const expectedMemberships = new Set<string>()
+  for (const entry of anthropicPluginEntries) {
+    const pluginId = pluginIdByEntry.get(defaultMarketplacePluginEntryKey(entry))
+    if (pluginId) expectedMemberships.add(defaultMarketplacePluginMembershipKey(anthropicMarketplaceId, pluginId))
+  }
+  for (const entry of openWorkPluginEntries) {
+    const pluginId = pluginIdByEntry.get(defaultMarketplacePluginEntryKey(entry))
+    if (pluginId) expectedMemberships.add(defaultMarketplacePluginMembershipKey(openWorkMarketplaceId, pluginId))
+  }
+
+  const membershipRows = await db
+    .select({ marketplaceId: MarketplacePluginTable.marketplaceId, pluginId: MarketplacePluginTable.pluginId })
+    .from(MarketplacePluginTable)
+    .where(and(
+      eq(MarketplacePluginTable.organizationId, organizationId),
+      inArray(MarketplacePluginTable.marketplaceId, marketplaceIds),
+      inArray(MarketplacePluginTable.pluginId, pluginIds),
+      isNull(MarketplacePluginTable.removedAt),
+    ))
+  const memberships = new Set(membershipRows.map((membership) => defaultMarketplacePluginMembershipKey(membership.marketplaceId, membership.pluginId)))
+  return Array.from(expectedMemberships).every((membership) => memberships.has(membership))
+}
+
+function defaultMarketplacePluginEntryKey(entry: DefaultMarketplacePluginEntry) {
+  return `${entry.name}\n${entry.description}`
+}
+
+function defaultMarketplacePluginMembershipKey(marketplaceId: MarketplaceId, pluginId: PluginId) {
+  return `${marketplaceId}:${pluginId}`
 }
 
 async function ensureDefaultMarketplacePlugins(input: {
