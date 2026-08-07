@@ -148,9 +148,7 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
     if (!(editor instanceof HTMLElement)) return "missing editor";
     editor.focus();
-    const data = new DataTransfer();
-    data.setData("text/plain", ${JSON.stringify(prompt)});
-    editor.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    document.execCommand("insertText", false, ${JSON.stringify(prompt)});
     return editor.innerText;
   })()`);
   expect(composed).toBe(prompt);
