@@ -501,8 +501,6 @@ function normalizeAssignableRole(input: string, availableRoles: Set<string>, fal
 }
 
 export async function listAssignableRoles(orgId: OrgId) {
-  await ensureDefaultDynamicRoles(orgId)
-
   const rows = await db
     .select({ role: OrganizationRoleTable.role })
     .from(OrganizationRoleTable)
@@ -1151,7 +1149,6 @@ export async function ensureSingletonOrganizationForUser(userId: UserId) {
     organizationId: organization.id,
     createdByOrgMemberId: member.id,
   })
-  await ensureDefaultDynamicRoles(organization.id)
 
   return organization.id
 }
@@ -1165,8 +1162,6 @@ export async function ensureUserOrgAccess(input: {
 
   const memberships = await listMembershipRows(input.userId)
   if (memberships.length > 0) {
-    const organizationIds = [...new Set(memberships.map((membership) => membership.organizationId))]
-    await Promise.all(organizationIds.map((organizationId) => ensureDefaultDynamicRoles(organizationId)))
     return memberships[0].organizationId
   }
 
@@ -1483,8 +1478,6 @@ export async function getOrganizationContextForUser(input: {
   if (!currentMember.userId) {
     return null
   }
-
-  await ensureDefaultDynamicRoles(organization.id)
 
   const members = await db
     .select({
