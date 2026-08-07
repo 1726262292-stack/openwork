@@ -94,7 +94,7 @@ export function SiteNav(props: Props) {
             ))}
           </nav>
 
-          <div className="flex items-center gap-4">
+          <div className="col-start-3 flex items-center gap-4">
             <a
               href="https://github.com/different-ai/openwork"
               className="hidden h-9 items-center gap-2 rounded-full border border-[var(--lp-border)] bg-white px-3.5 text-sm font-normal text-[var(--lp-muted)] transition-colors hover:text-[var(--lp-ink)] sm:flex"
@@ -116,7 +116,7 @@ export function SiteNav(props: Props) {
               href={downloadHref}
               target={downloadExternal ? "_blank" : undefined}
               rel={downloadExternal ? "noreferrer" : undefined}
-              className="lp-pill-primary lp-pill-sm hidden lg:inline-flex"
+              className="lp-pill-primary lp-pill-sm !hidden lg:!inline-flex"
             >
               Download
             </a>

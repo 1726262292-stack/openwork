@@ -1,6 +1,3 @@
-"use client";
-
-import { motion, useReducedMotion } from "framer-motion";
 import { Check, CheckCircle2 } from "lucide-react";
 
 import { LpAlphaBadge } from "./lp-primitives";
@@ -46,20 +43,14 @@ const rows: ParityRow[] = [
   { capability: "Open source — audit it, fork it, own it", cowork: "none" }
 ];
 
-function OpenWorkCheck({ delay }: { delay: number }) {
-  const reduceMotion = useReducedMotion();
-
+function OpenWorkCheck() {
   return (
-    <motion.span
-      initial={reduceMotion ? false : { scale: 0.8, opacity: 0 }}
-      whileInView={{ scale: 1, opacity: 1 }}
-      viewport={{ once: true, amount: 0.8 }}
-      transition={{ duration: reduceMotion ? 0 : 0.16, delay: reduceMotion ? 0 : delay }}
+    <span
       className="inline-flex items-center justify-center text-[var(--lp-ink)]"
       aria-label="Included"
     >
       <CheckCircle2 className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-    </motion.span>
+    </span>
   );
 }
 
@@ -81,12 +72,68 @@ function CoworkCell({ support }: { support: CoworkSupport }) {
   );
 }
 
-export function LpParityTable() {
-  const reduceMotion = useReducedMotion();
+function OpenWorkCell({ support }: { support?: OpenWorkSupport }) {
+  if (support === "soon") {
+    return (
+      <span className="text-[12px] font-medium text-[var(--lp-blue)]">
+        Coming soon
+      </span>
+    );
+  }
 
+  return <OpenWorkCheck />;
+}
+
+function Capability({ row }: { row: ParityRow }) {
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[720px]">
+    <div
+      className={`flex flex-wrap items-center gap-2 text-[15px] text-[var(--lp-ink)] ${
+        row.highlighted ? "font-semibold" : "font-normal"
+      }`}
+    >
+      <span>{row.capability}</span>
+      {row.badge === "alpha" ? <LpAlphaBadge /> : null}
+      {row.badge === "openwork" ? (
+        <span className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-[9.5px] font-bold tracking-[0.08em] text-[var(--lp-blue)]">
+          OPENWORK ONLY
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function LpParityTable() {
+  return (
+    <div>
+      <div className="md:hidden">
+        {rows.map((row) => (
+          <div
+            key={row.capability}
+            className={`border-b border-[#E8EDF3] px-1 py-5 ${
+              row.highlighted ? "rounded-[12px] bg-[#f0f7ff] px-4" : ""
+            }`}
+          >
+            <Capability row={row} />
+            <div className="mt-4 grid grid-cols-2 gap-3 rounded-[12px] bg-[var(--lp-tonal)] p-3">
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--lp-muted)]">
+                  <OpenWorkMark className="h-3.5 w-3.5 object-contain" />
+                  OpenWork
+                </div>
+                <OpenWorkCell support={row.openwork} />
+              </div>
+              <div>
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--lp-muted)]">
+                  Claude Cowork
+                </div>
+                <CoworkCell support={row.cowork} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden md:block">
         <div className="flex items-center border-b border-[var(--lp-border)] px-5 py-3.5">
           <div className="flex-1 text-[12px] font-semibold tracking-[0.1em] text-[var(--lp-faint)]">
             CAPABILITY
@@ -100,56 +147,37 @@ export function LpParityTable() {
           </div>
         </div>
 
-        {rows.map((row, index) => (
-          <motion.div
+        {rows.map((row) => (
+          <div
             key={row.capability}
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.35 }}
-            transition={{ duration: reduceMotion ? 0 : 0.24, delay: reduceMotion ? 0 : index * 0.04 }}
             className={`group flex items-center border-b border-[#F1F5F9] px-5 py-[15px] transition-colors duration-150 hover:bg-[var(--lp-tonal)] ${
               row.highlighted ? "rounded-[10px] bg-[#f0f7ff]" : ""
             }`}
           >
-            <div
-              className={`flex flex-1 items-center gap-2 text-[15px] text-[var(--lp-ink)] ${
-                row.highlighted ? "font-semibold" : "font-normal"
-              }`}
-            >
-              <span>{row.capability}</span>
-              {row.badge === "alpha" ? <LpAlphaBadge /> : null}
-              {row.badge === "openwork" ? (
-                <span className="rounded-full bg-[#dbeafe] px-2 py-0.5 text-[9.5px] font-bold tracking-[0.08em] text-[var(--lp-blue)]">
-                  OPENWORK ONLY
-                </span>
-              ) : null}
+            <div className="flex-1">
+              <Capability row={row} />
             </div>
             <div className="flex w-40 justify-center">
-              {row.openwork === "soon" ? (
-                <span className="text-[12px] font-medium text-[var(--lp-blue)]">
-                  Coming soon
-                </span>
-              ) : (
-                <OpenWorkCheck delay={index * 0.04 + 0.06} />
-              )}
+              <OpenWorkCell support={row.openwork} />
             </div>
             <div className="flex w-40 justify-center">
               <CoworkCell support={row.cowork} />
             </div>
-          </motion.div>
+          </div>
         ))}
 
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-5 pt-4 text-[13px] text-[var(--lp-faint)]">
-          <span>
-            Migrating from Cowork? Your SKILL.md files and MCP servers work as-is.
-          </span>
-          <a
-            href="/docs"
-            className="text-[var(--lp-ink)] underline decoration-1 underline-offset-4"
-          >
-            See the migration guide
-          </a>
-        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-5 text-[13px] text-[var(--lp-faint)] md:px-5">
+        <span>
+          Migrating from Cowork? Your SKILL.md files and MCP servers work as-is.
+        </span>
+        <a
+          href="/docs/start-here/migrate-from-claude-cowork"
+          className="text-[var(--lp-ink)] underline decoration-1 underline-offset-4"
+        >
+          See the migration guide
+        </a>
       </div>
     </div>
   );

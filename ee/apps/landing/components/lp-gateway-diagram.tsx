@@ -14,13 +14,22 @@ const sources: { label: string; logo?: SourceLogo; logoClass?: string }[] = [
 
 function Connector() {
   return (
-    <div className="flex h-8 min-w-10 flex-1 items-center md:h-auto">
-      <div className="h-px flex-1 bg-[#c4ceda]" />
-      <span
-        aria-hidden="true"
-        className="h-0 w-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-[#c4ceda]"
-      />
-    </div>
+    <>
+      <div className="flex h-10 flex-col items-center md:hidden">
+        <div className="h-7 w-px bg-[#c4ceda]" />
+        <span
+          aria-hidden="true"
+          className="h-0 w-0 border-x-[4px] border-t-[6px] border-x-transparent border-t-[#c4ceda]"
+        />
+      </div>
+      <div className="hidden h-auto min-w-10 flex-1 items-center md:flex">
+        <div className="h-px flex-1 bg-[#c4ceda]" />
+        <span
+          aria-hidden="true"
+          className="h-0 w-0 border-y-[4px] border-l-[6px] border-y-transparent border-l-[#c4ceda]"
+        />
+      </div>
+    </>
   );
 }
 

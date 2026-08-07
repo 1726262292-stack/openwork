@@ -1,8 +1,3 @@
-"use client";
-
-import { motion, useReducedMotion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
-
 const terminalLineCount = 9;
 
 function TerminalLine({ index }: { index: number }) {
@@ -40,54 +35,17 @@ function TrafficLights() {
 }
 
 export function LpTerminalStory() {
-  const reduceMotion = useReducedMotion();
-  const [started, setStarted] = useState(false);
-  const [visibleLines, setVisibleLines] = useState(0);
-  const [showTeammate, setShowTeammate] = useState(false);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  useEffect(() => {
-    if (reduceMotion) {
-      setVisibleLines(terminalLineCount);
-      setShowTeammate(true);
-      return;
-    }
-    if (!started) return;
-
-    for (let index = 0; index < terminalLineCount; index += 1) {
-      timers.current.push(setTimeout(() => setVisibleLines(index + 1), (index + 1) * 80));
-    }
-    timers.current.push(
-      setTimeout(() => setShowTeammate(true), terminalLineCount * 80 + 600)
-    );
-
-    return () => {
-      timers.current.forEach((timer) => clearTimeout(timer));
-      timers.current = [];
-    };
-  }, [reduceMotion, started]);
-
   return (
-    <motion.div
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.25 }}
-      onViewportEnter={() => setStarted(true)}
-      transition={{ duration: reduceMotion ? 0 : 0.3 }}
-      className="grid gap-6 lg:grid-cols-2"
-    >
+    <div className="grid gap-6 lg:grid-cols-2">
       <div className="min-h-[410px] overflow-hidden rounded-[24px] bg-[var(--lp-terminal)]">
         <div className="flex h-12 items-center gap-3 border-b border-white/10 px-5">
           <TrafficLights />
           <span className="mono text-[12px] text-[#94a3b8]">agent — terminal</span>
         </div>
         <div className="mono px-6 py-7 text-[13px] leading-[24px]">
-          {Array.from({ length: visibleLines }, (_, index) => (
+          {Array.from({ length: terminalLineCount }, (_, index) => (
             <TerminalLine key={index} index={index} />
           ))}
-          {started && visibleLines < terminalLineCount ? (
-            <span className="inline-block h-[15px] w-[7px] animate-pulse bg-[#7DD3FC] align-middle" />
-          ) : null}
         </div>
       </div>
 
@@ -99,13 +57,7 @@ export function LpTerminalStory() {
           </div>
           <span className="text-[11.5px] text-[var(--lp-faint)]">Your teammate&apos;s view</span>
         </div>
-        <motion.div
-          initial={false}
-          animate={{ opacity: showTeammate ? 1 : 0, y: showTeammate ? 0 : 8 }}
-          transition={{ duration: reduceMotion ? 0 : 0.25 }}
-          className="flex flex-col p-6"
-          aria-hidden={!showTeammate}
-        >
+        <div className="flex flex-col p-6">
           <div className="max-w-[390px] rounded-[14px] bg-white px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)]">
             Prep a brief for tomorrow&apos;s Acme call from my meeting notes.
           </div>
@@ -120,8 +72,8 @@ export function LpTerminalStory() {
             <span>Describe your task</span>
             <span className="inline-flex h-9 items-center rounded-full bg-[var(--lp-ink)] px-4 text-[12px] font-medium text-white">Run Task</span>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

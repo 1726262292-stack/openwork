@@ -238,12 +238,12 @@ export function LandingHome(props: Props) {
                 Bring any model — or provision centrally for your whole org
               </h2>
             </div>
-            <div className="rounded-[24px] bg-[var(--lp-tonal)] px-10 py-7">
-              <div className="flex items-center justify-between gap-6 overflow-x-auto">
+            <div className="rounded-[24px] bg-[var(--lp-tonal)] px-6 py-7 md:px-10">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-5 sm:grid-cols-3 md:flex md:items-center md:justify-between md:gap-6">
                 {providers.map((provider) => (
                   <div
                     key={provider.label}
-                    className="group flex shrink-0 items-center gap-2.5 text-[15px] font-medium text-[var(--lp-muted)] opacity-70 transition-opacity duration-150 hover:opacity-100"
+                    className="group flex items-center gap-2.5 text-[14px] font-medium text-[var(--lp-muted)] opacity-70 transition-opacity duration-150 hover:opacity-100 md:shrink-0 md:text-[15px]"
                   >
                     {provider.logo ? (
                       <BrandLogo
@@ -266,7 +266,7 @@ export function LandingHome(props: Props) {
               label="OpenWork vs Claude Cowork"
               heading="Feature parity. Zero lock-in."
               right={
-                <a href="/docs" className="lp-pill-secondary lp-pill-sm">
+                <a href="/docs/start-here/migrate-from-claude-cowork" className="lp-pill-secondary lp-pill-sm !hidden md:!inline-flex">
                   See the migration guide
                 </a>
               }
@@ -275,6 +275,12 @@ export function LandingHome(props: Props) {
               If your team runs on Claude Cowork today, everything keeps working —
               and you stop being tied to one vendor, one model, and one deployment.
             </p>
+            <a
+              href="/docs/start-here/migrate-from-claude-cowork"
+              className="lp-pill-secondary lp-pill-sm mt-6 md:!hidden"
+            >
+              See the migration guide
+            </a>
             <div className="mt-10">
               <LpParityTable />
             </div>
@@ -330,7 +336,7 @@ export function LandingHome(props: Props) {
               heading="Set up your MCPs once. Your whole team has them."
               headingLines={["Set up your MCPs once.", "Your whole team has them."]}
               right={
-                <a href="/connect" className="lp-pill-secondary lp-pill-sm">
+                <a href="/connect" className="lp-pill-secondary lp-pill-sm !hidden md:!inline-flex">
                   Explore OpenWork Connect
                 </a>
               }
@@ -340,6 +346,9 @@ export function LandingHome(props: Props) {
               once — every teammate and agent gets it instantly, in OpenWork and in
               any MCP-compatible client. Claude Cowork has no equivalent.
             </p>
+            <a href="/connect" className="lp-pill-secondary lp-pill-sm mt-6 md:!hidden">
+              Explore OpenWork Connect
+            </a>
             <div className="mt-10">
               <LpGatewayDiagram />
             </div>
