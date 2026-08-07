@@ -1791,6 +1791,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (replacement) writeStoredDefaultModel(replacement);
   };
 
+  const refreshProvidersAfterCloudSync = async (optionsArg: {
+    dispose?: boolean;
+    force?: boolean;
+  }) => {
+    const providerList = await refreshProviders(optionsArg);
+    preselectEntitledOrgDefaultModel(providerList);
+    return providerList;
+  };
+
   async function performCloudProviderSync(reason: CloudProviderSyncReason) {
     if (!hasCloudProviderSyncPrerequisites()) {
       return;
@@ -1921,10 +1930,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
     }
 
-    const syncedProviderList = configChanged
-      ? await refreshProviders({ dispose: true }).catch(() => null)
-      : await refreshProviders({ force: true }).catch(() => null);
-    preselectEntitledOrgDefaultModel(syncedProviderList);
+    await refreshProvidersAfterCloudSync(
+      configChanged ? { dispose: true } : { force: true },
+    ).catch(() => null);
 
     // Notify the UI about newly imported providers so the global toast
     // can be shown regardless of which route is active.
@@ -1970,9 +1978,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           }
           return;
         }
-        if (result.status === "applied") {
-          await refreshProviders({ force: true });
-        }
+        // The server may already be synchronized while this route still holds
+        // a removed managed-model default. Always reread the live catalog and
+        // reconcile that preference so Settings diagnostics recover in place,
+        // including after a noop server sync.
+        await refreshProvidersAfterCloudSync({ force: true });
         return { outcome: "handled_server_side" };
       } catch (error) {
         const message = logCloudProviderSyncError(reason, error);
