@@ -994,6 +994,11 @@ export const auth = betterAuth({
       consentPage: `${env.betterAuthUrl}/mcp/select-organization`,
       scopes: [...DEN_MCP_SCOPES],
       validAudiences: DEN_MCP_OAUTH_VALID_AUDIENCES,
+      // better-auth 1.7 gates every token-request `resource` parameter on the
+      // oauthResource registry (invalid_target "is not configured" otherwise;
+      // validAudiences no longer whitelists issuance). Seed all accepted MCP
+      // resource aliases at startup — seeding is idempotent (insertOnly).
+      resources: [...DEN_MCP_RESOURCES],
       allowPublicClientPrelogin: true,
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
