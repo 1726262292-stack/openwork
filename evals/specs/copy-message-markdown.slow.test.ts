@@ -22,6 +22,28 @@ const title = appSpecsEnabled
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function rightClick(app: Surface, selector: string): Promise<void> {
+  const rawPoint = await evalIn(app, `(() => {
+    const target = document.querySelector(${JSON.stringify(selector)});
+    if (!(target instanceof HTMLElement)) return "";
+    target.scrollIntoView({ block: "center" });
+    const rect = target.getBoundingClientRect();
+    return JSON.stringify({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+  })()`);
+  if (typeof rawPoint !== "string") throw new Error(`Right-click target did not return coordinates: ${String(rawPoint)}`);
+  const point: unknown = JSON.parse(rawPoint);
+  if (!isRecord(point) || typeof point.x !== "number" || typeof point.y !== "number") {
+    throw new Error(`Right-click target did not return valid coordinates: ${rawPoint}`);
+  }
+  await app.client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+  await app.client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "right", clickCount: 1 });
+  await app.client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "right", clickCount: 1 });
+}
+
 async function waitForClipboard(app: Surface, expected: string): Promise<void> {
   let last = "";
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -180,16 +202,10 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
-    message.dispatchEvent(new MouseEvent("contextmenu", {
-      bubbles: true,
-      cancelable: true,
-      button: 2,
-      clientX: 400,
-      clientY: 300,
-    }));
     return selection?.toString() === ${JSON.stringify(selectedText)};
   })()`);
   expect(opened).toBe(true);
+  await rightClick(app, '[data-message-role="assistant"] strong');
   await waitFor(app, `(() => {
     const labels = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent?.trim());
     return labels.includes("Copy") && labels.includes("Copy as Markdown")
@@ -225,19 +241,7 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     timeoutMs: 10_000,
     label: "context menu closed after Copy",
   });
-  const reopened = await evalIn(app, `(() => {
-    const message = document.querySelector('[data-message-role="assistant"]');
-    if (!message) return false;
-    message.dispatchEvent(new MouseEvent("contextmenu", {
-      bubbles: true,
-      cancelable: true,
-      button: 2,
-      clientX: 400,
-      clientY: 300,
-    }));
-    return true;
-  })()`);
-  expect(reopened).toBe(true);
+  await rightClick(app, '[data-message-role="assistant"] strong');
   await waitFor(app, `[...document.querySelectorAll('[role="menuitem"]')]
     .some((entry) => entry.textContent?.trim() === "Copy as Markdown")`, {
     timeoutMs: 10_000,
