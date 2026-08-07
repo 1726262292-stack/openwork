@@ -77,7 +77,10 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
   if (!address || typeof address === "string") throw new Error("Mock provider did not bind a TCP port.");
   const baseUrl = `http://127.0.0.1:${address.port}/v1`;
 
-  await using app = await desktop({ name: "copy-message-markdown" });
+  await using app = await desktop({
+    name: "copy-message-markdown",
+    mode: process.env.OPENWORK_EVAL_CDP_URL?.trim() ? "attach" : "spawn",
+  });
   const workspace = await createAndSelectWorkspace(app, {
     path: `/tmp/openwork-copy-message-markdown-${Date.now()}`,
   });
