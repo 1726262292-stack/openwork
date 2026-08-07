@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { timed } from "@openwork/timeline";
 import { attachSurface, describeAppState, dumpScreenState, isInteractive, probeAppState } from "@openwork/cdp";
 import { resolveHost } from "./resolve.ts";
@@ -15,6 +16,19 @@ function messageText(error: unknown): string {
 
 function logCleanupError(name: string, error: unknown): void {
   console.warn(`[openwork/evals] Desktop ${name} cleanup failed: ${messageText(error)}`);
+}
+
+async function appendDesktopLog(error: unknown, handle: SurfaceHandle): Promise<unknown> {
+  const logPath = handle.meta?.log;
+  if (!logPath) return error;
+  try {
+    const log = await readFile(logPath, "utf8");
+    if (!log.trim()) return error;
+    const tail = log.trimEnd().split(/\r?\n/).slice(-40).join("\n");
+    return new Error(`${messageText(error)}\n\nLast 40 lines of ${logPath}:\n${tail}`, { cause: error });
+  } catch {
+    return error;
+  }
 }
 
 export interface DesktopOptions {
@@ -139,8 +153,9 @@ export async function desktop(opts: DesktopOptions = {}): Promise<DesktopHandle>
       [Symbol.asyncDispose]: dispose,
     };
   } catch (error) {
+    const readinessError = attached ? await appendDesktopLog(error, handle) : error;
     await closeSpawnedSurface(attached, host, handle)
       .catch((cleanupError: unknown) => logCleanupError(handle.name, cleanupError));
-    throw error;
+    throw readinessError;
   }
 }
