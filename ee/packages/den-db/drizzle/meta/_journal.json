@@ -400,6 +400,13 @@
       "when": 1786274133419,
       "tag": "0057_codemode_scripts",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "5",
+      "when": 1786368354826,
+      "tag": "0058_natural_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

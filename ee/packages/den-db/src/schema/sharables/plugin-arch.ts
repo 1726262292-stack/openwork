@@ -398,6 +398,7 @@ export const ConnectorSyncEventTable = mysqlTable(
     index("connector_sync_event_organization_id").on(table.organizationId),
     index("connector_sync_event_connector_instance_id").on(table.connectorInstanceId),
     index("connector_sync_event_connector_target_id").on(table.connectorTargetId),
+    index("connector_sync_event_target_status").on(table.connectorTargetId, table.status),
     index("connector_sync_event_event_type").on(table.eventType),
     index("connector_sync_event_status").on(table.status),
     index("connector_sync_event_status_next_attempt_at").on(table.status, table.nextAttemptAt),
