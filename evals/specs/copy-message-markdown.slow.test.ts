@@ -160,6 +160,10 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     });
   }
 
+  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
+    timeoutMs: 30_000,
+    label: "new task action enabled",
+  });
   await control(app, "session.create_task");
   await waitFor(app, `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]'))`, {
     timeoutMs: 30_000,
