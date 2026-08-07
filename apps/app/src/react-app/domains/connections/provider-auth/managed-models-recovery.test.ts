@@ -18,6 +18,10 @@ const sessionProviderAuthSource = readFileSync(
   new URL("./use-session-provider-auth.ts", import.meta.url),
   "utf8",
 );
+const providerAuthStoreSource = readFileSync(
+  new URL("./store.ts", import.meta.url),
+  "utf8",
+);
 
 describe("managed model sync ordering", () => {
   test("waits to reconcile policy until the first signed-in cloud provider sync settles", () => {
@@ -102,5 +106,14 @@ describe("managed model recovery", () => {
     expect(sessionProviderAuthSource.includes(
       "useCloudProviderAutoSync(store.runCloudProviderSync)",
     )).toBe(false);
+  });
+
+  test("reconciles the stored default after server-managed provider syncs", () => {
+    expect(providerAuthStoreSource.includes(
+      "preselectEntitledOrgDefaultModel(providerList)",
+    )).toBe(true);
+    expect(providerAuthStoreSource.includes(
+      "await refreshProvidersAfterCloudSync({ force: true });",
+    )).toBe(true);
   });
 });

@@ -69,7 +69,10 @@ type ResourceLookupInput =
   | MarketplaceResourceLookupInput
   | ConfigObjectResourceLookupInput
 
-type RequireResourceRoleInput = ResourceLookupInput & { role: PluginArchRole }
+type RequireResourceRoleInput = ResourceLookupInput & {
+  requireFreshSession?: boolean
+  role: PluginArchRole
+}
 
 export class PluginArchAuthorizationError extends Error {
   constructor(
@@ -383,11 +386,12 @@ export async function requirePluginArchCapability(context: PluginArchActorContex
 
 export async function requirePluginArchResourceRole(input: {
   context: PluginArchActorContext
+  requireFreshSession?: boolean
   resourceId: ConfigObjectId | ConnectorInstanceId | MarketplaceId | PluginId
   resourceKind: PluginArchResourceKind
   role: PluginArchRole
 }) {
-  if (input.role !== "viewer") {
+  if (input.role !== "viewer" && input.requireFreshSession !== false) {
     ensureFreshPluginArchAdmin(input.context)
   }
 

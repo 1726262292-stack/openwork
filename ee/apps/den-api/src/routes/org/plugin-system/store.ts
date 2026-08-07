@@ -1864,7 +1864,13 @@ export async function removeConfigObjectFromPlugin(input: { context: PluginArchA
 
 export async function listResourceAccess(input: { context: PluginArchActorContext } & ResourceTarget) {
   await ensureResourceInOrganization(input.context, input)
-  await requirePluginArchResourceRole({ context: input.context, resourceId: input.resourceId, resourceKind: input.resourceKind, role: "manager" })
+  await requirePluginArchResourceRole({
+    context: input.context,
+    requireFreshSession: false,
+    resourceId: input.resourceId,
+    resourceKind: input.resourceKind,
+    role: "manager",
+  })
 
   if (input.resourceKind === "config_object") {
     const rows = await db.select().from(ConfigObjectAccessGrantTable).where(eq(ConfigObjectAccessGrantTable.configObjectId, input.resourceId)).orderBy(desc(ConfigObjectAccessGrantTable.createdAt))
