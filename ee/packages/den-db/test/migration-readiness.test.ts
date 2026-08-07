@@ -88,9 +88,12 @@ describe("Den DB migration readiness wiring", () => {
     assert.match(workflow, /name: Den DB Migrate/)
     assert.match(workflow, /branches:\n\s+- dev/)
     assert.match(workflow, /paths:\n\s+- "ee\/packages\/den-db\/drizzle\/\*\*"/)
-    assert.match(workflow, /pscale branch safe-migrations disable/)
+    assert.match(workflow, /pscale branch safe-migrations disable[^\n]+--format json/)
+    assert.match(workflow, /jq -e '\.safe_migrations == false'/)
     assert.match(workflow, /run_with_ddl_retry pnpm --filter @openwork-ee\/den-db db:migrate/)
-    assert.match(workflow, /pscale branch safe-migrations enable/)
+    assert.match(workflow, /pscale branch safe-migrations enable[^\n]+--format json/)
+    assert.match(workflow, /jq -e '\.safe_migrations == true'/)
+    assert.doesNotMatch(workflow, /pscale branch show/)
   })
 
   test("PR guardrails run readiness tests and smoke Den DB assets in the Den API image", () => {
