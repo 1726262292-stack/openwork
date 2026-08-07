@@ -26,6 +26,10 @@ on:
       - dev
     paths:
       - "ee/packages/den-db/drizzle/**"
+      # Also run when this workflow itself changes: a broken migrate run fixed
+      # by a workflow-only PR must re-apply pending migrations on merge instead
+      # of waiting for a manual dispatch (migrate is idempotent via the journal).
+      - ".github/workflows/den-db-migrate.yml"
   workflow_dispatch:
     inputs:
       baseline:
