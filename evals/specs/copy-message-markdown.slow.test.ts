@@ -130,6 +130,13 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     return "ok";
   })()`, { awaitPromise: true, timeoutMs: 30_000 });
   expect(configured).toBe("ok");
+  if (process.env.OPENWORK_EVAL_CDP_URL?.trim()) {
+    await evalIn(app, "location.reload(); true");
+    await waitFor(app, "Boolean(window.__openworkControl)", {
+      timeoutMs: 30_000,
+      label: "attached app reloaded with mock provider preferences",
+    });
+  }
 
   await control(app, "session.create_task");
   await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "composer.set_text" && !action.disabled)`, {
