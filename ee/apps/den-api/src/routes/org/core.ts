@@ -22,11 +22,13 @@ import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
   acceptInvitationForUser,
   createOrganizationForUser,
+  getOrganizationContextForUser,
   getInvitationPreview,
   getSingletonSsoStatus,
   normalizeAllowedEmailDomains,
   OrganizationEmailDomainRestrictionError,
   serializeMemberFacingOrganizationMetadata,
+  seedDefaultOrganizationRoles,
   setSessionActiveOrganization,
   type AcceptInvitationForUserResult,
   updateOrganizationSettings,
@@ -34,7 +36,7 @@ import {
 import { getRequiredUserEmail } from "../../user.js"
 import { checkRateLimit } from "../../utils/rate-limit.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
+import { ensureOrganizationAdminRole, ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
 
 const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -55,6 +57,10 @@ const updateOrganizationSchema = z.object({
 
 const resolveSsoByEmailQuerySchema = z.object({
   email: z.string().trim().email(),
+})
+
+const organizationContextQuerySchema = z.object({
+  refreshRoles: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
 })
 
 const resolveSsoByEmailResponseSchema = z.object({
@@ -631,9 +637,31 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgMemberRoute(),
+    queryValidator(organizationContextQuerySchema),
     resolveMemberTeamsMiddleware,
     async (c) => {
-      const payload = c.get("organizationContext")
+      let payload = c.get("organizationContext")
+      const query = c.req.valid("query")
+
+      if (query.refreshRoles) {
+        const permission = ensureOrganizationAdminRole(c, "Only workspace owners and admins can refresh organization roles.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
+
+        await seedDefaultOrganizationRoles(payload.organization.id)
+        const refreshedPayload = await getOrganizationContextForUser({
+          organizationId: payload.organization.id,
+          userId: normalizeDenTypeId("user", c.get("user").id),
+        })
+        if (!refreshedPayload) {
+          return c.json({ error: "organization_not_found" }, 404)
+        }
+
+        payload = refreshedPayload
+        c.set("organizationContext", payload)
+      }
+
       const owner = payload.members.find((member: typeof payload.members[number]) => member.isOwner) ?? null
       const cloudEnabled = organizationCloudEnabled(payload.organization.metadata, { orgMode: env.orgMode })
       const [ssoRows, scimRows] = await Promise.all([
