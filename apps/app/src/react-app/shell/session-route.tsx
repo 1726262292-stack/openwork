@@ -595,6 +595,7 @@ export function SessionRoute() {
   const {
     state: cloudMcpSubmissionState,
     submit: submitWithCloudMcpReadiness,
+    clearFailure: clearCloudMcpSubmissionFailure,
   } = useCloudMcpSubmitReadiness({
     cloudAuthStatus: denAuth.status,
     client: selectedWorkspaceEndpoint?.client ?? null,
@@ -868,8 +869,8 @@ export function SessionRoute() {
     };
   }, [denAuth.isSignedIn, denAuth.status, denSessionVersion]);
   const handleModelPickerOpen = useCallback(() => {
-    void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
-  }, [sessionProviderAuthStore]);
+    void refreshCloudProviderSync("model_picker_open");
+  }, [refreshCloudProviderSync]);
   const openWorkModelsEntitled = useMemo(() => {
     if (!denAuth.isSignedIn) return false;
     const fromOrg = sessionProviderAuthSnapshot.cloudOrgProviders.some(
@@ -893,6 +894,10 @@ export function SessionRoute() {
   const refreshOrganizationModelAccess = useCallback(async () => {
     await refreshCloudProviderSync("manual");
   }, [refreshCloudProviderSync]);
+  useEffect(() => {
+    if (!cloudProviderSyncReady || !cloudProviderList) return;
+    clearCloudMcpSubmissionFailure();
+  }, [clearCloudMcpSubmissionFailure, cloudProviderList, cloudProviderSyncReady]);
   const refreshOpenWorkModels = useCallback(async () => {
     await refreshOrganizationModelAccess();
   }, [refreshOrganizationModelAccess]);
@@ -1207,7 +1212,7 @@ export function SessionRoute() {
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
         if (open) {
-          void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+          void refreshCloudProviderSync("model_picker_open");
         }
       },
       onModelChange: (model: ModelRef) => {
@@ -1417,6 +1422,7 @@ export function SessionRoute() {
     navigate,
     providerCatalog,
     openWorkModelsEntitled,
+    refreshCloudProviderSync,
     refreshOrganizationModelAccess,
     opencodeBaseUrl,
     opencodeClient,
@@ -1427,7 +1433,6 @@ export function SessionRoute() {
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
-    sessionProviderAuthStore,
     sessionsByWorkspaceId,
     submitWithCloudMcpReadiness,
     token,
@@ -1465,7 +1470,7 @@ export function SessionRoute() {
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
         if (open) {
-          void sessionProviderAuthStore.runCloudProviderSync("model_picker_open");
+          void refreshCloudProviderSync("model_picker_open");
         }
       },
       onModelChange: (model: ModelRef) => {
@@ -1524,13 +1529,13 @@ export function SessionRoute() {
     opencodeClient,
     openWorkModelsEntitled,
     organizationModelsEmpty,
+    refreshCloudProviderSync,
     refreshOrganizationModelAccess,
     selectedAgent,
     selectedModelUnavailable,
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceRoot,
-    sessionProviderAuthStore,
     setSelectedAgent,
   ]);
 
@@ -1682,7 +1687,7 @@ export function SessionRoute() {
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
       if (workspaceId === selectedWorkspaceId) {
-        void sessionProviderAuthStore.runCloudProviderSync("new_chat");
+        void refreshCloudProviderSync("new_chat");
       }
       captureAnalyticsEvent("task_created", {
         source: "new_task",
@@ -1731,7 +1736,7 @@ export function SessionRoute() {
       }
       return null;
     }
-  }, [endpointForWorkspace, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, selectedWorkspaceId, sessionProviderAuthStore, workspaces]);
+  }, [endpointForWorkspace, loading, navigateToWorkspaceSession, refreshCloudProviderSync, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, selectedWorkspaceId, workspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2611,7 +2616,7 @@ export function SessionRoute() {
                 await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
               );
               if (workspaceId === selectedWorkspaceId) {
-                void sessionProviderAuthStore.runCloudProviderSync("new_chat");
+                void refreshCloudProviderSync("new_chat");
               }
               const firstTaskPrompt = prompt.trim();
               if (firstTaskPrompt) {
