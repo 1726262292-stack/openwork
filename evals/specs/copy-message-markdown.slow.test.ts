@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { expect, onTestFinished } from "vitest";
-import { control, createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
+import { clickButton, control, createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
 import type { Surface } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
@@ -139,16 +139,22 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
   }
 
   await control(app, "session.create_task");
-  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "composer.set_text" && !action.disabled)`, {
+  await waitFor(app, `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]'))`, {
     timeoutMs: 30_000,
-    label: "composer text action enabled",
+    label: "composer editor ready",
   });
-  await control(app, "composer.set_text", { text: "Show the deterministic Markdown reply." });
-  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "composer.send" && !action.disabled)`, {
-    timeoutMs: 30_000,
-    label: "composer send action enabled",
-  });
-  await control(app, "composer.send");
+  const prompt = "Show the deterministic Markdown reply.";
+  const composed = await evalIn(app, `(() => {
+    const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
+    if (!(editor instanceof HTMLElement)) return "missing editor";
+    editor.focus();
+    const data = new DataTransfer();
+    data.setData("text/plain", ${JSON.stringify(prompt)});
+    editor.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    return editor.innerText;
+  })()`);
+  expect(composed).toBe(prompt);
+  await clickButton(app, "Run task", { timeoutMs: 30_000 });
 
   await waitFor(app, `(() => {
     const message = document.querySelector('[data-message-role="assistant"]');
