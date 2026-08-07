@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { CheckCircle2, Globe, Monitor, SquareTerminal } from "lucide-react";
+import { Globe, Monitor, SquareTerminal } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { BrandLogo } from "./lp-brand-logos";
@@ -13,7 +13,6 @@ import {
 } from "./landing-demo-flows";
 import { LandingFaq } from "./landing-faq";
 import { LandingHeroPrompt } from "./landing-hero-prompt";
-import { OpenCodeLogo } from "./opencode-logo";
 import { LpCopyBar } from "./lp-copy-bar";
 import { LpCta } from "./lp-cta";
 import { LpGatewayDiagram } from "./lp-gateway-diagram";
@@ -37,20 +36,8 @@ type Props = {
   isMobileVisitor: boolean;
 };
 
-type DemoSurface = "desktop" | "web" | "connect";
-
 const CLOUD_SIGNUP_URL = "https://app.openworklabs.com";
 const GATEWAY_URL = "https://api.openworklabs.com/mcp/agent";
-
-const demoSurfaces: {
-  id: DemoSurface;
-  label: string;
-  alpha?: boolean;
-}[] = [
-  { id: "desktop", label: "Desktop" },
-  { id: "web", label: "OpenWork Web", alpha: true },
-  { id: "connect", label: "Connect — MCP Gateway" }
-];
 
 type ProviderLogoName =
   | "openai"
@@ -70,127 +57,8 @@ const providers: { label: string; logo?: ProviderLogoName }[] = [
   { label: "Mistral", logo: "mistral" }
 ];
 
-type TaskToggleProps = {
-  enabled: boolean;
-  onToggle: () => void;
-  label: string;
-};
-
-function TaskToggle({ enabled, onToggle, label }: TaskToggleProps) {
-  const reduceMotion = useReducedMotion();
-
-  return (
-    <button
-      type="button"
-      aria-label={`${enabled ? "Disable" : "Enable"} ${label}`}
-      aria-pressed={enabled}
-      onClick={onToggle}
-      className={`lp-toggle-track relative h-5 w-[34px] shrink-0 rounded-full transition-colors duration-200 ${
-        enabled ? "bg-[var(--lp-ink)]" : "bg-[#cbd5e1]"
-      }`}
-    >
-      <motion.span
-        animate={{ x: enabled ? 15 : 1 }}
-        transition={{ duration: reduceMotion ? 0 : 0.15, ease: "easeOut" }}
-        className="lp-toggle-knob absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white"
-      />
-    </button>
-  );
-}
-
-function ScheduledTasksCard() {
-  const [standup, setStandup] = useState(true);
-  const [cleanup, setCleanup] = useState(true);
-  const [invoice, setInvoice] = useState(false);
-
-  const tasks = [
-    {
-      title: "Daily standup digest",
-      schedule: "Every weekday · 9:00 AM · posts to Slack",
-      enabled: standup,
-      toggle: () => setStandup((value) => !value)
-    },
-    {
-      title: "Weekly CRM cleanup",
-      schedule: "Fridays · 5:00 PM · HubSpot MCP",
-      enabled: cleanup,
-      toggle: () => setCleanup((value) => !value)
-    },
-    {
-      title: "Invoice chaser",
-      schedule: "1st of the month · drafts follow-up emails",
-      enabled: invoice,
-      toggle: () => setInvoice((value) => !value)
-    }
-  ];
-
-  return (
-    <LpTonalCard className="flex min-h-[520px] flex-col justify-between p-7">
-      <div className="flex flex-col gap-3">
-        {tasks.map((task) => (
-          <div
-            key={task.title}
-            className="flex items-center justify-between gap-4 rounded-[12px] bg-white px-4 py-3.5"
-          >
-            <div>
-              <div className="text-[14px] font-medium text-[var(--lp-ink)]">
-                {task.title}
-              </div>
-              <div className="mt-1 text-[12px] text-[var(--lp-muted)]">
-                {task.schedule}
-              </div>
-            </div>
-            <TaskToggle
-              enabled={task.enabled}
-              onToggle={task.toggle}
-              label={task.title}
-            />
-          </div>
-        ))}
-      </div>
-      <div>
-        <div className="flex items-center gap-2 text-[14px] text-[var(--lp-muted)]">
-          Scheduled tasks <LpAlphaBadge />
-        </div>
-        <p className="mt-2 max-w-[430px] text-[16px] leading-6 text-[var(--lp-ink)]">
-          Run any prompt on a schedule or trigger. Set it once and let it handle
-          itself.
-        </p>
-      </div>
-    </LpTonalCard>
-  );
-}
-
-function DemoPlaceholder({ surface }: { surface: Exclude<DemoSurface, "desktop"> }) {
-  const isWeb = surface === "web";
-
-  return (
-    <div className="flex min-h-[520px] items-center justify-center rounded-[16px] bg-white px-8 text-center">
-      <div className="max-w-md">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--lp-tonal)]">
-          {isWeb ? (
-            <Globe className="h-5 w-5" strokeWidth={1.75} />
-          ) : (
-            <SquareTerminal className="h-5 w-5" strokeWidth={1.75} />
-          )}
-        </div>
-        <div className="mt-5 flex items-center justify-center gap-2 text-[18px] font-medium text-[var(--lp-ink)]">
-          {isWeb ? "OpenWork Web" : "OpenWork Connect"}
-          {isWeb ? <LpAlphaBadge /> : null}
-        </div>
-        <p className="mt-2 text-[14px] leading-[22px] text-[var(--lp-muted)]">
-          {isWeb
-            ? "The same workspace in your browser — same skills, tasks, and team setup."
-            : "One MCP gateway URL gives every client your org’s skills, servers, roles, and policies."}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
-  const [activeSurface, setActiveSurface] = useState<DemoSurface>("desktop");
   const reduceMotion = useReducedMotion();
   const activeDemo = useMemo(
     () => landingDemoFlows.find((flow) => flow.id === activeDemoId) ?? landingDemoFlows[0],
@@ -246,9 +114,8 @@ export function LandingHome(props: Props) {
 
               <div className="max-w-[440px] pb-1">
                 <p className="text-[16px] leading-[25px] text-[var(--lp-ink)]">
-                  Everything your team uses Claude Cowork for — chat on your files,
-                  skills, scheduled tasks, browser automation — on any model. Plus
-                  an MCP gateway Cowork doesn&apos;t have.
+                  OpenWork is the desktop app that lets you use 50+ LLMs, bring
+                  your own keys, and share your setups seamlessly with your team.
                 </p>
                 <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-body)]">
                   Free &amp; open source.
@@ -292,8 +159,6 @@ export function LandingHome(props: Props) {
               >
                 Windows
               </a>
-              <span>—</span>
-              <LpAlphaBadge />
               <span>·</span>
               <a
                 href={props.linuxDownloadHref}
@@ -301,117 +166,69 @@ export function LandingHome(props: Props) {
               >
                 Linux
               </a>
-              <span>—</span>
-              <LpAlphaBadge />
             </div>
 
             <LandingHeroPrompt className="mt-12 max-w-[900px]" />
-
-            <div className="mt-4 flex items-center gap-2 text-[13.5px] text-[var(--lp-muted)]">
-              <span>Powered by</span>
-              <OpenCodeLogo className="h-[14px] w-auto opacity-80" />
-              <span>— everything from opencode just works.</span>
-            </div>
           </section>
 
           <section className="mt-16 md:mt-20" aria-label="OpenWork product demo">
             <div className="rounded-[24px] bg-[var(--lp-tonal)] p-2">
-              <div className="grid grid-cols-1 gap-1 p-1 sm:grid-cols-3">
-                {demoSurfaces.map((surface) => {
-                  const active = surface.id === activeSurface;
-
-                  return (
-                    <button
-                      key={surface.id}
-                      type="button"
-                      onClick={() => setActiveSurface(surface.id)}
-                      aria-pressed={active}
-                      className={`relative flex h-12 items-center justify-center gap-2 rounded-[14px] px-3 text-[13px] transition-colors duration-150 ${
-                        active
-                          ? "text-[var(--lp-ink)]"
-                          : "text-[var(--lp-body)] hover:text-[var(--lp-ink)]"
-                      }`}
-                    >
-                      {active ? (
-                        <motion.span
-                          layoutId="home-demo-surface"
-                          className="absolute inset-0 rounded-[14px] bg-white shadow-[0_1px_3px_rgba(1,22,39,0.08)]"
-                          transition={{ duration: reduceMotion ? 0 : 0.25, ease: [0.22, 1, 0.36, 1] }}
-                        />
-                      ) : null}
-                      <span className="relative z-10 flex items-center gap-2">
-                        {surface.id === "desktop" ? (
-                          <span className="h-2 w-2 rounded-full bg-[var(--lp-status-dot)]" />
-                        ) : null}
-                        {surface.label}
-                        {surface.alpha ? <LpAlphaBadge /> : null}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="relative flex h-11 items-center px-4">
+                <div className="flex gap-1.5" aria-hidden="true">
+                  <span className="h-3 w-3 rounded-full bg-[#fb7185]" />
+                  <span className="h-3 w-3 rounded-full bg-[#fbbf24]" />
+                  <span className="h-3 w-3 rounded-full bg-[#34d399]" />
+                </div>
+                <div className="absolute left-1/2 -translate-x-1/2 text-[12px] font-medium text-[var(--lp-muted)]">
+                  OpenWork
+                </div>
               </div>
 
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                  key={activeSurface}
-                  initial={reduceMotion ? false : { opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.2 }}
-                >
-                  {activeSurface === "desktop" ? (
-                    <div>
-                      <div className="overflow-hidden rounded-[16px] bg-white p-4 md:p-6">
-                        <LandingAppDemoPanel
-                          flows={landingDemoFlows}
-                          activeFlowId={activeDemo.id}
-                          onSelectFlow={setActiveDemoId}
-                          timesById={landingDemoFlowTimes}
-                        />
-                      </div>
-                      <div className="flex flex-col justify-between gap-4 px-2 pb-3 pt-4 lg:flex-row lg:items-center">
-                        <div className="flex flex-wrap gap-2">
-                          {landingDemoFlows.map((flow) => {
-                            const active = flow.id === activeDemo.id;
-                            return (
-                              <button
-                                key={flow.id}
-                                type="button"
-                                onClick={() => setActiveDemoId(flow.id)}
-                                className={`relative rounded-full px-4 py-2 text-[13px] transition-colors duration-150 ${
-                                  active
-                                    ? "bg-white text-[var(--lp-ink)]"
-                                    : "text-[var(--lp-body)] hover:text-[var(--lp-ink)]"
-                                }`}
-                              >
-                                {flow.categoryLabel}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <AnimatePresence mode="wait" initial={false}>
-                          <motion.div
-                            key={activeDemo.id}
-                            initial={reduceMotion ? false : { opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={reduceMotion ? undefined : { opacity: 0 }}
-                            className="max-w-[420px] text-left lg:text-right"
-                          >
-                            <div className="text-[15px] font-medium text-[var(--lp-ink)]">
-                              {activeDemo.title}
-                            </div>
-                            <div className="mt-1 text-[13px] leading-5 text-[var(--lp-muted)]">
-                              {activeDemo.description}
-                            </div>
-                          </motion.div>
-                        </AnimatePresence>
-                      </div>
+              <div className="overflow-hidden rounded-[16px] bg-white p-4 md:p-6">
+                <LandingAppDemoPanel
+                  flows={landingDemoFlows}
+                  activeFlowId={activeDemo.id}
+                  onSelectFlow={setActiveDemoId}
+                  timesById={landingDemoFlowTimes}
+                />
+              </div>
+              <div className="flex flex-col justify-between gap-4 px-2 pb-3 pt-4 lg:flex-row lg:items-center">
+                <div className="flex flex-wrap gap-2">
+                  {landingDemoFlows.map((flow) => {
+                    const active = flow.id === activeDemo.id;
+                    return (
+                      <button
+                        key={flow.id}
+                        type="button"
+                        onClick={() => setActiveDemoId(flow.id)}
+                        className={`relative rounded-full px-4 py-2 text-[13px] transition-colors duration-150 ${
+                          active
+                            ? "bg-white text-[var(--lp-ink)]"
+                            : "text-[var(--lp-body)] hover:text-[var(--lp-ink)]"
+                        }`}
+                      >
+                        {flow.categoryLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.div
+                    key={activeDemo.id}
+                    initial={reduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={reduceMotion ? undefined : { opacity: 0 }}
+                    className="max-w-[420px] text-left lg:text-right"
+                  >
+                    <div className="text-[15px] font-medium text-[var(--lp-ink)]">
+                      {activeDemo.title}
                     </div>
-                  ) : (
-                    <DemoPlaceholder surface={activeSurface} />
-                  )}
-                </motion.div>
-              </AnimatePresence>
+                    <div className="mt-1 text-[13px] leading-5 text-[var(--lp-muted)]">
+                      {activeDemo.description}
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
             </div>
           </section>
 
@@ -464,52 +281,7 @@ export function LandingHome(props: Props) {
           </section>
 
           <section className="mt-[120px]" id="product">
-            <LpSectionHeader
-              label="In the box"
-              heading="Built for real work."
-              right={
-                <a href="#comparison" className="lp-pill-secondary lp-pill-sm">
-                  Compare all features
-                </a>
-              }
-            />
-
-            <div className="mt-10 grid gap-6 lg:grid-cols-2">
-              <div
-                className="relative flex min-h-[520px] flex-col justify-between overflow-hidden rounded-[24px] bg-cover bg-center p-7"
-                style={{ backgroundImage: "url('/enterprise-showcase-bg.jpg')" }}
-              >
-                <div className="flex flex-col gap-3">
-                  <div className="ml-auto max-w-[390px] rounded-full bg-white/90 px-5 py-3 text-right text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
-                    Like all replies and export users to CSV
-                  </div>
-                  <div className="max-w-[360px] rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
-                    Opening the thread in Chrome — 42 replies loaded
-                  </div>
-                  <div className="flex max-w-[330px] items-center gap-2 rounded-[14px] bg-white/90 px-4 py-3 text-[13px] leading-5 text-[var(--lp-ink)] sm:whitespace-nowrap">
-                    <CheckCircle2
-                      className="h-5 w-5 text-[var(--lp-status)]"
-                      strokeWidth={1.75}
-                    />
-                    tweet_replies.csv saved to Desktop
-                  </div>
-                </div>
-                <div className="absolute inset-x-0 bottom-0 h-44 rounded-b-[24px] bg-gradient-to-t from-white/85 via-white/45 to-transparent" />
-                <div className="relative z-10">
-                  <div className="text-[14px] text-[rgba(1,22,39,0.65)]">
-                    Browser automation
-                  </div>
-                  <p className="mt-2 max-w-[430px] text-[16px] leading-6 text-[var(--lp-ink)]">
-                    Agents click, scroll, extract, and fill forms in a real browser —
-                    across the tools your team already uses.
-                  </p>
-                </div>
-              </div>
-
-              <ScheduledTasksCard />
-            </div>
-
-            <div className="mt-6 grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-3">
               <LpTonalCard className="group flex min-h-[260px] flex-col justify-between p-6">
                 <div className="lp-icon-chip flex h-11 w-11 items-center justify-center rounded-full bg-white transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:rotate-[8deg]">
                   <BrandLogo name="github" className="h-5 w-5" />
@@ -602,8 +374,7 @@ export function LandingHome(props: Props) {
                   </span>
                   <h3 className="mt-4 text-[17px] font-medium">On your desktop</h3>
                   <p className="mt-2 max-w-[280px] text-[14px] leading-[22px] text-[var(--lp-body)] md:min-h-[66px]">
-                    Stable on macOS — Windows and Linux in alpha. Local-first, no
-                    account needed.
+                    For macOS, Windows, and Linux. Local-first, no account needed.
                   </p>
                   <a
                     href={props.downloadHref}

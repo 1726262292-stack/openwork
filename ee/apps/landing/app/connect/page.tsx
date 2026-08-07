@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { LpCopyBar } from "../../components/lp-copy-bar";
 import { LpCta } from "../../components/lp-cta";
 import { LpGatewayDiagram } from "../../components/lp-gateway-diagram";
-import { LpHeroBackground } from "../../components/lp-hero-background";
 import { LpSectionHeader } from "../../components/lp-primitives";
 import { LpTerminalStory } from "../../components/lp-terminal-story";
 import { SiteFooter } from "../../components/site-footer";
@@ -44,7 +43,6 @@ export default async function ConnectPage() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LpHeroBackground />
       <div className="relative z-10">
         <SiteNav
           stars={github.stars}

@@ -8,9 +8,12 @@ import { OpenWorkMark } from "./openwork-mark";
 
 type CoworkSupport = "check" | "none" | "limited";
 
+type OpenWorkSupport = "check" | "soon";
+
 type ParityRow = {
   capability: string;
   cowork: CoworkSupport;
+  openwork?: OpenWorkSupport;
   badge?: "alpha" | "openwork";
   highlighted?: boolean;
 };
@@ -20,6 +23,16 @@ const rows: ParityRow[] = [
   { capability: "Claude models (Sonnet, Opus, Haiku)", cowork: "check" },
   { capability: "GPT-5, Gemini, Mistral, and local models", cowork: "none" },
   { capability: "Scheduled tasks", cowork: "check", badge: "alpha" },
+  {
+    capability: "Dispatch — assign tasks from your phone",
+    cowork: "check",
+    openwork: "soon"
+  },
+  {
+    capability: "Live artifacts — auto-refreshing dashboards",
+    cowork: "check",
+    openwork: "soon"
+  },
   { capability: "Browser automation", cowork: "limited" },
   { capability: "Anthropic-compatible plugins and skills", cowork: "check" },
   { capability: "Instant org-wide skill and MCP sharing", cowork: "none" },
@@ -112,7 +125,13 @@ export function LpParityTable() {
               ) : null}
             </div>
             <div className="flex w-40 justify-center">
-              <OpenWorkCheck delay={index * 0.04 + 0.06} />
+              {row.openwork === "soon" ? (
+                <span className="text-[12px] font-medium text-[var(--lp-blue)]">
+                  Coming soon
+                </span>
+              ) : (
+                <OpenWorkCheck delay={index * 0.04 + 0.06} />
+              )}
             </div>
             <div className="flex w-40 justify-center">
               <CoworkCell support={row.cowork} />

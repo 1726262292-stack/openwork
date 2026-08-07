@@ -7,6 +7,7 @@ import {
   Database,
   Globe,
   Monitor,
+  Paintbrush,
   Server,
   ShieldCheck
 } from "lucide-react";
@@ -14,7 +15,6 @@ import {
 import { BookCallForm } from "./book-call-form";
 import { LpAnalyticsPanel } from "./lp-analytics-panel";
 import { LpCta } from "./lp-cta";
-import { LpHeroBackground } from "./lp-hero-background";
 import { LpSectionHeader } from "./lp-primitives";
 import { LpSsoCard } from "./lp-sso-card";
 import { SiteFooter } from "./site-footer";
@@ -41,6 +41,11 @@ const sovereignPillars = [
     title: "Your infrastructure",
     body: "Run a managed private instance we operate for you, or self-host the whole stack. It’s open source — audit it, fork it, and leave anytime.",
     icon: Server
+  },
+  {
+    title: "Your brand",
+    body: "White-label the whole experience: your name, your logo, your domain. Roll it out to your workforce — or to your own customers.",
+    icon: Paintbrush
   }
 ];
 
@@ -109,7 +114,6 @@ export function LandingEnterprise(props: Props) {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LpHeroBackground />
       <div className="relative z-10">
         <SiteNav
           stars={props.stars}
@@ -158,12 +162,13 @@ export function LandingEnterprise(props: Props) {
               <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">SAML SSO + SCIM</span>
               <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">Audit logs</span>
               <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">Self-host or managed</span>
+              <span className="lp-pill-secondary lp-pill-sm !h-9 !text-[13px]">White labeling</span>
             </div>
           </section>
 
           <section className="mt-[120px]">
             <LpSectionHeader label="What sovereign means here" heading="Nothing about your AI belongs to us." />
-            <div className="mt-10 grid gap-8 md:grid-cols-3">
+            <div className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
               {sovereignPillars.map((pillar) => {
                 const Icon = pillar.icon;
                 return (
@@ -223,7 +228,7 @@ export function LandingEnterprise(props: Props) {
                 return (
                   <div
                     key={deployment.title}
-                    className={`rounded-[24px] bg-[var(--lp-tonal)] p-7 ${deployment.tonal ? "ring-[1.5px] ring-inset ring-[var(--lp-ink)]" : ""}`}
+                    className={`rounded-[24px] bg-[var(--lp-tonal)] p-7 ${deployment.tonal ? "shadow-[0_10px_30px_rgba(1,22,39,0.08)]" : ""}`}
                   >
                     {content}
                   </div>

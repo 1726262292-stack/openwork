@@ -1,13 +1,15 @@
-import { Plug } from "lucide-react";
+import { Plug, Sparkles } from "lucide-react";
 
 import { BrandLogo } from "./lp-brand-logos";
 import { OpenWorkMark } from "./openwork-mark";
 
-const sources = [
-  { label: "Notion MCP", color: "bg-[#14b8a6]" },
-  { label: "HubSpot MCP", color: "bg-[#14b8a6]" },
-  { label: "Chrome MCP", color: "bg-[#14b8a6]" },
-  { label: "Meeting Brief — skill", color: "bg-[#f59e0b]" }
+type SourceLogo = "notion" | "hubspot" | "chrome";
+
+const sources: { label: string; logo?: SourceLogo; logoClass?: string }[] = [
+  { label: "Notion MCP", logo: "notion", logoClass: "text-[var(--lp-ink)]" },
+  { label: "HubSpot MCP", logo: "hubspot", logoClass: "text-[#FF7A59]" },
+  { label: "Chrome MCP", logo: "chrome", logoClass: "text-[#4285F4]" },
+  { label: "Meeting Brief — skill" }
 ];
 
 function Connector() {
@@ -35,7 +37,20 @@ export function LpGatewayDiagram() {
               key={source.label}
               className="flex items-center gap-3 rounded-[10px] bg-white px-3.5 py-2.5 text-[13.5px] font-medium text-[var(--lp-ink)]"
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${source.color}`} />
+              <span className="flex w-4 shrink-0 justify-center">
+                {source.logo ? (
+                  <BrandLogo
+                    name={source.logo}
+                    className={`h-4 w-4 ${source.logoClass ?? ""}`}
+                  />
+                ) : (
+                  <Sparkles
+                    className="h-4 w-4 text-[#f59e0b]"
+                    strokeWidth={1.75}
+                    aria-hidden="true"
+                  />
+                )}
+              </span>
               {source.label}
             </div>
           ))}
@@ -44,7 +59,7 @@ export function LpGatewayDiagram() {
 
       <Connector />
 
-      <div className="flex w-full shrink-0 flex-col items-center rounded-[20px] border-[1.5px] border-[var(--lp-ink)] bg-white px-5 py-[26px] text-center md:w-[216px]">
+      <div className="flex w-full shrink-0 flex-col items-center rounded-[20px] bg-white px-5 py-[26px] text-center shadow-[0_10px_30px_rgba(1,22,39,0.08)] md:w-[216px]">
         <Plug className="mb-3 h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
         <div className="text-[16px] font-semibold text-[var(--lp-ink)]">
           OpenWork Connect

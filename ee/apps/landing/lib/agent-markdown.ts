@@ -9,6 +9,7 @@ const home = `# OpenWork
 - Chat on files, browser automation, scheduled tasks, skills, and Anthropic-compatible plugins
 - OpenWork Connect: one MCP gateway URL for org-wide skills, servers, roles, and policies
 - OpenWork Web in alpha; central management and private deployment options for teams
+- Coming soon: Dispatch (assign tasks from your phone) and live artifacts (auto-refreshing dashboards)
 
 ## Primary calls-to-action
 

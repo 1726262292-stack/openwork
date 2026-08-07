@@ -4,7 +4,6 @@ import { Globe, Layers, Plug } from "lucide-react";
 import { LandingSharePackageCard } from "../../components/landing-share-package-card";
 import { LpCloudConsole } from "../../components/lp-cloud-console";
 import { LpCta } from "../../components/lp-cta";
-import { LpHeroBackground } from "../../components/lp-hero-background";
 import { LpAlphaBadge, LpArrowLink, LpSectionHeader, LpTonalCard } from "../../components/lp-primitives";
 import { SiteFooter } from "../../components/site-footer";
 import { SiteNav } from "../../components/site-nav";
@@ -44,7 +43,6 @@ export default async function CloudPage() {
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[var(--lp-page)] text-[var(--lp-ink)]">
-      <LpHeroBackground />
       <div className="relative z-10">
         <SiteNav
           stars={github.stars}
@@ -78,10 +76,15 @@ export default async function CloudPage() {
             </div>
           </section>
 
-          <section className="mt-[88px]" aria-label="OpenWork Cloud console preview"><LpCloudConsole /></section>
+          <section className="mt-[88px]" aria-label="OpenWork Cloud console preview">
+            <LpCloudConsole />
+            <p className="mt-3 text-[13.5px] text-[var(--lp-muted)]">
+              A live preview — click through Analytics, Models, and Members.
+            </p>
+          </section>
 
           <section className="mt-[120px] grid gap-6 lg:grid-cols-3">
-            <LpTonalCard className="flex flex-col p-7 ring-[1.5px] ring-inset ring-[var(--lp-ink)]">
+            <LpTonalCard className="flex flex-col p-7">
               <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white"><Plug className="h-5 w-5 text-[var(--lp-ink)]" strokeWidth={1.75} /></span>
               <h2 className="mt-8 text-[16.5px] font-semibold">OpenWork Connect</h2>
               <p className="mt-3 text-[14px] leading-[22px] text-[var(--lp-body)]">The MCP gateway. Set up MCPs once — shared with everyone, policies included.</p>
