@@ -1,7 +1,8 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Globe, Monitor, SquareTerminal } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowRight, Globe, Monitor, SquareTerminal } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { BrandLogo } from "./lp-brand-logos";
@@ -59,13 +60,11 @@ const providers: { label: string; logo?: ProviderLogoName }[] = [
 
 export function LandingHome(props: Props) {
   const [activeDemoId, setActiveDemoId] = useState(defaultLandingDemoFlowId);
-  const reduceMotion = useReducedMotion();
   const activeDemo = useMemo(
     () => landingDemoFlows.find((flow) => flow.id === activeDemoId) ?? landingDemoFlows[0],
     [activeDemoId]
   );
   const primaryHref = props.isMobileVisitor ? CLOUD_SIGNUP_URL : props.downloadHref;
-  const primaryExternal = /^https?:\/\//.test(primaryHref);
   const callExternal = /^https?:\/\//.test(props.callHref);
 
   return (
@@ -83,75 +82,66 @@ export function LandingHome(props: Props) {
         />
 
         <main className="mx-auto w-full max-w-[1176px] px-6 pb-8">
-          <section className="pt-16 md:pt-[88px]">
-            <div className="flex flex-col justify-between gap-10 lg:flex-row lg:items-end">
-              <h1 className="max-w-[640px] text-[46px] font-light leading-[51px] tracking-[-0.02em] md:text-[58px] md:leading-[62px]">
-                <motion.span
-                  className="block"
-                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.4 }}
-                >
-                  The open source
-                </motion.span>
-                <motion.span
-                  className="block"
-                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.4, delay: reduceMotion ? 0 : 0.08 }}
-                >
-                  Claude Cowork
-                </motion.span>
-                <motion.span
-                  className="font-pixel block font-normal"
-                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: reduceMotion ? 0 : 0.4, delay: reduceMotion ? 0 : 0.16 }}
-                >
-                  alternative.
-                </motion.span>
-              </h1>
+          <section className="max-w-4xl pt-8 md:pt-12">
+            <h1 className="mb-5 text-4xl font-medium leading-[1.1] tracking-tight md:text-5xl lg:text-6xl">
+              The open source
+              <br />
+              Claude Cowork
+              <br />
+              <span className="font-pixel inline-block align-middle text-[1.05em] font-normal">
+                alternative.
+              </span>
+            </h1>
+            <p className="mb-6 max-w-4xl text-lg leading-relaxed text-gray-700 md:mb-7 md:text-xl">
+              OpenWork is the desktop app that lets you use 50+ LLMs, bring your
+              own keys, and share your setups seamlessly with your team.
+            </p>
 
-              <div className="max-w-[440px] pb-1">
-                <p className="text-[16px] leading-[25px] text-[var(--lp-ink)]">
-                  OpenWork is the desktop app that lets you use 50+ LLMs, bring
-                  your own keys, and share your setups seamlessly with your team.
-                </p>
-                <p className="mt-4 text-[14px] leading-[22px] text-[var(--lp-body)]">
-                  Free &amp; open source.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-10 flex flex-col items-start gap-5 sm:flex-row sm:items-center">
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <a
-                  href={primaryHref}
-                  className="lp-pill-primary"
-                  target={primaryExternal ? "_blank" : undefined}
-                  rel={primaryExternal ? "noreferrer" : undefined}
-                >
-                  Download for macOS
-                </a>
+            <div className="mt-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+                {props.isMobileVisitor ? (
+                  <a
+                    href={CLOUD_SIGNUP_URL}
+                    className="doc-button inline-flex items-center gap-2"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Get Started for Free <ArrowRight size={18} />
+                  </a>
+                ) : (
+                  <Link
+                    href="/download"
+                    className="doc-button inline-flex items-center gap-2"
+                  >
+                    Download for free <ArrowRight size={18} />
+                  </Link>
+                )}
                 <a
                   href={props.callHref}
-                  className="lp-pill-secondary"
+                  className="secondary-button"
                   target={callExternal ? "_blank" : undefined}
                   rel={callExternal ? "noreferrer" : undefined}
                 >
-                  Talk to sales
+                  Contact sales
                 </a>
               </div>
-              <div className="flex items-center gap-2 text-[13.5px] text-[var(--lp-muted)] sm:ml-2">
-                <span>Backed by</span>
-                <span className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] bg-[#fb651e] text-[11px] font-bold text-white">
-                  Y
+
+              <div className="flex items-center gap-2 opacity-80 sm:ml-4">
+                <span className="text-[13px] font-medium text-gray-500">
+                  Backed by
                 </span>
-                <span>Combinator</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] bg-[#ff6600] text-[11px] font-bold leading-none text-white">
+                    Y
+                  </div>
+                  <span className="text-[13px] font-semibold tracking-tight text-gray-600">
+                    Combinator
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-x-1.5 gap-y-2 text-[13.5px] text-[var(--lp-muted)]">
+            <div className="mt-4 flex flex-wrap items-center gap-x-1.5 gap-y-2 text-[13px] text-gray-500">
               <span>Also available:</span>
               <a
                 href={props.windowsDownloadHref}
@@ -168,23 +158,28 @@ export function LandingHome(props: Props) {
               </a>
             </div>
 
-            <LandingHeroPrompt className="mt-12 max-w-[900px]" />
+            {props.isMobileVisitor ? null : (
+              <LandingHeroPrompt className="mt-10 hidden md:block" />
+            )}
           </section>
 
-          <section className="mt-16 md:mt-20" aria-label="OpenWork product demo">
-            <div className="rounded-[24px] bg-[var(--lp-tonal)] p-2">
-              <div className="relative flex h-11 items-center px-4">
-                <div className="flex gap-1.5" aria-hidden="true">
-                  <span className="h-3 w-3 rounded-full bg-[#fb7185]" />
-                  <span className="h-3 w-3 rounded-full bg-[#fbbf24]" />
-                  <span className="h-3 w-3 rounded-full bg-[#34d399]" />
+          <section
+            className="relative mt-16 flex flex-col gap-6 overflow-hidden md:mt-20 md:gap-8"
+            aria-label="OpenWork product demo"
+          >
+            <div className="landing-shell relative flex flex-col overflow-hidden rounded-2xl">
+              <div className="relative z-20 flex h-10 w-full shrink-0 items-center border-b border-white/50 bg-gradient-to-b from-white/90 to-white/60 px-4">
+                <div className="flex gap-1.5">
+                  <div className="h-3 w-3 rounded-full border border-[#e0443e]/20 bg-[#ff5f56]/90 shadow-sm"></div>
+                  <div className="h-3 w-3 rounded-full border border-[#dea123]/20 bg-[#ffbd2e]/90 shadow-sm"></div>
+                  <div className="h-3 w-3 rounded-full border border-[#1aab29]/20 bg-[#27c93f]/90 shadow-sm"></div>
                 </div>
-                <div className="absolute left-1/2 -translate-x-1/2 text-[12px] font-medium text-[var(--lp-muted)]">
+                <div className="absolute left-1/2 -translate-x-1/2 text-[12px] font-medium tracking-wide text-gray-500">
                   OpenWork
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[16px] bg-white p-4 md:p-6">
+              <div className="bg-white p-4 md:p-6">
                 <LandingAppDemoPanel
                   flows={landingDemoFlows}
                   activeFlowId={activeDemo.id}
@@ -192,42 +187,55 @@ export function LandingHome(props: Props) {
                   timesById={landingDemoFlowTimes}
                 />
               </div>
-              <div className="flex flex-col justify-between gap-4 px-2 pb-3 pt-4 lg:flex-row lg:items-center">
-                <div className="flex flex-wrap gap-2">
+
+              <div className="relative z-10 mb-4 flex w-full flex-col items-start justify-between gap-4 px-2 md:flex-row md:items-center">
+                <div className="landing-chip flex w-full flex-wrap gap-2 overflow-x-auto rounded-full p-1.5 md:w-[600px]">
                   {landingDemoFlows.map((flow) => {
-                    const active = flow.id === activeDemo.id;
+                    const isActive = flow.id === activeDemo.id;
+
                     return (
                       <button
                         key={flow.id}
                         type="button"
                         onClick={() => setActiveDemoId(flow.id)}
-                        className={`relative rounded-full px-4 py-2 text-[13px] transition-colors duration-150 ${
-                          active
-                            ? "bg-white text-[var(--lp-ink)]"
-                            : "text-[var(--lp-body)] hover:text-[var(--lp-ink)]"
+                        aria-pressed={isActive}
+                        className={`relative cursor-pointer whitespace-nowrap rounded-full px-5 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? "text-[#011627]"
+                            : "text-gray-600 hover:text-gray-900"
                         }`}
                       >
-                        {flow.categoryLabel}
+                        {isActive ? (
+                          <motion.div
+                            layoutId="active-pill"
+                            className="absolute inset-0 rounded-full border border-gray-100 bg-white shadow-sm"
+                            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                          />
+                        ) : null}
+                        <span className="relative z-10">{flow.categoryLabel}</span>
                       </button>
                     );
                   })}
                 </div>
-                <AnimatePresence mode="wait" initial={false}>
-                  <motion.div
-                    key={activeDemo.id}
-                    initial={reduceMotion ? false : { opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={reduceMotion ? undefined : { opacity: 0 }}
-                    className="max-w-[420px] text-left lg:text-right"
-                  >
-                    <div className="text-[15px] font-medium text-[var(--lp-ink)]">
-                      {activeDemo.title}
-                    </div>
-                    <div className="mt-1 text-[13px] leading-5 text-[var(--lp-muted)]">
-                      {activeDemo.description}
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
+
+                <div className="min-h-[44px] text-left md:text-right">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeDemo.id}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <div className="text-lg font-medium text-[#011627]">
+                        {activeDemo.title}
+                      </div>
+                      <div className="ml-auto mt-1 max-w-md text-sm text-gray-500">
+                        {activeDemo.description}
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
               </div>
             </div>
           </section>
