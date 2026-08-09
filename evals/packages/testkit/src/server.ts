@@ -523,6 +523,8 @@ export async function server(options: ServerOptions): Promise<Den> {
     };
     const logsDir = join(REPO_ROOT, "evals", "results", ".testkit", database.name);
     await mkdir(logsDir, { recursive: true });
+    const orgShape = options.org ?? defaultLocalOrg(runId);
+    const bootstrapAdmin = personDefaults("admin", orgShape.admin, runId);
     const commonEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...bootedMocks.env,
@@ -540,6 +542,9 @@ export async function server(options: ServerOptions): Promise<Den> {
       DEN_PASSWORD_BREACH_SCREENING_ENABLED: "false",
       OPENWORK_DEV_MODE: "1",
       PROVISIONER_MODE: "stub",
+      // The locally booted Den seeds this admin into the platform-admin
+      // allowlist so specs can exercise /v1/admin/* capability toggles.
+      DEN_BOOTSTRAP_ADMIN_EMAILS: bootstrapAdmin.email,
     };
     const api = spawnService("den-api", "dev:den:api", apiPort, { ...commonEnv, DEN_BIND_HOST: "127.0.0.1" }, join(logsDir, "api.log"));
     services.push(api);
@@ -556,7 +561,7 @@ export async function server(options: ServerOptions): Promise<Den> {
     await waitForAuthProbe(ref, api);
     const organization = await provisionOrganization(
       ref,
-      options.org ?? defaultLocalOrg(runId),
+      orgShape,
       runId,
       { databaseUrl: database.url, createOrg: true },
     );

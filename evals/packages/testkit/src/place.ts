@@ -84,7 +84,11 @@ async function canConnect(port: number, host: string): Promise<boolean> {
 }
 
 export async function localMysqlIsRunning(): Promise<boolean> {
-  return canConnect(3306, "127.0.0.1");
+  // Probe the same MySQL the run will actually use: OPENWORK_EVAL_MYSQL_URL
+  // overrides the default, so the probe must honor it too.
+  const url = new URL(process.env.OPENWORK_EVAL_MYSQL_URL?.trim() || DEFAULT_MYSQL_URL);
+  const port = url.port ? Number(url.port) : 3306;
+  return canConnect(port, url.hostname || "127.0.0.1");
 }
 
 class LocalPlace implements Place {
