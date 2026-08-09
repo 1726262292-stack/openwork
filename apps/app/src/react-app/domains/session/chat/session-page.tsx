@@ -23,6 +23,7 @@ import type {
 } from "../../../../app/types";
 import type { ShareWorkspaceModalProps } from "../../workspace/types";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -319,6 +320,7 @@ export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
   const platform = usePlatform();
   const denAuth = useDenAuth();
+  const isMobile = useIsMobile();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   const sidePanelSessionKey = getSidePanelSessionKey(props.selectedSessionId);
@@ -385,6 +387,7 @@ export function SessionPage(props: SessionPageProps) {
   const workbenchTabs = useWorkbenchStore((state) => state.tabs);
   const workbenchSplitSessionId = useWorkbenchStore((state) => state.splitSessionId);
   const focusedWorkbenchPane = useWorkbenchStore((state) => state.focusedPane);
+  const activeWorkbenchPane = isMobile ? "primary" : focusedWorkbenchPane;
   const syncWorkbench = useWorkbenchStore((state) => state.sync);
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
   const setWorkbenchSplit = useWorkbenchStore((state) => state.setSplit);
@@ -848,7 +851,7 @@ export function SessionPage(props: SessionPageProps) {
       reactSessionToken &&
       props.surface,
   );
-  const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
+  const canRenderSplitSurface = Boolean(!isMobile && canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
   // Route-level refreshes must only gate the very first paint of a session.
   // Once the surface can mount it owns its own data stream, so replacing a
   // rendered chat with a loading pane (and leaving it there when a refresh
@@ -1092,7 +1095,7 @@ export function SessionPage(props: SessionPageProps) {
             onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}
             className="min-h-0 flex-1 rounded-[14px]"
           >
-            <ResizablePanel minSize="360px" className="min-w-0">
+            <ResizablePanel minSize={isMobile ? "0px" : "360px"} className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
           <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
@@ -1145,7 +1148,7 @@ export function SessionPage(props: SessionPageProps) {
                       variant="ghost"
                       size="icon-sm"
                       className={cn(
-                        "rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground",
+                        "hidden rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground md:inline-flex",
                         sidePanelOpen && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                       )}
                       aria-label={sidePanelOpen ? "Close side panel" : "Open side panel"}
@@ -1164,10 +1167,12 @@ export function SessionPage(props: SessionPageProps) {
                 />
                 <TooltipContent>{sidePanelOpen ? "Close side panel" : "Open side panel"}</TooltipContent>
               </Tooltip>
-              {showCloudSignIn ? (
+              {shellConfig.cloudSignin ? (
                 <Button
                   variant="secondary"
                   size="sm"
+                  className={showCloudSignIn ? undefined : "invisible"}
+                  disabled={!showCloudSignIn}
                   onClick={openCloudSignIn}
                   title={t("den.signin_title")}
                   aria-label={t("den.signin_title")}
@@ -1265,10 +1270,10 @@ export function SessionPage(props: SessionPageProps) {
                     className="min-h-0 flex-1"
                   >
                     <ResizablePanel
-                      minSize="320px"
+                      minSize={isMobile ? "0px" : "320px"}
                       className="min-h-0 min-w-0"
                       data-workbench-pane="primary"
-                      data-workbench-pane-focused={focusedWorkbenchPane === "primary" ? "true" : undefined}
+                      data-workbench-pane-focused={activeWorkbenchPane === "primary" ? "true" : undefined}
                       onPointerDown={() => focusWorkbenchPane("primary")}
                       onFocusCapture={() => focusWorkbenchPane("primary")}
                     >
@@ -1284,7 +1289,7 @@ export function SessionPage(props: SessionPageProps) {
                         environmentClient={props.environmentClient}
                         workspaceId={props.runtimeWorkspaceId!}
                         sessionId={props.selectedSessionId!}
-                        isControlTarget={focusedWorkbenchPane === "primary"}
+                        isControlTarget={activeWorkbenchPane === "primary"}
                         opencodeBaseUrl={reactSessionBaseUrl}
                         openworkToken={reactSessionToken}
                         todos={props.todos}
@@ -1305,7 +1310,7 @@ export function SessionPage(props: SessionPageProps) {
                           minSize="320px"
                           className="min-h-0 min-w-0"
                           data-workbench-pane="secondary"
-                          data-workbench-pane-focused={focusedWorkbenchPane === "secondary" ? "true" : undefined}
+                          data-workbench-pane-focused={activeWorkbenchPane === "secondary" ? "true" : undefined}
                           onPointerDown={() => focusWorkbenchPane("secondary")}
                           onFocusCapture={() => focusWorkbenchPane("secondary")}
                         >
@@ -1315,7 +1320,7 @@ export function SessionPage(props: SessionPageProps) {
                             environmentClient={props.environmentClient}
                             workspaceId={props.runtimeWorkspaceId!}
                             sessionId={splitSessionId!}
-                            isControlTarget={focusedWorkbenchPane === "secondary"}
+                            isControlTarget={activeWorkbenchPane === "secondary"}
                             opencodeBaseUrl={reactSessionBaseUrl}
                             openworkToken={reactSessionToken}
                             todos={[]}
@@ -1408,7 +1413,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </div>
             </ResizablePanel>
-            {props.terminalOpen ? (
+            {props.terminalOpen && !isMobile ? (
               <>
                 <ResizableHandle />
                 <ResizablePanel defaultSize="280px" minSize="160px" maxSize="55%" className="min-h-0">
@@ -1424,7 +1429,7 @@ export function SessionPage(props: SessionPageProps) {
 
               </main>
             </ResizablePanel>
-              {sidePanelOpen ? (
+              {sidePanelOpen && !isMobile ? (
               <>
                 <ResizableHandle className="hidden bg-transparent lg:flex" />
                 <ResizablePanel
@@ -1463,7 +1468,7 @@ export function SessionPage(props: SessionPageProps) {
               </>
             ) : null}
           </ResizablePanelGroup>
-          <aside className="flex w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground mac:titlebar-no-drag">
+          <aside className="hidden w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground md:flex mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"
