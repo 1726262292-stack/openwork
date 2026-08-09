@@ -171,6 +171,7 @@ import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { useControlAction, type OpenworkControlAction } from "./control/control-provider";
 import { useReactRenderWatchdog } from "./react-render-watchdog";
+import { useBootOverlayVisible } from "./boot-state";
 
 import {
   createDenClient,
@@ -565,6 +566,7 @@ export function SessionRoute() {
     onHostInfo: setOpenworkServerHostInfoState,
   });
   const cloudWorkspace = useCloudWorkspaceStatus();
+  const bootOverlayVisible = useBootOverlayVisible();
   const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
   useEffect(() => {
     const previousStatus = previousCloudWorkspaceStatusRef.current;
@@ -1446,7 +1448,7 @@ export function SessionRoute() {
     !cloudWorkspace.gatewayMode ||
     !cloudWorkspace.visible ||
     cloudWorkspaceStatusHasReadyContent(cloudWorkspace.viewModel.variant);
-  const cloudWorkspaceMainContentTakeover = cloudWorkspaceMainContentDecision === "takeover" ? (
+  const cloudWorkspaceMainContentTakeover = !bootOverlayVisible && cloudWorkspaceMainContentDecision === "takeover" ? (
     <CloudWorkspaceBootTakeover decision={cloudWorkspaceMainContentDecision} />
   ) : null;
   const gatedRouteNotFoundMessage = cloudWorkspaceReadyForRouteErrors ? routeNotFoundMessage : null;
