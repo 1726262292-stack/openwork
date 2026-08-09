@@ -29,6 +29,7 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { hasSkillFrontmatterName, parseSkillMarkdown } from "@openwork-ee/utils"
 import type { PluginArchActorContext, PluginArchResourceKind, PluginArchRole } from "./access.js"
 import { isPluginArchOrgAdmin, PluginArchAuthorizationError, requirePluginArchResourceRole, resolvePluginArchGrantRole, resolvePluginArchResourceRole } from "./access.js"
+import { clampCodePoints, clampUtf8Bytes, PROJECTION_TEXT_MAX_BYTES, PROJECTION_TITLE_MAX_CHARS } from "./projection-text.js"
 import {
   buildGithubAppInstallUrl,
   createGithubInstallStateToken,
@@ -619,7 +620,7 @@ function deriveSkillProjection(value: ConfigObjectInput) {
 
   return {
     description,
-    searchText: [name, description, body].join("\n"),
+    searchText: clampUtf8Bytes([name, description, body].join("\n"), PROJECTION_TEXT_MAX_BYTES),
     title: name,
   }
 }
@@ -653,15 +654,18 @@ function deriveProjection(input: { objectType: ConfigObjectRow["objectType"]; va
       : null,
   ].find((value) => Boolean(normalizeOptionalString(value ?? undefined)))
 
-  const title = normalizeOptionalString(titleCandidate ?? undefined)
-    ?? `${input.objectType.charAt(0).toUpperCase()}${input.objectType.slice(1)} ${new Date().toISOString()}`
+  const title = clampCodePoints(
+    normalizeOptionalString(titleCandidate ?? undefined)
+      ?? `${input.objectType.charAt(0).toUpperCase()}${input.objectType.slice(1)} ${new Date().toISOString()}`,
+    PROJECTION_TITLE_MAX_CHARS,
+  )
 
   const description = normalizeOptionalString(descriptionCandidate ?? undefined)
-  const searchText = [title, description, rawSourceText].filter(Boolean).join("\n") || null
+  const searchText = [title, description, rawSourceText].filter(Boolean).join("\n")
 
   return {
-    description,
-    searchText,
+    description: description ? clampUtf8Bytes(description, PROJECTION_TEXT_MAX_BYTES) : null,
+    searchText: searchText ? clampUtf8Bytes(searchText, PROJECTION_TEXT_MAX_BYTES) : null,
     title,
   }
 }
