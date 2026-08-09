@@ -70,6 +70,10 @@ test.skipIf(!appSpecsEnabled || !mysqlOpen)(title, async ({ evidence, place }) =
     "x-openwork-org-id": orgId,
   };
 
+  // Large multibyte bodies over the Daytona preview proxy need a wider, still
+  // bounded, per-request budget than the denFetch default.
+  const largeRequestSignal = () => AbortSignal.timeout(120_000);
+
   // 120 KB > 65,535-byte TEXT cap: this exact insert failed with errno 1406 (DEN-API-Z).
   const skillName = `grand-skill-multioctets-${unique}`;
   const skillV1 = buildSkillMarkdown(skillName, "Orchestrateur V1", 120_000);
@@ -77,6 +81,7 @@ test.skipIf(!appSpecsEnabled || !mysqlOpen)(title, async ({ evidence, place }) =
     method: "POST",
     headers: orgHeaders,
     body: JSON.stringify({ type: "skill", sourceMode: "cloud", input: { rawSourceText: skillV1 } }),
+    signal: largeRequestSignal(),
   });
   expect(created.response.status).toBe(201);
   const createdItem = itemOf(created.body);
@@ -94,6 +99,7 @@ test.skipIf(!appSpecsEnabled || !mysqlOpen)(title, async ({ evidence, place }) =
     method: "POST",
     headers: orgHeaders,
     body: JSON.stringify({ input: { rawSourceText: skillV2 }, reason: "spec: oversized multibyte update" }),
+    signal: largeRequestSignal(),
   });
   expect(versioned.response.status).toBe(201);
   evidence.fact(
@@ -104,6 +110,7 @@ test.skipIf(!appSpecsEnabled || !mysqlOpen)(title, async ({ evidence, place }) =
 
   const detail = await denFetch(admin, `/v1/config-objects/${encodeURIComponent(configObjectId)}`, {
     headers: orgHeaders,
+    signal: largeRequestSignal(),
   });
   expect(detail.response.status).toBe(200);
   const item = itemOf(detail.body);
