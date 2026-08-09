@@ -351,7 +351,7 @@ jobs:
               -e MYSQL_DATABASE=smoke \
               -e MYSQL_USER=smoke \
               -e MYSQL_PASSWORD=smoke \
-              mysql:8.4 >/dev/null
+              mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb >/dev/null
 
             mysql_ready="false"
             for _ in {1..30}; do
