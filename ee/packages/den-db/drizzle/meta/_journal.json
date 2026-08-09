@@ -393,6 +393,13 @@
       "when": 1786099419482,
       "tag": "0056_oauth_provider_17_schema_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "5",
+      "when": 1786274133419,
+      "tag": "0057_codemode_scripts",
+      "breakpoints": true
     }
   ]
 }

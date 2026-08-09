@@ -9,6 +9,7 @@ import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
 import { memberFacingMcpConnectionsEnabled } from "../capability-sources/external-mcp-rollout.js"
+import { codemodeScriptsEnabled } from "../capability-sources/codemode-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
@@ -17,7 +18,7 @@ import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import { compareCapabilityMatches, SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities, searchCapabilitySourceFilter, type CapabilityMatch } from "./search.js"
 import { executeExternalCapability, externalMcpSearchCoverageHint, parseExternalCapabilityName, resolveMcpMemberIdentity, searchExternalCapabilities, type ExternalCapabilityExecuteResult } from "./external-capabilities.js"
-import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, searchMarketplaceCapabilities, type MarketplaceCapabilityObjectType, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
+import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, searchMarketplaceCapabilities, type MarketplaceCapabilityExecuteResult, type MarketplaceCapabilityObjectType, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { automationService } from "../automations/service.js"
 import { AGENT_AUTOMATION_INDEX_LIMIT, registerAgentAutomationResources } from "./automation-index.js"
@@ -31,10 +32,14 @@ import {
 } from "./builtin-skills.js"
 import { executeNativeCapability, searchNativeCapabilities } from "./native-capabilities.js"
 import { externalToolContent, type AgentToolContentPart } from "./tool-content.js"
+import { buildCodemodeToolTree, codemodeScriptPath } from "./codemode-tools.js"
+import { runCodemodeScript } from "./codemode-run.js"
+import { recordCodemodeScriptResult } from "../codemode-runs.js"
 
 export { externalToolContent } from "./tool-content.js"
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
+export const EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME = "execute_capability_script"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 const skillMarketplaceObjectTypes: MarketplaceCapabilityObjectType[] = ["skill"]
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
@@ -87,6 +92,7 @@ const capabilityMatchOutputSchema = z.object({
   status: z.string().optional(),
   hint: z.string().optional(),
   connectionStatus: connectionStatusOutputSchema.optional(),
+  scriptPath: z.string().optional(),
 }).passthrough()
 
 export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
@@ -117,7 +123,7 @@ const externalCapabilityErrorPayloadSchema = z.object({
 })
 
 export const AGENT_MCP_INSTRUCTIONS = [
-  "This OpenWork Cloud connection intentionally exposes exactly two tools: search_capabilities and execute_capability.",
+  "This OpenWork Cloud connection always exposes search_capabilities and execute_capability; organizations with Code Mode scripts enabled also receive execute_capability_script.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
@@ -197,6 +203,16 @@ export function externalCapabilityErrorToolResult(
     ...(result.retry ? { retry: result.retry } : {}),
     ...(result.schemaGuidance ? { schemaGuidance: result.schemaGuidance } : {}),
   })
+  return {
+    isError: true,
+    content: textContent(JSON.stringify(payload)),
+  }
+}
+
+function marketplaceCapabilityErrorToolResult(
+  result: Exclude<MarketplaceCapabilityExecuteResult, { ok: true }>,
+): ExecuteCapabilityToolResult {
+  const payload = Object.fromEntries(Object.entries(result).filter(([key]) => key !== "ok"))
   return {
     isError: true,
     content: textContent(JSON.stringify(payload)),
@@ -338,7 +354,8 @@ export function registerAgentSkillResources(input: {
 }
 
 /**
- * The minimal, harness-facing MCP surface: exactly two tools, full stop.
+ * The minimal, harness-facing MCP surface: two core tools plus one gated
+ * confined-script tool.
  *
  * `/mcp` (index.ts) stays exactly as it is — every catalog operation
  * individually registered, ~129 tools today. That's unchanged and still
@@ -347,13 +364,10 @@ export function registerAgentSkillResources(input: {
  *
  * `/mcp/agent` is a *different* endpoint for a *different* consumer: the
  * desktop app's "OpenWork Cloud Control" connection, which is what an
- * OpenCode/Claude Code/Codex-style harness actually sees. It registers only
- * `search_capabilities` and `execute_capability`, both backed by the exact
- * same catalog and the exact same `invokeMcpOperation` execute path used by
- * the rich endpoint — no new auth, no new policy, no new execution logic.
- * A harness connected here can only discover and call capabilities through
- * these two tools; the other ~127 operations are not individually callable
- * on this endpoint.
+ * OpenCode/Claude Code/Codex-style harness actually sees. It always registers
+ * `search_capabilities` and `execute_capability`, and conditionally registers
+ * `execute_capability_script` over the same authorized capability set. The
+ * other ~127 operations are not individually callable on this endpoint.
  */
 export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(app: Hono<T>) {
   app.get("/.well-known/oauth-protected-resource/mcp/agent", publicRoute, (c) =>
@@ -399,6 +413,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     const externalMcpConnectionsEnabled = memberFacingMcpConnectionsEnabled(organizationRows[0]?.metadata, {
       gatingEnabled: env.mcpConnectionsGatingEnabled,
     })
+    const codemodeEnabled = codemodeScriptsEnabled(organizationRows[0]?.metadata)
     let remoteSkills: RemoteSkillDescriptor[] = []
     const method = await mcpRequestMethod(c.req.raw)
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
@@ -442,7 +457,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       {
         title: "Search capabilities",
         description: [
-          "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
+          codemodeEnabled
+            ? "Search for a capability by keyword. This connection exposes this tool, execute_capability, and execute_capability_script —"
+            : "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
@@ -461,7 +478,11 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         const boundedLimit = limit ?? 5
         const sourceFilter = searchCapabilitySourceFilter(type)
         const marketplaceObjectTypes = type === "skills" ? skillMarketplaceObjectTypes : undefined
-        const restMatches = sourceFilter.api ? searchCapabilities(catalog, query, boundedLimit) : []
+        const restMatches = sourceFilter.api
+          ? searchCapabilities(catalog, query, boundedLimit).map((match) => codemodeEnabled
+            ? { ...match, scriptPath: codemodeScriptPath("den", match.name) }
+            : match)
+          : []
         const nativeMatches = sourceFilter.api
           ? await searchNativeCapabilities({
             organizationId,
@@ -489,6 +510,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             query,
             redirectUriBase: resolvePublicOrigin(c.req.raw, env.apiPublicUrl),
             limit: boundedLimit,
+            includeScriptPaths: codemodeEnabled,
             reportCoverage: (coverage) => {
               externalCoverageHint = externalMcpSearchCoverageHint(coverage)
             },
@@ -496,6 +518,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           : []
         const marketplaceMatches = sourceFilter.marketplace && externalMcpConnectionsEnabled
           ? await searchMarketplaceCapabilities({
+            codemodeEnabled,
             organizationId: principal.organizationId,
             member: memberIdentity,
             objectTypes: marketplaceObjectTypes,
@@ -590,21 +613,30 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
 
             const marketplace = parseMarketplaceCapabilityName(name)
             if (marketplace) {
+              const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
               const result = await executeMarketplaceCapability({
+                buildTools: () => buildCodemodeToolTree({
+                  app: app as unknown as Hono,
+                  env: c.env,
+                  catalog,
+                  principal,
+                  organizationId: principal.organizationId,
+                  member: externalMcpConnectionsEnabled ? memberIdentity : null,
+                  redirectUriBase,
+                }),
                 organizationId: principal.organizationId,
                 member: memberIdentity,
                 pluginId: marketplace.pluginId,
                 configObjectId: marketplace.configObjectId,
                 body,
+                codemodeEnabled,
                 enabled: externalMcpConnectionsEnabled,
+                redirectUriBase,
               })
               if (!result.ok) {
-                return {
-                  isError: true,
-                  content: textContent(result.error === "unknown_capability"
-                    ? unknownCapabilityText(name)
-                    : JSON.stringify({ error: result.error, message: result.message })),
-                }
+                return result.error === "unknown_capability"
+                  ? { isError: true, content: textContent(unknownCapabilityText(name)) }
+                  : marketplaceCapabilityErrorToolResult(result)
               }
               return { content: textContent(JSON.stringify(result.result, null, 2)) }
             }
@@ -632,6 +664,77 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         })
       },
     )
+
+    if (codemodeEnabled) {
+      server.registerTool(
+        EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
+        {
+          title: "Execute capability script",
+          description: [
+            "Run confined JavaScript orchestration over this organization's capabilities.",
+            "Den REST operations are available at tools.den.<operation>; connected MCP tools are available at tools.<connection>.<tool>.",
+            "search_capabilities results include scriptPath for exact paths, and tools.$codemode.search({ query }) works in-program.",
+            "The code is a plain function body in a restricted JavaScript subset: data literals, control flow, arrow functions, template strings, try/catch, common Array/String/Object/Math/JSON methods, await, and Promise.all.",
+            "Not available: import/require, classes, generators, .then/.catch chaining, timers, fetch, process, and other host globals — call tools for all external work.",
+            "Send plain source only (no markdown fences). End with `return <json-safe value>`; use console.log for progress logs.",
+            "Run independent tool calls in parallel with Promise.all and return only the fields needed.",
+          ].join(" "),
+          annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
+          inputSchema: z.object({
+            code: z.string().min(1),
+            input: z.unknown().optional(),
+          }),
+        },
+        async ({ code, input }) => executeCapabilityWithBudget({
+          capability: EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
+          invoke: async (): Promise<ExecuteCapabilityToolResult> => {
+            const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
+            const { tools } = await buildCodemodeToolTree({
+              app: app as unknown as Hono,
+              env: c.env,
+              catalog,
+              principal,
+              organizationId: principal.organizationId,
+              member: externalMcpConnectionsEnabled ? memberIdentity : null,
+              redirectUriBase,
+            })
+            const startedAt = new Date()
+            const result = await runCodemodeScript({
+              code,
+              scriptInput: input,
+              tools,
+              timeoutMs: 170_000,
+            })
+            const finishedAt = new Date()
+            await recordCodemodeScriptResult(db, {
+              organizationId,
+              orgMembershipId: memberIdentity?.orgMembershipId,
+              source: "adhoc",
+              code,
+              startedAt,
+              finishedAt,
+            }, result)
+            if (!result.ok) {
+              return {
+                isError: true,
+                content: textContent(JSON.stringify({
+                  error: "script_failed",
+                  kind: result.error.kind,
+                  message: result.error.message,
+                  ...(result.error.suggestions ? { suggestions: result.error.suggestions } : {}),
+                  toolCalls: result.toolCalls,
+                })),
+              }
+            }
+            const value = typeof result.value === "string"
+              ? result.value
+              : JSON.stringify(result.value, null, 2)
+            const logs = result.logs.length > 0 ? `\n\nLogs:\n${result.logs.join("\n")}` : ""
+            return { content: textContent(`${value}${logs}`) }
+          },
+        }),
+      )
+    }
 
     const transport = new StreamableHTTPTransport()
     await server.connect(transport)

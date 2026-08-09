@@ -24,9 +24,13 @@ import {
 } from "../capability-sources/external-mcp-auth-policy.js"
 import { EXTERNAL_MCP_PRESETS } from "../capability-sources/external-mcp-presets.js"
 import { getConnectedAccount, getOrgOAuthClient } from "../capability-sources/oauth-credentials.js"
+import { recordCodemodeScriptResult } from "../codemode-runs.js"
 import { db } from "../db.js"
 import { resolvePluginArchGrantRole } from "../routes/org/plugin-system/access.js"
 import { openworkOrganizationConnectionsUrl, openworkYourConnectionsUrl } from "./connection-navigation.js"
+import { parseCodemodeScriptPayload, validateCodemodeScriptInput, type CodemodeScriptInputIssue } from "./codemode-script-object.js"
+import { restrictCodemodeToolTree, type BuiltCodemodeTools } from "./codemode-tools.js"
+import { runCodemodeScript } from "./codemode-run.js"
 import { listPluginMcpRequirementBindings, type PluginMcpRequirementBindingRow } from "./plugin-mcp-requirement-bindings.js"
 import { scoreText, tokenize } from "./search.js"
 import type { McpMemberIdentity } from "./external-capabilities.js"
@@ -107,7 +111,7 @@ export type MarketplaceCapabilityMatch = CapabilityMatch & {
   mcpRequirements?: MarketplaceMcpRequirementStatus[]
 }
 
-export type MarketplaceCapabilityStatus = "connection_available" | "content_not_synced" | "needs_admin_setup" | "needs_connection" | "needs_install" | "ready" | "reconnect" | "unsupported"
+export type MarketplaceCapabilityStatus = "connection_available" | "content_not_synced" | "executed" | "needs_admin_setup" | "needs_connection" | "needs_install" | "ready" | "reconnect" | "unsupported"
 
 export type MarketplaceMcpRequirementState = "needs_admin_setup" | "needs_connection" | "ready" | "reconnect"
 
@@ -144,6 +148,10 @@ export type MarketplaceCapabilityExecutePayload = {
   definition?: string | null
   serverSpec?: Record<string, unknown>
   source?: string | null
+  value?: unknown
+  logs?: string[]
+  toolCalls?: Array<{ name: string }>
+  durationMs?: number
   status?: MarketplaceCapabilityStatus
   hint?: string
   action?: MarketplaceMcpRequirementAction
@@ -153,8 +161,30 @@ export type MarketplaceCapabilityExecutePayload = {
 export type MarketplaceCapabilityExecuteResult =
   | { ok: true; result: MarketplaceCapabilityExecutePayload }
   | { ok: false; error: "unknown_capability" | "forbidden"; message: string }
+  | {
+      ok: false
+      error: "invalid_capability_arguments"
+      message: string
+      issues: CodemodeScriptInputIssue[]
+      sameArgumentsRetryable: false
+      retry: { action: "correct_arguments"; searchRequired: false }
+    }
+  | {
+      ok: false
+      error: "capability_unavailable"
+      message: string
+      providerCallAttempted: false
+      missing: Array<{ capabilityName: string; scriptPath: string }>
+    }
+  | {
+      ok: false
+      error: "script_failed"
+      message: string
+      kind: string
+      toolCalls: Array<{ name: string }>
+    }
 
-export type MarketplaceConfigObjectExecutionMode = "desktop_only" | "instructional" | "mcp"
+export type MarketplaceConfigObjectExecutionMode = "codemode" | "desktop_only" | "instructional" | "mcp"
 
 export type MarketplaceCloudReadinessState = "ready" | "needs_signin" | "needs_admin_setup" | "desktop_only" | "not_synced"
 
@@ -284,6 +314,10 @@ function objectHint(row: MarketplaceCapabilityRow): string {
 
 function contentNotSyncedHint(row: MarketplaceCapabilityRow): string {
   return `Marketplace plugin "${row.plugin.name}" has not synced content for "${row.configObject.title}" yet. Connect or sync the source, then try again.`
+}
+
+function unsupportedScriptHint(row: MarketplaceCapabilityRow, message: string): string {
+  return `Marketplace plugin "${row.plugin.name}" saved script "${row.configObject.title}" cannot run: ${message}`
 }
 
 function summaryFor(row: MarketplaceCapabilityRow): string {
@@ -740,10 +774,17 @@ export function marketplaceConfigObjectExecutionMode(objectType: ConfigObjectTyp
     case "custom":
     case "skill":
       return "instructional"
+    case "script":
+      return "codemode"
     case "hook":
     case "tool":
       return "desktop_only"
   }
+}
+
+export function marketplaceConfigObjectReadyWhenSynced(objectType: ConfigObjectType): boolean {
+  const mode = marketplaceConfigObjectExecutionMode(objectType)
+  return mode === "codemode" || mode === "instructional"
 }
 
 export function marketplaceMcpServerEntries(spec: Record<string, unknown>, fallbackName: string): { config: Record<string, unknown>; name: string }[] {
@@ -1232,7 +1273,7 @@ export async function resolveMarketplacePluginCloudReadiness(input: {
       continue
     }
 
-    const hasInstructional = objects.some((object) => latestVersions.has(object.id) && marketplaceConfigObjectExecutionMode(object.objectType) === "instructional")
+    const hasInstructional = objects.some((object) => latestVersions.has(object.id) && marketplaceConfigObjectReadyWhenSynced(object.objectType))
     if (objects.some((object) => !latestVersions.has(object.id))) {
       readiness.set(pluginId, { state: "not_synced", hasInstructional, connections: [] })
       continue
@@ -1329,6 +1370,7 @@ function commandArguments(body: unknown): string {
 }
 
 export async function searchMarketplaceCapabilities(input: {
+  codemodeEnabled?: boolean
   enabled?: boolean
   limit?: number
   member: McpMemberIdentity | null
@@ -1357,6 +1399,7 @@ export async function searchMarketplaceCapabilities(input: {
   const matchesByName = new Map<string, MarketplaceCapabilityMatch>()
 
   for (const row of rows) {
+    if (row.configObject.objectType === "script" && input.codemodeEnabled !== true) continue
     if (input.objectTypes && !input.objectTypes.includes(row.configObject.objectType)) continue
     const score = scoreMarketplaceRow(row, queryTokens)
     if (score <= 0) continue
@@ -1370,7 +1413,7 @@ export async function searchMarketplaceCapabilities(input: {
       summary: summaryFor(row),
       pathParams: [],
       queryParams: [],
-      hasBody: row.configObject.objectType === "command",
+      hasBody: row.configObject.objectType === "command" || row.configObject.objectType === "script",
       kind: row.configObject.objectType,
       plugin: row.plugin.name,
       ...(row.marketplace ? { marketplace: row.marketplace.name } : {}),
@@ -1401,12 +1444,15 @@ export async function searchMarketplaceCapabilities(input: {
 }
 
 export async function executeMarketplaceCapability(input: {
+  buildTools?: () => Promise<BuiltCodemodeTools>
   body?: unknown
+  codemodeEnabled?: boolean
   configObjectId: string
   enabled?: boolean
   member: McpMemberIdentity | null
   organizationId: string
   pluginId: string
+  redirectUriBase?: string
 }): Promise<MarketplaceCapabilityExecuteResult> {
   if (input.enabled === false) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
@@ -1429,6 +1475,9 @@ export async function executeMarketplaceCapability(input: {
   if (rows.length === 0) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
   }
+  if (rows[0]?.configObject.objectType === "script" && input.codemodeEnabled !== true) {
+    return { ok: false, error: "unknown_capability", message: "No such capability." }
+  }
 
   const memberRow = await getActiveMember(organizationId, input.member)
   if (!memberRow) {
@@ -1448,6 +1497,101 @@ export async function executeMarketplaceCapability(input: {
         ...basePayload(row),
         status: "content_not_synced",
         hint: contentNotSyncedHint(row),
+      },
+    }
+  }
+
+  if (row.configObject.objectType === "script") {
+    const parsed = parseCodemodeScriptPayload(version.normalizedPayloadJson)
+    if (!parsed.ok) {
+      return {
+        ok: true,
+        result: {
+          ...basePayload(row),
+          status: "unsupported",
+          hint: unsupportedScriptHint(row, parsed.message),
+        },
+      }
+    }
+    if (parsed.payload.inputSchema) {
+      const validation = validateCodemodeScriptInput(parsed.payload.inputSchema, input.body)
+      if (!validation.ok && validation.error === "invalid_schema") {
+        return {
+          ok: true,
+          result: {
+            ...basePayload(row),
+            status: "unsupported",
+            hint: unsupportedScriptHint(row, validation.message),
+          },
+        }
+      }
+      if (!validation.ok) {
+        return {
+          ok: false,
+          error: "invalid_capability_arguments",
+          message: "The capability arguments do not match the saved script's inputSchema.",
+          issues: validation.issues,
+          sameArgumentsRetryable: false,
+          retry: { action: "correct_arguments", searchRequired: false },
+        }
+      }
+    }
+
+    const built = input.buildTools
+      ? await input.buildTools().catch(() => ({ tools: {}, manifest: [] }))
+      : { tools: {}, manifest: [] }
+    const restricted = restrictCodemodeToolTree({
+      built,
+      requiredCapabilities: parsed.payload.requiredCapabilities,
+    })
+    const firstMissing = restricted.missing[0]
+    if (firstMissing) {
+      return {
+        ok: false,
+        error: "capability_unavailable",
+        message: `Required capability ${firstMissing.scriptPath} (${firstMissing.capabilityName}) is unavailable or disabled for this organization.`,
+        providerCallAttempted: false,
+        missing: restricted.missing,
+      }
+    }
+
+    const code = version.rawSourceText ?? ""
+    const startedAt = new Date()
+    const result = await runCodemodeScript({
+      code,
+      scriptInput: input.body,
+      tools: restricted.tools,
+      timeoutMs: Math.min(parsed.payload.limits?.timeoutMs ?? 120_000, 170_000),
+      maxToolCalls: parsed.payload.limits?.maxToolCalls,
+      maxOutputBytes: parsed.payload.limits?.maxOutputBytes,
+    })
+    const finishedAt = new Date()
+    await recordCodemodeScriptResult(db, {
+      organizationId,
+      orgMembershipId: input.member.orgMembershipId,
+      source: buildMarketplaceCapabilityName(row.plugin.id, row.configObject.id),
+      code,
+      startedAt,
+      finishedAt,
+    }, result)
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: "script_failed",
+        message: result.error.message,
+        kind: result.error.kind,
+        toolCalls: result.toolCalls,
+      }
+    }
+    return {
+      ok: true,
+      result: {
+        ...basePayload(row),
+        status: "executed",
+        value: result.value,
+        logs: result.logs.map((log) => log.trim()).filter(Boolean),
+        toolCalls: result.toolCalls,
+        durationMs: result.durationMs,
       },
     }
   }
