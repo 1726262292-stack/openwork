@@ -24,6 +24,7 @@ const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
 let previousRuntimeDb: string | undefined;
 let previousDisposeTimeout: string | undefined;
+let previousReloadRetry: string | undefined;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -145,7 +146,18 @@ afterEach(async () => {
   else process.env.OPENWORK_RUNTIME_DB = previousRuntimeDb;
   if (previousDisposeTimeout === undefined) delete process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS;
   else process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS = previousDisposeTimeout;
+  if (previousReloadRetry === undefined) delete process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS;
+  else process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS = previousReloadRetry;
 });
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return predicate();
+}
 
 describe("engine reload guard", () => {
   test("global provider patch defers the reload while sessions are busy and applies it once idle", async () => {
@@ -232,6 +244,37 @@ describe("engine reload guard", () => {
     }));
     expect(settled.status).toBe("noop");
     expect(engine.disposeCount()).toBe(1);
+  });
+
+  test("a deferred reload lands by itself once the engine idles, even with no Den session", async () => {
+    previousReloadRetry = process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS;
+    process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS = "200";
+    const root = await createTempRoot();
+    const engine = startFakeEngine();
+    const config = serverConfig(root, `http://127.0.0.1:${engine.port}`);
+    const server = await startServer(config);
+    stops.push(() => server.stop());
+    const base = `http://127.0.0.1:${server.port}`;
+
+    // No PUT /den-session on purpose: a signed-out desktop that patches
+    // global providers must still see them reach the engine eventually.
+    engine.setBusy(true);
+    const deferred = await readJsonObject(await fetch(`${base}/runtime-config/providers`, {
+      method: "PATCH",
+      headers: hostHeaders(),
+      body: JSON.stringify({ provider: { lpr_retry: { id: "anthropic", name: "Anthropic", env: ["ANTHROPIC_API_KEY"] } } }),
+    }));
+    expect(deferred.reload).toBe("deferred");
+    expect(engine.disposeCount()).toBe(0);
+
+    // Still busy: the retry poll must keep waiting, not dispose.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(engine.disposeCount()).toBe(0);
+
+    // Idle: the parked reload lands from the retry poll alone.
+    engine.setBusy(false);
+    const landed = await waitUntil(() => engine.disposeCount() >= 1, 3_000);
+    expect(landed).toBe(true);
   });
 
   test("a wedged dispose times out instead of freezing the sync queue", async () => {

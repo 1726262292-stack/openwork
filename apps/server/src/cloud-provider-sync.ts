@@ -483,6 +483,11 @@ function configuredIntervalMs(): number {
   return Number.isFinite(configured) && configured > 0 ? configured : defaultIntervalMs;
 }
 
+function configuredReloadRetryMs(): number {
+  const configured = Number(process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS ?? "");
+  return Number.isFinite(configured) && configured > 0 ? configured : 15_000;
+}
+
 export class CloudProviderSync {
   private readonly config: ServerConfig;
   private readonly env: EnvService;
@@ -501,6 +506,8 @@ export class CloudProviderSync {
   private reloadPending = false;
   private queue: Promise<void> = Promise.resolve();
   private interval: ReturnType<typeof setInterval> | null = null;
+  private pendingReloadRetry: ReturnType<typeof setTimeout> | null = null;
+  private readonly reloadRetryMs: number;
 
   constructor(options: CloudProviderSyncOptions) {
     this.config = options.config;
@@ -510,6 +517,7 @@ export class CloudProviderSync {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.logger = options.logger;
     this.intervalMs = options.intervalMs ?? configuredIntervalMs();
+    this.reloadRetryMs = configuredReloadRetryMs();
   }
 
   setSession(session: CloudProviderDenSession): void {
@@ -554,11 +562,13 @@ export class CloudProviderSync {
 
   stop(): void {
     this.stopInterval();
+    this.stopReloadRetry();
   }
 
   /** External runtime-config writers park their engine reload here when the engine is busy. */
   markReloadPending(): void {
     this.reloadPending = true;
+    this.scheduleReloadRetry();
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -581,6 +591,41 @@ export class CloudProviderSync {
   private stopInterval(): void {
     if (this.interval) clearInterval(this.interval);
     this.interval = null;
+  }
+
+  /**
+   * A deferred reload must not wait for the next user gesture or the 5-minute
+   * interval — and a reload parked by markReloadPending() may have no Den
+   * session at all, so no sync pass would ever retry it. Poll the (local,
+   * cheap) engine busy probe and land the reload moments after the last
+   * session idles. Serialized on the same queue as sync passes.
+   */
+  private scheduleReloadRetry(): void {
+    if (this.pendingReloadRetry) return;
+    const timer = setTimeout(() => {
+      this.pendingReloadRetry = null;
+      if (!this.reloadPending) return;
+      void this.enqueue(async () => {
+        if (!this.reloadPending) return;
+        if (await this.reloadDeferredByActivity()) {
+          this.scheduleReloadRetry();
+          return;
+        }
+        try {
+          await this.reloadEngine();
+          this.reloadPending = false;
+        } catch {
+          this.scheduleReloadRetry();
+        }
+      });
+    }, this.reloadRetryMs);
+    timer.unref();
+    this.pendingReloadRetry = timer;
+  }
+
+  private stopReloadRetry(): void {
+    if (this.pendingReloadRetry) clearTimeout(this.pendingReloadRetry);
+    this.pendingReloadRetry = null;
   }
 
   /**
@@ -662,6 +707,7 @@ export class CloudProviderSync {
     if (engineWorkspace && this.reloadPending) {
       if (await this.reloadDeferredByActivity()) {
         reloadDeferred = true;
+        this.scheduleReloadRetry();
       } else {
         try {
           await this.reloadEngine();
@@ -772,7 +818,9 @@ export class CloudProviderSync {
       this.reloadPending = this.reloadPending || providerChanged || fileResult.changed;
     }
     let reloadError: unknown;
-    if (this.reloadPending && !(await this.reloadDeferredByActivity())) {
+    if (this.reloadPending && (await this.reloadDeferredByActivity())) {
+      this.scheduleReloadRetry();
+    } else if (this.reloadPending) {
       try {
         await this.reloadEngine();
         this.reloadPending = false;
