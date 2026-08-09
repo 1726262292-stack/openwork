@@ -31,7 +31,6 @@ export type BuiltCodemodeTools = {
 }
 
 type NamedConnection = { id: string; name: string }
-type NamedTool = { name: string }
 
 const IDENTIFIER_PATTERN = /^[a-z_$][a-z0-9_$]*$/i
 
@@ -56,7 +55,7 @@ export function sanitizeNamespaceSegment(name: string): string {
 }
 
 export function buildExternalNamespaceMap(connections: readonly NamedConnection[]): Map<string, string> {
-  const used = new Set(["den", "$codemode"])
+  const used = new Set(["den", "$codemode", "__proto__", "constructor", "prototype"])
   const namespaces = new Map<string, string>()
   for (const connection of connections) {
     const base = sanitizeNamespaceSegment(connection.name)
@@ -90,7 +89,7 @@ export function restrictCodemodeToolTree(input: {
     }
   }
 
-  const tools: CodemodeToolTree = {}
+  const namespaceTools = new Map<string, Map<string, Tool.Definition>>()
   const missing: CodemodeManifestEntry[] = []
   for (const required of input.requiredCapabilities) {
     const resolved = available.get(required.scriptPath)
@@ -98,31 +97,14 @@ export function restrictCodemodeToolTree(input: {
       missing.push(required)
       continue
     }
-    tools[resolved.namespace] ??= {}
-    tools[resolved.namespace][resolved.name] = resolved.definition
+    const tools = namespaceTools.get(resolved.namespace) ?? new Map<string, Tool.Definition>()
+    tools.set(resolved.name, resolved.definition)
+    namespaceTools.set(resolved.namespace, tools)
   }
-  return { tools, missing }
-}
-
-export function buildCodemodeManifest(input: {
-  catalog: readonly McpToolOperation[]
-  externalConnections: readonly (NamedConnection & { tools: readonly NamedTool[] })[]
-}): CodemodeManifestEntry[] {
-  const namespaces = buildExternalNamespaceMap(input.externalConnections)
-  return [
-    ...input.catalog.map((operation) => ({
-      scriptPath: codemodeScriptPath("den", operation.name),
-      capabilityName: operation.name,
-    })),
-    ...input.externalConnections.flatMap((connection) => {
-      const namespace = namespaces.get(connection.id)
-      if (!namespace) return []
-      return connection.tools.map((tool) => ({
-        scriptPath: codemodeScriptPath(namespace, tool.name),
-        capabilityName: buildExternalCapabilityName(connection.id, tool.name),
-      }))
-    }),
-  ]
+  return {
+    tools: Object.fromEntries([...namespaceTools].map(([namespace, tools]) => [namespace, Object.fromEntries(tools)])),
+    missing,
+  }
 }
 
 function textParts(value: unknown): string[] {
@@ -208,6 +190,12 @@ function isListedExternalConnection(value: ListedExternalConnection | undefined)
   return value !== undefined
 }
 
+export function isCodemodeEligibleConnection(
+  connection: Pick<ExternalMcpConnectionRow, "toolPolicy" | "oauthIssuerReviewRequiredAt">,
+): boolean {
+  return !connection.toolPolicy?.allDisabled && !connection.oauthIssuerReviewRequiredAt
+}
+
 export async function buildExternalMcpToolTree(input: {
   organizationId: string
   member: McpMemberIdentity | null
@@ -220,7 +208,7 @@ export async function buildExternalMcpToolTree(input: {
     orgMembershipId: memberIdentity.orgMembershipId,
     teamIds: memberIdentity.teamIds,
   }))
-    .filter((connection) => !connection.toolPolicy?.allDisabled)
+    .filter(isCodemodeEligibleConnection)
     .slice(0, EXTERNAL_MCP_SEARCH_CONNECTION_LIMIT)
   const deadline = createExternalMcpLifecycleDeadline(EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS)
   const listed = (await mapConcurrent(connections, EXTERNAL_MCP_SEARCH_CONCURRENCY, async (connection) => {
