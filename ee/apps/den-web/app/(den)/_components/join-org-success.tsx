@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DownloadOpenWorkCard, type DownloadCardInstallers } from "@openwork/ui/react";
 import {
   getDesktopHandoffGrant,
   getDesktopHandoffOpenworkUrl,
@@ -10,6 +11,7 @@ import { getErrorMessage, requestJson } from "../_lib/den-flow";
 import { createOrganizationInstallLink } from "../_lib/install-link-data";
 import { isMobileUserAgent } from "../_lib/platform";
 import { useDesktopHandoffStatus } from "../_lib/use-desktop-handoff-status";
+import { useDenFlow } from "../_providers/den-flow-provider";
 import { OnboardingCard } from "./onboarding-card";
 import { OnboardingShell } from "./onboarding-shell";
 import { OrganizationBrandIdentity, type OrganizationBrand } from "./organization-brand-identity";
@@ -77,6 +79,8 @@ type JoinOrgSuccessProps = {
   brand: OrganizationBrand;
   desktopAuthRequested: boolean;
   desktopAuthScheme: string;
+  installers?: DownloadCardInstallers | null;
+  releaseTag?: string;
   onContinueInBrowser: () => void;
 };
 
@@ -86,8 +90,15 @@ export function JoinOrgSuccess({
   brand,
   desktopAuthRequested,
   desktopAuthScheme,
+  installers,
+  releaseTag,
   onContinueInBrowser,
 }: JoinOrgSuccessProps) {
+  const { runtimeConfig, runtimeConfigLoaded } = useDenFlow();
+  // A single-org deployment gates its installer behind an org install page,
+  // because that build carries the connect link that points the app at this
+  // server. Cloud has no such link, so it can download the public app.
+  const isSingleOrgMode = runtimeConfigLoaded && runtimeConfig.orgMode === "single_org";
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
   const [emailBusy, setEmailBusy] = useState(false);
@@ -221,7 +232,7 @@ export function JoinOrgSuccess({
                 {handoffBusy ? "Returning to OpenWork..." : "Return to OpenWork"}
               </button>
             )
-          ) : (
+          ) : isSingleOrgMode ? (
             <button
               type="button"
               className="den-button-primary min-h-12 w-full"
@@ -231,6 +242,8 @@ export function JoinOrgSuccess({
             >
               {installBusy ? "Preparing your download..." : "Get the desktop app"}
             </button>
+          ) : (
+            <DownloadOpenWorkCard installers={installers} releaseTag={releaseTag} />
           )}
 
           <button
