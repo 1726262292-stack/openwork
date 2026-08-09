@@ -395,13 +395,47 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 2_700_000 }, async
   expect(headerTimeoutRetries, "provider header-timeout retries observed").toEqual([]);
 
   // ── Frame 5: the new model is simply there in the picker ────────────────
-  const afterModels = await readAvailableModels(desktopApp);
-  const grantedRow = afterModels.find((model) => model.id === grant.modelId && model.selectable);
+  // The engine's catalog can land after the picker's first paint (the same
+  // race models-available.slow.test.ts documents: "0 models at first read, 7
+  // shortly after"), so poll the open dialog instead of trusting one scrape.
+  let afterModels = await readAvailableModels(desktopApp);
+  let grantedRow = afterModels.find((model) => model.id === grant.modelId && model.selectable);
+  const pickerDeadline = Date.now() + 180_000;
+  while (!grantedRow && Date.now() < pickerDeadline) {
+    await sleep(3_000);
+    afterModels = await readAvailableModels(desktopApp);
+    grantedRow = afterModels.find((model) => model.id === grant.modelId && model.selectable);
+  }
+  if (!grantedRow) {
+    // Name the layer that lost the model: engine catalog vs. app picker.
+    const engineView = await evalIn(desktopApp, `(async () => {
+      const port = localStorage.getItem("openwork.server.port");
+      const token = localStorage.getItem("openwork.server.token");
+      const out = {};
+      for (const path of ["/opencode/config/providers", "/opencode/config"]) {
+        const response = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(${JSON.stringify(workspaceId)}) + path, {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (!response.ok) { out[path] = "HTTP " + response.status; continue; }
+        const text = await response.text();
+        out[path] = {
+          hasProvider: text.includes(${JSON.stringify(grant.providerId)}),
+          hasModel: text.includes(${JSON.stringify(grant.modelId)}),
+        };
+      }
+      return out;
+    })()`, { awaitPromise: true, timeoutMs: 30_000 });
+    evidence.fact(
+      "Frame 5 diagnostic — which layer dropped the granted model",
+      `Engine config view: ${JSON.stringify(engineView)}; picker rows: ${afterModels.map((model) => model.id).join(", ") || "none"}.`,
+      false,
+    );
+  }
   evidence.fact(
     "Frame 5 — the granted model appears in the picker with no restart",
     grantedRow
-      ? `${grant.modelId} is listed under provider '${grantedRow.providerName}'.`
-      : `${grant.modelId} missing from picker; saw ${afterModels.map((model) => model.id).join(", ")}.`,
+      ? `${grant.modelId} is listed under provider '${grantedRow.providerName}' after polling the open picker.`
+      : `${grant.modelId} missing from picker after 180s; saw ${afterModels.map((model) => model.id).join(", ")}.`,
     Boolean(grantedRow),
   );
   expect(grantedRow, `the granted model ${grant.modelId} is not selectable in the picker`).toBeTruthy();
