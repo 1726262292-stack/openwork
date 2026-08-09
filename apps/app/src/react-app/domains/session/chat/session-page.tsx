@@ -62,6 +62,7 @@ import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 import type { SessionNumberShortcutsState } from "../../../shell/session-number-shortcuts";
+import { useBootOverlayVisible } from "../../../shell/boot-state";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
@@ -232,23 +233,6 @@ export type SessionPageProps = {
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
 };
 
-function getSidebarInitialLoading(props: SessionPageSidebarProps) {
-  if (props.workspaceSessionGroups.some((group) => group.sessions.length > 0)) {
-    return false;
-  }
-  if (props.sidebarHydratedFromCache) return false;
-  if (
-    props.startupPhase !== "sessionIndexReady" &&
-    props.startupPhase !== "firstSessionReady" &&
-    props.startupPhase !== "ready"
-  ) {
-    return true;
-  }
-  return props.workspaceSessionGroups.some(
-    (group) => group.status === "loading" || group.status === "idle",
-  );
-}
-
 function sessionTitleForId(groups: WorkspaceSessionGroup[], id: string | null | undefined) {
   if (!id) return "";
   const sessionsById = new Map(groups.flatMap((group) => group.sessions.map((session) => [session.id, session] as const)));
@@ -321,6 +305,7 @@ export function SessionPage(props: SessionPageProps) {
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const isMobile = useIsMobile();
+  const bootOverlayVisible = useBootOverlayVisible();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   const sidePanelSessionKey = getSidePanelSessionKey(props.selectedSessionId);
@@ -803,6 +788,7 @@ export function SessionPage(props: SessionPageProps) {
   const hasMainContentTakeover = Boolean(props.mainContentTakeover);
   const showWorkspaceSetupEmptyState = props.workspaces.length === 0 && !props.selectedSessionId;
   const showStartupSkeleton =
+    !bootOverlayVisible &&
     !props.primarySlot &&
     !hasMainContentTakeover &&
     !props.selectedSessionId &&
@@ -810,7 +796,6 @@ export function SessionPage(props: SessionPageProps) {
     props.startupPhase !== "sessionIndexReady" &&
     props.startupPhase !== "firstSessionReady" &&
     props.startupPhase !== "ready";
-  const sidebarInitialLoading = useMemo(() => getSidebarInitialLoading(props.sidebar), [props.sidebar]);
   // Derive the main-pane error from the same data the sidebar uses so the two
   // panes can never disagree. We check (in priority order):
   // 1. selectedWorkspaceError (errorsByWorkspaceId[selectedWorkspaceId])
@@ -857,6 +842,7 @@ export function SessionPage(props: SessionPageProps) {
   // rendered chat with a loading pane (and leaving it there when a refresh
   // hangs) is never correct.
   const showSessionLoadingState =
+    !bootOverlayVisible &&
     !props.primarySlot &&
     Boolean(props.selectedSessionId) &&
     props.sessionLoadingById(props.selectedSessionId) &&
@@ -1029,7 +1015,6 @@ export function SessionPage(props: SessionPageProps) {
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
-          showInitialLoading={sidebarInitialLoading}
           showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
           sessionStatusById={props.sidebar.sessionStatusById}
           connectingWorkspaceId={props.sidebar.connectingWorkspaceId}
