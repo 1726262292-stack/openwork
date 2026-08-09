@@ -856,6 +856,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     config,
     env,
     reloadEngine: () => reloadOpencodeEngine(config, resolveEngineRuntimeWorkspace(config), engineMcpServerState),
+    engineBusy: () => engineHasActiveSessions(config, resolveEngineRuntimeWorkspace(config)),
     logger: toManagedProviderAuthLogger(logger),
   });
   const routes = createRoutes(
@@ -2090,8 +2091,14 @@ function createRoutes(
 
     const fileResult = await writeOpenworkRuntimeConfigFile(config, workspace.id);
     const shouldReload = result.changed || fileResult.changed;
-    if (shouldReload) {
+    // Never dispose a live engine under running sessions; park the reload on
+    // the provider sync so it applies on a later pass once the engine idles.
+    const reloadDeferred = shouldReload && (await engineHasActiveSessions(config, workspace));
+    if (shouldReload && !reloadDeferred) {
       await reloadOpencodeEngine(config, workspace, engineMcpServerState);
+    }
+    if (reloadDeferred) {
+      cloudProviderSync.markReloadPending();
     }
     // The provider entry only names its credential env vars; the engine needs
     // the value itself via its auth API.
@@ -2106,7 +2113,7 @@ function createRoutes(
       changed: result.changed,
       provider: runtimeProviderMap(result.config),
       runtimeConfigPath: openworkRuntimeConfigFilePath(config),
-      reload: shouldReload ? "reloaded" : "skipped",
+      reload: shouldReload ? (reloadDeferred ? "deferred" : "reloaded") : "skipped",
     });
   });
 
@@ -3326,6 +3333,31 @@ function parseOpencodeErrorBody(input: string): unknown {
   }
 }
 
+// Bounded so a dispose wedged on live-session teardown can never freeze the
+// caller (CloudProviderSync serializes passes on one queue; an unbounded
+// dispose froze every later pass and the status it reports). Overridable for
+// tests.
+function opencodeDisposeTimeoutMs(): number {
+  const configured = Number(process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS ?? "");
+  return Number.isFinite(configured) && configured > 0 ? configured : 30_000;
+}
+
+/**
+ * True when the managed engine reports any non-idle session (subagent child
+ * sessions carry their own ids and statuses, so they count too). Unknown
+ * activity reports false: a reload against a dead engine fails loudly on its
+ * own, and "unknown" must never park reloads forever.
+ */
+async function engineHasActiveSessions(config: ServerConfig, workspace: WorkspaceInfo): Promise<boolean> {
+  try {
+    const opencode = createWorkspaceOpencodeClient(config, workspace);
+    const statuses = unwrapOpencodeResult(await opencode.session.status(), "/session/status");
+    return Object.values(statuses).some((status) => status.type !== "idle");
+  } catch {
+    return false;
+  }
+}
+
 async function reloadOpencodeEngine(
   config: ServerConfig,
   workspace: WorkspaceInfo,
@@ -3348,8 +3380,25 @@ async function reloadOpencodeEngine(
   let response: Response;
   try {
     // OpenCode reload targets the managed loopback engine; CA trust is irrelevant.
-    response = await loopbackFetch(targetUrl, { method: "POST", headers });
+    // The engine answers /instance/dispose only AFTER teardown completes, so a
+    // dispose wedged on live-session teardown would otherwise hang forever.
+    response = await loopbackFetch(targetUrl, {
+      method: "POST",
+      headers,
+      signal: AbortSignal.timeout(opencodeDisposeTimeoutMs()),
+    });
   } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") {
+      // Deliberately NOT opencode_engine_unreachable: the app escalates that
+      // code to a full desktop engine restart, which would kill the very
+      // sessions the wedged dispose is still tearing down.
+      throw new ApiError(
+        504,
+        "opencode_reload_timeout",
+        "OpenCode dispose did not complete in time; the reload stays pending",
+        { baseUrl },
+      );
+    }
     throw new ApiError(
       503,
       "opencode_engine_unreachable",
@@ -3402,6 +3451,18 @@ async function reloadOpencodeEngine(
     logPersistedCloudMcpReconcileResult({ config, workspace, trigger: "engine_reload", health });
   } catch (error) {
     logPersistedCloudMcpReconcileError({ config, workspace, trigger: "engine_reload", error });
+  }
+  // The MCP re-registration above writes the runtime DB; refresh the
+  // engine-visible file synchronously so the next provider-sync pass compares
+  // against post-reload state instead of racing the async fresh-keeper and
+  // reporting a phantom "changed" (which would schedule yet another reload).
+  try {
+    const engineWorkspace = resolveEngineRuntimeWorkspace(config);
+    if (engineWorkspace.id === workspace.id) {
+      await writeOpenworkRuntimeConfigFile(config, workspace.id);
+    }
+  } catch {
+    // Best-effort: the fresh-keeper listener still converges eventually.
   }
 }
 
