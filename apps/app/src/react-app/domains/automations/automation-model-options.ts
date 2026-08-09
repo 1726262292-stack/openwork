@@ -16,6 +16,11 @@ export type AutomationModelOption = {
   accessKind: "free" | "openwork_managed" | "authorized_custom"
 }
 
+export type ResolvedProposalModel = {
+  model: AutomationModel
+  resolution: "exact" | "mapped" | "default" | "fallback"
+}
+
 const freeStarterModel: AutomationModelOption = {
   ...AUTOMATION_FREE_MODEL,
   accessKind: "free",
@@ -75,6 +80,39 @@ export function findAutomationModelOption(
 ) {
   return options.find((option) =>
     option.providerId === model.providerId && option.modelId === model.modelId) ?? null
+}
+
+export function resolveProposalModel(
+  proposed: AutomationModel | undefined,
+  providers: readonly DenOrgLlmProvider[],
+): ResolvedProposalModel {
+  const freeModel: AutomationModel = {
+    providerId: AUTOMATION_FREE_MODEL.providerId,
+    modelId: AUTOMATION_FREE_MODEL.modelId,
+    variant: null,
+  }
+  if (!proposed) return { model: freeModel, resolution: "default" }
+
+  if (findAutomationModelOption(automationModelOptions(providers), proposed)) {
+    return { model: proposed, resolution: "exact" }
+  }
+
+  const provider = providers.find((candidate) =>
+    candidate.source !== "openwork"
+    && candidate.providerId === proposed.providerId
+    && candidate.models.some((model) => model.id === proposed.modelId))
+  if (provider) {
+    return {
+      model: {
+        providerId: provider.id,
+        modelId: proposed.modelId,
+        variant: proposed.variant ?? null,
+      },
+      resolution: "mapped",
+    }
+  }
+
+  return { model: freeModel, resolution: "fallback" }
 }
 
 /**
