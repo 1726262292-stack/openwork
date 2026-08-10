@@ -2,7 +2,10 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
   - "acorn"
+  - "dompurify"
   - "enhanced-resolve"
+  - "js-yaml"
+  - "nanoid"
   - "postcss"
 
 packages:
@@ -33,6 +36,7 @@ overrides:
   "builder-util-runtime@<9.7.0": 9.7.0
   "defu@<6.1.5": 6.1.5
   "diff@>=8.0.0 <8.0.3": 8.0.3
+  "dompurify@<3.4.13": 3.4.13
   "fast-uri@>=3.0.0 <3.1.5": 3.1.5
   "fast-xml-parser@>=5.0.0 <5.7.0": 5.7.0
   "form-data@>=4.0.0 <4.0.6": 4.0.6
@@ -43,7 +47,9 @@ overrides:
   better-call: 1.3.7
   "hono@<4.12.34": 4.12.34
   "ip-address@>=10.0.0 <10.3.1": 10.3.1
-  "js-yaml@>=4.0.0 <4.3.0": 4.3.0
+  "js-yaml@>=4.0.0 <4.3.1": 4.3.1
+  "nanoid@<3.3.17": 3.3.17
+  "nanoid@>=4.0.0 <5.1.16": 5.1.16
   "postcss@<8.5.23": 8.5.23
   "protobufjs@<7.6.5": 7.6.5
   "qs@>=6.0.0 <6.15.2": 6.15.2
