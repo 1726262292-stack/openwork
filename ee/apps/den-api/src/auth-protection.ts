@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, createHmac } from "node:crypto"
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
@@ -81,7 +81,7 @@ function jsonError(status: number, body: { error: string; message: string; feedb
 }
 
 function lockoutKey(email: string) {
-  const digest = createHash("sha256").update(email).digest("base64url")
+  const digest = createHmac("sha256", env.betterAuthSecret).update(email).digest("base64url")
   return `auth:email-password-lockout:${digest}`
 }
 
@@ -115,7 +115,7 @@ export function getLoginLockoutStatus(state: LoginFailureState | null, now = Dat
   }
 }
 
-export async function readEmailPasswordSignInAttempt(request: Request): Promise<LoginAttempt | null> {
+export async function readEmailSignInAttempt(request: Request): Promise<LoginAttempt | null> {
   if (request.method !== "POST" || normalizedPath(request) !== EMAIL_PASSWORD_SIGN_IN_PATH) {
     return null
   }
@@ -152,7 +152,7 @@ export async function getEmailPasswordLockoutResponse(attempt: LoginAttempt, now
   })
 }
 
-export async function recordEmailPasswordSignInFailure(attempt: LoginAttempt, now = Date.now()) {
+export async function recordEmailSignInFailure(attempt: LoginAttempt, now = Date.now()) {
   const key = lockoutKey(attempt.email)
   const [row] = await db
     .select({
@@ -181,20 +181,20 @@ export async function recordEmailPasswordSignInFailure(attempt: LoginAttempt, no
     .where(eq(RateLimitTable.id, row.id))
 }
 
-export async function clearEmailPasswordSignInFailures(attempt: LoginAttempt) {
+export async function clearEmailSignInFailures(attempt: LoginAttempt) {
   await db
     .delete(RateLimitTable)
     .where(eq(RateLimitTable.key, lockoutKey(attempt.email)))
 }
 
-export async function recordEmailPasswordSignInResult(attempt: LoginAttempt, response: Response, now = Date.now()) {
+export async function recordEmailSignInResult(attempt: LoginAttempt, response: Response, now = Date.now()) {
   if (response.status === 401) {
-    await recordEmailPasswordSignInFailure(attempt, now)
+    await recordEmailSignInFailure(attempt, now)
     return
   }
 
   if (response.status >= 200 && response.status < 400) {
-    await clearEmailPasswordSignInFailures(attempt)
+    await clearEmailSignInFailures(attempt)
   }
 }
 

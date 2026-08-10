@@ -48,14 +48,14 @@ test("email password sign-in parsing normalizes the account identifier", async (
     method: "POST",
   })
 
-  await expect(authProtection.readEmailPasswordSignInAttempt(request)).resolves.toEqual({
+  await expect(authProtection.readEmailSignInAttempt(request)).resolves.toEqual({
     email: "user@example.com",
   })
 
   const ignored = new Request("http://den.local/api/auth/sign-in/social", {
     method: "POST",
   })
-  await expect(authProtection.readEmailPasswordSignInAttempt(ignored)).resolves.toBeNull()
+  await expect(authProtection.readEmailSignInAttempt(ignored)).resolves.toBeNull()
 })
 
 test("breached password screening reads password fields only on password creation routes", async () => {

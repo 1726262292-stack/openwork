@@ -15,8 +15,8 @@ import {
   getEmailPasswordLockoutResponse,
   getShortPasswordResponse,
   getWeakPasswordResponse,
-  readEmailPasswordSignInAttempt,
-  recordEmailPasswordSignInResult,
+  readEmailSignInAttempt,
+  recordEmailSignInResult,
 } from "../../auth-protection.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
@@ -601,9 +601,9 @@ async function handleAuthRequest(c: Context) {
   }
   const markedAuthRequest = await markInvitationSignupAllowed(authRequest)
 
-  const emailPasswordAttempt = await readEmailPasswordSignInAttempt(markedAuthRequest)
-  if (emailPasswordAttempt) {
-    const lockoutResponse = await getEmailPasswordLockoutResponse(emailPasswordAttempt)
+  const emailSignInAttempt = await readEmailSignInAttempt(markedAuthRequest)
+  if (emailSignInAttempt) {
+    const lockoutResponse = await getEmailPasswordLockoutResponse(emailSignInAttempt)
     if (lockoutResponse) {
       return lockoutResponse
     }
@@ -643,8 +643,8 @@ async function handleAuthRequest(c: Context) {
   }
 
   const response = await auth.handler(markedAuthRequest)
-  if (emailPasswordAttempt) {
-    await recordEmailPasswordSignInResult(emailPasswordAttempt, response)
+  if (emailSignInAttempt) {
+    await recordEmailSignInResult(emailSignInAttempt, response)
   }
   return response
 }
