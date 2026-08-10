@@ -1229,6 +1229,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
       await Promise.all(sessionRows.map((session) => cache.auth.deleteSession(session.token)))
 
       const organizationIds = Array.from(new Set(activeMembershipRows.map((row) => row.organizationId).filter(isOrganizationId)))
+      await Promise.all(organizationIds.map((organizationId) => cache.org.deleteMembers(organizationId)))
       for (const organizationId of organizationIds) {
         const seatCounts = await getOrganizationSeatBillingCounts({ organizationId })
         await syncSeatSubscriptionQuantityAfterMemberChange({ organizationId, memberCount: seatCounts.total })

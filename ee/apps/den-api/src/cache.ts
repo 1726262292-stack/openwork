@@ -25,6 +25,11 @@ type CacheRedisClient = {
   del(key: string): Promise<unknown>
 }
 
+type AuthSessionLiveness = {
+  session: CachedAuthSession["session"]
+  userUpdatedAt: Date
+}
+
 export type CachedAuthSession = {
   session: {
     id: DenTypeId<"session">
@@ -81,6 +86,7 @@ redisClient?.on("error", (error) => {
 let activeRedisClient: CacheRedisClient | null = redisClient
 let activeOrgMembersLoader = loadOrgMembers
 let activeAuthSessionLoader = loadAuthSession
+let activeAuthSessionLivenessLoader = loadAuthSessionLiveness
 
 function cacheKey(input: CacheKeyInput) {
   return `cache:${input.parent}:${input.child}:${input.id}`
@@ -372,6 +378,47 @@ async function loadAuthSession(token: string, now: Date): Promise<CachedAuthSess
   }
 }
 
+async function loadAuthSessionLiveness(token: string, now: Date): Promise<AuthSessionLiveness | null> {
+  const rows = await db
+    .select({
+      session: {
+        id: AuthSessionTable.id,
+        token: AuthSessionTable.token,
+        userId: AuthSessionTable.userId,
+        activeOrganizationId: AuthSessionTable.activeOrganizationId,
+        activeTeamId: AuthSessionTable.activeTeamId,
+        expiresAt: AuthSessionTable.expiresAt,
+        createdAt: AuthSessionTable.createdAt,
+        updatedAt: AuthSessionTable.updatedAt,
+        ipAddress: AuthSessionTable.ipAddress,
+        userAgent: AuthSessionTable.userAgent,
+      },
+      userUpdatedAt: AuthUserTable.updatedAt,
+    })
+    .from(AuthSessionTable)
+    .innerJoin(AuthUserTable, eq(AuthSessionTable.userId, AuthUserTable.id))
+    .where(and(eq(AuthSessionTable.token, token), gt(AuthSessionTable.expiresAt, now)))
+    .limit(1)
+
+  const row = rows[0]
+  if (!row) {
+    return null
+  }
+
+  return {
+    session: {
+      ...row.session,
+      id: normalizeDenTypeId("session", row.session.id),
+      userId: normalizeDenTypeId("user", row.session.userId),
+      activeOrganizationId: row.session.activeOrganizationId
+        ? normalizeDenTypeId("organization", row.session.activeOrganizationId)
+        : null,
+      activeTeamId: row.session.activeTeamId ? normalizeDenTypeId("team", row.session.activeTeamId) : null,
+    },
+    userUpdatedAt: row.userUpdatedAt,
+  }
+}
+
 async function getAuthSession(token: string) {
   const now = new Date()
   const key = cacheKey({ parent: "auth", child: "session", id: token })
@@ -380,7 +427,14 @@ async function getAuthSession(token: string) {
     try {
       const cached = parseCachedAuthSession(await redis.get(key), now)
       if (cached) {
-        return cached
+        const live = await activeAuthSessionLivenessLoader(token, now)
+        if (!live) {
+          await deleteAuthSession(token)
+          return null
+        }
+        if (live.userUpdatedAt.getTime() === cached.user.updatedAt.getTime()) {
+          return { ...cached, session: live.session }
+        }
       }
     } catch (error) {
       console.error("openwork_cache_get_failed", { key, error })
@@ -405,6 +459,15 @@ async function getAuthSession(token: string) {
 
 async function deleteAuthSession(token: string) {
   const key = cacheKey({ parent: "auth", child: "session", id: token })
+  try {
+    await activeRedisClient?.del(key)
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { key, error })
+  }
+}
+
+async function deleteOrgMembers(organizationId: OrgId) {
+  const key = cacheKey({ parent: "org", child: "members", id: organizationId })
   try {
     await activeRedisClient?.del(key)
   } catch (error) {
@@ -450,6 +513,7 @@ export const cache = {
         load: () => activeOrgMembersLoader(organizationId),
       })
     },
+    deleteMembers: deleteOrgMembers,
   },
 }
 
@@ -457,10 +521,12 @@ export function setCacheDependenciesForTest(input: {
   redis?: CacheRedisClient | null
   orgMembersLoader?: (organizationId: OrgId) => Promise<CachedOrgMember[]>
   authSessionLoader?: (token: string, now: Date) => Promise<CachedAuthSession | null>
+  authSessionLivenessLoader?: (token: string, now: Date) => Promise<AuthSessionLiveness | null>
 }) {
   const previousRedis = activeRedisClient
   const previousOrgMembersLoader = activeOrgMembersLoader
   const previousAuthSessionLoader = activeAuthSessionLoader
+  const previousAuthSessionLivenessLoader = activeAuthSessionLivenessLoader
   if ("redis" in input) {
     activeRedisClient = input.redis ?? null
   }
@@ -470,9 +536,13 @@ export function setCacheDependenciesForTest(input: {
   if (input.authSessionLoader) {
     activeAuthSessionLoader = input.authSessionLoader
   }
+  if (input.authSessionLivenessLoader) {
+    activeAuthSessionLivenessLoader = input.authSessionLivenessLoader
+  }
   return () => {
     activeRedisClient = previousRedis
     activeOrgMembersLoader = previousOrgMembersLoader
     activeAuthSessionLoader = previousAuthSessionLoader
+    activeAuthSessionLivenessLoader = previousAuthSessionLivenessLoader
   }
 }

@@ -1733,6 +1733,7 @@ export async function updateOrganizationMemberRole(input: {
   })
 
   if (updated.ok && updated.changed) {
+    await cache.org.deleteMembers(input.organizationId)
     await revokeOrganizationApiKeysForMember({
       organizationId: input.organizationId,
       orgMembershipId: updated.member.id,
@@ -1866,6 +1867,8 @@ export async function transferOrganizationOwnership(input: {
   if (!transfer.ok) {
     return transfer
   }
+
+  await cache.org.deleteMembers(input.organizationId)
 
   for (const ownerRow of transfer.demotedOwners) {
     await revokeOrganizationApiKeysForMember({

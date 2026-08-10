@@ -11,7 +11,9 @@ const setCalls: Array<{ key: string; value: string; mode: string; ttl: number }>
 const deleteCalls: string[] = []
 let selectCount = 0
 let authSelectCount = 0
+let authLivenessCount = 0
 let authSessionExpiresAt = new Date("2026-08-10T14:00:00.000Z")
+let authSessionLive = true
 let cacheModule: typeof import("../src/cache.js")
 let restoreCacheDependencies: (() => void) | null = null
 
@@ -92,6 +94,13 @@ beforeAll(async () => {
       authSelectCount += 1
       return Promise.resolve(authSession())
     },
+    authSessionLivenessLoader: () => {
+      authLivenessCount += 1
+      return Promise.resolve(authSessionLive ? {
+        session: authSession().session,
+        userUpdatedAt: authSession().user.updatedAt,
+      } : null)
+    },
   })
 })
 
@@ -101,7 +110,9 @@ beforeEach(() => {
   deleteCalls.length = 0
   selectCount = 0
   authSelectCount = 0
+  authLivenessCount = 0
   authSessionExpiresAt = new Date("2026-08-10T14:00:00.000Z")
+  authSessionLive = true
   setSystemTime(new Date("2026-08-10T12:00:00.000Z"))
 })
 
@@ -133,12 +144,23 @@ test("cache.auth.session uses the Den key and caps Redis TTL at one hour", async
   expect(first).toEqual(second)
   expect(first?.session.id).toBe(sessionId)
   expect(authSelectCount).toBe(1)
+  expect(authLivenessCount).toBe(1)
   expect(setCalls).toHaveLength(1)
   expect(setCalls[0]).toMatchObject({
     key: `cache:auth:session:${sessionToken}`,
     mode: "EX",
     ttl: 3600,
   })
+})
+
+test("cache.auth.session rejects stale Redis entries after database revocation", async () => {
+  await cacheModule.cache.auth.session(sessionToken)
+  authSessionLive = false
+
+  const resolved = await cacheModule.cache.auth.session(sessionToken)
+
+  expect(resolved).toBeNull()
+  expect(deleteCalls).toEqual([`cache:auth:session:${sessionToken}`])
 })
 
 test("cache.auth.session limits TTL to the remaining session lifetime", async () => {
