@@ -83,8 +83,11 @@ Dry-run first, then execute:
 
 ```bash
 pnpm release:rollback
-pnpm release:rollback --execute
+pnpm release:rollback --bad vX.Y.Z --execute
 ```
+
+Always pin `--bad` when executing: after a successful rollback the *good*
+release is Latest, so a bare re-run would select it as bad.
 
 By default, the script selects the current Latest release as bad and the
 newest lower published stable release as last good. It re-points Latest,

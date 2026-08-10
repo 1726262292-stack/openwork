@@ -286,7 +286,7 @@ export function runRollback(args, dependencies = {}) {
   if (options.execute) {
     console.log("\n  ✓ Stop-the-bleed rollback complete. Reissue is still required for already-updated clients.");
   } else {
-    console.log("\nDRY RUN — no changes made. Re-run with --execute.");
+    console.log(`\nDRY RUN — no changes made. Re-run with --bad ${badTag} --execute.`);
   }
 
   return { bad, target, plan, execute: options.execute };
