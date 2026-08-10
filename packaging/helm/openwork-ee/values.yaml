@@ -134,6 +134,12 @@ customCa:
   existingConfigMap: ""
   key: ca.crt
 
+redis:
+  # Prefer rediss:// DATABASE_REDIS_URL values. Set this to true only for
+  # trusted private, non-public Redis endpoints that do not support TLS, such as
+  # some managed internal Redis URLs exposed by hosting platforms.
+  allowInsecureInternal: false
+
 secret:
   create: true
   existingSecret: ""
