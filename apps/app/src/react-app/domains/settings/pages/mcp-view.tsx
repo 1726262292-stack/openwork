@@ -373,6 +373,7 @@ export function McpView(props: McpViewProps) {
   const [scriptRunBusy, setScriptRunBusy] = useState(false);
   const [scriptRunError, setScriptRunError] = useState<string | null>(null);
   const [scriptRunResult, setScriptRunResult] = useState<string | null>(null);
+  const [scriptRunReceiptId, setScriptRunReceiptId] = useState<string | null>(null);
   const [savedScripts, setSavedScripts] = useState<DenSavedCodemodeScriptSummary[]>([]);
   const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
@@ -940,6 +941,7 @@ export function McpView(props: McpViewProps) {
                         setScriptRunInput("{}");
                         setScriptRunError(null);
                         setScriptRunResult(null);
+                        setScriptRunReceiptId(null);
                       }}
                     >
                       Run now
@@ -1025,6 +1027,9 @@ export function McpView(props: McpViewProps) {
               <div className="mt-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Validated result</p>
                 <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{scriptRunResult}</pre>
+                {scriptRunReceiptId ? (
+                  <p className="mt-2 break-all font-mono text-xs text-muted-foreground">Receipt {scriptRunReceiptId}</p>
+                ) : null}
               </div>
             ) : null}
             {scriptRunError ? <p className="mt-4 text-sm text-destructive" role="alert">{scriptRunError}</p> : null}
@@ -1032,7 +1037,7 @@ export function McpView(props: McpViewProps) {
               <Button variant="outline" disabled={scriptRunBusy} onClick={() => setScriptRunTarget(null)}>Close</Button>
               <Button
                 disabled={scriptRunBusy}
-                onClick={() => {
+                onClick={async () => {
                   const settings = readDenSettings();
                   const organizationId = settings.activeOrgId?.trim();
                   const token = settings.authToken?.trim();
@@ -1049,10 +1054,17 @@ export function McpView(props: McpViewProps) {
                   }
                   setScriptRunBusy(true);
                   setScriptRunError(null);
-                  void createDenClient({ baseUrl: settings.baseUrl, token }).runSavedCodemodeScript(organizationId, scriptRunTarget, input)
-                    .then((result) => setScriptRunResult(result.markdown || JSON.stringify(result.value, null, 2)))
-                    .catch((error: unknown) => setScriptRunError(error instanceof Error ? error.message : "The Script could not run."))
-                    .finally(() => setScriptRunBusy(false));
+                  try {
+                    const result = await createDenClient({ baseUrl: settings.baseUrl, token })
+                      .runSavedCodemodeScript(organizationId, scriptRunTarget, input);
+                    const rendered = JSON.stringify(result.value, null, 2) ?? result.markdown ?? String(result.value);
+                    setScriptRunResult(rendered);
+                    setScriptRunReceiptId(result.receiptId);
+                  } catch (error: unknown) {
+                    setScriptRunError(error instanceof Error ? error.message : "The Script could not run.");
+                  } finally {
+                    setScriptRunBusy(false);
+                  }
                 }}
               >
                 {scriptRunBusy ? "Running…" : "Run script"}
@@ -1184,6 +1196,7 @@ export function McpView(props: McpViewProps) {
                         setScriptRunInput("{}");
                         setScriptRunError(null);
                         setScriptRunResult(null);
+                        setScriptRunReceiptId(null);
                       }}
                     >
                       Run now

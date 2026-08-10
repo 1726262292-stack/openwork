@@ -54,7 +54,12 @@ export async function saveCodemodeScript(input: {
     const resolved = manifestByPath.get(call.name)
     if (!resolved) throw new Error(`saved_script_capability_unavailable:${call.name}`)
     if (resolved.readOnly !== true) throw new Error(`saved_script_requires_read_only_capabilities:${call.name}`)
-    if (!requiredCapabilities.some((entry) => entry.scriptPath === resolved.scriptPath)) requiredCapabilities.push(resolved)
+    if (!requiredCapabilities.some((entry) => entry.scriptPath === resolved.scriptPath)) {
+      requiredCapabilities.push({
+        capabilityName: resolved.capabilityName,
+        scriptPath: resolved.scriptPath,
+      })
+    }
   }
   const normalizedPayloadJson = {
     language: "codemode-js",

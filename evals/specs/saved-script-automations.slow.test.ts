@@ -2,15 +2,16 @@ import { expect } from "vitest";
 import { screenshot, validate } from "@openwork/fraimz";
 import {
   createOrgConnection,
+  control,
   denFetch,
   evalIn,
   go,
   readComposerState,
-  selectModel,
   visibleText,
   waitFor,
   waitForAssistantReply,
   waitForText,
+  waitUntilInteractive,
   writeComposerText,
 } from "@openwork/behaviors";
 import { app, mcpMock, needs, server, test } from "@openwork/testkit";
@@ -43,7 +44,7 @@ async function setField(surface: Surface, label: string, value: string): Promise
 
 async function click(surface: Surface, label: string): Promise<void> {
   const clicked = await evalIn(surface, `(() => {
-    const element = [...document.querySelectorAll('button, [role="button"]')]
+    const element = [...document.querySelectorAll('button, [role="button"], a[href]')]
       .find((candidate) => (candidate.textContent ?? '').trim().includes(${JSON.stringify(label)}));
     if (!(element instanceof HTMLElement) || element.getAttribute('aria-disabled') === 'true') return false;
     element.click();
@@ -53,14 +54,27 @@ async function click(surface: Surface, label: string): Promise<void> {
 }
 
 async function sendPrompt(desktop: Awaited<ReturnType<typeof app>>, prompt: string): Promise<void> {
+  const createDeadline = Date.now() + 120_000;
+  while (Date.now() < createDeadline) {
+    await control(desktop, "session.create_task").catch(() => undefined);
+    const created = await evalIn(desktop, `location.hash.includes('/session/ses_')`);
+    if (created === true) break;
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+  }
+  await waitFor(desktop, `location.hash.includes('/session/ses_')`, {
+    timeoutMs: 5_000,
+    label: "chat-first task session created",
+  });
+  await waitUntilInteractive(desktop, { timeoutMs: 60_000 });
   await writeComposerText(desktop, prompt);
   const before = await readComposerState(desktop);
-  await waitFor(desktop, `(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find((entry) => (entry.textContent ?? '').trim() === 'Run task' && !entry.disabled);
-    button?.click();
-    return Boolean(button);
-  })()`, { timeoutMs: 30_000, label: "Run task clicked" });
+  await waitFor(
+    desktop,
+    `window.__openworkControl?.listActions?.()
+      .some((action) => action.id === 'composer.send' && !action.disabled)`,
+    { timeoutMs: 30_000, label: "chat-first session send enabled" },
+  );
+  await control(desktop, "composer.send");
   await waitFor(
     desktop,
     `document.querySelectorAll('[data-message-role="user"]').length > ${before.userMessageCount}`,
@@ -138,7 +152,6 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     place,
     ...(process.env.OPENWORK_EVAL_MODEL?.trim() ? { model: process.env.OPENWORK_EVAL_MODEL.trim() } : {}),
   });
-  if (process.env.OPENWORK_EVAL_MODEL?.trim()) await selectModel(desktop, process.env.OPENWORK_EVAL_MODEL.trim());
 
   await sendPrompt(
     desktop,
@@ -183,22 +196,38 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   await click(desktop, "Save script");
   await waitForText(desktop, "Script saved", { timeoutMs: 60_000 });
 
-  await go(desktop, "/settings/extensions/all");
+  await go(desktop, `/workspace/${desktop.workspaceId}/settings/extensions`);
   await waitForText(desktop, "Library", { timeoutMs: 60_000 });
+  await waitFor(
+    desktop,
+    `[...document.querySelectorAll('input')]
+      .some((field) => (field.getAttribute('placeholder') ?? '').includes('Search library'))`,
+    { timeoutMs: 60_000, label: "Library search ready" },
+  );
   await setField(desktop, "Search library", scriptName);
   await waitForText(desktop, scriptName, { timeoutMs: 30_000 });
-  await click(desktop, scriptName);
   await waitForText(desktop, "Run now", { timeoutMs: 30_000 });
   const scriptDetail = await visibleText(desktop);
-  expect(scriptDetail).toContain("Script");
-  expect(scriptDetail).toContain("Output schema");
+  expect(scriptDetail).toContain("Scripts");
+  expect(scriptDetail).toContain("Validated output");
   expect(scriptDetail).toContain("Automate");
 
   await click(desktop, "Run now");
   await setField(desktop, "Input", JSON.stringify({ topic: firstMarker }));
   await click(desktop, "Run script");
-  await waitForText(desktop, "Validated result", { timeoutMs: 120_000 });
+  await waitFor(
+    desktop,
+    `document.body.innerText.toLowerCase().includes('validated result')
+      || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`,
+    { timeoutMs: 60_000, label: "manual Script result or error" },
+  );
+  const manualRunState = await evalIn(desktop, `(() => ({
+    validated: document.body.innerText.toLowerCase().includes('validated result'),
+    error: document.querySelector('[role="dialog"] [role="alert"]')?.textContent?.trim() ?? ''
+  }))()`);
+  expect(isRecord(manualRunState) && manualRunState.validated === true, `Manual Script run failed: ${isRecord(manualRunState) ? String(manualRunState.error) : "unknown"}`).toBe(true);
   await waitForText(desktop, firstMarker, { timeoutMs: 30_000 });
+  await waitForText(desktop, "Receipt", { timeoutMs: 30_000 });
   const manualResultShot = await screenshot(desktop);
   const manualResultSeen = await validate(manualResultShot, [
     "A saved Script run shows a validated result",
