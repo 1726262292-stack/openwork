@@ -404,7 +404,11 @@ async function selectAutomationModel(
   });
 }
 
-test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, async ({ evidence, place }) => {
+// 75 minutes: a cold Daytona lane provisions one Den sandbox plus one desktop
+// sandbox per member (sequentially) before the three real-model phases and the
+// two-minute automation schedule even begin. A 45-minute budget only fit runs
+// that reused warm sandboxes.
+test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, async ({ evidence, place }) => {
   needs(requirements);
   const target = resolveProviderTarget();
   const stamp = Date.now();
