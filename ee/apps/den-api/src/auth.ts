@@ -73,7 +73,7 @@ import {
   findEnterpriseAuthRequirementForEmail,
   findEnterpriseAuthRequirementForUserId,
 } from "./enterprise-auth-requirement.js";
-import { getAuthBodyEmail, getSingleOrgEmailSignupPolicyViolation } from "./single-org-signup-policy.js";
+import { getAuthBodyEmail, getSingleOrgEmailSignupPolicyViolation, INVITATION_SIGNUP_ALLOWED_HEADER } from "./single-org-signup-policy.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
 import * as schema from "@openwork-ee/den-db/schema";
 import { apiKey } from "@better-auth/api-key";
@@ -328,6 +328,34 @@ function readStringProperty(value: unknown, propertyName: string) {
 
   const property = Object.getOwnPropertyDescriptor(value, propertyName)?.value;
   return typeof property === "string" && property.trim() ? property.trim() : null;
+}
+
+function readRequestQueryParam(request: Request | undefined, propertyName: string) {
+  if (!request) {
+    return null;
+  }
+
+  const value = new URL(request.url).searchParams.get(propertyName)?.trim() ?? "";
+  return value || null;
+}
+
+async function hasPendingInvitationForEmail(input: { invitationIdOrToken: string | null; email: string | null }) {
+  if (!input.invitationIdOrToken || !input.email) {
+    return false;
+  }
+
+  const [invitation] = await db
+    .select({ inviteToken: schema.InvitationTable.inviteToken })
+    .from(schema.InvitationTable)
+    .where(and(
+      sql`(${schema.InvitationTable.id} = ${input.invitationIdOrToken} or ${schema.InvitationTable.inviteToken} = ${input.invitationIdOrToken})`,
+      eq(schema.InvitationTable.status, "pending"),
+      gt(schema.InvitationTable.expiresAt, new Date()),
+      sql`lower(${schema.InvitationTable.email}) = ${input.email.trim().toLowerCase()}`,
+    ))
+    .limit(1);
+
+  return Boolean(invitation);
 }
 
 function normalizeRawRoleValue(roleValue: string) {
@@ -723,7 +751,13 @@ export const auth = betterAuth({
 
       const email = getAuthBodyEmail(ctx.body);
       if (ctx.path === "/sign-up/email") {
-        const violation = await getSingleOrgEmailSignupPolicyViolation(email);
+        const invitationAllowsSignup = ctx.headers?.get(INVITATION_SIGNUP_ALLOWED_HEADER) === "1"
+          || ctx.request?.headers.get(INVITATION_SIGNUP_ALLOWED_HEADER) === "1"
+          || await hasPendingInvitationForEmail({
+            invitationIdOrToken: readRequestQueryParam(ctx.request, "invite") ?? readStringProperty(ctx.query, "invite") ?? readStringProperty(ctx.body, "invite"),
+            email,
+          });
+        const violation = invitationAllowsSignup ? null : await getSingleOrgEmailSignupPolicyViolation(email);
         if (violation) {
           throw new APIError("FORBIDDEN", { message: violation.message });
         }
