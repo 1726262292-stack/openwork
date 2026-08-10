@@ -2326,16 +2326,17 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       return { user: getUser(payload), token: getToken(payload) };
     },
 
-    async signUpEmail(email: string, password: string): Promise<DenAuthResult> {
-      const payload = await requestJson<unknown>(baseUrls, "/api/auth/sign-up/email", {
-        method: "POST",
-        body: {
-          name: DEFAULT_DEN_AUTH_NAME,
-          email: email.trim(),
-          password,
-        },
-      });
-      return { user: getUser(payload), token: getToken(payload) };
+    /**
+     * @deprecated Desktop email/password signup is no longer supported directly.
+     * Open the Den browser signup flow with `buildDenAuthUrl(baseUrl, "sign-up")`
+     * so password-strength feedback and invite handling stay server-compatible.
+     */
+    async signUpEmail(_email: string, _password: string): Promise<DenAuthResult> {
+      throw new DenApiError(
+        410,
+        "desktop_signup_deprecated",
+        "Create your account in the browser to choose a secure password.",
+      );
     },
 
     async signOut() {

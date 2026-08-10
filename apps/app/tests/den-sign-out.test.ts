@@ -63,29 +63,19 @@ describe("Den sign-out", () => {
     ).rejects.toThrow("Failed to fetch");
   });
 
-  test("surfaces split password strength feedback from signup", async () => {
-    setFetch(async () =>
-      new Response(JSON.stringify({
-        error: "password_too_weak",
-        message: "Password is too weak.",
-        feedback: {
-          warning: "Repeated characters like \"aaa\" are easy to guess.",
-          suggestions: [
-            "Add more words that are less common.",
-            "Avoid repeated words and characters.",
-          ],
-        },
-      }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      }),
-    );
+  test("rejects direct desktop signup without calling the auth endpoint", async () => {
+    const requests: string[] = [];
+    setFetch(async (input) => {
+      requests.push(String(input));
+      return new Response(null, { status: 204 });
+    });
 
     const result = createDenClient({ baseUrl: "https://den.test" }).signUpEmail("user@example.test", "aaaaaaaa");
     await expect(result).rejects.toMatchObject({
-      status: 400,
-      code: "password_too_weak",
-      message: "Repeated characters like \"aaa\" are easy to guess.\nAdd more words that are less common.\nAvoid repeated words and characters.",
+      status: 410,
+      code: "desktop_signup_deprecated",
+      message: "Create your account in the browser to choose a secure password.",
     });
+    expect(requests).toEqual([]);
   });
 });
