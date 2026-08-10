@@ -104,6 +104,11 @@ interface PluginWitness {
   skillName: string;
 }
 
+interface AutomationApiState {
+  latestRunStatus: string;
+  state: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -170,6 +175,26 @@ async function readProviders(session: DenSession, orgId: string): Promise<Provid
     name: stringField(provider.name),
     providerId: stringField(provider.providerId),
   }));
+}
+
+async function readAutomationApiState(
+  session: DenSession,
+  orgId: string,
+  automationName: string,
+): Promise<AutomationApiState | null> {
+  const result = await denFetch(session, "/v1/automations", {
+    headers: { ...auth(session), "x-openwork-org-id": orgId },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (!result.response.ok || !isRecord(result.body)) return null;
+  const item = records(result.body.items).find((candidate) => (
+    isRecord(candidate.automation) && stringField(candidate.automation.name) === automationName
+  ));
+  if (!item || !isRecord(item.automation)) return null;
+  return {
+    latestRunStatus: isRecord(item.latestRun) ? stringField(item.latestRun.status) : "",
+    state: stringField(item.automation.state),
+  };
 }
 
 async function createProvider(
@@ -522,14 +547,42 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       "Do not grant org-wide access and do not attach it to a marketplace.",
     ].join(" "));
 
-    pluginWitness = await eventually(
-      () => readAuthoredPlugin(den.admin, pluginName, skillNonce),
-      {
-        within: 300_000,
-        intervalMs: 2_000,
-        label: "Cloud skill authored by the admin chat task",
-        until: (plugin) => plugin !== null,
-      },
+    const authoringStartedAt = Date.now();
+    let authoringNudgeFired = false;
+    try {
+      pluginWitness = await eventually(
+        () => readAuthoredPlugin(den.admin, pluginName, skillNonce),
+        {
+          within: 180_000,
+          intervalMs: 2_000,
+          label: "Cloud skill authored before a follow-up nudge",
+          until: (plugin) => plugin !== null,
+        },
+      );
+    } catch {
+      pluginWitness = await readAuthoredPlugin(den.admin, pluginName, skillNonce);
+      if (!pluginWitness) {
+        authoringNudgeFired = true;
+        await sendComposerMessage(
+          appAdmin,
+          `Continue now: call execute_capability with name skill:create-skill, follow its instructions to create the plugin ${pluginName} via postPlugins with the full SKILL.md for ${skillName} (it must contain ${skillNonce} and the mock_echo instruction with ${skillMarker}), then stop.`,
+        );
+        const remainingMs = Math.max(1, 420_000 - (Date.now() - authoringStartedAt));
+        pluginWitness = await eventually(
+          () => readAuthoredPlugin(den.admin, pluginName, skillNonce),
+          {
+            within: remainingMs,
+            intervalMs: 2_000,
+            label: "Cloud skill authored after one follow-up nudge",
+            until: (plugin) => plugin !== null,
+          },
+        );
+      }
+    }
+    evidence.fact(
+      "Cloud skill authoring needed a follow-up nudge",
+      `Follow-up nudge fired: ${authoringNudgeFired}. The authoring witness had a 420-second total budget.`,
+      true,
     );
     if (!pluginWitness) throw new Error("The admin chat did not create the expected Cloud skill.");
     expect(pluginWitness.rawSourceText).toContain(skillNonce);
@@ -818,13 +871,22 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       matchingAutomationCalls.length === 1,
     );
 
-    // The run badge renders the raw status ("succeeded", automations-page.tsx
-    // runLabel); match case-insensitively so a copy change to Title Case
-    // cannot silently break the wait either.
-    await waitFor(
-      appMate,
-      `(document.body.innerText ?? '').toLowerCase().includes('succeeded')`,
-      { timeoutMs: 180_000, label: "automation run succeeded badge" },
+    // itemFromRows returns { automation, revision, latestRun }, and mapRun
+    // exposes the terminal value at latestRun.status.
+    const succeededAutomation = await eventually(
+      () => readAutomationApiState(teammate, orgId, automationName),
+      {
+        within: 180_000,
+        intervalMs: 2_000,
+        label: "Automation latestRun.status succeeded in Den",
+        until: (automation) => automation?.latestRunStatus === "succeeded",
+      },
+    );
+    expect(succeededAutomation?.latestRunStatus).toBe("succeeded");
+    evidence.fact(
+      "The Automation run succeeded in Den",
+      `GET /v1/automations reported latestRun.status=${succeededAutomation?.latestRunStatus ?? "missing"}.`,
+      succeededAutomation?.latestRunStatus === "succeeded",
     );
     await waitForText(appMate, automationMarker, { timeoutMs: 120_000 });
     const shot = await screenshot(appMate);
@@ -836,5 +898,20 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
 
     await clickButton(appMate, "Deactivate");
     await waitForText(appMate, "Inactive", { timeoutMs: 120_000 });
+    const inactiveAutomation = await eventually(
+      () => readAutomationApiState(teammate, orgId, automationName),
+      {
+        within: 60_000,
+        intervalMs: 2_000,
+        label: "Automation inactive in Den",
+        until: (automation) => automation?.state === "inactive",
+      },
+    );
+    expect(inactiveAutomation?.state).toBe("inactive");
+    evidence.fact(
+      "The Automation was deactivated in Den",
+      `GET /v1/automations reported automation.state=${inactiveAutomation?.state ?? "missing"}.`,
+      inactiveAutomation?.state === "inactive",
+    );
   }
 });
