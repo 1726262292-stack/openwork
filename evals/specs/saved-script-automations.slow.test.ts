@@ -28,7 +28,9 @@ async function setField(surface: Surface, label: string, value: string): Promise
     const labels = [...document.querySelectorAll('label')];
     const label = labels.find((candidate) => (candidate.textContent ?? '').trim().includes(${JSON.stringify(label)}));
     const id = label?.getAttribute('for');
-    const field = id ? document.getElementById(id) : label?.querySelector('input, textarea, select');
+    const field = (id ? document.getElementById(id) : label?.querySelector('input, textarea, select'))
+      ?? [...document.querySelectorAll('input, textarea, select')]
+        .find((candidate) => (candidate.getAttribute('placeholder') ?? '').includes(${JSON.stringify(label)}));
     if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) return false;
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), 'value')?.set;
     setter?.call(field, ${JSON.stringify(value)});
@@ -156,6 +158,13 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const saveReview = await visibleText(desktop);
   expect(saveReview).toContain("tools.report_source.mock_echo");
   expect(saveReview).toMatch(/read-only/i);
+  const saveReviewShot = await screenshot(desktop);
+  const saveReviewSeen = await validate(saveReviewShot, [
+    "Save reusable script is presented as a right-side workbench while the current task remains visible",
+    "The workbench shows script details and the Report source capability with a Read-only status",
+    "Close, Cancel, and Save script actions are available without scrolling the workbench footer away",
+  ]);
+  expect(saveReviewSeen.ok, saveReviewSeen.why).toBe(true);
   await click(desktop, "Save script");
   await waitForText(desktop, "Script saved", { timeoutMs: 60_000 });
 
@@ -175,6 +184,13 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   await click(desktop, "Run script");
   await waitForText(desktop, "Validated result", { timeoutMs: 120_000 });
   await waitForText(desktop, firstMarker, { timeoutMs: 30_000 });
+  const manualResultShot = await screenshot(desktop);
+  const manualResultSeen = await validate(manualResultShot, [
+    "A saved Script run shows a validated result",
+    "The result contains the launch briefing marker",
+    "The run UI offers a receipt and does not show an error",
+  ]);
+  expect(manualResultSeen.ok, manualResultSeen.why).toBe(true);
   evidence.fact(
     "The saved Script produces a validated artifact-ready result",
     "Run now shows a schema-valid result and a receipt without starting an agent session.",
@@ -243,6 +259,13 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     callsAfterRevocation = 0;
   }
   expect(callsAfterRevocation).toBe(0);
+  const revokedShot = await screenshot(desktop);
+  const revokedSeen = await validate(revokedShot, [
+    "The Automation run is visibly marked Needs attention after capability access was revoked",
+    "The previous successful launch briefing remains visible as the last good Dynamic Artifact",
+    "The screen does not claim that the failed run replaced the last good result",
+  ]);
+  expect(revokedSeen.ok, revokedSeen.why).toBe(true);
   evidence.fact(
     "Revoked capability access fails before provider I/O and preserves the last good result",
     `Provider calls after revocation: ${callsAfterRevocation}; the previous ${scheduledMarker} result remains visible.`,

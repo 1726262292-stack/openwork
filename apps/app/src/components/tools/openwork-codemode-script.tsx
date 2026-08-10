@@ -10,6 +10,14 @@ import { useMessageList } from "@/components/chat/message-list-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -153,63 +161,90 @@ export function OpenWorkCodemodeScriptTool({ part }: { part: DynamicToolUIPart }
 
       {error && !open ? <p className="ps-5 text-xs text-destructive" role="alert">{error}</p> : null}
 
-      {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => !saving && setOpen(false)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="save-codemode-script-title"
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-background p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 id="save-codemode-script-title" className="text-lg font-semibold">Save reusable script</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              OpenWork will pin the read-only capabilities used by this successful run. Future runs recheck access before contacting a provider.
-            </p>
-            <div className="mt-5 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="saved-script-name">Name</Label>
-                <Input id="saved-script-name" value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder="Launch briefing" autoFocus />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="saved-script-description">Description</Label>
-                <Input id="saved-script-description" value={description} onChange={(event) => setDescription(event.currentTarget.value)} placeholder="What this reusable script returns" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="saved-script-input-schema">Input schema</Label>
-                <Textarea id="saved-script-input-schema" className="min-h-32 font-mono text-xs" value={inputSchema} onChange={(event) => setInputSchema(event.currentTarget.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="saved-script-output-schema">Output schema</Label>
-                <Textarea id="saved-script-output-schema" className="min-h-32 font-mono text-xs" value={outputSchema} onChange={(event) => setOutputSchema(event.currentTarget.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Program</Label>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs">{code}</pre>
-              </div>
-              <div className="space-y-2">
-                <Label>Capabilities used</Label>
-                <div className="flex flex-wrap gap-2">
+      <Sheet open={open} onOpenChange={(nextOpen) => !saving && setOpen(nextOpen)}>
+        <SheetContent
+          side="right"
+          showCloseButton={!saving}
+          className="data-[side=right]:w-[min(46rem,calc(100vw-1rem))] data-[side=right]:sm:max-w-2xl"
+        >
+          <SheetHeader className="shrink-0 border-b pe-16">
+            <SheetTitle className="text-lg">Save reusable script</SheetTitle>
+            <SheetDescription>
+              Turn this successful Code Mode run into a reusable script without leaving the task.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div data-saved-script-scroll className="min-h-0 flex-1 overflow-y-auto p-6">
+            <div className="space-y-6">
+              <section className="space-y-4" aria-labelledby="saved-script-details-heading">
+                <div>
+                  <h3 id="saved-script-details-heading" className="font-medium">Script details</h3>
+                  <p className="text-xs text-muted-foreground">Name the reusable result so it is easy to find in Library.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="saved-script-name">Name</Label>
+                  <Input id="saved-script-name" value={name} onChange={(event) => setName(event.currentTarget.value)} placeholder="Launch briefing" autoFocus />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="saved-script-description">Description</Label>
+                  <Input id="saved-script-description" value={description} onChange={(event) => setDescription(event.currentTarget.value)} placeholder="What this reusable script returns" />
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-border bg-muted/20 p-4" aria-labelledby="saved-script-access-heading">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 id="saved-script-access-heading" className="font-medium">Capabilities used</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Access is pinned now. Future runs recheck access before contacting a provider.</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">Read-only</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
                   {capabilityPaths.length > 0
                     ? capabilityPaths.map((path) => <code key={path} className="rounded-md bg-muted px-2 py-1 text-xs">{path}</code>)
                     : <span className="text-xs text-muted-foreground">No provider capabilities detected in this program.</span>}
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Latest result preview</Label>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(resultValue, null, 2)}</pre>
-              </div>
+              </section>
+
+              <section className="space-y-4" aria-labelledby="saved-script-contract-heading">
+                <div>
+                  <h3 id="saved-script-contract-heading" className="font-medium">Data contract</h3>
+                  <p className="text-xs text-muted-foreground">Review the inferred JSON schemas used to validate each run.</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="saved-script-input-schema">Input schema</Label>
+                    <Textarea id="saved-script-input-schema" className="min-h-28 font-mono text-xs" value={inputSchema} onChange={(event) => setInputSchema(event.currentTarget.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="saved-script-output-schema">Output schema</Label>
+                    <Textarea id="saved-script-output-schema" className="min-h-28 font-mono text-xs" value={outputSchema} onChange={(event) => setOutputSchema(event.currentTarget.value)} />
+                  </div>
+                </div>
+              </section>
+
+              <section className="grid gap-4 sm:grid-cols-2" aria-label="Run review">
+                <div className="space-y-2">
+                  <Label>Program</Label>
+                  <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs">{code}</pre>
+                </div>
+                <div className="space-y-2">
+                  <Label>Latest result preview</Label>
+                  <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(resultValue, null, 2)}</pre>
+                </div>
+              </section>
             </div>
             {error ? <p className="mt-4 text-sm text-destructive" role="alert">{error}</p> : null}
-            <div className="mt-6 flex justify-end gap-2">
-              <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="button" disabled={saving || !name.trim() || !code.trim()} onClick={() => void save()}>
-                {saving ? "Saving…" : "Save script"}
-              </Button>
-            </div>
           </div>
-        </div>
-      ) : null}
+
+          <SheetFooter className="shrink-0 flex-row justify-end border-t bg-popover p-4">
+            <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="button" disabled={saving || !name.trim() || !code.trim()} onClick={() => void save()}>
+              {saving ? "Saving…" : "Save script"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }
