@@ -19,6 +19,7 @@ import { executeGithubConnectorSyncEvent } from "../routes/org/plugin-system/sto
 
 const logger = appLogger.child({ component: "github_sync_worker" })
 const MAX_BACKOFF_MS = 15 * 60_000
+const ACTIVE_GITHUB_SYNC_EVENT_STATUSES = ["queued", "running"] as const
 // This bounds one process; multi-replica dedup/leadership is deliberately deferred to #3568.
 const githubReconcileLastProbedAtMs = new Map<string, number>()
 
@@ -71,7 +72,7 @@ function changedRows(result: unknown): boolean {
 
 async function connectorTargetIdsWithStatuses(
   connectorTargetIds: Array<NonNullable<(typeof ConnectorSyncEventTable.$inferSelect)["connectorTargetId"]>>,
-  statuses: Array<(typeof ConnectorSyncEventTable.$inferSelect)["status"]>,
+  statuses: readonly (typeof ConnectorSyncEventTable.$inferSelect)["status"][],
 ) {
   if (connectorTargetIds.length === 0) return new Set<string>()
   const rows = await db
@@ -238,7 +239,7 @@ export async function reconcileGithubConnectorTargets() {
 
   const activeTargetIds = await connectorTargetIdsWithStatuses(
     targets.map((row) => row.target.id),
-    ["queued", "running"],
+    ACTIVE_GITHUB_SYNC_EVENT_STATUSES,
   )
   const candidateTargets = targets.filter((row) => !activeTargetIds.has(row.target.id))
 
