@@ -275,7 +275,7 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
   await waitForHealth(url, () => output, child);
 
   const requests = async (): Promise<MockAuthorizeRequest[]> => {
-    const response = await fetch(`${url}/requests`);
+    const response = await fetch(`${url}/requests`, { signal: AbortSignal.timeout(15_000) });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`Mock request log failed: HTTP ${response.status} ${JSON.stringify(body).slice(0, 500)}`);
     return parseRequests(body);
@@ -287,7 +287,7 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
   };
 
   const rawEntries = async (): Promise<Record<string, unknown>[]> => {
-    const response = await fetch(`${url}/requests`);
+    const response = await fetch(`${url}/requests`, { signal: AbortSignal.timeout(15_000) });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`Mock request log failed: HTTP ${response.status}`);
     return isRecord(body) && Array.isArray(body.requests) ? body.requests.filter(isRecord) : [];
@@ -326,7 +326,9 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
       let calls = await readToolCalls(opts.name, opts.sinceIso);
       while (calls.length < wanted && Date.now() < deadline) {
         await sleep(1_000);
-        calls = await readToolCalls(opts.name, opts.sinceIso);
+        // A slow or aborted log read is a retryable poll attempt, not the
+        // verdict; only the deadline decides.
+        calls = await readToolCalls(opts.name, opts.sinceIso).catch(() => calls);
       }
       return calls;
     },
