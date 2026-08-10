@@ -21,7 +21,7 @@ import { buildDiagnosticsBundleJson } from "@/app/lib/diagnostics-bundle";
 import { downloadTextAsFile } from "@/app/lib/download";
 import { canCreateWorkspaces } from "@/app/lib/workspace-creation-policy";
 import { createClient, unwrap } from "@/app/lib/opencode";
-import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
+import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession, unrevertSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
   buildOpenworkWorkspaceBaseUrl,
@@ -102,6 +102,7 @@ import { useSessionActivityStore } from "@/react-app/domains/session/status/sess
 import { buildOpenworkEnvSystemContext } from "@/react-app/domains/session/sync/env-context";
 import {
   applySessionRevert,
+  applySessionUnrevert,
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts, joinWorkspaceRelativePath, toFileUrl } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { composerAttachmentsToWorkspaceFileParts } from "@/react-app/domains/session/sync/attachment-file-part";
@@ -115,6 +116,7 @@ import { appMentionInstruction } from "@/react-app/domains/session/surface/compo
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
 import { connectSkillPrompt, parseConnectSkillToken } from "@/react-app/domains/session/surface/composer/connect-skill-token";
 import { markComposerAutoSend } from "@/react-app/domains/session/surface/composer-auto-send";
+import { sendWithRevertRollback } from "@/react-app/domains/session/surface/safe-edit-resend";
 import { CreateRemoteWorkspaceModal } from "@/react-app/domains/workspace/create-remote-workspace-modal";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import type { CreateWorkspaceOptions } from "@/react-app/domains/workspace/types";
@@ -1253,67 +1255,85 @@ export function SessionRoute() {
           // message, including tasks that do not use connected services.
           skipGate: true,
           send: async () => {
-            captureAnalyticsEvent("task_message_sent", {
-              mode: draft.mode ?? "prompt",
-              is_command: Boolean(draft.command),
-              attachment_count: draft.attachments.length,
-              text_length: text.length,
-              workspace_type: selectedWorkspace?.workspaceType ?? "unknown",
-              provider_id: sendModel?.providerID ?? null,
-              model_id: sendModel?.modelID ?? null,
-            });
-            markTaskRunStart(targetSessionId);
-            // Den org adoption signals (auth-gated inside; no-op when signed out).
-            // This remains inside the post-readiness send closure so a blocked
-            // Cloud submission cannot create a run or report that one started.
-            const projectDimension = readWorkspaceProjectDimension(selectedWorkspaceId);
-            const telemetryDimensions = projectDimension
-              ? [{
-                  type: "project",
-                  label: projectDimension.label,
-                }]
-              : undefined;
-            trackSessionActive(targetSessionId, telemetryDimensions);
-            trackTaskStarted(targetSessionId, telemetryDimensions);
+            await sendWithRevertRollback({
+              revertMessageId: draft.revertMessageId,
+              abort: () => abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined),
+              revert: async (messageId) => {
+                const reverted = await revertSession(opencodeClient, targetSessionId, messageId);
+                applySessionRevert(selectedWorkspaceId, reverted);
+              },
+              prompt: async () => {
+                captureAnalyticsEvent("task_message_sent", {
+                  mode: draft.mode ?? "prompt",
+                  is_command: Boolean(draft.command),
+                  attachment_count: draft.attachments.length,
+                  text_length: text.length,
+                  workspace_type: selectedWorkspace?.workspaceType ?? "unknown",
+                  provider_id: sendModel?.providerID ?? null,
+                  model_id: sendModel?.modelID ?? null,
+                });
+                markTaskRunStart(targetSessionId);
+                // Den org adoption signals (auth-gated inside; no-op when signed out).
+                // This remains inside the post-readiness send closure so a blocked
+                // Cloud submission cannot create a run or report that one started.
+                const projectDimension = readWorkspaceProjectDimension(selectedWorkspaceId);
+                const telemetryDimensions = projectDimension
+                  ? [{
+                      type: "project",
+                      label: projectDimension.label,
+                    }]
+                  : undefined;
+                trackSessionActive(targetSessionId, telemetryDimensions);
+                trackTaskStarted(targetSessionId, telemetryDimensions);
 
-            if (draft.mode === "shell") {
-              await shellInSession(opencodeClient, targetSessionId, text);
-              return;
-            }
+                if (draft.mode === "shell") {
+                  await shellInSession(opencodeClient, targetSessionId, text);
+                  return;
+                }
 
-            if (draft.command) {
-              const result = await opencodeClient.session.command({
-                sessionID: targetSessionId,
-                command: draft.command.name,
-                arguments: draft.command.arguments,
-              });
-              if (result.error) {
-                throw new Error(serializeSDKError(result.error));
-              }
-              return;
-            }
+                if (draft.command) {
+                  const result = await opencodeClient.session.command({
+                    sessionID: targetSessionId,
+                    command: draft.command.name,
+                    arguments: draft.command.arguments,
+                  });
+                  if (result.error) {
+                    throw new Error(serializeSDKError(result.error));
+                  }
+                  return;
+                }
 
-            const parts = await draftToParts(draft, selectedWorkspaceRoot, targetSessionId, selectedWorkspaceEndpoint);
-            const envSystemContext = await buildOpenworkEnvSystemContext(client, {
-              cacheKey: targetSessionId,
-              runtimeKey: environmentRuntimeKey,
+                const parts = await draftToParts(draft, selectedWorkspaceRoot, targetSessionId, selectedWorkspaceEndpoint);
+                const envSystemContext = await buildOpenworkEnvSystemContext(client, {
+                  cacheKey: targetSessionId,
+                  runtimeKey: environmentRuntimeKey,
+                });
+                const result = await opencodeClient.session.promptAsync({
+                  sessionID: targetSessionId,
+                  parts,
+                  model: sendModel ?? undefined,
+                  agent: selectedAgent ?? undefined,
+                  ...(sendVariant ? { variant: sendVariant } : {}),
+                  ...(envSystemContext ? { system: envSystemContext } : {}),
+                });
+                if (result.error) {
+                  throw new Error(serializeSDKError(result.error));
+                }
+                // Remember what this conversation used last so returning to it
+                // (or splitting it beside another session) keeps its own model.
+                if (sendModel) {
+                  useSessionModelStore.getState().setModel(targetSessionId, sendModel, sendVariant ?? null);
+                }
+              },
+              unrevert: async () => {
+                try {
+                  await unrevertSession(opencodeClient, targetSessionId);
+                } finally {
+                  applySessionUnrevert(selectedWorkspaceId, targetSessionId);
+                }
+              },
+              onUnrevertError: (error) => console.warn("[edit-resend] rollback failed", error),
             });
-            const result = await opencodeClient.session.promptAsync({
-              sessionID: targetSessionId,
-              parts,
-              model: sendModel ?? undefined,
-              agent: selectedAgent ?? undefined,
-              ...(sendVariant ? { variant: sendVariant } : {}),
-              ...(envSystemContext ? { system: envSystemContext } : {}),
-            });
-            if (result.error) {
-              throw new Error(serializeSDKError(result.error));
-            }
-            // Remember what this conversation used last so returning to it
-            // (or splitting it beside another session) keeps its own model.
-            if (sendModel) {
-              useSessionModelStore.getState().setModel(targetSessionId, sendModel, sendVariant ?? null);
-            }
           },
         });
       },
@@ -1365,6 +1385,19 @@ export function SessionRoute() {
         } catch (error) {
           console.warn("[revert] failed", error);
           toast.error(t("session.revert_failed"));
+          return false;
+        }
+      },
+      onRestoreRevertedSession: async (sessionId: string) => {
+        const targetSessionId = sessionId.trim() || selectedSessionId;
+        if (!targetSessionId) return false;
+        try {
+          await unrevertSession(opencodeClient, targetSessionId);
+          applySessionUnrevert(selectedWorkspaceId, targetSessionId);
+          return true;
+        } catch (error) {
+          console.warn("[unrevert] failed", error);
+          toast.error(t("session.restore_failed"));
           return false;
         }
       },

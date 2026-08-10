@@ -134,6 +134,8 @@ export type ComposerDraft = {
   resolvedText?: string;
   /** When set, draft is a slash command invocation */
   command?: { name: string; arguments: string } | undefined;
+  /** User-message boundary to revert immediately before this draft is sent. */
+  revertMessageId?: string | undefined;
 };
 
 export type ArtifactItem = {
