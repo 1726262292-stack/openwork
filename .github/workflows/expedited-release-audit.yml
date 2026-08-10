@@ -37,6 +37,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Release App triggers on v*, but only semver tags are releases.
+          # Stray tags (e.g. vffe6fee-dev) must not open audit issues.
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$TAG is not a semver release tag; skipping" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           if git merge-base --is-ancestor "$(git rev-list -n1 "$TAG")" origin/dev; then
             echo "PR-first release; tag commit is on dev; no action" >> "$GITHUB_STEP_SUMMARY"
             exit 0
