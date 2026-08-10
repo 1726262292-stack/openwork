@@ -674,7 +674,10 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       true,
     );
 
-    const llmNonce = `${stamp}-llm`;
+    // Small models drop digits from long decimal runs when echoing verbatim
+    // (a 13-digit marker came back truncated); base36 keeps it short and
+    // unique enough for one session.
+    const llmNonce = stamp.toString(36);
     const llmMarker = `LLM-OK-${llmNonce}`;
     await sendComposerMessage(appMate, `Reply with exactly ${llmMarker} and no other text.`);
     const llmReply = await waitForAssistantReply(appMate, { timeoutMs: 300_000 });
