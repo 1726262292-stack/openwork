@@ -14,7 +14,13 @@ export type RecordCodemodeRunInput = {
   pluginId?: DenTypeId<"plugin"> | null
   configObjectId?: DenTypeId<"configObject"> | null
   configObjectVersionId?: DenTypeId<"configObjectVersion"> | null
+  scriptInputDigest?: string | null
+  inputSchemaDigest?: string | null
   validatedResult?: unknown
+  resultMarkdown?: string | null
+  resultDigest?: string | null
+  outputSchemaDigest?: string | null
+  rendererVersion?: string | null
   source: string
   code: string
   status: "succeeded" | "failed"
@@ -51,7 +57,16 @@ export async function recordCodemodeRun(database: CodemodeDb, input: RecordCodem
       duration_ms: input.durationMs,
       started_at: input.startedAt,
       finished_at: input.finishedAt,
+      // Durable receipts retain only the digest. Raw caller inputs may contain
+      // secrets or PII and must not become readable artifact history.
+      script_input: null,
+      script_input_digest: input.scriptInputDigest ?? null,
+      input_schema_digest: input.inputSchemaDigest ?? null,
       validated_result: input.validatedResult,
+      result_markdown: input.resultMarkdown ?? null,
+      result_digest: input.resultDigest ?? null,
+      output_schema_digest: input.outputSchemaDigest ?? null,
+      renderer_version: input.rendererVersion ?? null,
     })
     return id
   } catch (error) {

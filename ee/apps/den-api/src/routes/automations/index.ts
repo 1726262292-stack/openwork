@@ -65,6 +65,18 @@ function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error
   if (error.message === "automation_action_target_mismatch") {
     return { status: 400, body: { error: "automation_action_target_mismatch", message: "Agent Automations run on desktop; saved Script Automations run in OpenWork Cloud." } }
   }
+  if (error.message === "automation_saved_script_input_invalid") {
+    return { status: 400, body: { error: "automation_saved_script_input_invalid", message: "The existing Automation input does not match the selected Script version. Correct the input before creating the revision." } }
+  }
+  if (["automation_saved_script_version_not_found", "automation_saved_script_version_invalid"].includes(error.message)) {
+    return { status: 400, body: { error: error.message, message: "The selected Script version is unavailable." } }
+  }
+  if (error.message === "automation_saved_script_forbidden") {
+    return { status: 403, body: { error: error.message, message: "The Automation owner does not have access to this saved Script." } }
+  }
+  if (error.message === "automation_owner_inactive") {
+    return { status: 409, body: { error: error.message, message: "The Automation owner is no longer an active organization member." } }
+  }
   if (["owner_membership_lost", "model_access_lost", "provider_unavailable"].includes(error.name)) {
     return { status: 409, body: { error: error.name, message: error.message } }
   }

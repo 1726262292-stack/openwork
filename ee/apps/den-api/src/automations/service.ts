@@ -11,6 +11,7 @@ import type {
 import { env } from "../env.js"
 import { isActiveAutomationOwner, resolveAutomationModelAccess } from "./authority.js"
 import { automationRepository } from "./repository.js"
+import { validateSavedScriptAutomationAction } from "../codemode-scripts.js"
 
 const schedulerOwner = `den:${process.pid}:${randomUUID()}`
 
@@ -20,7 +21,7 @@ export type DesktopRunnerScope = OwnerScope & { runnerId: string }
 const desktopLeaseOwner = (scope: DesktopRunnerScope) => `desktop:${scope.ownerMemberId}:${scope.runnerId}`
 
 export type CloudSavedScriptExecution =
-  | { ok: true; value: unknown; canonicalResult: string; receiptId: string | null }
+  | { ok: true; value: unknown; canonicalResult: string; receiptId: string }
   | { ok: false; message: string; retryable: boolean; receiptId?: string | null }
 
 export type CloudSavedScriptExecutor = (input: {
@@ -52,7 +53,10 @@ export class AutomationService {
         throw new Error("automation_action_target_mismatch")
       }
       if (definition.action.kind === "agent") await this.requireModel(scope, definition.action.model)
-      else if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
+      else {
+        if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
+        await validateSavedScriptAutomationAction({ ...scope, action: definition.action })
+      }
     } else {
       await this.requireModel(scope, definition.model)
     }
@@ -68,7 +72,9 @@ export class AutomationService {
       throw new Error("automation_action_target_mismatch")
     }
     if (nextAction?.kind === "agent") await this.requireModel(scope, nextAction.model)
-    else if (!nextAction) await this.requireModel(scope, changes.model ?? current.revision.model)
+    else if (nextAction?.kind === "saved_script") {
+      await validateSavedScriptAutomationAction({ ...scope, action: nextAction })
+    } else await this.requireModel(scope, changes.model ?? current.revision.model)
     return automationRepository.update({ ...scope, automationId, changes, now: Date.now() })
   }
 

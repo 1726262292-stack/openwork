@@ -153,6 +153,11 @@ export type MarketplaceCapabilityExecutePayload = {
   durationMs?: number
   receiptId?: string | null
   canonicalResult?: string
+  markdown?: string
+  resultDigest?: string
+  inputSchemaDigest?: string | null
+  outputSchemaDigest?: string | null
+  rendererVersion?: "codemode-markdown-v1"
   status?: MarketplaceCapabilityStatus
   hint?: string
   action?: MarketplaceMcpRequirementAction
@@ -177,6 +182,7 @@ export type MarketplaceCapabilityExecuteResult =
       message: string
       providerCallAttempted: false
       missing: Array<{ capabilityName: string; scriptPath: string }>
+      receiptId?: string | null
     }
   | {
       ok: false
@@ -184,6 +190,7 @@ export type MarketplaceCapabilityExecuteResult =
       message: string
       kind: string
       toolCalls: Array<{ name: string }>
+      receiptId?: string | null
     }
 
 export type MarketplaceConfigObjectExecutionMode = "codemode" | "desktop_only" | "instructional" | "mcp"
@@ -1612,6 +1619,7 @@ export async function executeMarketplaceCapability(input: {
         message: execution.message,
         kind: execution.kind,
         toolCalls: execution.toolCalls,
+        receiptId: execution.receiptId ?? null,
       }
     }
     if (!execution.ok) return { ok: false, error: "script_failed", message: execution.message, kind: "InvalidDataValue", toolCalls: [] }
@@ -1626,6 +1634,11 @@ export async function executeMarketplaceCapability(input: {
         durationMs: execution.durationMs,
         receiptId: execution.receiptId,
         canonicalResult: execution.canonicalResult,
+        markdown: execution.markdown,
+        resultDigest: execution.resultDigest,
+        inputSchemaDigest: execution.inputSchemaDigest,
+        outputSchemaDigest: execution.outputSchemaDigest,
+        rendererVersion: execution.rendererVersion,
       },
     }
   }

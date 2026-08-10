@@ -2,6 +2,13 @@ import type { createDenDb } from "@openwork-ee/den-db"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
 import { recordCodemodeRun, recordCodemodeScriptResult } from "../codemode-runs.js"
 import {
+  artifactDigest,
+  canonicalArtifactJson,
+  optionalArtifactDigest,
+  renderSavedScriptMarkdown,
+  SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
+} from "../saved-script-artifacts.js"
+import {
   parseCodemodeScriptPayload,
   validateCodemodeScriptInput,
   validateCodemodeScriptOutput,
@@ -17,6 +24,11 @@ export type SavedCodemodeScriptExecutionResult =
       ok: true
       value: unknown
       canonicalResult: string
+      markdown: string
+      resultDigest: string
+      inputSchemaDigest: string | null
+      outputSchemaDigest: string | null
+      rendererVersion: typeof SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION
       receiptId: DenTypeId<"codemodeRun"> | null
       logs: string[]
       toolCalls: Array<{ name: string }>
@@ -30,18 +42,16 @@ export type SavedCodemodeScriptExecutionResult =
       message: string
       providerCallAttempted: false
       missing: Array<{ capabilityName: string; scriptPath: string }>
+      receiptId?: DenTypeId<"codemodeRun"> | null
     }
-  | { ok: false; error: "script_failed"; message: string; kind: string; toolCalls: Array<{ name: string }> }
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`).join(",")}}`
-  }
-  const encoded = JSON.stringify(value)
-  return encoded === undefined ? "null" : encoded
-}
+  | {
+      ok: false
+      error: "script_failed"
+      message: string
+      kind: string
+      toolCalls: Array<{ name: string }>
+      receiptId?: DenTypeId<"codemodeRun"> | null
+    }
 
 export async function executeSavedCodemodeScript(input: {
   database: CodemodeDb
@@ -49,28 +59,53 @@ export async function executeSavedCodemodeScript(input: {
   orgMembershipId: DenTypeId<"member">
   pluginId: DenTypeId<"plugin">
   configObjectId: DenTypeId<"configObject">
-  configObjectVersionId: DenTypeId<"configObjectVersion">
+  configObjectVersionId?: DenTypeId<"configObjectVersion">
   automationRunId?: DenTypeId<"automationRun">
   normalizedPayloadJson: unknown
   code: string
+  receiptSource?: string
   scriptInput?: unknown
   validateOutput?: boolean
   buildTools: () => Promise<BuiltCodemodeTools>
 }): Promise<SavedCodemodeScriptExecutionResult> {
   const parsed = parseCodemodeScriptPayload(input.normalizedPayloadJson)
   if (!parsed.ok) return { ok: false, error: "unsupported", message: parsed.message }
+  const normalizedScriptInput = input.scriptInput ?? null
+  const scriptInputDigest = artifactDigest(normalizedScriptInput)
+  const inputSchemaDigest = optionalArtifactDigest(parsed.payload.inputSchema)
+  const outputSchemaDigest = optionalArtifactDigest(parsed.payload.outputSchema)
+  const receiptSource = input.receiptSource ?? `plugin:${input.pluginId}:${input.configObjectId}`
+  const recordPreflightFailure = (errorKind: string, errorMessage: string) => {
+    const now = new Date()
+    return recordCodemodeRun(input.database, {
+      organizationId: input.organizationId,
+      orgMembershipId: input.orgMembershipId,
+      automationRunId: input.automationRunId,
+      pluginId: input.pluginId,
+      configObjectId: input.configObjectId,
+      configObjectVersionId: input.configObjectVersionId,
+      scriptInputDigest,
+      inputSchemaDigest,
+      outputSchemaDigest,
+      source: receiptSource,
+      code: input.code,
+      status: "failed",
+      errorKind,
+      errorMessage,
+      toolCalls: [],
+      durationMs: 0,
+      startedAt: now,
+      finishedAt: now,
+    })
+  }
 
   if (parsed.payload.inputSchema) {
     const validation = validateCodemodeScriptInput(parsed.payload.inputSchema, input.scriptInput)
     if (!validation.ok) {
-      return validation.error === "invalid_schema"
-        ? { ok: false, error: "unsupported", message: validation.message }
-        : {
-            ok: false,
-            error: "invalid_arguments",
-            message: "The arguments do not match the saved script's inputSchema.",
-            issues: validation.issues,
-          }
+      if (validation.error === "invalid_schema") return { ok: false, error: "unsupported", message: validation.message }
+      const message = "The arguments do not match the saved script's inputSchema."
+      const receiptId = await recordPreflightFailure("InvalidArguments", message)
+      return { ok: false, error: "invalid_arguments", message, issues: validation.issues, receiptId }
     }
   }
 
@@ -79,23 +114,29 @@ export async function executeSavedCodemodeScript(input: {
     ? firstUnattendedUnsafeCapability(built, parsed.payload.requiredCapabilities)
     : null
   if (unsafe) {
+    const message = `Required capability ${unsafe.scriptPath} (${unsafe.capabilityName}) must be read-only and explicitly approved by an organization admin before it can run unattended in OpenWork Cloud.`
+    const receiptId = await recordPreflightFailure("CapabilityUnavailable", message)
     return {
       ok: false,
       error: "capability_unavailable",
-      message: `Required capability ${unsafe.scriptPath} (${unsafe.capabilityName}) is not a read-only OpenWork capability and cannot run unattended in OpenWork Cloud.`,
+      message,
       providerCallAttempted: false,
       missing: [unsafe],
+      receiptId,
     }
   }
   const restricted = restrictCodemodeToolTree({ built, requiredCapabilities: parsed.payload.requiredCapabilities })
   const firstMissing = restricted.missing[0]
   if (firstMissing) {
+    const message = `Required capability ${firstMissing.scriptPath} (${firstMissing.capabilityName}) is unavailable or disabled for this organization.`
+    const receiptId = await recordPreflightFailure("CapabilityUnavailable", message)
     return {
       ok: false,
       error: "capability_unavailable",
-      message: `Required capability ${firstMissing.scriptPath} (${firstMissing.capabilityName}) is unavailable or disabled for this organization.`,
+      message,
       providerCallAttempted: false,
       missing: restricted.missing,
+      receiptId,
     }
   }
 
@@ -110,19 +151,29 @@ export async function executeSavedCodemodeScript(input: {
   })
   const finishedAt = new Date()
   if (!result.ok) {
-    await recordCodemodeScriptResult(input.database, {
+    const receiptId = await recordCodemodeScriptResult(input.database, {
       organizationId: input.organizationId,
       orgMembershipId: input.orgMembershipId,
       automationRunId: input.automationRunId,
       pluginId: input.pluginId,
       configObjectId: input.configObjectId,
       configObjectVersionId: input.configObjectVersionId,
-      source: `plugin:${input.pluginId}:${input.configObjectId}`,
+      scriptInputDigest,
+      inputSchemaDigest,
+      outputSchemaDigest,
+      source: receiptSource,
       code: input.code,
       startedAt,
       finishedAt,
     }, result)
-    return { ok: false, error: "script_failed", message: result.error.message, kind: result.error.kind, toolCalls: result.toolCalls }
+    return {
+      ok: false,
+      error: "script_failed",
+      message: result.error.message,
+      kind: result.error.kind,
+      toolCalls: result.toolCalls,
+      receiptId,
+    }
   }
 
   if (input.validateOutput === true && parsed.payload.outputSchema) {
@@ -136,7 +187,11 @@ export async function executeSavedCodemodeScript(input: {
         pluginId: input.pluginId,
         configObjectId: input.configObjectId,
         configObjectVersionId: input.configObjectVersionId,
-        source: `plugin:${input.pluginId}:${input.configObjectId}`,
+        scriptInputDigest,
+        inputSchemaDigest,
+        resultDigest: artifactDigest(result.value),
+        outputSchemaDigest,
+        source: receiptSource,
         code: input.code,
         status: "failed",
         errorKind: "InvalidResult",
@@ -156,6 +211,10 @@ export async function executeSavedCodemodeScript(input: {
     }
   }
 
+  const canonicalResult = canonicalArtifactJson(result.value)
+  const canonicalValue: unknown = JSON.parse(canonicalResult)
+  const markdown = renderSavedScriptMarkdown(canonicalValue)
+  const resultDigest = artifactDigest(canonicalValue)
   const receiptId = await recordCodemodeScriptResult(input.database, {
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
@@ -163,16 +222,31 @@ export async function executeSavedCodemodeScript(input: {
     pluginId: input.pluginId,
     configObjectId: input.configObjectId,
     configObjectVersionId: input.configObjectVersionId,
-    ...(input.validateOutput === true ? { validatedResult: result.value } : {}),
-    source: `plugin:${input.pluginId}:${input.configObjectId}`,
+    scriptInputDigest,
+    inputSchemaDigest,
+    ...(input.validateOutput === true
+      ? {
+          validatedResult: canonicalValue,
+          resultMarkdown: markdown,
+          resultDigest,
+          outputSchemaDigest,
+          rendererVersion: SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
+        }
+      : {}),
+    source: receiptSource,
     code: input.code,
     startedAt,
     finishedAt,
   }, result)
   return {
     ok: true,
-    value: result.value,
-    canonicalResult: canonical(result.value),
+    value: canonicalValue,
+    canonicalResult,
+    markdown,
+    resultDigest,
+    inputSchemaDigest,
+    outputSchemaDigest,
+    rendererVersion: SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
     receiptId,
     logs: result.logs.map((log) => log.trim()).filter(Boolean),
     toolCalls: result.toolCalls,

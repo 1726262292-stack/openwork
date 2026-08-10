@@ -1,5 +1,5 @@
 import { index, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core"
-import { denTypeIdColumn, encryptedColumn } from "../columns"
+import { denTypeIdColumn, encryptedColumn, encryptedMediumTextColumn } from "../columns"
 
 const encryptedJsonColumn = <TData>(name: string) => encryptedColumn<TData>(name, {
   dataType: "mediumtext",
@@ -27,11 +27,20 @@ export const CodemodeRunTable = mysqlTable(
     duration_ms: int("duration_ms").notNull().default(0),
     started_at: timestamp("started_at", { fsp: 3 }).notNull(),
     finished_at: timestamp("finished_at", { fsp: 3 }).notNull(),
+    script_input: encryptedJsonColumn<unknown>("script_input"),
+    script_input_digest: varchar("script_input_digest", { length: 80 }),
+    input_schema_digest: varchar("input_schema_digest", { length: 80 }),
     validated_result: encryptedJsonColumn<unknown>("validated_result"),
+    result_markdown: encryptedMediumTextColumn("result_markdown"),
+    result_digest: varchar("result_digest", { length: 80 }),
+    output_schema_digest: varchar("output_schema_digest", { length: 80 }),
+    renderer_version: varchar("renderer_version", { length: 64 }),
+    artifact_content_deleted_at: timestamp("artifact_content_deleted_at", { fsp: 3 }),
     created_at: timestamp("created_at", { fsp: 3 }).notNull().defaultNow(),
   },
   (table) => [
     index("codemode_run_org_created").on(table.organization_id, table.created_at),
     index("codemode_run_automation").on(table.automation_run_id),
+    index("codemode_run_artifact_history").on(table.config_object_id, table.finished_at),
   ],
 )
