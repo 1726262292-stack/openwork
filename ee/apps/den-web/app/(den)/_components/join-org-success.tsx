@@ -188,11 +188,8 @@ export function JoinOrgSuccess({
           <div className="grid gap-3">
             <h1 className="m-0 grid max-w-full gap-1 text-[30px] font-semibold leading-[38px] tracking-[-0.03em] text-slate-950 sm:text-[38px] sm:leading-[46px]">
               <span>You&apos;re in, welcome to</span>
-              {/* No horizontal gap: the possessive must hug the org identity
-                  ("Acme Robotics's OpenWork", not "Acme Robotics 's"). */}
               <span className="flex min-w-0 flex-wrap items-center gap-y-1">
                 <OrganizationBrandIdentity organizationName={organizationName} brand={brand} />
-                <span className="whitespace-nowrap">&apos;s {brand.appName}</span>
               </span>
             </h1>
             <p className="m-0 max-w-2xl text-[15px] leading-[23px] text-slate-600">

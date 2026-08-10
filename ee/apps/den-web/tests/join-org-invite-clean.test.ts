@@ -239,7 +239,9 @@ describe("join organization invite clean layout contract", () => {
     expect(successSource).toContain("text-[30px] font-semibold leading-[38px] tracking-[-0.03em]");
     expect(successSource).toContain("den-button-primary min-h-12 w-full");
     expect(successSource).toContain("<span>You&apos;re in, welcome to</span>");
-    expect(successSource).toContain('className="whitespace-nowrap">&apos;s {brand.appName}</span>');
+    // The heading ends on the organization. A trailing possessive orphaned
+    // itself on its own line whenever the name was long.
+    expect(successSource).not.toContain("&apos;s {brand.appName}");
     expect(installSource).toContain("DownloadPlatformGrid");
     expect(installSource).toContain("<span>Download OpenWork Enterprise</span>");
     expect(installSource).toContain("Download OpenWork");
