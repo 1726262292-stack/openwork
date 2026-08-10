@@ -384,7 +384,12 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
     : [];
   // Closed-world: asserting one guessed namespace is absent would pass even if the
   // sanitizer produced a different name, so pin the whole namespace set instead.
-  const expectedNamespaces = ["$codemode", "den", "drive_mock", "gmail_mock"];
+  // The content rails (skills, marketplace, admin) are present because the capability
+  // set is one set for all three verbs — this admin is on the bootstrap allowlist, so
+  // admin capabilities are in their set; a non-admin member's set has none. No
+  // marketplace namespace yet: this org's only marketplace object is the saved script
+  // created later, and saved scripts are deliberately excluded (no script recursion).
+  const expectedNamespaces = ["$codemode", "admin", "den", "drive_mock", "gmail_mock", "skills"];
   evidence.fact(
     "An unconnected native provider does not surface a callable script namespace",
     `Object.keys(tools): ${JSON.stringify(unconnectedNamespaces)}; expected exactly: ${JSON.stringify(expectedNamespaces)}`,
@@ -392,6 +397,37 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
   );
   expect(unconnectedNamespaces).toEqual(expectedNamespaces);
   expect(unconnectedNamespaces).not.toContain(unconnectedNamespace);
+
+  // Interchangeability: whatever search finds, execute runs AND a script can call.
+  // A built-in skill is the sharpest case — it used to be searchable and executable
+  // but deliberately absent from the script tree.
+  const skillSearch = await callAgentTool(den.ref.apiUrl, adminMcpToken, "search_capabilities", {
+    query: "skill",
+    type: "skills",
+    limit: 5,
+  });
+  const skillMatches = (() => {
+    const payload = requireRecord(JSON.parse(toolText(skillSearch)), "skill search payload");
+    return Array.isArray(payload.matches) ? payload.matches.filter(isRecord) : [];
+  })();
+  const skillWithPath = skillMatches.find((match) => typeof match.scriptPath === "string" && match.scriptPath.length > 0);
+  evidence.fact(
+    "A skill capability found by search carries a scriptPath, so the same set is reachable from a script",
+    `skills matches: ${JSON.stringify(skillMatches.map((m) => ({ name: m.name, scriptPath: m.scriptPath }))).slice(0, 400)}`,
+    Boolean(skillWithPath),
+  );
+  expect(skillWithPath).toBeTruthy();
+  const skillScriptPath = String((skillWithPath ?? {}).scriptPath ?? "");
+  const skillCallProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "execute_capability_script", {
+    code: `const result = await ${skillScriptPath}({})\nreturn typeof result === "string" ? result.slice(0, 120) : result`,
+  });
+  const skillCallText = toolText(skillCallProbe);
+  evidence.fact(
+    "That same skill capability is callable from inside a script at its advertised scriptPath",
+    `${skillScriptPath}({}) -> ${skillCallText.slice(0, 300)}`,
+    skillCallText.trim().length > 0 && !skillCallText.includes("script_failed"),
+  );
+  expect(skillCallText).not.toContain("script_failed");
 
   const unconnectedSearchProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "search_capabilities", {
     query: "Unconnected Google Rail Probe Gmail",

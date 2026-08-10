@@ -18,6 +18,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { Effect } from "effect"
+import { Hono } from "hono"
 import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
 
 function seedRequiredEnv() {
@@ -30,6 +31,7 @@ function seedRequiredEnv() {
 
 type Db = typeof import("../src/db.js").db
 type MarketplaceCapabilities = typeof import("../src/mcp/marketplace-capabilities.js")
+type CapabilityRegistry = typeof import("../src/mcp/capability-registry.js")
 type PluginStore = typeof import("../src/routes/org/plugin-system/store.js")
 type SavedScripts = typeof import("../src/codemode-scripts.js")
 type CodemodeRuns = typeof import("../src/codemode-runs.js")
@@ -43,6 +45,7 @@ type SeededScript = {
 
 let db: Db
 let marketplaceCapabilities: MarketplaceCapabilities
+let capabilityRegistry: CapabilityRegistry
 let pluginStore: PluginStore
 let savedScripts: SavedScripts
 let codemodeRuns: CodemodeRuns
@@ -61,6 +64,7 @@ beforeAll(async () => {
   marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
   savedScripts = await import("../src/codemode-scripts.js")
   codemodeRuns = await import("../src/codemode-runs.js")
+  capabilityRegistry = await import("../src/mcp/capability-registry.js")
 })
 
 afterAll(() => {
@@ -347,6 +351,66 @@ describe("saved marketplace scripts", () => {
       missing: [{ capabilityName: "missingCapability", scriptPath: "tools.den.missingCapability" }],
     })
     expect(invocations).toBe(0)
+  })
+
+  test("keeps saved scripts and execute_capability_script out of the composable tree", async () => {
+    const seeded = await seedScript({
+      title: "Recursive Script",
+      code: "return 'must not run'",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const capabilityName = marketplaceCapabilities.buildMarketplaceCapabilityName(seeded.pluginId, seeded.configObjectId)
+    const requiredCapabilities = [
+      { capabilityName, scriptPath: `tools.marketplace[${JSON.stringify(capabilityName)}]` },
+      { capabilityName: "execute_capability_script", scriptPath: "tools.den.execute_capability_script" },
+    ]
+    await db.update(ConfigObjectVersionTable)
+      .set({ normalizedPayloadJson: { language: "codemode-js", requiredCapabilities } })
+      .where(eq(ConfigObjectVersionTable.configObjectId, seeded.configObjectId))
+
+    let platformAdmin: Promise<boolean> | undefined
+    const context: Parameters<CapabilityRegistry["buildCapabilityToolTree"]>[0] = {
+      app: new Hono(),
+      env: undefined,
+      catalog: [],
+      principal: {
+        userId: createDenTypeId("user"),
+        organizationId: seeded.organizationId,
+        scopes: new Set(["mcp:read", "mcp:write"]),
+        payload: {},
+      },
+      organizationId: seeded.organizationId,
+      member: seeded.member,
+      redirectUriBase: "http://127.0.0.1:8790",
+      codemodeEnabled: true,
+      externalMcpConnectionsEnabled: true,
+      resolvePlatformAdmin: () => {
+        platformAdmin ??= Promise.resolve(false)
+        return platformAdmin
+      },
+      resolveNamespaceContext: () => Promise.resolve({
+        nativeProviderEntries: [],
+        externalMcpConnections: [],
+        codemodeNativeProviderEntries: [],
+        codemodeExternalMcpConnections: [],
+        namespaces: { native: new Map(), externalMcp: new Map() },
+      }),
+    }
+    const built = await capabilityRegistry.buildCapabilityToolTree(context)
+    expect(built.manifest).not.toContainEqual(expect.objectContaining({ capabilityName }))
+    expect(built.manifest).not.toContainEqual(expect.objectContaining({ capabilityName: "execute_capability_script" }))
+
+    const result = await executeScript(seeded, {
+      buildTools: () => capabilityRegistry.buildCapabilityToolTree(context),
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      error: "capability_unavailable",
+      providerCallAttempted: false,
+      missing: requiredCapabilities,
+    })
+    if (result.ok) throw new Error("Expected saved-script recursion to be blocked")
+    expect(result.message).toContain("is unavailable or disabled")
   })
 
   test("rejects input that does not match the saved inputSchema", async () => {

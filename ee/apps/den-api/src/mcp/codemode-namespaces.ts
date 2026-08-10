@@ -11,7 +11,7 @@ import {
 
 export type NamedConnection = { id: string; name: string }
 
-const RESERVED_CODEMODE_NAMESPACES = ["den", "$codemode", "__proto__", "constructor", "prototype"]
+const RESERVED_CODEMODE_NAMESPACES = ["den", "skills", "marketplace", "admin", "$codemode", "__proto__", "constructor", "prototype"]
 const IDENTIFIER_PATTERN = /^[a-z_$][a-z0-9_$]*$/i
 
 export function codemodeScriptPath(namespace: string, toolName: string): string {
