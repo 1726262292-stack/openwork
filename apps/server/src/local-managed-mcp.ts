@@ -219,7 +219,11 @@ async function writeVault(config: ServerConfig, vault: LocalManagedMcpVault): Pr
   await chmod(path, 0o600).catch(() => undefined);
 }
 
-async function withVaultMutation<T>(config: ServerConfig, mutate: (vault: LocalManagedMcpVault) => Promise<T> | T): Promise<T> {
+async function withVaultMutation<T>(
+  config: ServerConfig,
+  mutate: (vault: LocalManagedMcpVault) => Promise<T> | T,
+  shouldPersist: (result: T) => boolean = () => true,
+): Promise<T> {
   const path = vaultPath(config);
   const previous = vaultQueueByPath.get(path) ?? Promise.resolve();
   let resolveCurrent: (() => void) | undefined;
@@ -231,7 +235,7 @@ async function withVaultMutation<T>(config: ServerConfig, mutate: (vault: LocalM
   try {
     const vault = await readVault(config);
     const result = await mutate(vault);
-    await writeVault(config, vault);
+    if (shouldPersist(result)) await writeVault(config, vault);
     return result;
   } finally {
     resolveCurrent?.();
@@ -730,7 +734,7 @@ export async function setLocalManagedMcpEnabled(
     connection.enabled = enabled;
     connection.updatedAt = Date.now();
     return true;
-  });
+  }, (changed) => changed);
   if (updated) await writeManagedRuntimeEntry(config, workspaceId, name, enabled);
   return updated;
 }
@@ -757,7 +761,7 @@ export async function deleteLocalManagedMcp(config: ServerConfig, workspaceId: s
     if (!vault.connections[key]) return false;
     delete vault.connections[key];
     return true;
-  });
+  }, (changed) => changed);
   if (removed) await removeManagedRuntimeEntry(config, workspaceId, name);
   return removed;
 }
