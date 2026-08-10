@@ -76,7 +76,9 @@ async function canConnect(port: number, host: string): Promise<boolean> {
       socket.destroy();
       resolve(open);
     };
-    socket.setTimeout(750);
+    // 750ms missed Docker Desktop's lazy port-proxy under load and skipped
+    // specs that should have run; 2.5s keeps the probe honest without stalling.
+    socket.setTimeout(2_500);
     socket.once("connect", () => done(true));
     socket.once("error", () => done(false));
     socket.once("timeout", () => done(false));
@@ -84,6 +86,18 @@ async function canConnect(port: number, host: string): Promise<boolean> {
 }
 
 export async function localMysqlIsRunning(): Promise<boolean> {
+  // Honor the same override LocalPlace uses so the readiness gate and the
+  // actual database connection can never disagree about where MySQL lives
+  // (e.g. a VM IP when the loopback port-forward is unreliable).
+  const override = process.env.OPENWORK_EVAL_MYSQL_URL?.trim();
+  if (override) {
+    try {
+      const url = new URL(override);
+      return canConnect(Number(url.port || 3306), url.hostname);
+    } catch {
+      return false;
+    }
+  }
   return canConnect(3306, "127.0.0.1");
 }
 

@@ -365,7 +365,11 @@ async function bootDaytonaMocks(
     if (!definition.daytonaPort || !definition.connect) {
       throw new Error(`mock ${name} cannot boot on Daytona: its MockBoot has no sandbox adapter`);
     }
-    const remote = await startMockOnSandbox({ sandbox, port: definition.daytonaPort });
+    const remote = await startMockOnSandbox({
+      sandbox,
+      port: definition.daytonaPort,
+      allowUnauthenticatedMcp: definition.allowUnauthenticatedMcp,
+    });
     const booted: BootedMock = await definition.connect(remote.url);
     handles[name] = booted.handle;
     Object.assign(env, booted.env({ name, url: cleanUrl(remote.url), mcpUrl: `${cleanUrl(remote.url)}/mcp` }));
