@@ -1,5 +1,11 @@
 import { index, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core"
-import { denTypeIdColumn } from "../columns"
+import { denTypeIdColumn, encryptedColumn } from "../columns"
+
+const encryptedJsonColumn = <TData>(name: string) => encryptedColumn<TData>(name, {
+  dataType: "mediumtext",
+  serialize: JSON.stringify,
+  deserialize: JSON.parse,
+})
 
 export const CodemodeRunTable = mysqlTable(
   "codemode_run",
@@ -7,6 +13,10 @@ export const CodemodeRunTable = mysqlTable(
     id: denTypeIdColumn("codemodeRun", "id").notNull().primaryKey(),
     organization_id: denTypeIdColumn("organization", "organization_id").notNull(),
     org_membership_id: denTypeIdColumn("member", "org_membership_id"),
+    automation_run_id: denTypeIdColumn("automationRun", "automation_run_id"),
+    plugin_id: denTypeIdColumn("plugin", "plugin_id"),
+    config_object_id: denTypeIdColumn("configObject", "config_object_id"),
+    config_object_version_id: denTypeIdColumn("configObjectVersion", "config_object_version_id"),
     source: varchar("source", { length: 255 }).notNull(),
     code_digest: varchar("code_digest", { length: 80 }).notNull(),
     status: mysqlEnum("status", ["succeeded", "failed"]).notNull(),
@@ -17,7 +27,11 @@ export const CodemodeRunTable = mysqlTable(
     duration_ms: int("duration_ms").notNull().default(0),
     started_at: timestamp("started_at", { fsp: 3 }).notNull(),
     finished_at: timestamp("finished_at", { fsp: 3 }).notNull(),
+    validated_result: encryptedJsonColumn<unknown>("validated_result"),
     created_at: timestamp("created_at", { fsp: 3 }).notNull().defaultNow(),
   },
-  (table) => [index("codemode_run_org_created").on(table.organization_id, table.created_at)],
+  (table) => [
+    index("codemode_run_org_created").on(table.organization_id, table.created_at),
+    index("codemode_run_automation").on(table.automation_run_id),
+  ],
 )

@@ -54,6 +54,27 @@ export const automationModelSchema = z.object({
 })
 export type AutomationModel = z.infer<typeof automationModelSchema>
 
+export const automationSavedScriptReferenceSchema = z.object({
+  pluginId: idSchema,
+  configObjectId: idSchema,
+  configObjectVersionId: idSchema,
+}).strict()
+export type AutomationSavedScriptReference = z.infer<typeof automationSavedScriptReferenceSchema>
+
+export const automationActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("agent"),
+    instructions: z.string().trim().min(1).max(100_000),
+    model: automationModelSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal("saved_script"),
+    script: automationSavedScriptReferenceSchema,
+    input: z.unknown().optional(),
+  }).strict(),
+])
+export type AutomationAction = z.infer<typeof automationActionSchema>
+
 /**
  * Canonical identity for the free Automation starter model. Runtime provider
  * configuration belongs to the desktop's OpenCode installation, not Den.
@@ -87,6 +108,8 @@ export const automationSchema = z.object({
   currentRevisionId: idSchema,
   nextDueAt: nullableTimestampSchema,
   latestRunAt: nullableTimestampSchema,
+  latestSuccessfulRunId: idSchema.nullable().optional(),
+  latestSuccessfulResult: z.unknown().optional(),
   needsAttentionReason: automationNeedsAttentionReasonSchema.nullable(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
@@ -101,7 +124,8 @@ export const automationRevisionSchema = z.object({
   instructions: z.string().trim().min(1).max(100_000),
   schedule: automationScheduleSchema,
   model: automationModelSchema,
-  executionTarget: z.literal("desktop"),
+  action: automationActionSchema.optional(),
+  executionTarget: z.enum(["desktop", "cloud"]).optional(),
   maximumRuntimeMs: z.number().int().min(10_000).max(60 * 60 * 1_000),
   digest: z.string().trim().min(16).max(128),
   createdAt: timestampSchema,
@@ -149,13 +173,13 @@ export type AutomationExecutionThread = z.infer<typeof automationExecutionThread
  * implemented target; a future sandbox target can be added without moving
  * scheduling out of Den.
  */
-export const automationExecutionTargetSchema = z.literal("desktop")
+export const automationExecutionTargetSchema = z.enum(["desktop", "cloud"])
 export type AutomationExecutionTarget = z.infer<typeof automationExecutionTargetSchema>
 
 export const automationDesktopRunnerRegistrationSchema = z.object({
   runnerId: idSchema.min(8),
   protocolVersion: z.literal(1),
-  supportedExecutionTargets: z.array(automationExecutionTargetSchema).length(1),
+  supportedExecutionTargets: z.array(z.literal("desktop")).length(1),
   appVersion: z.string().trim().min(1).max(80),
   platform: z.enum(["darwin", "win32", "linux"]),
   concurrency: z.number().int().min(1).max(4),
@@ -170,7 +194,7 @@ export type AutomationRunnerNotification = z.infer<typeof automationRunnerNotifi
 
 export const automationRunnerWorkItemSchema = z.object({
   runId: idSchema,
-  executionTarget: automationExecutionTargetSchema,
+  executionTarget: z.literal("desktop"),
 })
 export const automationRunnerWorkResponseSchema = z.object({
   items: z.array(automationRunnerWorkItemSchema).max(4),
@@ -178,7 +202,7 @@ export const automationRunnerWorkResponseSchema = z.object({
 export type AutomationRunnerWorkResponse = z.infer<typeof automationRunnerWorkResponseSchema>
 
 export const automationDesktopRunnerAssignmentSchema = z.object({
-  executionTarget: automationExecutionTargetSchema,
+  executionTarget: z.literal("desktop"),
   runId: idSchema,
   automationId: idSchema,
   automationName: z.string().trim().min(1).max(120),
@@ -252,6 +276,8 @@ export const automationRunSchema = z.object({
   finishedAt: nullableTimestampSchema,
   error: automationErrorSchema.nullable(),
   resultSummary: z.string().max(20_000).nullable(),
+  codemodeReceiptId: idSchema.nullable().optional(),
+  validatedResult: z.unknown().optional(),
   usage: automationUsageSchema,
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
@@ -274,13 +300,38 @@ export const automationRunEventSchema = z.object({
 })
 export type AutomationRunEvent = z.infer<typeof automationRunEventSchema>
 
-export const createAutomationSchema = z.object({
+const legacyCreateAutomationSchema = z.object({
   name: z.string().trim().min(1).max(120),
   instructions: z.string().trim().min(1).max(100_000),
   schedule: automationScheduleSchema,
   model: automationModelSchema,
 })
-export type CreateAutomation = z.infer<typeof createAutomationSchema>
+
+const actionCreateAutomationSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  schedule: automationScheduleSchema,
+  action: automationActionSchema,
+  executionTarget: automationExecutionTargetSchema,
+}).superRefine((value, context) => {
+  const validPair = (value.action.kind === "agent" && value.executionTarget === "desktop")
+    || (value.action.kind === "saved_script" && value.executionTarget === "cloud")
+  if (!validPair) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Agent Automations run on desktop; saved Script Automations run in OpenWork Cloud.",
+      path: ["executionTarget"],
+    })
+  }
+})
+
+export const createAutomationSchema = z.union([actionCreateAutomationSchema, legacyCreateAutomationSchema])
+/**
+ * Published desktop clients still construct the legacy agent definition.
+ * Keep that source-level contract stable while Den accepts the expanded
+ * canonical definition through the separately named server type.
+ */
+export type CreateAutomation = z.infer<typeof legacyCreateAutomationSchema>
+export type CreateAutomationDefinition = z.infer<typeof createAutomationSchema>
 
 /**
  * What an in-app agent may hand back when a person describes recurring work.
@@ -298,7 +349,14 @@ export const automationProposalSchema = z.object({
 })
 export type AutomationProposal = z.infer<typeof automationProposalSchema>
 
-export const updateAutomationSchema = createAutomationSchema.partial().refine(
+export const updateAutomationSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  instructions: z.string().trim().min(1).max(100_000).optional(),
+  schedule: automationScheduleSchema.optional(),
+  model: automationModelSchema.optional(),
+  action: automationActionSchema.optional(),
+  executionTarget: automationExecutionTargetSchema.optional(),
+}).refine(
   (input) => Object.keys(input).length > 0,
   "At least one behavior-changing field is required",
 )

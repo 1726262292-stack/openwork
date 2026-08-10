@@ -4,7 +4,8 @@ import type {
   AutomationDesktopRunnerRegistration,
   AutomationRunEventType,
   AutomationRun,
-  CreateAutomation,
+  AutomationAction,
+  CreateAutomationDefinition,
   UpdateAutomation,
 } from "@openwork/types/automations"
 import { env } from "../env.js"
@@ -18,6 +19,23 @@ export type DesktopRunnerScope = OwnerScope & { runnerId: string }
 
 const desktopLeaseOwner = (scope: DesktopRunnerScope) => `desktop:${scope.ownerMemberId}:${scope.runnerId}`
 
+export type CloudSavedScriptExecution =
+  | { ok: true; value: unknown; canonicalResult: string; receiptId: string | null }
+  | { ok: false; message: string; retryable: boolean; receiptId?: string | null }
+
+export type CloudSavedScriptExecutor = (input: {
+  organizationId: string
+  ownerMemberId: string
+  automationRunId: string
+  action: Extract<AutomationAction, { kind: "saved_script" }>
+}) => Promise<CloudSavedScriptExecution>
+
+let cloudSavedScriptExecutor: CloudSavedScriptExecutor | null = null
+
+export function configureCloudSavedScriptExecutor(executor: CloudSavedScriptExecutor): void {
+  cloudSavedScriptExecutor = executor
+}
+
 export class AutomationService {
   async list(scope: OwnerScope, input: { cursor?: string; limit?: number }) {
     return automationRepository.list({ ...scope, cursor: input.cursor, limit: input.limit ?? 50 })
@@ -27,22 +45,39 @@ export class AutomationService {
     return automationRepository.get({ ...scope, automationId })
   }
 
-  async create(scope: OwnerScope, definition: CreateAutomation) {
-    await this.requireModel(scope, definition.model)
+  async create(scope: OwnerScope, definition: CreateAutomationDefinition) {
+    if ("action" in definition) {
+      if ((definition.action.kind === "saved_script" && definition.executionTarget !== "cloud")
+        || (definition.action.kind === "agent" && definition.executionTarget !== "desktop")) {
+        throw new Error("automation_action_target_mismatch")
+      }
+      if (definition.action.kind === "agent") await this.requireModel(scope, definition.action.model)
+      else if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
+    } else {
+      await this.requireModel(scope, definition.model)
+    }
     return automationRepository.create({ ...scope, definition, now: Date.now() })
   }
 
   async update(scope: OwnerScope, automationId: string, changes: UpdateAutomation) {
     const current = await this.get(scope, automationId)
     if (!current) return null
-    await this.requireModel(scope, changes.model ?? current.revision.model)
+    const nextAction = changes.action ?? current.revision.action
+    const nextTarget = changes.executionTarget ?? current.revision.executionTarget ?? "desktop"
+    if ((nextAction?.kind === "saved_script" && nextTarget !== "cloud") || (nextAction?.kind !== "saved_script" && nextTarget !== "desktop")) {
+      throw new Error("automation_action_target_mismatch")
+    }
+    if (nextAction?.kind === "agent") await this.requireModel(scope, nextAction.model)
+    else if (!nextAction) await this.requireModel(scope, changes.model ?? current.revision.model)
     return automationRepository.update({ ...scope, automationId, changes, now: Date.now() })
   }
 
   async activate(scope: OwnerScope, automationId: string) {
     const current = await this.get(scope, automationId)
     if (!current) return null
-    await this.requireModel(scope, current.revision.model)
+    if (current.revision.action?.kind === "saved_script") {
+      if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
+    } else await this.requireModel(scope, current.revision.model)
     return automationRepository.setState({ ...scope, automationId, state: "active", now: Date.now() })
   }
 
@@ -59,7 +94,9 @@ export class AutomationService {
     if (!current || current.automation.state === "archived") return null
     // The persisted model selection is only as good as the owner's current
     // access; a revoked grant must fail the manual run, not dispatch it.
-    await this.requireModel(scope, current.revision.model)
+    if (current.revision.action?.kind === "saved_script") {
+      if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
+    } else await this.requireModel(scope, current.revision.model)
     const claim = await automationRepository.claim({
       automation: { ...current.automation, state: "active" },
       revision: current.revision,
@@ -71,7 +108,8 @@ export class AutomationService {
       claimDeadlineMs: env.automations.runnerClaimDeadlineMs,
       now: Date.now(),
     })
-    return claim.run
+    if (claim.kind === "claimed" && claim.run.executionTarget === "cloud") await this.executeCloudRun(claim.run.id)
+    return (await automationRepository.getRunReceipt({ ...scope, runId: claim.run.id }))?.run ?? claim.run
   }
 
   listRuns(scope: OwnerScope, automationId: string, input: { cursor?: string; limit?: number }) {
@@ -92,6 +130,12 @@ export class AutomationService {
     await automationRepository.recoverExpiredLeases({ now, limit: input.batchSize ?? env.automations.batchSize })
     await automationRepository.expireUnclaimedDesktop({ now, limit: input.batchSize ?? env.automations.batchSize })
 
+    const queuedCloud = await automationRepository.listQueuedCloud({ limit: input.batchSize ?? env.automations.batchSize })
+    for (const runId of queuedCloud) {
+      await this.executeCloudRun(runId)
+      started.push(runId)
+    }
+
     const due = await automationRepository.listDue({ now, limit: input.batchSize ?? env.automations.batchSize })
     for (const item of due) {
       const scheduledFor = item.automation.nextDueAt
@@ -99,11 +143,15 @@ export class AutomationService {
       // Revalidate the owner's model access at dispatch time. The occurrence is
       // still claimed either way so the schedule advances durably; a failed
       // check becomes a skipped receipt instead of work for the runner.
-      const access = await resolveAutomationModelAccess({
-        organizationId: item.automation.organizationId,
-        ownerMemberId: item.automation.ownerMemberId,
-        ...item.revision.model,
-      })
+      const access = item.revision.action?.kind === "saved_script"
+        ? (await isActiveAutomationOwner(item.automation)
+            ? { ok: true as const }
+            : { ok: false as const, code: "owner_membership_lost" as const, message: "The Automation owner is no longer active." })
+        : await resolveAutomationModelAccess({
+            organizationId: item.automation.organizationId,
+            ownerMemberId: item.automation.ownerMemberId,
+            ...item.revision.model,
+          })
       const claim = await automationRepository.claim({
         automation: item.automation,
         revision: item.revision,
@@ -120,6 +168,7 @@ export class AutomationService {
         continue
       }
       started.push(claim.run.id)
+      if (claim.run.executionTarget === "cloud") await this.executeCloudRun(claim.run.id)
     }
     return started
   }
@@ -234,6 +283,51 @@ export class AutomationService {
       error.name = result.code
       throw error
     }
+  }
+
+  private async executeCloudRun(runId: string): Promise<void> {
+    const leaseOwner = `${schedulerOwner}:cloud:${runId}`
+    const claimed = await automationRepository.claimCloud({
+      runId,
+      leaseOwner,
+      leaseMs: env.automations.leaseMs,
+      now: Date.now(),
+    })
+    if (!claimed || claimed.revision.action?.kind !== "saved_script") return
+    const executor = cloudSavedScriptExecutor
+    if (!executor) {
+      await automationRepository.completeCloud({
+        automationId: claimed.automation.id,
+        runId,
+        leaseOwner,
+        status: "failed",
+        resultSummary: "OpenWork Cloud script execution is unavailable.",
+        error: { code: "execution_runtime_unavailable", message: "OpenWork Cloud script execution is unavailable.", retryable: true },
+        now: Date.now(),
+      })
+      return
+    }
+    const result = await executor({
+      organizationId: claimed.automation.organizationId,
+      ownerMemberId: claimed.automation.ownerMemberId,
+      automationRunId: runId,
+      action: claimed.revision.action,
+    }).catch((error): CloudSavedScriptExecution => ({
+      ok: false,
+      message: error instanceof Error ? error.message : "Saved script execution failed.",
+      retryable: true,
+    }))
+    await automationRepository.completeCloud({
+      automationId: claimed.automation.id,
+      runId,
+      leaseOwner,
+      status: result.ok ? "succeeded" : "failed",
+      resultSummary: result.ok ? result.canonicalResult : result.message,
+      ...(result.ok ? { validatedResult: result.value, codemodeReceiptId: result.receiptId } : {}),
+      ...(!result.ok && result.receiptId ? { codemodeReceiptId: result.receiptId } : {}),
+      error: result.ok ? null : { code: "execution_failed", message: result.message, retryable: result.retryable },
+      now: Date.now(),
+    })
   }
 
 }
