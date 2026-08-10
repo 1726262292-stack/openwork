@@ -123,36 +123,6 @@ export type DenAssignedMarketplaceCapability = {
   pluginId: string;
 };
 
-export type DenSaveCodemodeScriptInput = {
-  name: string;
-  description?: string;
-  code: string;
-  currentInput?: unknown;
-  inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
-};
-
-export type DenSavedCodemodeScript = {
-  pluginId: string;
-  configObjectId: string;
-  configObjectVersionId: string;
-};
-
-export type DenSavedCodemodeScriptSummary = DenSavedCodemodeScript & {
-  title: string;
-  description: string | null;
-  inputSchema: Record<string, unknown> | null;
-  outputSchema: Record<string, unknown> | null;
-  requiredCapabilities: Array<{ capabilityName: string; scriptPath: string }>;
-};
-
-export type DenSavedCodemodeScriptRun = {
-  status: "succeeded";
-  value: unknown;
-  markdown: string;
-  receiptId: string;
-};
-
 export type DenResourceSnapshotConfigItem = {
   configItemId: string;
   lastUpdatedAt: string;

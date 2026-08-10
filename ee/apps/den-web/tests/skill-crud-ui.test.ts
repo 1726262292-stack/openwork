@@ -29,13 +29,6 @@ describe("Den plugin skill CRUD UI contract", () => {
     expect(pluginDetail).toContain("getPluginSkillRoute(orgSlug, pluginId, skill.id)");
   });
 
-  test("surfaces saved scripts as first-class plugin resources", () => {
-    expect(pluginData).toContain("type PluginScript")
-    expect(pluginData).toContain('item.objectType === "script"')
-    expect(pluginDetail).toContain('label="Scripts"')
-    expect(pluginDetail).toContain("Validated output")
-  });
-
   test("shows the complete body and returns to the plugin after confirmed deletion", () => {
     expect(detail).toContain("Complete skill body");
     expect(detail).not.toContain("font-semibold uppercase tracking-[0.14em]");

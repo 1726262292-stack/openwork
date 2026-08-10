@@ -98,10 +98,6 @@ import type {
   DenResourceSnapshotConfigItem,
   DenResourceSnapshotMarketplace,
   DenResourceSnapshotPlugin,
-  DenSaveCodemodeScriptInput,
-  DenSavedCodemodeScript,
-  DenSavedCodemodeScriptRun,
-  DenSavedCodemodeScriptSummary,
   DenSettings,
   DenUser,
 } from "./den-types";
@@ -2513,81 +2509,6 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       return getDenOrgLlmProviders(payload);
     },
 
-    async saveCodemodeScript(orgId: string, input: DenSaveCodemodeScriptInput): Promise<DenSavedCodemodeScript> {
-      const payload = await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
-        method: "POST",
-        token,
-        organizationId: orgId,
-        body: input,
-      });
-      if (!isRecord(payload)
-        || typeof payload.pluginId !== "string"
-        || typeof payload.configObjectId !== "string"
-        || typeof payload.configObjectVersionId !== "string") {
-        throw new DenApiError(500, "invalid_saved_script_payload", "Saved script response was incomplete.");
-      }
-      return {
-        pluginId: payload.pluginId,
-        configObjectId: payload.configObjectId,
-        configObjectVersionId: payload.configObjectVersionId,
-      };
-    },
-
-    async supportsSavedCodemodeScripts(orgId: string): Promise<boolean> {
-      // Den must land and deploy before a published desktop can consume its
-      // additive saved-script contract. The web control surface can negotiate
-      // the continuously deployed API with a harmless read and a 404 fallback.
-      if (isDesktopRuntime()) return false;
-      try {
-        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
-          method: "GET",
-          token,
-          organizationId: orgId,
-        });
-        return true;
-      } catch (error) {
-        if (error instanceof DenApiError && error.status === 404) return false;
-        throw error;
-      }
-    },
-
-    async listSavedCodemodeScripts(orgId: string): Promise<DenSavedCodemodeScriptSummary[]> {
-      try {
-        const payload = await requestJson<{ items: DenSavedCodemodeScriptSummary[] }>(baseUrls, "/v1/codemode-scripts", {
-          method: "GET",
-          token,
-          organizationId: orgId,
-        });
-        return payload.items;
-      } catch (error) {
-        // Desktop can be published before its configured Den deployment. Treat
-        // an older server without this additive route as feature unavailable.
-        if (error instanceof DenApiError && error.status === 404) return [];
-        throw error;
-      }
-    },
-
-    async runSavedCodemodeScript(
-      orgId: string,
-      script: DenSavedCodemodeScript,
-      input: unknown,
-    ): Promise<DenSavedCodemodeScriptRun> {
-      return requestJson<DenSavedCodemodeScriptRun>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(script.configObjectId)}/run`,
-        {
-          method: "POST",
-          token,
-          organizationId: orgId,
-          body: {
-            pluginId: script.pluginId,
-            configObjectVersionId: script.configObjectVersionId,
-            input,
-          },
-        },
-      );
-    },
-
     async listAutomations(
       orgId: string,
       options: { cursor?: string; limit?: number } = {},
@@ -2601,23 +2522,6 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         token,
         organizationId: orgId,
       });
-    },
-
-    async supportsCloudSavedScriptAutomations(orgId: string): Promise<boolean> {
-      if (isDesktopRuntime()) return false;
-      try {
-        // A successful org-scoped saved-script read proves that both the Code
-        // Mode rollout and the additive cloud action are available to web.
-        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
-          method: "GET",
-          token,
-          organizationId: orgId,
-        });
-        return true;
-      } catch (error) {
-        if (error instanceof DenApiError && error.status === 404) return false;
-        throw error;
-      }
     },
 
     async mintAutomationRunnerToken(orgId: string, registration: AutomationDesktopRunnerRegistration): Promise<AutomationRunnerTokenResponse> {

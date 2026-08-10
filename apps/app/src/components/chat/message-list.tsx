@@ -39,10 +39,6 @@ import {
   isAutomationProposalToolPart,
   OpenWorkAutomationProposalTool,
 } from "@/components/tools/openwork-automation-proposal"
-import {
-  isCodemodeScriptToolPart,
-  OpenWorkCodemodeScriptTool,
-} from "@/components/tools/openwork-codemode-script"
 import { OpenWorkSessionCreateTool } from "@/components/tools/openwork-session-create"
 import { QuestionTool } from "@/components/tools/question"
 import { SkillTool } from "@/components/tools/skill"
@@ -236,10 +232,6 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 
   if (part.type === "dynamic-tool" && isAutomationProposalToolPart(part)) {
     return <OpenWorkAutomationProposalTool part={part} />
-  }
-
-  if (part.type === "dynamic-tool" && isCodemodeScriptToolPart(part)) {
-    return <OpenWorkCodemodeScriptTool part={part} />
   }
 
   if (isTaskToolPart(part)) {

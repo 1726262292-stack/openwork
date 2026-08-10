@@ -23,15 +23,14 @@ import {
 
 type LibraryStateTab = "all" | "needs_signin" | "needs_admin_setup" | "ready";
 type LibrarySectionState = Exclude<LibraryStateTab, "all">;
-type KindFilter = "all" | "connections" | "skills" | "scripts" | "mcps" | "plugins";
+type KindFilter = "all" | "connections" | "skills" | "mcps" | "plugins";
 type FromFilter = "anyone" | "mine" | "shared" | "team" | "everyone";
-type RowKind = "connection" | "skill" | "script" | "plugin";
+type RowKind = "connection" | "skill" | "plugin";
 
 const KIND_FILTERS: readonly { value: KindFilter; label: string }[] = [
   { value: "all", label: "All kinds" },
   { value: "connections", label: "Connections" },
   { value: "skills", label: "Skills" },
-  { value: "scripts", label: "Scripts" },
   { value: "mcps", label: "MCPs" },
   { value: "plugins", label: "Plugins" },
 ];
@@ -58,7 +57,7 @@ function matchesFrom(item: LibraryItem, from: FromFilter): boolean {
   return item.edges.some((edge) => edge.kind === "org_wide" || edge.kind === "catalog");
 }
 
-function hasComponentKind(item: LibraryPluginItem, kind: "skill" | "script" | "mcp"): boolean {
+function hasComponentKind(item: LibraryPluginItem, kind: "skill" | "mcp"): boolean {
   return item.componentKinds.some((componentKind) => componentKind.toLowerCase() === kind);
 }
 
@@ -67,7 +66,6 @@ function matchesKind(item: LibraryItem, kind: KindFilter): boolean {
   if (kind === "connections") return item.type === "connection";
   if (kind === "plugins") return item.type === "plugin";
   if (kind === "skills") return item.type === "plugin" && hasComponentKind(item, "skill");
-  if (kind === "scripts") return item.type === "plugin" && hasComponentKind(item, "script");
   return (item.type === "plugin" && hasComponentKind(item, "mcp"))
     || (item.type === "connection" && item.transport === "mcp");
 }
@@ -84,13 +82,11 @@ function matchesState(item: LibraryItem, state: LibraryStateTab): boolean {
 
 function getRowKind(item: LibraryItem): RowKind {
   if (item.type === "connection") return "connection";
-  if (hasComponentKind(item, "script")) return "script";
   return hasComponentKind(item, "skill") ? "skill" : "plugin";
 }
 
 function getKindLabel(kind: RowKind): string {
   if (kind === "skill") return "Skill";
-  if (kind === "script") return "Script";
   if (kind === "plugin") return "Plugin";
   return "Connection";
 }
@@ -375,14 +371,12 @@ export function LibraryScreen() {
     const counts: Record<Exclude<KindFilter, "all">, number> = {
       connections: 0,
       skills: 0,
-      scripts: 0,
       mcps: 0,
       plugins: 0,
     };
     for (const item of items) {
       if (matchesKind(item, "connections")) counts.connections += 1;
       if (matchesKind(item, "skills")) counts.skills += 1;
-      if (matchesKind(item, "scripts")) counts.scripts += 1;
       if (matchesKind(item, "mcps")) counts.mcps += 1;
       if (matchesKind(item, "plugins")) counts.plugins += 1;
     }

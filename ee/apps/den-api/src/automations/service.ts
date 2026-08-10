@@ -5,7 +5,7 @@ import type {
   AutomationRunEventType,
   AutomationRun,
   AutomationAction,
-  CreateAutomation,
+  CreateAutomationDefinition,
   UpdateAutomation,
 } from "@openwork/types/automations"
 import { env } from "../env.js"
@@ -45,7 +45,7 @@ export class AutomationService {
     return automationRepository.get({ ...scope, automationId })
   }
 
-  async create(scope: OwnerScope, definition: CreateAutomation) {
+  async create(scope: OwnerScope, definition: CreateAutomationDefinition) {
     if ("action" in definition) {
       if ((definition.action.kind === "saved_script" && definition.executionTarget !== "cloud")
         || (definition.action.kind === "agent" && definition.executionTarget !== "desktop")) {

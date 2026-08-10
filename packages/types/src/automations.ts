@@ -325,7 +325,13 @@ const actionCreateAutomationSchema = z.object({
 })
 
 export const createAutomationSchema = z.union([actionCreateAutomationSchema, legacyCreateAutomationSchema])
-export type CreateAutomation = z.infer<typeof createAutomationSchema>
+/**
+ * Published desktop clients still construct the legacy agent definition.
+ * Keep that source-level contract stable while Den accepts the expanded
+ * canonical definition through the separately named server type.
+ */
+export type CreateAutomation = z.infer<typeof legacyCreateAutomationSchema>
+export type CreateAutomationDefinition = z.infer<typeof createAutomationSchema>
 
 /**
  * What an in-app agent may hand back when a person describes recurring work.

@@ -85,16 +85,6 @@ export type PluginCommand = {
   description: string;
 };
 
-export type PluginScript = {
-  id: string;
-  name: string;
-  description: string;
-  versionId: string | null;
-  inputSchema: Record<string, unknown> | null;
-  outputSchema: Record<string, unknown> | null;
-  requiredCapabilityCount: number;
-};
-
 export type PluginSource =
   | { type: "marketplace"; marketplace: string }
   | { type: "github"; repo: string }
@@ -122,7 +112,6 @@ export type DenPlugin = {
   mcps: PluginMcp[];
   agents: PluginAgent[];
   commands: PluginCommand[];
-  scripts: PluginScript[];
   createdAt: string;
   createdByOrgMembershipId: string | null;
   updatedAt: string;
@@ -176,7 +165,6 @@ export function getPluginComponentCount(plugin: DenPlugin): number {
     plugin.mcps.length +
     plugin.agents.length +
     plugin.commands.length
-    + plugin.scripts.length
   );
 }
 
@@ -196,9 +184,6 @@ export function getPluginPartsSummary(plugin: DenPlugin): string {
   }
   if (plugin.commands.length > 0) {
     parts.push(`${plugin.commands.length} ${plugin.commands.length === 1 ? "Command" : "Commands"}`);
-  }
-  if (plugin.scripts.length > 0) {
-    parts.push(`${plugin.scripts.length} ${plugin.scripts.length === 1 ? "Script" : "Scripts"}`);
   }
   return parts.length > 0 ? parts.join(" · ") : "Empty bundle";
 }
@@ -251,7 +236,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
     commands: [
       { id: "cmd_gh_pr", name: "/gh:pr", description: "Create a pull request from the current branch." },
     ],
-    scripts: [],
     createdAt: "2026-04-10T12:00:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-04-10T12:00:00Z",
@@ -280,7 +264,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
       { id: "cmd_cc_push", name: "/push", description: "Push current branch and track upstream." },
       { id: "cmd_cc_pr", name: "/pr", description: "Open a pull request." },
     ],
-    scripts: [],
     createdAt: "2026-04-07T09:00:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-04-07T09:00:00Z",
@@ -317,7 +300,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
     ],
     agents: [],
     commands: [],
-    scripts: [],
     createdAt: "2026-03-28T16:45:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-03-28T16:45:00Z",
@@ -353,7 +335,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
     commands: [
       { id: "cmd_lin_new", name: "/linear:new", description: "File a new issue from the current context." },
     ],
-    scripts: [],
     createdAt: "2026-04-02T18:12:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-04-02T18:12:00Z",
@@ -389,7 +370,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
     commands: [
       { id: "cmd_ow_release", name: "/release", description: "Run the standardized release workflow." },
     ],
-    scripts: [],
     createdAt: "2026-04-14T08:30:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-04-14T08:30:00Z",
@@ -421,7 +401,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
     ],
     agents: [],
     commands: [],
-    scripts: [],
     createdAt: "2026-03-20T11:00:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-03-20T11:00:00Z",
@@ -450,7 +429,6 @@ const MOCK_PLUGINS: DenPlugin[] = [
     mcps: [],
     agents: [],
     commands: [],
-    scripts: [],
     createdAt: "2026-03-12T14:22:00Z",
     createdByOrgMembershipId: null,
     updatedAt: "2026-03-12T14:22:00Z",
@@ -549,7 +527,6 @@ function parseMembershipConfigObject(entry: unknown) {
   const objectType = asString(configObject.objectType);
   const currentRelativePath = asString(configObject.currentRelativePath);
   const latestVersion = isRecord(configObject.latestVersion) ? configObject.latestVersion : null;
-  const latestVersionId = latestVersion ? asString(latestVersion.id) : null;
   const normalizedPayload = latestVersion && isRecord(latestVersion.normalizedPayloadJson)
     ? latestVersion.normalizedPayloadJson
     : null;
@@ -562,18 +539,17 @@ function parseMembershipConfigObject(entry: unknown) {
     currentRelativePath,
     description,
     id,
-    latestVersionId,
     normalizedPayload,
     objectType,
     title,
   };
 }
 
-function derivePluginCategory(input: { agents: PluginAgent[]; commands: PluginCommand[]; hooks: PluginHook[]; mcps: PluginMcp[]; scripts: PluginScript[]; skills: PluginSkill[] }): PluginCategory {
+function derivePluginCategory(input: { agents: PluginAgent[]; commands: PluginCommand[]; hooks: PluginHook[]; mcps: PluginMcp[]; skills: PluginSkill[] }): PluginCategory {
   if (input.mcps.length > 0 || input.hooks.length > 0) {
     return "integrations";
   }
-  if (input.agents.length > 0 || input.commands.length > 0 || input.scripts.length > 0 || input.skills.length > 0) {
+  if (input.agents.length > 0 || input.commands.length > 0 || input.skills.length > 0) {
     return "workflows";
   }
   return "output-styles";
@@ -631,19 +607,6 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
   const commands = membershipItems
     .filter((item) => item.objectType === "command")
     .map((item) => ({ id: item.id, name: item.currentRelativePath?.split("/").pop()?.replace(/\.md$/i, "") ?? item.title, description: item.description } satisfies PluginCommand));
-  const scripts = membershipItems
-    .filter((item) => item.objectType === "script")
-    .map((item) => ({
-      id: item.id,
-      name: item.title,
-      description: item.description,
-      versionId: item.latestVersionId,
-      inputSchema: isRecord(item.normalizedPayload?.inputSchema) ? item.normalizedPayload.inputSchema : null,
-      outputSchema: isRecord(item.normalizedPayload?.outputSchema) ? item.normalizedPayload.outputSchema : null,
-      requiredCapabilityCount: Array.isArray(item.normalizedPayload?.requiredCapabilities)
-        ? item.normalizedPayload.requiredCapabilities.length
-        : 0,
-    } satisfies PluginScript));
   const hooks = membershipItems
     .filter((item) => item.objectType === "hook")
     .map((item) => ({
@@ -669,7 +632,7 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
   return {
     agents,
     author: "Connected repository",
-    category: derivePluginCategory({ agents, commands, hooks, mcps, scripts, skills }),
+    category: derivePluginCategory({ agents, commands, hooks, mcps, skills }),
     commands,
     createdAt: asString(pluginItem.createdAt) ?? new Date().toISOString(),
     createdByOrgMembershipId: asString(pluginItem.createdByOrgMembershipId),
@@ -681,7 +644,6 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
     mcps,
     name,
     requiresProvider: "github",
-    scripts,
     skills,
     slug: slugifyPluginName(name),
     source: marketplaces[0]
