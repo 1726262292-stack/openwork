@@ -23,6 +23,7 @@ export type CodemodeToolTree = Record<string, Record<string, Tool.Definition>>
 export type CodemodeManifestEntry = {
   scriptPath: string
   capabilityName: string
+  readOnly?: boolean
 }
 
 export type BuiltCodemodeTools = {
@@ -107,6 +108,23 @@ export function restrictCodemodeToolTree(input: {
   }
 }
 
+/**
+ * Unattended Cloud runs may be retried after a lost lease, so Phase 1 only
+ * admits capabilities that explicitly declare themselves read-only.
+ */
+export function firstUnattendedUnsafeCapability(
+  built: BuiltCodemodeTools,
+  requiredCapabilities: readonly CodemodeManifestEntry[],
+): CodemodeManifestEntry | null {
+  const manifest = new Map(built.manifest.map((entry) => [
+    `${entry.scriptPath}\n${entry.capabilityName}`,
+    entry,
+  ]))
+  return requiredCapabilities.find((required) => (
+    manifest.get(`${required.scriptPath}\n${required.capabilityName}`)?.readOnly !== true
+  )) ?? null
+}
+
 function textParts(value: unknown): string[] {
   if (!isRecord(value) || !Array.isArray(value.content)) return []
   return value.content.flatMap((part) => isRecord(part) && part.type === "text" && typeof part.text === "string" ? [part.text] : [])
@@ -157,6 +175,7 @@ export function buildDenCatalogToolTree(input: {
     manifest: input.catalog.map((operation) => ({
       scriptPath: codemodeScriptPath("den", operation.name),
       capabilityName: operation.name,
+      readOnly: operation.method === "GET",
     })),
   }
 }
@@ -259,6 +278,7 @@ export async function buildExternalMcpToolTree(input: {
         .map((tool) => ({
           scriptPath: codemodeScriptPath(namespace, tool.name),
           capabilityName: buildExternalCapabilityName(connection.id, tool.name),
+          readOnly: tool.annotations?.readOnlyHint === true,
         }))
     }),
   }

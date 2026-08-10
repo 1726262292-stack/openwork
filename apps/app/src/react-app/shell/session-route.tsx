@@ -465,18 +465,13 @@ export function SessionRoute() {
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
-  const automationsEnabled = isDesktopRuntime();
-  const automationsRouteActive = automationsEnabled && automationsRouteRequested;
+  const automationsRouteActive = automationsRouteRequested;
   const denSettings = readDenSettings();
   const [automationsSupported, setAutomationsSupported] = useState(false);
   useEffect(() => {
-    if (!automationsRouteRequested || automationsEnabled) return;
-    navigate("/", { replace: true });
-  }, [automationsEnabled, automationsRouteRequested, navigate]);
-  useEffect(() => {
     const authToken = denSettings.authToken?.trim();
     const organizationId = denSettings.activeOrgId?.trim();
-    if (!automationsEnabled || !denAuth.isSignedIn || !authToken || !organizationId) {
+    if (!denAuth.isSignedIn || !authToken || !organizationId) {
       setAutomationsSupported(false);
       return;
     }
@@ -493,14 +488,13 @@ export function SessionRoute() {
       cancelled = true;
     };
   }, [
-    automationsEnabled,
     denAuth.isSignedIn,
     denAuth.status,
     denSettings.activeOrgId,
     denSettings.authToken,
     denSettings.baseUrl,
   ]);
-  const automationsNavigationAvailable = automationsEnabled && automationsSupported;
+  const automationsNavigationAvailable = automationsSupported;
   const reloadCoordinator = useReloadCoordinator();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const restrictionNotice = useRestrictionNotice();

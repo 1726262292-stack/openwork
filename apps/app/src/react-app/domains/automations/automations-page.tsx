@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 import type {
+  AutomationAction,
   AutomationDetail,
   AutomationRun,
   AutomationRunEvent,
@@ -93,12 +94,34 @@ function describeError(error: unknown) {
 }
 
 function inputFromDetail(detail: AutomationDetail): CreateAutomation {
+  if (detail.revision.action) {
+    return {
+      name: detail.automation.name,
+      schedule: detail.revision.schedule,
+      action: detail.revision.action,
+      executionTarget: detail.revision.executionTarget ?? "desktop",
+    }
+  }
   return {
     name: detail.automation.name,
     instructions: detail.revision.instructions,
     schedule: detail.revision.schedule,
     model: detail.revision.model,
   }
+}
+
+function revisionAction(detail: AutomationDetail): AutomationAction {
+  return detail.revision.action ?? {
+    kind: "agent",
+    instructions: detail.revision.instructions,
+    model: detail.revision.model,
+  }
+}
+
+function actionSummary(action: AutomationAction): string {
+  return action.kind === "saved_script"
+    ? `Saved Script · exact version ${action.script.configObjectVersionId}`
+    : action.instructions
 }
 
 function eventSummary(event: AutomationRunEvent) {
@@ -149,6 +172,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
   const selectedRunId = searchParams.get("run")?.trim() || null
   const selectedThreadId = searchParams.get("thread")?.trim() || null
   const creating = searchParams.get("create") === "1"
+  const requestedScriptVersionId = searchParams.get("scriptVersionId")?.trim() || null
   const ready = denAuth.isSignedIn && Boolean(client && organizationId)
   const queryRoot = ["den", "automations", organizationId]
 
@@ -161,6 +185,11 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
   const providersQuery = useQuery({
     queryKey: [...queryRoot, "models"],
     queryFn: () => client!.listOrgLlmProviders(organizationId!),
+    enabled: ready,
+  })
+  const scriptsQuery = useQuery({
+    queryKey: [...queryRoot, "saved-scripts"],
+    queryFn: () => client!.listSavedCodemodeScripts(organizationId!),
     enabled: ready,
   })
   const detailQuery = useQuery({
@@ -185,13 +214,37 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
   })
 
   const models = useMemo(() => automationModelOptions(providersQuery.data ?? []), [providersQuery.data])
+  const requestedScript = scriptsQuery.data?.find((script) => script.configObjectVersionId === requestedScriptVersionId) ?? null
+  const createInitial = useMemo<CreateAutomation | null>(() => requestedScript ? {
+    name: requestedScript.title,
+    schedule: {
+      kind: "daily",
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      hour: 9,
+      minute: 0,
+    },
+    action: {
+      kind: "saved_script",
+      script: {
+        pluginId: requestedScript.pluginId,
+        configObjectId: requestedScript.configObjectId,
+        configObjectVersionId: requestedScript.configObjectVersionId,
+      },
+      input: {},
+    },
+    executionTarget: "cloud",
+  } : null, [requestedScript])
   const filteredItems = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     const items = listQuery.data?.items.filter((item) => item.automation.state !== "archived") ?? []
     if (!normalized) return items
     return items.filter((item) => (
       item.automation.name.toLowerCase().includes(normalized)
-      || item.revision.instructions.toLowerCase().includes(normalized)
+      || actionSummary(item.revision.action ?? {
+        kind: "agent",
+        instructions: item.revision.instructions,
+        model: item.revision.model,
+      }).toLowerCase().includes(normalized)
     ))
   }, [listQuery.data, query])
 
@@ -225,7 +278,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
           <Cloud aria-hidden="true" />
           <AlertTitle>Sign in to Den to use Automations</AlertTitle>
           <AlertDescription>
-            Automations run remotely in Den and remain available when this app or your computer is offline.
+            Den keeps the shared schedule and history. Saved Scripts run in OpenWork Cloud; agent tasks run on your signed-in desktop.
           </AlertDescription>
         </Alert>
       </div>
@@ -269,8 +322,11 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
           </div>
         </div>
         <AutomationEditor
+          initial={createInitial}
+          initialKey={requestedScript?.configObjectVersionId}
           busy={busyAction === "create"}
           modelOptions={models}
+          savedScripts={scriptsQuery.data ?? []}
           providerCatalog={props.providerCatalog}
           submitLabel="Create and activate"
           onCancel={() => openAutomation(null)}
@@ -304,6 +360,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
       )
     }
     const detail = detailQuery.data
+    const action = revisionAction(detail)
     const task = detail.automation
     const runs = runsQuery.data?.items ?? []
     const selectedReceipt = receiptQuery.data
@@ -321,6 +378,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
             initialKey={detail.revision.id}
             busy={busyAction === "update"}
             modelOptions={models}
+            savedScripts={scriptsQuery.data ?? []}
             providerCatalog={props.providerCatalog}
             submitLabel="Save changes"
             onCancel={() => setEditing(false)}
@@ -408,21 +466,46 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
           <div className="space-y-5">
             <Card variant="outline">
               <CardHeader>
-                <CardTitle>Instructions</CardTitle>
+                <CardTitle>{action.kind === "saved_script" ? "Saved Script" : "Instructions"}</CardTitle>
                 <CardDescription>Revision {detail.revision.version}</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="whitespace-pre-wrap text-sm leading-6">{detail.revision.instructions}</p>
+                {action.kind === "saved_script" ? (
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Exact script version</span>
+                      <p className="break-all font-mono text-xs">{action.script.configObjectVersionId}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Input</span>
+                      <pre className="mt-1 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(action.input ?? {}, null, 2)}</pre>
+                    </div>
+                  </div>
+                ) : <p className="whitespace-pre-wrap text-sm leading-6">{action.instructions}</p>}
               </CardContent>
             </Card>
 
+            {action.kind === "saved_script" && task.latestSuccessfulResult !== undefined ? (
+              <Card variant="outline">
+                <CardHeader>
+                  <CardTitle>Latest validated result</CardTitle>
+                  <CardDescription>The last good Dynamic Artifact remains available if a later run needs attention.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(task.latestSuccessfulResult, null, 2)}</pre>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card variant="outline">
               <CardHeader>
-                <CardTitle>Desktop execution</CardTitle>
-                <CardDescription>Den keeps the schedule and durable history; your connected desktop runs the task locally.</CardDescription>
+                <CardTitle>{detail.revision.executionTarget === "cloud" ? "OpenWork Cloud execution" : "Desktop execution"}</CardTitle>
+                <CardDescription>{detail.revision.executionTarget === "cloud"
+                  ? "OpenWork Cloud runs the pinned Script without requiring a browser, desktop, or model session."
+                  : "Den keeps the schedule and durable history; your connected desktop runs the task locally."}</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-                <div className="min-w-0"><span className="text-muted-foreground">Model</span><p className="break-words">{describeAutomationModel(detail.revision.model, models)}</p></div>
+                <div className="min-w-0"><span className="text-muted-foreground">{action.kind === "saved_script" ? "Runtime" : "Model"}</span><p className="break-words">{action.kind === "saved_script" ? "Saved Script · no model" : describeAutomationModel(action.model, models)}</p></div>
                 <div className="min-w-0"><span className="text-muted-foreground">Next run</span><p className="break-words">{formatAutomationTime(task.nextDueAt)}</p></div>
                 <div className="min-w-0"><span className="text-muted-foreground">Runtime limit</span><p className="break-words">{Math.round(detail.revision.maximumRuntimeMs / 60_000)} minutes</p></div>
                 <div className="min-w-0"><span className="text-muted-foreground">Integrations</span><p className="break-words">Your available OpenWork Connect tools</p></div>
@@ -450,12 +533,14 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
                           <span className="flex items-center gap-1 text-xs text-muted-foreground">
                             <ExecutionIcon run={run} />{automationExecutionIdentity(run.executionThread).label}
                           </span>
+                        ) : run.executionTarget === "cloud" ? (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground"><Cloud className="size-3" />OpenWork Cloud</span>
                         ) : null}
                       </span>
                       <span className="mt-1 block truncate text-xs text-muted-foreground">{formatAutomationTime(run.startedAt ?? run.createdAt)}</span>
                     </span>
                     <span className="flex items-center gap-2">
-                      {!ACTIVE_RUN_STATUSES.has(run.status) ? <span className="text-xs text-muted-foreground">{usageLabel(run)}</span> : null}
+                      {!ACTIVE_RUN_STATUSES.has(run.status) ? <span className="text-xs text-muted-foreground">{run.executionTarget === "cloud" ? "No model" : usageLabel(run)}</span> : null}
                       {ACTIVE_RUN_STATUSES.has(run.status) ? (
                         <Button
                           type="button"
@@ -485,8 +570,8 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
 
           <Card variant="outline" className="h-fit">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Monitor className="size-4" />Execution thread</CardTitle>
-              <CardDescription>{selectedRunId ? "Run receipt and event timeline" : "Select a run to inspect its execution thread."}</CardDescription>
+              <CardTitle className="flex items-center gap-2"><History className="size-4" />Run receipt</CardTitle>
+              <CardDescription>{selectedRunId ? "Validated result and event timeline" : "Select a run to inspect its durable receipt."}</CardDescription>
             </CardHeader>
             <CardContent>
               {!selectedRunId ? (
@@ -503,6 +588,8 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
                     <Badge variant={runVariant(selectedReceipt.run.status)}>{runLabel(selectedReceipt.run)}</Badge>
                     {selectedReceipt.run.executionThread ? (
                       <Badge variant="outline"><ExecutionIcon run={selectedReceipt.run} />{automationExecutionIdentity(selectedReceipt.run.executionThread).label}</Badge>
+                    ) : selectedReceipt.run.executionTarget === "cloud" ? (
+                      <Badge variant="outline"><Cloud className="mr-1 h-3 w-3" />OpenWork Cloud</Badge>
                     ) : selectedReceipt.run.status === "queued" ? (
                       <Badge variant="outline">Waiting for desktop runner</Badge>
                     ) : (
@@ -512,10 +599,12 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
                   {selectedReceipt.run.error ? (
                     <Alert variant="destructive"><AlertCircle /><AlertTitle>{selectedReceipt.run.error.code}</AlertTitle><AlertDescription>{selectedReceipt.run.error.message}</AlertDescription></Alert>
                   ) : null}
-                  {selectedReceipt.run.resultSummary ? (
+                  {selectedReceipt.run.validatedResult !== undefined ? (
+                    <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Validated result</p><pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(selectedReceipt.run.validatedResult, null, 2)}</pre></div>
+                  ) : selectedReceipt.run.resultSummary ? (
                     <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Result</p><p className="mt-1 whitespace-pre-wrap text-sm">{selectedReceipt.run.resultSummary}</p></div>
                   ) : null}
-                  <div className="text-xs text-muted-foreground">{usageLabel(selectedReceipt.run)}</div>
+                  <div className="text-xs text-muted-foreground">{selectedReceipt.run.executionTarget === "cloud" ? "No model used" : usageLabel(selectedReceipt.run)}</div>
                   <ol className="space-y-3 border-s border-border ps-4">
                     {selectedReceipt.events.map((event) => (
                       <li key={event.id} className="relative">
@@ -559,7 +648,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold">Automations</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Scheduled durably in Den and executed by your connected desktop.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Schedule desktop agent tasks and saved Scripts that run in OpenWork Cloud.</p>
         </div>
         <Button onClick={() => setSearchParams(new URLSearchParams({ create: "1" }))}><Plus />New Automation</Button>
       </div>
@@ -572,7 +661,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
           <EmptyHeader>
             <EmptyMedia variant="icon"><CalendarClock /></EmptyMedia>
             <EmptyTitle>{query ? "No matching Automations" : "No Automations yet"}</EmptyTitle>
-            <EmptyDescription>{query ? "Try a different search." : "Create one to run useful work on a schedule, even while your computer is offline."}</EmptyDescription>
+            <EmptyDescription>{query ? "Try a different search." : "Schedule a desktop agent task or a saved Script that runs in OpenWork Cloud."}</EmptyDescription>
           </EmptyHeader>
           {!query ? <EmptyContent><Button onClick={() => setSearchParams(new URLSearchParams({ create: "1" }))}><Plus />New Automation</Button></EmptyContent> : null}
         </Empty>
@@ -588,7 +677,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="truncate font-medium">{item.automation.name}</h3>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.revision.instructions}</p>
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{actionSummary(item.revision.action ?? { kind: "agent", instructions: item.revision.instructions, model: item.revision.model })}</p>
                 </div>
                 <Badge variant={stateVariant(item.automation.state)}>{stateLabel(item.automation.state)}</Badge>
               </div>

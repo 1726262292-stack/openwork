@@ -7,10 +7,8 @@ const read = (relative: string) =>
 
 /**
  * Automations shipped out of preview: there is no per-device feature flag any
- * more. The surface is available on every desktop, gated only by the runtime
- * (desktop-only) and the live Den availability probe. These checks pin that
- * contract so a refactor cannot silently reintroduce an opt-in gate or expose
- * the surface on web.
+ * more. The control surface is available on desktop and web behind the live
+ * Den availability probe. The execution bridge remains desktop-only.
  */
 describe("Automations availability", () => {
   test("no preview feature flag remains in the local preferences", () => {
@@ -21,13 +19,13 @@ describe("Automations availability", () => {
     expect(flags).not.toContain("automations")
   })
 
-  test("the shell gates route, Den probe, and navigation on desktop runtime only", () => {
+  test("the shell exposes the route and Den probe on desktop and web", () => {
     const source = read("src/react-app/shell/session-route.tsx")
-    expect(source).toContain("const automationsEnabled = isDesktopRuntime()")
     expect(source).not.toContain("featureFlags?.automations")
-    expect(source).toContain("automationsEnabled && automationsRouteRequested")
-    expect(source).toContain("!automationsEnabled || !denAuth.isSignedIn")
-    expect(source).toContain("automationsEnabled && automationsSupported")
+    expect(source).toContain("const automationsRouteActive = automationsRouteRequested")
+    expect(source).not.toContain("navigate(\"/\", { replace: true })")
+    expect(source).toContain("if (!denAuth.isSignedIn || !authToken || !organizationId)")
+    expect(source).toContain("const automationsNavigationAvailable = automationsSupported")
   })
 
   test("the runner bridge registers on desktop without an opt-in", () => {
@@ -49,8 +47,9 @@ describe("Automations availability", () => {
     expect(proposal).toContain("data-automation-model-resolution")
   })
 
-  test("the automations capability stays desktop-only", () => {
+  test("the automations capability is discoverable on web and desktop", () => {
     const controls = read("src/react-app/shell/control/control-provider.tsx")
-    expect(controls).toContain("...(isDesktopRuntime()")
+    expect(controls).toContain('{ id: "automations", label: "Automations"')
+    expect(controls).not.toContain('...(isDesktopRuntime()\n            ? [{ id: "automations"')
   })
 })

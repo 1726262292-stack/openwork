@@ -305,4 +305,54 @@ describe("saved marketplace scripts", () => {
     if (result.ok || result.error !== "invalid_capability_arguments") throw new Error("Expected invalid script arguments")
     expect(result.issues.length).toBeGreaterThan(0)
   })
+
+  test("validates saved script output before returning an artifact-ready result", async () => {
+    const seeded = await seedScript({
+      title: "Typed Result Script",
+      code: "return { count: 'not-a-number' }",
+      payload: {
+        language: "codemode-js",
+        outputSchema: {
+          type: "object",
+          properties: { count: { type: "number" } },
+          required: ["count"],
+        },
+        requiredCapabilities: [],
+      },
+    })
+
+    const result = await executeScript(seeded)
+    expect(result).toMatchObject({
+      ok: false,
+      error: "invalid_capability_arguments",
+      sameArgumentsRetryable: false,
+    })
+  })
+
+  test("lists accessible scripts with exact versions and artifact schemas", async () => {
+    const seeded = await seedScript({
+      title: "Artifact Script",
+      code: "return { briefing: input.topic }",
+      payload: {
+        language: "codemode-js",
+        inputSchema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] },
+        outputSchema: { type: "object", properties: { briefing: { type: "string" } }, required: ["briefing"] },
+        requiredCapabilities: [],
+      },
+    })
+
+    const scripts = await marketplaceCapabilities.listAccessibleSavedCodemodeScripts({
+      member: seeded.member,
+      organizationId: seeded.organizationId,
+    })
+    expect(scripts).toHaveLength(1)
+    expect(scripts[0]).toMatchObject({
+      pluginId: seeded.pluginId,
+      configObjectId: seeded.configObjectId,
+      title: "Artifact Script",
+      inputSchema: { type: "object" },
+      outputSchema: { type: "object" },
+    })
+    expect(scripts[0]?.configObjectVersionId).toStartWith("cov_")
+  })
 })

@@ -11,6 +11,7 @@ function seedRequiredEnv() {
 
 let buildExternalNamespaceMap: typeof import("../src/mcp/codemode-tools.js")["buildExternalNamespaceMap"]
 let isCodemodeEligibleConnection: typeof import("../src/mcp/codemode-tools.js")["isCodemodeEligibleConnection"]
+let firstUnattendedUnsafeCapability: typeof import("../src/mcp/codemode-tools.js")["firstUnattendedUnsafeCapability"]
 let restrictCodemodeToolTree: typeof import("../src/mcp/codemode-tools.js")["restrictCodemodeToolTree"]
 let sanitizeNamespaceSegment: typeof import("../src/mcp/codemode-tools.js")["sanitizeNamespaceSegment"]
 
@@ -19,6 +20,7 @@ beforeAll(async () => {
   const codemodeTools = await import("../src/mcp/codemode-tools.js")
   buildExternalNamespaceMap = codemodeTools.buildExternalNamespaceMap
   isCodemodeEligibleConnection = codemodeTools.isCodemodeEligibleConnection
+  firstUnattendedUnsafeCapability = codemodeTools.firstUnattendedUnsafeCapability
   restrictCodemodeToolTree = codemodeTools.restrictCodemodeToolTree
   sanitizeNamespaceSegment = codemodeTools.sanitizeNamespaceSegment
 })
@@ -74,4 +76,15 @@ test("excludes connections disabled or pending OAuth issuer review", () => {
     toolPolicy: null,
     oauthIssuerReviewRequiredAt: null,
   })).toBe(true)
+})
+
+test("allows only explicitly read-only capabilities in unattended Cloud runs", () => {
+  const required = { scriptPath: "tools.reports.read", capabilityName: "reports.read" }
+  const built = {
+    tools: {},
+    manifest: [{ ...required, readOnly: true }],
+  }
+  expect(firstUnattendedUnsafeCapability(built, [required])).toBeNull()
+  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: false }] }, [required])).toEqual(required)
+  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [] }, [required])).toEqual(required)
 })

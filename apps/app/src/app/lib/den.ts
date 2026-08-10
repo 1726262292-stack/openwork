@@ -98,6 +98,10 @@ import type {
   DenResourceSnapshotConfigItem,
   DenResourceSnapshotMarketplace,
   DenResourceSnapshotPlugin,
+  DenSaveCodemodeScriptInput,
+  DenSavedCodemodeScript,
+  DenSavedCodemodeScriptRun,
+  DenSavedCodemodeScriptSummary,
   DenSettings,
   DenUser,
 } from "./den-types";
@@ -2507,6 +2511,56 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         organizationId: orgId,
       });
       return getDenOrgLlmProviders(payload);
+    },
+
+    async saveCodemodeScript(orgId: string, input: DenSaveCodemodeScriptInput): Promise<DenSavedCodemodeScript> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
+        method: "POST",
+        token,
+        organizationId: orgId,
+        body: input,
+      });
+      if (!isRecord(payload)
+        || typeof payload.pluginId !== "string"
+        || typeof payload.configObjectId !== "string"
+        || typeof payload.configObjectVersionId !== "string") {
+        throw new DenApiError(500, "invalid_saved_script_payload", "Saved script response was incomplete.");
+      }
+      return {
+        pluginId: payload.pluginId,
+        configObjectId: payload.configObjectId,
+        configObjectVersionId: payload.configObjectVersionId,
+      };
+    },
+
+    async listSavedCodemodeScripts(orgId: string): Promise<DenSavedCodemodeScriptSummary[]> {
+      const payload = await requestJson<{ items: DenSavedCodemodeScriptSummary[] }>(baseUrls, "/v1/codemode-scripts", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      return payload.items;
+    },
+
+    async runSavedCodemodeScript(
+      orgId: string,
+      script: DenSavedCodemodeScript,
+      input: unknown,
+    ): Promise<DenSavedCodemodeScriptRun> {
+      return requestJson<DenSavedCodemodeScriptRun>(
+        baseUrls,
+        `/v1/codemode-scripts/${encodeURIComponent(script.configObjectId)}/run`,
+        {
+          method: "POST",
+          token,
+          organizationId: orgId,
+          body: {
+            pluginId: script.pluginId,
+            configObjectVersionId: script.configObjectVersionId,
+            input,
+          },
+        },
+      );
     },
 
     async listAutomations(

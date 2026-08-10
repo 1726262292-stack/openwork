@@ -63,6 +63,9 @@ function scope(c: { get(name: "organizationContext"): OrganizationContextVariabl
 function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error: string; message?: string } } | null {
   if (!(error instanceof Error)) return null
   if (error.message === "automation_not_found") return { status: 404, body: { error: "automation_not_found" } }
+  if (error.message === "automation_action_target_mismatch") {
+    return { status: 400, body: { error: "automation_action_target_mismatch", message: "Agent Automations run on desktop; saved Script Automations run in OpenWork Cloud." } }
+  }
   if (["owner_membership_lost", "model_access_lost", "provider_unavailable"].includes(error.name)) {
     return { status: 409, body: { error: error.name, message: error.message } }
   }
@@ -70,8 +73,9 @@ function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error
 }
 
 const routeDescription = [
-  "Den schedules Automations and keeps durable run history; execution is dispatched to the owner's connected desktop app.",
-  "If no desktop runner is connected when an occurrence is due, that occurrence is recorded as missed.",
+  "Den schedules Automations and keeps durable run history.",
+  "Agent Automations run on the owner's connected desktop; saved Script Automations run in OpenWork Cloud.",
+  "If no desktop runner is connected when a desktop occurrence is due, that occurrence is recorded as missed.",
   "Creation makes an Automation active immediately and uses the owner's current OpenWork Connect integrations.",
   "Deactivation stops future runs but does not cancel a run already in progress.",
 ].join(" ")
