@@ -254,7 +254,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const automationReview = await visibleText(desktop);
   expect(automationReview).toContain("OpenWork Cloud");
   expect(automationReview).toMatch(/exact script version/i);
-  expect(automationReview).toMatch(/without requiring.*model session/i);
+  expect(automationReview).toMatch(/even when.*browser.*desktop.*closed/i);
   await click(desktop, "Create and activate");
 
   const calls = await den.mocks.reports.toolCalls({
