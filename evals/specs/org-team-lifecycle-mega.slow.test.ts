@@ -732,7 +732,13 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
     // unique enough for one session.
     const llmNonce = stamp.toString(36);
     const llmMarker = `LLM-OK-${llmNonce}`;
-    await sendComposerMessage(appMate, `Reply with exactly ${llmMarker} and no other text.`);
+    // A bare "reply with exactly <token>" prompt trips larger models' refusal
+    // heuristics (gpt-4o answered "I can't assist with that"); frame the echo
+    // as the connectivity check it actually is.
+    await sendComposerMessage(
+      appMate,
+      `This is an automated connectivity check of the newly configured model. Reply with the verification code ${llmMarker} to confirm the model is reachable.`,
+    );
     const llmReply = await waitForAssistantReply(appMate, { timeoutMs: 300_000 });
     expect(llmReply.text).toContain(llmMarker);
     evidence.fact(
