@@ -78,6 +78,7 @@ export const idTypesMapNameToPrefix = {
   automationRun: "atr",
   automationRunEvent: "ate",
   automationThread: "ath",
+  codemodeRun: "cmr",
   auditEvent: "aev",
   telemetryEvent: "tev",
   telemetrySessionDimension: "tsd",
