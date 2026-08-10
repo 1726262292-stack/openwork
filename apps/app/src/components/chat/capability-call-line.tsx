@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/collapsible"
 import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
 import { getCapabilityCallQuote, getCapabilityCallSentence, parseRecord } from "@/lib/capability-call"
+import { normalizeErrorText } from "@/lib/error-text"
 import { trackToolCallDuration } from "@/lib/tool-call-duration"
 import { isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
@@ -60,7 +61,11 @@ function failureInstruction(part: DynamicToolUIPart, reconnectName: string | nul
   }
 
   const firstLine = errorText?.split("\n")[0]?.trim()
-  if (firstLine && !firstLine.startsWith("{") && !firstLine.startsWith("[")) return firstLine
+  if (firstLine && !firstLine.startsWith("{") && !firstLine.startsWith("[") && !firstLine.startsWith("<")) return firstLine
+  if (firstLine?.startsWith("<") && errorText) {
+    const normalizedFirstLine = normalizeErrorText(errorText, { cap: 500 }).display.split("\n")[0]?.trim()
+    if (normalizedFirstLine && !normalizedFirstLine.startsWith("<")) return normalizedFirstLine
+  }
   return "The call failed. Full error is under Technical details."
 }
 

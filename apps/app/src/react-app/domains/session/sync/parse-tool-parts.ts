@@ -2,6 +2,7 @@ import type { DynamicToolUIPart, TextUIPart } from "ai";
 import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 
 import { safeStringify } from "@/app/utils";
+import { normalizeErrorText } from "@/lib/error-text";
 
 export const STRUCTURED_OUTPUT_TOOL = "StructuredOutput";
 
@@ -44,7 +45,7 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
       toolCallId: part.callID,
       state: "output-error",
       input: part.state.input,
-      errorText: part.state.error,
+      errorText: normalizeErrorText(part.state.error).display,
       callProviderMetadata: { opencode: { partId: part.id } },
     };
   }
