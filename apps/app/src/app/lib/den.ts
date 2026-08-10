@@ -418,6 +418,10 @@ export type DenAppVersionMetadata = {
   minAppVersion: string;
   latestAppVersion: string;
   publishedDesktopVersions: string[];
+  capabilities?: {
+    savedCodemodeScripts: boolean;
+    savedScriptCloudAutomations: boolean;
+  };
 };
 
 type RawJsonResponse<T> = {
@@ -468,6 +472,12 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
     typeof payload.latestAppVersion === "string" ? payload.latestAppVersion.trim() : "";
   if (!latestAppVersion) return null;
   const publishedDesktopVersions = readStringArray(payload.publishedDesktopVersions);
+  const capabilities = isRecord(payload.capabilities)
+    ? {
+        savedCodemodeScripts: payload.capabilities.savedCodemodeScripts === true,
+        savedScriptCloudAutomations: payload.capabilities.savedScriptCloudAutomations === true,
+      }
+    : null;
 
   return {
     minAppVersion:
@@ -475,6 +485,7 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
     latestAppVersion,
     publishedDesktopVersions:
       publishedDesktopVersions.length > 0 ? publishedDesktopVersions : [latestAppVersion],
+    ...(capabilities ? { capabilities } : {}),
   };
 }
 
@@ -2534,6 +2545,8 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
     },
 
     async supportsSavedCodemodeScripts(orgId: string): Promise<boolean> {
+      const metadata = await this.getAppVersionMetadata();
+      if (metadata.capabilities?.savedCodemodeScripts !== true) return false;
       try {
         await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
           method: "GET",
@@ -2600,16 +2613,18 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
     },
 
     async supportsCloudSavedScriptAutomations(orgId: string): Promise<boolean> {
+      const metadata = await this.getAppVersionMetadata();
+      if (metadata.capabilities?.savedScriptCloudAutomations !== true) return false;
       try {
-        const payload = await requestJson<{
-          version: number;
-          actions?: { savedScriptCloud?: boolean };
-        }>(baseUrls, "/v1/automations/capabilities", {
+        // The public, backward-compatible version endpoint proves the route
+        // contract exists before the desktop contacts any additive API. This
+        // org-scoped read then preserves the existing Code Mode rollout flag.
+        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
           method: "GET",
           token,
           organizationId: orgId,
         });
-        return payload.version === 1 && payload.actions?.savedScriptCloud === true;
+        return true;
       } catch (error) {
         if (error instanceof DenApiError && error.status === 404) return false;
         throw error;

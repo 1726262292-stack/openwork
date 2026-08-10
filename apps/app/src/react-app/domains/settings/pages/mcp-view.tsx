@@ -398,7 +398,11 @@ export function McpView(props: McpViewProps) {
       return;
     }
     let cancelled = false;
-    void cloudSession.client.listSavedCodemodeScripts(organizationId)
+    void cloudSession.client.supportsSavedCodemodeScripts(organizationId)
+      .then(async (supported) => {
+        if (!supported) return [];
+        return cloudSession.client.listSavedCodemodeScripts(organizationId);
+      })
       .then((scripts) => {
         if (!cancelled) setSavedScripts(scripts);
       })

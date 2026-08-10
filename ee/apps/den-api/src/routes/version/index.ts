@@ -10,6 +10,10 @@ const appVersionResponseSchema = z.object({
   minAppVersion: z.string(),
   latestAppVersion: z.string().min(1),
   publishedDesktopVersions: z.array(z.string().min(1)),
+  capabilities: z.object({
+    savedCodemodeScripts: z.literal(true),
+    savedScriptCloudAutomations: z.literal(true),
+  }),
 }).meta({ ref: "DenAppVersionResponse" })
 
 export function registerVersionRoutes<T extends Env>(app: Hono<T>) {
@@ -29,6 +33,10 @@ export function registerVersionRoutes<T extends Env>(app: Hono<T>) {
       return c.json({
         ...denApiAppVersion,
         publishedDesktopVersions: [...PUBLISHED_DESKTOP_VERSIONS],
+        capabilities: {
+          savedCodemodeScripts: true as const,
+          savedScriptCloudAutomations: true as const,
+        },
       })
     },
   )

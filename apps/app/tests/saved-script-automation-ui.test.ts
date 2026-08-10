@@ -40,6 +40,7 @@ describe("saved Code Mode script journey", () => {
     expect(page).toContain("scriptVersionId")
     expect(page).toContain("OpenWork Cloud")
     expect(page).toContain("supportsCloudSavedScriptAutomations")
+    expect(page).toContain('queryKey: [...queryRoot, "capabilities", "saved-script-cloud"]')
     expect(page).toContain("does not support Cloud Script Automations yet")
   })
 })
