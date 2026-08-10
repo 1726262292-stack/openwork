@@ -1,0 +1,86 @@
+# Repository prerequisite: enable Settings → Actions → General →
+# "Allow GitHub Actions to create and approve pull requests".
+# The bot approval satisfies the "someone other than the last pusher" rule because
+# this workflow's bot never pushes. For SOC 2 four-eyes, this automated control
+# inherits the original human review of the commit already landed on protected dev.
+# Scope is limited to single-commit, non-merge reverts whose tree is an exact inverse;
+# hand-adjusted reverts (revert conflicts or edits after `git revert`) are deliberately
+# rejected and take the normal human-review path.
+name: Revert Fast Lane
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [dev]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: revert-fastlane-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-approve:
+    if: startsWith(github.event.pull_request.title, 'Revert "') && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact clean revert
+        id: verify
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          reverted="$(node -e 'const match = (process.env.PR_BODY || "").match(/This reverts commit ([0-9a-f]{40})/i); process.stdout.write(match ? match[1] : "")')"
+          args=(--base "$BASE_SHA" --head "$HEAD_SHA")
+          if [[ -n "$reverted" ]]; then
+            args+=(--reverted "$reverted")
+          fi
+
+          output="$(node scripts/ci/verify-clean-revert.mjs "${args[@]}" 2>&1)"
+          status=$?
+          printf '%s\n' "$output"
+
+          verdict=""
+          verified_reverted=""
+          reason="verification failed"
+          while IFS= read -r line; do
+            case "$line" in
+              verdict=*) verdict="${line#verdict=}" ;;
+              reverted=*) verified_reverted="${line#reverted=}" ;;
+              FAIL\ *) reason="${line#FAIL }" ;;
+            esac
+          done <<< "$output"
+          if [[ $status -eq 0 && "$verdict" == "pass" ]]; then
+            echo "verdict=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=fail" >> "$GITHUB_OUTPUT"
+          fi
+          echo "reverted=$verified_reverted" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+
+      - name: Approve verified revert
+        if: steps.verify.outputs.verdict == 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVERTED_SHA: ${{ steps.verify.outputs.reverted }}
+        run: |
+          body="Machine-verified that this PR's tree is the exact inverse of commit \`$REVERTED_SHA\`, which previously landed on protected \`dev\` via a reviewed PR. Auto-approval per the clean-revert fast-lane control; any further push re-runs verification."
+          gh pr review "$PR_NUMBER" --approve --body "$body"
+          printf '## Revert Fast Lane\n\nPASS: %s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record ineligible revert
+        if: steps.verify.outputs.verdict != 'pass'
+        env:
+          REASON: ${{ steps.verify.outputs.reason }}
+        run: |
+          printf '## Revert Fast Lane\n\nNot eligible for fast lane: %s. Needs normal human review.\n' "$REASON" >> "$GITHUB_STEP_SUMMARY"
