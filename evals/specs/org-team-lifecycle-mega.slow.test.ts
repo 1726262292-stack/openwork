@@ -721,6 +721,10 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
     const automationName = `Mega Automation ${automationNonce}`;
     const due = new Date(Date.now() + 2 * 60_000);
     const scheduledTime = `${String(due.getUTCHours()).padStart(2, "0")}:${String(due.getUTCMinutes()).padStart(2, "0")}`;
+    // Automations is a global route ("/automations", workspace-routes.ts:18),
+    // not a workspace-scoped one; the list opens the editor via "New
+    // Automation" and the editor submits with "Create and activate"
+    // (automations-page.tsx:564,267 + automation-editor submitLabel).
     {
       const deadline = Date.now() + 60_000;
       let settled = false;
@@ -728,19 +732,20 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
         const onRoute = await evalIn(
           appMate,
           `window.location.hash.includes("/automations") && [...document.querySelectorAll('button')]
-            .some((button) => (button.textContent ?? '').includes('Create Automation'))`,
+            .some((button) => (button.textContent ?? '').includes('New Automation'))`,
           { timeoutMs: 8_000 },
         ).catch(() => false);
         if (onRoute === true) {
           settled = true;
           break;
         }
-        await go(appMate, `/workspace/${appMate.workspaceId}/automations`).catch(() => undefined);
+        await go(appMate, "/automations").catch(() => undefined);
         await sleep(1_500);
       }
       expect(settled, "The automations surface never settled after the skill turn.").toBe(true);
     }
-    await clickButton(appMate, "Create Automation");
+    await clickButton(appMate, "New Automation");
+    await waitForText(appMate, "Create Automation", { timeoutMs: 30_000 });
     await setField(appMate, "Name", automationName);
     await setField(
       appMate,
@@ -756,7 +761,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
     expect(approvalTextAbsent).toBe(true);
 
     const automationSince = new Date().toISOString();
-    await clickButton(appMate, "Create Automation");
+    await clickButton(appMate, "Create and activate");
     await waitForText(appMate, "Active", { timeoutMs: 60_000 });
     evidence.fact(
       "The teammate's Automation is active immediately without approval state",
@@ -786,7 +791,14 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       matchingAutomationCalls.length === 1,
     );
 
-    await waitForText(appMate, "Succeeded", { timeoutMs: 180_000 });
+    // The run badge renders the raw status ("succeeded", automations-page.tsx
+    // runLabel); match case-insensitively so a copy change to Title Case
+    // cannot silently break the wait either.
+    await waitFor(
+      appMate,
+      `(document.body.innerText ?? '').toLowerCase().includes('succeeded')`,
+      { timeoutMs: 180_000, label: "automation run succeeded badge" },
+    );
     await waitForText(appMate, automationMarker, { timeoutMs: 60_000 });
     const shot = await screenshot(appMate);
     const seen = await validate(shot, [
