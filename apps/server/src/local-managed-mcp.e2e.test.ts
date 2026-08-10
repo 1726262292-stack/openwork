@@ -8,6 +8,7 @@ import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
+import { deleteLocalManagedMcp, setLocalManagedMcpEnabled } from "./local-managed-mcp.js";
 import { runtimeStorageDir } from "./runtime-db.js";
 import { readRuntimeMcpConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
@@ -135,6 +136,25 @@ async function connectGateway(runtimeConfig: Record<string, unknown>): Promise<C
 }
 
 describe("OpenWork-managed local MCP OAuth gateway", () => {
+  test("leaves ordinary MCP fallbacks usable when no managed vault exists", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "openwork-local-managed-mcp-fallback-"));
+    roots.push(workspaceRoot);
+    const config = createConfig({
+      port: await freePort(),
+      workspaceRoot,
+      engineBaseUrl: "http://127.0.0.1:1",
+      vaultKey: randomBytes(32),
+    });
+    config.configPath = join(workspaceRoot, "server.json");
+    config.localManagedMcpVaultKey = async () => {
+      throw new Error("vault key should not be requested");
+    };
+
+    expect(await setLocalManagedMcpEnabled(config, "ws_managed", "ordinary", false)).toBe(false);
+    expect(await deleteLocalManagedMcp(config, "ws_managed", "ordinary")).toBe(false);
+    expect(existsSync(join(runtimeStorageDir(config), "local-managed-mcp-vault.json"))).toBe(false);
+  });
+
   test("owns OAuth, exposes provider tools to OpenCode, refreshes, survives restart, and disconnects", async () => {
     const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
     const previousDevMode = process.env.OPENWORK_DEV_MODE;

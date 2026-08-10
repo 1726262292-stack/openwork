@@ -165,18 +165,25 @@ test("idle runner notification polling backs off without delaying keepalives", (
   assert.equal(nextRunnerNotificationPollDelay(delay, true), RUNNER_NOTIFICATION_POLL_MIN_MS)
 })
 
-test("manual runs use durable runner presence across Den API replicas", () => {
+test("idle runner keepalives do not persist liveness in the database", () => {
   const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
   const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
-  const runnerAuthSource = readFileSync(join(import.meta.dir, "../src/automations/runner-auth.ts"), "utf8")
+  const sse = routesSource.slice(
+    routesSource.indexOf("/v1/automation-runners/events\", async"),
+    routesSource.indexOf("/v1/automation-runner/work"),
+  )
+  const manualRun = routesSource.slice(
+    routesSource.indexOf("/v1/automations/:id/run"),
+    routesSource.indexOf("/v1/automations/:id/runs"),
+  )
 
-  assert.match(routesSource, /await service\.hasOnlineDesktopRunner\(owner\)/)
-  assert.doesNotMatch(routesSource, /automationRunnerAuth\.hasConnected/)
-  assert.doesNotMatch(runnerAuthSource, /connections = new Map/)
-  assert.match(serviceSource, /DESKTOP_RUNNER_ONLINE_WINDOW_MS = 45_000/)
-  assert.match(serviceSource, /automationRepository\.hasRecentDesktopRunner\(/)
-  assert.match(repositorySource, /gt\(AutomationRunnerTable\.last_seen_at, new Date\(input\.seenAfter\)\)/)
+  assert.match(sse, /stream\.writeSSE\(\{ event: "keepalive"/)
+  assert.doesNotMatch(sse, /touchDesktopRunner/)
+  assert.doesNotMatch(manualRun, /hasOnlineDesktopRunner/)
+  assert.match(serviceSource, /claimDeadlineMs: env\.automations\.runnerClaimDeadlineMs/)
+  assert.doesNotMatch(serviceSource, /hasRecentDesktopRunner/)
+  assert.doesNotMatch(repositorySource, /AutomationRunnerTable\.last_seen_at, new Date\(input\.seenAfter\)/)
 })
 
 test("every dispatch path revalidates the owner's model access", () => {
