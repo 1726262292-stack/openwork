@@ -89,6 +89,7 @@ Rules for adding cache helpers:
 - Add helpers under the exported `cache` namespace in `src/cache.ts`.
 - Keep each helper as a read-through function: check Redis, run the DB loader on miss, write Redis, then return the loaded value.
 - Redis is optional. Helpers must work when `DATABASE_REDIS_URL` is unset.
+- Non-local Redis should use `rediss://`. Set `DATABASE_REDIS_ALLOW_INSECURE_INTERNAL=1` only when the `redis://` endpoint is private, non-public, and restricted to a trusted internal network.
 - Use short TTLs unless invalidation is explicit and tested.
 - Auth sessions are DB-authoritative and cached for at most one hour. Any session delete or identity-changing update must invalidate `cache.auth.deleteSession(token)`.
 - Do not add new security-critical cache helpers without explicit invalidation and tests.
