@@ -136,7 +136,10 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
           await stream.writeSSE({ id: payload.cursor, event: payload.type, data: JSON.stringify(payload) })
         }
         if (notifications.length === 0 && Date.now() - lastKeepaliveAt >= RUNNER_KEEPALIVE_INTERVAL_MS) {
-          await service.touchDesktopRunner(identity)
+          // The open SSE stream is the live presence signal. Persisting that
+          // signal every 15 seconds turns every idle runner into a perpetual
+          // database writer; durable runner metadata is refreshed when the
+          // runner registers or actually asks for work instead.
           await stream.writeSSE({ event: "keepalive", data: "{}" })
           lastKeepaliveAt = Date.now()
         }
@@ -335,12 +338,11 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
     }),
     orgMemberRoute(), paramValidator(idParamsSchema),
     async (c) => {
-      const owner = scope(c)
-      if (!(await service.hasOnlineDesktopRunner(owner))) {
-        return c.json({ error: "runner_unavailable", message: "No desktop runner is online" }, 409)
-      }
       try {
-        const run = await service.runNow(owner, c.req.valid("param").id)
+        // Runner presence is advisory and must not require a database
+        // heartbeat. The durable claim deadline records an unclaimed desktop
+        // run as missed through the same path used by scheduled occurrences.
+        const run = await service.runNow(scope(c), c.req.valid("param").id)
         return run ? c.json({ run }, 202) : c.json({ error: "automation_not_found" }, 404)
       } catch (error) {
         const mapped = failure(error)
