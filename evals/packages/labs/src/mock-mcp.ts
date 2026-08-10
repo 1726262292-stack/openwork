@@ -96,7 +96,7 @@ async function waitForHealth(url: string, output: () => string, child: ChildProc
       throw new Error(`Mock OAuth+MCP server exited before becoming healthy. Output: ${output().slice(-1_000)}`);
     }
     try {
-      const response = await fetch(`${url}/health`);
+      const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(10_000) });
       const body: unknown = await response.json().catch(() => null);
       if (response.ok && isRecord(body) && body.ok === true) {
         if (Object.hasOwn(body, "autoApprove") && body.autoApprove === false) {
@@ -121,7 +121,7 @@ async function waitForEnterpriseHealth(url: string, output: () => string, child:
       throw new Error(`Enterprise MCP mock exited before becoming healthy. Output: ${output().slice(-1_000)}`);
     }
     try {
-      const response = await fetch(`${url}/health`);
+      const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(10_000) });
       const body: unknown = await response.json().catch(() => null);
       if (response.ok && isRecord(body) && body.status === "ok" && typeof body.mcpUrl === "string") {
         return body.mcpUrl;

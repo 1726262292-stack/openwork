@@ -340,9 +340,6 @@ async function callGatewayTool(
 ): Promise<unknown> {
   const response = await fetch(`${apiUrl.replace(/\/+$/, "")}/mcp/agent`, {
     method: "POST",
-    // Unbounded, this exact call stalled 300s on undici header timeouts three
-    // times (runs 10/15/16) when the preview proxy sat on the SSE response.
-    signal: AbortSignal.timeout(60_000),
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",

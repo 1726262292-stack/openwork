@@ -125,6 +125,9 @@ function providerJson(raw: string, provider: string): unknown {
 async function askOpenAi(req: VisionRequest, key: string): Promise<string> {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
+    // Unbounded vision calls stalled runs for undici's full 300s header
+    // timeout; 120s comfortably covers slow multimodal responses.
+    signal: AbortSignal.timeout(120_000),
     headers: {
       authorization: `Bearer ${key}`,
       "content-type": "application/json",
@@ -157,6 +160,7 @@ async function askOpenAi(req: VisionRequest, key: string): Promise<string> {
 async function askAnthropic(req: VisionRequest, key: string): Promise<string> {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
+    signal: AbortSignal.timeout(120_000),
     headers: {
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
