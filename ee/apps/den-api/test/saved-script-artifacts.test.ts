@@ -54,6 +54,22 @@ test("freshness preserves last-good state after failures", () => {
     lastSuccessfulReceiptId: "cmr_last_good",
     reason: "Provider access was revoked.",
   })
+  assert.deepEqual(artifactFreshness({
+    latestFinishedAt: new Date("2026-08-10T11:59:30.000Z"),
+    latestStatus: "succeeded",
+    latestSuccessfulFinishedAt: new Date("2026-08-10T11:59:30.000Z"),
+    latestSuccessfulReceiptId: "cmr_fresh",
+    maxAgeMs: 60_000,
+    now,
+  }), { state: "fresh", ageMs: 30_000 })
+  assert.deepEqual(artifactFreshness({
+    latestFinishedAt: new Date("2026-08-10T11:58:00.000Z"),
+    latestStatus: "succeeded",
+    latestSuccessfulFinishedAt: new Date("2026-08-10T11:58:00.000Z"),
+    latestSuccessfulReceiptId: "cmr_stale",
+    maxAgeMs: 60_000,
+    now,
+  }), { state: "stale", ageMs: 120_000, maxAgeMs: 60_000 })
 })
 
 test("recovery-triggered Automation artifacts keep scheduled lineage", () => {
