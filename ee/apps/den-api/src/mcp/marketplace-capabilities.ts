@@ -1517,6 +1517,7 @@ export async function executeMarketplaceCapability(input: {
   organizationId: string
   pluginId: string
   redirectUriBase?: string
+  validateScriptOutput?: boolean
 }): Promise<MarketplaceCapabilityExecuteResult> {
   if (input.enabled === false) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
@@ -1579,6 +1580,7 @@ export async function executeMarketplaceCapability(input: {
       normalizedPayloadJson: version.normalizedPayloadJson,
       code: version.rawSourceText ?? "",
       scriptInput: input.body,
+      validateOutput: input.validateScriptOutput === true,
       buildTools: input.buildTools ?? (async () => ({ tools: {}, manifest: [] })),
     })
     if (!execution.ok && execution.error === "unsupported") {

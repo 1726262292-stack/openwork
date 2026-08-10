@@ -2533,13 +2533,34 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       };
     },
 
+    async supportsSavedCodemodeScripts(orgId: string): Promise<boolean> {
+      try {
+        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
+          method: "GET",
+          token,
+          organizationId: orgId,
+        });
+        return true;
+      } catch (error) {
+        if (error instanceof DenApiError && error.status === 404) return false;
+        throw error;
+      }
+    },
+
     async listSavedCodemodeScripts(orgId: string): Promise<DenSavedCodemodeScriptSummary[]> {
-      const payload = await requestJson<{ items: DenSavedCodemodeScriptSummary[] }>(baseUrls, "/v1/codemode-scripts", {
-        method: "GET",
-        token,
-        organizationId: orgId,
-      });
-      return payload.items;
+      try {
+        const payload = await requestJson<{ items: DenSavedCodemodeScriptSummary[] }>(baseUrls, "/v1/codemode-scripts", {
+          method: "GET",
+          token,
+          organizationId: orgId,
+        });
+        return payload.items;
+      } catch (error) {
+        // Desktop can be published before its configured Den deployment. Treat
+        // an older server without this additive route as feature unavailable.
+        if (error instanceof DenApiError && error.status === 404) return [];
+        throw error;
+      }
     },
 
     async runSavedCodemodeScript(

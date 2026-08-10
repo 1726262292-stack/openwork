@@ -24,6 +24,7 @@ export type CodemodeManifestEntry = {
   scriptPath: string
   capabilityName: string
   readOnly?: boolean
+  unattendedApproved?: boolean
 }
 
 export type BuiltCodemodeTools = {
@@ -110,7 +111,7 @@ export function restrictCodemodeToolTree(input: {
 
 /**
  * Unattended Cloud runs may be retried after a lost lease, so Phase 1 only
- * admits capabilities that explicitly declare themselves read-only.
+ * admits trusted Den reads or external tools an org admin explicitly approved.
  */
 export function firstUnattendedUnsafeCapability(
   built: BuiltCodemodeTools,
@@ -122,6 +123,7 @@ export function firstUnattendedUnsafeCapability(
   ]))
   return requiredCapabilities.find((required) => (
     manifest.get(`${required.scriptPath}\n${required.capabilityName}`)?.readOnly !== true
+    || manifest.get(`${required.scriptPath}\n${required.capabilityName}`)?.unattendedApproved !== true
   )) ?? null
 }
 
@@ -176,6 +178,7 @@ export function buildDenCatalogToolTree(input: {
       scriptPath: codemodeScriptPath("den", operation.name),
       capabilityName: operation.name,
       readOnly: operation.method === "GET",
+      unattendedApproved: operation.method === "GET",
     })),
   }
 }
@@ -279,6 +282,8 @@ export async function buildExternalMcpToolTree(input: {
           scriptPath: codemodeScriptPath(namespace, tool.name),
           capabilityName: buildExternalCapabilityName(connection.id, tool.name),
           readOnly: tool.annotations?.readOnlyHint === true,
+          unattendedApproved: tool.annotations?.readOnlyHint === true
+            && connection.toolPolicy?.unattendedApprovedTools?.includes(tool.name) === true,
         }))
     }),
   }

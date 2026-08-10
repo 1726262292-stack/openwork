@@ -22,4 +22,12 @@ describe("Tool Tester layout", () => {
 
     expect(inspector).toContain("Outgoing request");
   });
+
+  test("requires explicit admin approval for unattended external tools", () => {
+    const screen = readFileSync(screenPath, "utf8");
+
+    expect(screen).toContain("Allow unattended Cloud Automations");
+    expect(screen).toContain("provider's read-only hint is not trusted by itself");
+    expect(screen).toContain("unattendedApprovedTools.includes(selectedTool.name)");
+  });
 });

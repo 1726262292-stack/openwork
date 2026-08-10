@@ -69,6 +69,7 @@ export function OpenWorkCodemodeScriptTool({ part }: { part: DynamicToolUIPart }
     2,
   ))
   const [saving, setSaving] = useState(false)
+  const [checkingSupport, setCheckingSupport] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<{ pluginId: string; configObjectId: string; configObjectVersionId: string } | null>(null)
   const code = isRecord(part.input) && typeof part.input.code === "string" ? part.input.code : ""
@@ -112,6 +113,30 @@ export function OpenWorkCodemodeScriptTool({ part }: { part: DynamicToolUIPart }
     }
   }
 
+  const openSave = async () => {
+    const settings = readDenSettings()
+    const organizationId = settings.activeOrgId?.trim()
+    const token = settings.authToken?.trim()
+    if (!organizationId || !token) {
+      setOpen(true)
+      return
+    }
+    setCheckingSupport(true)
+    setError(null)
+    try {
+      const supported = await createDenClient({ baseUrl: settings.baseUrl, token }).supportsSavedCodemodeScripts(organizationId)
+      if (!supported) {
+        setError("Saved scripts will be available after this OpenWork Cloud server is upgraded.")
+        return
+      }
+      setOpen(true)
+    } catch (supportError) {
+      setError(supportError instanceof Error ? supportError.message : "Could not check saved script support.")
+    } finally {
+      setCheckingSupport(false)
+    }
+  }
+
   return (
     <div className="space-y-2" data-openwork-codemode-script={part.toolCallId}>
       <CapabilityCallLine part={part} />
@@ -120,11 +145,13 @@ export function OpenWorkCodemodeScriptTool({ part }: { part: DynamicToolUIPart }
           <Play className="size-3.5" />
           Run again
         </Button>
-        <Button type="button" variant="outline" size="xs" disabled={Boolean(saved)} onClick={() => setOpen(true)}>
+        <Button type="button" variant="outline" size="xs" disabled={Boolean(saved) || checkingSupport} onClick={() => void openSave()}>
           <Save className="size-3.5" />
-          {saved ? "Script saved" : "Save as script"}
+          {saved ? "Script saved" : checkingSupport ? "Checking…" : "Save as script"}
         </Button>
       </div>
+
+      {error && !open ? <p className="ps-5 text-xs text-destructive" role="alert">{error}</p> : null}
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => !saving && setOpen(false)}>

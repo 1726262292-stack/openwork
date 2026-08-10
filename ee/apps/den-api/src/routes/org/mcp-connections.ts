@@ -426,6 +426,7 @@ const connectionToolSchema = z.object({
 const connectionToolPolicySchema = z.object({
   allDisabled: z.boolean(),
   disabledTools: z.array(z.string()),
+  unattendedApprovedTools: z.array(z.string()),
   updatedBy: z.string().nullable(),
   updatedAt: z.string().datetime().nullable(),
 }).meta({ ref: "ExternalMcpConnectionToolPolicy" })
@@ -433,6 +434,7 @@ const connectionToolPolicySchema = z.object({
 const connectionToolPolicyInputSchema = z.object({
   allDisabled: z.boolean(),
   disabledTools: z.array(z.string().trim().min(1).max(255)).max(500),
+  unattendedApprovedTools: z.array(z.string().trim().min(1).max(255)).max(500).optional(),
 }).meta({ ref: "ExternalMcpConnectionToolPolicyInput" })
 
 const connectionToolPolicyResponseSchema = z.object({
@@ -781,6 +783,7 @@ function toToolPolicyResponse(
   return {
     allDisabled: policy?.allDisabled ?? false,
     disabledTools: policy?.disabledTools ?? [],
+    unattendedApprovedTools: policy?.unattendedApprovedTools ?? [],
     updatedBy: options.includeAttribution ? policy?.updatedByName ?? null : null,
     updatedAt: policy?.updatedAt ?? null,
   }
@@ -1740,6 +1743,9 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         version: 1,
         allDisabled: body.allDisabled,
         disabledTools: [...new Set(body.disabledTools)],
+        unattendedApprovedTools: body.unattendedApprovedTools === undefined
+          ? connection.toolPolicy?.unattendedApprovedTools ?? []
+          : [...new Set(body.unattendedApprovedTools)],
         updatedByOrgMembershipId: payload.currentMember.id,
         ...(updatedByName ? { updatedByName } : {}),
         updatedAt: new Date().toISOString(),

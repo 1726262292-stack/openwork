@@ -176,11 +176,13 @@ function executeScript(seeded: SeededScript, input: {
   body?: unknown
   buildTools?: Parameters<MarketplaceCapabilities["executeMarketplaceCapability"]>[0]["buildTools"]
   codemodeEnabled?: boolean
+  validateScriptOutput?: boolean
 } = {}) {
   return marketplaceCapabilities.executeMarketplaceCapability({
     body: input.body,
     buildTools: input.buildTools,
     codemodeEnabled: input.codemodeEnabled ?? true,
+    validateScriptOutput: input.validateScriptOutput,
     configObjectId: seeded.configObjectId,
     enabled: true,
     member: seeded.member,
@@ -321,7 +323,11 @@ describe("saved marketplace scripts", () => {
       },
     })
 
-    const result = await executeScript(seeded)
+    const legacyResult = await executeScript(seeded)
+    if (!legacyResult.ok) throw new Error(legacyResult.message)
+    expect(legacyResult.result).toMatchObject({ status: "executed", value: { count: "not-a-number" } })
+
+    const result = await executeScript(seeded, { validateScriptOutput: true })
     expect(result).toMatchObject({
       ok: false,
       error: "invalid_capability_arguments",

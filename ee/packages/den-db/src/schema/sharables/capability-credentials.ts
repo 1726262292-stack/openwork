@@ -138,6 +138,8 @@ export type ExternalMcpToolPolicy = {
   version: 1
   allDisabled: boolean
   disabledTools: string[]
+  /** Tools an org admin explicitly approved for retryable unattended Cloud runs. */
+  unattendedApprovedTools?: string[]
   updatedByOrgMembershipId?: string
   updatedByName?: string
   updatedAt?: string

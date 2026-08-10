@@ -104,6 +104,12 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     credentialMode: "shared",
     access: { orgWide: true },
   });
+  const approvedForCloud = await denFetch(den.admin, `/v1/mcp-connections/${connection.id}/tool-policy`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${den.admin.token}` },
+    body: JSON.stringify({ allDisabled: false, disabledTools: [], unattendedApprovedTools: ["mock_echo"] }),
+  });
+  expect(approvedForCloud.response.ok, approvedForCloud.text).toBe(true);
 
   const stamp = Date.now();
   const scriptName = `Launch briefing ${stamp}`;

@@ -54,6 +54,7 @@ export async function executeSavedCodemodeScript(input: {
   normalizedPayloadJson: unknown
   code: string
   scriptInput?: unknown
+  validateOutput?: boolean
   buildTools: () => Promise<BuiltCodemodeTools>
 }): Promise<SavedCodemodeScriptExecutionResult> {
   const parsed = parseCodemodeScriptPayload(input.normalizedPayloadJson)
@@ -81,7 +82,7 @@ export async function executeSavedCodemodeScript(input: {
     return {
       ok: false,
       error: "capability_unavailable",
-      message: `Required capability ${unsafe.scriptPath} (${unsafe.capabilityName}) is not declared read-only and cannot run unattended in OpenWork Cloud.`,
+      message: `Required capability ${unsafe.scriptPath} (${unsafe.capabilityName}) must be read-only and explicitly approved by an organization admin before it can run unattended in OpenWork Cloud.`,
       providerCallAttempted: false,
       missing: [unsafe],
     }
@@ -124,7 +125,7 @@ export async function executeSavedCodemodeScript(input: {
     return { ok: false, error: "script_failed", message: result.error.message, kind: result.error.kind, toolCalls: result.toolCalls }
   }
 
-  if (parsed.payload.outputSchema) {
+  if (input.validateOutput === true && parsed.payload.outputSchema) {
     const validation = validateCodemodeScriptOutput(parsed.payload.outputSchema, result.value)
     if (!validation.ok) {
       if (validation.error === "invalid_schema") return { ok: false, error: "unsupported", message: validation.message }
@@ -162,7 +163,7 @@ export async function executeSavedCodemodeScript(input: {
     pluginId: input.pluginId,
     configObjectId: input.configObjectId,
     configObjectVersionId: input.configObjectVersionId,
-    validatedResult: result.value,
+    ...(input.validateOutput === true ? { validatedResult: result.value } : {}),
     source: `plugin:${input.pluginId}:${input.configObjectId}`,
     code: input.code,
     startedAt,

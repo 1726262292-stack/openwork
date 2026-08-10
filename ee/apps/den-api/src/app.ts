@@ -245,6 +245,7 @@ configureCloudSavedScriptExecutor(async ({ organizationId, ownerMemberId, automa
     automationRunId: normalizeDenTypeId("automationRun", automationRunId),
     body: action.input,
     codemodeEnabled: true,
+    validateScriptOutput: true,
     buildTools: () => buildCodemodeToolTree({
       app: app as unknown as Hono,
       env: undefined,

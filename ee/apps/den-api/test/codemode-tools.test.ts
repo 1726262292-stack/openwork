@@ -78,13 +78,14 @@ test("excludes connections disabled or pending OAuth issuer review", () => {
   })).toBe(true)
 })
 
-test("allows only explicitly read-only capabilities in unattended Cloud runs", () => {
+test("requires trusted admin approval in addition to read-only metadata for unattended Cloud runs", () => {
   const required = { scriptPath: "tools.reports.read", capabilityName: "reports.read" }
   const built = {
     tools: {},
-    manifest: [{ ...required, readOnly: true }],
+    manifest: [{ ...required, readOnly: true, unattendedApproved: true }],
   }
   expect(firstUnattendedUnsafeCapability(built, [required])).toBeNull()
+  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: true }] }, [required])).toEqual(required)
   expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: false }] }, [required])).toEqual(required)
   expect(firstUnattendedUnsafeCapability({ ...built, manifest: [] }, [required])).toEqual(required)
 })

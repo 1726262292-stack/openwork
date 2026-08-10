@@ -147,6 +147,7 @@ export type ExternalMcpTool = {
 export type ExternalMcpToolPolicyView = {
   allDisabled: boolean;
   disabledTools: string[];
+  unattendedApprovedTools: string[];
   updatedBy: string | null;
   updatedAt: string | null;
 };
@@ -282,12 +283,15 @@ function parseExternalMcpToolPolicy(value: unknown): ExternalMcpToolPolicyView |
     || typeof value.allDisabled !== "boolean"
     || !Array.isArray(value.disabledTools)
     || !value.disabledTools.every((toolName) => typeof toolName === "string")
+    || !Array.isArray(value.unattendedApprovedTools)
+    || !value.unattendedApprovedTools.every((toolName) => typeof toolName === "string")
     || (value.updatedBy !== null && typeof value.updatedBy !== "string")
     || (value.updatedAt !== null && typeof value.updatedAt !== "string")
   ) return null;
   return {
     allDisabled: value.allDisabled,
     disabledTools: value.disabledTools,
+    unattendedApprovedTools: value.unattendedApprovedTools,
     updatedBy: value.updatedBy,
     updatedAt: value.updatedAt,
   };
@@ -323,7 +327,7 @@ export function useUpdateMcpConnectionToolPolicy(connectionId: string) {
   const queryClient = useQueryClient();
   const { orgId } = useOrgDashboard();
   return useMutation({
-    mutationFn: async (input: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools">): Promise<ExternalMcpToolPolicyView> => {
+    mutationFn: async (input: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools" | "unattendedApprovedTools">): Promise<ExternalMcpToolPolicyView> => {
       const { response, payload } = await requestJson(
         `/v1/mcp-connections/${encodeURIComponent(connectionId)}/tool-policy`,
         {

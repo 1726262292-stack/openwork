@@ -133,6 +133,7 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
         configObjectVersionId: body.configObjectVersionId,
         body: body.input,
         codemodeEnabled,
+        validateScriptOutput: true,
         buildTools,
       })
       if (!result.ok) return c.json({ error: result.error, message: result.message }, 400)
