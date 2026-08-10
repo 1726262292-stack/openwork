@@ -36,7 +36,6 @@ import {
   runtimeMcpMap,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
-import { externalFetch } from "./server-fetch.js";
 import type { ServerConfig } from "./types.js";
 import { assertLocalManagedMcpUrl, createLocalManagedMcpGuardedFetch } from "./local-managed-mcp-url-guard.js";
 
@@ -111,7 +110,7 @@ export type CreateLocalManagedMcpInput = {
 const VAULT_AAD = Buffer.from("openwork-local-managed-mcp-v1", "utf8");
 const vaultQueueByPath = new Map<string, Promise<void>>();
 const gatewaySecretByConfig = new WeakMap<ServerConfig, Buffer>();
-const guardedFetch = createLocalManagedMcpGuardedFetch((url, init) => externalFetch(String(url), init));
+const guardedFetch = createLocalManagedMcpGuardedFetch();
 
 function emptyVault(): LocalManagedMcpVault {
   return { schemaVersion: 1, connections: {} };

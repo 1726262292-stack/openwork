@@ -16,6 +16,7 @@ import {
 import { createClient, unwrap } from "../../../app/lib/opencode";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
+  assertDesktopWebUrl,
   openDesktopUrl,
   readOpencodeConfig,
   writeOpencodeConfig,
@@ -994,7 +995,7 @@ export function createConnectionsStore(options: {
     result: { status: "connected" } | { status: "needs_auth"; authorizeUrl: string },
   ): Promise<boolean> {
     if (result.status === "connected") return true;
-    await openDesktopUrl(result.authorizeUrl);
+    await openDesktopUrl(assertDesktopWebUrl(result.authorizeUrl));
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
       const connection = await openworkClient.getManagedMcp(workspaceId, name);

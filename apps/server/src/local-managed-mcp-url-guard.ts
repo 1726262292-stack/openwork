@@ -1,5 +1,11 @@
+import type { LookupAddress, LookupAllOptions } from "node:dns";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
+import {
+  Agent,
+  fetch as undiciFetch,
+  type RequestInit as UndiciRequestInit,
+} from "undici";
 
 export class LocalManagedMcpPrivateUrlError extends Error {
   constructor(url: string, detail: string) {
@@ -108,6 +114,54 @@ function allowPrivateUrls(): boolean {
   return process.env.OPENWORK_DEV_MODE === "1" || process.env.OPENWORK_ALLOW_PRIVATE_MCP_URLS === "1";
 }
 
+type ResolveAddresses = (hostname: string, options: LookupAllOptions) => Promise<LookupAddress[]>;
+
+const resolveAddresses: ResolveAddresses = (hostname, options) => lookup(hostname, options);
+
+function validateResolvedAddresses(hostname: string, addresses: LookupAddress[]): void {
+  if (addresses.length === 0) {
+    throw new LocalManagedMcpPrivateUrlError(`https://${hostname}/`, "the hostname does not resolve");
+  }
+  if (allowPrivateUrls()) return;
+  for (const { address } of addresses) {
+    if (isLocalManagedMcpPrivateAddress(address)) {
+      throw new LocalManagedMcpPrivateUrlError(
+        `https://${hostname}/`,
+        `the hostname resolves to a private or reserved address (${address})`,
+      );
+    }
+  }
+}
+
+/**
+ * Resolves and validates the address inside the socket connector's lookup
+ * callback. The exact validated answer is handed to net.connect, so a later
+ * DNS answer cannot replace it between validation and connection.
+ */
+export function createLocalManagedMcpPublicLookup(
+  resolver: ResolveAddresses = resolveAddresses,
+): LookupFunction {
+  return (hostname, options, callback) => {
+    const lookupOptions: LookupAllOptions = { ...options, all: true, verbatim: true };
+    void resolver(hostname, lookupOptions).then((addresses) => {
+      try {
+        validateResolvedAddresses(hostname, addresses);
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error("Managed MCP hostname lookup failed."), []);
+        return;
+      }
+      if (options.all) {
+        callback(null, addresses);
+        return;
+      }
+      const first = addresses[0];
+      callback(null, first.address, first.family);
+    }, (error: unknown) => {
+      callback(error instanceof Error ? error : new Error("Managed MCP hostname lookup failed."), []);
+    });
+  };
+}
+
 export async function assertLocalManagedMcpUrl(rawUrl: string): Promise<void> {
   const url = parseHttpUrl(rawUrl);
   if (allowPrivateUrls()) return;
@@ -121,22 +175,20 @@ export async function assertLocalManagedMcpUrl(rawUrl: string): Promise<void> {
     }
     return;
   }
-  let addresses: { address: string }[];
+  let addresses: LookupAddress[];
   try {
-    addresses = await lookup(hostname, { all: true, verbatim: true });
+    addresses = await resolveAddresses(hostname, { all: true, verbatim: true });
   } catch {
     throw new LocalManagedMcpPrivateUrlError(rawUrl, "the hostname does not resolve");
   }
-  if (addresses.length === 0) throw new LocalManagedMcpPrivateUrlError(rawUrl, "the hostname does not resolve");
-  for (const { address } of addresses) {
-    if (isLocalManagedMcpPrivateAddress(address)) {
-      throw new LocalManagedMcpPrivateUrlError(rawUrl, `the hostname resolves to a private or reserved address (${address})`);
-    }
-  }
+  validateResolvedAddresses(hostname, addresses);
 }
 
 type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const guardedDispatcher = new Agent({
+  connect: { lookup: createLocalManagedMcpPublicLookup() },
+});
 
 function redirectedRequestInit(init: RequestInit | undefined, status: number, from: URL, to: URL): RequestInit {
   const headers = new Headers(init?.headers);
@@ -161,13 +213,27 @@ function redirectedRequestInit(init: RequestInit | undefined, status: number, fr
   return { ...init, headers, redirect: "manual" };
 }
 
-export function createLocalManagedMcpGuardedFetch(fetchImpl: FetchLike): FetchLike {
+async function guardedTransportFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  // DOM, Bun, and Undici publish structurally equivalent Fetch API types from
+  // different declarations. Keep the conversion isolated at this transport boundary.
+  const requestInit = { ...init, dispatcher: guardedDispatcher } as unknown as UndiciRequestInit;
+  return await undiciFetch(input, requestInit) as unknown as Response;
+}
+
+export function createLocalManagedMcpGuardedFetch(): FetchLike {
   return async (input, init) => {
     let current = new URL(String(input));
     let currentInit: RequestInit = { ...init, redirect: "manual" };
     for (let redirectCount = 0; ; redirectCount += 1) {
-      await assertLocalManagedMcpUrl(current.toString());
-      const response = await fetchImpl(current, currentInit);
+      const parsed = parseHttpUrl(current.toString());
+      if (!allowPrivateUrls() && parsed.protocol !== "https:") {
+        throw new LocalManagedMcpPrivateUrlError(current.toString(), "managed MCP egress requires HTTPS");
+      }
+      const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+      if (!allowPrivateUrls() && isIP(hostname) && isLocalManagedMcpPrivateAddress(hostname)) {
+        throw new LocalManagedMcpPrivateUrlError(current.toString(), "the address is private or reserved");
+      }
+      const response = await guardedTransportFetch(current, currentInit);
       const location = response.headers.get("location");
       if (!REDIRECT_STATUSES.has(response.status) || !location) return response;
       if (redirectCount >= 5) {
@@ -175,7 +241,6 @@ export function createLocalManagedMcpGuardedFetch(fetchImpl: FetchLike): FetchLi
         throw new Error("Managed MCP outbound request exceeded the guarded redirect limit.");
       }
       const next = new URL(location, current);
-      await assertLocalManagedMcpUrl(next.toString());
       try {
         currentInit = redirectedRequestInit(currentInit, response.status, current, next);
       } catch (error) {
