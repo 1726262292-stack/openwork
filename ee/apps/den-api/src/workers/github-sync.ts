@@ -70,7 +70,7 @@ function changedRows(result: unknown): boolean {
 }
 
 async function connectorTargetIdsWithStatuses(
-  connectorTargetIds: string[],
+  connectorTargetIds: Array<NonNullable<(typeof ConnectorSyncEventTable.$inferSelect)["connectorTargetId"]>>,
   statuses: Array<(typeof ConnectorSyncEventTable.$inferSelect)["status"]>,
 ) {
   if (connectorTargetIds.length === 0) return new Set<string>()
