@@ -5,6 +5,7 @@ import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
 import type { OpenworkSessionSnapshot } from "../../../../app/lib/openwork-server";
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
+import { normalizeErrorText } from "../../../../lib/error-text";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -67,10 +68,14 @@ function withSessionErrorHints(text: string) {
   return withOpenAiTokenRefreshHint(withAttachmentRecoveryHint(text));
 }
 
+function normalizeSessionError(text: string) {
+  return normalizeErrorText(withSessionErrorHints(text), { cap: 500 }).display;
+}
+
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
-  if (error instanceof Error) return withSessionErrorHints(error.message || fallback);
-  if (typeof error === "string") return withSessionErrorHints(error.trim() || fallback);
-  if (!error || typeof error !== "object") return fallback;
+  if (error instanceof Error) return normalizeSessionError(error.message || fallback);
+  if (typeof error === "string") return normalizeSessionError(error.trim() || fallback);
+  if (!error || typeof error !== "object") return normalizeSessionError(fallback);
 
   const data = recordValue(error, "data");
   const cause = recordValue(error, "cause");
@@ -89,11 +94,13 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
   if (code) lines.push(`Code: ${code}`);
   if (retries !== null) lines.push(`Retries: ${retries}`);
-  if (responseBody && responseBody !== message) lines.push(`Response: ${responseBody}`);
-  if (lines.some((line) => line !== fallback)) return withSessionErrorHints(lines.join("\n"));
+  if (responseBody && responseBody !== message) {
+    lines.push(`Response: ${normalizeErrorText(responseBody, { cap: 500 }).display}`);
+  }
+  if (lines.some((line) => line !== fallback)) return normalizeSessionError(lines.join("\n"));
 
   const serialized = safeStringify(error);
-  return serialized && serialized !== "{}" ? serialized : fallback;
+  return normalizeSessionError(serialized && serialized !== "{}" ? serialized : fallback);
 }
 
 function sessionErrorMessageId(turnKey: string) {
