@@ -3,9 +3,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createDenClient, DenApiError } from "../src/app/lib/den";
 
 const originalFetch = globalThis.fetch;
+const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
 
 afterEach(() => {
   Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+  if (originalWindowDescriptor) {
+    Object.defineProperty(globalThis, "window", originalWindowDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
 });
 
 function mockResponse(status: number, payload: unknown) {
@@ -18,31 +24,25 @@ function mockResponse(status: number, payload: unknown) {
   });
 }
 
-const versionMetadata = {
-  minAppVersion: "0.18.0",
-  latestAppVersion: "0.18.0",
-  publishedDesktopVersions: ["0.18.0"],
-};
-
 describe("saved script client rollout compatibility", () => {
-  test("does not contact additive routes until the stable version endpoint advertises them", async () => {
+  test("does not let a published desktop contact additive Den routes", async () => {
     const paths: string[] = [];
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { __OPENWORK_ELECTRON__: {} },
+    });
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,
       value: (async (input) => {
         paths.push(String(input));
-        return new Response(JSON.stringify(versionMetadata), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        throw new Error("desktop rollout gate contacted Den");
       }) satisfies typeof fetch,
     });
     const client = createDenClient({ baseUrl: "https://den.test", token: "tok_test" });
 
     await expect(client.supportsSavedCodemodeScripts("org_test")).resolves.toBe(false);
     await expect(client.supportsCloudSavedScriptAutomations("org_test")).resolves.toBe(false);
-    expect(paths).toHaveLength(2);
-    expect(paths.every((path) => path.endsWith("/v1/app-version"))).toBe(true);
+    expect(paths).toHaveLength(0);
   });
 
   test("keeps direct list reads compatible with an older Den", async () => {
@@ -60,22 +60,14 @@ describe("saved script client rollout compatibility", () => {
     await expect(client.supportsCloudSavedScriptAutomations("org_test")).rejects.toBeInstanceOf(DenApiError);
   });
 
-  test("enables Cloud Script Automations only when Den advertises the action", async () => {
+  test("enables the web control surface only after Den serves saved scripts", async () => {
     const paths: string[] = [];
     Object.defineProperty(globalThis, "fetch", {
       configurable: true,
       value: (async (input) => {
         const path = String(input);
         paths.push(path);
-        return new Response(JSON.stringify(path.endsWith("/v1/app-version")
-          ? {
-              ...versionMetadata,
-              capabilities: {
-                savedCodemodeScripts: true,
-                savedScriptCloudAutomations: true,
-              },
-            }
-          : { items: [] }), {
+        return new Response(JSON.stringify({ items: [] }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -85,7 +77,6 @@ describe("saved script client rollout compatibility", () => {
 
     await expect(client.supportsSavedCodemodeScripts("org_test")).resolves.toBe(true);
     await expect(client.supportsCloudSavedScriptAutomations("org_test")).resolves.toBe(true);
-    expect(paths.filter((path) => path.endsWith("/v1/app-version"))).toHaveLength(2);
     expect(paths.filter((path) => path.endsWith("/v1/codemode-scripts"))).toHaveLength(2);
   });
 });

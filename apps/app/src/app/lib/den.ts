@@ -418,10 +418,6 @@ export type DenAppVersionMetadata = {
   minAppVersion: string;
   latestAppVersion: string;
   publishedDesktopVersions: string[];
-  capabilities?: {
-    savedCodemodeScripts: boolean;
-    savedScriptCloudAutomations: boolean;
-  };
 };
 
 type RawJsonResponse<T> = {
@@ -472,12 +468,6 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
     typeof payload.latestAppVersion === "string" ? payload.latestAppVersion.trim() : "";
   if (!latestAppVersion) return null;
   const publishedDesktopVersions = readStringArray(payload.publishedDesktopVersions);
-  const capabilities = isRecord(payload.capabilities)
-    ? {
-        savedCodemodeScripts: payload.capabilities.savedCodemodeScripts === true,
-        savedScriptCloudAutomations: payload.capabilities.savedScriptCloudAutomations === true,
-      }
-    : null;
 
   return {
     minAppVersion:
@@ -485,7 +475,6 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
     latestAppVersion,
     publishedDesktopVersions:
       publishedDesktopVersions.length > 0 ? publishedDesktopVersions : [latestAppVersion],
-    ...(capabilities ? { capabilities } : {}),
   };
 }
 
@@ -2545,8 +2534,10 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
     },
 
     async supportsSavedCodemodeScripts(orgId: string): Promise<boolean> {
-      const metadata = await this.getAppVersionMetadata();
-      if (metadata.capabilities?.savedCodemodeScripts !== true) return false;
+      // Den must land and deploy before a published desktop can consume its
+      // additive saved-script contract. The web control surface can negotiate
+      // the continuously deployed API with a harmless read and a 404 fallback.
+      if (isDesktopRuntime()) return false;
       try {
         await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
           method: "GET",
@@ -2613,12 +2604,10 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
     },
 
     async supportsCloudSavedScriptAutomations(orgId: string): Promise<boolean> {
-      const metadata = await this.getAppVersionMetadata();
-      if (metadata.capabilities?.savedScriptCloudAutomations !== true) return false;
+      if (isDesktopRuntime()) return false;
       try {
-        // The public, backward-compatible version endpoint proves the route
-        // contract exists before the desktop contacts any additive API. This
-        // org-scoped read then preserves the existing Code Mode rollout flag.
+        // A successful org-scoped saved-script read proves that both the Code
+        // Mode rollout and the additive cloud action are available to web.
         await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
           method: "GET",
           token,
