@@ -43,7 +43,10 @@ function escapeHtml(value: string): string {
 
 function cell(value: unknown): string {
   const rendered = value === null ? "null" : typeof value === "string" ? value : String(value)
-  return escapeHtml(rendered).replace(/\|/g, "\\|").replace(/\r?\n/g, "\\n")
+  return escapeHtml(rendered)
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, "\\n")
 }
 
 function table(headers: string[], rows: unknown[][]): string {

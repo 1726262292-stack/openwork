@@ -28,6 +28,11 @@ test("Markdown rendering is deterministic and never emits raw HTML", () => {
     "| 3 | 4 |",
   ].join("\n"))
   assert.equal(renderSavedScriptMarkdown({ nested: { value: 1 } }), '```json\n{"nested":{"value":1}}\n```')
+  assert.equal(renderSavedScriptMarkdown({ path: String.raw`C:\reports\a|b` }), [
+    "| Key | Value |",
+    "| --- | --- |",
+    String.raw`| path | C:\\reports\\a\|b |`,
+  ].join("\n"))
 })
 
 test("freshness preserves last-good state after failures", () => {
