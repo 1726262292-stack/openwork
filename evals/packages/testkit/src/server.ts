@@ -46,6 +46,13 @@ export interface ServerOptions {
   org?: OrgShape;
   reuse?: DenRef;
   reuseMembers?: Record<string, PersonShape>;
+  /**
+   * Extra origins Den should trust, on top of its own API and web hosts. A
+   * loopback identity provider needs this: Den refuses to register an SSO
+   * provider whose endpoints are not publicly routable unless the origin is
+   * trusted, so a spec that stands one up has to name it here.
+   */
+  trustedOrigins?: readonly string[];
 }
 
 export interface Den extends AsyncDisposable {
@@ -520,13 +527,15 @@ export async function server(options: ServerOptions): Promise<Den> {
     await runDbPush(database.url);
     const [apiPort, webPort] = await allocateFreePorts(2);
     if (apiPort === undefined || webPort === undefined) throw new Error("Could not allocate Den API/Web ports.");
-    const origins = trustedOrigins(apiPort, webPort).join(",");
+    const origins = [...trustedOrigins(apiPort, webPort), ...(options.trustedOrigins ?? [])].join(",");
     const ref: DenRef = {
       apiUrl: `http://127.0.0.1:${apiPort}`,
       webUrl: `http://127.0.0.1:${webPort}`,
     };
     const logsDir = join(REPO_ROOT, "evals", "results", ".testkit", database.name);
     await mkdir(logsDir, { recursive: true });
+    const orgShape = options.org ?? defaultLocalOrg(runId);
+    const bootstrapAdmin = personDefaults("admin", orgShape.admin, runId);
     const commonEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...bootedMocks.env,
@@ -544,6 +553,9 @@ export async function server(options: ServerOptions): Promise<Den> {
       DEN_PASSWORD_BREACH_SCREENING_ENABLED: "false",
       OPENWORK_DEV_MODE: "1",
       PROVISIONER_MODE: "stub",
+      // The locally booted Den seeds this admin into the platform-admin
+      // allowlist so specs can exercise /v1/admin/* capability toggles.
+      DEN_BOOTSTRAP_ADMIN_EMAILS: bootstrapAdmin.email,
     };
     const api = spawnService("den-api", "dev:den:api", apiPort, { ...commonEnv, DEN_BIND_HOST: "127.0.0.1" }, join(logsDir, "api.log"));
     services.push(api);
@@ -560,7 +572,7 @@ export async function server(options: ServerOptions): Promise<Den> {
     await waitForAuthProbe(ref, api);
     const organization = await provisionOrganization(
       ref,
-      options.org ?? defaultLocalOrg(runId),
+      orgShape,
       runId,
       { databaseUrl: database.url, createOrg: true },
     );

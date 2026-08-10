@@ -31,6 +31,7 @@ import { adminRoute, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { appLogger } from "../../observability/logger.js"
 import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
+import { codemodeScriptsEnabled } from "../../capability-sources/codemode-rollout.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { normalizeOrganizationCapabilities, readOrganizationCapabilityOverrides } from "../../organization-capabilities.js"
@@ -83,6 +84,7 @@ const updateOrganizationCapabilitiesSchema = z.object({
   capabilities: z.object({
     installLinks: z.boolean().nullable().optional(),
     mcpConnections: z.boolean().nullable().optional(),
+    codemodeScripts: z.boolean().nullable().optional(),
     cloud: z.boolean().nullable().optional(),
   }),
 })
@@ -267,6 +269,7 @@ function readAdminVisibleOrganizationCapabilities(metadata: Record<string, unkno
   return {
     installLinks: organizationInstallLinksEnabled(metadata, { gatingEnabled: false }),
     mcpConnections: memberFacingMcpConnectionsEnabled(metadata, { gatingEnabled: false }),
+    codemodeScripts: codemodeScriptsEnabled(metadata),
     cloud: organizationCloudEnabled(metadata, { orgMode: env.orgMode }),
   }
 }
@@ -276,7 +279,7 @@ function readUnmanagedCapabilityMetadata(metadata: Record<string, unknown>): Rec
   const capabilities: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(raw)) {
-    if (key !== "installLinks" && key !== "mcpConnections" && key !== "cloud") {
+    if (key !== "installLinks" && key !== "mcpConnections" && key !== "codemodeScripts" && key !== "cloud") {
       capabilities[key] = value
     }
   }
@@ -1388,6 +1391,14 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           delete capabilities.mcpConnections
         } else {
           capabilities.mcpConnections = mcpConnections
+        }
+      }
+      const codemodeScripts = body.data.capabilities.codemodeScripts
+      if (codemodeScripts !== undefined) {
+        if (codemodeScripts === null) {
+          delete capabilities.codemodeScripts
+        } else {
+          capabilities.codemodeScripts = codemodeScripts
         }
       }
       const cloud = body.data.capabilities.cloud

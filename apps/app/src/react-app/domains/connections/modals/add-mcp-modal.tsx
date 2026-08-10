@@ -109,7 +109,8 @@ export function AddMcpModal(props: AddMcpModalProps) {
             description: "",
             type: "remote",
             url: trimmedUrl,
-            oauth: Boolean(oauthConfig),
+            oauth: state.oauthExpanded,
+            managedOAuth: state.oauthExpanded,
             ...(oauthConfig ? { oauthConfig } : {}),
           }),
         );
@@ -216,7 +217,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
               <div className="text-[11px] text-dls-secondary">
                 {t("mcp.oauth_autodetect_hint")}
               </div>
-              <div className="rounded-xl border border-dls-border bg-dls-hover/30">
+              {!props.isRemoteWorkspace ? <div className="rounded-xl border border-dls-border bg-dls-hover/30">
                 <button
                   type="button"
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-dls-text"
@@ -254,7 +255,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
                     </div>
                   </div>
                 ) : null}
-              </div>
+              </div> : null}
             </div>
           ) : null}
 

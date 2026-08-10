@@ -1625,7 +1625,7 @@ function parseApiKeysRecord(value: unknown): Record<string, string> | null {
 
 function parsePluginConfigObjectType(value: unknown): DenPluginConfigObjectType | null {
   return value === "skill" || value === "agent" || value === "command" || value === "tool" ||
-    value === "mcp" || value === "hook" || value === "context" || value === "custom"
+    value === "mcp" || value === "hook" || value === "context" || value === "custom" || value === "script"
     ? value
     : null;
 }

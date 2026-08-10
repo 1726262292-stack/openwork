@@ -363,17 +363,31 @@ export async function desktopFetchAgentContextDiagnostics(
 // Convenience wrappers
 // ---------------------------------------------------------------------------
 
+export function assertDesktopWebUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Only valid web links can be opened externally.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`External URL protocol "${parsed.protocol}" is not allowed.`);
+  }
+  return parsed.toString();
+}
+
 export async function openDesktopUrl(url: string): Promise<void> {
+  const safeUrl = assertDesktopWebUrl(url);
   const openExternal = window.__OPENWORK_ELECTRON__?.shell?.openExternal;
   if (openExternal) {
-    const result = await openExternal(url);
+    const result = await openExternal(safeUrl);
     if (result && result.ok === false) {
       throw new Error(result.error ?? "Failed to open browser");
     }
     return;
   }
   if (typeof window !== "undefined") {
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(safeUrl, "_blank", "noopener,noreferrer");
   }
 }
 

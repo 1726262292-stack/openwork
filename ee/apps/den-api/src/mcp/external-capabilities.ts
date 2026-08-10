@@ -41,6 +41,7 @@ import {
 } from "./external-mcp-tool-arguments.js"
 import { compareCapabilityMatches, tokenize } from "./search.js"
 import type { CapabilityMatch } from "./search.js"
+import { buildExternalNamespaceMap, codemodeScriptPath } from "./codemode-tools.js"
 
 /**
  * Merges org-level External MCP Connections (capability-sources/) into the
@@ -629,6 +630,7 @@ async function probeExternalMcpConnection(input: {
   redirectUriBase: string
   limit: number
   deadline: ExternalMcpLifecycleDeadline
+  scriptNamespace?: string
 }): Promise<ExternalCapabilityMatch[]> {
   const matches: ExternalCapabilityMatch[] = []
   const add = (match: ExternalCapabilityMatch) => {
@@ -765,6 +767,7 @@ async function probeExternalMcpConnection(input: {
       argumentsSchema: tool.inputSchema,
       schemaDigest: externalMcpToolSchemaDigest(tool.inputSchema),
       invocation: { argumentsField: "body" },
+      ...(input.scriptNamespace ? { scriptPath: codemodeScriptPath(input.scriptNamespace, tool.name) } : {}),
     })
   }
   return matches
@@ -782,6 +785,7 @@ export async function searchExternalCapabilities(input: {
   query: string
   redirectUriBase: string
   limit?: number
+  includeScriptPaths?: boolean
   reportCoverage?: (coverage: ExternalMcpSearchCoverage) => void
 }): Promise<ExternalCapabilityMatch[]> {
   if (!input.member) return []
@@ -796,6 +800,9 @@ export async function searchExternalCapabilities(input: {
     orgMembershipId: input.member.orgMembershipId,
     teamIds: input.member.teamIds,
   })
+  const scriptNamespaces = input.includeScriptPaths
+    ? buildExternalNamespaceMap(connections.filter((connection) => !connection.toolPolicy?.allDisabled))
+    : undefined
   const selectedConnections = selectExternalMcpSearchConnections(connections, queryTokens)
   input.reportCoverage?.({
     eligibleConnections: connections.length,
@@ -813,6 +820,7 @@ export async function searchExternalCapabilities(input: {
       redirectUriBase: input.redirectUriBase,
       limit,
       deadline: sharedDeadline,
+      scriptNamespace: scriptNamespaces?.get(connection.id),
     }),
   })
 }

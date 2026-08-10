@@ -86,19 +86,11 @@ async function canConnect(port: number, host: string): Promise<boolean> {
 }
 
 export async function localMysqlIsRunning(): Promise<boolean> {
-  // Honor the same override LocalPlace uses so the readiness gate and the
-  // actual database connection can never disagree about where MySQL lives
-  // (e.g. a VM IP when the loopback port-forward is unreliable).
-  const override = process.env.OPENWORK_EVAL_MYSQL_URL?.trim();
-  if (override) {
-    try {
-      const url = new URL(override);
-      return canConnect(Number(url.port || 3306), url.hostname);
-    } catch {
-      return false;
-    }
-  }
-  return canConnect(3306, "127.0.0.1");
+  // Probe the same MySQL the run will actually use: OPENWORK_EVAL_MYSQL_URL
+  // overrides the default, so the probe must honor it too.
+  const url = new URL(process.env.OPENWORK_EVAL_MYSQL_URL?.trim() || DEFAULT_MYSQL_URL);
+  const port = url.port ? Number(url.port) : 3306;
+  return canConnect(port, url.hostname || "127.0.0.1");
 }
 
 class LocalPlace implements Place {

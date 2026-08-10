@@ -67,6 +67,18 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
 import {
+  completeLocalManagedMcpAuthorization,
+  createLocalManagedMcpConnection,
+  deleteLocalManagedMcp,
+  disconnectLocalManagedMcp,
+  getLocalManagedMcpConnection,
+  handleLocalManagedMcpGateway,
+  listLocalManagedMcpConnections,
+  reconcileLocalManagedMcpRuntimeEntries,
+  setLocalManagedMcpEnabled,
+  startLocalManagedMcpAuthorization,
+} from "./local-managed-mcp.js";
+import {
   markOpenworkCloudMcpStale,
   reconcilePersistedOpenworkCloudMcp,
   type CloudMcpHealth,
@@ -843,6 +855,13 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
+  try {
+    await reconcileLocalManagedMcpRuntimeEntries(config);
+  } catch (error) {
+    logger.log("warn", "Failed to reconcile OpenWork-managed MCP connections during startup.", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   const refreshWorkspaceReloadBaseline = (workspaceId: string, reasons?: ReloadReason[]) =>
     watcherHandle.refreshWorkspace(workspaceId, reasons);
@@ -1040,6 +1059,17 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     watcherHandle.close();
     reloadBaselineRefreshers.delete(config);
     throw error;
+  }
+
+  if (config.port !== server.port) {
+    config.port = server.port;
+    try {
+      await reconcileLocalManagedMcpRuntimeEntries(config);
+    } catch (error) {
+      logger.log("warn", "Failed to update OpenWork-managed MCP loopback routes after binding the server port.", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
   }
 
   // Deliver server-managed provider credentials to the engine on startup. The
@@ -2527,11 +2557,108 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/mcp", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const items = await listMcp(config, workspace.id, workspace.path);
+    const managed = new Map(
+      (await listLocalManagedMcpConnections(config, workspace.id)).map((connection) => [connection.name, connection]),
+    );
     return jsonResponse({
-      items,
+      items: items.map((item) => ({ ...item, managedOAuth: managed.get(item.name) ?? null })),
       engineSync: engineMcpSyncStateInState(config, engineMcpServerState, workspace),
     });
   });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp/managed", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const name = String(body.name ?? "").trim();
+    validateMcpName(name);
+    const serverUrl = typeof body.url === "string" ? body.url.trim() : "";
+    const oauth = body.oauth && typeof body.oauth === "object" && !Array.isArray(body.oauth)
+      ? body.oauth as Record<string, unknown>
+      : {};
+    if (!serverUrl) throw new ApiError(400, "invalid_payload", "Managed MCP URL is required");
+    const requestedScopes = Array.isArray(oauth.requestedScopes)
+      ? oauth.requestedScopes.filter((scope): scope is string => typeof scope === "string" && scope.trim().length > 0)
+      : [];
+    if ((await listMcp(config, workspace.id, workspace.path)).some((item) => item.name === name)) {
+      throw new ApiError(409, "mcp_exists", `MCP ${name} already exists in this workspace`);
+    }
+    await requireApproval(ctx, {
+      workspaceId: workspace.id,
+      action: "mcp.add",
+      summary: `Add OpenWork-managed MCP ${name}`,
+      paths: [openworkConfigPath(workspace.path)],
+    });
+    await createLocalManagedMcpConnection(config, {
+      workspaceId: workspace.id,
+      name,
+      serverUrl,
+      oauth: {
+        applicationType: oauth.applicationType === "web" ? "web" : "native",
+        requestedScopes,
+        ...(typeof oauth.authorizationServerIssuer === "string" && oauth.authorizationServerIssuer.trim()
+          ? { authorizationServerIssuer: oauth.authorizationServerIssuer.trim() }
+          : {}),
+        ...(typeof oauth.clientId === "string" && oauth.clientId.trim() ? { clientId: oauth.clientId.trim() } : {}),
+        ...(typeof oauth.clientSecret === "string" && oauth.clientSecret.trim() ? { clientSecret: oauth.clientSecret.trim() } : {}),
+      },
+    });
+    const result = await startLocalManagedMcpAuthorization(config, workspace.id, name);
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], undefined, engineMcpServerState).catch(() => undefined);
+    await recordAudit(workspace.path, {
+      id: shortId(),
+      workspaceId: workspace.id,
+      actor: ctx.actor ?? { type: "remote" },
+      action: "mcp.add",
+      target: openworkConfigPath(workspace.path),
+      summary: `Added OpenWork-managed MCP ${name}`,
+      timestamp: Date.now(),
+    });
+    emitReloadEvent(ctx.reloadEvents, workspace, "mcp", { type: "mcp", name, action: "added" });
+    return jsonResponse(result, 201);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/mcp/:name/managed", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await getLocalManagedMcpConnection(config, workspace.id, ctx.params.name ?? ""));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp/:name/managed/connect", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const name = String(ctx.params.name ?? "").trim();
+    validateMcpName(name);
+    const result = await startLocalManagedMcpAuthorization(config, workspace.id, name);
+    await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], undefined, engineMcpServerState).catch(() => undefined);
+    return jsonResponse(result);
+  });
+
+  addRoute(routes, "GET", "/mcp/oauth/callback", "none", async (ctx) => {
+    const state = ctx.url.searchParams.get("state") ?? "";
+    const code = ctx.url.searchParams.get("code") ?? "";
+    if (!state || !code) throw new ApiError(400, "managed_mcp_oauth_callback_invalid", "OAuth callback is missing code or state");
+    const { connection, workspaceId } = await completeLocalManagedMcpAuthorization(config, state, code);
+    const workspace = config.workspaces.find((item) => item.id === workspaceId);
+    if (workspace) {
+      await syncRuntimeMcpToOpencodeEngine(config, workspace, [connection.name], undefined, engineMcpServerState).catch(() => undefined);
+    }
+    return new Response(
+      `<!doctype html><meta charset="utf-8"><title>Connected</title><main style="font:16px system-ui;padding:40px;max-width:560px"><h1>Connected</h1><p>${connection.name} is ready in OpenWork. You can close this window.</p><script>setTimeout(()=>window.close(),1200)</script></main>`,
+      { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+    );
+  });
+
+  const managedGatewayHandler = async (ctx: RequestContext) => handleLocalManagedMcpGateway(
+    config,
+    ctx.request,
+    ctx.params.workspaceId ?? "",
+    ctx.params.name ?? "",
+  );
+  addRoute(routes, "POST", "/mcp/managed/:workspaceId/:name", "none", managedGatewayHandler);
+  addRoute(routes, "GET", "/mcp/managed/:workspaceId/:name", "none", managedGatewayHandler);
+  addRoute(routes, "DELETE", "/mcp/managed/:workspaceId/:name", "none", managedGatewayHandler);
 
   // Portable export of installed skills and MCP servers (including
   // OpenWork-managed runtime MCPs that only live in the runtime DB), so
@@ -2614,7 +2741,8 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const removed = await removeMcp(config, workspace.id, name);
+    const managedRemoved = await deleteLocalManagedMcp(config, workspace.id, name);
+    const removed = managedRemoved || await removeMcp(config, workspace.id, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -2657,7 +2785,8 @@ function createRoutes(
       summary,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const updated = await setMcpEnabled(config, workspace.id, name, enabled);
+    const managedUpdated = await setLocalManagedMcpEnabled(config, workspace.id, name, enabled);
+    const updated = managedUpdated || await setMcpEnabled(config, workspace.id, name, enabled);
     if (!updated) {
       throw new ApiError(404, "mcp_not_found", `MCP ${name} not found in workspace config`);
     }
@@ -2693,6 +2822,21 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = String(ctx.params.name ?? "").trim();
     validateMcpName(name);
+
+    if (await disconnectLocalManagedMcp(config, workspace.id, name)) {
+      await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
+      await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], undefined, engineMcpServerState).catch(() => undefined);
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "remote" },
+        action: "mcp.auth.remove",
+        target: openworkConfigPath(workspace.path),
+        summary: `Logged out OpenWork-managed MCP ${name}`,
+        timestamp: Date.now(),
+      });
+      return jsonResponse({ ok: true });
+    }
 
     const authStorePath = join(homedir(), ".config", "opencode", "mcp-auth.json");
     await requireApproval(ctx, {

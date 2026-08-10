@@ -362,7 +362,22 @@ export type OpenworkMcpItem = {
   config: Record<string, unknown>;
   source: "config.project" | "config.global" | "config.remote";
   disabledByTools?: boolean;
+  managedOAuth?: OpenworkManagedMcpConnection | null;
 };
+
+export type OpenworkManagedMcpConnection = {
+  name: string;
+  serverUrl: string;
+  enabled: boolean;
+  status: "needs_auth" | "connecting" | "connected" | "reconnect_required";
+  lastError: string | null;
+  hasCredential: boolean;
+  updatedAt: number;
+};
+
+export type OpenworkManagedMcpStartResult =
+  | { status: "connected" }
+  | { status: "needs_auth"; authorizeUrl: string };
 
 export type OpenworkMcpEngineSync = {
   status: "ok" | "failed";
@@ -1890,6 +1905,38 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         method: "POST",
         body: payload,
       }),
+    addManagedMcp: (
+      workspaceId: string,
+      payload: {
+        name: string;
+        url: string;
+        oauth?: {
+          applicationType?: "native" | "web";
+          requestedScopes?: string[];
+          authorizationServerIssuer?: string;
+          clientId?: string;
+          clientSecret?: string;
+        };
+      },
+    ) =>
+      requestJson<OpenworkManagedMcpStartResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/mcp/managed`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+      }),
+    getManagedMcp: (workspaceId: string, name: string) =>
+      requestJson<OpenworkManagedMcpConnection>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp/${encodeURIComponent(name)}/managed`,
+        { token, hostToken },
+      ),
+    connectManagedMcp: (workspaceId: string, name: string) =>
+      requestJson<OpenworkManagedMcpStartResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp/${encodeURIComponent(name)}/managed/connect`,
+        { token, hostToken, method: "POST" },
+      ),
     removeMcp: (workspaceId: string, name: string) =>
       requestJson<{ items: OpenworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp/${encodeURIComponent(name)}`, {
         token,

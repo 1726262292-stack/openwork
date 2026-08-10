@@ -680,7 +680,7 @@ export function McpView(props: McpViewProps) {
   };
 
   const supportsOauth = (entry: McpServerEntry) =>
-    entry.config.type === "remote" && entry.config.oauth !== false;
+    Boolean(entry.managedOAuth) || (entry.config.type === "remote" && entry.config.oauth !== false);
 
   const resolveStatus = (entry: McpServerEntry): ReactMcpStatus => {
     if (entry.config.enabled === false) return "disabled";
