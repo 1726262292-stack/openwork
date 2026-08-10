@@ -1246,6 +1246,20 @@ function getErrorMessage(payload: unknown, fallback: string): string {
     return fallback;
   }
 
+  if (payload.error === "password_too_weak" && isRecord(payload.feedback)) {
+    const feedback = payload.feedback;
+    const messages = [
+      typeof feedback.warning === "string" ? feedback.warning.trim() : "",
+      ...(Array.isArray(feedback.suggestions) ? feedback.suggestions : [])
+        .filter((suggestion): suggestion is string => typeof suggestion === "string" && suggestion.trim().length > 0)
+        .map((suggestion) => suggestion.trim()),
+    ].filter((message) => message.length > 0);
+
+    if (messages.length > 0) {
+      return messages.join("\n");
+    }
+  }
+
   if (typeof payload.message === "string" && payload.message.trim()) {
     return payload.message.trim();
   }

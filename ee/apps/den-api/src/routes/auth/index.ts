@@ -27,7 +27,7 @@ import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
 import { cache } from "../../cache.js"
-import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, INVITATION_SIGNUP_ALLOWED_HEADER, type SingleOrgEmailSignupPolicyViolation } from "../../single-org-signup-policy.js"
+import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, type SingleOrgEmailSignupPolicyViolation } from "../../single-org-signup-policy.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
 import { getRequestSession, readSignedSessionCookieToken, revokeBearerSession, type AuthContextVariables } from "../../session.js"
 import { checkRateLimit } from "../../utils/rate-limit.js"
@@ -311,7 +311,7 @@ async function getCurrentActiveOrganizationId(request: Request, context: Context
   return typeof activeOrganizationId === "string" ? activeOrganizationId : null
 }
 
-async function getSingleOrgAuthGuardResponse(request: Request, context: Context) {
+async function getSingleOrgAuthGuardResponse(request: Request, context: Context, options?: { invitationSignupAllowed?: boolean }) {
   if (env.orgMode !== "single_org") {
     return null
   }
@@ -321,11 +321,9 @@ async function getSingleOrgAuthGuardResponse(request: Request, context: Context)
   }
 
   if (isBetterAuthEmailSignupRequest(request)) {
-    if (request.headers.get(INVITATION_SIGNUP_ALLOWED_HEADER) === "1") {
-      return null
-    }
-
-    const violation = await getSingleOrgEmailSignupPolicyViolation(await getAuthRequestEmail(request))
+    const violation = options?.invitationSignupAllowed
+      ? null
+      : await getSingleOrgEmailSignupPolicyViolation(await getAuthRequestEmail(request))
     if (violation) {
       return singleOrgEmailSignupPolicyResponse(violation)
     }
@@ -573,24 +571,18 @@ async function hasPendingInvitationForEmail(invitationIdOrToken: string | undefi
   return Boolean(invitation)
 }
 
-async function markInvitationSignupAllowed(request: Request) {
+async function isInvitationSignupAllowed(request: Request) {
   if (request.method !== "POST" || normalizedPath(request) !== EMAIL_PASSWORD_SIGN_UP_PATH) {
-    return request
+    return false
   }
 
   const invite = new URL(request.url).searchParams.get("invite")?.trim() ?? ""
   if (!invite) {
-    return request
+    return false
   }
 
   const email = await getAuthRequestEmail(request)
-  if (!email || !await hasPendingInvitationForEmail(invite, normalizeLoginEmail(email))) {
-    return request
-  }
-
-  const headers = new Headers(request.headers)
-  headers.set(INVITATION_SIGNUP_ALLOWED_HEADER, "1")
-  return new Request(request, { headers })
+  return email ? hasPendingInvitationForEmail(invite, normalizeLoginEmail(email)) : false
 }
 
 async function handleAuthRequest(c: Context) {
@@ -599,9 +591,9 @@ async function handleAuthRequest(c: Context) {
   if (authRequest instanceof Response) {
     return authRequest
   }
-  const markedAuthRequest = await markInvitationSignupAllowed(authRequest)
+  const invitationSignupAllowed = await isInvitationSignupAllowed(authRequest)
 
-  const emailSignInAttempt = await readEmailSignInAttempt(markedAuthRequest)
+  const emailSignInAttempt = await readEmailSignInAttempt(authRequest)
   if (emailSignInAttempt) {
     const lockoutResponse = await getEmailPasswordLockoutResponse(emailSignInAttempt)
     if (lockoutResponse) {
@@ -609,22 +601,22 @@ async function handleAuthRequest(c: Context) {
     }
   }
 
-  const shortPasswordResponse = await getShortPasswordResponse(markedAuthRequest)
+  const shortPasswordResponse = await getShortPasswordResponse(authRequest)
   if (shortPasswordResponse) {
     return shortPasswordResponse
   }
 
-  const weakPasswordResponse = await getWeakPasswordResponse(markedAuthRequest)
+  const weakPasswordResponse = await getWeakPasswordResponse(authRequest)
   if (weakPasswordResponse) {
     return weakPasswordResponse
   }
 
-  const breachedPasswordResponse = await getBreachedPasswordResponse(markedAuthRequest)
+  const breachedPasswordResponse = await getBreachedPasswordResponse(authRequest)
   if (breachedPasswordResponse) {
     return breachedPasswordResponse
   }
 
-  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(markedAuthRequest)
+  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest, c, { invitationSignupAllowed })
   if (singleOrgAuthGuardResponse) {
     return singleOrgAuthGuardResponse
   }
@@ -634,15 +626,15 @@ async function handleAuthRequest(c: Context) {
   // session, so explicitly revoke the bearer row first; auth.handler still
   // runs to preserve its normal idempotent response and cookie cleanup for
   // browser callers.
-  if (isBetterAuthSignOutRequest(markedAuthRequest)) {
+  if (isBetterAuthSignOutRequest(authRequest)) {
     const cookieToken = await readSignedSessionCookieToken(c)
     if (cookieToken) {
       await cache.auth.deleteSession(cookieToken)
     }
-    await revokeBearerSession(markedAuthRequest.headers)
+    await revokeBearerSession(authRequest.headers)
   }
 
-  const response = await auth.handler(markedAuthRequest)
+  const response = await auth.handler(authRequest)
   if (emailSignInAttempt) {
     await recordEmailSignInResult(emailSignInAttempt, response)
   }

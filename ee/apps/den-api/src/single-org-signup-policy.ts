@@ -8,8 +8,6 @@ import {
   type AllowedEmailDomains,
 } from "./orgs.js"
 
-export const INVITATION_SIGNUP_ALLOWED_HEADER = "x-openwork-invitation-signup-allowed"
-
 export type SingleOrgEmailSignupPolicyViolation = {
   error: "single_org_signup_disabled" | "email_domain_restricted"
   message: string
