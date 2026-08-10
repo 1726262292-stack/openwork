@@ -32,6 +32,9 @@ importers:
       '@openwork/testkit':
         specifier: workspace:*
         version: link:packages/testkit
+      mysql2:
+        specifier: ^3.11.3
+        version: 3.23.2(@types/node@26.1.2)
     devDependencies:
       vitest:
         specifier: ^3.2.4
