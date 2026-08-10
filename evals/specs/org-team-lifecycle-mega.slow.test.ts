@@ -765,13 +765,35 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
 
     const automationSince = new Date().toISOString();
     await clickButton(appMate, "Create and activate");
-    // Late-run CDP on a loaded sandbox gets slow; the binding claim is the
-    // connector witness below, so give the UI confirmations generous budgets.
-    await waitForText(appMate, "Active", { timeoutMs: 180_000 });
+    // Right after creation the desktop runner picks the run up, and the load
+    // spike can starve the sandbox's CDP for minutes. Den is the authority on
+    // automation state, so confirm activation over the API and leave the UI
+    // confirmations for after the run settles.
+    const activatedAutomation = await eventually(async () => {
+      const result = await denFetch(teammate, "/v1/automations", {
+        headers: { ...auth(teammate), "x-openwork-org-id": orgId },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!result.response.ok || !isRecord(result.body)) return null;
+      // GET /v1/automations returns { items: [{ automation: { name, state } }] }.
+      return records(result.body.items)
+        .map((item) => (isRecord(item.automation) ? item.automation : null))
+        .find((automation) =>
+          automation !== null
+          && stringField(automation.name) === automationName
+          && stringField(automation.state) === "active",
+        ) ?? null;
+    }, {
+      within: 180_000,
+      intervalMs: 2_000,
+      label: "created Automation active in Den",
+      until: (automation) => automation !== null,
+    });
+    expect(activatedAutomation).not.toBeNull();
     evidence.fact(
       "The teammate's Automation is active immediately without approval state",
-      "The detail page showed Active and no draft, permission picker, review, or approve text.",
-      approvalTextAbsent,
+      "Den reported state=active for the new Automation, and the create screen showed no draft, permission picker, review, or approve text.",
+      approvalTextAbsent && activatedAutomation !== null,
     );
 
     const initialAutomationCalls = await connector.toolCalls({
