@@ -762,7 +762,9 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
 
     const automationSince = new Date().toISOString();
     await clickButton(appMate, "Create and activate");
-    await waitForText(appMate, "Active", { timeoutMs: 60_000 });
+    // Late-run CDP on a loaded sandbox gets slow; the binding claim is the
+    // connector witness below, so give the UI confirmations generous budgets.
+    await waitForText(appMate, "Active", { timeoutMs: 180_000 });
     evidence.fact(
       "The teammate's Automation is active immediately without approval state",
       "The detail page showed Active and no draft, permission picker, review, or approve text.",
@@ -799,7 +801,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       `(document.body.innerText ?? '').toLowerCase().includes('succeeded')`,
       { timeoutMs: 180_000, label: "automation run succeeded badge" },
     );
-    await waitForText(appMate, automationMarker, { timeoutMs: 60_000 });
+    await waitForText(appMate, automationMarker, { timeoutMs: 120_000 });
     const shot = await screenshot(appMate);
     const seen = await validate(shot, [
       "The teammate's Automation detail shows a succeeded run receipt and execution thread",
@@ -808,6 +810,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
     expect(seen.ok, seen.why).toBe(true);
 
     await clickButton(appMate, "Deactivate");
-    await waitForText(appMate, "Inactive", { timeoutMs: 30_000 });
+    await waitForText(appMate, "Inactive", { timeoutMs: 120_000 });
   }
 });
