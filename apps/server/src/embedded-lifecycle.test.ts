@@ -19,6 +19,7 @@ const ENV_NAMES: string[] = [
   "HOME",
   "OPENWORK_DEV_MODE",
   "OPENWORK_RUNTIME_DB",
+  "OPENWORK_ENCRYPTION_KEY",
   "OPENWORK_OPENCODE_BASE_URL",
   "OPENWORK_LIFECYCLE_LOG",
   "OPENCODE_MODELS_URL",
@@ -49,6 +50,7 @@ async function writeFakeOpencodeBin(root: string): Promise<string> {
     "const requestedPort = Number(process.argv[portIndex + 1] ?? 0);",
     "const logPath = process.env.OPENWORK_LIFECYCLE_LOG;",
     "const append = (line) => { if (logPath) appendFileSync(logPath, `${line}\\n`); };",
+    "append(`vault-key:${process.env.OPENWORK_ENCRYPTION_KEY ? 'present' : 'absent'}`);",
     "const server = Bun.serve({",
     "  hostname: '127.0.0.1',",
     "  port: requestedPort,",
@@ -189,6 +191,23 @@ async function logLines(path: string): Promise<string[]> {
 }
 
 describe("embedded server lifecycle", () => {
+  test.serial("does not expose the vault encryption key to managed OpenCode", async () => {
+    const fixture = await createFixture();
+    process.env.OPENWORK_ENCRYPTION_KEY = "server-only-vault-key";
+    let managed: Awaited<ReturnType<typeof managedOpencodeModule.createManagedOpencodeServer>> | null = null;
+    try {
+      managed = await managedOpencodeModule.createManagedOpencodeServer({
+        bin: fixture.opencodeBin,
+        cwd: fixture.root,
+        env: { OPENWORK_LIFECYCLE_LOG: fixture.logPath },
+      });
+      expect(await logLines(fixture.logPath)).toContain("vault-key:absent");
+    } finally {
+      await managed?.close();
+      await fixture.restore();
+    }
+  });
+
   test.serial("managed OpenCode readiness failure closes the spawned child", async () => {
     const fixture = await createFixture();
     try {

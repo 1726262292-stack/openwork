@@ -109,6 +109,7 @@ export type CreateLocalManagedMcpInput = {
 
 const VAULT_AAD = Buffer.from("openwork-local-managed-mcp-v1", "utf8");
 const vaultQueueByPath = new Map<string, Promise<void>>();
+const vaultKeyByConfig = new WeakMap<ServerConfig, Promise<Buffer>>();
 const gatewaySecretByConfig = new WeakMap<ServerConfig, Buffer>();
 const guardedFetch = createLocalManagedMcpGuardedFetch();
 
@@ -120,26 +121,41 @@ function vaultPath(config: ServerConfig): string {
   return join(runtimeStorageDir(config), "local-managed-mcp-vault.json");
 }
 
-function vaultKeyPath(config: ServerConfig): string {
-  return join(runtimeStorageDir(config), "local-managed-mcp-vault.key");
+function secureVaultStorageUnavailable(): ApiError {
+  return new ApiError(
+    503,
+    "managed_mcp_secure_storage_unavailable",
+    "Secure storage for OpenWork-managed MCP credentials is unavailable. Start through OpenWork Desktop or set OPENWORK_ENCRYPTION_KEY.",
+  );
+}
+
+async function resolveVaultKey(config: ServerConfig): Promise<Buffer> {
+  if (config.localManagedMcpVaultKey) {
+    try {
+      const key = Buffer.from(await config.localManagedMcpVaultKey());
+      if (key.byteLength !== 32) throw new Error("invalid vault key length");
+      return key;
+    } catch {
+      throw secureVaultStorageUnavailable();
+    }
+  }
+  const configured = process.env.OPENWORK_ENCRYPTION_KEY?.trim();
+  if (configured) return createHash("sha256").update(configured).digest();
+  throw secureVaultStorageUnavailable();
 }
 
 async function vaultKey(config: ServerConfig): Promise<Buffer> {
-  const configured = process.env.OPENWORK_ENCRYPTION_KEY?.trim();
-  if (configured) return createHash("sha256").update(configured).digest();
-  const path = vaultKeyPath(config);
-  try {
-    const encoded = (await readFile(path, "utf8")).trim();
-    const key = Buffer.from(encoded, "base64");
-    if (key.byteLength === 32) return key;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  let pending = vaultKeyByConfig.get(config);
+  if (!pending) {
+    pending = resolveVaultKey(config);
+    vaultKeyByConfig.set(config, pending);
   }
-  const key = randomBytes(32);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${key.toString("base64")}\n`, { encoding: "utf8", mode: 0o600 });
-  await chmod(path, 0o600).catch(() => undefined);
-  return key;
+  try {
+    return Buffer.from(await pending);
+  } catch (error) {
+    vaultKeyByConfig.delete(config);
+    throw error;
+  }
 }
 
 function isVaultEnvelope(value: unknown): value is VaultEnvelope {

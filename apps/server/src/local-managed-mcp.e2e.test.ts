@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -92,6 +94,7 @@ function createConfig(input: {
   port: number;
   workspaceRoot: string;
   engineBaseUrl: string;
+  vaultKey: Uint8Array;
 }): ServerConfig {
   return {
     host: "127.0.0.1",
@@ -115,6 +118,7 @@ function createConfig(input: {
     hostTokenSource: "cli",
     logFormat: "pretty",
     logRequests: false,
+    localManagedMcpVaultKey: async () => input.vaultKey,
   };
 }
 
@@ -144,10 +148,12 @@ describe("OpenWork-managed local MCP OAuth gateway", () => {
       const providerPort = await freePort();
       const providerBaseUrl = await startOAuthProvider(providerPort);
       const openworkPort = await freePort();
+      const vaultKey = randomBytes(32);
       const config = createConfig({
         port: openworkPort,
         workspaceRoot,
         engineBaseUrl: `http://127.0.0.1:${engine.server.port}`,
+        vaultKey,
       });
       const server = await startServer(config);
       stops.push(() => server.stop());
@@ -221,6 +227,7 @@ describe("OpenWork-managed local MCP OAuth gateway", () => {
         port: openworkPort,
         workspaceRoot,
         engineBaseUrl: `http://127.0.0.1:${engine.server.port}`,
+        vaultKey,
       });
       const restartedServer = await startServer(restartedConfig);
       stops.push(() => restartedServer.stop());
@@ -236,6 +243,7 @@ describe("OpenWork-managed local MCP OAuth gateway", () => {
       expect(vaultText).toContain('"algorithm":"aes-256-gcm"');
       expect(vaultText).not.toContain("mock-access-");
       expect(vaultText).not.toContain("refresh_token");
+      expect(existsSync(join(runtimeStorageDir(restartedConfig), "local-managed-mcp-vault.key"))).toBe(false);
 
       const revoked = await fetch(`${providerBaseUrl}/admin/expire-oauth-tokens`, { method: "POST" });
       expect(revoked.ok).toBe(true);

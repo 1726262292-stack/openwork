@@ -25,8 +25,10 @@ The managed path is opt-in per connection and is currently desktop-only.
 
 - Provider credentials, OAuth registrations, discovery state, and PKCE
   transactions are encrypted with AES-256-GCM in OpenWork's runtime storage.
-- The encryption key comes from `OPENWORK_ENCRYPTION_KEY` when configured or a
-  generated mode-600 key file beside the vault.
+- OpenWork Desktop keeps the encryption key behind the operating system's
+  secure-storage service and persists only the protected key blob, separately
+  from the encrypted vault. A standalone server must set
+  `OPENWORK_ENCRYPTION_KEY`; there is no plaintext key-file fallback.
 - The gateway bearer is scoped to a workspace and connection, generated from a
   process-only secret, and rotated on every OpenWork server restart.
 - Startup reconciliation rewrites managed runtime MCP entries with the current

@@ -81,6 +81,8 @@ export interface ApprovalConfig {
   timeoutMs: number;
 }
 
+export type LocalManagedMcpVaultKeyProvider = () => Promise<Uint8Array>;
+
 export interface ServerConfig {
   host: string;
   port: number;
@@ -101,6 +103,8 @@ export interface ServerConfig {
   hostTokenSource: "cli" | "env" | "file" | "generated";
   logFormat: LogFormat;
   logRequests: boolean;
+  /** In-memory secure key custody supplied by an embedding host such as OpenWork Desktop. */
+  localManagedMcpVaultKey?: LocalManagedMcpVaultKeyProvider;
 }
 
 export interface Capabilities {
