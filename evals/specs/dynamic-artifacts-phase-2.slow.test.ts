@@ -1,4 +1,5 @@
 import { createConnection } from "mysql2/promise";
+import type { RowDataPacket } from "mysql2";
 import { expect } from "vitest";
 import {
   denFetch,
@@ -252,6 +253,22 @@ test("Dynamic Artifacts Phase 2 keeps one exact, durable Script lifecycle across
   expect(den.database?.url).toBeTruthy();
   const database = await createConnection(String(den.database?.url));
   try {
+    const [rawRows] = await database.query<RowDataPacket[]>(
+      "SELECT script_input, validated_result, result_markdown FROM codemode_run WHERE id = ?",
+      [firstReceiptId],
+    );
+    const encrypted = rawRows[0];
+    expect(encrypted).toBeTruthy();
+    for (const column of ["script_input", "validated_result", "result_markdown"] as const) {
+      expect(String(encrypted?.[column] ?? "").startsWith("enc:v1:"), `${column} was not encrypted at rest`).toBe(true);
+    }
+    expect(JSON.stringify(encrypted)).not.toContain(v1Marker);
+    evidence.fact(
+      "Artifact input, canonical JSON, and Markdown are encrypted at rest",
+      `The raw MySQL row for receipt ${firstReceiptId} used the enc:v1 envelope in all three sensitive columns and did not contain ${v1Marker}.`,
+      true,
+    );
+
     const old = new Date(Date.now() - 2 * 60 * 60_000);
     await database.execute(
       "UPDATE codemode_run SET started_at = ?, finished_at = ? WHERE id = ?",

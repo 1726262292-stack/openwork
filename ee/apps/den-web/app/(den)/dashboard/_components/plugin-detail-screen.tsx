@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Archive, ArrowLeft, FileText, MoreHorizontal, Pencil, Plus, Server, Store, Terminal, Users, Webhook } from "lucide-react";
+import { Archive, ArrowLeft, Code2, FileText, MoreHorizontal, Pencil, Plus, Server, Store, Terminal, Users, Webhook } from "lucide-react";
 
 import { getNewPluginSkillRoute, getOrgAccessFlags, getPluginSkillRoute, getPluginsRoute } from "../../_lib/den-org";
 import { buttonVariants, DenButton } from "../../_components/ui/button";
@@ -14,6 +14,7 @@ import {
   type DenPlugin,
   type PluginHook,
   type PluginMcp,
+  type PluginScript,
   type PluginSkill,
   type PluginAgent,
   type PluginCommand,
@@ -95,6 +96,7 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
   if (plugin.commands.length === 0) missingLabels.push("commands");
   if (plugin.hooks.length === 0) missingLabels.push("hooks");
   if (plugin.mcps.length === 0) missingLabels.push("MCP servers");
+  if (plugin.scripts.length === 0) missingLabels.push("scripts");
 
   async function handleArchivePlugin() {
     try {
@@ -604,4 +606,5 @@ function renderScriptRow(script: PluginScript, onOpen: () => void) {
     </button>
   );
 }
+
 export type { DenPlugin };

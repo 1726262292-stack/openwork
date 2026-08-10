@@ -67,6 +67,7 @@ import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
@@ -391,6 +392,28 @@ export function McpView(props: McpViewProps) {
   const [layout, setLayout] = useState<ExtensionLayout>(readExtensionLayout);
   const [claudeImportOpen, setClaudeImportOpen] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
+
+  useEffect(() => {
+    const organizationId = cloudSession.activeOrganization?.id.trim();
+    if (!cloudSession.isSignedIn || !organizationId || !cloudSession.authToken) {
+      setSavedScripts([]);
+      return;
+    }
+    let cancelled = false;
+    void cloudSession.client.supportsSavedCodemodeScripts(organizationId)
+      .then(async (supported) => supported
+        ? cloudSession.client.listSavedCodemodeScripts(organizationId)
+        : [])
+      .then((scripts) => {
+        if (!cancelled) setSavedScripts(scripts);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedScripts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudSession.activeOrganization?.id, cloudSession.authToken, cloudSession.client, cloudSession.isSignedIn]);
 
   const [localState, dispatchLocal] = useReducer(
     mcpViewLocalReducer,
@@ -879,6 +902,12 @@ export function McpView(props: McpViewProps) {
 
       {detailPlugin ? (() => {
         const hidden = isOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
+        const scriptFile = detailPlugin.files.find((file) => file.objectType === "script" && file.versionId);
+        const detailSavedScript = scriptFile ? savedScripts.find((script) => (
+          script.pluginId === detailPlugin.pluginId
+          && script.configObjectId === scriptFile.configObjectId
+          && script.configObjectVersionId === scriptFile.versionId
+        )) ?? null : null;
         return (
           <ExtensionDetailModal
             open={!!detailPlugin}

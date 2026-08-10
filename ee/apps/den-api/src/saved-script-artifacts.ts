@@ -25,6 +25,10 @@ export function optionalArtifactDigest(value: unknown): string | null {
   return value === undefined || value === null ? null : artifactDigest(value)
 }
 
+export function savedScriptArtifactSource(trigger: "scheduled" | "recovery" | "manual" | null): "scheduled" | "manual" {
+  return trigger && trigger !== "manual" ? "scheduled" : "manual"
+}
+
 function isScalar(value: unknown): boolean {
   return value === null || ["string", "number", "boolean"].includes(typeof value)
 }

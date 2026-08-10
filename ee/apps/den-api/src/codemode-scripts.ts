@@ -31,6 +31,7 @@ import {
   artifactDigest,
   artifactFreshness,
   optionalArtifactDigest,
+  savedScriptArtifactSource,
   SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
 } from "./saved-script-artifacts.js"
 import {
@@ -148,7 +149,7 @@ function serializeSnapshot(row: CodemodeRunRow, automationTrigger: AutomationRun
     status: row.status,
     errorKind: row.error_kind,
     errorMessage: row.error_message,
-    source: automationTrigger === "scheduled" ? "scheduled" : "manual",
+    source: savedScriptArtifactSource(automationTrigger),
     startedAt: row.started_at.toISOString(),
     finishedAt: row.finished_at.toISOString(),
     contentDeletedAt: row.artifact_content_deleted_at?.toISOString() ?? null,
@@ -236,7 +237,11 @@ export async function getCodemodeScriptDetail(input: {
     const snapshot = serializeSnapshot(row.receipt, row.automationTrigger)
     return snapshot ? [snapshot] : []
   })
-  const latestSnapshot = snapshots[0] ?? null
+  // Deleted content remains in history, but must not stay selected as the
+  // current readable artifact after an explicit deletion.
+  const latestSnapshot = snapshots.find((snapshot) => snapshot.contentDeletedAt === null)
+    ?? snapshots[0]
+    ?? null
   const latestSuccessfulSnapshot = snapshots.find((snapshot) => snapshot.status === "succeeded" && snapshot.markdown !== null) ?? null
   return {
     pluginId: resource.plugin.id,
@@ -249,8 +254,8 @@ export async function getCodemodeScriptDetail(input: {
     latestSnapshot,
     latestSuccessfulSnapshot,
     freshness: artifactFreshness({
-      latestFinishedAt: latestSnapshot ? new Date(latestSnapshot.finishedAt) : null,
-      latestStatus: latestSnapshot?.status ?? null,
+      latestFinishedAt: latestSnapshot?.contentDeletedAt === null ? new Date(latestSnapshot.finishedAt) : null,
+      latestStatus: latestSnapshot?.contentDeletedAt === null ? latestSnapshot.status : null,
       latestSuccessfulFinishedAt: latestSuccessfulSnapshot ? new Date(latestSuccessfulSnapshot.finishedAt) : null,
       latestSuccessfulReceiptId: latestSuccessfulSnapshot?.receiptId ?? null,
       failureReason: latestSnapshot?.errorMessage,

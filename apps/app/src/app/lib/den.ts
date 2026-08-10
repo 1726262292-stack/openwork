@@ -9,7 +9,7 @@ import type {
   AutomationRun,
   AutomationRunReceipt,
   AutomationRunnerTokenResponse,
-  CreateAutomation,
+  CreateAutomationDefinition,
   UpdateAutomation,
 } from "@openwork/types/automations";
 
@@ -2539,8 +2539,6 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
     },
 
     async supportsSavedCodemodeScripts(orgId: string): Promise<boolean> {
-      const metadata = await this.getAppVersionMetadata();
-      if (metadata.capabilities?.savedCodemodeScripts !== true) return false;
       try {
         await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
           method: "GET",
@@ -2693,6 +2691,22 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       });
     },
 
+    async supportsCloudSavedScriptAutomations(orgId: string): Promise<boolean> {
+      try {
+        // This additive org-scoped read is safe against an older Den: a 404
+        // keeps the desktop surface hidden until the server is deployed.
+        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
+          method: "GET",
+          token,
+          organizationId: orgId,
+        });
+        return true;
+      } catch (error) {
+        if (error instanceof DenApiError && error.status === 404) return false;
+        throw error;
+      }
+    },
+
     async mintAutomationRunnerToken(orgId: string, registration: AutomationDesktopRunnerRegistration): Promise<AutomationRunnerTokenResponse> {
       return requestJson<AutomationRunnerTokenResponse>(baseUrls, "/v1/automation-runners/token", {
         method: "POST",
@@ -2702,7 +2716,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       });
     },
 
-    async createAutomation(orgId: string, input: CreateAutomation): Promise<AutomationDetail> {
+    async createAutomation(orgId: string, input: CreateAutomationDefinition): Promise<AutomationDetail> {
       return requestJson<AutomationDetail>(baseUrls, "/v1/automations", {
         method: "POST",
         token,

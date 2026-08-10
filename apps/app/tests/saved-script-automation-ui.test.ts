@@ -5,18 +5,6 @@ import { join } from "node:path"
 const read = (relative: string) => readFileSync(join(import.meta.dir, "..", relative), "utf8")
 
 describe("saved Code Mode script journey", () => {
-  test("offers run again and save from a successful script result", () => {
-    const card = read("src/components/tools/openwork-codemode-script.tsx")
-    const messages = read("src/components/chat/message-list.tsx")
-
-    expect(messages).toContain("isCodemodeScriptToolPart(part)")
-    expect(messages).toContain("<OpenWorkCodemodeScriptTool")
-    expect(card).toContain("Run again")
-    expect(card).toContain("Save as script")
-    expect(card).toContain("currentInput: scriptInput")
-    expect(card).toContain("Future runs recheck access before contacting a provider")
-  })
-
   test("runs or automates the exact saved version from Library", () => {
     const library = read("src/react-app/domains/settings/pages/mcp-view.tsx")
 

@@ -5,6 +5,7 @@ import {
   artifactFreshness,
   canonicalArtifactJson,
   renderSavedScriptMarkdown,
+  savedScriptArtifactSource,
 } from "../src/saved-script-artifacts.js"
 
 test("canonical JSON and digests are stable across object key order", () => {
@@ -53,4 +54,11 @@ test("freshness preserves last-good state after failures", () => {
     lastSuccessfulReceiptId: "cmr_last_good",
     reason: "Provider access was revoked.",
   })
+})
+
+test("recovery-triggered Automation artifacts keep scheduled lineage", () => {
+  assert.equal(savedScriptArtifactSource("scheduled"), "scheduled")
+  assert.equal(savedScriptArtifactSource("recovery"), "scheduled")
+  assert.equal(savedScriptArtifactSource("manual"), "manual")
+  assert.equal(savedScriptArtifactSource(null), "manual")
 })
