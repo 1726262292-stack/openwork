@@ -14,11 +14,17 @@ import {
   ScimSyncEventTable,
   WorkerTable,
 } from "@openwork-ee/den-db/schema"
+import { cache } from "./cache.js"
 import { db } from "./db.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
 
 export async function deleteGlobalAuthUser(userId: UserId) {
+  const sessions = await db
+    .select({ token: AuthSessionTable.token })
+    .from(AuthSessionTable)
+    .where(eq(AuthSessionTable.userId, userId))
+
   await db.transaction(async (tx) => {
     await tx.delete(OAuthAccessTokenTable).where(eq(OAuthAccessTokenTable.userId, userId))
     await tx.delete(OAuthRefreshTokenTable).where(eq(OAuthRefreshTokenTable.userId, userId))
@@ -34,4 +40,5 @@ export async function deleteGlobalAuthUser(userId: UserId) {
     await tx.update(WorkerTable).set({ created_by_user_id: null }).where(eq(WorkerTable.created_by_user_id, userId))
     await tx.delete(AuthUserTable).where(eq(AuthUserTable.id, userId))
   })
+  await Promise.all(sessions.map((session) => cache.auth.deleteSession(session.token)))
 }

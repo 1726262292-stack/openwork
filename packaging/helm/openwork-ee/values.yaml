@@ -139,6 +139,7 @@ secret:
   existingSecret: ""
   keys:
     databaseUrl: DATABASE_URL
+    databaseRedisUrl: DATABASE_REDIS_URL
     betterAuthSecret: BETTER_AUTH_SECRET
     denDbEncryptionKey: DEN_DB_ENCRYPTION_KEY
     daytonaApiKey: DAYTONA_API_KEY
@@ -158,6 +159,7 @@ secret:
     connectLinkPrivateKey: DEN_CONNECT_LINK_PRIVATE_KEY
   values:
     databaseUrl: mysql://openwork:change-me@mysql:3306/openwork_den
+    databaseRedisUrl: ""
     betterAuthSecret: CHANGE_ME_32_CHARS_MINIMUM_BETTER_AUTH
     denDbEncryptionKey: CHANGE_ME_32_CHARS_MINIMUM_DB_ENCRYPTION
     daytonaApiKey: ""

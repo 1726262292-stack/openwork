@@ -152,7 +152,15 @@ The existing Secret must contain the keys listed under `secret.keys`, especially
 - `BETTER_AUTH_SECRET`
 - `DEN_DB_ENCRYPTION_KEY`
 
-Set `DAYTONA_API_KEY` when `config.provisioner.mode` is `daytona`. Set `POLAR_ACCESS_TOKEN` when Polar feature gating is enabled. Set `OPENROUTER_MANAGEMENT_API_KEY` when enabling OpenWork Models management.
+Set optional `DATABASE_REDIS_URL` to enable Redis-backed Better Auth secondary storage and Den API query caching. Set `DAYTONA_API_KEY` when `config.provisioner.mode` is `daytona`. Set `POLAR_ACCESS_TOKEN` when Polar feature gating is enabled. Set `OPENROUTER_MANAGEMENT_API_KEY` when enabling OpenWork Models management.
+
+Redis cache example:
+
+```yaml
+secret:
+  values:
+    databaseRedisUrl: "redis://redis-master.openwork.svc.cluster.local:6379"
+```
 
 ## Custom CA certificates
 

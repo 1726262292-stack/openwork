@@ -16,5 +16,17 @@ services:
     volumes:
       - openwork-web-local-mysql-data:/var/lib/mysql
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: openwork-web-local-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
 volumes:
   openwork-web-local-mysql-data:
