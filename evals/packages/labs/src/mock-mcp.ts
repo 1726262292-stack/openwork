@@ -37,6 +37,7 @@ export interface MockMcpHandle {
    * calls and returns before this run's calls ever arrive.
    */
   toolCalls(opts?: { name?: string; timeoutMs?: number; atLeast?: number; sinceIso?: string }): Promise<MockToolCall[]>;
+  handshakes(opts?: { timeoutMs?: number; atLeast?: number; sinceIso?: string }): Promise<MockAuthorizeRequest[]>;
   configureOAuthRedirectUris(redirectUris: readonly string[]): Promise<void>;
   resetOAuth(): Promise<void>;
   stop(): Promise<void>;
@@ -224,6 +225,10 @@ async function startEnterpriseProfileMock(options: StartMockMcpOptions): Promise
       if ((opts.atLeast ?? 0) > 0) await sleep(opts.timeoutMs ?? 120_000);
       return [];
     },
+    async handshakes(opts = {}) {
+      if ((opts.atLeast ?? 0) > 0) await sleep(opts.timeoutMs ?? 120_000);
+      return [];
+    },
     async authorizeRequestSince(iso) {
       throw new Error(`Enterprise profile request logs do not retain OAuth query parameters after ${iso}.`);
     },
@@ -285,7 +290,7 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
   };
 
   const rawEntries = async (): Promise<Record<string, unknown>[]> => {
-    const response = await fetch(`${url}/requests`);
+    const response = await fetch(`${url}/requests`, { signal: AbortSignal.timeout(15_000) });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`Mock request log failed: HTTP ${response.status}`);
     return isRecord(body) && Array.isArray(body.requests) ? body.requests.filter(isRecord) : [];
@@ -311,6 +316,17 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
     return calls;
   };
 
+  const readHandshakes = async (sinceIso?: string): Promise<MockAuthorizeRequest[]> => {
+    const handshakes: MockAuthorizeRequest[] = [];
+    for (const entry of await rawEntries()) {
+      if (!Array.isArray(entry.rpcMethods) || !entry.rpcMethods.includes("initialize")) continue;
+      const request = parseRequest(entry);
+      if (!request || (sinceIso && request.at < sinceIso)) continue;
+      handshakes.push(request);
+    }
+    return handshakes;
+  };
+
   return {
     url,
     mcpUrl: `${url}/mcp`,
@@ -327,6 +343,21 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
         calls = await readToolCalls(opts.name, opts.sinceIso);
       }
       return calls;
+    },
+    async handshakes(opts = {}) {
+      const wanted = opts.atLeast ?? 0;
+      if (wanted <= 0) return readHandshakes(opts.sinceIso);
+      const deadline = Date.now() + (opts.timeoutMs ?? 120_000);
+      let handshakes: MockAuthorizeRequest[] = [];
+      while (handshakes.length < wanted && Date.now() < deadline) {
+        try {
+          handshakes = await readHandshakes(opts.sinceIso);
+        } catch {
+          // A bounded request-log read can fail transiently while a remote mock recovers.
+        }
+        if (handshakes.length < wanted) await sleep(1_000);
+      }
+      return handshakes;
     },
     async authorizeRequestSince(iso, opts = {}) {
       const deadline = Date.now() + (opts.timeoutMs ?? 60_000);
