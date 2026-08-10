@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "a72ce9e2-e452-4e3a-b29a-8061926424c6",
-  "prevId": "416fb6c2-9b2e-47c5-af14-e3e8e8095897",
+  "id": "51ac74b5-47f4-471f-b6ae-fa62232a1411",
+  "prevId": "b5f0ffc4-2c49-4a2a-87fe-4d7baeb6f6f3",
   "tables": {
     "account": {
       "name": "account",
