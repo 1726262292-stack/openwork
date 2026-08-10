@@ -296,6 +296,9 @@ importers:
       node-pty:
         specifier: npm:@lydell/node-pty@1.2.0-beta.12
         version: '@lydell/node-pty@1.2.0-beta.12'
+      undici:
+        specifier: 6.28.0
+        version: 6.28.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
