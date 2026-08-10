@@ -1301,6 +1301,16 @@ export function applySessionRevert(workspaceId: string, session: Session) {
   void queryClient.invalidateQueries({ queryKey: snapshotKey(workspaceId, session.id) });
 }
 
+/** Clear a server-confirmed revert cursor without discarding cached history. */
+export function applySessionUnrevert(workspaceId: string, sessionId: string) {
+  const queryClient = getReactQueryClient();
+  void queryClient.cancelQueries({ queryKey: snapshotKey(workspaceId, sessionId) });
+  queryClient.setQueryData<OpenworkSessionSnapshot>(
+    snapshotKey(workspaceId, sessionId),
+    (current) => (current ? { ...current, session: { ...current.session, revert: undefined } } : current),
+  );
+}
+
 export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string | null | undefined) {
   const normalizedSessionId = sessionId?.trim() ?? "";
   if (!normalizedSessionId) return () => {};
