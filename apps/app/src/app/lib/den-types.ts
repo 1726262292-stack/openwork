@@ -6,12 +6,6 @@ import type {
   OpenWorkExtensionManifest,
   OpenWorkExtensionSourceFormat,
 } from "../extensions";
-import type {
-  SavedScriptArtifactSnapshot,
-  SavedScriptDetail,
-  SavedScriptTestResult,
-  SavedScriptVersion,
-} from "@openwork/types/dynamic-artifacts";
 
 export type DenSettings = {
   baseUrl: string;
@@ -129,54 +123,6 @@ export type DenAssignedMarketplaceCapability = {
   pluginId: string;
 };
 
-export type DenSaveCodemodeScriptInput = {
-  name: string;
-  description?: string;
-  code: string;
-  currentInput?: unknown;
-  inputSchema: Record<string, unknown>;
-  outputSchema: Record<string, unknown>;
-};
-
-export type DenSavedCodemodeScript = {
-  pluginId: string;
-  configObjectId: string;
-  configObjectVersionId: string;
-};
-
-export type DenSavedCodemodeScriptSummary = DenSavedCodemodeScript & {
-  title: string;
-  description: string | null;
-  inputSchema: Record<string, unknown> | null;
-  outputSchema: Record<string, unknown> | null;
-  requiredCapabilities: Array<{ capabilityName: string; scriptPath: string }>;
-};
-
-export type DenSavedCodemodeScriptRun = {
-  status: "succeeded";
-  value: unknown;
-  markdown: string;
-  receiptId: string;
-  resultDigest: string;
-  inputSchemaDigest: string | null;
-  outputSchemaDigest: string | null;
-  rendererVersion: "codemode-markdown-v1";
-};
-
-export type DenSavedCodemodeScriptDraft = {
-  name: string;
-  description?: string;
-  code: string;
-  exampleInput?: unknown;
-  inputSchema?: unknown;
-  outputSchema?: unknown;
-  requiredCapabilities: Array<{ capabilityName: string; scriptPath: string }>;
-};
-
-export type DenSavedCodemodeScriptDetail = SavedScriptDetail;
-export type DenSavedCodemodeScriptVersion = SavedScriptVersion;
-export type DenSavedCodemodeScriptSnapshot = SavedScriptArtifactSnapshot;
-export type DenSavedCodemodeScriptTestResult = SavedScriptTestResult;
 export type DenResourceSnapshotConfigItem = {
   configItemId: string;
   lastUpdatedAt: string;

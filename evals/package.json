@@ -21,8 +21,7 @@
     "@openwork/hosts": "workspace:*",
     "@openwork/labs": "workspace:*",
     "@openwork/matchers": "workspace:*",
-    "@openwork/testkit": "workspace:*",
-    "mysql2": "^3.11.3"
+    "@openwork/testkit": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^3.2.4"

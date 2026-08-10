@@ -136,7 +136,6 @@ function serializeSnapshot(row: CodemodeRunRow, automationTrigger: AutomationRun
     configObjectId: row.config_object_id,
     configObjectVersionId: row.config_object_version_id,
     automationRunId: row.automation_run_id,
-    input: deleted ? null : row.script_input ?? null,
     value: deleted ? null : row.validated_result ?? null,
     markdown: deleted ? null : row.result_markdown,
     codeDigest: row.code_digest,

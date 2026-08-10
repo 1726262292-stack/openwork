@@ -57,8 +57,7 @@ import {
   revealDesktopItemInDir,
   type OpencodeConfigFile,
 } from "../../../../app/lib/desktop";
-import { createDenClient, readDenSettings, type DenSavedCodemodeScriptSummary } from "../../../../app/lib/den";
-import { SavedScriptDetail } from "../../dynamic-artifacts/saved-script-detail";
+import { readDenSettings } from "../../../../app/lib/den";
 import {
   getMcpIdentityKey,
   normalizeMcpSlug,
@@ -67,7 +66,6 @@ import type { McpServerEntry, McpStatusMap } from "../../../../app/types";
 import { formatRelativeTime, isDesktopRuntime, isWindowsPlatform } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
@@ -369,14 +367,6 @@ export function McpView(props: McpViewProps) {
   const detailPlugin = detailTarget?.kind === "plugin" ? detailTarget.plugin : null;
   const detailOrgMcpItem = detailTarget?.kind === "org-mcp" ? detailTarget.item : null;
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
-  const [scriptRunTarget, setScriptRunTarget] = useState<{ pluginId: string; configObjectId: string; configObjectVersionId: string; title: string } | null>(null);
-  const [scriptDetailTarget, setScriptDetailTarget] = useState<DenSavedCodemodeScriptSummary | null>(null);
-  const [scriptRunInput, setScriptRunInput] = useState("{}");
-  const [scriptRunBusy, setScriptRunBusy] = useState(false);
-  const [scriptRunError, setScriptRunError] = useState<string | null>(null);
-  const [scriptRunResult, setScriptRunResult] = useState<string | null>(null);
-  const [scriptRunReceiptId, setScriptRunReceiptId] = useState<string | null>(null);
-  const [savedScripts, setSavedScripts] = useState<DenSavedCodemodeScriptSummary[]>([]);
   const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
   const [openworkUiMcpEnvironment, setOpenworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
@@ -392,28 +382,6 @@ export function McpView(props: McpViewProps) {
   const [layout, setLayout] = useState<ExtensionLayout>(readExtensionLayout);
   const [claudeImportOpen, setClaudeImportOpen] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
-
-  useEffect(() => {
-    const organizationId = cloudSession.activeOrganization?.id.trim();
-    if (!cloudSession.isSignedIn || !organizationId || !cloudSession.authToken) {
-      setSavedScripts([]);
-      return;
-    }
-    let cancelled = false;
-    void cloudSession.client.supportsSavedCodemodeScripts(organizationId)
-      .then(async (supported) => supported
-        ? cloudSession.client.listSavedCodemodeScripts(organizationId)
-        : [])
-      .then((scripts) => {
-        if (!cancelled) setSavedScripts(scripts);
-      })
-      .catch(() => {
-        if (!cancelled) setSavedScripts([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudSession.activeOrganization?.id, cloudSession.authToken, cloudSession.client, cloudSession.isSignedIn]);
 
   const [localState, dispatchLocal] = useReducer(
     mcpViewLocalReducer,
@@ -902,12 +870,6 @@ export function McpView(props: McpViewProps) {
 
       {detailPlugin ? (() => {
         const hidden = isOpenWorkExtensionHidden(`plugin:${detailPlugin.pluginId}`);
-        const scriptFile = detailPlugin.files.find((file) => file.objectType === "script" && file.versionId);
-        const detailSavedScript = scriptFile ? savedScripts.find((script) => (
-          script.pluginId === detailPlugin.pluginId
-          && script.configObjectId === scriptFile.configObjectId
-          && script.configObjectVersionId === scriptFile.versionId
-        )) ?? null : null;
         return (
           <ExtensionDetailModal
             open={!!detailPlugin}
@@ -919,58 +881,7 @@ export function McpView(props: McpViewProps) {
             taxonomy="plugin"
             connected={true}
             hidden={hidden}
-            resourceLabels={detailPlugin.files.map((file) => `${file.objectType === "script" ? "Script" : file.objectType}: ${file.title}`)}
-            configSlot={(
-              <div className="flex flex-wrap gap-2">
-                {scriptFile && detailSavedScript ? (
-                  <div className="mb-1 w-full rounded-xl border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                    <p className="font-medium text-foreground">Saved Script · exact version {scriptFile.versionId?.slice(0, 8)}</p>
-                    <p className="mt-1">Input schema: {detailSavedScript.inputSchema ? "Defined" : "Any JSON"} · Output schema: {detailSavedScript.outputSchema ? "Validated" : "Any JSON"}</p>
-                    <p className="mt-1">{detailSavedScript.requiredCapabilities.length} required capabilit{detailSavedScript.requiredCapabilities.length === 1 ? "y" : "ies"}; access is checked again for every run.</p>
-                  </div>
-                ) : null}
-                {scriptFile ? (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setScriptDetailTarget(detailSavedScript)}
-                    >
-                      Open Script
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        const versionId = scriptFile.versionId;
-                        if (!versionId) return;
-                        setScriptRunTarget({
-                          pluginId: detailPlugin.pluginId,
-                          configObjectId: scriptFile.configObjectId,
-                          configObjectVersionId: versionId,
-                          title: scriptFile.title,
-                        });
-                        setScriptRunInput("{}");
-                        setScriptRunError(null);
-                        setScriptRunResult(null);
-                        setScriptRunReceiptId(null);
-                      }}
-                    >
-                      Run now
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        window.location.hash = `#/automations?create=1&scriptVersionId=${encodeURIComponent(scriptFile.versionId ?? "")}`;
-                      }}
-                    >
-                      Automate
-                    </Button>
-                  </>
-                ) : null}
-                {openInDenAction({ id: `marketplace:installed:${detailPlugin.pluginId}`, pluginId: detailPlugin.pluginId })}
-              </div>
-            )}
+            configSlot={openInDenAction({ id: `marketplace:installed:${detailPlugin.pluginId}`, pluginId: detailPlugin.pluginId })}
             onUninstall={props.removeCloudPlugin ? () => {
               void props.removeCloudPlugin?.(detailPlugin.pluginId);
               closeDetail();
@@ -1025,81 +936,6 @@ export function McpView(props: McpViewProps) {
           />
         );
       })() : null}
-
-      {scriptRunTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={() => !scriptRunBusy && setScriptRunTarget(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="run-saved-script-title" className="w-full max-w-xl rounded-2xl border border-border bg-background p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <h2 id="run-saved-script-title" className="text-lg font-semibold">Run {scriptRunTarget.title}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">This runs the exact saved Script version in OpenWork Cloud and validates its result.</p>
-            <label className="mt-5 block space-y-2 text-sm font-medium">
-              Input
-              <Textarea className="min-h-32 font-mono text-xs" value={scriptRunInput} onChange={(event) => setScriptRunInput(event.currentTarget.value)} />
-            </label>
-            {scriptRunResult ? (
-              <div className="mt-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Validated result</p>
-                <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{scriptRunResult}</pre>
-                {scriptRunReceiptId ? (
-                  <p className="mt-2 break-all font-mono text-xs text-muted-foreground">Receipt {scriptRunReceiptId}</p>
-                ) : null}
-              </div>
-            ) : null}
-            {scriptRunError ? <p className="mt-4 text-sm text-destructive" role="alert">{scriptRunError}</p> : null}
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="outline" disabled={scriptRunBusy} onClick={() => setScriptRunTarget(null)}>Close</Button>
-              <Button
-                disabled={scriptRunBusy}
-                onClick={async () => {
-                  const settings = readDenSettings();
-                  const organizationId = settings.activeOrgId?.trim();
-                  const token = settings.authToken?.trim();
-                  if (!organizationId || !token) {
-                    setScriptRunError("Sign in to OpenWork Cloud to run this Script.");
-                    return;
-                  }
-                  let input: unknown;
-                  try {
-                    input = JSON.parse(scriptRunInput);
-                  } catch {
-                    setScriptRunError("Input must be valid JSON.");
-                    return;
-                  }
-                  setScriptRunBusy(true);
-                  setScriptRunError(null);
-                  try {
-                    const result = await createDenClient({ baseUrl: settings.baseUrl, token })
-                      .runSavedCodemodeScript(organizationId, scriptRunTarget, input);
-                    const rendered = JSON.stringify(result.value, null, 2) ?? result.markdown ?? String(result.value);
-                    setScriptRunResult(rendered);
-                    setScriptRunReceiptId(result.receiptId);
-                  } catch (error: unknown) {
-                    setScriptRunError(error instanceof Error ? error.message : "The Script could not run.");
-                  } finally {
-                    setScriptRunBusy(false);
-                  }
-                }}
-              >
-                {scriptRunBusy ? "Running…" : "Run script"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {scriptDetailTarget && cloudSession.activeOrganization?.id ? (
-        <div className="fixed inset-0 z-50 overflow-auto bg-background">
-          <SavedScriptDetail
-            client={cloudSession.client}
-            organizationId={cloudSession.activeOrganization.id}
-            configObjectId={scriptDetailTarget.configObjectId}
-            onClose={() => setScriptDetailTarget(null)}
-            onAutomate={(versionId) => {
-              setScriptDetailTarget(null);
-              window.location.hash = `#/automations?create=1&scriptVersionId=${encodeURIComponent(versionId)}`;
-            }}
-          />
-        </div>
-      ) : null}
     </>
   );
 
@@ -1182,68 +1018,6 @@ export function McpView(props: McpViewProps) {
         </div>
       </div>
 
-      {(filter === "all" || filter === "plugin") && (inventoryState === "all" || inventoryState === "ready") ? (() => {
-        const normalizedSearch = search.trim().toLowerCase();
-        const visibleScripts = savedScripts.filter((script) => !normalizedSearch || [
-          script.title,
-          script.description ?? "",
-          ...script.requiredCapabilities.map((capability) => capability.capabilityName),
-        ].join(" ").toLowerCase().includes(normalizedSearch));
-        if (visibleScripts.length === 0) return null;
-        return (
-          <section className="space-y-3" aria-labelledby="saved-scripts-heading">
-            <div>
-              <h2 id="saved-scripts-heading" className="text-sm font-semibold text-foreground">Scripts</h2>
-              <p className="text-xs text-muted-foreground">Reusable Code Mode programs saved in OpenWork Cloud.</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {visibleScripts.map((script) => (
-                <article key={script.configObjectVersionId} className="rounded-xl border border-border bg-card p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="truncate text-sm font-semibold">{script.title}</h3>
-                      {script.description ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{script.description}</p> : null}
-                    </div>
-                    <Code2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  </div>
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    Exact version {script.configObjectVersionId.slice(0, 8)} · {script.outputSchema ? "Validated output" : "Any JSON output"}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button size="xs" variant="outline" onClick={() => setScriptDetailTarget(script)}>Open</Button>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={() => {
-                        setScriptRunTarget({
-                          pluginId: script.pluginId,
-                          configObjectId: script.configObjectId,
-                          configObjectVersionId: script.configObjectVersionId,
-                          title: script.title,
-                        });
-                        setScriptRunInput("{}");
-                        setScriptRunError(null);
-                        setScriptRunResult(null);
-                        setScriptRunReceiptId(null);
-                      }}
-                    >
-                      Run now
-                    </Button>
-                    <Button
-                      size="xs"
-                      onClick={() => {
-                        window.location.hash = `#/automations?create=1&scriptVersionId=${encodeURIComponent(script.configObjectVersionId)}`;
-                      }}
-                    >
-                      Automate
-                    </Button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        );
-      })() : null}
       <McpQuickConnectSection
         skillCount={skillCount}
         entries={

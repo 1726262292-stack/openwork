@@ -453,10 +453,6 @@ export function electronSurfaceEnv(paths: ElectronProfilePaths, options: Electro
     OPENWORK_ELECTRON_APP_NAME: options.appName,
     OPENWORK_ELECTRON_DISABLE_PROTOCOL_REGISTRATION: "1",
     OPENWORK_ELECTRON_REMOTE_DEBUG_PORT: String(options.cdpPort),
-    // Shared preparation rebuilds the repo's native Electron modules once.
-    // A fresh eval HOME otherwise makes electron-rebuild download the same
-    // headers for every isolated surface even though the binary is shared.
-    OPENWORK_ELECTRON_SKIP_NATIVE_REBUILD: "1",
     OPENWORK_ELECTRON_SKIP_SHARED_PREPARE: "1",
     OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN: "1",
     OPENWORK_ELECTRON_USERDATA: paths.userDataDir,

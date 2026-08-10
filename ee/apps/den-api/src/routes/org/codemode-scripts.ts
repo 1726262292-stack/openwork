@@ -65,7 +65,7 @@ const runResultSchema = z.object({
   status: z.literal("succeeded"),
   value: z.unknown(),
   markdown: z.string(),
-  receiptId: z.string(),
+  receiptId: z.string().nullable(),
   resultDigest: z.string(),
   inputSchemaDigest: z.string().nullable(),
   outputSchemaDigest: z.string().nullable(),
@@ -343,7 +343,6 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       responses: {
         200: jsonResponse("Script executed.", runResultSchema),
         400: jsonResponse("Execution rejected.", invalidRequestSchema),
-        500: jsonResponse("Artifact receipt could not be recorded.", invalidRequestSchema),
       },
     }),
     orgMemberRoute(), jsonValidator(runSchema),
@@ -366,9 +365,6 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       if (!result.ok) return c.json({ error: result.error, message: result.message }, 400)
       if (result.result.status !== "executed") {
         return c.json({ error: "script_not_executable", message: result.result.hint ?? "Script could not execute." }, 400)
-      }
-      if (!result.result.receiptId) {
-        return c.json({ error: "artifact_receipt_unavailable", message: "The Script ran, but its durable artifact receipt could not be recorded." }, 500)
       }
       const canonical = result.result.canonicalResult ?? JSON.stringify(result.result.value)
       return c.json({

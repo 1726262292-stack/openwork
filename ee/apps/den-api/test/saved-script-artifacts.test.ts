@@ -7,10 +7,43 @@ import {
   renderSavedScriptMarkdown,
   savedScriptArtifactSource,
 } from "../src/saved-script-artifacts.js"
+import { recordCodemodeRun } from "../src/codemode-runs.js"
 
 test("canonical JSON and digests are stable across object key order", () => {
   assert.equal(canonicalArtifactJson({ b: 2, a: { d: 4, c: 3 } }), '{"a":{"c":3,"d":4},"b":2}')
   assert.equal(artifactDigest({ b: 2, a: 1 }), artifactDigest({ a: 1, b: 2 }))
+})
+
+test("durable receipts keep only the input digest", async () => {
+  let stored: Record<string, unknown> | null = null
+  const database = {
+    insert: () => ({
+      values: async (value: Record<string, unknown>) => {
+        stored = value
+      },
+    }),
+  }
+  const inputDigest = artifactDigest({ token: "api-secret" })
+
+  const receiptId = await recordCodemodeRun(database as never, {
+    organizationId: "org_test" as never,
+    source: "saved-script-test",
+    code: "return input",
+    status: "succeeded",
+    toolCalls: [],
+    durationMs: 1,
+    startedAt: new Date("2026-08-10T12:00:00.000Z"),
+    finishedAt: new Date("2026-08-10T12:00:00.001Z"),
+    scriptInputDigest: inputDigest,
+    // Prove an unexpected legacy caller cannot make the raw value durable.
+    scriptInput: { token: "api-secret" },
+  } as never)
+
+  assert.ok(receiptId)
+  assert.ok(stored)
+  assert.equal(stored.script_input, null)
+  assert.equal(stored.script_input_digest, inputDigest)
+  assert.equal(JSON.stringify(stored).includes("api-secret"), false)
 })
 
 test("Markdown rendering is deterministic and never emits raw HTML", () => {

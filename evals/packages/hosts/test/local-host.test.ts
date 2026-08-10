@@ -22,7 +22,6 @@ const ENV_KEYS = [
   "OPENWORK_ELECTRON_APP_NAME",
   "OPENWORK_ELECTRON_DISABLE_PROTOCOL_REGISTRATION",
   "OPENWORK_ELECTRON_REMOTE_DEBUG_PORT",
-  "OPENWORK_ELECTRON_SKIP_NATIVE_REBUILD",
   "OPENWORK_ELECTRON_SKIP_SHARED_PREPARE",
   "OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN",
   "OPENWORK_ELECTRON_USERDATA",
@@ -90,7 +89,6 @@ test("electronSurfaceEnv matches the isolated Electron demo contract", () => {
   assert.equal(env.OPENWORK_ELECTRON_REMOTE_DEBUG_PORT, "9123");
   assert.equal(env.OPENWORK_ELECTRON_APP_NAME, "OpenWork Eval probe");
   assert.equal(env.OPENWORK_ELECTRON_APP_IDENTIFIER, "com.differentai.openwork.eval.probe");
-  assert.equal(env.OPENWORK_ELECTRON_SKIP_NATIVE_REBUILD, "1");
   assert.equal(env.OPENWORK_ELECTRON_SKIP_SHARED_PREPARE, "1");
   assert.equal(env.OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN, "1");
   assert.equal(env.XDG_CACHE_HOME, paths.cacheHome);

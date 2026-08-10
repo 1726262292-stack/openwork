@@ -55,7 +55,6 @@ export const savedScriptArtifactSnapshotSchema = z.object({
   configObjectId: idSchema,
   configObjectVersionId: idSchema,
   automationRunId: idSchema.nullable(),
-  input: z.unknown().nullable(),
   value: z.unknown().nullable(),
   markdown: z.string().nullable(),
   codeDigest: digestSchema,

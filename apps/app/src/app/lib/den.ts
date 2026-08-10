@@ -9,7 +9,7 @@ import type {
   AutomationRun,
   AutomationRunReceipt,
   AutomationRunnerTokenResponse,
-  CreateAutomationDefinition,
+  CreateAutomation,
   UpdateAutomation,
 } from "@openwork/types/automations";
 
@@ -98,15 +98,6 @@ import type {
   DenResourceSnapshotConfigItem,
   DenResourceSnapshotMarketplace,
   DenResourceSnapshotPlugin,
-  DenSaveCodemodeScriptInput,
-  DenSavedCodemodeScript,
-  DenSavedCodemodeScriptDetail,
-  DenSavedCodemodeScriptDraft,
-  DenSavedCodemodeScriptRun,
-  DenSavedCodemodeScriptSnapshot,
-  DenSavedCodemodeScriptSummary,
-  DenSavedCodemodeScriptTestResult,
-  DenSavedCodemodeScriptVersion,
   DenSettings,
   DenUser,
 } from "./den-types";
@@ -2518,164 +2509,6 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       return getDenOrgLlmProviders(payload);
     },
 
-    async saveCodemodeScript(orgId: string, input: DenSaveCodemodeScriptInput): Promise<DenSavedCodemodeScript> {
-      const payload = await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
-        method: "POST",
-        token,
-        organizationId: orgId,
-        body: input,
-      });
-      if (!isRecord(payload)
-        || typeof payload.pluginId !== "string"
-        || typeof payload.configObjectId !== "string"
-        || typeof payload.configObjectVersionId !== "string") {
-        throw new DenApiError(500, "invalid_saved_script_payload", "Saved script response was incomplete.");
-      }
-      return {
-        pluginId: payload.pluginId,
-        configObjectId: payload.configObjectId,
-        configObjectVersionId: payload.configObjectVersionId,
-      };
-    },
-
-    async supportsSavedCodemodeScripts(orgId: string): Promise<boolean> {
-      try {
-        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
-          method: "GET",
-          token,
-          organizationId: orgId,
-        });
-        return true;
-      } catch (error) {
-        if (error instanceof DenApiError && error.status === 404) return false;
-        throw error;
-      }
-    },
-
-    async listSavedCodemodeScripts(orgId: string): Promise<DenSavedCodemodeScriptSummary[]> {
-      try {
-        const payload = await requestJson<{ items: DenSavedCodemodeScriptSummary[] }>(baseUrls, "/v1/codemode-scripts", {
-          method: "GET",
-          token,
-          organizationId: orgId,
-        });
-        return payload.items;
-      } catch (error) {
-        // Desktop can be published before its configured Den deployment. Treat
-        // an older server without this additive route as feature unavailable.
-        if (error instanceof DenApiError && error.status === 404) return [];
-        throw error;
-      }
-    },
-
-    async getSavedCodemodeScript(
-      orgId: string,
-      configObjectId: string,
-      options: { maxAgeMs?: number } = {},
-    ): Promise<DenSavedCodemodeScriptDetail> {
-      const params = new URLSearchParams();
-      if (options.maxAgeMs) params.set("maxAgeMs", String(options.maxAgeMs));
-      const query = params.size > 0 ? `?${params.toString()}` : "";
-      return requestJson<DenSavedCodemodeScriptDetail>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}${query}`,
-        { method: "GET", token, organizationId: orgId },
-      );
-    },
-
-    async listSavedCodemodeScriptVersions(orgId: string, configObjectId: string): Promise<DenSavedCodemodeScriptVersion[]> {
-      const payload = await requestJson<{ items: DenSavedCodemodeScriptVersion[] }>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/versions`,
-        { method: "GET", token, organizationId: orgId },
-      );
-      return payload.items;
-    },
-
-    async listSavedCodemodeScriptSnapshots(
-      orgId: string,
-      configObjectId: string,
-      options: { limit?: number } = {},
-    ): Promise<DenSavedCodemodeScriptSnapshot[]> {
-      const query = options.limit ? `?limit=${encodeURIComponent(String(options.limit))}` : "";
-      const payload = await requestJson<{ items: DenSavedCodemodeScriptSnapshot[] }>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/snapshots${query}`,
-        { method: "GET", token, organizationId: orgId },
-      );
-      return payload.items;
-    },
-
-    async getSavedCodemodeScriptSnapshot(
-      orgId: string,
-      configObjectId: string,
-      receiptId: string,
-    ): Promise<DenSavedCodemodeScriptSnapshot> {
-      return requestJson<DenSavedCodemodeScriptSnapshot>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/snapshots/${encodeURIComponent(receiptId)}`,
-        { method: "GET", token, organizationId: orgId },
-      );
-    },
-
-    async testSavedCodemodeScript(
-      orgId: string,
-      configObjectId: string,
-      draft: DenSavedCodemodeScriptDraft,
-    ): Promise<DenSavedCodemodeScriptTestResult> {
-      return requestJson<DenSavedCodemodeScriptTestResult>(baseUrls, "/v1/codemode-scripts/test", {
-        method: "POST",
-        token,
-        organizationId: orgId,
-        body: { configObjectId, ...draft },
-      });
-    },
-
-    async createSavedCodemodeScriptVersion(
-      orgId: string,
-      configObjectId: string,
-      receiptId: string,
-      draft: DenSavedCodemodeScriptDraft,
-    ): Promise<DenSavedCodemodeScriptDetail> {
-      return requestJson<DenSavedCodemodeScriptDetail>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/versions`,
-        { method: "POST", token, organizationId: orgId, body: { receiptId, ...draft } },
-      );
-    },
-
-    async deleteSavedCodemodeScriptSnapshotContent(
-      orgId: string,
-      configObjectId: string,
-      receiptId: string,
-    ): Promise<DenSavedCodemodeScriptSnapshot> {
-      return requestJson<DenSavedCodemodeScriptSnapshot>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/snapshots/${encodeURIComponent(receiptId)}/content`,
-        { method: "DELETE", token, organizationId: orgId },
-      );
-    },
-
-    async runSavedCodemodeScript(
-      orgId: string,
-      script: DenSavedCodemodeScript,
-      input: unknown,
-    ): Promise<DenSavedCodemodeScriptRun> {
-      return requestJson<DenSavedCodemodeScriptRun>(
-        baseUrls,
-        `/v1/codemode-scripts/${encodeURIComponent(script.configObjectId)}/run`,
-        {
-          method: "POST",
-          token,
-          organizationId: orgId,
-          body: {
-            pluginId: script.pluginId,
-            configObjectVersionId: script.configObjectVersionId,
-            input,
-          },
-        },
-      );
-    },
     async listAutomations(
       orgId: string,
       options: { cursor?: string; limit?: number } = {},
@@ -2691,22 +2524,6 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       });
     },
 
-    async supportsCloudSavedScriptAutomations(orgId: string): Promise<boolean> {
-      try {
-        // This additive org-scoped read is safe against an older Den: a 404
-        // keeps the desktop surface hidden until the server is deployed.
-        await requestJson<unknown>(baseUrls, "/v1/codemode-scripts", {
-          method: "GET",
-          token,
-          organizationId: orgId,
-        });
-        return true;
-      } catch (error) {
-        if (error instanceof DenApiError && error.status === 404) return false;
-        throw error;
-      }
-    },
-
     async mintAutomationRunnerToken(orgId: string, registration: AutomationDesktopRunnerRegistration): Promise<AutomationRunnerTokenResponse> {
       return requestJson<AutomationRunnerTokenResponse>(baseUrls, "/v1/automation-runners/token", {
         method: "POST",
@@ -2716,7 +2533,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       });
     },
 
-    async createAutomation(orgId: string, input: CreateAutomationDefinition): Promise<AutomationDetail> {
+    async createAutomation(orgId: string, input: CreateAutomation): Promise<AutomationDetail> {
       return requestJson<AutomationDetail>(baseUrls, "/v1/automations", {
         method: "POST",
         token,

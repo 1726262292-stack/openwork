@@ -263,10 +263,8 @@ const resolvedStartUrl = await waitForVite(startUrl);
 
 // Native dependencies installed for the host Node ABI must be rebuilt before
 // Electron loads the embedded server and terminal runtime.
-if (process.env.OPENWORK_ELECTRON_SKIP_NATIVE_REBUILD !== "1") {
-  console.log("[electron-dev] Rebuilding native dependencies for Electron...");
-  runSync(pnpmCmd, ["--filter", "@openwork/desktop", "run", "rebuild:electron-native"], { cwd: repoRoot });
-}
+console.log("[electron-dev] Rebuilding native dependencies for Electron...");
+runSync(pnpmCmd, ["--filter", "@openwork/desktop", "run", "rebuild:electron-native"], { cwd: repoRoot });
 
 // Optional Electron CDP for external debugging / raw CDP clients.
 // NOT required for the built-in browser (uses native webContents APIs).
