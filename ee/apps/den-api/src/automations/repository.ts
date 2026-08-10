@@ -581,15 +581,6 @@ export class DenAutomationRepository implements AutomationRepository {
       ))
   }
 
-  async hasRecentDesktopRunner(input: { organizationId: string; ownerMemberId: string; seenAfter: number }) {
-    const rows = await db.select({ id: AutomationRunnerTable.id }).from(AutomationRunnerTable).where(and(
-      eq(AutomationRunnerTable.organization_id, normalizeOrganizationId(input.organizationId)),
-      eq(AutomationRunnerTable.owner_member_id, normalizeMemberId(input.ownerMemberId)),
-      gt(AutomationRunnerTable.last_seen_at, new Date(input.seenAfter)),
-    )).limit(1)
-    return rows.length > 0
-  }
-
   async discoverDesktopWork(input: { organizationId: string; ownerMemberId: string; now: number; limit: number }) {
     const rows = await db.select({ runId: AutomationRunTable.id, executionTarget: AutomationRunTable.execution_target })
       .from(AutomationRunTable)
