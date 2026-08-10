@@ -17,6 +17,7 @@ const EnvSchema = z.object({
   DB_MODE: z.enum(["mysql", "planetscale"]).optional(),
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().min(1),
+  DATABASE_REDIS_URL: z.string().optional(),
   DEN_MCP_RESOURCE_URL: z.string().optional(),
   DEN_MCP_ADDITIONAL_RESOURCES: z.string().optional(),
   DEN_BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
@@ -284,6 +285,34 @@ function normalizeOrigin(origin: string) {
   return value.replace(/\/+$/, "")
 }
 
+function isLocalRedisHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1"
+}
+
+function normalizeRedisUrl(value: string | undefined) {
+  const configured = optionalString(value)
+  if (!configured) {
+    return undefined
+  }
+
+  let url: URL
+  try {
+    url = new URL(configured)
+  } catch {
+    throw new Error("DATABASE_REDIS_URL must be an absolute redis:// or rediss:// URL.")
+  }
+
+  if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
+    throw new Error("DATABASE_REDIS_URL must use redis:// or rediss://.")
+  }
+
+  if (url.protocol === "redis:" && !isLocalRedisHost(url.hostname)) {
+    throw new Error("DATABASE_REDIS_URL must use rediss:// for non-local Redis endpoints.")
+  }
+
+  return url.toString()
+}
+
 function normalizeDiagnosticsOrigin(value: string | undefined, allowInsecureHttp: boolean) {
   const configured = optionalString(value) ?? DEFAULT_DEN_DIAGNOSTICS_ORIGIN
 
@@ -441,6 +470,7 @@ export const env = {
   planetscale: planetscaleCredentials,
   betterAuthSecret: parsed.BETTER_AUTH_SECRET,
   betterAuthUrl: normalizeOrigin(parsed.BETTER_AUTH_URL),
+  databaseRedisUrl: normalizeRedisUrl(parsed.DATABASE_REDIS_URL),
   mcpResourceUrl: mcpResourceUrl
     ? normalizeOrigin(mcpResourceUrl)
     : devMode

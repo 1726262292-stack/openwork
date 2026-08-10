@@ -25,6 +25,7 @@ import { isDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
+import { cache } from "../../cache.js"
 import { db } from "../../db.js"
 import { parseOrganizationPlan, type PlanTier } from "../../entitlements.js"
 import { adminRoute, queryValidator } from "../../middleware/index.js"
@@ -1197,6 +1198,10 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         .from(MemberTable)
         .where(eq(MemberTable.userId, userId))
       const activeMembershipRows = membershipRows.filter((member) => !member.removedAt)
+      const sessionRows = await db
+        .select({ token: AuthSessionTable.token })
+        .from(AuthSessionTable)
+        .where(eq(AuthSessionTable.userId, userId))
 
       await db.transaction(async (tx) => {
         const removedAt = new Date()
@@ -1221,8 +1226,10 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         await tx.update(WorkerTable).set({ created_by_user_id: null }).where(eq(WorkerTable.created_by_user_id, userId))
         await tx.delete(AuthUserTable).where(eq(AuthUserTable.id, userId))
       })
+      await Promise.all(sessionRows.map((session) => cache.auth.deleteSession(session.token)))
 
       const organizationIds = Array.from(new Set(activeMembershipRows.map((row) => row.organizationId).filter(isOrganizationId)))
+      await Promise.all(organizationIds.map((organizationId) => cache.org.deleteMembers(organizationId)))
       for (const organizationId of organizationIds) {
         const seatCounts = await getOrganizationSeatBillingCounts({ organizationId })
         await syncSeatSubscriptionQuantityAfterMemberChange({ organizationId, memberCount: seatCounts.total })
