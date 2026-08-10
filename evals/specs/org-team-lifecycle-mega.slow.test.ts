@@ -105,6 +105,7 @@ interface PluginWitness {
 }
 
 interface AutomationApiState {
+  latestRun: Record<string, unknown> | null;
   latestRunStatus: string;
   state: string;
 }
@@ -191,8 +192,10 @@ async function readAutomationApiState(
     isRecord(candidate.automation) && stringField(candidate.automation.name) === automationName
   ));
   if (!item || !isRecord(item.automation)) return null;
+  const latestRun = isRecord(item.latestRun) ? item.latestRun : null;
   return {
-    latestRunStatus: isRecord(item.latestRun) ? stringField(item.latestRun.status) : "",
+    latestRun,
+    latestRunStatus: latestRun ? stringField(latestRun.status) : "",
     state: stringField(item.automation.state),
   };
 }
@@ -781,8 +784,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
     const automationNonce = `${stamp}-auto`;
     const automationMarker = `AUTO-${automationNonce}`;
     const automationName = `Mega Automation ${automationNonce}`;
-    const due = new Date(Date.now() + 2 * 60_000);
-    const scheduledTime = `${String(due.getUTCHours()).padStart(2, "0")}:${String(due.getUTCMinutes()).padStart(2, "0")}`;
     // Automations is a global route ("/automations", workspace-routes.ts:18),
     // not a workspace-scoped one; the list opens the editor via "New
     // Automation" and the editor submits with "Create and activate"
@@ -814,10 +815,17 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       "Instructions",
       `Use search_capabilities to find the organization mock_echo connector, call it once with text exactly ${automationMarker}, then summarize the result.`,
     );
-    await setField(appMate, "Schedule", "daily");
-    await setField(appMate, "Time", scheduledTime);
-    await setField(appMate, "Timezone", "UTC");
     await selectAutomationModel(appMate, target);
+    const due = new Date(Date.now() + 2 * 60_000);
+    const component = (part: number) => String(part).padStart(2, "0");
+    const runAt = `${due.getFullYear()}-${component(due.getMonth() + 1)}-${component(due.getDate())}T${component(due.getHours())}:${component(due.getMinutes())}`;
+    await setField(appMate, "Schedule", "once");
+    await waitFor(appMate, "Boolean(document.getElementById('automation-once-at'))", {
+      timeoutMs: 30_000,
+      label: "Automation Run at field",
+    });
+    await setField(appMate, "Run at", runAt);
+    await setField(appMate, "Timezone", "UTC");
     const createScreen = await visibleText(appMate);
     const approvalTextAbsent = !/draft|permission picker|review automation|approve/i.test(createScreen);
     expect(approvalTextAbsent).toBe(true);
@@ -855,11 +863,48 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       approvalTextAbsent && activatedAutomation !== null,
     );
 
+    // itemFromRows returns { automation, revision, latestRun }, while mapRun
+    // exposes status, the full error payload, and executionThread details.
+    const terminalAutomation = await eventually(
+      () => readAutomationApiState(teammate, orgId, automationName),
+      {
+        within: 420_000,
+        intervalMs: 2_000,
+        label: "Automation latestRun.status terminal in Den",
+        until: (automation) => (
+          automation?.latestRunStatus === "succeeded"
+          || automation?.latestRunStatus === "failed"
+          || automation?.latestRunStatus === "cancelled"
+          || automation?.latestRunStatus === "skipped"
+        ),
+      },
+    );
+    const terminalStatus = terminalAutomation?.latestRunStatus ?? "missing";
+    const latestRunDiagnostic = JSON.stringify({
+      status: terminalStatus,
+      error: terminalAutomation?.latestRun?.error ?? null,
+      executionThread: terminalAutomation?.latestRun?.executionThread ?? null,
+    });
+    if (terminalStatus !== "succeeded") {
+      evidence.fact(
+        "Den diagnosed the Automation's terminal failure",
+        `GET /v1/automations reported the full terminal status, error, and execution thread payload: ${latestRunDiagnostic}.`,
+        terminalStatus === "failed" || terminalStatus === "cancelled" || terminalStatus === "skipped",
+      );
+      throw new Error(`Automation run terminated without succeeding: ${latestRunDiagnostic}`);
+    }
+    expect(terminalStatus).toBe("succeeded");
+    evidence.fact(
+      "The Automation run succeeded in Den",
+      `GET /v1/automations reported latestRun.status=${terminalStatus}.`,
+      terminalStatus === "succeeded",
+    );
+
     const initialAutomationCalls = await connector.toolCalls({
       name: "mock_echo",
       atLeast: 1,
       sinceIso: automationSince,
-      timeoutMs: 300_000,
+      timeoutMs: 60_000,
     });
     const initialMatchingCalls = initialAutomationCalls.filter(
       (call) => String(call.args.text ?? "").includes(automationMarker),
@@ -875,24 +920,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 75 * 60_000 }, asy
       "The scheduled Automation called the organization connector exactly once",
       `Served automation texts after the settle window: ${JSON.stringify(settledAutomationCalls.map((call) => String(call.args.text ?? "")))}.`,
       matchingAutomationCalls.length === 1,
-    );
-
-    // itemFromRows returns { automation, revision, latestRun }, and mapRun
-    // exposes the terminal value at latestRun.status.
-    const succeededAutomation = await eventually(
-      () => readAutomationApiState(teammate, orgId, automationName),
-      {
-        within: 180_000,
-        intervalMs: 2_000,
-        label: "Automation latestRun.status succeeded in Den",
-        until: (automation) => automation?.latestRunStatus === "succeeded",
-      },
-    );
-    expect(succeededAutomation?.latestRunStatus).toBe("succeeded");
-    evidence.fact(
-      "The Automation run succeeded in Den",
-      `GET /v1/automations reported latestRun.status=${succeededAutomation?.latestRunStatus ?? "missing"}.`,
-      succeededAutomation?.latestRunStatus === "succeeded",
     );
     await waitForText(appMate, automationMarker, { timeoutMs: 120_000 });
     const shot = await screenshot(appMate);
