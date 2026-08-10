@@ -82,7 +82,7 @@ export async function executeSavedCodemodeScript(input: {
     return {
       ok: false,
       error: "capability_unavailable",
-      message: `Required capability ${unsafe.scriptPath} (${unsafe.capabilityName}) must be read-only and explicitly approved by an organization admin before it can run unattended in OpenWork Cloud.`,
+      message: `Required capability ${unsafe.scriptPath} (${unsafe.capabilityName}) is not a read-only OpenWork capability and cannot run unattended in OpenWork Cloud.`,
       providerCallAttempted: false,
       missing: [unsafe],
     }

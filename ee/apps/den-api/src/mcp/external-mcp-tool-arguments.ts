@@ -42,22 +42,6 @@ export function externalMcpToolSchemaDigest(schema: Tool["inputSchema"]): string
   return `sha256:${createHash("sha256").update(canonicalJson(schema)).digest("hex")}`
 }
 
-/**
- * Binds an unattended approval to the complete provider-advertised tool
- * definition. A provider changing schemas, annotations, or descriptive
- * metadata invalidates the approval until an organization admin reviews it.
- */
-export function externalMcpToolDefinitionDigest(tool: Tool): string {
-  return `sha256:${createHash("sha256").update(canonicalJson({
-    name: tool.name,
-    title: tool.title,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-    outputSchema: tool.outputSchema,
-    annotations: tool.annotations,
-  })).digest("hex")}`
-}
-
 export function validateExternalMcpToolArguments(
   schema: Tool["inputSchema"],
   value: unknown,

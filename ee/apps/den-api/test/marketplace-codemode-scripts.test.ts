@@ -241,7 +241,7 @@ describe("saved marketplace scripts", () => {
           capabilityName: "reports.echo",
           scriptPath: "tools.reports.echo",
           readOnly: true,
-          unattendedApproved: true,
+          authority: "external",
         }],
       }),
     })

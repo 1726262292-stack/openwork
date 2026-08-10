@@ -78,14 +78,14 @@ test("excludes connections disabled or pending OAuth issuer review", () => {
   })).toBe(true)
 })
 
-test("requires trusted admin approval in addition to read-only metadata for unattended Cloud runs", () => {
-  const required = { scriptPath: "tools.reports.read", capabilityName: "reports.read" }
+test("allows only first-party read-only Den capabilities in unattended Cloud runs", () => {
+  const required = { scriptPath: "tools.den.reports_read", capabilityName: "reports_read" }
   const built = {
     tools: {},
-    manifest: [{ ...required, readOnly: true, unattendedApproved: true }],
+    manifest: [{ ...required, readOnly: true, authority: "den" as const }],
   }
   expect(firstUnattendedUnsafeCapability(built, [required])).toBeNull()
-  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: true }] }, [required])).toEqual(required)
-  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: false }] }, [required])).toEqual(required)
+  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: true, authority: "external" as const }] }, [required])).toEqual(required)
+  expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: false, authority: "den" as const }] }, [required])).toEqual(required)
   expect(firstUnattendedUnsafeCapability({ ...built, manifest: [] }, [required])).toEqual(required)
 })

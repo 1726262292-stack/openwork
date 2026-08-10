@@ -1,6 +1,4 @@
 import type { ExternalMcpToolPolicy } from "@openwork-ee/den-db"
-import type { Tool } from "@modelcontextprotocol/sdk/types.js"
-import { externalMcpToolDefinitionDigest } from "../mcp/external-mcp-tool-arguments.js"
 
 export type ToolPolicyDecision = {
   blocked: boolean
@@ -33,13 +31,4 @@ export function isToolDisabled(
   toolName: string,
 ): boolean {
   return evaluateToolPolicy(policy, toolName).blocked
-}
-
-export function isToolApprovedForUnattendedCloud(
-  policy: ExternalMcpToolPolicy | null | undefined,
-  tool: Tool,
-): boolean {
-  return tool.annotations?.readOnlyHint === true
-    && policy?.unattendedApprovedTools?.includes(tool.name) === true
-    && policy.unattendedApprovedToolDigests?.[tool.name] === externalMcpToolDefinitionDigest(tool)
 }

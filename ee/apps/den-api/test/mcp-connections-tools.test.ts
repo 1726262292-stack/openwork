@@ -282,7 +282,6 @@ test("admin inspects a live Den-managed MCP catalog without calling a tool", asy
   expect(await response.json()).toEqual({
     tools: [{
       name: "search_incidents",
-      definitionDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       title: "Search incidents",
       description: "Search incidents by query and optional status.",
       inputSchema: {
@@ -305,14 +304,6 @@ test("admin inspects a live Den-managed MCP catalog without calling a tool", asy
         openWorldHint: false,
       },
     }],
-    policy: {
-      allDisabled: false,
-      disabledTools: [],
-      unattendedApprovedTools: [],
-      unattendedApprovedToolDigests: {},
-      updatedBy: null,
-      updatedAt: null,
-    },
   })
   expect(observedMethods).toContain("tools/list")
   expect(observedMethods).not.toContain("tools/call")

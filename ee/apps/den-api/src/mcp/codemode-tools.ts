@@ -6,7 +6,7 @@ import { z } from "zod"
 import { listUsableExternalMcpConnections, type ExternalMcpConnectionRow } from "../capability-sources/external-mcp-connections.js"
 import { listExternalMcpTools } from "../capability-sources/external-mcp-client-runtime.js"
 import { createExternalMcpLifecycleDeadline, EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } from "../capability-sources/external-mcp-client.js"
-import { isToolApprovedForUnattendedCloud, isToolDisabled } from "../capability-sources/external-mcp-tool-policy.js"
+import { isToolDisabled } from "../capability-sources/external-mcp-tool-policy.js"
 import type { McpPrincipal } from "./auth.js"
 import type { McpToolOperation } from "./catalog.js"
 import {
@@ -24,7 +24,7 @@ export type CodemodeManifestEntry = {
   scriptPath: string
   capabilityName: string
   readOnly?: boolean
-  unattendedApproved?: boolean
+  authority?: "den" | "external"
 }
 
 export type BuiltCodemodeTools = {
@@ -110,8 +110,10 @@ export function restrictCodemodeToolTree(input: {
 }
 
 /**
- * Unattended Cloud runs may be retried after a lost lease, so Phase 1 only
- * admits trusted Den reads or external tools an org admin explicitly approved.
+ * Unattended Cloud runs may be retried after a lost lease, so Phase 1 admits
+ * only read-only capabilities implemented by Den itself. External MCP tools
+ * remain available to interactive saved-Script runs, but provider metadata is
+ * not an authority boundary for unattended execution.
  */
 export function firstUnattendedUnsafeCapability(
   built: BuiltCodemodeTools,
@@ -121,10 +123,10 @@ export function firstUnattendedUnsafeCapability(
     `${entry.scriptPath}\n${entry.capabilityName}`,
     entry,
   ]))
-  return requiredCapabilities.find((required) => (
-    manifest.get(`${required.scriptPath}\n${required.capabilityName}`)?.readOnly !== true
-    || manifest.get(`${required.scriptPath}\n${required.capabilityName}`)?.unattendedApproved !== true
-  )) ?? null
+  return requiredCapabilities.find((required) => {
+    const available = manifest.get(`${required.scriptPath}\n${required.capabilityName}`)
+    return available?.authority !== "den" || available.readOnly !== true
+  }) ?? null
 }
 
 function textParts(value: unknown): string[] {
@@ -178,7 +180,7 @@ export function buildDenCatalogToolTree(input: {
       scriptPath: codemodeScriptPath("den", operation.name),
       capabilityName: operation.name,
       readOnly: operation.method === "GET",
-      unattendedApproved: operation.method === "GET",
+      authority: "den" as const,
     })),
   }
 }
@@ -282,7 +284,7 @@ export async function buildExternalMcpToolTree(input: {
           scriptPath: codemodeScriptPath(namespace, tool.name),
           capabilityName: buildExternalCapabilityName(connection.id, tool.name),
           readOnly: tool.annotations?.readOnlyHint === true,
-          unattendedApproved: isToolApprovedForUnattendedCloud(connection.toolPolicy, tool),
+          authority: "external" as const,
         }))
     }),
   }
