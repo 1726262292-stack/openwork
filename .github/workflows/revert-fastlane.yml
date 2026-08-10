@@ -3,13 +3,24 @@
 # The bot approval satisfies the "someone other than the last pusher" rule because
 # this workflow's bot never pushes. For SOC 2 four-eyes, this automated control
 # inherits the original human review of the commit already landed on protected dev.
+#
+# Security model (warden SEP-C6H): this runs on pull_request_target, so the
+# workflow definition AND scripts/ci/verify-clean-revert.mjs execute from the
+# trusted base branch (dev) — never from the PR. PR commits are fetched as git
+# data only: the verifier re-applies `git revert` to them as patch content and
+# compares tree hashes. A PR that modifies this workflow or the verifier cannot
+# change what executes here. actions/checkout is pinned to an immutable commit
+# (warden TBZ-HXQ) because this job holds a pull-request write token. The
+# same-repo guard below is mandatory under pull_request_target: the write token
+# must never run against fork-originated PRs.
+#
 # Scope is limited to single-commit, non-merge reverts whose tree is an exact inverse;
 # hand-adjusted reverts (revert conflicts or edits after `git revert`) are deliberately
 # rejected and take the normal human-review path.
 name: Revert Fast Lane
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize]
     branches: [dev]
 
@@ -26,10 +37,16 @@ jobs:
     if: startsWith(github.event.pull_request.title, 'Revert "') && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout trusted base (dev)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
+
+      - name: Fetch PR commits as git data
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
 
       - name: Verify exact clean revert
         id: verify
@@ -75,7 +92,7 @@ jobs:
           REVERTED_SHA: ${{ steps.verify.outputs.reverted }}
         run: |
           body="Machine-verified that this PR's tree is the exact inverse of commit \`$REVERTED_SHA\`, which previously landed on protected \`dev\` via a reviewed PR. Auto-approval per the clean-revert fast-lane control; any further push re-runs verification."
-          gh pr review "$PR_NUMBER" --approve --body "$body"
+          gh pr review "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --approve --body "$body"
           printf '## Revert Fast Lane\n\nPASS: %s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record ineligible revert
