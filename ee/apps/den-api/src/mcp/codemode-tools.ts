@@ -6,7 +6,7 @@ import { z } from "zod"
 import { listUsableExternalMcpConnections, type ExternalMcpConnectionRow } from "../capability-sources/external-mcp-connections.js"
 import { listExternalMcpTools } from "../capability-sources/external-mcp-client-runtime.js"
 import { createExternalMcpLifecycleDeadline, EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } from "../capability-sources/external-mcp-client.js"
-import { isToolDisabled } from "../capability-sources/external-mcp-tool-policy.js"
+import { isToolApprovedForUnattendedCloud, isToolDisabled } from "../capability-sources/external-mcp-tool-policy.js"
 import type { McpPrincipal } from "./auth.js"
 import type { McpToolOperation } from "./catalog.js"
 import {
@@ -282,8 +282,7 @@ export async function buildExternalMcpToolTree(input: {
           scriptPath: codemodeScriptPath(namespace, tool.name),
           capabilityName: buildExternalCapabilityName(connection.id, tool.name),
           readOnly: tool.annotations?.readOnlyHint === true,
-          unattendedApproved: tool.annotations?.readOnlyHint === true
-            && connection.toolPolicy?.unattendedApprovedTools?.includes(tool.name) === true,
+          unattendedApproved: isToolApprovedForUnattendedCloud(connection.toolPolicy, tool),
         }))
     }),
   }

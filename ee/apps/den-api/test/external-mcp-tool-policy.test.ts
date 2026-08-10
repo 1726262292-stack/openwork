@@ -2,8 +2,10 @@ import type { ExternalMcpToolPolicy } from "@openwork-ee/den-db"
 import { describe, expect, test } from "bun:test"
 import {
   evaluateToolPolicy,
+  isToolApprovedForUnattendedCloud,
   isToolDisabled,
 } from "../src/capability-sources/external-mcp-tool-policy.js"
+import { externalMcpToolDefinitionDigest } from "../src/mcp/external-mcp-tool-arguments.js"
 
 const policy: ExternalMcpToolPolicy = {
   version: 1,
@@ -35,5 +37,30 @@ describe("external MCP tool policy", () => {
       blocked: true,
       reason: "all_disabled",
     })
+  })
+
+  test("unattended approval is revoked when the advertised tool definition changes", () => {
+    const tool = {
+      name: "read_issue",
+      inputSchema: { type: "object" as const, properties: { id: { type: "string" } } },
+      annotations: { readOnlyHint: true },
+    }
+    const approvedPolicy: ExternalMcpToolPolicy = {
+      ...policy,
+      unattendedApprovedTools: [tool.name],
+      unattendedApprovedToolDigests: {
+        [tool.name]: externalMcpToolDefinitionDigest(tool),
+      },
+    }
+
+    expect(isToolApprovedForUnattendedCloud(approvedPolicy, tool)).toBe(true)
+    expect(isToolApprovedForUnattendedCloud(approvedPolicy, {
+      ...tool,
+      annotations: { readOnlyHint: true, destructiveHint: true },
+    })).toBe(false)
+    expect(isToolApprovedForUnattendedCloud({
+      ...approvedPolicy,
+      unattendedApprovedToolDigests: undefined,
+    }, tool)).toBe(false)
   })
 })

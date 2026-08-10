@@ -131,6 +131,7 @@ export type McpIssuerReview = {
 
 export type ExternalMcpTool = {
   name: string;
+  definitionDigest: string;
   title?: string;
   description?: string;
   inputSchema: Record<string, unknown>;
@@ -148,6 +149,7 @@ export type ExternalMcpToolPolicyView = {
   allDisabled: boolean;
   disabledTools: string[];
   unattendedApprovedTools: string[];
+  unattendedApprovedToolDigests: Record<string, string>;
   updatedBy: string | null;
   updatedAt: string | null;
 };
@@ -264,7 +266,13 @@ export const mcpConnectionQueryKeys = {
 };
 
 function isExternalMcpTool(value: unknown): value is ExternalMcpTool {
-  if (!isRecord(value) || typeof value.name !== "string" || !isRecord(value.inputSchema)) return false;
+  if (
+    !isRecord(value)
+    || typeof value.name !== "string"
+    || typeof value.definitionDigest !== "string"
+    || !/^sha256:[a-f0-9]{64}$/.test(value.definitionDigest)
+    || !isRecord(value.inputSchema)
+  ) return false;
   if (value.title !== undefined && typeof value.title !== "string") return false;
   if (value.description !== undefined && typeof value.description !== "string") return false;
   if (value.outputSchema !== undefined && !isRecord(value.outputSchema)) return false;
@@ -285,6 +293,10 @@ function parseExternalMcpToolPolicy(value: unknown): ExternalMcpToolPolicyView |
     || !value.disabledTools.every((toolName) => typeof toolName === "string")
     || !Array.isArray(value.unattendedApprovedTools)
     || !value.unattendedApprovedTools.every((toolName) => typeof toolName === "string")
+    || !isRecord(value.unattendedApprovedToolDigests)
+    || !Object.values(value.unattendedApprovedToolDigests).every((digest) => (
+      typeof digest === "string" && /^sha256:[a-f0-9]{64}$/.test(digest)
+    ))
     || (value.updatedBy !== null && typeof value.updatedBy !== "string")
     || (value.updatedAt !== null && typeof value.updatedAt !== "string")
   ) return null;
@@ -292,6 +304,7 @@ function parseExternalMcpToolPolicy(value: unknown): ExternalMcpToolPolicyView |
     allDisabled: value.allDisabled,
     disabledTools: value.disabledTools,
     unattendedApprovedTools: value.unattendedApprovedTools,
+    unattendedApprovedToolDigests: value.unattendedApprovedToolDigests as Record<string, string>,
     updatedBy: value.updatedBy,
     updatedAt: value.updatedAt,
   };
@@ -327,7 +340,7 @@ export function useUpdateMcpConnectionToolPolicy(connectionId: string) {
   const queryClient = useQueryClient();
   const { orgId } = useOrgDashboard();
   return useMutation({
-    mutationFn: async (input: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools" | "unattendedApprovedTools">): Promise<ExternalMcpToolPolicyView> => {
+    mutationFn: async (input: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools" | "unattendedApprovedTools" | "unattendedApprovedToolDigests">): Promise<ExternalMcpToolPolicyView> => {
       const { response, payload } = await requestJson(
         `/v1/mcp-connections/${encodeURIComponent(connectionId)}/tool-policy`,
         {

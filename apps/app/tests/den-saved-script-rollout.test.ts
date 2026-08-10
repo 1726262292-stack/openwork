@@ -25,6 +25,7 @@ describe("saved script client rollout compatibility", () => {
 
     await expect(client.supportsSavedCodemodeScripts("org_test")).resolves.toBe(false);
     await expect(client.listSavedCodemodeScripts("org_test")).resolves.toEqual([]);
+    await expect(client.supportsCloudSavedScriptAutomations("org_test")).resolves.toBe(false);
   });
 
   test("does not hide authentication or server failures as rollout fallback", async () => {
@@ -32,5 +33,13 @@ describe("saved script client rollout compatibility", () => {
     const client = createDenClient({ baseUrl: "https://den.test", token: "tok_test" });
 
     await expect(client.supportsSavedCodemodeScripts("org_test")).rejects.toBeInstanceOf(DenApiError);
+    await expect(client.supportsCloudSavedScriptAutomations("org_test")).rejects.toBeInstanceOf(DenApiError);
+  });
+
+  test("enables Cloud Script Automations only when Den advertises the action", async () => {
+    mockResponse(200, { version: 1, actions: { agentDesktop: true, savedScriptCloud: true } });
+    const client = createDenClient({ baseUrl: "https://den.test", token: "tok_test" });
+
+    await expect(client.supportsCloudSavedScriptAutomations("org_test")).resolves.toBe(true);
   });
 });

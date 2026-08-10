@@ -45,6 +45,13 @@ const paginationSchema = z.object({
 const runListSchema = z.object({ items: z.array(automationRunSchema), nextCursor: z.string().nullable() })
 const runResponseSchema = z.object({ run: automationRunSchema })
 const runnerClaimResponseSchema = z.object({ assignment: automationDesktopRunnerAssignmentSchema.nullable() })
+const automationCapabilitiesSchema = z.object({
+  version: z.literal(1),
+  actions: z.object({
+    agentDesktop: z.literal(true),
+    savedScriptCloud: z.literal(true),
+  }),
+})
 
 type McpDescribeRouteOptions = DescribeRouteOptions & { "x-mcp": true }
 const describeMcpRoute = (options: McpDescribeRouteOptions) => describeRoute(options)
@@ -233,6 +240,21 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
         return c.json({ error: "runner_completion_failed" }, 500)
       }
     },
+  )
+
+  app.get(
+    "/v1/automations/capabilities",
+    describeMcpRoute({
+      tags: ["Automations"], operationId: "getAutomationCapabilities", "x-mcp": true,
+      summary: "Get Automation contract capabilities",
+      description: "Lets published clients negotiate additive Automation actions before submitting them.",
+      responses: { 200: jsonResponse("Automation capabilities returned.", automationCapabilitiesSchema) },
+    }),
+    orgMemberRoute(),
+    async (c) => c.json({
+      version: 1 as const,
+      actions: { agentDesktop: true as const, savedScriptCloud: true as const },
+    }),
   )
 
   app.get(

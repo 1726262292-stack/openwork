@@ -260,7 +260,7 @@ export function ToolTesterScreen() {
     clearRunFeedback();
   }
 
-  async function savePolicy(nextPolicy: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools" | "unattendedApprovedTools">): Promise<boolean> {
+  async function savePolicy(nextPolicy: Pick<ExternalMcpToolPolicyView, "allDisabled" | "disabledTools" | "unattendedApprovedTools" | "unattendedApprovedToolDigests">): Promise<boolean> {
     setPolicyError(null);
     try {
       await updatePolicy.mutateAsync(nextPolicy);
@@ -279,15 +279,20 @@ export function ToolTesterScreen() {
     const unattendedApprovedTools = enabled
       ? policy.unattendedApprovedTools
       : policy.unattendedApprovedTools.filter((name) => name !== toolName);
-    await savePolicy({ allDisabled: policy.allDisabled, disabledTools, unattendedApprovedTools });
+    const unattendedApprovedToolDigests = { ...policy.unattendedApprovedToolDigests };
+    if (!enabled) delete unattendedApprovedToolDigests[toolName];
+    await savePolicy({ allDisabled: policy.allDisabled, disabledTools, unattendedApprovedTools, unattendedApprovedToolDigests });
   }
 
-  async function toggleUnattendedApproval(toolName: string, approved: boolean) {
+  async function toggleUnattendedApproval(tool: ExternalMcpTool, approved: boolean) {
     if (!policy) return;
     const unattendedApprovedTools = approved
-      ? [...new Set([...policy.unattendedApprovedTools, toolName])]
-      : policy.unattendedApprovedTools.filter((name) => name !== toolName);
-    await savePolicy({ allDisabled: policy.allDisabled, disabledTools: policy.disabledTools, unattendedApprovedTools });
+      ? [...new Set([...policy.unattendedApprovedTools, tool.name])]
+      : policy.unattendedApprovedTools.filter((name) => name !== tool.name);
+    const unattendedApprovedToolDigests = { ...policy.unattendedApprovedToolDigests };
+    if (approved) unattendedApprovedToolDigests[tool.name] = tool.definitionDigest;
+    else delete unattendedApprovedToolDigests[tool.name];
+    await savePolicy({ allDisabled: policy.allDisabled, disabledTools: policy.disabledTools, unattendedApprovedTools, unattendedApprovedToolDigests });
   }
 
   async function enableSelectedTool() {
@@ -296,6 +301,7 @@ export function ToolTesterScreen() {
       allDisabled: false,
       disabledTools: policy.disabledTools.filter((name) => name !== selectedTool.name),
       unattendedApprovedTools: policy.unattendedApprovedTools,
+      unattendedApprovedToolDigests: policy.unattendedApprovedToolDigests,
     });
   }
 
@@ -472,7 +478,7 @@ export function ToolTesterScreen() {
                   disabled={updatePolicy.isPending}
                   onChange={(checked) => {
                     if (checked) {
-                      void savePolicy({ allDisabled: false, disabledTools: policy.disabledTools, unattendedApprovedTools: policy.unattendedApprovedTools });
+                      void savePolicy({ allDisabled: false, disabledTools: policy.disabledTools, unattendedApprovedTools: policy.unattendedApprovedTools, unattendedApprovedToolDigests: policy.unattendedApprovedToolDigests });
                     } else {
                       setDisableAllConfirmOpen(true);
                     }
@@ -528,10 +534,11 @@ export function ToolTesterScreen() {
                           <DenToggleRow
                             icon={Shield}
                             title="Allow unattended Cloud Automations"
-                            description="The provider's read-only hint is not trusted by itself. An organization admin must explicitly approve this tool before a retryable Cloud Automation can call it."
-                            checked={policy.unattendedApprovedTools.includes(selectedTool.name)}
+                            description="The provider's read-only hint is not trusted by itself. Approval is bound to this exact tool definition and is revoked automatically if its schema or annotations change."
+                            checked={policy.unattendedApprovedTools.includes(selectedTool.name)
+                              && policy.unattendedApprovedToolDigests[selectedTool.name] === selectedTool.definitionDigest}
                             disabled={updatePolicy.isPending}
-                            onChange={(checked) => void toggleUnattendedApproval(selectedTool.name, checked)}
+                            onChange={(checked) => void toggleUnattendedApproval(selectedTool, checked)}
                           />
                         </div>
                       ) : null}
@@ -636,7 +643,7 @@ export function ToolTesterScreen() {
               <DenButton
                 variant="destructive"
                 loading={updatePolicy.isPending}
-                onClick={() => void savePolicy({ allDisabled: true, disabledTools: policy.disabledTools, unattendedApprovedTools: policy.unattendedApprovedTools }).then((saved) => {
+                onClick={() => void savePolicy({ allDisabled: true, disabledTools: policy.disabledTools, unattendedApprovedTools: policy.unattendedApprovedTools, unattendedApprovedToolDigests: policy.unattendedApprovedToolDigests }).then((saved) => {
                   if (saved) setDisableAllConfirmOpen(false);
                 })}
               >

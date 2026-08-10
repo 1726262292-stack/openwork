@@ -187,10 +187,16 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
     queryFn: () => client!.listOrgLlmProviders(organizationId!),
     enabled: ready,
   })
+  const cloudScriptSupportQuery = useQuery({
+    queryKey: [...queryRoot, "capabilities", "saved-script-cloud"],
+    queryFn: () => client!.supportsCloudSavedScriptAutomations(organizationId!),
+    enabled: ready,
+    staleTime: 60_000,
+  })
   const scriptsQuery = useQuery({
     queryKey: [...queryRoot, "saved-scripts"],
     queryFn: () => client!.listSavedCodemodeScripts(organizationId!),
-    enabled: ready,
+    enabled: ready && cloudScriptSupportQuery.data === true,
   })
   const detailQuery = useQuery({
     queryKey: [...queryRoot, "detail", selectedId],
@@ -310,6 +316,35 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
   }
 
   if (creating) {
+    if (requestedScriptVersionId && (cloudScriptSupportQuery.isLoading || scriptsQuery.isLoading)) {
+      return <LoadingState />
+    }
+    if (requestedScriptVersionId && cloudScriptSupportQuery.error) {
+      return (
+        <div className="mx-auto flex max-w-xl flex-col items-center gap-4 p-6 pt-16 text-center" role="alert">
+          <AlertCircle className="size-8 text-destructive" aria-hidden="true" />
+          <div>
+            <h2 className="font-medium">Could not verify Cloud Automation support</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{describeError(cloudScriptSupportQuery.error)}</p>
+          </div>
+          <Button variant="outline" onClick={() => void cloudScriptSupportQuery.refetch()}><RefreshCw />Retry</Button>
+        </div>
+      )
+    }
+    if (requestedScriptVersionId && cloudScriptSupportQuery.data !== true) {
+      return (
+        <div className="mx-auto flex max-w-xl flex-col items-center gap-4 p-6 pt-16 text-center" role="alert">
+          <AlertCircle className="size-8 text-destructive" aria-hidden="true" />
+          <div>
+            <h2 className="font-medium">Cloud Script Automations unavailable</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Deploy a Den version that advertises the saved Script Cloud Automation contract before enabling this desktop workflow.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => openAutomation(null)}>Back to Automations</Button>
+        </div>
+      )
+    }
     return (
       <div className="mx-auto max-w-3xl space-y-5 p-6">
         <div className="flex items-center gap-3">
@@ -333,6 +368,10 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
           onSave={async (input) => {
             setBusyAction("create")
             try {
+              if ("action" in input && input.action.kind === "saved_script"
+                && !await client.supportsCloudSavedScriptAutomations(organizationId)) {
+                throw new Error("This Den deployment does not support Cloud Script Automations yet.")
+              }
               const detail = await client.createAutomation(organizationId, input)
               await refresh()
               openAutomation(detail.automation.id)

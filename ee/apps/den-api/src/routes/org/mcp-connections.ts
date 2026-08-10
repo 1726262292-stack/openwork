@@ -69,6 +69,7 @@ import {
   type ExternalMcpConnectionRow,
 } from "../../capability-sources/external-mcp-connections.js"
 import { evaluateToolPolicy } from "../../capability-sources/external-mcp-tool-policy.js"
+import { externalMcpToolDefinitionDigest } from "../../mcp/external-mcp-tool-arguments.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { listNativeProviderUsableEntries } from "../../capability-sources/native-provider-connections.js"
 import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
@@ -416,6 +417,7 @@ const connectionToolAnnotationsSchema = z.object({
 
 const connectionToolSchema = z.object({
   name: z.string(),
+  definitionDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   title: z.string().optional(),
   description: z.string().optional(),
   inputSchema: z.record(z.string(), z.unknown()),
@@ -427,6 +429,7 @@ const connectionToolPolicySchema = z.object({
   allDisabled: z.boolean(),
   disabledTools: z.array(z.string()),
   unattendedApprovedTools: z.array(z.string()),
+  unattendedApprovedToolDigests: z.record(z.string(), z.string().regex(/^sha256:[a-f0-9]{64}$/)),
   updatedBy: z.string().nullable(),
   updatedAt: z.string().datetime().nullable(),
 }).meta({ ref: "ExternalMcpConnectionToolPolicy" })
@@ -435,6 +438,10 @@ const connectionToolPolicyInputSchema = z.object({
   allDisabled: z.boolean(),
   disabledTools: z.array(z.string().trim().min(1).max(255)).max(500),
   unattendedApprovedTools: z.array(z.string().trim().min(1).max(255)).max(500).optional(),
+  unattendedApprovedToolDigests: z.record(
+    z.string().trim().min(1).max(255),
+    z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  ).optional(),
 }).meta({ ref: "ExternalMcpConnectionToolPolicyInput" })
 
 const connectionToolPolicyResponseSchema = z.object({
@@ -784,6 +791,7 @@ function toToolPolicyResponse(
     allDisabled: policy?.allDisabled ?? false,
     disabledTools: policy?.disabledTools ?? [],
     unattendedApprovedTools: policy?.unattendedApprovedTools ?? [],
+    unattendedApprovedToolDigests: policy?.unattendedApprovedToolDigests ?? {},
     updatedBy: options.includeAttribution ? policy?.updatedByName ?? null : null,
     updatedAt: policy?.updatedAt ?? null,
   }
@@ -1746,6 +1754,9 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         unattendedApprovedTools: body.unattendedApprovedTools === undefined
           ? connection.toolPolicy?.unattendedApprovedTools ?? []
           : [...new Set(body.unattendedApprovedTools)],
+        unattendedApprovedToolDigests: body.unattendedApprovedToolDigests === undefined
+          ? connection.toolPolicy?.unattendedApprovedToolDigests ?? {}
+          : body.unattendedApprovedToolDigests,
         updatedByOrgMembershipId: payload.currentMember.id,
         ...(updatedByName ? { updatedByName } : {}),
         updatedAt: new Date().toISOString(),
@@ -1824,6 +1835,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
         return c.json({
           tools: tools.map((tool) => ({
             name: tool.name,
+            definitionDigest: externalMcpToolDefinitionDigest(tool),
             ...(tool.title ? { title: tool.title } : {}),
             ...(tool.description ? { description: tool.description } : {}),
             inputSchema: tool.inputSchema,

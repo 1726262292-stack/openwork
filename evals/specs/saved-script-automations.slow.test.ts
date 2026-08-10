@@ -106,10 +106,25 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     credentialMode: "shared",
     access: { orgWide: true },
   });
+  const catalog = await denFetch(den.admin, `/v1/mcp-connections/${connection.id}/tools`, {
+    headers: { authorization: `Bearer ${den.admin.token}` },
+  });
+  expect(catalog.response.ok, catalog.text).toBe(true);
+  const catalogTools = isRecord(catalog.body) && Array.isArray(catalog.body.tools)
+    ? catalog.body.tools.filter(isRecord)
+    : [];
+  const echoTool = catalogTools.find((tool) => tool.name === "mock_echo");
+  const definitionDigest = typeof echoTool?.definitionDigest === "string" ? echoTool.definitionDigest : "";
+  expect(definitionDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
   const approvedForCloud = await denFetch(den.admin, `/v1/mcp-connections/${connection.id}/tool-policy`, {
     method: "PUT",
     headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ allDisabled: false, disabledTools: [], unattendedApprovedTools: ["mock_echo"] }),
+    body: JSON.stringify({
+      allDisabled: false,
+      disabledTools: [],
+      unattendedApprovedTools: ["mock_echo"],
+      unattendedApprovedToolDigests: { mock_echo: definitionDigest },
+    }),
   });
   expect(approvedForCloud.response.ok, approvedForCloud.text).toBe(true);
 

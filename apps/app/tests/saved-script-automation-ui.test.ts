@@ -39,5 +39,7 @@ describe("saved Code Mode script journey", () => {
     expect(editor).toContain("even when your browser and desktop are closed")
     expect(page).toContain("scriptVersionId")
     expect(page).toContain("OpenWork Cloud")
+    expect(page).toContain("supportsCloudSavedScriptAutomations")
+    expect(page).toContain("does not support Cloud Script Automations yet")
   })
 })

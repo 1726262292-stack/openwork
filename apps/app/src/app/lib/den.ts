@@ -2599,6 +2599,23 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       });
     },
 
+    async supportsCloudSavedScriptAutomations(orgId: string): Promise<boolean> {
+      try {
+        const payload = await requestJson<{
+          version: number;
+          actions?: { savedScriptCloud?: boolean };
+        }>(baseUrls, "/v1/automations/capabilities", {
+          method: "GET",
+          token,
+          organizationId: orgId,
+        });
+        return payload.version === 1 && payload.actions?.savedScriptCloud === true;
+      } catch (error) {
+        if (error instanceof DenApiError && error.status === 404) return false;
+        throw error;
+      }
+    },
+
     async mintAutomationRunnerToken(orgId: string, registration: AutomationDesktopRunnerRegistration): Promise<AutomationRunnerTokenResponse> {
       return requestJson<AutomationRunnerTokenResponse>(baseUrls, "/v1/automation-runners/token", {
         method: "POST",

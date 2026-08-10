@@ -28,6 +28,7 @@ describe("Tool Tester layout", () => {
 
     expect(screen).toContain("Allow unattended Cloud Automations");
     expect(screen).toContain("provider's read-only hint is not trusted by itself");
-    expect(screen).toContain("unattendedApprovedTools.includes(selectedTool.name)");
+    expect(screen).toContain("unattendedApprovedToolDigests[selectedTool.name] === selectedTool.definitionDigest");
+    expect(screen).toContain("revoked automatically if its schema or annotations change");
   });
 });
