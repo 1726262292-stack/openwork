@@ -601,6 +601,11 @@ async function handleAuthRequest(c: Context) {
     }
   }
 
+  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest, c, { invitationSignupAllowed })
+  if (singleOrgAuthGuardResponse) {
+    return singleOrgAuthGuardResponse
+  }
+
   const shortPasswordResponse = await getShortPasswordResponse(authRequest)
   if (shortPasswordResponse) {
     return shortPasswordResponse
@@ -614,11 +619,6 @@ async function handleAuthRequest(c: Context) {
   const breachedPasswordResponse = await getBreachedPasswordResponse(authRequest)
   if (breachedPasswordResponse) {
     return breachedPasswordResponse
-  }
-
-  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest, c, { invitationSignupAllowed })
-  if (singleOrgAuthGuardResponse) {
-    return singleOrgAuthGuardResponse
   }
 
   // Desktop sessions use an Authorization bearer and intentionally send no
