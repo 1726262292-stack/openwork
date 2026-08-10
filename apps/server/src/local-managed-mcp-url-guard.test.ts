@@ -74,11 +74,28 @@ describe("local managed MCP outbound URL guard", () => {
     expect(isLocalManagedMcpPrivateAddress("2606:4700:4700::1111")).toBe(false);
   });
 
+  test("rejects IANA special-use IPv4 blocks that are unsafe for MCP egress", () => {
+    for (const address of [
+      "192.0.0.1",
+      "192.0.0.9",
+      "192.0.2.1",
+      "192.88.99.1",
+      "198.51.100.1",
+      "203.0.113.1",
+    ]) {
+      expect(isLocalManagedMcpPrivateAddress(address)).toBe(true);
+    }
+    for (const address of ["192.0.1.1", "198.20.0.1", "203.0.114.1"]) {
+      expect(isLocalManagedMcpPrivateAddress(address)).toBe(false);
+    }
+  });
+
   test("requires public HTTPS outside explicit local development", async () => {
     delete process.env.OPENWORK_DEV_MODE;
     delete process.env.OPENWORK_ALLOW_PRIVATE_MCP_URLS;
     await expect(assertLocalManagedMcpUrl("http://127.0.0.1:3978/mcp")).rejects.toThrow("HTTPS");
     await expect(assertLocalManagedMcpUrl("https://169.254.169.254/latest/meta-data")).rejects.toThrow("private or reserved");
+    await expect(assertLocalManagedMcpUrl("https://192.0.0.1/mcp")).rejects.toThrow("private or reserved");
     await expect(assertLocalManagedMcpUrl("https://8.8.8.8/mcp")).resolves.toBeUndefined();
   });
 
