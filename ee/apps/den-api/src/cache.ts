@@ -1,6 +1,7 @@
 import { asc, and, eq, gt, isNull } from "@openwork-ee/den-db/drizzle"
 import { AuthSessionTable, AuthUserTable, InvitationTable, MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId, type DenTypeIdName } from "@openwork-ee/utils/typeid"
+import { createHash } from "node:crypto"
 import Redis from "ioredis"
 import { db } from "./db.js"
 import { env } from "./env.js"
@@ -90,6 +91,16 @@ let activeAuthSessionLivenessLoader = loadAuthSessionLiveness
 
 function cacheKey(input: CacheKeyInput) {
   return `cache:${input.parent}:${input.child}:${input.id}`
+}
+
+function hashCacheId(id: string) {
+  return createHash("sha256").update(id).digest("hex").slice(0, 12)
+}
+
+function cacheLogDetails(input: CacheKeyInput) {
+  return input.parent === "auth" && input.child === "session"
+    ? { cacheParent: input.parent, cacheChild: input.child, idHash: hashCacheId(input.id) }
+    : { cacheParent: input.parent, cacheChild: input.child, id: input.id }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -421,7 +432,8 @@ async function loadAuthSessionLiveness(token: string, now: Date): Promise<AuthSe
 
 async function getAuthSession(token: string) {
   const now = new Date()
-  const key = cacheKey({ parent: "auth", child: "session", id: token })
+  const keyInput = { parent: "auth", child: "session", id: token } as const
+  const key = cacheKey(keyInput)
   const redis = activeRedisClient
   if (redis) {
     try {
@@ -437,7 +449,7 @@ async function getAuthSession(token: string) {
         }
       }
     } catch (error) {
-      console.error("openwork_cache_get_failed", { key, error })
+      console.error("openwork_cache_get_failed", { ...cacheLogDetails(keyInput), error })
     }
   }
 
@@ -451,18 +463,19 @@ async function getAuthSession(token: string) {
     try {
       await redis.set(key, JSON.stringify(loaded), "EX", ttl)
     } catch (error) {
-      console.error("openwork_cache_set_failed", { key, error })
+      console.error("openwork_cache_set_failed", { ...cacheLogDetails(keyInput), error })
     }
   }
   return loaded
 }
 
 async function deleteAuthSession(token: string) {
-  const key = cacheKey({ parent: "auth", child: "session", id: token })
+  const keyInput = { parent: "auth", child: "session", id: token } as const
+  const key = cacheKey(keyInput)
   try {
     await activeRedisClient?.del(key)
   } catch (error) {
-    console.error("openwork_cache_delete_failed", { key, error })
+    console.error("openwork_cache_delete_failed", { ...cacheLogDetails(keyInput), error })
   }
 }
 

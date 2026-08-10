@@ -159,7 +159,7 @@ Redis cache example:
 ```yaml
 secret:
   values:
-    databaseRedisUrl: "redis://redis-master.openwork.svc.cluster.local:6379"
+    databaseRedisUrl: "rediss://redis-master.openwork.svc.cluster.local:6379"
 ```
 
 ## Custom CA certificates

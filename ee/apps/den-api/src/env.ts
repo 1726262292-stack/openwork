@@ -285,6 +285,10 @@ function normalizeOrigin(origin: string) {
   return value.replace(/\/+$/, "")
 }
 
+function isLocalRedisHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1"
+}
+
 function normalizeRedisUrl(value: string | undefined) {
   const configured = optionalString(value)
   if (!configured) {
@@ -300,6 +304,10 @@ function normalizeRedisUrl(value: string | undefined) {
 
   if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
     throw new Error("DATABASE_REDIS_URL must use redis:// or rediss://.")
+  }
+
+  if (url.protocol === "redis:" && !isLocalRedisHost(url.hostname)) {
+    throw new Error("DATABASE_REDIS_URL must use rediss:// for non-local Redis endpoints.")
   }
 
   return url.toString()
