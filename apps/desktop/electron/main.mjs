@@ -72,6 +72,7 @@ import {
   windowsIconFromNativeImage,
 } from "./brand-icon-windows.mjs";
 import { resetMacDockIcon } from "./brand-icon-darwin.mjs";
+import { createDesktopVaultKeyProvider } from "./secure-vault-key.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, "../../..");
@@ -1187,6 +1188,10 @@ const runtimeManager = createRuntimeManager({
   app,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  localManagedMcpVaultKey: createDesktopVaultKeyProvider({
+    filePath: path.join(app.getPath("userData"), "local-managed-mcp-vault-key.bin"),
+    loadSafeStorage: () => require("electron").safeStorage,
+  }),
 });
 const desktopAutomationRunner = createDesktopAutomationRunner({
   getLocalRuntime: async () => {

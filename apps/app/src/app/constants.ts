@@ -37,6 +37,8 @@ export type McpDirectoryInfo = {
   type?: "remote" | "local";
   command?: string[];
   oauth: boolean;
+  /** Route OAuth through the local OpenWork gateway instead of delegating it to OpenCode. */
+  managedOAuth?: boolean;
   oauthConfig?: {
     clientId?: string;
     clientSecret?: string;

@@ -21,7 +21,7 @@ import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } fr
 import { sweepLegacyOpenCodeConfig } from "./legacy-config-sweep.js";
 import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
 import type { ServeResult } from "./serve-node.js";
-import type { ServerConfig } from "./types.js";
+import type { LocalManagedMcpVaultKeyProvider, ServerConfig } from "./types.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** When true, spawn a managed OpenCode child process. */
@@ -30,6 +30,8 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** Secure key custody for the local managed MCP credential vault. */
+  localManagedMcpVaultKey?: LocalManagedMcpVaultKeyProvider;
 };
 
 export type EmbeddedServerHandle = {
@@ -49,6 +51,7 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options);
+  config.localManagedMcpVaultKey = options.localManagedMcpVaultKey;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.

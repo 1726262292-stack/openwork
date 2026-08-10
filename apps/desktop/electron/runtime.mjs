@@ -1066,7 +1066,7 @@ export function mergeSystemCaChildEnv(baseEnv = {}, caEnv = {}, extra = {}) {
   };
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, localManagedMcpVaultKey }) {
   const engineState = createEngineState();
   const openworkServerState = createOpenworkServerState();
 
@@ -1623,6 +1623,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       manageOpencode: options.manageOpencode === true,
       opencodeBin: managedOpencode?.path ?? undefined,
       opencodeCwd: managedOpencodeWorkdir(),
+      localManagedMcpVaultKey,
     });
     inProcessServer = handle;
     openworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;

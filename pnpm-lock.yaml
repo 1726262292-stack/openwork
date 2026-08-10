@@ -266,9 +266,15 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(patch_hash=b9b29e6a319e94ea968476aa440eb8586b5da9db6b8011ce749c384d186f8a10)(zod@4.3.6)
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11
+      '@openwork/enterprise-mcp-client':
+        specifier: workspace:*
+        version: link:../../packages/enterprise-mcp-client
       '@openwork/paths':
         specifier: workspace:*
         version: link:../../packages/paths
@@ -315,9 +321,15 @@ importers:
 
   apps/server:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(patch_hash=b9b29e6a319e94ea968476aa440eb8586b5da9db6b8011ce749c384d186f8a10)(zod@4.3.6)
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11
+      '@openwork/enterprise-mcp-client':
+        specifier: workspace:*
+        version: link:../../packages/enterprise-mcp-client
       better-sqlite3:
         specifier: ^13.0.2
         version: 13.0.2
@@ -330,6 +342,9 @@ importers:
       minimatch:
         specifier: ^10.2.5
         version: 10.2.5
+      undici:
+        specifier: 6.28.0
+        version: 6.28.0
       yaml:
         specifier: ^2.9.0
         version: 2.9.0

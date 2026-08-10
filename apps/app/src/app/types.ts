@@ -325,6 +325,16 @@ export type McpServerConfig = {
   timeout?: number;
 };
 
+export type ManagedMcpOAuthConnection = {
+  name: string;
+  serverUrl: string;
+  enabled: boolean;
+  status: "needs_auth" | "connecting" | "connected" | "reconnect_required";
+  lastError: string | null;
+  hasCredential: boolean;
+  updatedAt: number;
+};
+
 export type McpServerEntry = {
   id?: string;
   name: string;
@@ -334,6 +344,7 @@ export type McpServerEntry = {
   marketplaceName?: string;
   pluginName?: string;
   connectCapabilityName?: string;
+  managedOAuth?: ManagedMcpOAuthConnection | null;
 };
 
 export type McpStatus =
