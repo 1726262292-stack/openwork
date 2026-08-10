@@ -176,8 +176,13 @@ export function JoinOrgSuccess({
     }
   }
 
+  // The download card lays its three platforms out side by side, so it needs
+  // the same room the rest of onboarding gives it. Every other ending here is
+  // a single button, which would swim at that width.
+  const showsDownloadCard = isMobile === false && !desktopAuthRequested && !isSingleOrgMode;
+
   return (
-    <OnboardingShell state="joined" width="wide">
+    <OnboardingShell state="joined" width={showsDownloadCard ? "full" : "wide"}>
       <section data-testid="join-org-success">
         <OnboardingCard organization={{ name: organizationName, brand }}>
           <div className="grid gap-3">
