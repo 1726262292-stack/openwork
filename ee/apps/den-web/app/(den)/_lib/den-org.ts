@@ -532,6 +532,10 @@ export function getScriptRunsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/script-runs`;
 }
 
+export function getAutomationsRoute(orgSlug?: string | null): string {
+  return `${getOrgDashboardRoute(orgSlug)}/automations`;
+}
+
 export function getCustomLlmProvidersRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/custom-llm-providers`;
 }

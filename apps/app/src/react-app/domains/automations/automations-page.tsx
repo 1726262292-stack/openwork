@@ -45,6 +45,7 @@ import { toast } from "@/components/ui/sonner"
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider"
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal"
 import { AutomationEditor } from "./automation-editor"
+import { SavedScriptArtifactResult } from "@/react-app/domains/dynamic-artifacts/saved-script-artifact-result"
 import { automationExecutionThreadRoute, automationExecutionIdentity } from "./automation-cloud-thread"
 import { formatAutomationSchedule, formatAutomationTime } from "./automation-format"
 import type { AutomationProviderCatalog } from "./automation-model-options"
@@ -182,6 +183,33 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
       const run = queryState.state.data?.run
       return run && ACTIVE_RUN_STATUSES.has(run.status) ? 3_000 : false
     },
+  })
+  const selectedDetailAction = detailQuery.data ? revisionAction(detailQuery.data) : null
+  const selectedScriptConfigObjectId = selectedDetailAction?.kind === "saved_script"
+    ? selectedDetailAction.script.configObjectId
+    : null
+  const selectedCodemodeReceiptId = receiptQuery.data?.run.codemodeReceiptId ?? null
+  const selectedArtifactQuery = useQuery({
+    queryKey: [...queryRoot, "artifact-snapshot", selectedScriptConfigObjectId, selectedCodemodeReceiptId],
+    queryFn: () => client!.getSavedCodemodeScriptSnapshot(organizationId!, selectedScriptConfigObjectId!, selectedCodemodeReceiptId!),
+    enabled: ready && Boolean(selectedScriptConfigObjectId && selectedCodemodeReceiptId),
+  })
+  const latestSuccessfulRunId = detailQuery.data?.automation.latestSuccessfulRunId ?? null
+  const latestSuccessfulRunQuery = useQuery({
+    queryKey: [...queryRoot, "receipt", latestSuccessfulRunId],
+    queryFn: () => client!.getAutomationRun(organizationId!, latestSuccessfulRunId!),
+    enabled: ready && Boolean(latestSuccessfulRunId),
+  })
+  const latestSuccessfulReceiptId = latestSuccessfulRunQuery.data?.run.codemodeReceiptId ?? null
+  const latestArtifactQuery = useQuery({
+    queryKey: [...queryRoot, "artifact-snapshot", selectedScriptConfigObjectId, latestSuccessfulReceiptId],
+    queryFn: () => client!.getSavedCodemodeScriptSnapshot(organizationId!, selectedScriptConfigObjectId!, latestSuccessfulReceiptId!),
+    enabled: ready && Boolean(selectedScriptConfigObjectId && latestSuccessfulReceiptId),
+  })
+  const selectedScriptDetailQuery = useQuery({
+    queryKey: [...queryRoot, "saved-script-detail", selectedScriptConfigObjectId],
+    queryFn: () => client!.getSavedCodemodeScript(organizationId!, selectedScriptConfigObjectId!),
+    enabled: ready && Boolean(selectedScriptConfigObjectId),
   })
 
   const models = useMemo(() => automationModelOptions(providersQuery.data ?? []), [providersQuery.data])
@@ -416,6 +444,27 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
               </CardContent>
             </Card>
 
+            {action.kind === "saved_script" && (latestArtifactQuery.data || task.latestSuccessfulResult !== undefined) ? (
+              <Card variant="outline">
+                <CardHeader>
+                  <CardTitle>Latest validated result</CardTitle>
+                  <CardDescription>The last good Dynamic Artifact remains available if a later run needs attention.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {latestArtifactQuery.data ? (
+                    <SavedScriptArtifactResult
+                      snapshot={latestArtifactQuery.data}
+                      freshness={selectedScriptDetailQuery.data?.latestSnapshot?.receiptId === latestArtifactQuery.data.receiptId
+                        ? selectedScriptDetailQuery.data.freshness
+                        : undefined}
+                      lastSuccessful
+                    />
+                  ) : (
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(task.latestSuccessfulResult, null, 2)}</pre>
+                  )}
+                </CardContent>
+              </Card>
+            ) : null}
             <Card variant="outline">
               <CardHeader>
                 <CardTitle>Desktop execution</CardTitle>
@@ -512,7 +561,14 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
                   {selectedReceipt.run.error ? (
                     <Alert variant="destructive"><AlertCircle /><AlertTitle>{selectedReceipt.run.error.code}</AlertTitle><AlertDescription>{selectedReceipt.run.error.message}</AlertDescription></Alert>
                   ) : null}
-                  {selectedReceipt.run.resultSummary ? (
+                  {selectedArtifactQuery.data ? (
+                    <SavedScriptArtifactResult
+                      snapshot={selectedArtifactQuery.data}
+                      lastSuccessful={selectedArtifactQuery.data.receiptId === latestArtifactQuery.data?.receiptId}
+                    />
+                  ) : selectedReceipt.run.validatedResult !== undefined ? (
+                    <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Validated result</p><pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/40 p-3 font-mono text-xs">{JSON.stringify(selectedReceipt.run.validatedResult, null, 2)}</pre></div>
+                  ) : selectedReceipt.run.resultSummary ? (
                     <div><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Result</p><p className="mt-1 whitespace-pre-wrap text-sm">{selectedReceipt.run.resultSummary}</p></div>
                   ) : null}
                   <div className="text-xs text-muted-foreground">{usageLabel(selectedReceipt.run)}</div>

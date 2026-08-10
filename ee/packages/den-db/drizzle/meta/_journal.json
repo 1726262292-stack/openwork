@@ -414,6 +414,20 @@
       "when": 1786373323261,
       "tag": "0059_minor_queen_noir",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "5",
+      "when": 1786363695489,
+      "tag": "0059_burly_starbolt",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "5",
+      "when": 1786373883427,
+      "tag": "0060_ambiguous_namorita",
+      "breakpoints": true
     }
   ]
 }

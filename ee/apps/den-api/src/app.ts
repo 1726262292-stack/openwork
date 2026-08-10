@@ -265,11 +265,14 @@ configureCloudSavedScriptExecutor(async ({ organizationId, ownerMemberId, automa
   if (result.result.status !== "executed") {
     return { ok: false, message: result.result.hint ?? "The saved Script could not execute.", retryable: false }
   }
+  if (!result.result.receiptId) {
+    return { ok: false, message: "The Script ran, but its durable artifact receipt could not be recorded.", retryable: true }
+  }
   return {
     ok: true,
     value: result.result.value,
     canonicalResult: result.result.canonicalResult ?? JSON.stringify(result.result.value),
-    receiptId: result.result.receiptId ?? null,
+    receiptId: result.result.receiptId,
   }
 })
 
