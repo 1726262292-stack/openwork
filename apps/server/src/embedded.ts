@@ -14,9 +14,17 @@ import {
   removeEngineInstance,
   reapOrphanEngineInstances,
 } from "./engine-registry.js";
+import {
+  clearEnginePoolForConfig,
+  computeEngineConfigFingerprint,
+  type EnginePool,
+  type EnginePoolSnapshot,
+  type EngineSpawnTemplate,
+} from "./engine-pool.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import {
   clearTrustedOpencodeProcess,
+  createEnginePoolForConfig,
   registerTrustedOpencodeProcess,
   startServer,
   syncAllWorkspacesRuntimeMcpToEngine,
@@ -51,6 +59,8 @@ export type EmbeddedServerHandle = {
   managedOpencodeExecution: OpencodeExecutionSnapshot | null;
   /** Liveness for the managed OpenCode child process, when spawned. */
   managedOpencode: { pid: number | null; isAlive: () => boolean } | null;
+  /** Current managed-engine generations for desktop diagnostics and acceptance checks. */
+  managedOpencodePool: () => EnginePoolSnapshot | null;
   /** Stop the HTTP server and managed OpenCode (if any). */
   stop: () => Promise<void>;
 };
@@ -63,6 +73,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   let managedOpencode: ManagedOpencodeServer | null = null;
   let managedOpencodeIdentity: string | null = null;
   let managedEngineRecordId: string | null = null;
+  let engineSpawnTemplate: EngineSpawnTemplate | null = null;
+  let enginePool: EnginePool | null = null;
   let stopRuntimeConfigFileRefresh: (() => void) | null = null;
   let server: ServeResult | null = null;
   let stopPromise: Promise<void> | null = null;
@@ -80,9 +92,22 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       }
     }
 
+    // With rollover enabled the pool owns every engine process, including any
+    // still draining, so it is the one that must close them.
+    const pool = enginePool;
+    enginePool = null;
+    if (pool) {
+      clearEnginePoolForConfig(config);
+      try {
+        await pool.disposeAll();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
     const opencode = managedOpencode;
     managedOpencode = null;
-    if (opencode) {
+    if (opencode && !pool) {
       try {
         await opencode.close();
       } catch (error) {
@@ -176,18 +201,34 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       const opencodeModelsUrl = await duringStartup(() => resolveOpencodeModelsUrl());
 
       const opencodeBin = options.opencodeBin || process.env.OPENWORK_OPENCODE_BIN;
+      // Shared by the first spawn and by any later rollover standby, so a
+      // replacement engine is identical apart from its port.
+      const engineEnv: Record<string, string | undefined> = {
+        ...(process.env.OPENWORK_DEV_MODE ? { OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE } : {}),
+        ...(process.env.OPENWORK_UI_CONTROL_DISCOVERY ? { OPENWORK_UI_CONTROL_DISCOVERY: process.env.OPENWORK_UI_CONTROL_DISCOVERY } : {}),
+        OPENWORK_SERVER_URL: serverUrl,
+        OPENWORK_SERVER_TOKEN: config.token,
+        OPENCODE_CONFIG: runtimeConfigPath,
+        OPENCODE_MODELS_URL: opencodeModelsUrl,
+      };
+      engineSpawnTemplate = {
+        bin: opencodeBin,
+        cwd,
+        runtimeConfigPath,
+        env: engineEnv,
+        reservedPorts: () => {
+          const poolPorts = enginePool?.connections()
+            .map((connection) => Number(new URL(connection.baseUrl).port) || 0)
+            .filter((port) => port > 0) ?? [];
+          const startupPort = managedOpencode ? Number(new URL(managedOpencode.url).port) || 0 : 0;
+          return [...new Set([config.port, ...poolPorts, startupPort].filter((port) => port > 0))];
+        },
+      };
       managedOpencode = await duringStartup(() => createManagedOpencodeServer({
         bin: opencodeBin,
         cwd,
         excludedPorts: [config.port],
-        env: {
-          ...(process.env.OPENWORK_DEV_MODE ? { OPENWORK_DEV_MODE: process.env.OPENWORK_DEV_MODE } : {}),
-          ...(process.env.OPENWORK_UI_CONTROL_DISCOVERY ? { OPENWORK_UI_CONTROL_DISCOVERY: process.env.OPENWORK_UI_CONTROL_DISCOVERY } : {}),
-          OPENWORK_SERVER_URL: serverUrl,
-          OPENWORK_SERVER_TOKEN: config.token,
-          OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_MODELS_URL: opencodeModelsUrl,
-        },
+        env: engineEnv,
       }));
 
       config.opencodeBaseUrl = managedOpencode.url;
@@ -243,14 +284,32 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     void syncAllWorkspacesRuntimeMcpToEngine(config);
   }
 
+  if (managedOpencode && engineSpawnTemplate && config.engineRollover) {
+    enginePool = createEnginePoolForConfig({
+      config,
+      template: engineSpawnTemplate,
+      handle: managedOpencode,
+      fingerprint: await computeEngineConfigFingerprint(engineSpawnTemplate),
+      registryId: managedEngineRecordId,
+      trustedIdentity: managedOpencodeIdentity,
+    });
+  }
+
+  const initialManagedOpencode = managedOpencode;
   return {
     port: server.port,
     url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
     config,
     managedOpencodeExecution: managedOpencode?.execution ?? null,
-    managedOpencode: managedOpencode
-      ? { pid: managedOpencode.pid ?? null, isAlive: managedOpencode.isAlive }
+    managedOpencode: initialManagedOpencode
+      ? {
+          get pid() {
+            return enginePool?.primaryProcess()?.pid ?? initialManagedOpencode.pid ?? null;
+          },
+          isAlive: () => enginePool?.primaryProcess()?.isAlive() ?? initialManagedOpencode.isAlive(),
+        }
       : null,
+    managedOpencodePool: () => enginePool?.snapshot() ?? null,
     stop,
   };
 }
