@@ -27,6 +27,10 @@ import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { openDesktopUrl, revealDesktopItemInDir } from "@/app/lib/desktop"
 import { isElectronRuntime } from "@/app/lib/runtime-env"
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
+import {
+  sessionErrorPresentationFromUIMessage,
+  type OpencodeSessionErrorPresentation,
+} from "@/react-app/domains/session/sync/session-error"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
 import { EditTool } from "@/components/tools/edit"
@@ -742,7 +746,12 @@ type MessageComponentProps = {
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep, hideReasoning }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
-      return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
+      return (
+        <ErrorMessage
+          error={getMessagesText([message]) || "Session failed"}
+          presentation={sessionErrorPresentationFromUIMessage(message)}
+        />
+      )
     }
 
     if (isEmptyMessage(message)) {
@@ -798,17 +807,79 @@ LoadingMessage.displayName = "LoadingMessage"
 
 interface ErrorMessageProps {
   error: string | null
+  presentation?: OpencodeSessionErrorPresentation | null
 }
 
-function ErrorMessage({ error }: ErrorMessageProps) {
+function ErrorMessage({ error, presentation }: ErrorMessageProps) {
+  const { setPrompt } = useMessageList()
+  const [detailsOpen, setDetailsOpen] = React.useState(false)
+  const title = presentation?.title ?? error ?? "Session failed"
+  const technicalDetails = presentation?.technicalDetails ?? error
+  const hasTechnicalDetails = Boolean(technicalDetails && technicalDetails.trim() !== title.trim())
+
+  const prepareRecovery = React.useCallback(() => {
+    if (!presentation?.recoveryPrompt) return
+    setPrompt(presentation.recoveryPrompt)
+  }, [presentation?.recoveryPrompt, setPrompt])
+
   return (
     <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
-      <div className="group flex w-full flex-col items-start gap-0">
-        <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
-          <p className="whitespace-pre-wrap text-destructive">{error}</p>
+      <Collapsible
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+        className="group flex w-full flex-col items-start gap-0"
+        data-testid="session-error-message"
+        data-error-kind={presentation?.kind ?? "generic"}
+        role="alert"
+      >
+        <div className="text-foreground flex min-w-0 w-full flex-1 flex-col gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-3 py-2">
+          <div className="flex min-w-0 w-full items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
+            <div className="min-w-0 flex-1">
+              <p className="whitespace-pre-wrap font-medium text-destructive">{title}</p>
+              {presentation?.description ? (
+                <p className="mt-0.5 text-xs leading-relaxed text-red-900/80">{presentation.description}</p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {presentation?.recoveryPrompt ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 border-red-400/60 bg-background/70 px-2.5 text-xs text-red-950 hover:bg-red-100"
+                  onClick={prepareRecovery}
+                  data-testid="session-error-prepare-recovery"
+                >
+                  Prepare recovery
+                </Button>
+              ) : null}
+              {hasTechnicalDetails ? (
+                <CollapsibleTrigger
+                  className="inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-red-900/70 transition-colors hover:bg-red-200/50 hover:text-red-950"
+                  aria-label={detailsOpen ? "Hide error details" : "Show error details"}
+                  data-testid="session-error-details-trigger"
+                >
+                  <ChevronRight
+                    aria-hidden="true"
+                    className={cn("size-4 transition-transform duration-150", detailsOpen && "rotate-90")}
+                  />
+                </CollapsibleTrigger>
+              ) : null}
+            </div>
+          </div>
+          {hasTechnicalDetails ? (
+            <CollapsibleContent className="h-(--collapsible-panel-height) w-full overflow-hidden transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">
+              <div className="ml-6 border-t border-red-300/70 pt-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-red-900/70">Technical details</div>
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/60 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-red-950">
+                  {technicalDetails}
+                </pre>
+              </div>
+            </CollapsibleContent>
+          ) : null}
         </div>
-      </div>
+      </Collapsible>
     </Message>
   )
 }

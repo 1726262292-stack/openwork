@@ -8,7 +8,14 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { isGeneratedSessionTitle } from "@/app/lib/session-title";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
-import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
+import {
+  createSessionErrorUIMessage,
+  snapshotToUIMessages,
+} from "./usechat-adapter";
+import {
+  describeOpencodeSessionError,
+  presentOpencodeSessionError,
+} from "./session-error";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -707,7 +714,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.error") {
     const sessionId = sessionIdFromProperties(event.properties);
     if (sessionId) {
-      const errorText = describeOpencodeSessionError(sessionErrorFromProperties(event.properties));
+      const sessionError = sessionErrorFromProperties(event.properties);
+      const errorPresentation = presentOpencodeSessionError(sessionError);
+      const errorText = describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
@@ -728,7 +737,15 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           // assistant message id) so a reload reconciles instead of
           // duplicating; the sessionId fallback only applies when the run
           // errored before any assistant message existed.
-          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText));
+          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorPresentation));
+        });
+        // Reconcile against the server snapshot immediately after a failed
+        // turn. The SSE stream can end before its final part/attachment events
+        // reach the renderer; the snapshot is the durable source for partial
+        // output and files that completed before the interruption.
+        void queryClient.invalidateQueries({
+          queryKey: snapshotKey(workspaceId, sessionId),
+          exact: true,
         });
       }
     }
