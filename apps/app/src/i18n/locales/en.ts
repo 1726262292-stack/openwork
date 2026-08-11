@@ -1056,6 +1056,8 @@ export default {
   "session.revert_failed": "Could not revert the conversation. Try again once the current run finishes.",
   "session.branch_failed": "Could not branch this conversation. Try again.",
   "session.default_title": "New session",
+  "session.title_generation_failed_body": "Your conversation is safe. Rename it from the task menu while we keep the generated placeholder.",
+  "session.title_generation_failed_title": "Automatic task title did not complete",
   "session.delete": "Delete",
   "session.delete_named_session_message": "This will permanently delete \"{title}\" and its messages.",
   "session.delete_session_generic": "This will permanently delete the selected session and its messages.",
