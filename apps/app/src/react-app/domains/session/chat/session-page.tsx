@@ -1154,12 +1154,10 @@ export function SessionPage(props: SessionPageProps) {
                 />
                 <TooltipContent>{sidePanelOpen ? "Close side panel" : "Open side panel"}</TooltipContent>
               </Tooltip>
-              {shellConfig.cloudSignin ? (
+              {showCloudSignIn ? (
                 <Button
                   variant="secondary"
                   size="sm"
-                  className={showCloudSignIn ? undefined : "invisible"}
-                  disabled={!showCloudSignIn}
                   onClick={openCloudSignIn}
                   title={t("den.signin_title")}
                   aria-label={t("den.signin_title")}
