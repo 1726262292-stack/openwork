@@ -72,6 +72,7 @@ const openApiDocumentSchema = z.object({
 }).passthrough().meta({ ref: "OpenApiDocument" })
 
 const app = new Hono<{ Variables: AppVariables }>()
+const strictTransportSecurityHeader = "max-age=31536000; includeSubDomains"
 
 registerObservabilityMiddleware(app)
 app.use("*", requestId({
@@ -85,6 +86,7 @@ app.use("*", async (c, next) => {
 app.use("*", async (c, next) => {
   await next()
   c.header("X-Content-Type-Options", "nosniff")
+  c.header("Strict-Transport-Security", strictTransportSecurityHeader)
 })
 app.use("*", createTelemetryErrorSanitizerMiddleware())
 app.use("*", async (c, next) => {

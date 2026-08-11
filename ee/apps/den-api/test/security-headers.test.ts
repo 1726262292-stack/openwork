@@ -17,11 +17,14 @@ beforeAll(async () => {
 })
 
 describe("security headers", () => {
+  const hstsPolicy = "max-age=31536000; includeSubDomains"
+
   test("JSON responses disable MIME sniffing", async () => {
     const response = await app.request("/health")
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    expect(response.headers.get("strict-transport-security")).toBe(hstsPolicy)
   })
 
   test("middleware responses disable MIME sniffing", async () => {
@@ -36,5 +39,14 @@ describe("security headers", () => {
 
     expect(response.status).toBe(204)
     expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    expect(response.headers.get("strict-transport-security")).toBe(hstsPolicy)
+  })
+
+  test("not-found responses include transport security", async () => {
+    const response = await app.request("/robots.txt")
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    expect(response.headers.get("strict-transport-security")).toBe(hstsPolicy)
   })
 })
