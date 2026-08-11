@@ -341,16 +341,16 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const renderTool = tools.find((candidate) => candidate.name === "render_dynamic_artifact");
   const renderToolMeta = isRecord(renderTool?._meta) ? renderTool._meta : {};
   const modernUi = isRecord(renderToolMeta.ui) ? renderToolMeta.ui : {};
-  expect(modernUi.resourceUri).toBe("ui://openwork/dynamic-artifact/view.html");
-  expect(renderToolMeta["ui/resourceUri"]).toBe("ui://openwork/dynamic-artifact/view.html");
+  expect(modernUi.resourceUri).toBe("ui://openwork/dynamic-artifact/v1/view.html");
+  expect(renderToolMeta["ui/resourceUri"]).toBe("ui://openwork/dynamic-artifact/v1/view.html");
 
   const resourceList = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {});
   const resources = Array.isArray(resourceList.resources) ? resourceList.resources.filter(isRecord) : [];
-  const appResource = resources.find((candidate) => candidate.uri === "ui://openwork/dynamic-artifact/view.html");
+  const appResource = resources.find((candidate) => candidate.uri === "ui://openwork/dynamic-artifact/v1/view.html");
   expect(appResource?.mimeType).toBe("text/html;profile=mcp-app");
 
   const resourceRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", {
-    uri: "ui://openwork/dynamic-artifact/view.html",
+    uri: "ui://openwork/dynamic-artifact/v1/view.html",
   });
   const resourceContents = Array.isArray(resourceRead.contents) ? resourceRead.contents.filter(isRecord) : [];
   expect(resourceContents[0]?.mimeType).toBe("text/html;profile=mcp-app");

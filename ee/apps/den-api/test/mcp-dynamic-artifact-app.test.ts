@@ -33,16 +33,21 @@ const payload = dynamicArtifactAppPayloadSchema.parse({
   ],
 })
 
-async function withClient<T>(run: (client: Client) => Promise<T>): Promise<T> {
+type LoadDynamicArtifact = Parameters<typeof registerAgentDynamicArtifactApp>[0]["load"]
+
+async function withClient<T>(
+  run: (client: Client) => Promise<T>,
+  load: LoadDynamicArtifact = async ({ receiptId }) => receiptId === "missing"
+    ? { ok: false, error: "saved_script_snapshot_not_found", message: "Snapshot not found." }
+    : { ok: true, payload, markdown: "| Stage | Value |\n| --- | --- |\n| Qualified | 12 |" },
+): Promise<T> {
   const server = new McpServer(
     { name: "dynamic-artifact-test", version: "1.0.0" },
     { capabilities: dynamicArtifactAppServerCapabilities },
   )
   registerAgentDynamicArtifactApp({
     server,
-    load: async ({ receiptId }) => receiptId === "missing"
-      ? { ok: false, error: "saved_script_snapshot_not_found", message: "Snapshot not found." }
-      : { ok: true, payload, markdown: "| Stage | Value |\n| --- | --- |\n| Qualified | 12 |" },
+    load,
   })
   const client = new Client(
     { name: "mcp-app-host-test", version: "1.0.0" },
@@ -122,7 +127,11 @@ test("serves a self-contained HTML5 app and a structured result with Markdown fa
     expect(DYNAMIC_ARTIFACT_APP_HTML).toContain("ui/notifications/size-changed")
     expect(DYNAMIC_ARTIFACT_APP_HTML).not.toContain("<script src=")
     expect(DYNAMIC_ARTIFACT_APP_HTML).not.toContain("fetch(")
-    const inlineScript = DYNAMIC_ARTIFACT_APP_HTML.match(/<script>([\s\S]+)<\/script>/)?.[1]
+    const scriptStart = DYNAMIC_ARTIFACT_APP_HTML.indexOf("<script>")
+    const scriptEnd = DYNAMIC_ARTIFACT_APP_HTML.lastIndexOf("</script>")
+    const inlineScript = scriptStart === -1 || scriptEnd <= scriptStart
+      ? undefined
+      : DYNAMIC_ARTIFACT_APP_HTML.slice(scriptStart + "<script>".length, scriptEnd)
     expect(inlineScript).toBeDefined()
     expect(() => Function(inlineScript ?? "")).not.toThrow()
 
@@ -141,6 +150,49 @@ test("serves a self-contained HTML5 app and a structured result with Markdown fa
       resultDigest: `sha256:${"a".repeat(64)}`,
     })
   })
+})
+
+test("forwards exact receipt and freshness selection without executing a Script", async () => {
+  const requests: Array<{ configObjectId: string; receiptId?: string; maxAgeMs?: number }> = []
+  await withClient(async (client) => {
+    const result = await client.callTool({
+      name: DYNAMIC_ARTIFACT_APP_TOOL_NAME,
+      arguments: {
+        configObjectId: "configObject_pipeline",
+        receiptId: "codemodeRun_week_32",
+        maxAgeMs: 3_600_000,
+      },
+    })
+    expect(result.isError).not.toBe(true)
+  }, async (request) => {
+    requests.push(request)
+    return { ok: true, payload, markdown: "# Weekly pipeline" }
+  })
+  expect(requests).toEqual([{
+    configObjectId: "configObject_pipeline",
+    receiptId: "codemodeRun_week_32",
+    maxAgeMs: 3_600_000,
+  }])
+})
+
+test("preserves fail-closed authorization errors for non-UI clients", async () => {
+  await withClient(async (client) => {
+    const result = await client.callTool({
+      name: DYNAMIC_ARTIFACT_APP_TOOL_NAME,
+      arguments: { configObjectId: "configObject_denied" },
+    })
+    expect(result.isError).toBe(true)
+    const first = result.content[0]
+    expect(first?.type === "text" ? JSON.parse(first.text) : null).toEqual({
+      error: "saved_script_not_found",
+      message: "The saved Script is unavailable to this member.",
+    })
+    expect(result.structuredContent).toBeUndefined()
+  }, async () => ({
+    ok: false,
+    error: "saved_script_not_found",
+    message: "The saved Script is unavailable to this member.",
+  }))
 })
 
 test("keeps missing snapshots useful to clients without a UI", async () => {

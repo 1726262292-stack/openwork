@@ -16,7 +16,7 @@ import { z } from "zod"
 
 export { dynamicArtifactAppPayloadSchema } from "@openwork/types/dynamic-artifacts"
 
-export const DYNAMIC_ARTIFACT_APP_RESOURCE_URI = "ui://openwork/dynamic-artifact/view.html"
+export const DYNAMIC_ARTIFACT_APP_RESOURCE_URI = "ui://openwork/dynamic-artifact/v1/view.html"
 export const DYNAMIC_ARTIFACT_APP_TOOL_NAME = "render_dynamic_artifact"
 export const DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION = dynamicArtifactAppSchemaVersion
 

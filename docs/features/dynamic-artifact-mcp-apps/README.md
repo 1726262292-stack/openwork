@@ -36,7 +36,7 @@ the `2026-01-26` MCP Apps protocol:
 - server capability: `extensions.io.modelcontextprotocol/ui.mimeTypes`
   contains `text/html;profile=mcp-app`;
 - tool metadata: `_meta.ui.resourceUri` points to
-  `ui://openwork/dynamic-artifact/view.html` (with the compatibility metadata
+  `ui://openwork/dynamic-artifact/v1/view.html` (with the compatibility metadata
   emitted by the official MCP Apps server helpers);
 - resource delivery: `resources/read` returns one self-contained HTML5 document
   with MIME type `text/html;profile=mcp-app`;
