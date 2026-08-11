@@ -330,6 +330,34 @@ function readStringProperty(value: unknown, propertyName: string) {
   return typeof property === "string" && property.trim() ? property.trim() : null;
 }
 
+function readRequestQueryParam(request: Request | undefined, propertyName: string) {
+  if (!request) {
+    return null;
+  }
+
+  const value = new URL(request.url).searchParams.get(propertyName)?.trim() ?? "";
+  return value || null;
+}
+
+async function hasPendingInvitationForEmail(input: { invitationIdOrToken: string | null; email: string | null }) {
+  if (!input.invitationIdOrToken || !input.email) {
+    return false;
+  }
+
+  const [invitation] = await db
+    .select({ inviteToken: schema.InvitationTable.inviteToken })
+    .from(schema.InvitationTable)
+    .where(and(
+      sql`(${schema.InvitationTable.id} = ${input.invitationIdOrToken} or ${schema.InvitationTable.inviteToken} = ${input.invitationIdOrToken})`,
+      eq(schema.InvitationTable.status, "pending"),
+      gt(schema.InvitationTable.expiresAt, new Date()),
+      sql`lower(${schema.InvitationTable.email}) = ${input.email.trim().toLowerCase()}`,
+    ))
+    .limit(1);
+
+  return Boolean(invitation);
+}
+
 function normalizeRawRoleValue(roleValue: string) {
   return splitOrganizationRoles(roleValue)
     .map((role) => normalizeOrganizationRoleName(role))
@@ -723,7 +751,11 @@ export const auth = betterAuth({
 
       const email = getAuthBodyEmail(ctx.body);
       if (ctx.path === "/sign-up/email") {
-        const violation = await getSingleOrgEmailSignupPolicyViolation(email);
+        const invitationAllowsSignup = await hasPendingInvitationForEmail({
+          invitationIdOrToken: readRequestQueryParam(ctx.request, "invite") ?? readStringProperty(ctx.query, "invite") ?? readStringProperty(ctx.body, "invite"),
+          email,
+        });
+        const violation = invitationAllowsSignup ? null : await getSingleOrgEmailSignupPolicyViolation(email);
         if (violation) {
           throw new APIError("FORBIDDEN", { message: violation.message });
         }

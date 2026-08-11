@@ -6,6 +6,9 @@ import { parseInvitationPreviewPayload } from "../app/(den)/_lib/den-org";
 const joinOrgScreenPath = fileURLToPath(
   new URL("../app/(den)/_components/join-org-screen.tsx", import.meta.url),
 );
+const authPanelPath = fileURLToPath(
+  new URL("../app/(den)/_components/auth-panel.tsx", import.meta.url),
+);
 const onboardingShellPath = fileURLToPath(
   new URL("../app/(den)/_components/onboarding-shell.tsx", import.meta.url),
 );
@@ -27,6 +30,10 @@ const brandIdentityPath = fileURLToPath(
 
 function readJoinOrgScreenSource() {
   return readFileSync(joinOrgScreenPath, "utf8");
+}
+
+function readAuthPanelSource() {
+  return readFileSync(authPanelPath, "utf8");
 }
 
 function readOnboardingShellSource() {
@@ -116,18 +123,25 @@ describe("join organization invite clean layout contract", () => {
 
   test("resolves the invited email auth method before showing invite credentials", () => {
     const source = readJoinOrgScreenSource();
-    const authPanelSource = readFileSync(
-      fileURLToPath(new URL("../app/(den)/_components/auth-panel.tsx", import.meta.url)),
-      "utf8",
-    );
+    const authPanelSource = readAuthPanelSource();
 
     expect(source).toContain("resolveEmailFirstOnPrefill");
-    expect(authPanelSource).toContain("/v1/auth/login-options?email=");
+    expect(source).toContain("emailFirstInvitationId={preview.invitation.id}");
+    expect(authPanelSource).toContain("function getLoginOptionsPath(targetEmail: string)");
+    expect(authPanelSource).toContain('params.set("invite", emailFirstInvite);');
     expect(authPanelSource).toContain('emailFirstStep === "sso"');
     expect(authPanelSource).toContain("startEmailFirstSso");
     expect(authPanelSource).toContain("resolvedLoginOptionPrefillRef");
     expect(authPanelSource).toMatch(/emailFirstStep === "new_account"[\s\S]*?!hideEmailField/);
     expect(authPanelSource).toMatch(/emailFirstStep === "new_account"[\s\S]*?!hideSocialAuth/);
+  });
+
+  test("shows password strength feedback only on signup password fields", () => {
+    const authPanelSource = readAuthPanelSource();
+
+    expect(authPanelSource).toMatch(/emailFirstStep === "new_account"[\s\S]*?signupPasswordFeedback/);
+    expect(authPanelSource).toContain('visibleAuthMode === "sign-up" && signupPasswordFeedback');
+    expect(authPanelSource).not.toMatch(/emailFirstStep === "password"[\s\S]{0,500}signupPasswordFeedback/);
   });
 
   test("preserves invitation preview, account switching, status, and accept behavior", () => {

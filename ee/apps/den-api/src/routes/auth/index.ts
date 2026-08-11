@@ -1,7 +1,7 @@
 import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider"
 import { createHash } from "node:crypto"
-import { eq, sql } from "@openwork-ee/den-db/drizzle"
-import { AuthAccountTable, AuthUserTable, OAuthClientTable } from "@openwork-ee/den-db/schema"
+import { and, eq, gt, sql } from "@openwork-ee/den-db/drizzle"
+import { AuthAccountTable, AuthUserTable, InvitationTable, OAuthClientTable } from "@openwork-ee/den-db/schema"
 import type { Hono } from "hono"
 import type { Context } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -10,11 +10,13 @@ import { auth, DEN_MCP_OAUTH_RESOURCE, normalizeMcpOAuthResource } from "../../a
 import { normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
 import { verifyBotProtection } from "../../bot-protection.js"
 import {
+  EMAIL_PASSWORD_SIGN_UP_PATH,
   getBreachedPasswordResponse,
   getEmailPasswordLockoutResponse,
   getShortPasswordResponse,
-  readEmailPasswordSignInAttempt,
-  recordEmailPasswordSignInResult,
+  getWeakPasswordResponse,
+  readEmailSignInAttempt,
+  recordEmailSignInResult,
 } from "../../auth-protection.js"
 import { db } from "../../db.js"
 import { env } from "../../env.js"
@@ -37,6 +39,11 @@ function rewriteAuthRequest(request: Request, path: string) {
   const url = new URL(request.url)
   url.pathname = path
   return new Request(url, request)
+}
+
+function normalizedPath(request: Request) {
+  const path = new URL(request.url).pathname
+  return path !== "/" ? path.replace(/\/+$/, "") : path
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -304,7 +311,7 @@ async function getCurrentActiveOrganizationId(request: Request, context: Context
   return typeof activeOrganizationId === "string" ? activeOrganizationId : null
 }
 
-async function getSingleOrgAuthGuardResponse(request: Request, context: Context) {
+async function getSingleOrgAuthGuardResponse(request: Request, context: Context, options?: { invitationSignupAllowed?: boolean }) {
   if (env.orgMode !== "single_org") {
     return null
   }
@@ -314,7 +321,9 @@ async function getSingleOrgAuthGuardResponse(request: Request, context: Context)
   }
 
   if (isBetterAuthEmailSignupRequest(request)) {
-    const violation = await getSingleOrgEmailSignupPolicyViolation(await getAuthRequestEmail(request))
+    const violation = options?.invitationSignupAllowed
+      ? null
+      : await getSingleOrgEmailSignupPolicyViolation(await getAuthRequestEmail(request))
     if (violation) {
       return singleOrgEmailSignupPolicyResponse(violation)
     }
@@ -446,6 +455,7 @@ const authPasswordScreeningUnavailableSchema = z.object({
 
 const loginOptionsQuerySchema = z.object({
   email: z.string().trim().email().transform(normalizeLoginEmail),
+  invite: z.string().trim().min(1).optional(),
 })
 
 const loginOptionKindSchema = z.union([
@@ -460,6 +470,7 @@ const loginOptionsResponseSchema = z.object({
   email: z.string().email(),
   nextStep: loginOptionKindSchema,
   allowPublicSignup: z.boolean().optional(),
+  allowInvitationSignup: z.boolean().optional(),
   organizationSlug: z.string().optional(),
   signInPath: z.string().optional(),
   signInUrl: z.string().url().optional(),
@@ -541,28 +552,68 @@ async function getLoginOptionAccounts(email: string) {
   }))
 }
 
+async function hasPendingInvitationForEmail(invitationIdOrToken: string | undefined, email: string) {
+  if (!invitationIdOrToken) {
+    return false
+  }
+
+  const [invitation] = await db
+    .select({ inviteToken: InvitationTable.inviteToken })
+    .from(InvitationTable)
+    .where(and(
+      sql`(${InvitationTable.id} = ${invitationIdOrToken} or ${InvitationTable.inviteToken} = ${invitationIdOrToken})`,
+      eq(InvitationTable.status, "pending"),
+      gt(InvitationTable.expiresAt, new Date()),
+      sql`lower(${InvitationTable.email}) = ${email}`,
+    ))
+    .limit(1)
+
+  return Boolean(invitation)
+}
+
+async function isInvitationSignupAllowed(request: Request) {
+  if (request.method !== "POST" || normalizedPath(request) !== EMAIL_PASSWORD_SIGN_UP_PATH) {
+    return false
+  }
+
+  const invite = new URL(request.url).searchParams.get("invite")?.trim() ?? ""
+  if (!invite) {
+    return false
+  }
+
+  const email = await getAuthRequestEmail(request)
+  return email ? hasPendingInvitationForEmail(invite, normalizeLoginEmail(email)) : false
+}
+
 async function handleAuthRequest(c: Context) {
   const request = c.req.raw
   const authRequest = await normalizeMcpOAuthRequest(request)
   if (authRequest instanceof Response) {
     return authRequest
   }
-  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest, c)
-  if (singleOrgAuthGuardResponse) {
-    return singleOrgAuthGuardResponse
-  }
+  const invitationSignupAllowed = await isInvitationSignupAllowed(authRequest)
 
-  const emailPasswordAttempt = await readEmailPasswordSignInAttempt(authRequest)
-  if (emailPasswordAttempt) {
-    const lockoutResponse = await getEmailPasswordLockoutResponse(emailPasswordAttempt)
+  const emailSignInAttempt = await readEmailSignInAttempt(authRequest)
+  if (emailSignInAttempt) {
+    const lockoutResponse = await getEmailPasswordLockoutResponse(emailSignInAttempt)
     if (lockoutResponse) {
       return lockoutResponse
     }
   }
 
+  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest, c, { invitationSignupAllowed })
+  if (singleOrgAuthGuardResponse) {
+    return singleOrgAuthGuardResponse
+  }
+
   const shortPasswordResponse = await getShortPasswordResponse(authRequest)
   if (shortPasswordResponse) {
     return shortPasswordResponse
+  }
+
+  const weakPasswordResponse = await getWeakPasswordResponse(authRequest)
+  if (weakPasswordResponse) {
+    return weakPasswordResponse
   }
 
   const breachedPasswordResponse = await getBreachedPasswordResponse(authRequest)
@@ -584,8 +635,8 @@ async function handleAuthRequest(c: Context) {
   }
 
   const response = await auth.handler(authRequest)
-  if (emailPasswordAttempt) {
-    await recordEmailPasswordSignInResult(emailPasswordAttempt, response)
+  if (emailSignInAttempt) {
+    await recordEmailSignInResult(emailSignInAttempt, response)
   }
   return response
 }
@@ -630,7 +681,7 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
     publicRoute,
     queryValidator(loginOptionsQuerySchema),
     async (c) => {
-      const { email } = c.req.valid("query")
+      const { email, invite } = c.req.valid("query")
       const botProtection = await verifyBotProtection()
       if (!botProtection.ok) {
         return c.json({
@@ -669,20 +720,22 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
         }
       }
       const allowPublicSignup = env.orgMode !== "single_org" || env.singleOrg.allowPublicSignup
-      const nextStep = resolveLoginOptionKind({ requireSso: Boolean(requirement), accounts, allowNewAccount: allowPublicSignup })
+      const allowInvitationSignup = !requirement && await hasPendingInvitationForEmail(invite, email)
+      const nextStep = resolveLoginOptionKind({ requireSso: Boolean(requirement), accounts, allowNewAccount: allowPublicSignup || allowInvitationSignup })
 
       if (nextStep === "sso" && requirement) {
         return c.json({
           email,
           nextStep,
           allowPublicSignup,
+          allowInvitationSignup,
           organizationSlug: requirement.organizationSlug,
           signInPath: requirement.signInPath,
           signInUrl: new URL(requirement.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl).toString(),
         })
       }
 
-      return c.json({ email, nextStep, allowPublicSignup })
+      return c.json({ email, nextStep, allowPublicSignup, allowInvitationSignup })
     },
   )
 

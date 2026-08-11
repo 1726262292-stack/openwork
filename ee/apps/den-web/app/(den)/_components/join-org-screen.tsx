@@ -210,6 +210,7 @@ function InviteAuthPanel({
         hideLockedEmailSummary
         hideSocialAuth
         emailFirstFlow
+        emailFirstInvitationId={preview.invitation.id}
         resolveEmailFirstOnPrefill
         signUpContent={{
           title: "Create your account.",
