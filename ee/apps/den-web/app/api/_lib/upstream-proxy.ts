@@ -36,6 +36,7 @@ const INTERNAL_RESPONSE_HEADERS = new Set([
   "x-request-id",
   "x-vercel-id",
 ]);
+const SAFE_X_RESPONSE_HEADERS = new Set(["x-content-type-options"]);
 
 /**
  * OpenWork Cloud instances are served from Daytona preview origins that are
@@ -156,7 +157,7 @@ function shouldSkipResponseHeader(name: string): boolean {
   return HOP_BY_HOP_HEADERS.has(normalized)
     || RESPONSE_ONLY_HEADERS.has(normalized)
     || INTERNAL_RESPONSE_HEADERS.has(normalized)
-    || normalized.startsWith("x-")
+    || (!SAFE_X_RESPONSE_HEADERS.has(normalized) && normalized.startsWith("x-"))
     || normalized === "set-cookie";
 }
 
@@ -164,7 +165,7 @@ function shouldSkipExposedResponseHeader(name: string): boolean {
   const normalized = name.toLowerCase();
   return HOP_BY_HOP_HEADERS.has(normalized)
     || INTERNAL_RESPONSE_HEADERS.has(normalized)
-    || normalized.startsWith("x-");
+    || (!SAFE_X_RESPONSE_HEADERS.has(normalized) && normalized.startsWith("x-"));
 }
 
 function sanitizeExposeHeaders(headers: Headers): void {

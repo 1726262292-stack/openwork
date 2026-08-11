@@ -16,10 +16,12 @@ const INTERNAL_RESPONSE_HEADERS = new Set([
   "x-request-id",
   "x-vercel-id",
 ])
+const SAFE_X_RESPONSE_HEADERS = new Set(["x-content-type-options"])
 
 function isInternalResponseHeader(name: string) {
   const normalized = name.toLowerCase()
-  return INTERNAL_RESPONSE_HEADERS.has(normalized) || normalized.startsWith("x-")
+  return !SAFE_X_RESPONSE_HEADERS.has(normalized)
+    && (INTERNAL_RESPONSE_HEADERS.has(normalized) || normalized.startsWith("x-"))
 }
 
 function sanitizeExposeHeaders(headers: Headers) {

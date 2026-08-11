@@ -10,6 +10,7 @@ describe("public response headers", () => {
       "server": "internal-origin",
       "via": "internal-proxy",
       "x-cache-key": "cache:key",
+      "x-content-type-options": "nosniff",
       "x-origin-host": "den-api.internal",
       "x-render-origin-server": "Render",
       "x-request-id": "req_internal",
@@ -19,6 +20,7 @@ describe("public response headers", () => {
 
     expect(headers.get("access-control-expose-headers")).toBe("Content-Length")
     expect(headers.get("content-type")).toBe("application/json")
+    expect(headers.get("x-content-type-options")).toBe("nosniff")
     for (const header of [
       "rndr-id",
       "server",

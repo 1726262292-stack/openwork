@@ -58,6 +58,7 @@ describe("Den upstream proxy", () => {
               "server": "internal-origin",
               "via": "internal-proxy",
               "x-cache-key": "cache:key",
+              "x-content-type-options": "nosniff",
               "x-origin-host": "den-api.internal",
               "x-render-origin-server": "Render",
               "x-request-id": "req_internal",
@@ -257,6 +258,7 @@ describe("Den upstream proxy", () => {
     ]) {
       expect(response.headers.get(header)).toBeNull();
     }
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(response.headers.get("content-location")).toBe("https://app.example.com/api/den/v1/internal-headers/body");
     expect(response.headers.get("link")).toBe("<https://app.example.com/api/den/v1/internal-headers/next>; rel=\"next\"");
     expect(response.headers.get("location")).toBe("https://app.example.com/api/den/v1/internal-headers/redirect?next=1");
