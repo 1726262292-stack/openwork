@@ -23,6 +23,7 @@ import {
   DEN_SESSION_UPDATE_AGE_IN_SECONDS,
 } from "./session-lifetime.js";
 import { DEN_ACCOUNT_CONFIG } from "./account-linking-policy.js";
+import { cache } from "./cache.js";
 import { SCIM_TOKEN_STORAGE_STRATEGY } from "./scim-token-storage.js";
 import { syncDenSignupContact } from "./loops.js";
 import { sendEmail } from "./utils/email/send-email.js";
@@ -548,6 +549,15 @@ export const auth = betterAuth({
     freshAge: 15 * 60,
   },
   databaseHooks: {
+    user: {
+      update: {
+        after: async (user) => {
+          if (typeof user.id === "string") {
+            await cache.auth.deleteSessionsForUser(normalizeDenTypeId("user", user.id));
+          }
+        },
+      },
+    },
     member: {
       delete: {
         before: async (member: AuthMemberHookRow) => {
@@ -592,6 +602,20 @@ export const auth = betterAuth({
           };
         },
       },
+      update: {
+        after: async (session) => {
+          if (typeof session.token === "string") {
+            await cache.auth.deleteSession(session.token);
+          }
+        },
+      },
+      delete: {
+        after: async (session) => {
+          if (typeof session.token === "string") {
+            await cache.auth.deleteSession(session.token);
+          }
+        },
+      },
     },
   },
   hooks: {
@@ -631,7 +655,8 @@ export const auth = betterAuth({
 
         if (ctx.path === "/organization/leave") {
           const organizationId = readStringProperty(ctx.body, "organizationId");
-          const session = await ctx.context.getSession(ctx).catch(() => null);
+          const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret).catch(() => null);
+          const session = typeof token === "string" ? await cache.auth.session(token) : null;
           if (organizationId && session?.user.id) {
             const member = await getOrganizationMemberRole({
               organizationId,
@@ -646,7 +671,8 @@ export const auth = betterAuth({
         }
 
         if (ctx.path === "/organization/add-member") {
-          const session = await ctx.context.getSession(ctx).catch(() => null);
+          const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret).catch(() => null);
+          const session = typeof token === "string" ? await cache.auth.session(token) : null;
           const organizationId = readStringProperty(ctx.body, "organizationId")
             ?? (typeof session?.session.activeOrganizationId === "string" ? session.session.activeOrganizationId : null);
           if (organizationId && session?.user.id) {
@@ -668,7 +694,8 @@ export const auth = betterAuth({
         }
 
         if (ctx.path === "/organization/invite-member") {
-          const session = await ctx.context.getSession(ctx).catch(() => null);
+          const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret).catch(() => null);
+          const session = typeof token === "string" ? await cache.auth.session(token) : null;
           const organizationId = readStringProperty(ctx.body, "organizationId")
             ?? (typeof session?.session.activeOrganizationId === "string" ? session.session.activeOrganizationId : null);
           if (organizationId && session?.user.id) {
@@ -742,6 +769,7 @@ export const auth = betterAuth({
       }
 
       await ctx.context.internalAdapter.deleteSession(newSession.session.token);
+      await cache.auth.deleteSession(newSession.session.token);
       deleteSessionCookie(ctx);
       throw ctx.redirect(getEnterpriseAuthRedirectUrl({
         signInPath: requirement.signInPath,

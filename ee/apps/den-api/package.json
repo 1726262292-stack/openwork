@@ -68,6 +68,7 @@
     "grammy": "^1.44.0",
     "hono": "4.12.34",
     "hono-openapi": "^1.3.0",
+    "ioredis": "^6.0.0",
     "jsonc-parser": "^3.2.1",
     "nanoid": "^5.1.11",
     "openapi-types": "^12.1.3",

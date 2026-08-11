@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Archive, ArrowLeft, FileText, MoreHorizontal, Pencil, Plus, Server, Store, Terminal, Users, Webhook } from "lucide-react";
+import { Archive, ArrowLeft, Code2, FileText, MoreHorizontal, Pencil, Plus, Server, Store, Terminal, Users, Webhook } from "lucide-react";
 
 import { getNewPluginSkillRoute, getOrgAccessFlags, getPluginSkillRoute, getPluginsRoute } from "../../_lib/den-org";
 import { buttonVariants, DenButton } from "../../_components/ui/button";
@@ -14,6 +14,7 @@ import {
   type DenPlugin,
   type PluginHook,
   type PluginMcp,
+  type PluginScript,
   type PluginSkill,
   type PluginAgent,
   type PluginCommand,
@@ -25,6 +26,7 @@ import {
 import { CatalogIdentityTile } from "./catalog-identity-tile";
 import { type PluginAccessGrant, usePluginAccess } from "./plugin-access-data";
 import { PluginAccessSection } from "./plugin-access-section";
+import { SavedScriptDetailPanel } from "./saved-script-detail-panel";
 
 export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
   const router = useRouter();
@@ -35,6 +37,7 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [editPlugin, setEditPlugin] = useState<{ name: string; description: string } | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [selectedScriptId, setSelectedScriptId] = useState<string | null>(null);
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const access = getOrgAccessFlags(
     orgContext?.currentMember.role ?? "member",
@@ -73,6 +76,14 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
     );
   }
 
+  if (selectedScriptId) {
+    return (
+      <div className="mx-auto max-w-[1180px] px-6 py-8 md:px-8">
+        <SavedScriptDetailPanel configObjectId={selectedScriptId} onClose={() => setSelectedScriptId(null)} />
+      </div>
+    );
+  }
+
   const marketplaces = plugin.marketplaces ?? [];
   const creator = orgContext?.members.find((member) => member.id === plugin.createdByOrgMembershipId) ?? null;
   const accessBlastRadius = getPluginAccessBlastRadius(
@@ -85,6 +96,7 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
   if (plugin.commands.length === 0) missingLabels.push("commands");
   if (plugin.hooks.length === 0) missingLabels.push("hooks");
   if (plugin.mcps.length === 0) missingLabels.push("MCP servers");
+  if (plugin.scripts.length === 0) missingLabels.push("scripts");
 
   async function handleArchivePlugin() {
     try {
@@ -202,6 +214,7 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
           error={pluginAccessQuery.error}
         />
         <SkillsSection orgSlug={orgSlug} plugin={plugin} />
+        <PrimitiveSection icon={Code2} label="Scripts" items={plugin.scripts} render={(script) => renderScriptRow(script, () => setSelectedScriptId(script.id))} />
         <PrimitiveSection icon={Users} label="Agents" items={plugin.agents} render={renderAgentRow} />
         <PrimitiveSection icon={Terminal} label="Commands" items={plugin.commands} render={renderCommandRow} />
         <PrimitiveSection icon={Webhook} label="Hooks" items={plugin.hooks} render={renderHookRow} />
@@ -566,6 +579,31 @@ function renderCommandRow(command: PluginCommand) {
         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">{command.description}</p>
       ) : null}
     </div>
+  );
+}
+
+function renderScriptRow(script: PluginScript, onOpen: () => void) {
+  return (
+    <button
+      key={script.id}
+      type="button"
+      onClick={onOpen}
+      className="w-full rounded-xl border border-gray-100 bg-white px-4 py-3 text-left transition hover:border-gray-200 hover:bg-gray-50"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="truncate text-[14px] font-semibold tracking-[-0.01em] text-gray-900">{script.name}</p>
+        <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] text-gray-500">
+          {script.requiredCapabilityCount} read-only capabilit{script.requiredCapabilityCount === 1 ? "y" : "ies"}
+        </span>
+      </div>
+      {script.description ? (
+        <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">{script.description}</p>
+      ) : null}
+      <p className="mt-2 text-[11px] text-gray-400">
+        {script.versionId ? `Pinned version ${script.versionId.slice(0, 8)}` : "No published version"}
+        {script.outputSchema ? " · Validated output" : ""}
+      </p>
+    </button>
   );
 }
 

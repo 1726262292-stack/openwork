@@ -6,6 +6,7 @@ export type JsonSchemaObject = JsonSchemaType
 export type CodemodeScriptPayload = {
   language: "codemode-js"
   inputSchema?: JsonSchemaObject
+  outputSchema?: JsonSchemaObject
   requiredCapabilities: Array<{
     capabilityName: string
     scriptPath: string
@@ -55,14 +56,17 @@ function isLimit(value: unknown, minimum: number): value is number {
 export function parseCodemodeScriptPayload(normalizedPayloadJson: unknown):
   | { ok: true; payload: CodemodeScriptPayload }
   | { ok: false; message: string } {
-  if (!isRecord(normalizedPayloadJson) || !hasOnlyKeys(normalizedPayloadJson, ["language", "inputSchema", "requiredCapabilities", "limits"])) {
-    return { ok: false, message: "The saved script payload must be an object containing only language, inputSchema, requiredCapabilities, and limits." }
+  if (!isRecord(normalizedPayloadJson) || !hasOnlyKeys(normalizedPayloadJson, ["language", "inputSchema", "outputSchema", "requiredCapabilities", "limits"])) {
+    return { ok: false, message: "The saved script payload must contain only language, inputSchema, outputSchema, requiredCapabilities, and limits." }
   }
   if (normalizedPayloadJson.language !== "codemode-js") {
     return { ok: false, message: "The saved script language must be codemode-js." }
   }
   if (normalizedPayloadJson.inputSchema !== undefined && !isJsonSchemaObject(normalizedPayloadJson.inputSchema)) {
     return { ok: false, message: "The saved script inputSchema must be a JSON Schema object." }
+  }
+  if (normalizedPayloadJson.outputSchema !== undefined && !isJsonSchemaObject(normalizedPayloadJson.outputSchema)) {
+    return { ok: false, message: "The saved script outputSchema must be a JSON Schema object." }
   }
   if (!Array.isArray(normalizedPayloadJson.requiredCapabilities)) {
     return { ok: false, message: "The saved script requiredCapabilities must be an array." }
@@ -108,10 +112,15 @@ export function parseCodemodeScriptPayload(normalizedPayloadJson: unknown):
     payload: {
       language: "codemode-js",
       ...(normalizedPayloadJson.inputSchema === undefined ? {} : { inputSchema: normalizedPayloadJson.inputSchema }),
+      ...(normalizedPayloadJson.outputSchema === undefined ? {} : { outputSchema: normalizedPayloadJson.outputSchema }),
       requiredCapabilities,
       ...(limits === undefined ? {} : { limits }),
     },
   }
+}
+
+export function validateCodemodeScriptOutput(schema: JsonSchemaObject, value: unknown): CodemodeScriptInputValidation {
+  return validateCodemodeScriptInput(schema, value)
 }
 
 export function validateCodemodeScriptInput(schema: JsonSchemaObject, value: unknown): CodemodeScriptInputValidation {

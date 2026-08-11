@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -29,6 +30,7 @@ import { DEFAULT_AUTH_NAME } from "../../_lib/den-flow";
 import {
   formatRoleLabel,
   getAnalyticsRoute,
+  getAutomationsRoute,
   getBackgroundAgentsRoute,
   getApiKeysRoute,
   getBrandAppearanceRoute,
@@ -259,6 +261,9 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getBackgroundAgentsRoute(orgSlug))) {
     return "Background Tasks";
   }
+  if (pathname.startsWith(getAutomationsRoute(orgSlug))) {
+    return "Automations";
+  }
   if (pathname.startsWith(getCustomLlmProvidersRoute(orgSlug))) {
     return "Bring your Own Keys";
   }
@@ -473,6 +478,13 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       label: "Library",
       icon: LibraryBig,
     },
+    ...(codemodeScriptsEnabled && activeOrg
+      ? [{
+          href: getAutomationsRoute(activeOrg.slug),
+          label: "Automations",
+          icon: CalendarClock,
+        }]
+      : []),
     ...(mcpConnectionsEnabled
       ? [{
           // Member-visible (not admin-gated): where each person connects their

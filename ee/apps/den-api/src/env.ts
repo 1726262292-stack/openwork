@@ -17,6 +17,8 @@ const EnvSchema = z.object({
   DB_MODE: z.enum(["mysql", "planetscale"]).optional(),
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().min(1),
+  DATABASE_REDIS_URL: z.string().optional(),
+  DATABASE_REDIS_ALLOW_INSECURE_INTERNAL: z.string().optional(),
   DEN_MCP_RESOURCE_URL: z.string().optional(),
   DEN_MCP_ADDITIONAL_RESOURCES: z.string().optional(),
   DEN_BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
@@ -284,6 +286,39 @@ function normalizeOrigin(origin: string) {
   return value.replace(/\/+$/, "")
 }
 
+function isLocalRedisHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1"
+}
+
+function parseBooleanFlag(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase()
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
+
+function normalizeRedisUrl(value: string | undefined, allowInsecureInternal: boolean) {
+  const configured = optionalString(value)
+  if (!configured) {
+    return undefined
+  }
+
+  let url: URL
+  try {
+    url = new URL(configured)
+  } catch {
+    throw new Error("DATABASE_REDIS_URL must be an absolute redis:// or rediss:// URL.")
+  }
+
+  if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
+    throw new Error("DATABASE_REDIS_URL must use redis:// or rediss://.")
+  }
+
+  if (url.protocol === "redis:" && !isLocalRedisHost(url.hostname) && !allowInsecureInternal) {
+    throw new Error("DATABASE_REDIS_URL must use rediss:// for non-local Redis endpoints unless DATABASE_REDIS_ALLOW_INSECURE_INTERNAL=1 is set for a trusted private network.")
+  }
+
+  return url.toString()
+}
+
 function normalizeDiagnosticsOrigin(value: string | undefined, allowInsecureHttp: boolean) {
   const configured = optionalString(value) ?? DEFAULT_DEN_DIAGNOSTICS_ORIGIN
 
@@ -414,6 +449,7 @@ const orgMode = parseDenOrgMode(parsed.DEN_ORG_MODE)
 // (OPENWORK_DEV_MODE=1) is exempt automatically so evals against a local
 // stand-in server keep working.
 const allowPrivateMcpUrls = devMode || (parsed.DEN_ALLOW_PRIVATE_MCP_URLS ?? "0").trim() === "1"
+const allowInsecureInternalRedis = parseBooleanFlag(parsed.DATABASE_REDIS_ALLOW_INSECURE_INTERNAL)
 const requireEmailVerification = parsed.DEN_REQUIRE_EMAIL_VERIFICATION === undefined
   ? orgMode === "multi_org" && !devMode
   : parsed.DEN_REQUIRE_EMAIL_VERIFICATION.trim().toLowerCase() !== "false"
@@ -441,6 +477,13 @@ export const env = {
   planetscale: planetscaleCredentials,
   betterAuthSecret: parsed.BETTER_AUTH_SECRET,
   betterAuthUrl: normalizeOrigin(parsed.BETTER_AUTH_URL),
+  // SECURITY: `redis://` carries cached auth-session material in plaintext.
+  // Non-local redis:// is rejected by default. Hosted platforms such as Render
+  // may provide a private, non-public internal Redis URL without TLS; operators
+  // must explicitly opt in with DATABASE_REDIS_ALLOW_INSECURE_INTERNAL=1 after
+  // confirming the endpoint is only reachable inside a trusted private network.
+  databaseRedisUrl: normalizeRedisUrl(parsed.DATABASE_REDIS_URL, allowInsecureInternalRedis),
+  databaseRedisAllowInsecureInternal: allowInsecureInternalRedis,
   mcpResourceUrl: mcpResourceUrl
     ? normalizeOrigin(mcpResourceUrl)
     : devMode

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { eq, sql } from "@openwork-ee/den-db/drizzle"
 import { AuthAccountTable, AuthUserTable, OAuthClientTable } from "@openwork-ee/den-db/schema"
 import type { Hono } from "hono"
+import type { Context } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth, DEN_MCP_OAUTH_RESOURCE, normalizeMcpOAuthResource } from "../../auth.js"
@@ -23,9 +24,10 @@ import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
 import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.js"
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
+import { cache } from "../../cache.js"
 import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, type SingleOrgEmailSignupPolicyViolation } from "../../single-org-signup-policy.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
-import { revokeBearerSession, type AuthContextVariables } from "../../session.js"
+import { getRequestSession, readSignedSessionCookieToken, revokeBearerSession, type AuthContextVariables } from "../../session.js"
 import { checkRateLimit } from "../../utils/rate-limit.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
 import { normalizeOAuthAuthorizeRedirect } from "./oauth-redirect.js"
@@ -296,13 +298,13 @@ async function readSetActiveOrganizationBody(request: Request) {
   }
 }
 
-async function getCurrentActiveOrganizationId(request: Request) {
-  const session = await auth.api.getSession({ headers: request.headers })
+async function getCurrentActiveOrganizationId(request: Request, context: Context) {
+  const session = await getRequestSession(request.headers, context)
   const activeOrganizationId = session?.session.activeOrganizationId
   return typeof activeOrganizationId === "string" ? activeOrganizationId : null
 }
 
-async function getSingleOrgAuthGuardResponse(request: Request) {
+async function getSingleOrgAuthGuardResponse(request: Request, context: Context) {
   if (env.orgMode !== "single_org") {
     return null
   }
@@ -334,7 +336,7 @@ async function getSingleOrgAuthGuardResponse(request: Request) {
     return null
   }
 
-  const activeOrganizationId = await getCurrentActiveOrganizationId(request)
+  const activeOrganizationId = await getCurrentActiveOrganizationId(request, context)
   return canSetActiveOrganizationInSingleOrgMode({
     activeOrganizationId,
     singleOrganizationSlug: env.singleOrg.slug,
@@ -539,12 +541,13 @@ async function getLoginOptionAccounts(email: string) {
   }))
 }
 
-async function handleAuthRequest(request: Request) {
+async function handleAuthRequest(c: Context) {
+  const request = c.req.raw
   const authRequest = await normalizeMcpOAuthRequest(request)
   if (authRequest instanceof Response) {
     return authRequest
   }
-  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest)
+  const singleOrgAuthGuardResponse = await getSingleOrgAuthGuardResponse(authRequest, c)
   if (singleOrgAuthGuardResponse) {
     return singleOrgAuthGuardResponse
   }
@@ -573,6 +576,10 @@ async function handleAuthRequest(request: Request) {
   // runs to preserve its normal idempotent response and cookie cleanup for
   // browser callers.
   if (isBetterAuthSignOutRequest(authRequest)) {
+    const cookieToken = await readSignedSessionCookieToken(c)
+    if (cookieToken) {
+      await cache.auth.deleteSession(cookieToken)
+    }
     await revokeBearerSession(authRequest.headers)
   }
 
@@ -697,7 +704,7 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
       },
     }),
     publicRoute,
-    (c) => handleAuthRequest(c.req.raw),
+    (c) => handleAuthRequest(c),
   )
   registerDesktopAuthRoutes(app)
 }

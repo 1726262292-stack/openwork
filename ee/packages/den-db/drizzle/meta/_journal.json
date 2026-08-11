@@ -407,6 +407,20 @@
       "when": 1786368354826,
       "tag": "0058_natural_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "5",
+      "when": 1786373323261,
+      "tag": "0059_minor_queen_noir",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "5",
+      "when": 1786374191186,
+      "tag": "0060_light_ultimates",
+      "breakpoints": true
     }
   ]
 }

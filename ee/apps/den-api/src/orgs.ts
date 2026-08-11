@@ -14,6 +14,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { revokeOrganizationApiKeysForMember } from "./api-keys.js"
+import { cache } from "./cache.js"
 import { revokeMembershipSessionCredentials } from "./credential-revocation.js"
 import { db } from "./db.js"
 import { env } from "./env.js"
@@ -1356,6 +1357,16 @@ export async function setSessionActiveOrganization(sessionId: SessionId, organiz
     .update(AuthSessionTable)
     .set({ activeOrganizationId: organizationId })
     .where(eq(AuthSessionTable.id, sessionId))
+
+  const rows = await db
+    .select({ token: AuthSessionTable.token })
+    .from(AuthSessionTable)
+    .where(eq(AuthSessionTable.id, sessionId))
+    .limit(1)
+  const session = rows[0]
+  if (session) {
+    await cache.auth.deleteSession(session.token)
+  }
 }
 
 export async function listUserOrgs(userId: UserId) {
@@ -1479,29 +1490,7 @@ export async function getOrganizationContextForUser(input: {
     return null
   }
 
-  const members = await db
-    .select({
-      id: MemberTable.id,
-      userId: MemberTable.userId,
-      inviteId: MemberTable.inviteId,
-      role: MemberTable.role,
-      createdAt: MemberTable.createdAt,
-      joinedAt: MemberTable.joinedAt,
-      user: {
-        id: AuthUserTable.id,
-        email: AuthUserTable.email,
-        name: AuthUserTable.name,
-        image: AuthUserTable.image,
-      },
-      invitation: {
-        email: InvitationTable.email,
-      },
-    })
-    .from(MemberTable)
-    .leftJoin(AuthUserTable, eq(MemberTable.userId, AuthUserTable.id))
-    .leftJoin(InvitationTable, eq(MemberTable.inviteId, InvitationTable.id))
-    .where(and(eq(MemberTable.organizationId, organization.id), isNull(MemberTable.removedAt)))
-    .orderBy(asc(MemberTable.createdAt))
+  const members = await cache.org.members(organization.id)
 
   const invitations = await db
     .select({
@@ -1544,25 +1533,7 @@ export async function getOrganizationContextForUser(input: {
       joinedAt: currentMember.joinedAt,
       isOwner: roleIncludesOwner(currentMember.role),
     },
-    members: members.map((member) => {
-      const email = member.user?.email ?? member.invitation?.email ?? "invited@example.com"
-      const name = member.user?.name ?? getInvitedMemberName(email)
-      return {
-        id: member.id,
-        userId: member.userId,
-        inviteId: member.inviteId,
-        role: member.role,
-        createdAt: member.createdAt,
-        joinedAt: member.joinedAt,
-        isOwner: roleIncludesOwner(member.role),
-        user: {
-          id: member.user?.id ?? member.id,
-          email,
-          name,
-          image: member.user?.image ?? null,
-        },
-      }
-    }),
+    members,
     invitations,
     roles: [
       {
@@ -1762,6 +1733,7 @@ export async function updateOrganizationMemberRole(input: {
   })
 
   if (updated.ok && updated.changed) {
+    await cache.org.deleteMembers(input.organizationId)
     await revokeOrganizationApiKeysForMember({
       organizationId: input.organizationId,
       orgMembershipId: updated.member.id,
@@ -1895,6 +1867,8 @@ export async function transferOrganizationOwnership(input: {
   if (!transfer.ok) {
     return transfer
   }
+
+  await cache.org.deleteMembers(input.organizationId)
 
   for (const ownerRow of transfer.demotedOwners) {
     await revokeOrganizationApiKeysForMember({
