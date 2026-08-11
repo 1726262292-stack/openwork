@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { AutomationClaimResult, AutomationListItem } from "@openwork/automations"
 import type {
   AutomationDesktopRunnerResult,
   AutomationDesktopRunnerRegistration,
@@ -39,11 +40,16 @@ export function configureCloudSavedScriptExecutor(executor: CloudSavedScriptExec
 
 export class AutomationService {
   async list(scope: OwnerScope, input: { cursor?: string; limit?: number }) {
-    return automationRepository.list({ ...scope, cursor: input.cursor, limit: input.limit ?? 50 })
+    const page = await automationRepository.list({ ...scope, cursor: input.cursor, limit: input.limit ?? 50 })
+    return {
+      ...page,
+      items: await Promise.all(page.items.map((item) => this.reconcileModelAttention(item))),
+    }
   }
 
   async get(scope: OwnerScope, automationId: string) {
-    return automationRepository.get({ ...scope, automationId })
+    const item = await automationRepository.get({ ...scope, automationId })
+    return item ? this.reconcileModelAttention(item) : null
   }
 
   async create(scope: OwnerScope, definition: CreateAutomationDefinition) {
@@ -98,6 +104,11 @@ export class AutomationService {
   async runNow(scope: OwnerScope, automationId: string): Promise<AutomationRun | null> {
     const current = await this.get(scope, automationId)
     if (!current || current.automation.state === "archived") return null
+    if (current.automation.state === "needs_attention" && current.automation.needsAttentionReason) {
+      const error = new Error(current.automation.needsAttentionReason.message)
+      error.name = current.automation.needsAttentionReason.code
+      throw error
+    }
     // The persisted model selection is only as good as the owner's current
     // access; a revoked grant must fail the manual run, not dispatch it.
     if (current.revision.action?.kind === "saved_script") {
@@ -158,19 +169,31 @@ export class AutomationService {
             ownerMemberId: item.automation.ownerMemberId,
             ...item.revision.model,
           })
-      const claim = await automationRepository.claim({
-        automation: item.automation,
-        revision: item.revision,
-        trigger: "scheduled",
-        scheduledFor,
-        leaseOwner: schedulerOwner,
-        leaseMs: env.automations.leaseMs,
-        claimDeadlineMs: env.automations.runnerClaimDeadlineMs,
-        now,
-      })
+      let claim: AutomationClaimResult
+      try {
+        claim = await automationRepository.claim({
+          automation: item.automation,
+          revision: item.revision,
+          trigger: "scheduled",
+          scheduledFor,
+          leaseOwner: schedulerOwner,
+          leaseMs: env.automations.leaseMs,
+          claimDeadlineMs: env.automations.runnerClaimDeadlineMs,
+          now,
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === "automation_not_active") continue
+        throw error
+      }
       if (claim.kind !== "claimed") continue
       if (!access.ok) {
         await automationRepository.skipRun({ runId: claim.run.id, code: access.code, message: access.message, now })
+        await automationRepository.markNeedsAttention({
+          automationId: item.automation.id,
+          expectedRevisionId: item.revision.id,
+          reason: { code: access.code, message: access.message, occurredAt: now },
+          now,
+        })
         continue
       }
       started.push(claim.run.id)
@@ -217,11 +240,18 @@ export class AutomationService {
       ...claimed.revision.model,
     })
     if (!access.ok) {
+      const now = Date.now()
       await automationRepository.skipRun({
         runId: claimed.run.id,
         code: access.code,
         message: access.message,
-        now: Date.now(),
+        now,
+      })
+      await automationRepository.markNeedsAttention({
+        automationId: claimed.automation.id,
+        expectedRevisionId: claimed.revision.id,
+        reason: { code: access.code, message: access.message, occurredAt: now },
+        now,
       })
       return null
     }
@@ -265,8 +295,9 @@ export class AutomationService {
     })
   }
 
-  completeDesktopRunner(scope: DesktopRunnerScope, runId: string, result: AutomationDesktopRunnerResult) {
-    return automationRepository.complete({
+  async completeDesktopRunner(scope: DesktopRunnerScope, runId: string, result: AutomationDesktopRunnerResult) {
+    const now = Date.now()
+    const completed = await automationRepository.complete({
       runId,
       leaseOwner: desktopLeaseOwner(scope),
       status: result.status,
@@ -274,8 +305,21 @@ export class AutomationService {
       usage: result.usage,
       error: result.error,
       attempt: result.attempt,
-      now: Date.now(),
+      now,
     })
+    if (result.error?.code === "model_access_lost" || result.error?.code === "provider_unavailable") {
+      await automationRepository.markNeedsAttention({
+        automationId: completed.automationId,
+        expectedRevisionId: completed.revisionId,
+        reason: {
+          code: result.error.code,
+          message: result.error.message,
+          occurredAt: now,
+        },
+        now,
+      })
+    }
+    return completed
   }
 
   runnerNotifications(scope: DesktopRunnerScope, after: number) {
@@ -289,6 +333,28 @@ export class AutomationService {
       error.name = result.code
       throw error
     }
+  }
+
+  private async reconcileModelAttention(item: AutomationListItem): Promise<AutomationListItem> {
+    if (item.automation.state !== "active" || item.revision.action?.kind === "saved_script") return item
+    const access = await resolveAutomationModelAccess({
+      organizationId: item.automation.organizationId,
+      ownerMemberId: item.automation.ownerMemberId,
+      ...item.revision.model,
+    })
+    if (access.ok) return item
+    const now = Date.now()
+    await automationRepository.markNeedsAttention({
+      automationId: item.automation.id,
+      expectedRevisionId: item.revision.id,
+      reason: { code: access.code, message: access.message, occurredAt: now },
+      now,
+    })
+    return await automationRepository.get({
+      organizationId: item.automation.organizationId,
+      ownerMemberId: item.automation.ownerMemberId,
+      automationId: item.automation.id,
+    }) ?? item
   }
 
   private async executeCloudRun(runId: string): Promise<void> {

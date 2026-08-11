@@ -93,6 +93,7 @@ import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
+import { automationsStateChangedEvent } from "@/react-app/domains/automations/automation-events";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
@@ -469,6 +470,7 @@ export function SessionRoute() {
   const automationsRouteActive = automationsEnabled && automationsRouteRequested;
   const denSettings = readDenSettings();
   const [automationsSupported, setAutomationsSupported] = useState(false);
+  const [automationsNeedAttention, setAutomationsNeedAttention] = useState(false);
   useEffect(() => {
     if (!automationsRouteRequested || automationsEnabled) return;
     navigate("/", { replace: true });
@@ -478,19 +480,31 @@ export function SessionRoute() {
     const organizationId = denSettings.activeOrgId?.trim();
     if (!automationsEnabled || !denAuth.isSignedIn || !authToken || !organizationId) {
       setAutomationsSupported(false);
+      setAutomationsNeedAttention(false);
       return;
     }
     let cancelled = false;
-    void createDenClient({ baseUrl: denSettings.baseUrl, token: authToken })
-      .listAutomations(organizationId, { limit: 1 })
-      .then(() => {
-        if (!cancelled) setAutomationsSupported(true);
-      })
-      .catch(() => {
-        if (!cancelled) setAutomationsSupported(false);
-      });
+    const client = createDenClient({ baseUrl: denSettings.baseUrl, token: authToken });
+    const refreshAutomationState = () => {
+      void client.listAutomations(organizationId, { limit: 100 })
+        .then((result) => {
+          if (cancelled) return;
+          setAutomationsSupported(true);
+          setAutomationsNeedAttention(result.items.some((item) => item.automation.state === "needs_attention"));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setAutomationsSupported(false);
+          setAutomationsNeedAttention(false);
+        });
+    };
+    refreshAutomationState();
+    const interval = window.setInterval(refreshAutomationState, 15_000);
+    window.addEventListener(automationsStateChangedEvent, refreshAutomationState);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener(automationsStateChangedEvent, refreshAutomationState);
     };
   }, [
     automationsEnabled,
@@ -2572,6 +2586,7 @@ export function SessionRoute() {
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         automationsActive: automationsRouteActive,
+        automationsNeedAttention,
         onOpenAutomations: automationsNavigationAvailable
           ? () => {
               navigate(automationsRoute());

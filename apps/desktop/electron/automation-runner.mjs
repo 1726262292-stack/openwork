@@ -1,5 +1,31 @@
 const EMPTY_USAGE = { inputTokens: null, outputTokens: null, costMicros: null }
 
+function serializedError(value) {
+  if (value instanceof Error) return value.message
+  if (typeof value === "string") return value
+  try { return JSON.stringify(value) } catch { return String(value) }
+}
+
+export function classifyAutomationExecutionError(error) {
+  const raw = serializedError(error)
+  if (error?.code === "model_access_lost") {
+    return { code: "model_access_lost", message: raw }
+  }
+  if (/ProviderModelNotFoundError/i.test(raw) || /model\s+not\s+found\s*:/i.test(raw)) {
+    const identity = raw.match(/model\s+not\s+found\s*:\s*([^.,}\]"\n]+)/i)?.[1]?.trim()
+    return {
+      code: "model_access_lost",
+      message: identity
+        ? `The selected model ${identity} is no longer available. Choose a supported model to resume this Automation.`
+        : "The selected model is no longer available. Choose a supported model to resume this Automation.",
+    }
+  }
+  return {
+    code: "execution_failed",
+    message: raw || "Desktop Automation execution failed",
+  }
+}
+
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, ms)
@@ -105,6 +131,12 @@ export async function executeDesktopAutomation(assignment, options) {
       )
       const snapshot = response?.item
       const output = assistantResult(snapshot)
+      const snapshotError = classifyAutomationExecutionError(snapshot)
+      if (snapshotError.code === "model_access_lost") {
+        const error = new Error(snapshotError.message)
+        Object.defineProperty(error, "code", { value: snapshotError.code })
+        throw error
+      }
       if (snapshot?.status?.type === "idle" && output.resultSummary) {
         return { sessionId, workspaceId, ...output }
       }
@@ -190,6 +222,7 @@ export function createDesktopAutomationRunner(options) {
       result = { status: "succeeded", ...output, error: null }
     } catch (error) {
       const cancelled = controller.signal.aborted && String(controller.signal.reason).toLowerCase().includes("cancel")
+      const classified = classifyAutomationExecutionError(error)
       result = {
         status: cancelled ? "cancelled" : "failed",
         sessionId: null,
@@ -197,8 +230,10 @@ export function createDesktopAutomationRunner(options) {
         resultSummary: null,
         usage: EMPTY_USAGE,
         error: {
-          code: cancelled ? "cancelled" : "execution_failed",
-          message: error instanceof Error ? error.message : "Desktop Automation execution failed",
+          code: cancelled ? "cancelled" : classified.code,
+          message: cancelled
+            ? (error instanceof Error ? error.message : "Automation run cancelled")
+            : classified.message,
           retryable: false,
         },
       }

@@ -1048,13 +1048,23 @@ export class DenAutomationRepository implements AutomationRepository {
     return Boolean(rows[0]?.cancelledAt)
   }
 
-  async markNeedsAttention(input: { automationId: string; reason: NonNullable<Automation["needsAttentionReason"]>; now: number }): Promise<void> {
-    await db.update(AutomationTable).set({
+  async markNeedsAttention(input: {
+    automationId: string
+    expectedRevisionId: string
+    reason: NonNullable<Automation["needsAttentionReason"]>
+    now: number
+  }): Promise<boolean> {
+    const result = await db.update(AutomationTable).set({
       state: "needs_attention",
       next_due_at: null,
       needs_attention_reason: input.reason,
       updated_at: new Date(input.now),
-    }).where(eq(AutomationTable.id, normalizeAutomationId(input.automationId)))
+    }).where(and(
+      eq(AutomationTable.id, normalizeAutomationId(input.automationId)),
+      eq(AutomationTable.current_revision_id, normalizeRevisionId(input.expectedRevisionId)),
+      eq(AutomationTable.state, "active"),
+    ))
+    return automationUpdateChangedRows(result)
   }
 
   private async runById(runId: string): Promise<AutomationRun | null> {

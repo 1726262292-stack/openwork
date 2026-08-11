@@ -2,10 +2,21 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  classifyAutomationExecutionError,
   createDesktopAutomationRunner,
   executeDesktopAutomation,
   normalizeRunnerBaseUrl,
 } from "./automation-runner.mjs"
+
+test("model-not-found failures become a repairable Automation error", () => {
+  assert.deepEqual(classifyAutomationExecutionError({
+    name: "ProviderModelNotFoundError",
+    message: "Model not found: opencode/big-pickle",
+  }), {
+    code: "model_access_lost",
+    message: "The selected model opencode/big-pickle is no longer available. Choose a supported model to resume this Automation.",
+  })
+})
 
 test("runner base URLs are restricted to https or loopback http", () => {
   assert.equal(normalizeRunnerBaseUrl("https://den.example.com"), "https://den.example.com")
@@ -88,4 +99,51 @@ test("desktop Automation execution creates a normal visible local OpenWork threa
     providerId: "opencode",
     modelId: "big-pickle",
   })
+})
+
+test("desktop Automation execution surfaces a missing pinned model", async () => {
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url)
+    if (parsed.pathname === "/workspaces") {
+      return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
+    }
+    if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
+      return Response.json({ item: { id: "session-1" }, started: true }, { status: 201 })
+    }
+    if (parsed.pathname === "/workspace/workspace-1/sessions/session-1/snapshot") {
+      return Response.json({ item: {
+        status: { type: "idle" },
+        messages: [{
+          info: {
+            role: "assistant",
+            error: {
+              name: "ProviderModelNotFoundError",
+              message: "Model not found: opencode/big-pickle",
+            },
+          },
+          parts: [],
+        }],
+      } })
+    }
+    throw new Error(`Unexpected request ${parsed.pathname}`)
+  }
+
+  await assert.rejects(
+    executeDesktopAutomation({
+      executionTarget: "desktop",
+      runId: "run-1",
+      automationId: "automation-1",
+      automationName: "Daily brief",
+      instructions: "Prepare the brief",
+      model: { providerId: "opencode", modelId: "big-pickle" },
+      timeoutMs: 30_000,
+      leaseExpiresAt: Date.now() + 60_000,
+      attempt: 1,
+    }, {
+      getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
+      fetchImpl,
+      signal: new AbortController().signal,
+    }),
+    (error) => error?.code === "model_access_lost" && /Choose a supported model/.test(error.message),
+  )
 })
