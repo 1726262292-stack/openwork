@@ -6,7 +6,13 @@ import {
   createDesktopAutomationRunner,
   executeDesktopAutomation,
   normalizeRunnerBaseUrl,
+  runnerTokenAudience,
 } from "./automation-runner.mjs"
+
+function runnerTokenFor(audience) {
+  const payload = Buffer.from(JSON.stringify({ v: 2, a: audience })).toString("base64url")
+  return `${payload}.test-signature`
+}
 
 test("model-not-found failures become a repairable Automation error", () => {
   assert.deepEqual(classifyAutomationExecutionError({
@@ -18,7 +24,7 @@ test("model-not-found failures become a repairable Automation error", () => {
   })
 })
 
-test("runner base URLs are restricted to https or loopback http", () => {
+test("runner base URLs require a protected transport", () => {
   assert.equal(normalizeRunnerBaseUrl("https://den.example.com"), "https://den.example.com")
   assert.equal(normalizeRunnerBaseUrl("https://den.example.com/api/"), "https://den.example.com/api")
   assert.equal(normalizeRunnerBaseUrl("http://127.0.0.1:8788"), "http://127.0.0.1:8788")
@@ -31,6 +37,12 @@ test("runner base URLs are restricted to https or loopback http", () => {
   assert.equal(normalizeRunnerBaseUrl(undefined), null)
 })
 
+test("runner credentials retain their signed Den audience", () => {
+  assert.equal(runnerTokenAudience(runnerTokenFor("https://den.example.com/api/den")), "https://den.example.com/api/den")
+  assert.equal(runnerTokenAudience("not-a-runner-token"), null)
+  assert.equal(runnerTokenAudience(runnerTokenFor("http://attacker.example.com")), null)
+})
+
 test("a renderer-supplied non-https base URL never receives the runner token", async () => {
   const attempted = []
   const runner = createDesktopAutomationRunner({
@@ -40,7 +52,30 @@ test("a renderer-supplied non-https base URL never receives the runner token", a
       throw new Error("no network in test")
     },
   })
-  runner.configure({ baseUrl: "http://attacker.example.com", token: "runner-token", runnerId: "runner-1" })
+  runner.configure({
+    baseUrl: "http://attacker.example.com",
+    token: runnerTokenFor("http://attacker.example.com"),
+    runnerId: "runner-1",
+  })
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  runner.stop()
+  assert.deepEqual(attempted, [])
+})
+
+test("a renderer cannot redirect a Den runner credential to another HTTPS origin", async () => {
+  const attempted = []
+  const runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      attempted.push(String(url))
+      throw new Error("no network in test")
+    },
+  })
+  runner.configure({
+    baseUrl: "https://attacker.example.com",
+    token: runnerTokenFor("https://den.example.com/api/den"),
+    runnerId: "runner-1",
+  })
   await new Promise((resolve) => setTimeout(resolve, 25))
   runner.stop()
   assert.deepEqual(attempted, [])

@@ -8,10 +8,11 @@ function seedRequiredEnv() {
 }
 
 let AutomationRunnerAuth: typeof import("../src/automations/runner-auth.js")["AutomationRunnerAuth"]
+let automationRunnerAudienceFromRequestUrl: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequestUrl"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ AutomationRunnerAuth } = await import("../src/automations/runner-auth.js"))
+  ;({ AutomationRunnerAuth, automationRunnerAudienceFromRequestUrl } = await import("../src/automations/runner-auth.js"))
 })
 
 describe("Automation runner credentials", () => {
@@ -23,15 +24,24 @@ describe("Automation runner credentials", () => {
       organizationId: "org_test",
       ownerMemberId: "member_test",
       runnerId: "desktop-test",
-    })
+    }, "https://den.example.com/api/den")
 
     expect(verifier.authenticate(`Bearer ${issued.token}`)).toEqual({
       organizationId: "org_test",
       ownerMemberId: "member_test",
       runnerId: "desktop-test",
+      audience: "https://den.example.com/api/den",
       expiresAt: issued.expiresAt,
     })
     expect(new AutomationRunnerAuth(`${secret}x`).authenticate(`Bearer ${issued.token}`)).toBeNull()
     expect(verifier.authenticate(`Bearer ${issued.token}x`)).toBeNull()
+  })
+
+  test("binds a runner credential to the API base that minted it", () => {
+    expect(automationRunnerAudienceFromRequestUrl(
+      "https://den.example.com/api/den/v1/automation-runners/token?ignored=true",
+    )).toBe("https://den.example.com/api/den")
+    expect(() => automationRunnerAudienceFromRequestUrl("https://den.example.com/not-the-token-route"))
+      .toThrow("automation_runner_audience_invalid")
   })
 })

@@ -167,6 +167,24 @@ export function normalizeRunnerBaseUrl(value) {
   return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "")
 }
 
+/**
+ * Runner credentials are opaque to the renderer but carry a server-signed
+ * audience in their payload. The main process does not need the Den signing
+ * key here: changing the audience also changes the token, so a renderer cannot
+ * redirect an intact credential without failing this binding check.
+ */
+export function runnerTokenAudience(token) {
+  try {
+    const [payload, signature, extra] = String(token).split(".")
+    if (!payload || !signature || extra) return null
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
+    if (decoded?.v !== 2 || typeof decoded.a !== "string") return null
+    return normalizeRunnerBaseUrl(decoded.a)
+  } catch {
+    return null
+  }
+}
+
 export function createDesktopAutomationRunner(options) {
   const fetchImpl = options.fetchImpl ?? fetch
   let configuration = null
@@ -332,8 +350,10 @@ export function createDesktopAutomationRunner(options) {
   return {
     configure(next) {
       const baseUrl = next ? normalizeRunnerBaseUrl(next.baseUrl) : null
-      const normalized = baseUrl && next?.token && next?.runnerId
-        ? { baseUrl, token: String(next.token), runnerId: String(next.runnerId) }
+      const token = next?.token ? String(next.token) : ""
+      const tokenAudience = token ? runnerTokenAudience(token) : null
+      const normalized = baseUrl && baseUrl === tokenAudience && token && next?.runnerId
+        ? { baseUrl, token, runnerId: String(next.runnerId) }
         : null
       if (configuration?.baseUrl === normalized?.baseUrl && configuration?.token === normalized?.token) {
         return { connected: Boolean(connectionController && !connectionController.signal.aborted) }

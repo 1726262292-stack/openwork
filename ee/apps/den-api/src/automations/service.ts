@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { AutomationClaimResult, AutomationListItem } from "@openwork/automations"
+import { AUTOMATION_FREE_MODEL } from "@openwork/types/automations"
 import type {
   AutomationDesktopRunnerResult,
   AutomationDesktopRunnerRegistration,
@@ -20,6 +21,19 @@ type OwnerScope = { organizationId: string; ownerMemberId: string }
 export type DesktopRunnerScope = OwnerScope & { runnerId: string }
 
 const desktopLeaseOwner = (scope: DesktopRunnerScope) => `desktop:${scope.ownerMemberId}:${scope.runnerId}`
+
+type ModelSelection = { providerId: string; modelId: string; variant?: string | null }
+
+function sameModel(left: ModelSelection, right: ModelSelection) {
+  return left.providerId === right.providerId
+    && left.modelId === right.modelId
+    && (left.variant ?? null) === (right.variant ?? null)
+}
+
+function isLegacyFreeModel(model: ModelSelection) {
+  return model.providerId === AUTOMATION_FREE_MODEL.providerId
+    && model.modelId === AUTOMATION_FREE_MODEL.modelId
+}
 
 export type CloudSavedScriptExecution =
   | { ok: true; value: unknown; canonicalResult: string; receiptId: string }
@@ -58,15 +72,16 @@ export class AutomationService {
         || (definition.action.kind === "agent" && definition.executionTarget !== "desktop")) {
         throw new Error("automation_action_target_mismatch")
       }
-      if (definition.action.kind === "agent") await this.requireModel(scope, definition.action.model)
+      if (definition.action.kind === "agent") await this.requireNewModel(scope, definition.action.model)
       else {
         if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
         await validateSavedScriptAutomationAction({ ...scope, action: definition.action })
       }
     } else {
-      await this.requireModel(scope, definition.model)
+      await this.requireNewModel(scope, definition.model)
     }
-    return automationRepository.create({ ...scope, definition, now: Date.now() })
+    const created = await automationRepository.create({ ...scope, definition, now: Date.now() })
+    return this.reconcileModelAttention(created)
   }
 
   async update(scope: OwnerScope, automationId: string, changes: UpdateAutomation) {
@@ -77,11 +92,16 @@ export class AutomationService {
     if ((nextAction?.kind === "saved_script" && nextTarget !== "cloud") || (nextAction?.kind !== "saved_script" && nextTarget !== "desktop")) {
       throw new Error("automation_action_target_mismatch")
     }
-    if (nextAction?.kind === "agent") await this.requireModel(scope, nextAction.model)
-    else if (nextAction?.kind === "saved_script") {
+    if (nextAction?.kind === "saved_script") {
       await validateSavedScriptAutomationAction({ ...scope, action: nextAction })
-    } else await this.requireModel(scope, changes.model ?? current.revision.model)
-    return automationRepository.update({ ...scope, automationId, changes, now: Date.now() })
+    } else if (nextAction?.kind === "agent") {
+      const requestedModel = changes.action?.kind === "agent"
+        ? changes.action.model
+        : changes.model ?? nextAction.model
+      if (!sameModel(requestedModel, current.revision.model)) await this.requireNewModel(scope, requestedModel)
+    }
+    const updated = await automationRepository.update({ ...scope, automationId, changes, now: Date.now() })
+    return this.reconcileModelAttention(updated)
   }
 
   async activate(scope: OwnerScope, automationId: string) {
@@ -89,8 +109,9 @@ export class AutomationService {
     if (!current) return null
     if (current.revision.action?.kind === "saved_script") {
       if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
-    } else await this.requireModel(scope, current.revision.model)
-    return automationRepository.setState({ ...scope, automationId, state: "active", now: Date.now() })
+    }
+    const activated = await automationRepository.setState({ ...scope, automationId, state: "active", now: Date.now() })
+    return activated ? this.reconcileModelAttention(activated) : null
   }
 
   deactivate(scope: OwnerScope, automationId: string) {
@@ -104,16 +125,31 @@ export class AutomationService {
   async runNow(scope: OwnerScope, automationId: string): Promise<AutomationRun | null> {
     const current = await this.get(scope, automationId)
     if (!current || current.automation.state === "archived") return null
-    if (current.automation.state === "needs_attention" && current.automation.needsAttentionReason) {
-      const error = new Error(current.automation.needsAttentionReason.message)
-      error.name = current.automation.needsAttentionReason.code
-      throw error
-    }
-    // The persisted model selection is only as good as the owner's current
-    // access; a revoked grant must fail the manual run, not dispatch it.
+    let blocked = current.automation.needsAttentionReason
     if (current.revision.action?.kind === "saved_script") {
       if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
-    } else await this.requireModel(scope, current.revision.model)
+    } else if (!blocked) {
+      const access = await resolveAutomationModelAccess({ ...scope, ...current.revision.model })
+      if (!access.ok) blocked = { code: access.code, message: access.message, occurredAt: Date.now() }
+    }
+    if (blocked) {
+      const now = Date.now()
+      await automationRepository.markNeedsAttention({
+        automationId: current.automation.id,
+        expectedRevisionId: current.revision.id,
+        reason: { ...blocked, occurredAt: now },
+        now,
+      })
+      return automationRepository.recordSkippedManual({
+        ...scope,
+        automation: current.automation,
+        revision: current.revision,
+        nonce: randomUUID(),
+        code: blocked.code,
+        message: blocked.message,
+        now,
+      })
+    }
     const claim = await automationRepository.claim({
       automation: { ...current.automation, state: "active" },
       revision: current.revision,
@@ -326,9 +362,15 @@ export class AutomationService {
     return automationRepository.listRunnerNotifications({ ...scope, after, limit: 100 })
   }
 
-  private async requireModel(scope: OwnerScope, model: { providerId: string; modelId: string }) {
+  /**
+   * New selections still require current authority. The exact legacy Zen
+   * selection is the rollout exception: published clients may continue to
+   * submit it, after which reconciliation returns the repairable attention
+   * state instead of a 409 they do not understand.
+   */
+  private async requireNewModel(scope: OwnerScope, model: ModelSelection) {
     const result = await resolveAutomationModelAccess({ ...scope, ...model })
-    if (!result.ok) {
+    if (!result.ok && !(result.code === "model_access_lost" && isLegacyFreeModel(model))) {
       const error = new Error(result.message)
       error.name = result.code
       throw error

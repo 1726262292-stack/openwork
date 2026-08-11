@@ -28,7 +28,7 @@ import {
 } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { automationService, type AutomationService } from "../../automations/service.js"
-import { automationRunnerAuth } from "../../automations/runner-auth.js"
+import { automationRunnerAudienceFromRequestUrl, automationRunnerAuth } from "../../automations/runner-auth.js"
 import {
   RUNNER_KEEPALIVE_INTERVAL_MS,
   RUNNER_NOTIFICATION_POLL_MIN_MS,
@@ -110,7 +110,10 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
     async (c) => {
       const registration = c.req.valid("json")
       await service.registerDesktopRunner(scope(c), registration)
-      return c.json(automationRunnerAuth.issue({ ...scope(c), runnerId: registration.runnerId }))
+      return c.json(automationRunnerAuth.issue(
+        { ...scope(c), runnerId: registration.runnerId },
+        automationRunnerAudienceFromRequestUrl(c.req.url),
+      ))
     },
   )
 
