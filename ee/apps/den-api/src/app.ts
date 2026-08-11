@@ -82,6 +82,10 @@ app.use("*", async (c, next) => {
   await next()
   c.header("X-Request-Id", c.get("requestId"))
 })
+app.use("*", async (c, next) => {
+  await next()
+  c.header("X-Content-Type-Options", "nosniff")
+})
 app.use("*", createTelemetryErrorSanitizerMiddleware())
 app.use("*", async (c, next) => {
   await next()
