@@ -3,6 +3,8 @@ import type { DenTypeId } from "@openwork-ee/utils/typeid"
 import { Effect } from "effect"
 import type { Hono } from "hono"
 import { z } from "zod"
+import { memberFacingMcpConnectionsEnabled } from "../capability-sources/external-mcp-rollout.js"
+import { isPlatformAdminUserId } from "../middleware/admin.js"
 import type { McpPrincipal } from "./auth.js"
 import type { McpToolOperation } from "./catalog.js"
 import {
@@ -25,6 +27,7 @@ import {
 } from "./codemode-tools.js"
 import {
   codemodeScriptPath,
+  resolveCodemodeConnectionNamespaceContext,
   type CodemodeConnectionNamespaceContext,
 } from "./codemode-namespaces.js"
 import {
@@ -97,6 +100,52 @@ export type CapabilityRegistryContext = {
   resolveNamespaceContext: () => Promise<CodemodeConnectionNamespaceContext>
 }
 
+export type CapabilityRegistryContextInput = {
+  app: Hono
+  env: unknown
+  catalog: readonly McpToolOperation[]
+  principal: McpPrincipal
+  organizationId: DenTypeId<"organization">
+  member: McpMemberIdentity | null
+  redirectUriBase: string
+  codemodeEnabled: boolean
+  organizationMetadata: Parameters<typeof memberFacingMcpConnectionsEnabled>[0]
+  mcpConnectionsGatingEnabled: boolean
+}
+
+export function createCapabilityRegistryContext(input: CapabilityRegistryContextInput): CapabilityRegistryContext {
+  const externalMcpConnectionsEnabled = memberFacingMcpConnectionsEnabled(input.organizationMetadata, {
+    gatingEnabled: input.mcpConnectionsGatingEnabled,
+  })
+  let platformAdmin: Promise<boolean> | undefined
+  const resolvePlatformAdmin = () => {
+    platformAdmin ??= isPlatformAdminUserId(input.principal.userId)
+    return platformAdmin
+  }
+  let namespaceContext: Promise<CodemodeConnectionNamespaceContext> | undefined
+  const resolveNamespaceContext = () => {
+    namespaceContext ??= resolveCodemodeConnectionNamespaceContext({
+      organizationId: input.organizationId,
+      member: input.member,
+      includeExternalMcp: externalMcpConnectionsEnabled,
+    })
+    return namespaceContext
+  }
+  return {
+    app: input.app,
+    env: input.env,
+    catalog: input.catalog,
+    principal: input.principal,
+    organizationId: input.organizationId,
+    member: input.member,
+    redirectUriBase: input.redirectUriBase,
+    codemodeEnabled: input.codemodeEnabled,
+    externalMcpConnectionsEnabled,
+    resolvePlatformAdmin,
+    resolveNamespaceContext,
+  }
+}
+
 type CapabilitySearchContext = CapabilityRegistryContext & {
   sourceFilter: ReturnType<typeof searchCapabilitySourceFilter>
   marketplaceObjectTypes?: MarketplaceCapabilityObjectType[]
@@ -108,6 +157,8 @@ export type CapabilityLeaf = {
   toolName: string
   scriptPath: string
   capabilityName: string
+  readOnly?: boolean
+  authority?: "den" | "external"
   definition: Tool.Definition
 }
 
@@ -258,6 +309,8 @@ function contentLeaf(input: {
   toolName: string
   capabilityName: string
   description: string
+  readOnly: boolean
+  authority: "den" | "external"
   input?: Tool.JsonSchema
   run: (args: unknown) => Promise<unknown>
 }): CapabilityLeaf {
@@ -266,6 +319,8 @@ function contentLeaf(input: {
     toolName: input.toolName,
     capabilityName: input.capabilityName,
     scriptPath: codemodeScriptPath(input.namespace, input.toolName),
+    readOnly: input.readOnly,
+    authority: input.authority,
     definition: Tool.make({
       description: input.description,
       input: input.input ?? { type: "object" },
@@ -468,6 +523,8 @@ const marketplaceSource: CapabilitySource = {
         toolName: capabilityName,
         capabilityName,
         description: `Retrieve marketplace capability ${capabilityName}`,
+        readOnly: true,
+        authority: "den",
         run: async (args) => {
           const result = await executeMarketplaceSource(ctx, parsed, { name: capabilityName, body: args })
           if (!result.ok) throw toolError(result.message)
@@ -505,6 +562,8 @@ const builtinSkillSource: CapabilitySource = {
     toolName: skill.capability,
     capabilityName: skill.capability,
     description: skill.description,
+    readOnly: true,
+    authority: "den",
     run: async () => executeBuiltinSkillCapability(skill.capability)?.content ?? "",
   }))),
   execute: async (_ctx, parsed, input) => {
@@ -540,6 +599,8 @@ const adminSource: CapabilitySource = {
         toolName,
         capabilityName: match.name,
         description: match.summary,
+        readOnly: false,
+        authority: "den",
         input: isCodemodeJsonSchema(match.argumentsSchema) ? match.argumentsSchema : undefined,
         run: async (args) => {
           const result = await adminSource.execute(ctx, parsed, { name: match.name, body: args })
@@ -618,7 +679,12 @@ export function createCapabilityRegistry(sources: Record<CapabilitySourceKind, C
       }
       return {
         tools: Object.fromEntries([...namespaceTools].map(([namespace, tools]) => [namespace, Object.fromEntries(tools)])),
-        manifest: leaves.map(({ capabilityName, scriptPath }) => ({ capabilityName, scriptPath })),
+        manifest: leaves.map(({ capabilityName, scriptPath, readOnly, authority }) => ({
+          capabilityName,
+          scriptPath,
+          ...(readOnly === undefined ? {} : { readOnly }),
+          ...(authority === undefined ? {} : { authority }),
+        })),
       }
     },
   }

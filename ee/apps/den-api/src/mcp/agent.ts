@@ -8,7 +8,6 @@ import { openworkCloudMcpConnectionActionSchema } from "@openwork/types/den/mcp-
 import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
-import { memberFacingMcpConnectionsEnabled } from "../capability-sources/external-mcp-rollout.js"
 import { codemodeScriptsEnabled } from "../capability-sources/codemode-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
@@ -22,19 +21,17 @@ import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { automationService } from "../automations/service.js"
 import { AGENT_AUTOMATION_INDEX_LIMIT, registerAgentAutomationResources } from "./automation-index.js"
 import { env } from "../env.js"
-import { isPlatformAdminUserId } from "../middleware/admin.js"
 import {
   executeBuiltinSkillCapability,
   listBuiltinSkillDescriptors,
 } from "./builtin-skills.js"
-import { resolveCodemodeConnectionNamespaceContext } from "./codemode-namespaces.js"
 import {
   buildCapabilityToolTree,
+  createCapabilityRegistryContext,
   executeCapability,
   externalCapabilityErrorToolResult,
   externalCapabilitySuccessToolResult,
   searchCapabilityRegistry,
-  type CapabilityRegistryContext,
   type ExecuteCapabilityToolResult,
 } from "./capability-registry.js"
 import { runCodemodeScript } from "./codemode-run.js"
@@ -318,31 +315,14 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       userId: principal.userId,
       organizationId: principal.organizationId,
     })
-    let platformAdmin: Promise<boolean> | undefined
-    const resolvePlatformAdmin = () => {
-      platformAdmin ??= isPlatformAdminUserId(principal.userId)
-      return platformAdmin
-    }
     const organizationId = normalizeDenTypeId("organization", principal.organizationId)
     const organizationRows = await db
       .select({ metadata: OrganizationTable.metadata })
       .from(OrganizationTable)
       .where(eq(OrganizationTable.id, organizationId))
       .limit(1)
-    const externalMcpConnectionsEnabled = memberFacingMcpConnectionsEnabled(organizationRows[0]?.metadata, {
-      gatingEnabled: env.mcpConnectionsGatingEnabled,
-    })
     const codemodeEnabled = codemodeScriptsEnabled(organizationRows[0]?.metadata)
-    let namespaceContext: Promise<Awaited<ReturnType<typeof resolveCodemodeConnectionNamespaceContext>>> | undefined
-    const resolveNamespaceContext = () => {
-      namespaceContext ??= resolveCodemodeConnectionNamespaceContext({
-        organizationId: principal.organizationId,
-        member: memberIdentity,
-        includeExternalMcp: externalMcpConnectionsEnabled,
-      })
-      return namespaceContext
-    }
-    const capabilityContext: CapabilityRegistryContext = {
+    const capabilityContext = createCapabilityRegistryContext({
       app: app as unknown as Hono,
       env: c.env,
       catalog,
@@ -351,10 +331,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       member: memberIdentity,
       redirectUriBase: resolvePublicOrigin(c.req.raw, env.apiPublicUrl),
       codemodeEnabled,
-      externalMcpConnectionsEnabled,
-      resolvePlatformAdmin,
-      resolveNamespaceContext,
-    }
+      organizationMetadata: organizationRows[0]?.metadata,
+      mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
+    })
+    const { externalMcpConnectionsEnabled } = capabilityContext
     let remoteSkills: RemoteSkillDescriptor[] = []
     const method = await mcpRequestMethod(c.req.raw)
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {

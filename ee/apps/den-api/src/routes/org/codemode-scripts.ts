@@ -23,7 +23,7 @@ import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema 
 import { listTeamsForMember } from "../../orgs.js"
 import { env } from "../../env.js"
 import { getCatalog } from "../../mcp/index.js"
-import { buildCodemodeToolTree } from "../../mcp/codemode-tools.js"
+import { buildCapabilityToolTree, createCapabilityRegistryContext } from "../../mcp/capability-registry.js"
 import {
   executeMarketplaceCapability,
   listAccessibleSavedCodemodeScripts,
@@ -119,7 +119,8 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       scopes: new Set(DEN_MCP_REQUESTED_SCOPES),
       payload: {},
     }
-    const buildTools = () => buildCodemodeToolTree({
+    const codemodeEnabled = codemodeScriptsEnabled(context.organization.metadata)
+    const capabilityContext = createCapabilityRegistryContext({
       app: app as unknown as Hono,
       env: c.env,
       catalog,
@@ -127,9 +128,13 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       organizationId: context.organization.id,
       member,
       redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
+      codemodeEnabled,
+      organizationMetadata: context.organization.metadata,
+      mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
     })
+    const buildTools = () => buildCapabilityToolTree(capabilityContext)
     const actorContext = { organizationContext: context, memberTeams: teams, session: c.get("session") }
-    return { context, member, actorContext, buildTools, codemodeEnabled: codemodeScriptsEnabled(context.organization.metadata) }
+    return { context, member, actorContext, buildTools, codemodeEnabled }
   }
 
   app.get(

@@ -30,7 +30,7 @@ import { registerMemoryRoutes } from "./routes/memory/index.js"
 import { registerAutomationRoutes } from "./routes/automations/index.js"
 import { configureCloudSavedScriptExecutor } from "./automations/service.js"
 import { getCatalog } from "./mcp/index.js"
-import { buildCodemodeToolTree } from "./mcp/codemode-tools.js"
+import { buildCapabilityToolTree, createCapabilityRegistryContext } from "./mcp/capability-registry.js"
 import { executeMarketplaceCapability } from "./mcp/marketplace-capabilities.js"
 import { resolveMcpMemberIdentity } from "./mcp/external-capabilities.js"
 import { DEN_MCP_REQUESTED_SCOPES } from "./mcp/scopes.js"
@@ -229,13 +229,27 @@ configureCloudSavedScriptExecutor(async ({ organizationId, ownerMemberId, automa
   const organizations = await db.select({ metadata: OrganizationTable.metadata }).from(OrganizationTable).where(
     eq(OrganizationTable.id, normalizedOrganizationId),
   ).limit(1)
-  if (!codemodeScriptsEnabled(organizations[0]?.metadata)) {
+  const organizationMetadata = organizations[0]?.metadata
+  const codemodeEnabled = codemodeScriptsEnabled(organizationMetadata)
+  if (!codemodeEnabled) {
     return { ok: false, message: "Code Mode scripts are disabled for this organization.", retryable: false }
   }
   const member = await resolveMcpMemberIdentity({ userId, organizationId })
   if (!member) return { ok: false, message: "The Automation owner is no longer active.", retryable: false }
   const catalog = await getCatalog(app as unknown as Hono, undefined)
   const principal = { userId, organizationId, scopes: new Set(DEN_MCP_REQUESTED_SCOPES), payload: {} }
+  const capabilityContext = createCapabilityRegistryContext({
+    app: app as unknown as Hono,
+    env: undefined,
+    catalog,
+    principal,
+    organizationId: normalizedOrganizationId,
+    member,
+    redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
+    codemodeEnabled,
+    organizationMetadata,
+    mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
+  })
   const result = await executeMarketplaceCapability({
     organizationId,
     member,
@@ -246,15 +260,7 @@ configureCloudSavedScriptExecutor(async ({ organizationId, ownerMemberId, automa
     body: action.input,
     codemodeEnabled: true,
     validateScriptOutput: true,
-    buildTools: () => buildCodemodeToolTree({
-      app: app as unknown as Hono,
-      env: undefined,
-      catalog,
-      principal,
-      organizationId,
-      member,
-      redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
-    }),
+    buildTools: () => buildCapabilityToolTree(capabilityContext),
   })
   if (!result.ok) return {
     ok: false,
