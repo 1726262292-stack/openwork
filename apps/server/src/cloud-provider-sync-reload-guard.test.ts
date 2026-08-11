@@ -23,6 +23,7 @@ const HOST_TOKEN = "owt_reload_guard_host";
 const roots: string[] = [];
 const stops: Array<() => void | Promise<void>> = [];
 let previousRuntimeDb: string | undefined;
+let previousEnvStore: string | undefined;
 let previousDisposeTimeout: string | undefined;
 let previousReloadRetry: string | undefined;
 
@@ -49,6 +50,8 @@ async function createTempRoot() {
   roots.push(root);
   previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
   process.env.OPENWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  previousEnvStore = process.env.OPENWORK_ENV_STORE;
+  process.env.OPENWORK_ENV_STORE = join(root, "env.json");
   return root;
 }
 
@@ -172,6 +175,20 @@ function startFakeDen(options?: { providers?: Record<string, unknown>[] }): { ur
   return { url: `http://127.0.0.1:${den.port}`, requests };
 }
 
+function guardProvider(): Record<string, unknown> {
+  return {
+    id: "lpr_guard",
+    providerId: "anthropic",
+    name: "Guard Provider",
+    source: "custom",
+    updatedAt: "2026-08-10T00:00:00.000Z",
+    providerConfig: { env: ["GUARD_PROVIDER_API_KEY"], npm: "@ai-sdk/anthropic" },
+    apiKey: "sk-guard",
+    apiKeys: null,
+    models: [{ id: "guard-model", name: "Guard Model", config: {} }],
+  };
+}
+
 afterEach(async () => {
   while (stops.length) await stops.pop()?.();
   while (roots.length) {
@@ -180,6 +197,8 @@ afterEach(async () => {
   }
   if (previousRuntimeDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
   else process.env.OPENWORK_RUNTIME_DB = previousRuntimeDb;
+  if (previousEnvStore === undefined) delete process.env.OPENWORK_ENV_STORE;
+  else process.env.OPENWORK_ENV_STORE = previousEnvStore;
   if (previousDisposeTimeout === undefined) delete process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS;
   else process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS = previousDisposeTimeout;
   if (previousReloadRetry === undefined) delete process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS;
@@ -356,6 +375,91 @@ describe("engine reload guard", () => {
     engine.setBusy(false);
     const landed = await waitUntil(() => engine.disposeCount() >= 1, 3_000);
     expect(landed).toBe(true);
+  });
+
+  test("a reload failure mid-pass keeps the materialized providers visible and the failure loud", async () => {
+    previousDisposeTimeout = process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS;
+    process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS = "500";
+    const root = await createTempRoot();
+    const engine = startFakeEngine();
+    const config = serverConfig(root, `http://127.0.0.1:${engine.port}`);
+    const server = await startServer(config);
+    stops.push(() => server.stop());
+    const base = `http://127.0.0.1:${server.port}`;
+    const den = startFakeDen({ providers: [guardProvider()] });
+
+    engine.setDisposeHangs(true);
+    const put = await fetch(`${base}/den-session`, {
+      method: "PUT",
+      headers: hostHeaders(),
+      body: JSON.stringify({ baseUrl: den.url, token: "den_token", orgId: "org_test" }),
+    });
+    expect(put.status).toBe(204);
+
+    const failed = await readJsonObject(await fetch(`${base}/cloud-provider-sync/run`, {
+      method: "POST",
+      headers: hostHeaders(),
+      body: JSON.stringify({ reason: "reload_fails" }),
+    }));
+    expect(failed.status).toBe("failed");
+    expect(String(failed.message ?? "")).toContain("did not complete in time");
+
+    // The materialization itself landed (config + env writes), so the status
+    // must list the provider instead of pretending nothing synced, and the
+    // still-owed reload must be visible.
+    const status = await readJsonObject(await fetch(`${base}/cloud-provider-sync/status`, { headers: clientHeaders() }));
+    const providers = Array.isArray(status.providers) ? status.providers.filter(isRecord) : [];
+    expect(providers.map((entry) => entry.cloudProviderId)).toContain("lpr_guard");
+    expect(status.reloadPending).toBe(true);
+    const lastRun = isRecord(status.lastRun) ? status.lastRun : {};
+    expect(lastRun.status).toBe("failed");
+    expect(String(lastRun.message ?? "").length).toBeGreaterThan(0);
+  });
+
+  test("a failed reload self-heals through the retry poll and settles the status", async () => {
+    previousDisposeTimeout = process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS;
+    process.env.OPENWORK_ENGINE_DISPOSE_TIMEOUT_MS = "500";
+    previousReloadRetry = process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS;
+    process.env.OPENWORK_ENGINE_RELOAD_RETRY_MS = "200";
+    const root = await createTempRoot();
+    const engine = startFakeEngine();
+    const config = serverConfig(root, `http://127.0.0.1:${engine.port}`);
+    const server = await startServer(config);
+    stops.push(() => server.stop());
+    const base = `http://127.0.0.1:${server.port}`;
+    const den = startFakeDen({ providers: [guardProvider()] });
+
+    engine.setDisposeHangs(true);
+    const put = await fetch(`${base}/den-session`, {
+      method: "PUT",
+      headers: hostHeaders(),
+      body: JSON.stringify({ baseUrl: den.url, token: "den_token", orgId: "org_test" }),
+    });
+    expect(put.status).toBe(204);
+    const failed = await readJsonObject(await fetch(`${base}/cloud-provider-sync/run`, {
+      method: "POST",
+      headers: hostHeaders(),
+      body: JSON.stringify({ reason: "reload_fails" }),
+    }));
+    expect(failed.status).toBe("failed");
+    const disposesAfterFailure = engine.disposeCount();
+
+    // No further /run calls: the parked reload must land from the retry poll
+    // alone once the engine answers disposes again, and the status must settle
+    // to a truthful applied instead of staying failed forever.
+    engine.setDisposeHangs(false);
+    const settled = await (async () => {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const status = await readJsonObject(await fetch(`${base}/cloud-provider-sync/status`, { headers: clientHeaders() }));
+        const lastRun = isRecord(status.lastRun) ? status.lastRun : {};
+        if (lastRun.status === "applied" && status.reloadPending === false) return status;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return null;
+    })();
+    expect(settled).not.toBeNull();
+    expect(engine.disposeCount()).toBeGreaterThan(disposesAfterFailure);
   });
 
   test("a wedged dispose times out instead of freezing the sync queue", async () => {

@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { allocateFreePorts } from "@openwork/cdp";
 import {
+  defaultDaytonaExec,
   deleteSandboxes,
+  execInSandbox,
   freePort,
   killLocalPid,
   provisionDenSandbox,
@@ -62,6 +64,14 @@ export interface Den extends AsyncDisposable {
   mocks: Record<string, MockHandle>;
   database?: DbHandle;
   ports?: { api: number; web: number };
+  /**
+   * Raw den-api HTTP log text (JSON lines carrying http_route/timestamp).
+   * Daytona lane: reads /tmp/den-api.log inside the server sandbox; local
+   * lane: reads the spawned den-api service log. Attached Dens
+   * (OPENWORK_EVAL_DEN_API_URL / reuse) throw — their den-api log lives with
+   * whoever runs that server. Parsing belongs to the caller.
+   */
+  apiLog(): Promise<string>;
 }
 
 interface SpawnedService {
@@ -446,6 +456,11 @@ export async function server(options: ServerOptions): Promise<Den> {
         admin: organization.admin,
         members: { ...organization.members, ...reusedMembers },
         mocks: bootedMocks.handles,
+        async apiLog(): Promise<string> {
+          throw new Error(
+            "den.apiLog() is not available for attached Dens (OPENWORK_EVAL_DEN_API_URL / reuse): the den-api log lives with the process that started that server.",
+          );
+        },
         async [Symbol.asyncDispose](): Promise<void> {
           if (disposed) return;
           disposed = true;
@@ -492,6 +507,16 @@ export async function server(options: ServerOptions): Promise<Den> {
         admin: organization.admin,
         members: organization.members,
         mocks: bootedMocks.handles,
+        async apiLog(): Promise<string> {
+          // den-api on the server sandbox logs to /tmp/den-api.log
+          // (.devcontainer/start-daytona-server.sh:158; the provisioning
+          // script's own debug hint tails the same file).
+          const result = await execInSandbox(defaultDaytonaExec, provisioned.sandbox, "cat /tmp/den-api.log", {
+            timeoutMs: 120_000,
+            context: `den-api log read for ${provisioned.sandbox}`,
+          });
+          return result.stdout;
+        },
         async [Symbol.asyncDispose](): Promise<void> {
           if (disposed) return;
           disposed = true;
@@ -587,6 +612,9 @@ export async function server(options: ServerOptions): Promise<Den> {
       mocks: bootedMocks.handles,
       database,
       ports: { api: apiPort, web: webPort },
+      async apiLog(): Promise<string> {
+        return readFile(api.logPath, "utf8");
+      },
       async [Symbol.asyncDispose](): Promise<void> {
         if (disposed) return;
         disposed = true;

@@ -763,6 +763,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     void connectionsStore.refreshMcpServers();
   }, [connectionsStore, openworkServerStatusForMcp]);
 
+  useEffect(() => {
+    if (openworkServerStatusForMcp !== "connected") return;
+    // Same race for the Cloud Providers rows: the provider-auth store's
+    // start() read fires while this store still reports "disconnected", so
+    // it takes the legacy (empty) config read and the rows sit on "Syncing"
+    // even though the server's /cloud-provider-sync/status already lists the
+    // providers as synced. Re-derive from the server once it is reachable.
+    void providerAuthStore.refreshImportedCloudProviders();
+  }, [openworkServerStatusForMcp, providerAuthStore]);
+
   const cleanupCloudMcpForSignOut = useCallback(async (settings: DenSettings) => {
     const client = routeStateRef.current.selectedWorkspaceOpenworkClient;
     const workspaceId = routeStateRef.current.runtimeWorkspaceId?.trim() ?? "";
@@ -2225,6 +2235,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 onOpenAccount={openCloudAccountSettings}
                 refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
                 runCloudProviderSync={providerAuthStore.runCloudProviderSync}
+                serverSync={providerAuthSnapshot.cloudProviderServerSync}
               />
             }
           />
@@ -2387,6 +2398,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onOpenAccount={openCloudAccountSettings}
             refreshCloudOrgProviders={providerAuthStore.refreshCloudOrgProviders}
             runCloudProviderSync={providerAuthStore.runCloudProviderSync}
+            serverSync={providerAuthSnapshot.cloudProviderServerSync}
           />
         );
       case "advanced":

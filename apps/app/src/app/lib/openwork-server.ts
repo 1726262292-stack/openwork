@@ -48,10 +48,22 @@ export type OpenworkCloudProviderSyncRun = {
   message?: string;
 };
 
+export type OpenworkCloudProviderSyncSkippedProvider = {
+  cloudProviderId: string;
+  providerId: string;
+  name: string;
+  /** Machine-readable skip reason, e.g. "missing_credentials". */
+  reason: string;
+};
+
 export type OpenworkCloudProviderSyncStatus = {
   hasSession: boolean;
   lastRun: { at: string | number; status: OpenworkCloudProviderSyncRun["status"]; message?: string } | null;
   providers: CloudImportedProvider[];
+  /** A managed engine reload is still owed: materialized providers are not served yet. */
+  reloadPending: boolean;
+  /** Den-granted providers the server sync skipped, each with a reason. */
+  skippedProviders: OpenworkCloudProviderSyncSkippedProvider[];
 };
 
 function parseCloudProviderSyncRun(value: unknown): OpenworkCloudProviderSyncRun {
@@ -103,7 +115,28 @@ function parseCloudProviderSyncStatus(value: unknown): OpenworkCloudProviderSync
     const run = parseCloudProviderSyncRun(value.lastRun);
     lastRun = { at: value.lastRun.at, status: run.status, message: run.message };
   }
-  return { hasSession: value.hasSession, lastRun, providers };
+  // Additive fields (older servers omit them): tolerate absence and malformed
+  // entries instead of failing the whole status read.
+  const reloadPending = "reloadPending" in value && value.reloadPending === true;
+  const skippedProviders: OpenworkCloudProviderSyncSkippedProvider[] = [];
+  if ("skippedProviders" in value && Array.isArray(value.skippedProviders)) {
+    for (const raw of value.skippedProviders) {
+      if (!raw || typeof raw !== "object") continue;
+      if (
+        !("cloudProviderId" in raw) || typeof raw.cloudProviderId !== "string" ||
+        !("providerId" in raw) || typeof raw.providerId !== "string" ||
+        !("name" in raw) || typeof raw.name !== "string" ||
+        !("reason" in raw) || typeof raw.reason !== "string"
+      ) continue;
+      skippedProviders.push({
+        cloudProviderId: raw.cloudProviderId,
+        providerId: raw.providerId,
+        name: raw.name,
+        reason: raw.reason,
+      });
+    }
+  }
+  return { hasSession: value.hasSession, lastRun, providers, reloadPending, skippedProviders };
 }
 
 export type OpenworkServerStatus = "connected" | "disconnected" | "limited";

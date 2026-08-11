@@ -113,7 +113,7 @@ async function timedStep<T>(log: (line: string) => void, name: string, action: (
  * must travel as ONE argument or `bash -lc` receives only the first word and
  * the rest leaks into the remote login shell.
  */
-async function execInSandbox(
+export async function execInSandbox(
   exec: DaytonaExec,
   sandbox: string,
   script: string,
