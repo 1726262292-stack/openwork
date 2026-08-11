@@ -55,7 +55,7 @@ import { fetchAgentContextDiagnosticsResponse } from "./agent-context-diagnostic
 import {
   createLinuxDesktopIntegration,
 } from "./linux-desktop-integration.mjs";
-import { createDesktopAutomationRunner } from "./automation-runner.mjs";
+import { createDesktopAutomationRunner, normalizeRunnerBaseUrl } from "./automation-runner.mjs";
 import {
   desktopActivationRequired,
   enterprisePreactivationCommandAllowed,
@@ -1193,7 +1193,19 @@ const runtimeManager = createRuntimeManager({
     loadSafeStorage: () => require("electron").safeStorage,
   }),
 });
+const initialRunnerBootstrap = workspaceStore.readDesktopBootstrapConfigSync();
+const legacyRunnerBaseUrls = [
+  initialRunnerBootstrap.apiBaseUrl,
+  initialRunnerBootstrap.baseUrl,
+  initialRunnerBootstrap.baseUrl
+    ? `${String(initialRunnerBootstrap.baseUrl).replace(/\/+$/, "")}/api/den`
+    : null,
+  `${DEFAULT_DEN_BASE_URL}/api/den`,
+].map((value) => normalizeRunnerBaseUrl(value)).filter(Boolean);
 const desktopAutomationRunner = createDesktopAutomationRunner({
+  // v1 credentials predate token audiences. Keep them usable during the Den
+  // rollout only for endpoints trusted before the renderer starts issuing IPC.
+  legacyBaseUrls: legacyRunnerBaseUrls,
   getLocalRuntime: async () => {
     const server = await runtimeManager.openworkServerInfo();
     return { baseUrl: server.baseUrl, token: server.clientToken ?? server.ownerToken };

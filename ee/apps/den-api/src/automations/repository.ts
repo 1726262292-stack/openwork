@@ -457,6 +457,73 @@ export class DenAutomationRepository implements AutomationRepository {
     })
   }
 
+  /** Records a manual attempt that policy refused without dispatching work. */
+  async recordSkippedManual(input: {
+    organizationId: string
+    ownerMemberId: string
+    automation: Automation
+    revision: AutomationRevision
+    nonce: string
+    code: AutomationError["code"]
+    message: string
+    now: number
+  }): Promise<AutomationRun> {
+    return db.transaction(async (tx) => {
+      const automationId = normalizeAutomationId(input.automation.id)
+      const revisionId = normalizeRevisionId(input.revision.id)
+      const locked = await tx.select().from(AutomationTable).where(and(
+        eq(AutomationTable.id, automationId),
+        eq(AutomationTable.organization_id, normalizeOrganizationId(input.organizationId)),
+        eq(AutomationTable.owner_member_id, normalizeMemberId(input.ownerMemberId)),
+      )).limit(1).for("update")
+      if (!locked[0] || locked[0].state === "archived") throw new Error("automation_not_found")
+      if (locked[0].current_revision_id !== revisionId) throw new Error("automation_revision_changed")
+
+      const identity = automationOccurrenceIdentity({
+        automationId: input.automation.id,
+        scheduledFor: null,
+        nonce: input.nonce,
+      })
+      const runId = createDenTypeId("automationRun")
+      await tx.insert(AutomationRunTable).values({
+        id: runId,
+        automation_id: automationId,
+        revision_id: revisionId,
+        trigger: "manual",
+        scheduled_for: null,
+        idempotency_key: identity.idempotencyKey,
+        status: "skipped",
+        execution_target: input.revision.executionTarget ?? "desktop",
+        claim_deadline_at: null,
+        lease_owner: null,
+        lease_expires_at: null,
+        heartbeat_at: null,
+        attempt_count: 0,
+        cloud_thread_id: createDenTypeId("automationThread"),
+        engine_kind: null,
+        engine_receipt: null,
+        engine_sequence: 0,
+        engine_admitted_at: null,
+        provider_id: input.revision.model.providerId,
+        model_id: input.revision.model.modelId,
+        model_variant: input.revision.model.variant ?? null,
+        finished_at: new Date(input.now),
+        error: { code: input.code, message: input.message, retryable: false },
+        result_summary: input.message,
+        usage: emptyUsage,
+        created_at: new Date(input.now),
+        updated_at: new Date(input.now),
+      })
+      await tx.update(AutomationTable).set({
+        latest_run_at: new Date(input.now),
+        updated_at: new Date(input.now),
+      }).where(eq(AutomationTable.id, automationId))
+      const rows = await tx.select().from(AutomationRunTable).where(eq(AutomationRunTable.id, runId)).limit(1)
+      if (!rows[0]) throw new Error("automation_run_not_durable")
+      return mapRun(rows[0])
+    })
+  }
+
   async claimCloud(input: { runId: string; leaseOwner: string; leaseMs: number; now: number }): Promise<DesktopClaim | null> {
     return db.transaction(async (tx) => {
       const rows = await tx.select({ run: AutomationRunTable, automation: AutomationTable })
@@ -1048,13 +1115,23 @@ export class DenAutomationRepository implements AutomationRepository {
     return Boolean(rows[0]?.cancelledAt)
   }
 
-  async markNeedsAttention(input: { automationId: string; reason: NonNullable<Automation["needsAttentionReason"]>; now: number }): Promise<void> {
-    await db.update(AutomationTable).set({
+  async markNeedsAttention(input: {
+    automationId: string
+    expectedRevisionId: string
+    reason: NonNullable<Automation["needsAttentionReason"]>
+    now: number
+  }): Promise<boolean> {
+    const result = await db.update(AutomationTable).set({
       state: "needs_attention",
       next_due_at: null,
       needs_attention_reason: input.reason,
       updated_at: new Date(input.now),
-    }).where(eq(AutomationTable.id, normalizeAutomationId(input.automationId)))
+    }).where(and(
+      eq(AutomationTable.id, normalizeAutomationId(input.automationId)),
+      eq(AutomationTable.current_revision_id, normalizeRevisionId(input.expectedRevisionId)),
+      eq(AutomationTable.state, "active"),
+    ))
+    return automationUpdateChangedRows(result)
   }
 
   private async runById(runId: string): Promise<AutomationRun | null> {

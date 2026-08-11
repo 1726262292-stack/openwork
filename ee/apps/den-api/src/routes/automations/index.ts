@@ -3,6 +3,8 @@ import { describeRoute, type DescribeRouteOptions } from "hono-openapi"
 import { z } from "zod"
 import { streamSSE } from "hono/streaming"
 import {
+  AUTOMATION_MODEL_ATTENTION_CAPABILITY,
+  AUTOMATION_MODEL_ATTENTION_CAPABILITY_HEADER,
   automationDesktopRunnerAssignmentSchema,
   automationDesktopRunnerRegistrationSchema,
   automationDesktopRunnerResultSchema,
@@ -28,7 +30,7 @@ import {
 } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { automationService, type AutomationService } from "../../automations/service.js"
-import { automationRunnerAuth } from "../../automations/runner-auth.js"
+import { automationRunnerAudienceFromRequestUrl, automationRunnerAuth } from "../../automations/runner-auth.js"
 import {
   RUNNER_KEEPALIVE_INTERVAL_MS,
   RUNNER_NOTIFICATION_POLL_MIN_MS,
@@ -54,9 +56,17 @@ const describeNonMcpRoute = (options: NonMcpDescribeRouteOptions) => describeRou
 
 type RouteVariables = Partial<OrganizationContextVariables>
 
-function scope(c: { get(name: "organizationContext"): OrganizationContextVariables["organizationContext"] }) {
+function scope(c: {
+  get(name: "organizationContext"): OrganizationContextVariables["organizationContext"]
+  req: { header(name: string): string | undefined }
+}) {
   const context = c.get("organizationContext")
-  return { organizationId: context.organization.id, ownerMemberId: context.currentMember.id }
+  return {
+    organizationId: context.organization.id,
+    ownerMemberId: context.currentMember.id,
+    modelAttentionCapable: c.req.header(AUTOMATION_MODEL_ATTENTION_CAPABILITY_HEADER)
+      === AUTOMATION_MODEL_ATTENTION_CAPABILITY,
+  }
 }
 
 function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error: string; message?: string } } | null {
@@ -110,7 +120,15 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
     async (c) => {
       const registration = c.req.valid("json")
       await service.registerDesktopRunner(scope(c), registration)
-      return c.json(automationRunnerAuth.issue({ ...scope(c), runnerId: registration.runnerId }))
+      return c.json(automationRunnerAuth.issue(
+        {
+          organizationId: scope(c).organizationId,
+          ownerMemberId: scope(c).ownerMemberId,
+          runnerId: registration.runnerId,
+          capabilities: registration.capabilities,
+        },
+        automationRunnerAudienceFromRequestUrl(c.req.url),
+      ))
     },
   )
 

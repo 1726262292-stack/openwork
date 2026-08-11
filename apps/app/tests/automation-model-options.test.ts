@@ -30,6 +30,10 @@ describe("Automation model options", () => {
     }])
   })
 
+  test("removes the free starter model when desktop policy disables OpenCode Zen", () => {
+    expect(automationModelOptions([], { includeFreeStarter: false })).toEqual([])
+  })
+
   test("expands the member's managed OpenWork aliases even when Den stores no model rows", () => {
     const options = automationModelOptions([
       provider({ id: "lpr_member_openwork", source: "openwork", name: "OpenWork Models" }),

@@ -53,12 +53,18 @@ function authorizedProviderModels(provider: DenOrgLlmProvider): AutomationModelO
  * the submitted value normalized to the same IDs the server revalidates:
  * `opencode`, `openwork`, or the concrete `lpr_*` provider record.
  */
-export function automationModelOptions(providers: readonly DenOrgLlmProvider[]): AutomationModelOption[] {
+export function automationModelOptions(
+  providers: readonly DenOrgLlmProvider[],
+  options: { includeFreeStarter?: boolean } = {},
+): AutomationModelOption[] {
   const managed = providers.flatMap((provider) => provider.source === "openwork"
     ? openWorkManagedModels(provider)
     : authorizedProviderModels(provider))
 
-  return [freeStarterModel, ...managed].sort((left, right) => {
+  return [
+    ...(options.includeFreeStarter === false ? [] : [freeStarterModel]),
+    ...managed,
+  ].sort((left, right) => {
     const kindOrder = ["free", "openwork_managed", "authorized_custom"]
     return kindOrder.indexOf(left.accessKind) - kindOrder.indexOf(right.accessKind)
       || left.providerName.localeCompare(right.providerName)
