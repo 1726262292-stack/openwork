@@ -144,6 +144,8 @@ test("desktop Automation execution surfaces a missing pinned model", async () =>
       fetchImpl,
       signal: new AbortController().signal,
     }),
-    (error) => error?.code === "model_access_lost" && /Choose a supported model/.test(error.message),
+    (error) => error instanceof Error
+      && Reflect.get(error, "code") === "model_access_lost"
+      && /Choose a supported model/.test(error.message),
   )
 })
