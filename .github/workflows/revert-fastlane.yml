@@ -12,7 +12,9 @@
 # change what executes here. actions/checkout is pinned to an immutable commit
 # (warden TBZ-HXQ) because this job holds a pull-request write token. The
 # same-repo guard below is mandatory under pull_request_target: the write token
-# must never run against fork-originated PRs.
+# must never run against fork-originated PRs. The approval is created through
+# the reviews API with commit_id bound to the verified head; if the head moves
+# before approval, it is withheld and the new push re-verifies.
 #
 # Scope is limited to single-commit, non-merge reverts whose tree is an exact inverse;
 # hand-adjusted reverts (revert conflicts or edits after `git revert`) are deliberately
@@ -90,9 +92,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REVERTED_SHA: ${{ steps.verify.outputs.reverted }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          body="Machine-verified that this PR's tree is the exact inverse of commit \`$REVERTED_SHA\`, which previously landed on protected \`dev\` via a reviewed PR. Auto-approval per the clean-revert fast-lane control; any further push re-runs verification."
-          gh pr review "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --approve --body "$body"
+          set -euo pipefail
+          # Bind the approval to the verified head. If the head moved since
+          # verification, withhold — the synchronize event re-runs verification.
+          current="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
+          if [[ "$current" != "$HEAD_SHA" ]]; then
+            printf '## Revert Fast Lane\n\nHead moved after verification (%s -> %s); approval withheld. The new push re-runs verification.\n' "$HEAD_SHA" "$current" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          body="Machine-verified at \`$HEAD_SHA\`: this PR's tree is the exact inverse of commit \`$REVERTED_SHA\`, which previously landed on protected \`dev\` via a reviewed PR. Auto-approval per the clean-revert fast-lane control, bound to the verified commit; any further push re-runs verification."
+          gh api -X POST "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" \
+            -f commit_id="$HEAD_SHA" \
+            -f event=APPROVE \
+            -f body="$body" > /dev/null
           printf '## Revert Fast Lane\n\nPASS: %s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record ineligible revert
