@@ -2526,6 +2526,8 @@ export function SessionRoute() {
     <WorkspaceProvider
       client={opencodeClient}
       opencodeBaseUrl={opencodeBaseUrl}
+      openworkServerClient={selectedWorkspaceEndpoint?.client ?? null}
+      workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? ""}
       selectedWorkspaceRoot={selectedWorkspaceRoot}
     >
     {opencodeClient && selectedWorkspaceEndpoint && opencodeBaseUrl && selectedWorkspaceServerToken ? (

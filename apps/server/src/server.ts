@@ -18,6 +18,11 @@ import { buildEngineAuthProbeHeader } from "./engine-registry.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
+import {
+  callMcpAppTool,
+  McpAppHostError,
+  resolveMcpAppResource,
+} from "./mcp-app-host.js";
 import { exportExtensions } from "./extensions-export.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -140,6 +145,18 @@ const AGENT_DIAGNOSTICS_MAX_IN_FLIGHT_PER_SERVER = 16;
 const AGENT_DIAGNOSTICS_MAX_REQUEST_BYTES = 256 * 1024;
 const AGENT_DIAGNOSTICS_DEFAULT_BODY_DEADLINE_MS = 2_000;
 const AGENT_DIAGNOSTICS_ERROR_FLUSH_MS = 25;
+
+function rethrowMcpAppHostError(error: unknown): never {
+  if (!(error instanceof McpAppHostError)) throw error;
+  const status = error.code === "invalid_tool_name" || error.code.startsWith("invalid_resource")
+    ? 400
+    : error.code === "tool_not_found" || error.code === "server_unavailable"
+      ? 404
+      : error.code === "mcp_unreachable"
+        ? 502
+        : 422;
+  throw new ApiError(status, error.code, error.message);
+}
 
 function agentDiagnosticsActorWorkspaceKey(actor: Actor | undefined, workspaceId: string): string {
   const actorKey = actor?.tokenHash ?? actor?.clientId ?? actor?.type ?? "unknown";
@@ -2832,6 +2849,48 @@ function createRoutes(
       items: items.map((item) => ({ ...item, managedOAuth: managed.get(item.name) ?? null })),
       engineSync: engineMcpSyncStateInState(config, engineMcpServerState, workspace),
     });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp-apps/resolve", "client", async (ctx) => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const projectedToolName = typeof body.projectedToolName === "string" ? body.projectedToolName.trim() : "";
+    try {
+      const app = await resolveMcpAppResource({
+        serverConfig: config,
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        projectedToolName,
+      });
+      return jsonResponse({ app });
+    } catch (error) {
+      rethrowMcpAppHostError(error);
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp-apps/call", "client", async (ctx) => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const serverName = typeof body.serverName === "string" ? body.serverName.trim() : "";
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const args = body.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
+      ? body.arguments as Record<string, unknown>
+      : {};
+    if (!serverName || !name) throw new ApiError(400, "invalid_payload", "serverName and name are required");
+    try {
+      return jsonResponse(await callMcpAppTool({
+        serverConfig: config,
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        serverName,
+        name,
+        arguments: args,
+      }));
+    } catch (error) {
+      rethrowMcpAppHostError(error);
+    }
   });
 
   addRoute(routes, "POST", "/workspace/:id/mcp/managed", "client", async (ctx) => {

@@ -140,6 +140,12 @@ importers:
       '@lexical/react':
         specifier: ^0.35.0
         version: 0.35.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(yjs@13.6.30)
+      '@modelcontextprotocol/ext-apps':
+        specifier: ^1.7.5
+        version: 1.7.5(@modelcontextprotocol/sdk@1.29.0(patch_hash=b9b29e6a319e94ea968476aa440eb8586b5da9db6b8011ce749c384d186f8a10)(zod@4.3.6))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(zod@4.3.6)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(patch_hash=b9b29e6a319e94ea968476aa440eb8586b5da9db6b8011ce749c384d186f8a10)(zod@4.3.6)
       '@opencode-ai/sdk':
         specifier: ^1.17.11
         version: 1.17.11

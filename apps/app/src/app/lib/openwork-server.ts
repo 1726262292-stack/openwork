@@ -399,6 +399,27 @@ export type OpenworkMcpItem = {
   managedOAuth?: OpenworkManagedMcpConnection | null;
 };
 
+export type OpenworkMcpAppResource = {
+  serverName: string;
+  toolName: string;
+  resourceUri: string;
+  html: string;
+  csp: {
+    connectDomains: string[];
+    resourceDomains: string[];
+    frameDomains: string[];
+    baseUriDomains: string[];
+  };
+  prefersBorder: boolean;
+};
+
+export type OpenworkMcpAppToolResult = {
+  content: Array<Record<string, unknown>>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
+};
+
 export type OpenworkManagedMcpConnection = {
   name: string;
   serverUrl: string;
@@ -1868,6 +1889,32 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${workspaceId}/mcp`,
         { token, hostToken },
       ),
+    resolveMcpApp: (workspaceId: string, projectedToolName: string) =>
+      requestJson<{ app: OpenworkMcpAppResource | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/resolve`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { projectedToolName },
+          timeoutMs: timeouts.config,
+        },
+      ),
+    callMcpAppTool: (
+      workspaceId: string,
+      payload: { serverName: string; name: string; arguments?: Record<string, unknown> },
+    ) => requestJson<OpenworkMcpAppToolResult>(
+      baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/call`,
+      {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.binary,
+      },
+    ),
     getOpenworkCloudMcpHealth: (
       workspaceId: string,
       providerModel?: OpenworkCloudMcpProviderModelContext,
