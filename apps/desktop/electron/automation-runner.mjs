@@ -173,20 +173,29 @@ export function normalizeRunnerBaseUrl(value) {
  * key here: changing the audience also changes the token, so a renderer cannot
  * redirect an intact credential without failing this binding check.
  */
-export function runnerTokenAudience(token) {
+function runnerTokenBinding(token) {
   try {
     const [payload, signature, extra] = String(token).split(".")
     if (!payload || !signature || extra) return null
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
+    if (decoded?.v === 1) return { version: 1, audience: null }
     if (decoded?.v !== 2 || typeof decoded.a !== "string") return null
-    return normalizeRunnerBaseUrl(decoded.a)
+    const audience = normalizeRunnerBaseUrl(decoded.a)
+    return audience ? { version: 2, audience } : null
   } catch {
     return null
   }
 }
 
+export function runnerTokenAudience(token) {
+  return runnerTokenBinding(token)?.audience ?? null
+}
+
 export function createDesktopAutomationRunner(options) {
   const fetchImpl = options.fetchImpl ?? fetch
+  const legacyBaseUrls = new Set((options.legacyBaseUrls ?? [])
+    .map((value) => normalizeRunnerBaseUrl(value))
+    .filter(Boolean))
   let configuration = null
   let connectionController = null
   let generation = 0
@@ -351,8 +360,12 @@ export function createDesktopAutomationRunner(options) {
     configure(next) {
       const baseUrl = next ? normalizeRunnerBaseUrl(next.baseUrl) : null
       const token = next?.token ? String(next.token) : ""
-      const tokenAudience = token ? runnerTokenAudience(token) : null
-      const normalized = baseUrl && baseUrl === tokenAudience && token && next?.runnerId
+      const binding = token ? runnerTokenBinding(token) : null
+      const destinationAllowed = baseUrl && (
+        (binding?.version === 2 && binding.audience === baseUrl)
+        || (binding?.version === 1 && legacyBaseUrls.has(baseUrl))
+      )
+      const normalized = destinationAllowed && token && next?.runnerId
         ? { baseUrl, token, runnerId: String(next.runnerId) }
         : null
       if (configuration?.baseUrl === normalized?.baseUrl && configuration?.token === normalized?.token) {

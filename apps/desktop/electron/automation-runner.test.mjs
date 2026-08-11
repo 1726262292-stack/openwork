@@ -14,6 +14,11 @@ function runnerTokenFor(audience) {
   return `${payload}.test-signature`
 }
 
+function legacyRunnerToken() {
+  const payload = Buffer.from(JSON.stringify({ v: 1, o: "org", m: "member", r: "runner" })).toString("base64url")
+  return `${payload}.test-signature`
+}
+
 test("model-not-found failures become a repairable Automation error", () => {
   assert.deepEqual(classifyAutomationExecutionError({
     name: "ProviderModelNotFoundError",
@@ -74,6 +79,47 @@ test("a renderer cannot redirect a Den runner credential to another HTTPS origin
   runner.configure({
     baseUrl: "https://attacker.example.com",
     token: runnerTokenFor("https://den.example.com/api/den"),
+    runnerId: "runner-1",
+  })
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  runner.stop()
+  assert.deepEqual(attempted, [])
+})
+
+test("a v1 runner credential works only with a main-process trusted Den endpoint", async () => {
+  const attempted = []
+  const runner = createDesktopAutomationRunner({
+    legacyBaseUrls: ["https://den.example.com/api/den"],
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      attempted.push(String(url))
+      throw new Error("no network in test")
+    },
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com/api/den",
+    token: legacyRunnerToken(),
+    runnerId: "runner-1",
+  })
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  runner.stop()
+  assert.ok(attempted.length > 0)
+  assert.ok(attempted.every((url) => url.startsWith("https://den.example.com/api/den/")))
+})
+
+test("a v1 runner credential cannot use an untrusted HTTPS endpoint", async () => {
+  const attempted = []
+  const runner = createDesktopAutomationRunner({
+    legacyBaseUrls: ["https://den.example.com/api/den"],
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      attempted.push(String(url))
+      throw new Error("no network in test")
+    },
+  })
+  runner.configure({
+    baseUrl: "https://attacker.example.com",
+    token: legacyRunnerToken(),
     runnerId: "runner-1",
   })
   await new Promise((resolve) => setTimeout(resolve, 25))
