@@ -39,6 +39,8 @@ export type CapabilityMatch = {
   invocation?: { argumentsField: "body" }
   /** Exact confined-script path when Code Mode scripts are enabled. */
   scriptPath?: string
+  /** Callable capability or a source-specific advisory/content kind. */
+  kind?: string
 }
 
 export function compareCapabilityMatches(a: CapabilityMatch, b: CapabilityMatch): number {
