@@ -51,33 +51,6 @@ export type BuiltCodemodeTools = {
   manifest: CodemodeManifestEntry[]
 }
 
-export const CAPABILITY_SOURCE_KINDS = ["catalog", "native", "externalMcp", "marketplace", "builtinSkill", "admin"] as const
-export type CapabilitySourceKind = (typeof CAPABILITY_SOURCE_KINDS)[number]
-
-/** Interim parity primitive pending a full CapabilitySource registry. */
-export const CODEMODE_SOURCE_PARTICIPATION: Record<CapabilitySourceKind, "tree" | { excluded: string }> = {
-  catalog: "tree",
-  native: "tree",
-  externalMcp: "tree",
-  marketplace: {
-    excluded: "Marketplace capabilities return instructional content rather than data operations; marketplace script objects execute through their dedicated script rail.",
-  },
-  builtinSkill: {
-    excluded: "Built-in skills return instructional content rather than data operations.",
-  },
-  admin: {
-    excluded: "Admin capabilities are platform-admin gated and are not exposed to organization Code Mode scripts.",
-  },
-}
-
-function assertCodemodeSourceParticipation(): void {
-  for (const kind of CAPABILITY_SOURCE_KINDS) {
-    if (!CODEMODE_SOURCE_PARTICIPATION[kind]) {
-      throw new Error(`Code Mode participation is undecided for capability source: ${kind}`)
-    }
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -375,32 +348,5 @@ export async function buildExternalMcpToolTree(input: {
           authority: "external" as const,
         }))
     }),
-  }
-}
-
-export async function buildCodemodeToolTree(input: {
-  app: Hono
-  env: unknown
-  catalog: readonly McpToolOperation[]
-  principal: McpPrincipal
-  organizationId: string
-  member: McpMemberIdentity | null
-  redirectUriBase: string
-  externalMcpConnectionsEnabled?: boolean
-}): Promise<BuiltCodemodeTools> {
-  assertCodemodeSourceParticipation()
-  const namespaceContext = await resolveCodemodeConnectionNamespaceContext({
-    organizationId: input.organizationId,
-    member: input.member,
-    includeExternalMcp: input.externalMcpConnectionsEnabled !== false,
-  })
-  const den = buildDenCatalogToolTree(input)
-  const [native, external] = await Promise.all([
-    buildNativeProviderToolTree({ ...input, namespaceContext }),
-    buildExternalMcpToolTree({ ...input, namespaceContext }),
-  ])
-  return {
-    tools: { ...den.tools, ...native.tools, ...external.tools },
-    manifest: [...den.manifest, ...native.manifest, ...external.manifest],
   }
 }

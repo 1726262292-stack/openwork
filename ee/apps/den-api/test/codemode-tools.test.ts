@@ -15,8 +15,8 @@ let buildExternalNamespaceMap: typeof import("../src/mcp/codemode-tools.js")["bu
 let buildCodemodeConnectionNamespaceMaps: typeof import("../src/mcp/codemode-tools.js")["buildCodemodeConnectionNamespaceMaps"]
 let buildDenCatalogToolTree: typeof import("../src/mcp/codemode-tools.js")["buildDenCatalogToolTree"]
 let buildNativeProviderManifest: typeof import("../src/mcp/codemode-tools.js")["buildNativeProviderManifest"]
-let CAPABILITY_SOURCE_KINDS: typeof import("../src/mcp/codemode-tools.js")["CAPABILITY_SOURCE_KINDS"]
-let CODEMODE_SOURCE_PARTICIPATION: typeof import("../src/mcp/codemode-tools.js")["CODEMODE_SOURCE_PARTICIPATION"]
+let CAPABILITY_SOURCE_KINDS: typeof import("../src/mcp/capability-registry.js")["CAPABILITY_SOURCE_KINDS"]
+let CAPABILITY_SOURCES: typeof import("../src/mcp/capability-registry.js")["CAPABILITY_SOURCES"]
 let isCodemodeEligibleConnection: typeof import("../src/mcp/codemode-tools.js")["isCodemodeEligibleConnection"]
 let firstUnattendedUnsafeCapability: typeof import("../src/mcp/codemode-tools.js")["firstUnattendedUnsafeCapability"]
 let restrictCodemodeToolTree: typeof import("../src/mcp/codemode-tools.js")["restrictCodemodeToolTree"]
@@ -26,13 +26,14 @@ let parseNativeCapabilityName: typeof import("../src/mcp/native-capabilities.js"
 beforeAll(async () => {
   seedRequiredEnv()
   const codemodeTools = await import("../src/mcp/codemode-tools.js")
+  const capabilityRegistry = await import("../src/mcp/capability-registry.js")
   const nativeCapabilities = await import("../src/mcp/native-capabilities.js")
   buildExternalNamespaceMap = codemodeTools.buildExternalNamespaceMap
   buildCodemodeConnectionNamespaceMaps = codemodeTools.buildCodemodeConnectionNamespaceMaps
   buildDenCatalogToolTree = codemodeTools.buildDenCatalogToolTree
   buildNativeProviderManifest = codemodeTools.buildNativeProviderManifest
-  CAPABILITY_SOURCE_KINDS = codemodeTools.CAPABILITY_SOURCE_KINDS
-  CODEMODE_SOURCE_PARTICIPATION = codemodeTools.CODEMODE_SOURCE_PARTICIPATION
+  CAPABILITY_SOURCE_KINDS = capabilityRegistry.CAPABILITY_SOURCE_KINDS
+  CAPABILITY_SOURCES = capabilityRegistry.CAPABILITY_SOURCES
   isCodemodeEligibleConnection = codemodeTools.isCodemodeEligibleConnection
   firstUnattendedUnsafeCapability = codemodeTools.firstUnattendedUnsafeCapability
   restrictCodemodeToolTree = codemodeTools.restrictCodemodeToolTree
@@ -173,8 +174,14 @@ test("allocates native and external namespaces from one collision set", () => {
   expect(namespaces.externalMcp.get("external-shared")).toBe("shared_2")
 })
 
-test("declares Code Mode participation for every capability source kind", () => {
-  expect(Object.keys(CODEMODE_SOURCE_PARTICIPATION).sort()).toEqual([...CAPABILITY_SOURCE_KINDS].sort())
+test("registers every capability source kind with all three verbs", () => {
+  expect(Object.keys(CAPABILITY_SOURCES).sort()).toEqual([...CAPABILITY_SOURCE_KINDS].sort())
+  for (const kind of CAPABILITY_SOURCE_KINDS) {
+    expect(CAPABILITY_SOURCES[kind].kind).toBe(kind)
+    expect(typeof CAPABILITY_SOURCES[kind].search).toBe("function")
+    expect(typeof CAPABILITY_SOURCES[kind].execute).toBe("function")
+    expect(typeof CAPABILITY_SOURCES[kind].enumerate).toBe("function")
+  }
 })
 
 test("native manifest capability names round-trip through the native parser", () => {

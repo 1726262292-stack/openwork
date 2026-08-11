@@ -8,41 +8,42 @@ import { openworkCloudMcpConnectionActionSchema } from "@openwork/types/den/mcp-
 import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
-import { memberFacingMcpConnectionsEnabled } from "../capability-sources/external-mcp-rollout.js"
 import { codemodeScriptsEnabled } from "../capability-sources/codemode-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
-import { invokeMcpOperation, normalizeToolBody, normalizeToolRecord } from "./invoke.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
-import { compareCapabilityMatches, SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities, searchCapabilitySourceFilter, type CapabilityMatch } from "./search.js"
-import { executeExternalCapability, externalMcpSearchCoverageHint, parseExternalCapabilityName, resolveMcpMemberIdentity, searchExternalCapabilities, type ExternalCapabilityExecuteResult } from "./external-capabilities.js"
-import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, searchMarketplaceCapabilities, type MarketplaceCapabilityExecuteResult, type MarketplaceCapabilityObjectType, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
+import { SEARCH_CAPABILITIES_TOOL_NAME, type CapabilityMatch } from "./search.js"
+import { resolveMcpMemberIdentity } from "./external-capabilities.js"
+import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { automationService } from "../automations/service.js"
 import { AGENT_AUTOMATION_INDEX_LIMIT, registerAgentAutomationResources } from "./automation-index.js"
 import { env } from "../env.js"
-import { isPlatformAdminUserId } from "../middleware/admin.js"
-import { executeAvailableAdminCapability, parseAdminCapabilityName, searchAvailableAdminCapabilities } from "./admin-capabilities.js"
 import {
   executeBuiltinSkillCapability,
   listBuiltinSkillDescriptors,
-  searchBuiltinSkillCapabilities,
 } from "./builtin-skills.js"
-import { executeNativeCapability, searchNativeCapabilities } from "./native-capabilities.js"
-import { externalToolContent, type AgentToolContentPart } from "./tool-content.js"
-import { buildCodemodeToolTree, codemodeScriptPath, isCredentialBoundNativeOperation } from "./codemode-tools.js"
-import { resolveCodemodeConnectionNamespaceContext } from "./codemode-namespaces.js"
+import {
+  buildCapabilityToolTree,
+  createCapabilityRegistryContext,
+  executeCapability,
+  externalCapabilityErrorToolResult,
+  externalCapabilitySuccessToolResult,
+  searchCapabilityRegistry,
+  type ExecuteCapabilityToolResult,
+} from "./capability-registry.js"
 import { runCodemodeScript } from "./codemode-run.js"
 import { recordCodemodeScriptResult } from "../codemode-runs.js"
 
 export { externalToolContent } from "./tool-content.js"
+export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
+export type { ExecuteCapabilityToolResult }
 
 export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 export const EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME = "execute_capability_script"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
-const skillMarketplaceObjectTypes: MarketplaceCapabilityObjectType[] = ["skill"]
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
 export const SEARCH_CAPABILITIES_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
@@ -56,12 +57,6 @@ export const EXECUTE_CAPABILITY_ANNOTATIONS: ToolAnnotations = {
   idempotentHint: false,
   openWorldHint: true,
 }
-
-const externalMcpProviderErrorOutputSchema = z.object({
-  jsonRpcCode: z.number().int().optional(),
-  message: z.string().optional(),
-  data: z.string().optional(),
-})
 
 const connectionStatusOutputSchema = openworkCloudMcpConnectionActionSchema.extend({
   layer: z.enum(["mcp_connection", "downstream_provider"]),
@@ -99,28 +94,6 @@ const capabilityMatchOutputSchema = z.object({
 export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
   matches: z.array(capabilityMatchOutputSchema),
   hint: z.string().optional(),
-})
-
-const externalCapabilityErrorPayloadSchema = z.object({
-  error: z.string(),
-  message: z.string(),
-  referenceId: z.string().optional(),
-  retryable: z.boolean().optional(),
-  providerError: externalMcpProviderErrorOutputSchema.optional(),
-  connectionStatus: connectionStatusOutputSchema.optional(),
-  capability: z.string().optional(),
-  issues: z.array(z.object({
-    path: z.string(),
-    keyword: z.string(),
-    message: z.string(),
-  })).optional(),
-  schemaDigest: z.string().optional(),
-  sameArgumentsRetryable: z.literal(false).optional(),
-  retry: z.object({
-    action: z.enum(["correct_arguments", "search_capabilities"]),
-    searchRequired: z.boolean(),
-  }).optional(),
-  schemaGuidance: z.unknown().optional(),
 })
 
 export const AGENT_MCP_INSTRUCTIONS = [
@@ -178,46 +151,8 @@ function standardSkillMarkdown(skill: RemoteSkillDescriptor, source: string): st
 
 const EXECUTE_CAPABILITY_TIMEOUT_MESSAGE = `The capability call exceeded ${EXECUTE_CAPABILITY_TIMEOUT_MS / 1_000}s. Retry once; if it times out again, narrow the request (fewer results, tighter query) and tell the user the service is slow — do NOT tell them to reconfigure or reconnect.`
 
-export type ExecuteCapabilityToolResult = {
-  isError?: boolean
-  content: AgentToolContentPart[]
-}
-
 function textContent(text: string): { text: string; type: "text" }[] {
   return [{ type: "text", text }]
-}
-
-export function externalCapabilityErrorToolResult(
-  result: Exclude<ExternalCapabilityExecuteResult, { ok: true }>,
-): ExecuteCapabilityToolResult {
-  const payload = externalCapabilityErrorPayloadSchema.parse({
-    error: result.error,
-    message: result.message,
-    ...(result.referenceId === undefined ? {} : { referenceId: result.referenceId }),
-    ...(result.retryable === undefined ? {} : { retryable: result.retryable }),
-    ...(result.providerError ? { providerError: result.providerError } : {}),
-    ...(result.connectionStatus ? { connectionStatus: result.connectionStatus } : {}),
-    ...(result.capability ? { capability: result.capability } : {}),
-    ...(result.issues ? { issues: result.issues } : {}),
-    ...(result.schemaDigest ? { schemaDigest: result.schemaDigest } : {}),
-    ...(result.sameArgumentsRetryable === false ? { sameArgumentsRetryable: false } : {}),
-    ...(result.retry ? { retry: result.retry } : {}),
-    ...(result.schemaGuidance ? { schemaGuidance: result.schemaGuidance } : {}),
-  })
-  return {
-    isError: true,
-    content: textContent(JSON.stringify(payload)),
-  }
-}
-
-function marketplaceCapabilityErrorToolResult(
-  result: Exclude<MarketplaceCapabilityExecuteResult, { ok: true }>,
-): ExecuteCapabilityToolResult {
-  const payload = Object.fromEntries(Object.entries(result).filter(([key]) => key !== "ok"))
-  return {
-    isError: true,
-    content: textContent(JSON.stringify(payload)),
-  }
 }
 
 export function capabilitySearchToolResult<T extends CapabilityMatch>(matches: T[], coverageHint?: string) {
@@ -229,26 +164,6 @@ export function capabilitySearchToolResult<T extends CapabilityMatch>(matches: T
   return {
     content: textContent(JSON.stringify(result, null, 2)),
     structuredContent: result,
-  }
-}
-
-function unknownCapabilityText(name: string): string {
-  return JSON.stringify({
-    error: "unknown_capability",
-    message: `No capability named "${name}". Call search_capabilities to find a valid name.`,
-  })
-}
-
-export function externalCapabilitySuccessToolResult(
-  result: Extract<ExternalCapabilityExecuteResult, { ok: true }>,
-): ExecuteCapabilityToolResult {
-  const content = externalToolContent(result.result)
-  if (!result.schemaGuidance) return { content }
-  return {
-    content: [
-      ...content,
-      ...textContent(JSON.stringify({ schemaGuidance: result.schemaGuidance })),
-    ],
   }
 }
 
@@ -400,21 +315,26 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       userId: principal.userId,
       organizationId: principal.organizationId,
     })
-    let platformAdmin: Promise<boolean> | undefined
-    const resolvePlatformAdmin = () => {
-      platformAdmin ??= isPlatformAdminUserId(principal.userId)
-      return platformAdmin
-    }
     const organizationId = normalizeDenTypeId("organization", principal.organizationId)
     const organizationRows = await db
       .select({ metadata: OrganizationTable.metadata })
       .from(OrganizationTable)
       .where(eq(OrganizationTable.id, organizationId))
       .limit(1)
-    const externalMcpConnectionsEnabled = memberFacingMcpConnectionsEnabled(organizationRows[0]?.metadata, {
-      gatingEnabled: env.mcpConnectionsGatingEnabled,
-    })
     const codemodeEnabled = codemodeScriptsEnabled(organizationRows[0]?.metadata)
+    const capabilityContext = createCapabilityRegistryContext({
+      app: app as unknown as Hono,
+      env: c.env,
+      catalog,
+      principal,
+      organizationId,
+      member: memberIdentity,
+      redirectUriBase: resolvePublicOrigin(c.req.raw, env.apiPublicUrl),
+      codemodeEnabled,
+      organizationMetadata: organizationRows[0]?.metadata,
+      mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
+    })
+    const { externalMcpConnectionsEnabled } = capabilityContext
     let remoteSkills: RemoteSkillDescriptor[] = []
     const method = await mcpRequestMethod(c.req.raw)
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
@@ -477,71 +397,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       },
       async ({ query, limit, type }) => {
         const boundedLimit = limit ?? 5
-        const sourceFilter = searchCapabilitySourceFilter(type)
-        const marketplaceObjectTypes = type === "skills" ? skillMarketplaceObjectTypes : undefined
-        const namespaceContext = codemodeEnabled && memberIdentity && (sourceFilter.api || sourceFilter.mcp)
-          ? await resolveCodemodeConnectionNamespaceContext({
-            organizationId: principal.organizationId,
-            member: memberIdentity,
-            includeExternalMcp: externalMcpConnectionsEnabled,
-          })
-          : undefined
-        const restMatches = sourceFilter.api
-          ? searchCapabilities(catalog.filter((operation) => !isCredentialBoundNativeOperation(operation)), query, boundedLimit).map((match) => codemodeEnabled
-            ? { ...match, scriptPath: codemodeScriptPath("den", match.name) }
-            : match)
-          : []
-        const nativeMatches = sourceFilter.api
-          ? await searchNativeCapabilities({
-            organizationId,
-            member: memberIdentity,
-            query,
-            catalog,
-            limit: boundedLimit,
-            includeScriptPaths: codemodeEnabled,
-            namespaceContext,
-          })
-          : []
-        const adminMatches = sourceFilter.admin
-          ? await searchAvailableAdminCapabilities(await resolvePlatformAdmin(), query, boundedLimit)
-          : []
-        const builtinSkillMatches = sourceFilter.skills
-          ? searchBuiltinSkillCapabilities(query, boundedLimit)
-          : []
-        // Merged in from each connected External MCP Connection's live
-        // tools/list (capability-sources/external-mcp-client.ts) — a
-        // Notion/Linear/Stripe/... connection an admin added in Den shows
-        // up here exactly like any native capability, ranked together.
-        let externalCoverageHint: string | undefined
-        const externalMatches = sourceFilter.mcp && externalMcpConnectionsEnabled
-          ? await searchExternalCapabilities({
-            organizationId: principal.organizationId,
-            member: memberIdentity,
-            query,
-            redirectUriBase: resolvePublicOrigin(c.req.raw, env.apiPublicUrl),
-            limit: boundedLimit,
-            includeScriptPaths: codemodeEnabled,
-            namespaceContext,
-            reportCoverage: (coverage) => {
-              externalCoverageHint = externalMcpSearchCoverageHint(coverage)
-            },
-          })
-          : []
-        const marketplaceMatches = sourceFilter.marketplace && externalMcpConnectionsEnabled
-          ? await searchMarketplaceCapabilities({
-            codemodeEnabled,
-            organizationId: principal.organizationId,
-            member: memberIdentity,
-            objectTypes: marketplaceObjectTypes,
-            query,
-            limit: boundedLimit,
-            enabled: externalMcpConnectionsEnabled,
-          })
-          : []
-        const matches = [...restMatches, ...nativeMatches, ...adminMatches, ...builtinSkillMatches, ...externalMatches, ...marketplaceMatches]
-          .sort(compareCapabilityMatches)
-          .slice(0, boundedLimit)
-        return capabilitySearchToolResult(matches, externalCoverageHint)
+        const result = await searchCapabilityRegistry(capabilityContext, { query, limit: boundedLimit, type })
+        return capabilitySearchToolResult(result.matches, result.externalCoverageHint)
       },
     )
 
@@ -568,111 +425,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       async ({ name, schemaDigest, path, query, body }) => {
         return executeCapabilityWithBudget({
           capability: name,
-          invoke: async (): Promise<ExecuteCapabilityToolResult> => {
-            const adminResult = parseAdminCapabilityName(name)
-              ? await executeAvailableAdminCapability(await resolvePlatformAdmin(), name, body)
-              : null
-            if (adminResult) return adminResult
-
-            const builtinSkill = executeBuiltinSkillCapability(name)
-            if (builtinSkill) {
-              return { content: textContent(JSON.stringify(builtinSkill, null, 2)) }
-            }
-
-            const external = parseExternalCapabilityName(name)
-            if (external) {
-              if (!externalMcpConnectionsEnabled) {
-                return {
-                  isError: true,
-                  content: textContent(JSON.stringify({
-                    error: "unknown_capability",
-                    message: "No external MCP connection capabilities are available for this organization.",
-                  })),
-                }
-              }
-              const result = await executeExternalCapability({
-                organizationId: principal.organizationId,
-                member: memberIdentity,
-                connectionId: external.connectionId,
-                toolName: external.toolName,
-                args: normalizeToolBody(body),
-                schemaDigest,
-                redirectUriBase: resolvePublicOrigin(c.req.raw, env.apiPublicUrl),
-              })
-              if (!result.ok) {
-                return externalCapabilityErrorToolResult(result)
-              }
-              // The SDK's callTool() can return either the standard {content:[...]}
-              // shape or a legacy-compatibility {toolResult} shape; normalize to
-              // what McpServer's own tool callback contract requires.
-              return externalCapabilitySuccessToolResult(result)
-            }
-
-            const nativeResult = await executeNativeCapability({
-              app: app as unknown as Hono,
-              env: c.env,
-              name,
-              organizationId,
-              member: memberIdentity,
-              catalog,
-              principal,
-              path,
-              query,
-              body,
-            })
-            if (nativeResult) return nativeResult
-
-            const marketplace = parseMarketplaceCapabilityName(name)
-            if (marketplace) {
-              const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
-              const result = await executeMarketplaceCapability({
-                buildTools: () => buildCodemodeToolTree({
-                  app: app as unknown as Hono,
-                  env: c.env,
-                  catalog,
-                  principal,
-                  organizationId: principal.organizationId,
-                  member: memberIdentity,
-                  redirectUriBase,
-                  externalMcpConnectionsEnabled,
-                }),
-                organizationId: principal.organizationId,
-                member: memberIdentity,
-                pluginId: marketplace.pluginId,
-                configObjectId: marketplace.configObjectId,
-                body,
-                codemodeEnabled,
-                enabled: externalMcpConnectionsEnabled,
-                redirectUriBase,
-              })
-              if (!result.ok) {
-                return result.error === "unknown_capability"
-                  ? { isError: true, content: textContent(unknownCapabilityText(name)) }
-                  : marketplaceCapabilityErrorToolResult(result)
-              }
-              return { content: textContent(JSON.stringify(result.result, null, 2)) }
-            }
-
-            const operation = catalog.find((candidate) => candidate.name === name)
-            if (!operation) {
-              return {
-                isError: true,
-                content: textContent(unknownCapabilityText(name)),
-              }
-            }
-
-            return invokeMcpOperation({
-              app: app as unknown as Hono,
-              env: c.env,
-              operation,
-              principal,
-              toolInput: {
-                path: normalizeToolRecord(path),
-                query: normalizeToolRecord(query),
-                body: normalizeToolBody(body),
-              },
-            })
-          },
+          invoke: () => executeCapability(capabilityContext, { name, schemaDigest, path, query, body }),
         })
       },
     )
@@ -700,17 +453,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         async ({ code, input }) => executeCapabilityWithBudget({
           capability: EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
           invoke: async (): Promise<ExecuteCapabilityToolResult> => {
-            const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
-            const { tools } = await buildCodemodeToolTree({
-              app: app as unknown as Hono,
-              env: c.env,
-              catalog,
-              principal,
-              organizationId: principal.organizationId,
-              member: memberIdentity,
-              redirectUriBase,
-              externalMcpConnectionsEnabled,
-            })
+            const { tools } = await buildCapabilityToolTree(capabilityContext)
             const startedAt = new Date()
             const result = await runCodemodeScript({
               code,
