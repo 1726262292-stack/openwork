@@ -4,7 +4,8 @@ import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRe
 import { getReactQueryClient } from "../../../infra/query-client";
 import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { trackTaskCompleted, trackTaskFailed } from "@/app/lib/den-telemetry";
-import { createClient } from "@/app/lib/opencode";
+import { createClient, unwrap } from "@/app/lib/opencode";
+import { isGeneratedSessionTitle } from "@/app/lib/session-title";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
 import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
@@ -19,6 +20,12 @@ import {
   useSessionActivityStore,
 } from "../status/session-activity-store";
 import { notifyDesktopEvent } from "../../../shell/desktop-notifications";
+import { notifyAlert } from "../../../shell/notifications";
+import { t } from "@/i18n";
+import {
+  createSessionTitleRecovery,
+  type SessionTitleRecovery,
+} from "./session-title-recovery";
 
 type SyncOptions = {
   workspaceId: string;
@@ -58,6 +65,7 @@ type SyncEntry = {
   // the user like the app "freezes after 2 words."
   deltaFlushBuffer: PendingDelta[];
   deltaFlushScheduled: boolean;
+  titleRecovery: SessionTitleRecovery | null;
 };
 
 const idleStatus: SessionStatus = { type: "idle" };
@@ -262,6 +270,7 @@ function disposeWorkspaceSync(key: string, entry: SyncEntry) {
   }
   for (const timer of entry.retainedSessionTimers.values()) clearTimeout(timer);
   entry.retainedSessionTimers.clear();
+  entry.titleRecovery?.dispose();
   entry.dispose();
   if (syncs.get(key) === entry) syncs.delete(key);
 }
@@ -665,6 +674,8 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.updated") {
     const update = getSessionUpdatedInfo(event);
     if (!update) return;
+    const title = typeof update.info.title === "string" ? update.info.title : "";
+    if (title && !isGeneratedSessionTitle(title)) entry.titleRecovery?.resolve(update.sessionId);
     if (!isTrackedSession(entry, update.sessionId)) return;
     // Keep the cached snapshot's revert cursor in sync with the server. The
     // renderer derives the visible transcript from this cursor, so a revert
@@ -685,6 +696,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.deleted") {
     const props = (event.properties ?? {}) as { sessionID?: string; info?: { id?: string } };
     const sessionId = props.sessionID ?? props.info?.id ?? "";
+    if (sessionId) entry.titleRecovery?.resolve(sessionId);
     if (sessionId) useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
     if (sessionId) {
       for (const listener of entry.sessionDeletedListeners) listener(sessionId);
@@ -988,6 +1000,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       });
       trackTaskCompleted(props.sessionID, Date.now() - runStartedAt);
       notifyDesktopEvent({ type: "task.completed", sessionId: props.sessionID });
+      entry.titleRecovery?.observe(props.sessionID);
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);
@@ -1199,7 +1212,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     return () => releaseWorkspaceSessionSync(input);
   }
 
-  syncs.set(key, {
+  const created: SyncEntry = {
     input,
     openworkToken: input.openworkToken,
     refs: 1,
@@ -1214,9 +1227,46 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
+    titleRecovery: null,
+  };
+  created.titleRecovery = createSessionTitleRecovery({
+    fetch: async (sessionId) => {
+      const client = createClient(input.baseUrl, undefined, { token: created.openworkToken, mode: "openwork" });
+      const [session, messages] = await Promise.all([
+        client.session.get({ sessionID: sessionId }).then(unwrap),
+        client.session.messages({ sessionID: sessionId, limit: 20 }).then(unwrap),
+      ]);
+      return {
+        title: session.title,
+        messages: messages.map((message) => ({
+          role: message.info.role,
+          synthetic: Reflect.get(message.info, "synthetic") === true,
+          error: Reflect.get(message.info, "error"),
+        })),
+      };
+    },
+    onResolved: (sessionId, title) => {
+      getReactQueryClient().setQueryData<OpenworkSessionSnapshot>(
+        snapshotKey(input.workspaceId, sessionId),
+        (current) => current
+          ? { ...current, session: { ...current.session, title } }
+          : current,
+      );
+      for (const listener of created.sessionUpdatedListeners) {
+        listener({ sessionId, info: { title } });
+      }
+    },
+    onFailure: (sessionId) => {
+      notifyAlert({
+        kind: "system",
+        severity: "warning",
+        title: t("session.title_generation_failed_title"),
+        body: t("session.title_generation_failed_body"),
+        dedupeKey: `session-title-generation:${input.workspaceId}:${sessionId}`,
+      });
+    },
   });
-
-  const created = syncs.get(key)!;
+  syncs.set(key, created);
   created.dispose = startSync(input, created);
 
   return () => releaseWorkspaceSessionSync(input);
@@ -1370,6 +1420,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
+    titleRecovery: null,
   });
   return () => {
     const entry = syncs.get(key);
