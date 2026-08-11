@@ -1,6 +1,5 @@
 import { expect } from "vitest";
 import { clickButton, evalIn, visibleText } from "@openwork/behaviors";
-import { screenshot } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import { eventually, needs, test } from "@openwork/testkit";
 
@@ -89,7 +88,6 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence, place }) => {
   expect(openedArtifactUrls).not.toContain("https://incompatible.invalid/OpenWork.AppImage");
   expect(openedArtifactUrls).not.toContain("https://wrong-flavor.invalid/OpenWork.dmg");
   expect(openedArtifactUrls).not.toContain("https://prerelease.invalid/OpenWork.dmg");
-  await screenshot(recoveryApp);
   evidence.fact(
     "The picker opened only the exact compatible previous stable artifact",
     "Current and previous were marked, incompatible and prerelease targets were absent, and arbitrary selection opened nothing.",

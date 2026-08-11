@@ -1,7 +1,6 @@
 import { rm } from "node:fs/promises";
 import { expect } from "vitest";
 import { clickButton, evalIn, visibleText } from "@openwork/behaviors";
-import { screenshot } from "@openwork/fraimz";
 import {
   checkedExec,
   daytonaSandbox,
@@ -111,7 +110,6 @@ test.skipIf(!appSpecsEnabled)(title, async ({ evidence }) => {
     );
     expect(installRequests).toEqual([{ version: "1.8.2", artifactUrl: verifiedArtifact }]);
     expect(await evalIn(recoveryApp, `window.__openworkRecoveryControl.snapshot().then((snapshot) => snapshot.quitRequested)`, { awaitPromise: true })).toBe(false);
-    await screenshot(recoveryApp);
     evidence.fact(
       "Fatal bootstrap recovery selected one verified previous release without losing the profile",
       "The recovery observer recorded exactly one verified install request, no invalid request, and no quit intent.",
