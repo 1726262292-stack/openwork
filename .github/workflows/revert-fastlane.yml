@@ -15,6 +15,12 @@
 # must never run against fork-originated PRs. The approval is created through
 # the reviews API with commit_id bound to the verified head; if the head moves
 # before approval, it is withheld and the new push re-verifies.
+# GitHub offers no atomic compare-and-approve, so the residual read-then-approve
+# race is closed server-side by dev's ruleset (warden round 3):
+# dismiss_stale_reviews_on_push plus require_last_push_approval dismiss or ignore
+# any approval whose head moved afterward. Immediately before approving, the job
+# verifies both flags at runtime and withholds approval if either is disabled, so
+# the control cannot silently outlive its preconditions.
 #
 # Scope is limited to single-commit, non-merge reverts whose tree is an exact inverse;
 # hand-adjusted reverts (revert conflicts or edits after `git revert`) are deliberately
@@ -95,6 +101,13 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          # This control's residual read-then-approve race is closed server-side by
+          # dev's ruleset. Refuse to approve if those guarantees are not confirmed.
+          rules="$(gh api "repos/$GITHUB_REPOSITORY/rules/branches/dev" --jq '[.[] | select(.type=="pull_request") | .parameters | (.dismiss_stale_reviews_on_push and .require_last_push_approval)] | any' 2>/dev/null || true)"
+          if [[ "$rules" != "true" ]]; then
+            printf '## Revert Fast Lane\n\nApproval withheld: could not confirm the dev ruleset still enforces dismiss_stale_reviews_on_push AND require_last_push_approval, which this control depends on to invalidate any approval whose head moves.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # Bind the approval to the verified head. If the head moved since
           # verification, withhold — the synchronize event re-runs verification.
           current="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)"
