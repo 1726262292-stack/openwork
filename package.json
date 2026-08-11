@@ -59,6 +59,7 @@
     "evals": "node evals/runner/run.mjs --mode automation",
     "fraimz": "node evals/runner/run.mjs --mode demo",
     "fraimz:publish": "node evals/packages/evidence/bin/publish-pr.mjs",
+    "fraimz:judge": "node evals/packages/fraimz/bin/judge.mjs",
     "evals:typecheck": "tsc -p evals",
     "evals:test": "node --test evals/runner/*.test.ts evals/packages/*/test/*.test.ts",
     "evals:spec": "pnpm --dir evals run spec",

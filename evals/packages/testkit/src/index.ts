@@ -55,4 +55,5 @@ export * from "./mock.ts";
 export * from "./needs.ts";
 export * from "./place.ts";
 export * from "./server.ts";
+export * from "./self-host.ts";
 export * from "./state.ts";

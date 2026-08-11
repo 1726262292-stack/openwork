@@ -18,7 +18,7 @@ import { createConnection } from "mysql2/promise";
 import type { ChildProcess } from "node:child_process";
 import type { DenRef, DenSession } from "@openwork/behaviors";
 import type { DbHandle, Place } from "./place.ts";
-import { ephemeralDatabaseName, localMysqlIsRunning } from "./place.ts";
+import { ephemeralDatabaseName, localMysqlIsRunning, localRedisIsRunning } from "./place.ts";
 import type { BootedMock, MockBoot, MockHandle } from "./mock.ts";
 import { SkipError } from "./needs.ts";
 
@@ -372,7 +372,11 @@ async function bootDaytonaMocks(
     if (!definition.daytonaPort || !definition.connect) {
       throw new Error(`mock ${name} cannot boot on Daytona: its MockBoot has no sandbox adapter`);
     }
-    const remote = await startMockOnSandbox({ sandbox, port: definition.daytonaPort });
+    const remote = await startMockOnSandbox({
+      sandbox,
+      port: definition.daytonaPort,
+      allowUnauthenticatedMcp: definition.allowUnauthenticatedMcp,
+    });
     const booted: BootedMock = await definition.connect(remote.url);
     handles[name] = booted.handle;
     Object.assign(env, booted.env({ name, url: cleanUrl(remote.url), mcpUrl: `${cleanUrl(remote.url)}/mcp` }));
@@ -513,6 +517,9 @@ export async function server(options: ServerOptions): Promise<Den> {
 
   if (!await localMysqlIsRunning()) {
     throw new Error("Local Den requires MySQL on 127.0.0.1:3306. Run: pnpm dev:den:mysql");
+  }
+  if (!await localRedisIsRunning()) {
+    throw new Error("Local Den requires Redis on 127.0.0.1:6379. Run: redis-server --port 6379 --daemonize yes --save '' --appendonly no");
   }
 
   const bootedMocks = await bootLocalMocks(options.place, options.mocks ?? {});
