@@ -1274,6 +1274,9 @@ function assertOpenworkServerReady(info) {
 }
 
 async function bootRuntimeForSelectedWorkspace() {
+  if (typeof process.env.OPENWORK_EVAL_FATAL_DESKTOP_BOOTSTRAP_FAILURE === "string") {
+    throw new Error(process.env.OPENWORK_EVAL_FATAL_DESKTOP_BOOTSTRAP_FAILURE);
+  }
   const list = await workspaceStore.readWorkspaceState();
   const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
   const workspace = selectedId
@@ -2540,6 +2543,11 @@ const { ensureAutoUpdater } = registerUpdaterIpc({
   manifestChannel: DESKTOP_DISTRIBUTION.flavor === "public"
     ? "latest"
     : DESKTOP_DISTRIBUTION.flavor,
+  electronNet,
+  shell,
+  distribution: DESKTOP_DISTRIBUTION.flavor,
+  platform: process.platform,
+  arch: process.arch,
 });
 
 if (!app.requestSingleInstanceLock()) {

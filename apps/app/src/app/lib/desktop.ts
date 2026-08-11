@@ -55,12 +55,29 @@ export type BrowserProxyState = {
   proxy: { rules: string; authenticated: boolean } | null;
 };
 
+export type RecoveryRelease = {
+  id: string;
+  version: string;
+  marking: "current" | "previous" | null;
+};
+
+export type RecoveryActionResult = {
+  ok: boolean;
+  action?: "install" | "installer" | "eval";
+  message?: string;
+  reason?: string;
+};
+
 // ---------------------------------------------------------------------------
 // Electron bridge surface
 // ---------------------------------------------------------------------------
 
 declare global {
   interface Window {
+    __openworkRecoveryControl?: {
+      snapshot: () => Promise<unknown>;
+      select: (id: string) => Promise<unknown>;
+    };
     __OPENWORK_ELECTRON__?: {
       invokeDesktop?: <C extends DesktopCommandName>(
         command: C,
@@ -133,6 +150,16 @@ declare global {
         download?: () => Promise<{ ok: boolean; reason?: string }>;
         installAndRestart?: () => Promise<{ ok: boolean; reason?: string }>;
       };
+      recovery?: {
+        recordHealthy?: () => Promise<unknown>;
+        list?: (policy: {
+          versions: string[];
+          minimumVersion: string;
+          allowedVersions?: string[];
+        }) => Promise<{ ok: boolean; releases: RecoveryRelease[]; reason?: string }>;
+        restorePrevious?: () => Promise<RecoveryActionResult>;
+        use?: (id: string) => Promise<RecoveryActionResult>;
+      };
       browser?: {
         show?: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
         hide?: () => Promise<void>;
@@ -177,6 +204,7 @@ declare global {
         initialDeepLinks?: string[];
         platform?: "darwin" | "linux" | "windows";
         version?: string;
+        evalFatalBootstrapFailure?: string | null;
       };
     };
   }
