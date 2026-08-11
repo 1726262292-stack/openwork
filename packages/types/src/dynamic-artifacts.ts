@@ -99,3 +99,30 @@ export const savedScriptTestResultSchema = z.object({
   finishedAt: z.string().datetime(),
 })
 export type SavedScriptTestResult = z.infer<typeof savedScriptTestResultSchema>
+
+/**
+ * Stable data contract injected into the Dynamic Artifact MCP App view.
+ *
+ * Keep this independent from the presentation resource so MCP hosts and other
+ * OpenWork surfaces can validate the same result without understanding the UI.
+ */
+export const dynamicArtifactAppSchemaVersion = "1" as const
+export const dynamicArtifactAppPayloadSchema = z.object({
+  schemaVersion: z.literal(dynamicArtifactAppSchemaVersion),
+  artifact: z.object({
+    title: z.string().trim().min(1).max(255),
+    description: z.string().nullable(),
+    pluginId: idSchema,
+    configObjectId: idSchema,
+    configObjectVersionId: idSchema,
+    receiptId: idSchema,
+    automationRunId: idSchema.nullable(),
+    source: z.enum(["manual", "scheduled"]),
+    generatedAt: z.string().datetime(),
+    resultDigest: digestSchema,
+    rendererVersion: z.literal("codemode-markdown-v1"),
+    freshness: artifactFreshnessSchema,
+  }),
+  data: z.unknown(),
+})
+export type DynamicArtifactAppPayload = z.infer<typeof dynamicArtifactAppPayloadSchema>
