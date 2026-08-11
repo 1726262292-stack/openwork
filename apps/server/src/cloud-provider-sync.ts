@@ -46,6 +46,20 @@ export type CloudProviderSyncStatusProvider = {
   importedAt: number;
 };
 
+/**
+ * A Den-granted provider the sync pass could NOT materialize. Skips used to be
+ * silent (the provider simply never appeared in `providers`); every skip now
+ * names itself with a machine-readable reason so a dropped provider is
+ * diagnosable from `GET /cloud-provider-sync/status` alone.
+ */
+export type CloudProviderSyncSkippedProvider = {
+  cloudProviderId: string;
+  providerId: string;
+  name: string;
+  /** Why materialization skipped this provider (e.g. declared env vars but no credential to fill them). */
+  reason: "missing_credentials";
+};
+
 export type CloudProviderSyncRunDetail = {
   fingerprintChanged: boolean;
   providerStateChanged: boolean;
@@ -66,6 +80,16 @@ export type CloudProviderSyncStatus = {
     detail?: CloudProviderSyncRunDetail;
   } | null;
   providers: CloudProviderSyncStatusProvider[];
+  /**
+   * True while a managed engine reload is still owed (deferred behind live
+   * sessions or failed and awaiting retry). A provider listed in `providers`
+   * with `reloadPending: true` is materialized on disk but not yet served by
+   * the engine — the "applied but engine empty" gap is visible, not silent.
+   * Additive: old readers ignore it.
+   */
+  reloadPending: boolean;
+  /** Providers granted by Den but skipped by materialization, each with a reason. Additive. */
+  skippedProviders: CloudProviderSyncSkippedProvider[];
 };
 
 type DenProviderModel = {
@@ -105,6 +129,7 @@ type PreparedMaterialization = {
   fingerprint: string;
   providers: MaterializedProvider[];
   envEntries: EnvEntry[];
+  skipped: CloudProviderSyncSkippedProvider[];
 };
 
 type CloudProviderSyncLogger = {
@@ -413,10 +438,23 @@ function buildProviderConfig(provider: DenProviderConnection): JsonRecord {
 
 function prepareMaterialization(providers: DenProviderConnection[]): PreparedMaterialization {
   const materialized: MaterializedProvider[] = [];
+  const skipped: CloudProviderSyncSkippedProvider[] = [];
   for (const provider of providers) {
     const envEntries = providerEnvEntries(provider);
     const envNames = readProviderEnvNames(provider.providerConfig);
-    if (envNames.length > 0 && !envEntries.some((entry) => envNames.includes(entry.key))) continue;
+    if (envNames.length > 0 && !envEntries.some((entry) => envNames.includes(entry.key))) {
+      // The provider declares credential env vars but the connect payload
+      // yielded no value for any of them. Materializing it would produce a
+      // provider whose every request fails with a missing API key, so it is
+      // skipped — loudly, so status readers can see why it never appeared.
+      skipped.push({
+        cloudProviderId: provider.id,
+        providerId: runtimeProviderId(provider),
+        name: provider.name,
+        reason: "missing_credentials",
+      });
+      continue;
+    }
     materialized.push({
       provider,
       runtimeProviderId: runtimeProviderId(provider),
@@ -446,6 +484,7 @@ function prepareMaterialization(providers: DenProviderConnection[]): PreparedMat
     fingerprint: `owp:v1:${hashString(stableJson(fingerprintPayload))}`,
     providers: materialized,
     envEntries,
+    skipped,
   };
 }
 
@@ -499,6 +538,7 @@ export class CloudProviderSync {
   private session: CloudProviderDenSession | null = null;
   private lastRun: CloudProviderSyncStatus["lastRun"] = null;
   private providers: CloudProviderSyncStatusProvider[] = [];
+  private skippedProviders: CloudProviderSyncSkippedProvider[] = [];
   private fingerprint: string | null = null;
   private ownedEnvKeys = new Set<string>();
   private managedProviderIds = new Set<string>();
@@ -539,6 +579,7 @@ export class CloudProviderSync {
       } finally {
         this.lastRun = null;
         this.providers = [];
+        this.skippedProviders = [];
         this.fingerprint = null;
         this.ownedEnvKeys.clear();
         this.managedProviderIds.clear();
@@ -557,6 +598,8 @@ export class CloudProviderSync {
       hasSession: this.session !== null,
       lastRun: this.lastRun ? { ...this.lastRun } : null,
       providers: this.providers.map((provider) => ({ ...provider, modelIds: [...provider.modelIds] })),
+      reloadPending: this.reloadPending,
+      skippedProviders: this.skippedProviders.map((provider) => ({ ...provider })),
     };
   }
 
@@ -614,7 +657,25 @@ export class CloudProviderSync {
         try {
           await this.reloadEngine();
           this.reloadPending = false;
-        } catch {
+          // A landed retry settles a previously failed run: without this the
+          // status would stay "failed" forever even though the engine now
+          // serves every synced provider.
+          if (this.session && this.lastRun?.status === "failed") {
+            this.lastRun = {
+              at: new Date().toISOString(),
+              status: "applied",
+              message: "deferred engine reload landed",
+            };
+          }
+        } catch (error) {
+          // Never silent: a signed-in desktop whose engine keeps rejecting
+          // reloads must say so in status instead of reporting the last
+          // pass's stale outcome while models never arrive.
+          if (this.session) {
+            const message = error instanceof Error ? error.message : "cloud_provider_engine_reload_failed";
+            this.lastRun = { at: new Date().toISOString(), status: "failed", message };
+            this.logger?.warn("cloud provider engine reload retry failed", { message });
+          }
           this.scheduleReloadRetry();
         }
       });
@@ -647,9 +708,19 @@ export class CloudProviderSync {
     if (!session) return { status: "no_session" };
     try {
       const prepared = prepareMaterialization(await fetchProviders(this.fetchImpl, session));
-      const { changed, detail } = await this.apply(prepared);
+      const { changed, detail, reloadError } = await this.apply(prepared);
+      // The materialization itself succeeded (config + env writes landed), so
+      // record it even when the engine reload failed: hiding the providers
+      // made a reload-only failure indistinguishable from "nothing synced".
       this.updateProviderStatus(prepared);
+      this.skippedProviders = prepared.skipped;
       this.fingerprint = prepared.fingerprint;
+      if (reloadError) {
+        const message = reloadError instanceof Error ? reloadError.message : "cloud_provider_engine_reload_failed";
+        this.lastRun = { at: new Date().toISOString(), status: "failed", message, detail };
+        this.logger?.warn("cloud provider sync failed", { reason, message });
+        return { status: "failed", message };
+      }
       const status = changed ? "applied" : "noop";
       this.lastRun = { at: new Date().toISOString(), status, detail };
       return { status };
@@ -661,7 +732,9 @@ export class CloudProviderSync {
     }
   }
 
-  private async apply(prepared: PreparedMaterialization): Promise<{ changed: boolean; detail: CloudProviderSyncRunDetail }> {
+  private async apply(
+    prepared: PreparedMaterialization,
+  ): Promise<{ changed: boolean; detail: CloudProviderSyncRunDetail; reloadError?: unknown }> {
     const desiredProviders = desiredProviderMap(prepared);
     const globalRuntime = await readGlobalRuntimeOpencodeConfig(this.config);
     const currentManagedProviders = managedProviderMap(runtimeProviderMap(globalRuntime));
@@ -714,6 +787,10 @@ export class CloudProviderSync {
           this.reloadPending = false;
         } catch (error) {
           reloadError = error;
+          // Self-heal like the busy-deferral path: without this, a failed
+          // reload waited for the next external trigger (user gesture or the
+          // 5-minute interval) while the status kept promising the providers.
+          this.scheduleReloadRetry();
         }
       }
     }
@@ -723,7 +800,6 @@ export class CloudProviderSync {
       fetchImpl: this.fetchImpl,
       logger: this.logger,
     });
-    if (reloadError) throw reloadError;
 
     this.managedProviderIds = new Set(Object.keys(desiredProviders));
     const detail: CloudProviderSyncRunDetail = {
@@ -742,7 +818,7 @@ export class CloudProviderSync {
       || envDeletes.length > 0
       || workspaceCleanup.changed
       || runtimeFileChanged;
-    return { changed, detail };
+    return { changed, detail, reloadError };
   }
 
   private async cleanupWorkspaceTakeovers(): Promise<{ changed: boolean; runtimeChanged: boolean }> {
@@ -826,6 +902,8 @@ export class CloudProviderSync {
         this.reloadPending = false;
       } catch (error) {
         reloadError = error;
+        // Sign-out cleanup must still reach the engine once it recovers.
+        this.scheduleReloadRetry();
       }
     }
     await syncManagedProviderAuth({
