@@ -111,7 +111,7 @@ describe("session error resilience", () => {
     }
   })
 
-  test("renders an expandable abort row and a non-replaying recovery action", () => {
+  test("renders interrupted sessions without the intrusive recovery panel", () => {
     const message = createSessionErrorUIMessage(
       "assistant-turn",
       presentOpencodeSessionError({
@@ -141,9 +141,9 @@ describe("session error resilience", () => {
     )
 
     expect(html).toContain("Task interrupted")
-    expect(html).toContain("Output and files already produced are kept")
-    expect(html).toContain("Prepare recovery")
-    expect(html).toContain('aria-label="Show error details"')
-    expect(html).toContain('data-testid="session-error-details-trigger"')
+    expect(html).not.toContain("Output and files already produced are kept")
+    expect(html).not.toContain("Prepare recovery")
+    expect(html).not.toContain('aria-label="Show error details"')
+    expect(html).not.toContain('data-testid="session-error-details-trigger"')
   })
 })
