@@ -847,6 +847,7 @@ export function SessionRoute() {
     selectedWorkspaceEndpoint,
     selectedWorkspaceRoot,
     selectedWorkspaceId,
+    localServerHostToken: openworkServerHostInfoState?.hostToken?.trim() ?? "",
     setProviders,
     setProviderDefaults,
     setProviderConnectedIds,
