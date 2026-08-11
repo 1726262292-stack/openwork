@@ -18,7 +18,7 @@ import { createConnection } from "mysql2/promise";
 import type { ChildProcess } from "node:child_process";
 import type { DenRef, DenSession } from "@openwork/behaviors";
 import type { DbHandle, Place } from "./place.ts";
-import { ephemeralDatabaseName, localMysqlIsRunning } from "./place.ts";
+import { ephemeralDatabaseName, localMysqlIsRunning, localRedisIsRunning } from "./place.ts";
 import type { BootedMock, MockBoot, MockHandle } from "./mock.ts";
 import { SkipError } from "./needs.ts";
 
@@ -517,6 +517,9 @@ export async function server(options: ServerOptions): Promise<Den> {
 
   if (!await localMysqlIsRunning()) {
     throw new Error("Local Den requires MySQL on 127.0.0.1:3306. Run: pnpm dev:den:mysql");
+  }
+  if (!await localRedisIsRunning()) {
+    throw new Error("Local Den requires Redis on 127.0.0.1:6379. Run: redis-server --port 6379 --daemonize yes --save '' --appendonly no");
   }
 
   const bootedMocks = await bootLocalMocks(options.place, options.mocks ?? {});

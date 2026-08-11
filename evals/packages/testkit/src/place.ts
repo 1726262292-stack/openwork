@@ -93,6 +93,16 @@ export async function localMysqlIsRunning(): Promise<boolean> {
   return canConnect(port, url.hostname || "127.0.0.1");
 }
 
+/**
+ * den-api's dev script defaults DATABASE_REDIS_URL to redis://127.0.0.1:6379
+ * (root package.json, `${DATABASE_REDIS_URL:-...}`), and since #3679 its cached
+ * auth reads retry against that endpoint. An unreachable Redis therefore stalls
+ * sign-in instead of failing, so local lanes gate on it the way they gate MySQL.
+ */
+export async function localRedisIsRunning(): Promise<boolean> {
+  return canConnect(6379, "127.0.0.1");
+}
+
 class LocalPlace implements Place {
   readonly kind = "local";
   readonly #mysqlUrl: URL;

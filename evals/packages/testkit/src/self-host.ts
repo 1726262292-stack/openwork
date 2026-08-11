@@ -10,7 +10,7 @@ import { freePort, killLocalPid } from "@openwork/hosts";
 import type { ChildProcess } from "node:child_process";
 import type { DenRef } from "@openwork/behaviors";
 import type { DbHandle, Place } from "./place.ts";
-import { ephemeralDatabaseName, localMysqlIsRunning } from "./place.ts";
+import { ephemeralDatabaseName, localMysqlIsRunning, localRedisIsRunning } from "./place.ts";
 import { trustedOrigins } from "./server.ts";
 
 const execFileAsync = promisify(execFile);
@@ -158,6 +158,9 @@ export async function selfHostServer(options: SelfHostServerOptions): Promise<Se
   }
   if (!await localMysqlIsRunning()) {
     throw new Error("Local Den requires MySQL on 127.0.0.1:3306. Run: pnpm dev:den:mysql");
+  }
+  if (!await localRedisIsRunning()) {
+    throw new Error("Local Den requires Redis on 127.0.0.1:6379. Run: redis-server --port 6379 --daemonize yes --save '' --appendonly no");
   }
 
   const services: SpawnedService[] = [];
