@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { AutomationClaimResult, AutomationListItem } from "@openwork/automations"
-import { AUTOMATION_FREE_MODEL } from "@openwork/types/automations"
 import type {
+  AutomationDesktopRunnerCapability,
   AutomationDesktopRunnerResult,
   AutomationDesktopRunnerRegistration,
   AutomationRunEventType,
@@ -12,13 +12,21 @@ import type {
 } from "@openwork/types/automations"
 import { env } from "../env.js"
 import { isActiveAutomationOwner, resolveAutomationModelAccess } from "./authority.js"
+import { shouldApplyAutomationModelAccessFailure } from "./model-attention-rollout.js"
 import { automationRepository } from "./repository.js"
 import { validateSavedScriptAutomationAction } from "../codemode-scripts.js"
 
 const schedulerOwner = `den:${process.pid}:${randomUUID()}`
 
-type OwnerScope = { organizationId: string; ownerMemberId: string }
-export type DesktopRunnerScope = OwnerScope & { runnerId: string }
+type OwnerScope = {
+  organizationId: string
+  ownerMemberId: string
+  modelAttentionCapable?: boolean
+}
+export type DesktopRunnerScope = OwnerScope & {
+  runnerId: string
+  capabilities?: readonly AutomationDesktopRunnerCapability[]
+}
 
 const desktopLeaseOwner = (scope: DesktopRunnerScope) => `desktop:${scope.ownerMemberId}:${scope.runnerId}`
 
@@ -30,9 +38,9 @@ function sameModel(left: ModelSelection, right: ModelSelection) {
     && (left.variant ?? null) === (right.variant ?? null)
 }
 
-function isLegacyFreeModel(model: ModelSelection) {
-  return model.providerId === AUTOMATION_FREE_MODEL.providerId
-    && model.modelId === AUTOMATION_FREE_MODEL.modelId
+function supportsModelAttention(scope: OwnerScope | DesktopRunnerScope) {
+  return scope.modelAttentionCapable === true
+    || ("capabilities" in scope && scope.capabilities?.includes("model_attention_v1") === true)
 }
 
 export type CloudSavedScriptExecution =
@@ -57,13 +65,13 @@ export class AutomationService {
     const page = await automationRepository.list({ ...scope, cursor: input.cursor, limit: input.limit ?? 50 })
     return {
       ...page,
-      items: await Promise.all(page.items.map((item) => this.reconcileModelAttention(item))),
+      items: await Promise.all(page.items.map((item) => this.reconcileModelAttention(item, scope))),
     }
   }
 
   async get(scope: OwnerScope, automationId: string) {
     const item = await automationRepository.get({ ...scope, automationId })
-    return item ? this.reconcileModelAttention(item) : null
+    return item ? this.reconcileModelAttention(item, scope) : null
   }
 
   async create(scope: OwnerScope, definition: CreateAutomationDefinition) {
@@ -81,7 +89,7 @@ export class AutomationService {
       await this.requireNewModel(scope, definition.model)
     }
     const created = await automationRepository.create({ ...scope, definition, now: Date.now() })
-    return this.reconcileModelAttention(created)
+    return this.reconcileModelAttention(created, scope)
   }
 
   async update(scope: OwnerScope, automationId: string, changes: UpdateAutomation) {
@@ -101,7 +109,7 @@ export class AutomationService {
       if (!sameModel(requestedModel, current.revision.model)) await this.requireNewModel(scope, requestedModel)
     }
     const updated = await automationRepository.update({ ...scope, automationId, changes, now: Date.now() })
-    return this.reconcileModelAttention(updated)
+    return this.reconcileModelAttention(updated, scope)
   }
 
   async activate(scope: OwnerScope, automationId: string) {
@@ -111,7 +119,7 @@ export class AutomationService {
       if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
     }
     const activated = await automationRepository.setState({ ...scope, automationId, state: "active", now: Date.now() })
-    return activated ? this.reconcileModelAttention(activated) : null
+    return activated ? this.reconcileModelAttention(activated, scope) : null
   }
 
   deactivate(scope: OwnerScope, automationId: string) {
@@ -130,7 +138,11 @@ export class AutomationService {
       if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
     } else if (!blocked) {
       const access = await resolveAutomationModelAccess({ ...scope, ...current.revision.model })
-      if (!access.ok) blocked = { code: access.code, message: access.message, occurredAt: Date.now() }
+      if (!access.ok && shouldApplyAutomationModelAccessFailure({
+        model: current.revision.model,
+        failure: access,
+        modelAttentionCapable: supportsModelAttention(scope),
+      })) blocked = { code: access.code, message: access.message, occurredAt: Date.now() }
     }
     if (blocked) {
       const now = Date.now()
@@ -222,7 +234,13 @@ export class AutomationService {
         throw error
       }
       if (claim.kind !== "claimed") continue
-      if (!access.ok) {
+      if (!access.ok && shouldApplyAutomationModelAccessFailure({
+        model: item.revision.model,
+        failure: access,
+        // Scheduling must remain compatible until a capable desktop claims
+        // the work or a capable management client reconciles the Automation.
+        modelAttentionCapable: false,
+      })) {
         await automationRepository.skipRun({ runId: claim.run.id, code: access.code, message: access.message, now })
         await automationRepository.markNeedsAttention({
           automationId: item.automation.id,
@@ -241,7 +259,17 @@ export class AutomationService {
   async stop(): Promise<void> {}
 
   registerDesktopRunner(scope: OwnerScope, registration: AutomationDesktopRunnerRegistration) {
-    return automationRepository.registerDesktopRunner({ ...scope, ...registration, now: Date.now() })
+    return automationRepository.registerDesktopRunner({
+      organizationId: scope.organizationId,
+      ownerMemberId: scope.ownerMemberId,
+      runnerId: registration.runnerId,
+      protocolVersion: registration.protocolVersion,
+      supportedExecutionTargets: registration.supportedExecutionTargets,
+      appVersion: registration.appVersion,
+      platform: registration.platform,
+      concurrency: registration.concurrency,
+      now: Date.now(),
+    })
   }
 
   /** Runner tokens are revoked in effect the moment the owner leaves the org. */
@@ -275,7 +303,11 @@ export class AutomationService {
       ownerMemberId: scope.ownerMemberId,
       ...claimed.revision.model,
     })
-    if (!access.ok) {
+    if (!access.ok && shouldApplyAutomationModelAccessFailure({
+      model: claimed.revision.model,
+      failure: access,
+      modelAttentionCapable: supportsModelAttention(scope),
+    })) {
       const now = Date.now()
       await automationRepository.skipRun({
         runId: claimed.run.id,
@@ -363,28 +395,35 @@ export class AutomationService {
   }
 
   /**
-   * New selections still require current authority. The exact legacy Zen
-   * selection is the rollout exception: published clients may continue to
-   * submit it, after which reconciliation returns the repairable attention
-   * state instead of a 409 they do not understand.
+   * New capable clients require current authority. Published clients may
+   * continue submitting the exact legacy Zen selection until they advertise
+   * support for the repairable attention state.
    */
   private async requireNewModel(scope: OwnerScope, model: ModelSelection) {
     const result = await resolveAutomationModelAccess({ ...scope, ...model })
-    if (!result.ok && !(result.code === "model_access_lost" && isLegacyFreeModel(model))) {
+    if (!result.ok && shouldApplyAutomationModelAccessFailure({
+      model,
+      failure: result,
+      modelAttentionCapable: supportsModelAttention(scope),
+    })) {
       const error = new Error(result.message)
       error.name = result.code
       throw error
     }
   }
 
-  private async reconcileModelAttention(item: AutomationListItem): Promise<AutomationListItem> {
+  private async reconcileModelAttention(item: AutomationListItem, scope: OwnerScope): Promise<AutomationListItem> {
     if (item.automation.state !== "active" || item.revision.action?.kind === "saved_script") return item
     const access = await resolveAutomationModelAccess({
       organizationId: item.automation.organizationId,
       ownerMemberId: item.automation.ownerMemberId,
       ...item.revision.model,
     })
-    if (access.ok) return item
+    if (access.ok || !shouldApplyAutomationModelAccessFailure({
+      model: item.revision.model,
+      failure: access,
+      modelAttentionCapable: supportsModelAttention(scope),
+    })) return item
     const now = Date.now()
     await automationRepository.markNeedsAttention({
       automationId: item.automation.id,

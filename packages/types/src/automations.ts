@@ -176,10 +176,16 @@ export type AutomationExecutionThread = z.infer<typeof automationExecutionThread
 export const automationExecutionTargetSchema = z.enum(["desktop", "cloud"])
 export type AutomationExecutionTarget = z.infer<typeof automationExecutionTargetSchema>
 
+export const AUTOMATION_MODEL_ATTENTION_CAPABILITY = "model_attention_v1" as const
+export const AUTOMATION_MODEL_ATTENTION_CAPABILITY_HEADER = "x-openwork-automation-model-attention" as const
+export const automationDesktopRunnerCapabilitySchema = z.literal(AUTOMATION_MODEL_ATTENTION_CAPABILITY)
+export type AutomationDesktopRunnerCapability = z.infer<typeof automationDesktopRunnerCapabilitySchema>
+
 export const automationDesktopRunnerRegistrationSchema = z.object({
   runnerId: idSchema.min(8),
   protocolVersion: z.literal(1),
   supportedExecutionTargets: z.array(z.literal("desktop")).length(1),
+  capabilities: z.array(automationDesktopRunnerCapabilitySchema).max(1).default([]),
   appVersion: z.string().trim().min(1).max(80),
   platform: z.enum(["darwin", "win32", "linux"]),
   concurrency: z.number().int().min(1).max(4),

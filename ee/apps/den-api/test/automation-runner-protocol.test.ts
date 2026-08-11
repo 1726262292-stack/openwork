@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+  AUTOMATION_MODEL_ATTENTION_CAPABILITY,
   automationDesktopRunnerAssignmentSchema,
   automationDesktopRunnerRegistrationSchema,
   automationRunnerEventRequestSchema,
@@ -42,7 +43,15 @@ test("runner registration and assignment reject unsupported targets", () => {
     platform: "darwin",
     concurrency: 1,
   }
-  assert.equal(automationDesktopRunnerRegistrationSchema.safeParse(registration).success, true)
+  expectRegistrationCapabilities(registration, [])
+  expectRegistrationCapabilities({
+    ...registration,
+    capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+  }, [AUTOMATION_MODEL_ATTENTION_CAPABILITY])
+  assert.equal(automationDesktopRunnerRegistrationSchema.safeParse({
+    ...registration,
+    capabilities: ["unknown_capability"],
+  }).success, false)
   assert.equal(automationDesktopRunnerRegistrationSchema.safeParse({
     ...registration,
     supportedExecutionTargets: ["sandbox"],
@@ -59,6 +68,14 @@ test("runner registration and assignment reject unsupported targets", () => {
     attempt: 1,
   }).success, false)
 })
+
+function expectRegistrationCapabilities(
+  registration: Record<string, unknown>,
+  expected: string[],
+) {
+  const parsed = automationDesktopRunnerRegistrationSchema.parse(registration)
+  assert.deepEqual(parsed.capabilities, expected)
+}
 
 test("heartbeats and ordered events are bound to the claimed attempt", () => {
   assert.equal(automationRunnerHeartbeatResponseSchema.safeParse({
@@ -127,6 +144,8 @@ test("runner credential minting is never exposed as an MCP tool", () => {
   }), false, "the operation-id blocklist must override an explicit x-mcp opt-in")
   const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
   assert.match(routesSource, /operationId: "mintAutomationRunnerToken", "x-mcp": false/)
+  assert.match(routesSource, /capabilities: registration\.capabilities/)
+  assert.match(routesSource, /AUTOMATION_MODEL_ATTENTION_CAPABILITY_HEADER/)
 })
 
 test("every runner endpoint re-checks that the token owner is still an active member", () => {
@@ -190,15 +209,18 @@ test("every dispatch path revalidates the owner's model access", () => {
   const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const tick = serviceSource.slice(serviceSource.indexOf("async tick"), serviceSource.indexOf("async stop"))
   assert.match(tick, /resolveAutomationModelAccess\(\{\s*organizationId: item\.automation\.organizationId/)
-  assert.match(tick, /if \(!access\.ok\) \{\s*await automationRepository\.skipRun\(/)
+  assert.match(tick, /shouldApplyAutomationModelAccessFailure\(\{[\s\S]*modelAttentionCapable: false/)
+  assert.match(tick, /await automationRepository\.skipRun\(/)
   const claim = serviceSource.slice(
     serviceSource.indexOf("async claimDesktopRunner"),
     serviceSource.indexOf("heartbeatDesktopRunner"),
   )
   assert.match(claim, /resolveAutomationModelAccess\(\{\s*organizationId: scope\.organizationId/)
-  assert.match(claim, /if \(!access\.ok\) \{[\s\S]*skipRun\([\s\S]*return null/)
+  assert.match(claim, /shouldApplyAutomationModelAccessFailure\(\{[\s\S]*supportsModelAttention\(scope\)/)
+  assert.match(claim, /skipRun\([\s\S]*return null/)
   const runNow = serviceSource.slice(serviceSource.indexOf("async runNow"), serviceSource.indexOf("listRuns"))
-  assert.match(runNow, /await this\.requireModel\(scope, current\.revision\.model\)/)
+  assert.match(runNow, /resolveAutomationModelAccess\(\{ \.\.\.scope, \.\.\.current\.revision\.model \}\)/)
+  assert.match(runNow, /shouldApplyAutomationModelAccessFailure\(\{[\s\S]*supportsModelAttention\(scope\)/)
 })
 
 test("runner protocol endpoints carry no operation id and stay out of the MCP catalog", () => {

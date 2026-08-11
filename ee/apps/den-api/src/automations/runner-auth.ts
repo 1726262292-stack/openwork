@@ -1,4 +1,8 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
+import {
+  AUTOMATION_MODEL_ATTENTION_CAPABILITY,
+  type AutomationDesktopRunnerCapability,
+} from "@openwork/types/automations"
 import { env } from "../env.js"
 
 const TOKEN_TTL_MS = 12 * 60 * 60_000
@@ -8,6 +12,7 @@ export type AutomationRunnerIdentity = {
   organizationId: string
   ownerMemberId: string
   runnerId: string
+  capabilities: AutomationDesktopRunnerCapability[]
   audience: string | null
   expiresAt: number
 }
@@ -55,6 +60,7 @@ export class AutomationRunnerAuth {
       o: scope.organizationId,
       m: scope.ownerMemberId,
       r: scope.runnerId,
+      c: scope.capabilities,
       a: normalizedAudience,
       e: expiresAt,
     })).toString("base64url")
@@ -76,11 +82,19 @@ export class AutomationRunnerAuth {
       const audience = decoded.v === 2 && typeof decoded.a === "string"
         ? normalizeRunnerAudience(decoded.a)
         : null
+      const capabilities = decoded.c === undefined
+        ? []
+        : Array.isArray(decoded.c)
+            && decoded.c.length <= 1
+            && decoded.c.every((capability) => capability === AUTOMATION_MODEL_ATTENTION_CAPABILITY)
+          ? decoded.c as AutomationDesktopRunnerCapability[]
+          : null
       if (
         (decoded.v !== 1 && decoded.v !== 2)
         || typeof decoded.o !== "string"
         || typeof decoded.m !== "string"
         || typeof decoded.r !== "string"
+        || capabilities === null
         || (decoded.v === 2 && !audience)
         || typeof decoded.e !== "number"
         || !Number.isSafeInteger(decoded.e)
@@ -90,6 +104,7 @@ export class AutomationRunnerAuth {
         organizationId: decoded.o,
         ownerMemberId: decoded.m,
         runnerId: decoded.r,
+        capabilities,
         audience,
         expiresAt: decoded.e,
       }
