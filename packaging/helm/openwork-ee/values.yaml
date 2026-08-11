@@ -123,7 +123,7 @@ observability:
     dsnSecret:
       existingSecret: ""
       key: SENTRY_DSN
-    tracesSampleRate: "1"
+    tracesSampleRate: "0.01"
     environment: ""
     release: ""
     dist: ""

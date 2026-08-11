@@ -453,10 +453,14 @@ observability:
     dsnSecret:
       existingSecret: openwork-sentry-runtime
       key: SENTRY_DSN
-    tracesSampleRate: "1"
+    tracesSampleRate: "0.01"
     environment: production
     release: "2026.07.11"
 ```
+
+Sentry Logs default to warning-and-error only through `SENTRY_LOG_LEVEL=warn`.
+Set `SENTRY_LOG_LEVEL=info` only during short debugging windows if you need
+successful request logs in Sentry; stdout JSON logs remain available either way.
 
 Sentry source-map upload is build-time behavior. Helm configures runtime pods
 after images already exist, so it cannot retroactively upload source maps for

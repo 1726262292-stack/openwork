@@ -44,6 +44,7 @@ import { registerWorkerRoutes } from "./routes/workers/index.js"
 import type { AuthContextVariables } from "./session.js"
 import { sessionMiddleware } from "./session.js"
 import { isOperationalErrorPath, normalizeOperationalErrorResponse, operationalErrorResponse } from "./operational-errors.js"
+import { sanitizePublicResponseHeaders } from "./public-response-headers.js"
 
 type AppVariables = RequestIdVariables & AuthContextVariables & Partial<UserOrganizationsContext> & Partial<OrganizationContextVariables> & Partial<MemberTeamsContext>
 
@@ -81,7 +82,7 @@ app.use("*", requestId({
 }))
 app.use("*", async (c, next) => {
   await next()
-  c.header("X-Request-Id", c.get("requestId"))
+  sanitizePublicResponseHeaders(c.res.headers)
 })
 app.use("*", async (c, next) => {
   await next()
@@ -128,7 +129,7 @@ if (env.corsOrigins.length > 0) {
         credentials: true,
         allowHeaders: ["Content-Type", "Authorization", "X-Api-Key", "X-Request-Id", "X-OpenWork-Legacy-Org-Id"],
         allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        exposeHeaders: ["Content-Length", "X-Request-Id"],
+        exposeHeaders: ["Content-Length"],
         maxAge: 600,
     }),
   )
