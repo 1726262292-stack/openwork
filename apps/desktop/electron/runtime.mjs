@@ -206,6 +206,32 @@ function snapshotOpenworkServerState(state) {
   };
 }
 
+/**
+ * A failed server start must not leave the state objects describing the
+ * runtime it already stopped: snapshotOpenworkServerState would report
+ * running:true with a dead baseUrl and assertOpenworkServerReady would pass
+ * against it. Keeps accumulated output for diagnostics and the project dir so
+ * a retry via engineRestart still knows its workspace. The engine state only
+ * resets when this start owned the engine (manageOpencode) — an external
+ * engine keeps running regardless of the server's fate.
+ */
+export function resetRuntimeStatesAfterFailedServerStart(openworkServerStateRef, engineStateRef, options = {}) {
+  const serverStdout = openworkServerStateRef.lastStdout;
+  const serverStderr = openworkServerStateRef.lastStderr;
+  Object.assign(openworkServerStateRef, createOpenworkServerState());
+  openworkServerStateRef.lastStdout = serverStdout;
+  openworkServerStateRef.lastStderr = serverStderr;
+  if (options.manageOpencode === true) {
+    const engineStdout = engineStateRef.lastStdout;
+    const engineStderr = engineStateRef.lastStderr;
+    const projectDir = engineStateRef.projectDir;
+    Object.assign(engineStateRef, createEngineState());
+    engineStateRef.lastStdout = engineStdout;
+    engineStateRef.lastStderr = engineStderr;
+    engineStateRef.projectDir = projectDir;
+  }
+}
+
 function assertOpenworkServerReady(snapshot) {
   if (!snapshot?.running) {
     throw new Error("OpenWork server did not stay running after startup.");
@@ -1550,6 +1576,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   let inProcessServer = null;
 
   async function startOpenworkServer(options) {
+    // The inner start stops any previous runtime before mutating state, so a
+    // throw below always happens with nothing left running.
+    try {
+      return await startOpenworkServerInner(options);
+    } catch (error) {
+      resetRuntimeStatesAfterFailedServerStart(openworkServerState, engineState, options);
+      throw error;
+    }
+  }
+
+  async function startOpenworkServerInner(options) {
     const evalDelayMs = resolveEvalLocalServerDelayMs();
     if (evalDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, evalDelayMs));
