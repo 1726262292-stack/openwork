@@ -1,7 +1,10 @@
-import { expect } from "vitest";
+import { expect, onTestFinished } from "vitest";
 import {
+  createNativeConnector,
   createOrgConnection,
+  deleteConnection,
   denFetch,
+  freshSession,
   evalIn,
   readComposerState,
   readSessionToolCalls,
@@ -318,6 +321,104 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
   );
   expect(workersProbeText).toContain("builder-1");
 
+  const denNamesProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "execute_capability_script", {
+    code: `return Object.keys(tools.den).sort()`,
+  });
+  const denNamesText = toolText(denNamesProbe);
+  const denNamesValue: unknown = JSON.parse(denNamesText);
+  const denNames = Array.isArray(denNamesValue) ? denNamesValue.filter((name): name is string => typeof name === "string") : [];
+  const workersOperationName = workersPath.slice("tools.den.".length);
+  const leakedNativeNames = denNames.filter((name) => {
+    const normalized = name.toLowerCase();
+    return normalized.includes("googleworkspace") || normalized.includes("microsoft365");
+  });
+  evidence.fact(
+    "Credential-bound native provider operations are not reachable through the shared Den namespace, while ordinary Den capabilities remain available",
+    `tools.den names: ${JSON.stringify(denNames).slice(0, 500)}; native operation names: ${JSON.stringify(leakedNativeNames)}; expected workers operation: ${workersOperationName}`,
+    leakedNativeNames.length === 0 && denNames.length > 0 && denNames.includes(workersOperationName),
+  );
+  expect(leakedNativeNames).toEqual([]);
+  expect(denNames.length).toBeGreaterThan(0);
+  expect(denNames).toContain(workersOperationName);
+
+  const telegramProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "execute_capability_script", {
+    code: `return Object.keys(tools.den).filter((name) => name.toLowerCase().includes("telegram"))`,
+  });
+  const telegramText = toolText(telegramProbe);
+  const telegramValue: unknown = JSON.parse(telegramText);
+  const telegramNames = Array.isArray(telegramValue)
+    ? telegramValue.filter((name): name is string => typeof name === "string")
+    : [];
+  evidence.fact(
+    "Telegram capability operations remain reachable through the shared Den namespace",
+    `Telegram tools.den names: ${JSON.stringify(telegramNames)}`,
+    telegramNames.length > 0,
+  );
+  expect(telegramNames.length).toBeGreaterThan(0);
+
+  const unconnectedGoogle = await createNativeConnector(den.admin, {
+    providerKey: "google-workspace",
+    name: "Unconnected Google Rail Probe",
+    clientId: "unconnected-google-rail-client",
+    clientSecret: "unconnected-google-rail-secret",
+    access: { orgWide: true },
+  });
+  let unconnectedGoogleDeleted = false;
+  onTestFinished(async () => {
+    if (!unconnectedGoogleDeleted) {
+      try {
+        await deleteConnection(den.admin, unconnectedGoogle.id);
+      } catch {
+        // A local test Den may already be disposed when Vitest runs cleanup.
+      }
+    }
+  });
+  const unconnectedNamespace = "unconnected_google_rail_probe";
+  const unconnectedNamespacesProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "execute_capability_script", {
+    code: `return Object.keys(tools).sort()`,
+  });
+  const unconnectedNamespacesText = toolText(unconnectedNamespacesProbe);
+  const unconnectedNamespacesValue: unknown = JSON.parse(unconnectedNamespacesText);
+  const unconnectedNamespaces = Array.isArray(unconnectedNamespacesValue)
+    ? unconnectedNamespacesValue.filter((name): name is string => typeof name === "string")
+    : [];
+  // Closed-world: asserting one guessed namespace is absent would pass even if the
+  // sanitizer produced a different name, so pin the whole namespace set instead.
+  const expectedNamespaces = ["$codemode", "den", "drive_mock", "gmail_mock"];
+  evidence.fact(
+    "An unconnected native provider does not surface a callable script namespace",
+    `Object.keys(tools): ${JSON.stringify(unconnectedNamespaces)}; expected exactly: ${JSON.stringify(expectedNamespaces)}`,
+    JSON.stringify(unconnectedNamespaces) === JSON.stringify(expectedNamespaces),
+  );
+  expect(unconnectedNamespaces).toEqual(expectedNamespaces);
+  expect(unconnectedNamespaces).not.toContain(unconnectedNamespace);
+
+  const unconnectedSearchProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "search_capabilities", {
+    query: "Unconnected Google Rail Probe Gmail",
+    limit: 20,
+  });
+  const unconnectedSearchPayload = requireRecord(JSON.parse(toolText(unconnectedSearchProbe)), "unconnected Google search payload");
+  const unconnectedSearchMatches = Array.isArray(unconnectedSearchPayload.matches)
+    ? unconnectedSearchPayload.matches.filter(isRecord)
+    : [];
+  const unconnectedConnectionMatches = unconnectedSearchMatches.filter((match) =>
+    String(match.name ?? "").includes(unconnectedGoogle.id)
+    || (isRecord(match.connectionStatus) && match.connectionStatus.connectionName === unconnectedGoogle.name));
+  const unconnectedStatusOnly = unconnectedConnectionMatches.length > 0
+    && unconnectedConnectionMatches.every((match) =>
+      match.kind === "connection_status"
+      && match.status === "needs_connection"
+      && typeof match.scriptPath === "undefined");
+  evidence.fact(
+    "Capability search reports the unconnected Google provider as needing connection, never as a callable capability",
+    `Matching search rows: ${JSON.stringify(unconnectedConnectionMatches).slice(0, 500)}`,
+    unconnectedStatusOnly,
+  );
+  expect(unconnectedConnectionMatches.length).toBeGreaterThan(0);
+  expect(unconnectedStatusOnly).toBe(true);
+  await deleteConnection(den.admin, unconnectedGoogle.id);
+  unconnectedGoogleDeleted = true;
+
   // ---- Frames 2+3: one script step instead of a call per worker -------------
   await using desktopApp = await app({ den, as: "admin", place, ...(modelId ? { model: modelId } : {}) });
   await waitFor(desktopApp, `location.hash.includes('/session')`, { timeoutMs: 60_000, label: "session route" });
@@ -529,9 +630,13 @@ return { drive, gmail }`,
   expect(runsSeen.ok, runsSeen.why).toBe(true);
 
   // ---- Frame 7b: disabling a tool makes dependent saved scripts fail closed --
-  const mentionsPlugin = await denFetch(den.admin, "/v1/plugins", {
+  // Org-wide plugin creation is a step-up-protected admin write, and this spec runs
+  // long enough for the admin session's fresh-auth window to lapse. Re-authenticate
+  // first, the same way behaviors' connection helpers do on `reauth`.
+  const freshAdmin = await freshSession(den.admin);
+  const mentionsPlugin = await denFetch(freshAdmin, "/v1/plugins", {
     method: "POST",
-    headers: { authorization: `Bearer ${den.admin.token}` },
+    headers: { authorization: `Bearer ${freshAdmin.token}` },
     body: JSON.stringify({
       name: "offsite-mentions-report",
       description: "Echoes offsite mentions through the Drive Mock connection",

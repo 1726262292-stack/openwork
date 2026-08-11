@@ -72,6 +72,7 @@
     "release:review": "node scripts/release/review.mjs",
     "release:prepare": "node scripts/release/prepare.mjs",
     "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",
+    "release:rollback": "node scripts/release/rollback.mjs",
     "release:ship": "node scripts/release/ship.mjs",
     "release:ship:watch": "node scripts/release/ship.mjs --watch"
   },

@@ -534,6 +534,7 @@ async function insertMemberIfMissing(input: {
     defaultRole: input.role,
   })
   if (invitedMember) {
+    await cache.org.deleteMembers(input.organizationId)
     return invitedMember
   }
 
@@ -553,6 +554,7 @@ async function insertMemberIfMissing(input: {
       role: input.role,
       joinedAt: new Date(),
     })
+    await cache.org.deleteMembers(input.organizationId)
   } catch {}
 
   const created = await db
