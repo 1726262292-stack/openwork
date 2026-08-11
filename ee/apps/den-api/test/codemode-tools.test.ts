@@ -1,6 +1,8 @@
 import { beforeAll, expect, test } from "bun:test"
 import { Tool } from "@openwork/codemode"
 import { Effect } from "effect"
+import { Hono } from "hono"
+import { buildMcpCatalog } from "../src/mcp/catalog.js"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -10,19 +12,32 @@ function seedRequiredEnv() {
 }
 
 let buildExternalNamespaceMap: typeof import("../src/mcp/codemode-tools.js")["buildExternalNamespaceMap"]
+let buildCodemodeConnectionNamespaceMaps: typeof import("../src/mcp/codemode-tools.js")["buildCodemodeConnectionNamespaceMaps"]
+let buildDenCatalogToolTree: typeof import("../src/mcp/codemode-tools.js")["buildDenCatalogToolTree"]
+let buildNativeProviderManifest: typeof import("../src/mcp/codemode-tools.js")["buildNativeProviderManifest"]
+let CAPABILITY_SOURCE_KINDS: typeof import("../src/mcp/codemode-tools.js")["CAPABILITY_SOURCE_KINDS"]
+let CODEMODE_SOURCE_PARTICIPATION: typeof import("../src/mcp/codemode-tools.js")["CODEMODE_SOURCE_PARTICIPATION"]
 let isCodemodeEligibleConnection: typeof import("../src/mcp/codemode-tools.js")["isCodemodeEligibleConnection"]
 let firstUnattendedUnsafeCapability: typeof import("../src/mcp/codemode-tools.js")["firstUnattendedUnsafeCapability"]
 let restrictCodemodeToolTree: typeof import("../src/mcp/codemode-tools.js")["restrictCodemodeToolTree"]
 let sanitizeNamespaceSegment: typeof import("../src/mcp/codemode-tools.js")["sanitizeNamespaceSegment"]
+let parseNativeCapabilityName: typeof import("../src/mcp/native-capabilities.js")["parseNativeCapabilityName"]
 
 beforeAll(async () => {
   seedRequiredEnv()
   const codemodeTools = await import("../src/mcp/codemode-tools.js")
+  const nativeCapabilities = await import("../src/mcp/native-capabilities.js")
   buildExternalNamespaceMap = codemodeTools.buildExternalNamespaceMap
+  buildCodemodeConnectionNamespaceMaps = codemodeTools.buildCodemodeConnectionNamespaceMaps
+  buildDenCatalogToolTree = codemodeTools.buildDenCatalogToolTree
+  buildNativeProviderManifest = codemodeTools.buildNativeProviderManifest
+  CAPABILITY_SOURCE_KINDS = codemodeTools.CAPABILITY_SOURCE_KINDS
+  CODEMODE_SOURCE_PARTICIPATION = codemodeTools.CODEMODE_SOURCE_PARTICIPATION
   isCodemodeEligibleConnection = codemodeTools.isCodemodeEligibleConnection
   firstUnattendedUnsafeCapability = codemodeTools.firstUnattendedUnsafeCapability
   restrictCodemodeToolTree = codemodeTools.restrictCodemodeToolTree
   sanitizeNamespaceSegment = codemodeTools.sanitizeNamespaceSegment
+  parseNativeCapabilityName = nativeCapabilities.parseNativeCapabilityName
 })
 
 test("sanitizes connection names into interpreter-safe namespaces", () => {
@@ -88,4 +103,100 @@ test("allows only first-party read-only Den capabilities in unattended Cloud run
   expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: true, authority: "external" as const }] }, [required])).toEqual(required)
   expect(firstUnattendedUnsafeCapability({ ...built, manifest: [{ ...required, readOnly: false, authority: "den" as const }] }, [required])).toEqual(required)
   expect(firstUnattendedUnsafeCapability({ ...built, manifest: [] }, [required])).toEqual(required)
+})
+
+test("excludes credential-bound native routes from the Den namespace and manifest", () => {
+  const catalog = buildMcpCatalog({
+    paths: {
+      "/v1/workers": {
+        get: { operationId: "getV1Workers", tags: ["Workers"] },
+      },
+      "/v1/capabilities/google-workspace/gmail/messages": {
+        get: {
+          operationId: "getV1CapabilitiesGoogleWorkspaceGmailMessages",
+          tags: ["Capability Sources"],
+        },
+      },
+      "/v1/capabilities/microsoft-365/calendar/events": {
+        get: {
+          operationId: "getV1CapabilitiesMicrosoft365CalendarEvents",
+          tags: ["Capability Sources"],
+        },
+      },
+      "/v1/capabilities/telegram/status": {
+        get: {
+          operationId: "getV1CapabilitiesTelegramStatus",
+          tags: ["Capability Sources"],
+        },
+      },
+    },
+  })
+  const built = buildDenCatalogToolTree({
+    app: new Hono(),
+    env: undefined,
+    catalog,
+    principal: { userId: "user", organizationId: "organization", scopes: new Set(["mcp:read"]), payload: {} },
+  })
+
+  expect(built.tools.den?.getCapabilitiesGoogleWorkspaceGmailMessages).toBeUndefined()
+  expect(built.tools.den?.getCapabilitiesMicrosoft365CalendarEvents).toBeUndefined()
+  expect(built.tools.den?.getCapabilitiesTelegramStatus).toBeDefined()
+  expect(built.tools.den?.getWorkers).toBeDefined()
+  const manifestPaths = built.manifest.map((entry) => entry.scriptPath)
+  expect(manifestPaths).toContain("tools.den.getCapabilitiesTelegramStatus")
+  expect(manifestPaths).toContain("tools.den.getWorkers")
+  // Absence asserted by scriptPath, not by whole-object equality: extra manifest
+  // fields (readOnly/authority) would make an object comparison pass vacuously.
+  expect(manifestPaths).not.toContain("tools.den.getCapabilitiesGoogleWorkspaceGmailMessages")
+  expect(manifestPaths).not.toContain("tools.den.getCapabilitiesMicrosoft365CalendarEvents")
+})
+
+test("allocates native and external namespaces from one collision set", () => {
+  const namespaces = buildCodemodeConnectionNamespaceMaps({
+    native: [
+      { id: "native-den", name: "den" },
+      { id: "native-codemode", name: "$codemode" },
+      { id: "native-shared", name: "Shared" },
+    ],
+    externalMcp: [
+      { id: "external-shared", name: "Shared" },
+      { id: "external-constructor", name: "constructor" },
+    ],
+  })
+  const allocated = [...namespaces.native.values(), ...namespaces.externalMcp.values()]
+
+  expect(new Set(allocated).size).toBe(allocated.length)
+  expect(allocated).not.toContain("den")
+  expect(allocated).not.toContain("$codemode")
+  expect(allocated).not.toContain("constructor")
+  expect(namespaces.native.get("native-shared")).toBe("shared")
+  expect(namespaces.externalMcp.get("external-shared")).toBe("shared_2")
+})
+
+test("declares Code Mode participation for every capability source kind", () => {
+  expect(Object.keys(CODEMODE_SOURCE_PARTICIPATION).sort()).toEqual([...CAPABILITY_SOURCE_KINDS].sort())
+})
+
+test("native manifest capability names round-trip through the native parser", () => {
+  const catalog = buildMcpCatalog({
+    paths: {
+      "/v1/capabilities/google-workspace/gmail/messages": {
+        get: {
+          operationId: "getV1CapabilitiesGoogleWorkspaceGmailMessages",
+          tags: ["Capability Sources"],
+        },
+      },
+    },
+  })
+  const manifest = buildNativeProviderManifest({
+    connections: [{ id: "native-connection", nativeProviderKey: "google-workspace" }],
+    catalog,
+    namespaces: new Map([["native-connection", "google_workspace"]]),
+  })
+
+  expect(manifest).toHaveLength(1)
+  expect(parseNativeCapabilityName(manifest[0]?.capabilityName ?? "")).toEqual({
+    connectionId: "native-connection",
+    toolName: "getCapabilitiesGoogleWorkspaceGmailMessages",
+  })
 })

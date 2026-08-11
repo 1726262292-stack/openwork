@@ -32,7 +32,8 @@ import {
 } from "./builtin-skills.js"
 import { executeNativeCapability, searchNativeCapabilities } from "./native-capabilities.js"
 import { externalToolContent, type AgentToolContentPart } from "./tool-content.js"
-import { buildCodemodeToolTree, codemodeScriptPath } from "./codemode-tools.js"
+import { buildCodemodeToolTree, codemodeScriptPath, isCredentialBoundNativeOperation } from "./codemode-tools.js"
+import { resolveCodemodeConnectionNamespaceContext } from "./codemode-namespaces.js"
 import { runCodemodeScript } from "./codemode-run.js"
 import { recordCodemodeScriptResult } from "../codemode-runs.js"
 
@@ -478,8 +479,15 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         const boundedLimit = limit ?? 5
         const sourceFilter = searchCapabilitySourceFilter(type)
         const marketplaceObjectTypes = type === "skills" ? skillMarketplaceObjectTypes : undefined
+        const namespaceContext = codemodeEnabled && memberIdentity && (sourceFilter.api || sourceFilter.mcp)
+          ? await resolveCodemodeConnectionNamespaceContext({
+            organizationId: principal.organizationId,
+            member: memberIdentity,
+            includeExternalMcp: externalMcpConnectionsEnabled,
+          })
+          : undefined
         const restMatches = sourceFilter.api
-          ? searchCapabilities(catalog, query, boundedLimit).map((match) => codemodeEnabled
+          ? searchCapabilities(catalog.filter((operation) => !isCredentialBoundNativeOperation(operation)), query, boundedLimit).map((match) => codemodeEnabled
             ? { ...match, scriptPath: codemodeScriptPath("den", match.name) }
             : match)
           : []
@@ -490,6 +498,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             query,
             catalog,
             limit: boundedLimit,
+            includeScriptPaths: codemodeEnabled,
+            namespaceContext,
           })
           : []
         const adminMatches = sourceFilter.admin
@@ -511,6 +521,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             redirectUriBase: resolvePublicOrigin(c.req.raw, env.apiPublicUrl),
             limit: boundedLimit,
             includeScriptPaths: codemodeEnabled,
+            namespaceContext,
             reportCoverage: (coverage) => {
               externalCoverageHint = externalMcpSearchCoverageHint(coverage)
             },
@@ -621,8 +632,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
                   catalog,
                   principal,
                   organizationId: principal.organizationId,
-                  member: externalMcpConnectionsEnabled ? memberIdentity : null,
+                  member: memberIdentity,
                   redirectUriBase,
+                  externalMcpConnectionsEnabled,
                 }),
                 organizationId: principal.organizationId,
                 member: memberIdentity,
@@ -695,8 +707,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
               catalog,
               principal,
               organizationId: principal.organizationId,
-              member: externalMcpConnectionsEnabled ? memberIdentity : null,
+              member: memberIdentity,
               redirectUriBase,
+              externalMcpConnectionsEnabled,
             })
             const startedAt = new Date()
             const result = await runCodemodeScript({

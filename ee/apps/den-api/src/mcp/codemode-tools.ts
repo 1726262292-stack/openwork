@@ -3,20 +3,39 @@ import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { Effect } from "effect"
 import type { Hono } from "hono"
 import { z } from "zod"
-import { listUsableExternalMcpConnections, type ExternalMcpConnectionRow } from "../capability-sources/external-mcp-connections.js"
+import type { ExternalMcpConnectionRow } from "../capability-sources/external-mcp-connections.js"
+import type { NativeProviderConnectionEntry } from "../capability-sources/native-provider-connections.js"
 import { listExternalMcpTools } from "../capability-sources/external-mcp-client-runtime.js"
 import { createExternalMcpLifecycleDeadline, EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } from "../capability-sources/external-mcp-client.js"
 import { isToolDisabled } from "../capability-sources/external-mcp-tool-policy.js"
+import { NATIVE_OAUTH_PROVIDERS } from "../capability-sources/provider-registry.js"
 import type { McpPrincipal } from "./auth.js"
 import type { McpToolOperation } from "./catalog.js"
+import {
+  codemodeScriptPath,
+  resolveCodemodeConnectionNamespaceContext,
+  type CodemodeConnectionNamespaceContext,
+} from "./codemode-namespaces.js"
 import {
   buildExternalCapabilityName,
   executeExternalCapability,
   EXTERNAL_MCP_SEARCH_CONCURRENCY,
-  EXTERNAL_MCP_SEARCH_CONNECTION_LIMIT,
   type McpMemberIdentity,
 } from "./external-capabilities.js"
 import { invokeMcpOperation, normalizeToolBody, normalizeToolRecord } from "./invoke.js"
+import {
+  buildNativeCapabilityName,
+  executeNativeCapability,
+  nativeOperations,
+} from "./native-capabilities.js"
+
+export {
+  buildCodemodeConnectionNamespaceMaps,
+  buildExternalNamespaceMap,
+  codemodeScriptPath,
+  isCodemodeEligibleConnection,
+  sanitizeNamespaceSegment,
+} from "./codemode-namespaces.js"
 
 export type CodemodeToolTree = Record<string, Record<string, Tool.Definition>>
 
@@ -32,9 +51,32 @@ export type BuiltCodemodeTools = {
   manifest: CodemodeManifestEntry[]
 }
 
-type NamedConnection = { id: string; name: string }
+export const CAPABILITY_SOURCE_KINDS = ["catalog", "native", "externalMcp", "marketplace", "builtinSkill", "admin"] as const
+export type CapabilitySourceKind = (typeof CAPABILITY_SOURCE_KINDS)[number]
 
-const IDENTIFIER_PATTERN = /^[a-z_$][a-z0-9_$]*$/i
+/** Interim parity primitive pending a full CapabilitySource registry. */
+export const CODEMODE_SOURCE_PARTICIPATION: Record<CapabilitySourceKind, "tree" | { excluded: string }> = {
+  catalog: "tree",
+  native: "tree",
+  externalMcp: "tree",
+  marketplace: {
+    excluded: "Marketplace capabilities return instructional content rather than data operations; marketplace script objects execute through their dedicated script rail.",
+  },
+  builtinSkill: {
+    excluded: "Built-in skills return instructional content rather than data operations.",
+  },
+  admin: {
+    excluded: "Admin capabilities are platform-admin gated and are not exposed to organization Code Mode scripts.",
+  },
+}
+
+function assertCodemodeSourceParticipation(): void {
+  for (const kind of CAPABILITY_SOURCE_KINDS) {
+    if (!CODEMODE_SOURCE_PARTICIPATION[kind]) {
+      throw new Error(`Code Mode participation is undecided for capability source: ${kind}`)
+    }
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -48,35 +90,6 @@ function denInputJsonSchema(operation: McpToolOperation): Tool.JsonSchema {
   const serialized = JSON.stringify(z.toJSONSchema(operation.inputSchema), (key, value: unknown) => key === "~standard" ? undefined : value)
   const schema: unknown = JSON.parse(serialized)
   return isCodemodeJsonSchema(schema) ? schema : {}
-}
-
-export function sanitizeNamespaceSegment(name: string): string {
-  const sanitized = name.toLowerCase().replace(/[^a-z0-9_]+/g, "_")
-  if (!sanitized) return "_"
-  return /^[a-z_]/.test(sanitized) ? sanitized : `_${sanitized}`
-}
-
-export function buildExternalNamespaceMap(connections: readonly NamedConnection[]): Map<string, string> {
-  const used = new Set(["den", "$codemode", "__proto__", "constructor", "prototype"])
-  const namespaces = new Map<string, string>()
-  for (const connection of connections) {
-    const base = sanitizeNamespaceSegment(connection.name)
-    let namespace = base
-    let suffix = 2
-    while (used.has(namespace)) {
-      namespace = `${base}_${suffix}`
-      suffix += 1
-    }
-    used.add(namespace)
-    namespaces.set(connection.id, namespace)
-  }
-  return namespaces
-}
-
-export function codemodeScriptPath(namespace: string, toolName: string): string {
-  return IDENTIFIER_PATTERN.test(toolName)
-    ? `tools.${namespace}.${toolName}`
-    : `tools.${namespace}[${JSON.stringify(toolName)}]`
 }
 
 export function restrictCodemodeToolTree(input: {
@@ -151,13 +164,22 @@ function toolResultError(value: unknown): string {
   return text || "Capability execution failed."
 }
 
+const NATIVE_CAPABILITY_PATH_PREFIXES = Object.keys(NATIVE_OAUTH_PROVIDERS)
+  .map((providerKey) => `/v1/capabilities/${providerKey}/`)
+
+/** Native provider routes are callable only through a credential-bound connection namespace. */
+export function isCredentialBoundNativeOperation(operation: Pick<McpToolOperation, "path">): boolean {
+  return NATIVE_CAPABILITY_PATH_PREFIXES.some((pathPrefix) => operation.path.startsWith(pathPrefix))
+}
+
 export function buildDenCatalogToolTree(input: {
   app: Hono
   env: unknown
   catalog: readonly McpToolOperation[]
   principal: McpPrincipal
 }): BuiltCodemodeTools {
-  const definitions = input.catalog.map((operation) => [operation.name, Tool.make({
+  const operations = input.catalog.filter((operation) => !isCredentialBoundNativeOperation(operation))
+  const definitions = operations.map((operation) => [operation.name, Tool.make({
     description: operation.operation.summary ?? operation.operation.description ?? operation.name,
     input: denInputJsonSchema(operation),
     run: (toolInput) => Effect.promise(() => invokeMcpOperation({
@@ -176,12 +198,85 @@ export function buildDenCatalogToolTree(input: {
   })] satisfies [string, Tool.Definition])
   return {
     tools: { den: Object.fromEntries(definitions) },
-    manifest: input.catalog.map((operation) => ({
+    manifest: operations.map((operation) => ({
       scriptPath: codemodeScriptPath("den", operation.name),
       capabilityName: operation.name,
       readOnly: operation.method === "GET",
       authority: "den" as const,
     })),
+  }
+}
+
+type NativeManifestConnection = Pick<NativeProviderConnectionEntry, "id" | "nativeProviderKey">
+
+export function buildNativeProviderManifest(input: {
+  connections: readonly NativeManifestConnection[]
+  catalog: readonly McpToolOperation[]
+  namespaces: ReadonlyMap<string, string>
+}): CodemodeManifestEntry[] {
+  return input.connections.flatMap((connection) => {
+    const namespace = input.namespaces.get(connection.id)
+    if (!namespace) return []
+    return nativeOperations(input.catalog, connection.nativeProviderKey).map((operation) => ({
+      scriptPath: codemodeScriptPath(namespace, operation.name),
+      capabilityName: buildNativeCapabilityName(connection.id, operation.name),
+      // Native providers are Den-implemented routes (invokeMcpOperation, just
+      // credential-bound to a connection), so they carry the same authority and
+      // read-only classification as the plain catalog. Without this, every
+      // native capability would be rejected by the unattended-run gate.
+      readOnly: operation.method === "GET",
+      authority: "den" as const,
+    }))
+  })
+}
+
+export async function buildNativeProviderToolTree(input: {
+  app: Hono
+  env: unknown
+  catalog: readonly McpToolOperation[]
+  principal: McpPrincipal
+  organizationId: string
+  member: McpMemberIdentity | null
+  namespaceContext?: CodemodeConnectionNamespaceContext
+}): Promise<BuiltCodemodeTools> {
+  if (!input.member) return { tools: {}, manifest: [] }
+  const memberIdentity = input.member
+  const namespaceContext = input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
+    organizationId: input.organizationId,
+    member: memberIdentity,
+  })
+  const organizationId = normalizeDenTypeId("organization", input.organizationId)
+  const namespaceEntries = namespaceContext.codemodeNativeProviderEntries.flatMap((connection) => {
+    const namespace = namespaceContext.namespaces.native.get(connection.id)
+    if (!namespace) return []
+    const definitions = nativeOperations(input.catalog, connection.nativeProviderKey).map((operation) => [operation.name, Tool.make({
+      description: operation.operation.summary ?? operation.operation.description ?? operation.name,
+      input: denInputJsonSchema(operation),
+      run: (toolInput) => Effect.promise(() => executeNativeCapability({
+        app: input.app,
+        env: input.env,
+        name: buildNativeCapabilityName(connection.id, operation.name),
+        organizationId,
+        member: memberIdentity,
+        catalog: input.catalog,
+        principal: input.principal,
+        path: normalizeToolRecord(isRecord(toolInput) ? toolInput.path : undefined),
+        query: normalizeToolRecord(isRecord(toolInput) ? toolInput.query : undefined),
+        body: normalizeToolBody(isRecord(toolInput) ? toolInput.body : undefined),
+      })).pipe(Effect.flatMap((result) => !result || result.isError
+        ? Effect.fail(toolError(toolResultError(result)))
+        : Effect.succeed(toolResultValue(result)))),
+    })] satisfies [string, Tool.Definition])
+    return [[namespace, Object.fromEntries(definitions)] satisfies [string, Record<string, Tool.Definition>]]
+  })
+
+  return {
+    tools: Object.fromEntries(namespaceEntries),
+    manifest: buildNativeProviderManifest({
+      connections: namespaceContext.codemodeNativeProviderEntries,
+      catalog: input.catalog,
+      namespaces: namespaceContext.namespaces.native,
+    }),
   }
 }
 
@@ -214,26 +309,19 @@ function isListedExternalConnection(value: ListedExternalConnection | undefined)
   return value !== undefined
 }
 
-export function isCodemodeEligibleConnection(
-  connection: Pick<ExternalMcpConnectionRow, "toolPolicy" | "oauthIssuerReviewRequiredAt">,
-): boolean {
-  return !connection.toolPolicy?.allDisabled && !connection.oauthIssuerReviewRequiredAt
-}
-
 export async function buildExternalMcpToolTree(input: {
   organizationId: string
   member: McpMemberIdentity | null
   redirectUriBase: string
+  namespaceContext?: CodemodeConnectionNamespaceContext
 }): Promise<BuiltCodemodeTools> {
   if (!input.member) return { tools: {}, manifest: [] }
   const memberIdentity = input.member
-  const connections = (await listUsableExternalMcpConnections({
-    organizationId: normalizeDenTypeId("organization", input.organizationId),
-    orgMembershipId: memberIdentity.orgMembershipId,
-    teamIds: memberIdentity.teamIds,
-  }))
-    .filter(isCodemodeEligibleConnection)
-    .slice(0, EXTERNAL_MCP_SEARCH_CONNECTION_LIMIT)
+  const namespaceContext = input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
+    organizationId: input.organizationId,
+    member: memberIdentity,
+  })
+  const connections = namespaceContext.codemodeExternalMcpConnections
   const deadline = createExternalMcpLifecycleDeadline(EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS)
   const listed = (await mapConcurrent(connections, EXTERNAL_MCP_SEARCH_CONCURRENCY, async (connection) => {
     try {
@@ -252,7 +340,7 @@ export async function buildExternalMcpToolTree(input: {
       return undefined
     }
   })).filter(isListedExternalConnection)
-  const namespaces = buildExternalNamespaceMap(connections)
+  const namespaces = namespaceContext.namespaces.externalMcp
   const namespaceEntries = listed.flatMap(({ connection, tools }) => {
     const namespace = namespaces.get(connection.id)
     if (!namespace) return []
@@ -298,11 +386,21 @@ export async function buildCodemodeToolTree(input: {
   organizationId: string
   member: McpMemberIdentity | null
   redirectUriBase: string
+  externalMcpConnectionsEnabled?: boolean
 }): Promise<BuiltCodemodeTools> {
+  assertCodemodeSourceParticipation()
+  const namespaceContext = await resolveCodemodeConnectionNamespaceContext({
+    organizationId: input.organizationId,
+    member: input.member,
+    includeExternalMcp: input.externalMcpConnectionsEnabled !== false,
+  })
   const den = buildDenCatalogToolTree(input)
-  const external = await buildExternalMcpToolTree(input)
+  const [native, external] = await Promise.all([
+    buildNativeProviderToolTree({ ...input, namespaceContext }),
+    buildExternalMcpToolTree({ ...input, namespaceContext }),
+  ])
   return {
-    tools: { ...den.tools, ...external.tools },
-    manifest: [...den.manifest, ...external.manifest],
+    tools: { ...den.tools, ...native.tools, ...external.tools },
+    manifest: [...den.manifest, ...native.manifest, ...external.manifest],
   }
 }
