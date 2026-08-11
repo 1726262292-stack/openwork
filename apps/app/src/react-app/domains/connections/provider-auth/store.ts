@@ -39,6 +39,7 @@ import {
   ensureProviderListQuery,
   getConnectedProviderItems,
 } from "../../../infra/provider-list-query";
+import type { OpenworkCloudProviderSyncSkippedProvider } from "../../../../app/lib/openwork-server";
 import type { OpenworkServerStoreSnapshot } from "../openwork-server-store";
 
 /**
@@ -181,6 +182,18 @@ export type ProviderOAuthStartResult = {
   authorization: ProviderAuthAuthorization;
 };
 
+/**
+ * Server-side sync facts the Cloud Providers settings rows derive from when
+ * the local server owns provider sync: whether an engine reload is still owed
+ * (materialized providers are not served yet) and which Den-granted providers
+ * the server skipped, keyed by cloudProviderId. Null while the legacy
+ * renderer-side import path owns the state (remote/hostless workspaces).
+ */
+export type CloudProviderServerSyncState = {
+  reloadPending: boolean;
+  skippedProviders: Record<string, OpenworkCloudProviderSyncSkippedProvider>;
+};
+
 export type ProviderAuthStoreSnapshot = {
   providerAuthModalOpen: boolean;
   providerAuthBusy: boolean;
@@ -191,6 +204,7 @@ export type ProviderAuthStoreSnapshot = {
   providerAuthProviders: ProviderAuthProvider[];
   cloudOrgProviders: DenOrgLlmProvider[];
   importedCloudProviders: Record<string, CloudImportedProvider>;
+  cloudProviderServerSync: CloudProviderServerSyncState | null;
   lastSyncError: Record<string, CloudProviderSyncError>;
 };
 
@@ -224,6 +238,7 @@ type MutableState = {
   providerAuthReturnFocusTarget: ProviderReturnFocusTarget;
   cloudOrgProviders: DenOrgLlmProvider[];
   importedCloudProviders: Record<string, CloudImportedProvider>;
+  cloudProviderServerSync: CloudProviderServerSyncState | null;
   lastSyncError: Record<string, CloudProviderSyncError>;
 };
 
@@ -262,6 +277,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     providerAuthReturnFocusTarget: "none",
     cloudOrgProviders: [],
     importedCloudProviders: {},
+    cloudProviderServerSync: null,
     lastSyncError: {},
   };
 
@@ -394,6 +410,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       providerAuthProviders: getProviderAuthProviders(),
       cloudOrgProviders: state.cloudOrgProviders,
       importedCloudProviders: state.importedCloudProviders,
+      cloudProviderServerSync: state.cloudProviderServerSync,
       lastSyncError: state.lastSyncError,
     };
   };
@@ -512,7 +529,21 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         const status = await openworkClient.getCloudProviderSyncStatus();
         const next = Object.fromEntries(status.providers.map((provider) => [provider.cloudProviderId, provider]));
         setStateField("importedCloudProviders", next);
+        // Carry the server's truth alongside the records: rows must not show
+        // "Connected" while an engine reload is still owed, and skipped
+        // providers must name themselves instead of staying "Syncing".
+        setStateField("cloudProviderServerSync", {
+          reloadPending: status.reloadPending,
+          skippedProviders: Object.fromEntries(
+            status.skippedProviders.map((provider) => [provider.cloudProviderId, provider]),
+          ),
+        });
         return next;
+      }
+      // Legacy renderer-side import path (remote/hostless workspaces): the
+      // server sync facts do not apply here.
+      if (state.cloudProviderServerSync !== null) {
+        setStateField("cloudProviderServerSync", null);
       }
       const config = await readWorkspaceOpenworkConfigRecord();
       const cloudImports = readWorkspaceCloudImports(config);
@@ -1968,6 +1999,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           await pushDenSession(true);
           result = await openworkClient.runCloudProviderSyncNow(reason);
         }
+        // Re-derive the imported records (and reloadPending/skips) from the
+        // server's status after EVERY server-handled pass. Without this the
+        // Cloud Providers rows kept whatever the one-shot start() read found
+        // (usually nothing) and sat on "Syncing" forever even though the
+        // server had long since applied the sync (#3671, UI layer).
+        await refreshImportedCloudProviders();
         if (result.status === "failed" || result.status === "no_session") {
           const message = logCloudProviderSyncError(
             reason,
@@ -2189,6 +2226,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             ...current,
             cloudOrgProviders: [],
             providerAuthMethods: {},
+            cloudProviderServerSync: null,
             lastSyncError: {},
           }));
           void pushDenSession().then(() => runCloudProviderSync("sign_in"));
@@ -2236,6 +2274,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
               cloudOrgProviders: [],
               providerAuthMethods: {},
               importedCloudProviders: {},
+              cloudProviderServerSync: null,
               lastSyncError: {},
             }));
             refreshSnapshot();
@@ -2283,6 +2322,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           mutateState((current) => ({
             ...current,
             importedCloudProviders: {},
+            cloudProviderServerSync: null,
           }));
           refreshSnapshot();
           emitChange();
