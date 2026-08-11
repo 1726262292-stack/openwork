@@ -14,7 +14,6 @@ import {
   createOpenworkServerClient,
   isLoopbackOpenworkServerUrl,
   readOpenworkServerSettings,
-  OpenworkServerError,
   type OpenworkCloudMcpHealth,
   type OpenworkCloudMcpProviderModelContext,
   type OpenworkServerCapabilities,
@@ -113,7 +112,6 @@ import {
   openworkServerInfo,
   openworkServerRestart,
   engineStart,
-  engineRestart,
   resolveWorkspaceListSelectedId,
   workspaceBootstrap,
   workspaceForget,
@@ -159,6 +157,7 @@ import type { ModelRef } from "@/app/types";
 import { workspaceSwatchColor } from "@/react-app/domains/session/sidebar/utils";
 import { recordInspectorEvent } from "../../app/lib/app-inspector";
 import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
+import { reloadEngineWithDesktopFallback } from "./engine-reload-escalation";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { notifyAlert } from "./notifications";
@@ -196,25 +195,13 @@ const ROUTE_OPENWORK_CAPABILITIES: OpenworkServerCapabilities = {
   config: { read: true, write: true },
 };
 
-function canRestartDesktopForReloadError(error: unknown) {
-  return (
-    error instanceof OpenworkServerError &&
-    (error.code === "opencode_engine_unreachable" || error.code === "opencode_unconfigured")
-  );
-}
-
 async function reloadEngineOrRestartDesktop(
   client: Pick<OpenworkServerClient, "reloadEngine">,
   workspaceId: string,
   afterRestart?: () => Promise<void>,
 ): Promise<void> {
-  try {
-    await client.reloadEngine(workspaceId);
-  } catch (error) {
-    if (!canRestartDesktopForReloadError(error) || !isDesktopRuntime()) {
-      throw error;
-    }
-    await engineRestart({});
+  const { restartedEngine } = await reloadEngineWithDesktopFallback(client, workspaceId);
+  if (restartedEngine) {
     await afterRestart?.();
   }
 }

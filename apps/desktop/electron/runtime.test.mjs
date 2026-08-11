@@ -9,6 +9,7 @@ import {
   commandMatchesPackagedSidecar,
   embeddedServerImportUrl,
   prioritizeWorkspacePaths,
+  resetRuntimeStatesAfterFailedServerStart,
   resolveEvalLocalServerDelayMs,
   resolveOpenworkServerConfigPath,
   seedWorkspacePathsForEmbeddedServer,
@@ -180,5 +181,87 @@ describe("snapshotEngineState", () => {
     assert.equal(snapshot.running, true);
     assert.equal(snapshot.managedByServer, true);
     assert.equal(snapshot.pid, 12345);
+  });
+});
+
+describe("resetRuntimeStatesAfterFailedServerStart", () => {
+  function staleServerState() {
+    return {
+      child: null,
+      childExited: true,
+      inProcess: true,
+      remoteAccessEnabled: true,
+      host: "127.0.0.1",
+      port: 4141,
+      baseUrl: "http://127.0.0.1:4141",
+      connectUrl: null,
+      mdnsUrl: null,
+      lanUrl: null,
+      clientToken: "client-token",
+      ownerToken: "owner-token",
+      hostToken: "host-token",
+      managedOpencodeBinPath: "/usr/local/bin/opencode",
+      managedOpencodeBinSource: "known-location",
+      lastStdout: "server stdout",
+      lastStderr: "server stderr",
+      managedOpencodeExecution: { command: "opencode" },
+    };
+  }
+
+  function staleEngineState() {
+    return {
+      child: null,
+      childExited: false,
+      runtime: "direct",
+      projectDir: "/workspace/current",
+      hostname: "127.0.0.1",
+      port: 4097,
+      baseUrl: "http://127.0.0.1:4097",
+      opencodeUsername: "user",
+      opencodePassword: "pass",
+      opencodeBinPath: "/usr/local/bin/opencode",
+      opencodeBinSource: "known-location",
+      managedByServer: true,
+      managedPid: 12345,
+      managedIsAlive: () => true,
+      lastStdout: "engine stdout",
+      lastStderr: "engine stderr",
+      execution: { command: "opencode" },
+    };
+  }
+
+  it("clears a dead managed runtime so snapshots cannot report it running", () => {
+    const serverState = staleServerState();
+    const engineState = staleEngineState();
+
+    resetRuntimeStatesAfterFailedServerStart(serverState, engineState, { manageOpencode: true });
+
+    assert.equal(serverState.inProcess, false);
+    assert.equal(serverState.port, null);
+    assert.equal(serverState.baseUrl, null);
+    assert.equal(serverState.ownerToken, null);
+    // Diagnostics survive the reset.
+    assert.equal(serverState.lastStdout, "server stdout");
+    assert.equal(serverState.lastStderr, "server stderr");
+
+    assert.equal(engineState.baseUrl, null);
+    assert.equal(engineState.managedByServer, false);
+    assert.equal(engineState.managedPid, null);
+    assert.equal(snapshotEngineState(engineState).running, false);
+    // A retry via engineRestart still knows its workspace.
+    assert.equal(engineState.projectDir, "/workspace/current");
+    assert.equal(engineState.lastStderr, "engine stderr");
+  });
+
+  it("leaves an external engine untouched when the failed start did not manage it", () => {
+    const serverState = staleServerState();
+    const engineState = staleEngineState();
+    engineState.managedByServer = false;
+
+    resetRuntimeStatesAfterFailedServerStart(serverState, engineState, { manageOpencode: false });
+
+    assert.equal(serverState.inProcess, false);
+    assert.equal(engineState.baseUrl, "http://127.0.0.1:4097");
+    assert.equal(engineState.projectDir, "/workspace/current");
   });
 });

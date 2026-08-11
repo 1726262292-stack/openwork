@@ -5,12 +5,13 @@
 // instead of `any`.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { engineInfo, engineRestart } from "@/app/lib/desktop";
+import { engineInfo } from "@/app/lib/desktop";
 import type { EngineInfo } from "@/app/lib/desktop-types";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
-import { OpenworkServerError, type OpenworkServerClient } from "@/app/lib/openwork-server";
+import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import type { ResolvedWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { t } from "@/i18n";
+import { reloadEngineWithDesktopFallback } from "./engine-reload-escalation";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -18,13 +19,6 @@ import type { RouteWorkspace } from "./route-workspaces";
 import { toast } from "@/components/ui/sonner";
 
 const reloadAfterOrgOnboardingKey = "openwork.reloadAfterOrgOnboarding";
-
-function canRestartDesktopForReloadError(error: unknown) {
-  return (
-    error instanceof OpenworkServerError &&
-    (error.code === "opencode_engine_unreachable" || error.code === "opencode_unconfigured")
-  );
-}
 
 function taskCreateUnavailableToastId(workspaceId: string) {
   return `opencode-unavailable:${workspaceId}`;
@@ -67,16 +61,10 @@ export function useEngineReload(input: UseEngineReloadInput) {
       onError(t("app.error_connect_first"));
       return false;
     }
-    let restartedEngine = false;
-    try {
-      await endpoint.client.reloadEngine(endpoint.workspaceId);
-    } catch (error) {
-      if (!canRestartDesktopForReloadError(error) || !isDesktopRuntime()) {
-        throw error;
-      }
-      await engineRestart({});
-      restartedEngine = true;
-    }
+    const { restartedEngine } = await reloadEngineWithDesktopFallback(
+      endpoint.client,
+      endpoint.workspaceId,
+    );
     if (restartedEngine) {
       await refreshRouteState();
       await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);

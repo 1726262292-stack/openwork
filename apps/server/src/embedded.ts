@@ -8,6 +8,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolveServerConfig, type CliArgs } from "./config.js";
+import {
+  buildEngineAuthProbeHeader,
+  registerEngineInstance,
+  removeEngineInstance,
+  reapOrphanEngineInstances,
+} from "./engine-registry.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import {
   clearTrustedOpencodeProcess,
@@ -52,11 +58,11 @@ export type EmbeddedServerHandle = {
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options);
   config.localManagedMcpVaultKey = options.localManagedMcpVaultKey;
-  const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
   let managedOpencodeIdentity: string | null = null;
+  let managedEngineRecordId: string | null = null;
   let stopRuntimeConfigFileRefresh: (() => void) | null = null;
   let server: ServeResult | null = null;
   let stopPromise: Promise<void> | null = null;
@@ -82,6 +88,12 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       } catch (error) {
         errors.push(error);
       }
+    }
+
+    const engineRecordId = managedEngineRecordId;
+    managedEngineRecordId = null;
+    if (engineRecordId) {
+      await removeEngineInstance(config, engineRecordId).catch(() => undefined);
     }
 
     const httpServer = server;
@@ -135,9 +147,22 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await ensureLocalWorkspaceFiles(config.workspaces);
   }
 
+  // Bind the HTTP server before spawning the engine: serve-node may fall back
+  // to an OS-assigned port on EADDRINUSE, and the engine's spawn-time env
+  // (OPENWORK_SERVER_URL) must point at the port that actually bound, not the
+  // requested one. Proxy requests that land in the short window before the
+  // engine is ready fail with opencode_unconfigured and clients retry; the
+  // desktop only learns the server URL after this function returns.
+  server = await duringStartup(() => startServer(config));
+  config.port = server.port;
+  const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`;
+
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     const workspace = findManagedEngineWorkspace(config.workspaces);
     if (workspace) {
+      // Reap engines recorded by servers that died without cleanup. Best
+      // effort: a failed reap must never block startup.
+      await reapOrphanEngineInstances(config).catch(() => undefined);
       // Server-managed config file: the engine re-reads it from disk on every
       // instance rebuild, and keepOpenworkRuntimeConfigFileFresh synchronizes it
       // on every runtime-DB write — so disposes always pick up current state.
@@ -150,8 +175,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       await sweepLegacyOpenCodeConfig(config).catch(() => undefined);
       const opencodeModelsUrl = await duringStartup(() => resolveOpencodeModelsUrl());
 
+      const opencodeBin = options.opencodeBin || process.env.OPENWORK_OPENCODE_BIN;
       managedOpencode = await duringStartup(() => createManagedOpencodeServer({
-        bin: options.opencodeBin || process.env.OPENWORK_OPENCODE_BIN,
+        bin: opencodeBin,
         cwd,
         excludedPorts: [config.port],
         env: {
@@ -192,10 +218,23 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         identity: managedOpencodeIdentity,
         isAlive: managedOpencode.isAlive,
       });
+      if (managedOpencode.pid) {
+        managedEngineRecordId = randomUUID();
+        await registerEngineInstance(config, {
+          id: managedEngineRecordId,
+          pid: managedOpencode.pid,
+          port: Number(new URL(managedOpencode.url).port) || 0,
+          url: managedOpencode.url,
+          startedAt: Date.now(),
+          role: "primary",
+          serverRunId: managedOpencodeIdentity,
+          ownerPid: process.pid,
+          authProbe: buildEngineAuthProbeHeader(managedOpencode.username, managedOpencode.password),
+          bin: opencodeBin?.trim() || "opencode",
+        }).catch(() => undefined);
+      }
     }
   }
-
-  server = await duringStartup(() => startServer(config));
 
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible

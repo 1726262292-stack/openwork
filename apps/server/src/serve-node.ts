@@ -208,7 +208,11 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
       }
       reject(error);
     });
-    server.listen(port, hostname, () => {
+    // A standing "listening" listener, not the listen() callback: Node keeps
+    // the callback-registered once("listening") listener alive across the
+    // EADDRINUSE retry, but Bun does not — under Bun the fallback re-bind
+    // succeeded while this promise hung forever.
+    server.on("listening", () => {
       const addr = server.address();
       if (addr && typeof addr === "object") {
         boundPort = addr.port;
@@ -236,5 +240,6 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
         },
       });
     });
+    server.listen(port, hostname);
   });
 }
