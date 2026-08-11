@@ -423,7 +423,7 @@ type AssistantMessageProps = {
 }
 
 const AssistantMessage = React.memo(
-  ({ message, hideReasoning }: AssistantMessageProps) => {
+  ({ message, isStreaming, hideReasoning }: AssistantMessageProps) => {
     const { showThinking, highlightQuery } = useMessageList()
     const assistantRenderGroups = React.useMemo(
       () => {
@@ -447,6 +447,7 @@ const AssistantMessage = React.memo(
                   key={`text-${index}`}
                   className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
                   markdown
+                  isStreaming={isStreaming}
                   highlightQuery={highlightQuery}
                 >
                   {group.text}
