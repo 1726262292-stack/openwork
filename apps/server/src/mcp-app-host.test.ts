@@ -21,6 +21,7 @@ import type { ServerConfig } from "./types.js";
 
 const WORKSPACE_ID = "ws_mcp_apps_host";
 const RESOURCE_URI = "ui://fixture/v1/view.html";
+const RESOURCE_HTML = "<!doctype html><html><head></head><body>Fixture</body></html>";
 const stops: Array<() => void | Promise<void>> = [];
 
 afterEach(async () => {
@@ -47,7 +48,7 @@ function serverConfig(root: string): ServerConfig {
   };
 }
 
-async function startFixtureMcp() {
+async function startFixtureMcp(resourceContent: { text?: string; blob?: string } = { text: RESOURCE_HTML }) {
   const mcp = new Server(
     { name: "mcp-app-fixture", version: "1.0.0" },
     {
@@ -97,7 +98,7 @@ async function startFixtureMcp() {
       contents: [{
         uri: RESOURCE_URI,
         mimeType: "text/html;profile=mcp-app",
-        text: "<!doctype html><html><head></head><body>Fixture</body></html>",
+        ...resourceContent,
         _meta: {
           ui: {
             csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
@@ -132,7 +133,10 @@ async function startFixtureMcp() {
   return `http://127.0.0.1:${http.port}`;
 }
 
-async function configuredFixture(prefix: string): Promise<{ config: ServerConfig; root: string }> {
+async function configuredFixture(
+  prefix: string,
+  resourceContent?: { text?: string; blob?: string },
+): Promise<{ config: ServerConfig; root: string }> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
   const previousDevMode = process.env.OPENWORK_DEV_MODE;
@@ -149,7 +153,7 @@ async function configuredFixture(prefix: string): Promise<{ config: ServerConfig
   const config = serverConfig(root);
   await addMcp(config, WORKSPACE_ID, "fixture", {
     type: "remote",
-    url: await startFixtureMcp(),
+    url: await startFixtureMcp(resourceContent),
     enabled: true,
   });
   return { config, root };
@@ -174,11 +178,37 @@ describe("MCP Apps host transport", () => {
       serverName: "fixture",
       toolName: "render_fixture",
       resourceUri: RESOURCE_URI,
-      html: "<!doctype html><html><head></head><body>Fixture</body></html>",
+      html: RESOURCE_HTML,
       csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
       prefersBorder: true,
     });
 
+  });
+
+  test("decodes a stable-spec blob-backed HTML resource", async () => {
+    const { config, root } = await configuredFixture("openwork-mcp-app-host-blob-", {
+      blob: Buffer.from(RESOURCE_HTML, "utf8").toString("base64"),
+    });
+
+    const app = await resolveMcpAppResource({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      projectedToolName: "fixture_render_fixture",
+    });
+    expect(app?.html).toBe(RESOURCE_HTML);
+  });
+
+  test("rejects non-UTF-8 blob-backed HTML", async () => {
+    const invalidUtf8 = await configuredFixture("openwork-mcp-app-host-bad-utf8-", {
+      blob: Buffer.from([0xff]).toString("base64"),
+    });
+    await expect(resolveMcpAppResource({
+      serverConfig: invalidUtf8.config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: invalidUtf8.root,
+      projectedToolName: "fixture_render_fixture",
+    })).rejects.toMatchObject({ code: "invalid_resource" });
   });
 
   test("mediates explicitly read-only same-server tool calls", async () => {

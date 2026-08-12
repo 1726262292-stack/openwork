@@ -32,6 +32,8 @@ test("server-builds React source into a deterministic self-contained MCP App", a
   expect(first.html).toStartWith("<!doctype html>")
   expect(first.html).toContain('<div id="openwork-artifact-view-root"></div>')
   expect(first.html).toContain("ui/initialize")
+  expect(first.html).toContain("ResizeObserver")
+  expect(first.html).toContain("ui/notifications/size-changed")
   expect(first.html).toContain("ui/notifications/tool-result")
   expect(first.html).not.toContain("<script src=")
   expect(first.html).toContain("script-src 'sha256-")

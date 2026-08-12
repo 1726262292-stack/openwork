@@ -4,12 +4,13 @@ import { clickButton, control, createAndSelectWorkspace, evalIn, waitFor } from 
 import { screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import { needs, test } from "@openwork/testkit";
+import { buildGeneratedArtifactViewInWorker } from "../../ee/apps/den-api/src/generated-artifact-view-builder.js";
 
 const providerId = "mcp-app-inline-host-mock";
 const modelId = "mcp-app-inline-host-model";
 const mcpServerName = "artifact-view";
 const mcpToolName = "render_card";
-const resourceUri = "ui://openwork/eval-card/v1/view.html";
+const resourceUri = "ui://openwork/artifacts/arv_eval_card/views/avr_eval_card/index.html";
 const closingReply = "The interactive artifact card is ready.";
 const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
 const localPlacement = process.env.OPENWORK_EVAL_DAYTONA !== "1"
@@ -63,47 +64,21 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-const appHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <style>
-      body { margin: 0; padding: 18px; color: #172554; background: #eff6ff; font-family: system-ui, sans-serif; }
-      article { border: 1px solid #93c5fd; border-radius: 14px; padding: 18px; background: white; }
-      h2 { margin: 0 0 8px; font-size: 20px; }
-      p { margin: 0; color: #1d4ed8; }
-    </style>
-  </head>
-  <body>
-    <article><h2 id="title">Loading interactive artifact…</h2><p id="status">Waiting for tool result</p></article>
-    <script>
-      const send = (message) => window.parent.postMessage(message, "*");
-      window.addEventListener("message", (event) => {
-        const message = event.data;
-        if (!message || message.jsonrpc !== "2.0") return;
-        if (message.id === 1 && message.result) {
-          send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
-          return;
-        }
-        if (message.method !== "ui/notifications/tool-result") return;
-        const data = message.params && message.params.structuredContent;
-        document.getElementById("title").textContent = String(data && data.title || "Interactive artifact");
-        document.getElementById("status").textContent = String(data && data.status || "Ready");
-        send({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: 190 } });
-      });
-      send({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "ui/initialize",
-        params: {
-          protocolVersion: "2026-01-26",
-          appInfo: { name: "OpenWork eval card", version: "1.0.0" },
-          appCapabilities: {},
-        },
-      });
-    </script>
-  </body>
-</html>`;
+const builtApp = await buildGeneratedArtifactViewInWorker({
+  reactSource: `export default function GeneratedArtifact({ data }) {
+    return <article><h2>{data.title}</h2><p>{data.status}</p></article>
+  }`,
+  cssSource: "body{margin:0;padding:18px;color:#172554;background:#eff6ff;font-family:system-ui,sans-serif}article{border:1px solid #93c5fd;border-radius:14px;padding:18px;background:white}h2{margin:0 0 8px;font-size:20px}p{margin:0;color:#1d4ed8}",
+  outputSchema: {
+    type: "object",
+    properties: { title: { type: "string" }, status: { type: "string" } },
+    required: ["title", "status"],
+  },
+  title: "Quarterly plan",
+  description: "Generated Artifact host acceptance fixture.",
+});
+if (!builtApp.ok) throw new Error(`Generated Artifact build failed: ${JSON.stringify(builtApp.diagnostics)}`);
+const appHtml = builtApp.html;
 
 function rpcResponse(message: Record<string, unknown>): Record<string, unknown> {
   if (message.method === "initialize") {
@@ -139,7 +114,11 @@ function rpcResponse(message: Record<string, unknown>): Record<string, unknown> 
       id: message.id,
       result: {
         content: [{ type: "text", text: "Quarterly plan: Ready" }],
-        structuredContent: { title: "Quarterly plan", status: "Ready" },
+        structuredContent: {
+          schemaVersion: "1",
+          artifact: { title: "Quarterly plan", description: "Generated Artifact host acceptance fixture." },
+          data: { title: "Quarterly plan", status: "Ready" },
+        },
         _meta: { receipt: "eval-fixed-receipt" },
       },
     };
@@ -152,7 +131,7 @@ function rpcResponse(message: Record<string, unknown>): Record<string, unknown> 
         contents: [{
           uri: resourceUri,
           mimeType: "text/html;profile=mcp-app",
-          text: appHtml,
+          blob: Buffer.from(appHtml, "utf8").toString("base64"),
           _meta: {
             ui: {
               prefersBorder: true,
@@ -430,15 +409,18 @@ test.skipIf(!appSpecsEnabled || !localPlacement)(title, { timeout: 240_000 }, as
   const hostClaim = await evalIn(app, `(() => {
     const container = document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"]`)});
     const frame = container?.querySelector("iframe");
-    return Boolean(frame
-      && frame.getAttribute("sandbox") === "allow-scripts"
+    if (!(frame instanceof HTMLIFrameElement) || !frame.src) return false;
+    const sandbox = new Set((frame.getAttribute("sandbox") || "").split(/\\s+/).filter(Boolean));
+    return sandbox.has("allow-scripts")
+      && sandbox.has("allow-same-origin")
       && frame.getAttribute("referrerpolicy") === "no-referrer"
-      && frame.getAttribute("srcdoc")?.includes("Content-Security-Policy"));
+      && new URL(frame.src).origin !== window.location.origin
+      && !frame.hasAttribute("srcdoc");
   })()`);
   expect(hostClaim).toBe(true);
   evidence.fact(
     "The completed MCP tool result resolves and mounts its declared standard UI resource",
-    `Observed one tools/call, ${resourceReads} resources/read request(s), and an opaque allow-scripts iframe with a host-injected CSP.`,
+    `Observed one tools/call, ${resourceReads} blob-backed resources/read request(s), and a different-origin sandbox proxy with the stable sandbox flags.`,
     hostClaim === true && toolCalls === 1 && resourceReads >= 1,
   );
 

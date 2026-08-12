@@ -180,12 +180,31 @@ async function buildClientBundle(reactSource: string, previewData: unknown, prev
     }
     let root = null;
     let renderRevision = 0;
-    let resizeFrame = 0;
-    const reportSize = () => {
-      cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(() => post({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: Math.ceil(document.documentElement.scrollWidth), height: Math.ceil(document.documentElement.scrollHeight) } }));
-    };
     let resizeObserver = null;
+    let sizeFrame;
+    let initialized = false;
+    const reportSize = () => {
+      if (!initialized || sizeFrame !== undefined) return;
+      sizeFrame = requestAnimationFrame(() => {
+        sizeFrame = undefined;
+        const documentElement = document.documentElement;
+        const previousHeight = documentElement.style.height;
+        documentElement.style.height = "max-content";
+        const height = Math.ceil(documentElement.getBoundingClientRect().height);
+        documentElement.style.height = previousHeight;
+        post({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: Math.ceil(window.innerWidth), height } });
+      });
+    };
+    const startAutoResize = () => {
+      initialized = true;
+      if (resizeObserver) return;
+      if (typeof ResizeObserver === "function") {
+        resizeObserver = new ResizeObserver(reportSize);
+        resizeObserver.observe(document.documentElement);
+        resizeObserver.observe(document.body);
+      }
+      reportSize();
+    };
     const apply = (next) => {
       payload = next;
       if (!root) { mount.textContent = "This Artifact view could not render. The normal tool result is still available."; return; }
@@ -196,17 +215,12 @@ async function buildClientBundle(reactSource: string, previewData: unknown, prev
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent || !event.data || event.data.jsonrpc !== "2.0") return;
       const message = event.data;
-      if (message.id === "openwork-generated-artifact:init" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized" }); return; }
+      if (message.id === "openwork-generated-artifact:init" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized" }); startAutoResize(); return; }
       if (message.method === "ui/notifications/tool-result" && message.params && !message.params.isError && message.params.structuredContent) apply(message.params.structuredContent);
-      if (message.method === "ui/resource-teardown" && message.id !== undefined) { resizeObserver?.disconnect(); cancelAnimationFrame(resizeFrame); post({ jsonrpc: "2.0", id: message.id, result: {} }); }
+      if (message.method === "ui/resource-teardown" && message.id !== undefined) { initialized = false; resizeObserver?.disconnect(); if (sizeFrame !== undefined) cancelAnimationFrame(sizeFrame); post({ jsonrpc: "2.0", id: message.id, result: {} }); }
     });
     post({ jsonrpc: "2.0", id: "openwork-generated-artifact:init", method: "ui/initialize", params: { appInfo: { name: "OpenWork Generated Artifact", version: "1.0.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" } });
     try {
-      if (typeof ResizeObserver === "function") {
-        resizeObserver = new ResizeObserver(reportSize);
-        resizeObserver.observe(document.documentElement);
-        resizeObserver.observe(document.body);
-      }
       root = createRoot(mount);
       apply(payload);
     } catch { mount.textContent = "This Artifact view could not render. The normal tool result is still available."; }
