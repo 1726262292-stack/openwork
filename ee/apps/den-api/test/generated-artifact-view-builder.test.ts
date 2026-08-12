@@ -38,6 +38,7 @@ test("server-builds React source into a deterministic self-contained MCP App", a
   expect(first.html).not.toContain("script-src 'unsafe-inline'")
   expect(first.html).toContain("form-action 'none'")
   expect(first.html).toContain("object-src 'none'")
+  expect(first.compilerVersion).toBe("2")
   const javascript = first.html.match(/<script>([\s\S]*)<\/script>/iu)?.[1]
   expect(javascript).toBeDefined()
   const scriptDigest = createHash("sha256").update(javascript ?? "").digest("base64")
@@ -50,6 +51,24 @@ test("server-builds React source into a deterministic self-contained MCP App", a
     frameDomains: [],
     baseUriDomains: [],
   })
+})
+
+test("defers authored module evaluation until after the MCP Apps bootstrap", async () => {
+  const result = await buildGeneratedArtifactView({
+    title: "Runtime failure",
+    description: null,
+    outputSchema: schema,
+    reactSource: `
+      throw new Error("authored module failed")
+      export default function ArtifactView() { return <p>unreachable</p> }
+    `,
+  })
+  expect(result.ok).toBe(true)
+  if (!result.ok) return
+  expect(result.compilerVersion).toBe("2")
+  expect(result.html).toContain("ui/initialize")
+  expect(result.html).toContain("This Artifact view could not render. The normal tool result is still available.")
+  expect(result.html).toContain("Promise.resolve().then")
 })
 
 test("rejects authored and dynamically selected unsafe HTML elements", async () => {

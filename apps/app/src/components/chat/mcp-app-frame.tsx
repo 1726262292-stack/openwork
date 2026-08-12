@@ -13,7 +13,8 @@ const MIN_HEIGHT = 160
 const MAX_HEIGHT = 800
 const DEFAULT_HEIGHT = 320
 const SIZE_EVENT_INTERVAL_MS = 100
-const INITIALIZE_TIMEOUT_MS = 5_000
+const SANDBOX_READY_TIMEOUT_MS = 5_000
+const INITIALIZE_TIMEOUT_MS = 10_000
 
 type PreservedMcpAppResult = {
   content: Array<Record<string, unknown>>
@@ -130,12 +131,14 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         },
       },
     )
-    const initializeTimer = window.setTimeout(() => {
-      if (!disposed) setError("The interactive view did not finish its MCP Apps handshake.")
-    }, INITIALIZE_TIMEOUT_MS)
+    let initializeTimer: number | undefined
+    let initialized = false
+    const sandboxReadyTimer = window.setTimeout(() => {
+      if (!disposed) setError("The interactive view sandbox did not finish loading.")
+    }, SANDBOX_READY_TIMEOUT_MS)
     const sandbox = openworkServerClient.mcpAppSandbox(app, window.location.origin)
     if (sandbox.expectedOrigin === window.location.origin) {
-      window.clearTimeout(initializeTimer)
+      window.clearTimeout(sandboxReadyTimer)
       setError("The MCP Apps sandbox must use a different origin from the OpenWork host.")
       return
     }
@@ -157,7 +160,8 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       }),
     )
     bridge.oninitialized = () => {
-      window.clearTimeout(initializeTimer)
+      initialized = true
+      if (initializeTimer !== undefined) window.clearTimeout(initializeTimer)
       void bridge.sendToolInput({
         arguments: isRecord(part.input) ? part.input : {},
       }).then(() => bridge.sendToolResult({
@@ -173,6 +177,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         || event.origin !== sandbox.expectedOrigin
         || event.data?.method !== "ui/notifications/sandbox-proxy-ready") return
       window.removeEventListener("message", handleSandboxReady)
+      window.clearTimeout(sandboxReadyTimer)
       const transport = new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!)
       void bridge.connect(transport)
         .then(() => bridge.sendSandboxResourceReady({
@@ -180,6 +185,13 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
           csp: app.csp,
           sandbox: "allow-scripts allow-same-origin",
         }))
+        .then(() => {
+          if (!initialized) {
+            initializeTimer = window.setTimeout(() => {
+              if (!disposed) setError("The interactive view did not finish its MCP Apps handshake.")
+            }, INITIALIZE_TIMEOUT_MS)
+          }
+        })
         .catch((cause) => {
           if (!disposed) setError(cause instanceof Error ? cause.message : "The MCP Apps sandbox could not load the view.")
         })
@@ -190,7 +202,8 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
     return () => {
       disposed = true
       window.removeEventListener("message", handleSandboxReady)
-      window.clearTimeout(initializeTimer)
+      window.clearTimeout(sandboxReadyTimer)
+      if (initializeTimer !== undefined) window.clearTimeout(initializeTimer)
       void Promise.race([
         bridge.teardownResource({}),
         new Promise<void>((resolve) => window.setTimeout(resolve, 500)),
