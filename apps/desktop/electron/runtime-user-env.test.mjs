@@ -1,7 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { reconcileInjectedUserEnv } from "./runtime.mjs";
+import path from "node:path";
+
+import { reconcileInjectedUserEnv, resolveUserEnvFilePath } from "./runtime.mjs";
+
+test("resolves the user env store from the effective desktop profile", () => {
+  assert.equal(
+    resolveUserEnvFilePath({
+      HOME: "/Users/example",
+      XDG_CONFIG_HOME: "/tmp/openwork-dev-profile/config",
+    }),
+    path.join("/tmp/openwork-dev-profile/config", "openwork", "env.json"),
+  );
+});
 
 test("removes a user env key from the long-lived desktop process after deletion", () => {
   const inheritedEnv = { PATH: "/usr/bin" };
