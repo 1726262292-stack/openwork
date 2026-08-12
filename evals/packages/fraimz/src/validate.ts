@@ -284,7 +284,8 @@ export async function validate(
   expectations: string[],
   opts: ValidateOptions = {},
 ): Promise<SeenFacts> {
-  if (process.env.OPENWORK_EVAL_VISION?.trim() === "defer") {
+  // A caller-provided ask is a deterministic witness, not an LLM call, so defer never applies to it.
+  if (!opts.ask && process.env.OPENWORK_EVAL_VISION?.trim() === "defer") {
     const facts: SeenFacts = {
       ok: true,
       description: "",
