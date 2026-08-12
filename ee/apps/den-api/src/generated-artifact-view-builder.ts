@@ -18,7 +18,7 @@ const reactPackageRoot = require.resolve("react/package.json").replace(/\/packag
 const reactDomPackageRoot = require.resolve("react-dom/package.json").replace(/\/package\.json$/u, "")
 
 export const GENERATED_ARTIFACT_VIEW_COMPILER = "openwork-react-view"
-export const GENERATED_ARTIFACT_VIEW_COMPILER_VERSION = "1"
+export const GENERATED_ARTIFACT_VIEW_COMPILER_VERSION = "2"
 export const GENERATED_ARTIFACT_VIEW_CSP: GeneratedArtifactViewCsp = {
   connectDomains: [],
   resourceDomains: [],
@@ -168,21 +168,48 @@ async function buildClientBundle(reactSource: string, previewData: unknown, prev
   const entry = `
     import React from "react";
     import { createRoot } from "react-dom/client";
-    import ArtifactView from "artifact:view";
+    const ArtifactView = React.lazy(() => import("artifact:view"));
     const mount = document.getElementById("openwork-artifact-view-root");
     let payload = { data: ${safeJson(previewData)}, artifact: ${safeJson(previewArtifact)} };
-    const root = createRoot(mount);
-    root.render(React.createElement(ArtifactView, payload));
     const post = (message) => window.parent.postMessage(message, "*");
-    const apply = (next) => { payload = next; root.render(React.createElement(ArtifactView, next)); requestAnimationFrame(() => post({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: Math.ceil(document.documentElement.scrollWidth), height: Math.ceil(document.documentElement.scrollHeight) } })); };
+    const renderFailure = () => React.createElement("p", { role: "alert", style: { margin: "16px", fontFamily: "system-ui, sans-serif" } }, "This Artifact view could not render. The normal tool result is still available.");
+    class ArtifactViewErrorBoundary extends React.Component {
+      constructor(props) { super(props); this.state = { failed: false }; }
+      static getDerivedStateFromError() { return { failed: true }; }
+      render() { return this.state.failed ? renderFailure() : this.props.children; }
+    }
+    let root = null;
+    let renderRevision = 0;
+    let resizeFrame = 0;
+    const reportSize = () => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => post({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: Math.ceil(document.documentElement.scrollWidth), height: Math.ceil(document.documentElement.scrollHeight) } }));
+    };
+    let resizeObserver = null;
+    const apply = (next) => {
+      payload = next;
+      if (!root) { mount.textContent = "This Artifact view could not render. The normal tool result is still available."; return; }
+      renderRevision += 1;
+      root.render(React.createElement(ArtifactViewErrorBoundary, { key: renderRevision }, React.createElement(React.Suspense, { fallback: null }, React.createElement(ArtifactView, next))));
+      reportSize();
+    };
     window.addEventListener("message", (event) => {
       if (event.source !== window.parent || !event.data || event.data.jsonrpc !== "2.0") return;
       const message = event.data;
       if (message.id === "openwork-generated-artifact:init" && message.result) { post({ jsonrpc: "2.0", method: "ui/notifications/initialized" }); return; }
       if (message.method === "ui/notifications/tool-result" && message.params && !message.params.isError && message.params.structuredContent) apply(message.params.structuredContent);
-      if (message.method === "ui/resource-teardown" && message.id !== undefined) post({ jsonrpc: "2.0", id: message.id, result: {} });
+      if (message.method === "ui/resource-teardown" && message.id !== undefined) { resizeObserver?.disconnect(); cancelAnimationFrame(resizeFrame); post({ jsonrpc: "2.0", id: message.id, result: {} }); }
     });
     post({ jsonrpc: "2.0", id: "openwork-generated-artifact:init", method: "ui/initialize", params: { appInfo: { name: "OpenWork Generated Artifact", version: "1.0.0" }, appCapabilities: {}, protocolVersion: "2026-01-26" } });
+    try {
+      if (typeof ResizeObserver === "function") {
+        resizeObserver = new ResizeObserver(reportSize);
+        resizeObserver.observe(document.documentElement);
+        resizeObserver.observe(document.body);
+      }
+      root = createRoot(mount);
+      apply(payload);
+    } catch { mount.textContent = "This Artifact view could not render. The normal tool result is still available."; }
   `
   const result = await build({
     stdin: { contents: entry, loader: "tsx", resolveDir: process.cwd(), sourcefile: "generated-artifact-entry.tsx" },
