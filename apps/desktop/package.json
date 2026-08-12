@@ -31,6 +31,8 @@
     "@openwork/enterprise-mcp-client": "workspace:*",
     "@openwork/paths": "workspace:*",
     "@opencode-ai/sdk": "^1.17.11",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "better-sqlite3": "^13.0.2",
     "drizzle-orm": "^0.45.2",
     "electron-updater": "^6.3.9",
