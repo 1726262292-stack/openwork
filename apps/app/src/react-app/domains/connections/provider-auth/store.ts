@@ -36,6 +36,7 @@ import {
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
 import {
+  clearProviderListQueries,
   ensureProviderListQuery,
   getConnectedProviderItems,
 } from "../../../infra/provider-list-query";
@@ -93,6 +94,7 @@ import {
   readStoredDefaultModel,
   writeStoredDefaultModel,
 } from "../../../kernel/model-config";
+import { DEFAULT_MODEL } from "../../../../app/constants";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 type CloudProviderSyncReason =
@@ -285,6 +287,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudOrgProvidersLoadKey = "";
   let cloudOrgProvidersInFlightKey = "";
   let cloudOrgProvidersInFlight: Promise<DenOrgLlmProvider[]> | null = null;
+  let cloudOrgProvidersGeneration = 0;
   let cloudProviderSyncTail: Promise<void> = Promise.resolve();
   let cloudProviderSyncContextKey = "";
   let lastDenSessionPushKey = "";
@@ -1017,6 +1020,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (!token || !orgId) {
+      cloudOrgProvidersGeneration += 1;
       setStateField("cloudOrgProviders", []);
       cloudOrgProvidersLoadKey = loadKey;
       return [];
@@ -1026,20 +1030,35 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       baseUrl: settings.baseUrl,
       token,
     });
+    const generation = ++cloudOrgProvidersGeneration;
     const request = client
       .listOrgLlmProviders(orgId)
       .then((providers) => {
+        if (
+          generation !== cloudOrgProvidersGeneration ||
+          getCloudOrgProvidersKey() !== loadKey
+        ) {
+          return state.cloudOrgProviders;
+        }
         setStateField("cloudOrgProviders", providers);
         cloudOrgProvidersLoadKey = loadKey;
         return providers;
       })
       .catch((error) => {
-        setStateField("cloudOrgProviders", []);
-        cloudOrgProvidersLoadKey = "";
+        if (
+          generation === cloudOrgProvidersGeneration &&
+          getCloudOrgProvidersKey() === loadKey
+        ) {
+          setStateField("cloudOrgProviders", []);
+          cloudOrgProvidersLoadKey = "";
+        }
         throw error;
       })
       .finally(() => {
-        if (cloudOrgProvidersInFlightKey === loadKey) {
+        if (
+          generation === cloudOrgProvidersGeneration &&
+          cloudOrgProvidersInFlightKey === loadKey
+        ) {
           cloudOrgProvidersInFlight = null;
           cloudOrgProvidersInFlightKey = "";
         }
@@ -1809,6 +1828,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     );
   };
 
+  const publishSettingsCloudProviderSyncError = (
+    reason: CloudProviderSyncReason,
+    message: string,
+  ) => {
+    if (reason !== "settings_cloud_opened") return;
+    // A sync that loses its session while logout is clearing account state is
+    // cancellation, not a user-actionable provider failure.
+    setStateField(
+      "providerAuthError",
+      hasCloudProviderSyncPrerequisites() ? message : null,
+    );
+  };
+
   const preselectEntitledOrgDefaultModel = (
     providerList: ProviderListResponse | null | undefined,
   ) => {
@@ -1981,6 +2013,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function runCloudProviderSync(reason: CloudProviderSyncReason) {
+    if (!hasCloudProviderSyncPrerequisites()) {
+      if (reason === "settings_cloud_opened") {
+        setStateField("providerAuthError", null);
+      }
+      return;
+    }
     if (getOpenworkGatewayOrigin()) {
       if (!loggedGatewayCloudProviderSyncSkip) {
         loggedGatewayCloudProviderSyncSkip = true;
@@ -2011,9 +2049,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             reason,
             new Error(result.message ?? "Cloud provider sync failed."),
           );
-          if (reason === "settings_cloud_opened") {
-            setStateField("providerAuthError", message);
-          }
+          publishSettingsCloudProviderSyncError(reason, message);
           return;
         }
         // The server may already be synchronized while this route still holds
@@ -2024,9 +2060,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         return { outcome: "handled_server_side" };
       } catch (error) {
         const message = logCloudProviderSyncError(reason, error);
-        if (reason === "settings_cloud_opened") {
-          setStateField("providerAuthError", message);
-        }
+        publishSettingsCloudProviderSyncError(reason, message);
         return;
       }
     }
@@ -2041,9 +2075,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       )
       .catch((error) => {
         const message = logCloudProviderSyncError(reason, error);
-        if (reason === "settings_cloud_opened") {
-          setStateField("providerAuthError", message);
-        }
+        publishSettingsCloudProviderSyncError(reason, message);
       });
 
     cloudProviderSyncTail = request;
@@ -2217,6 +2249,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     lastWorkspaceKey = currentWorkspaceKey();
     if (typeof window !== "undefined") {
       const handleDenSessionUpdate = (event: Event) => {
+        cloudOrgProvidersGeneration += 1;
         cloudOrgProvidersLoadKey = "";
         cloudOrgProvidersInFlightKey = "";
         cloudOrgProvidersInFlight = null;
@@ -2227,15 +2260,52 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             ...current,
             cloudOrgProviders: [],
             providerAuthMethods: {},
+            providerAuthError: null,
             cloudProviderServerSync: null,
             lastSyncError: {},
           }));
           void refreshCloudOrgProviders({ force: true }).catch(() => undefined);
           void pushDenSession().then(() => runCloudProviderSync("sign_in"));
         } else {
+          const logoutProviderIds = detail?.status === "signed_out"
+            ? [...new Set(options.providerConnectedIds())].filter(
+              (providerId) => providerId.trim().toLowerCase() !== DESKTOP_RESTRICTION_OPENCODE_PROVIDER_ID,
+            )
+            : [];
+          // Account-scoped catalog state must disappear synchronously. Config
+          // and credential cleanup continues below without leaving stale
+          // models visible while those best-effort operations finish.
+          clearProviderListQueries(getReactQueryClient());
+          for (const providerId of logoutProviderIds) {
+            removeProviderFromState(providerId);
+          }
+          if (
+            logoutProviderIds.some(
+              (providerId) => providerId === readStoredDefaultModel().providerID,
+            )
+          ) {
+            writeStoredDefaultModel(DEFAULT_MODEL);
+          }
+          mutateState((current) => ({
+            ...current,
+            cloudOrgProviders: [],
+            providerAuthMethods: {},
+            providerAuthError: null,
+            cloudProviderServerSync: null,
+            lastSyncError: {},
+          }));
           if (serverHandlesProviderSync()) {
             lastDenSessionPushKey = "";
-            void options.openworkServer.getSnapshot().openworkServerClient?.deleteDenSession().catch(() => undefined);
+            void (async () => {
+              await options.openworkServer.getSnapshot().openworkServerClient?.deleteDenSession().catch(() => undefined);
+              // The server removes cloud-owned environment entries from disk,
+              // but a running OpenCode child retains its spawn environment.
+              // Explicit desktop sign-out must replace that process so an
+              // account-scoped provider cannot remain connected in the UI.
+              if (detail?.status === "signed_out" && isDesktopRuntime()) {
+                await engineRestart({}).catch(() => undefined);
+              }
+            })();
           }
           // Sign-out or error: remove all cloud-imported providers from the workspace
           // Capture the full import records BEFORE clearing state
@@ -2245,6 +2315,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           // Best-effort cleanup: remove each cloud provider from opencode.jsonc
           // BEFORE clearing state so removeCloudProviderInternal can find the records
           void (async () => {
+            for (const providerId of logoutProviderIds) {
+              try {
+                await removeProviderAuthCredentials(providerId);
+              } catch {
+                // Providers backed exclusively by the environment have no
+                // stored credential to remove. Their environment remains
+                // operator-owned and is not mutated by account logout.
+              }
+            }
             for (const cloudId of importedIds) {
               try {
                 await removeCloudProviderInternal(cloudId, { silent: true });
@@ -2275,6 +2354,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
               ...current,
               cloudOrgProviders: [],
               providerAuthMethods: {},
+              providerAuthError: null,
               importedCloudProviders: {},
               cloudProviderServerSync: null,
               lastSyncError: {},

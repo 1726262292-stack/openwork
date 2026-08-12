@@ -129,6 +129,7 @@ import {
   type ModelEntitlementOption,
 } from "@/react-app/domains/connections/provider-auth/provider-policy";
 import {
+  isManagedModelAvailabilityPending,
   isOrganizationModelsEmpty,
   shouldAutoOpenUnavailableModelPicker,
 } from "@/react-app/domains/connections/provider-auth/managed-models-recovery";
@@ -973,6 +974,7 @@ export function SessionRoute() {
     workspaceRoot: selectedWorkspaceRoot,
     onOpen: handleModelPickerOpen,
     fallbackOptions: organizationAssignedModelOptions,
+    cloudProvidersEnabled: denAuth.isSignedIn,
   });
   // Which session the open model picker targets. Selecting a model while a
   // session is targeted remembers it for that conversation only; null means
@@ -1016,10 +1018,17 @@ export function SessionRoute() {
   useEffect(() => {
     if (entitledOrgDefaultModel) writeStoredDefaultModel(entitledOrgDefaultModel);
   }, [entitledOrgDefaultModel]);
+  const selectedModelAvailabilityPending = isManagedModelAvailabilityPending({
+    signedIn: denAuth.isSignedIn,
+    selectedModelUsesCloudProvider,
+    cloudProviderSyncReady,
+    openWorkModelsSyncing,
+  });
   const selectedModelUnavailable = Boolean(
     selectedWorkspaceId &&
       opencodeClient &&
       !loading &&
+      !selectedModelAvailabilityPending &&
       local.prefs.defaultModel &&
       (!selectedModelUsesCloudProvider || cloudProviderSyncReady) &&
       (
@@ -1070,9 +1079,18 @@ export function SessionRoute() {
     modelPicker.setOpen(true);
   }, [cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, organizationModelsEmpty, selectedModelUnavailableKey]);
 
-  const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
+  const hasUsableModel = Boolean(
+    local.prefs.defaultModel &&
+      !selectedModelUnavailable &&
+      !selectedModelAvailabilityPending,
+  );
   const canCreateTask = Boolean(
-    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
+    opencodeClient &&
+      selectedWorkspaceId &&
+      !loading &&
+      !selectedWorkspaceError &&
+      !selectedModelUnavailable &&
+      !selectedModelAvailabilityPending,
   );
 
   const {
@@ -1097,6 +1115,7 @@ export function SessionRoute() {
   const showPreparingStatus =
     !organizationModelsEmpty &&
     (effectiveLoading ||
+      selectedModelAvailabilityPending ||
       (!canCreateTask && !routeError && !selectedWorkspaceError));
 
   useEffect(() => {
@@ -1111,18 +1130,17 @@ export function SessionRoute() {
 
     const applyProviderState = (value: ProviderListResponse) => {
       if (cancelled) return;
-      // When not signed in, filter out cloud-managed providers (lpr_*)
-      // so stale entries from a previous session don't appear.
+      // When not signed in, filter out every cloud-managed provider key so
+      // stale org imports and the hosted `openwork` catalog do not reappear.
       const hasCloudAuth = !!readDenSettings().authToken?.trim();
-      const isCloudProvider = (id: string) => /^lpr_/i.test(id);
       const all = hasCloudAuth
         ? ((value.all ?? []) as ProviderListItem[])
         : ((value.all ?? []) as ProviderListItem[]).filter(
-            (p) => !isCloudProvider(p.id ?? ""),
+            (provider) => !isCloudManagedProviderKey(provider.id ?? ""),
           );
       const connected = hasCloudAuth
         ? (value.connected ?? [])
-        : (value.connected ?? []).filter((id) => !isCloudProvider(id));
+        : (value.connected ?? []).filter((id) => !isCloudManagedProviderKey(id));
       setProviders(all);
       setProviderConnectedIds(connected);
       // New-provider detection is handled globally by the provider auth

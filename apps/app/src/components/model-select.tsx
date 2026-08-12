@@ -33,7 +33,11 @@ import {
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
 import { filterEntitledModelOptions } from "@/react-app/domains/connections/provider-auth/provider-policy";
-import { mergeModelOptions } from "@/react-app/domains/connections/provider-auth/assigned-model-options";
+import {
+  filterCloudManagedModelOptions,
+  mergeModelOptions,
+} from "@/react-app/domains/connections/provider-auth/assigned-model-options";
+import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import {
   Command,
   CommandCollection,
@@ -63,7 +67,11 @@ function getProviderDisplayName(providerId: string) {
     .join(" ");
 }
 
-function useModelOptions(open: boolean, fallbackOptions: readonly ModelOption[]) {
+function useModelOptions(
+  open: boolean,
+  fallbackOptions: readonly ModelOption[],
+  cloudProvidersEnabled: boolean,
+) {
   const { client, opencodeBaseUrl, selectedWorkspaceRoot } = useWorkspace();
   const checkDesktopRestriction = useCheckDesktopRestriction();
 
@@ -112,11 +120,14 @@ function useModelOptions(open: boolean, fallbackOptions: readonly ModelOption[])
         })),
       );
 
-    return filterEntitledModelOptions(mergeModelOptions(options, fallbackOptions), {
+    return filterEntitledModelOptions(filterCloudManagedModelOptions(
+      mergeModelOptions(options, fallbackOptions),
+      cloudProvidersEnabled,
+    ), {
       restrictToCloud,
       checkRestriction: checkDesktopRestriction,
     });
-  }, [checkDesktopRestriction, data, fallbackOptions]);
+  }, [checkDesktopRestriction, cloudProvidersEnabled, data, fallbackOptions]);
 }
 
 type ModelSelectModelItem = {
@@ -218,8 +229,8 @@ export function ModelSelect({
   const [search, setSearch] = React.useState("");
   const [promoHidden, setPromoHidden] = React.useState(isOpenWorkModelsPromoHidden);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const modelOptions = useModelOptions(open, fallbackOptions);
   const denAuth = useDenAuth();
+  const modelOptions = useModelOptions(open, fallbackOptions, denAuth.isSignedIn);
   const navigate = useNavigate();
   const platform = usePlatform();
   const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
@@ -350,7 +361,9 @@ export function ModelSelect({
           }
         >
           <span className="max-w-48 truncate">
-            {hideValue ? "Select model" : (selectedOption?.title ?? value.modelID ?? "Select model")}
+            {hideValue || (!denAuth.isSignedIn && isCloudManagedProviderKey(value.providerID))
+              ? "Select model"
+              : (selectedOption?.title ?? value.modelID ?? "Select model")}
           </span>
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>

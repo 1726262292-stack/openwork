@@ -1,6 +1,15 @@
 import type { DenOrgLlmProvider } from "@/app/lib/den";
 import type { ModelOption } from "@/app/types";
-import { getCloudManagedProviderId } from "./cloud-provider-config";
+import { getCloudManagedProviderId, isCloudManagedProviderKey } from "./cloud-provider-config";
+
+export function filterCloudManagedModelOptions<T extends Pick<ModelOption, "providerID">>(
+  options: readonly T[],
+  cloudProvidersEnabled: boolean,
+): T[] {
+  return cloudProvidersEnabled
+    ? [...options]
+    : options.filter((option) => !isCloudManagedProviderKey(option.providerID));
+}
 
 export function assignedModelOptions(
   providers: readonly DenOrgLlmProvider[],
