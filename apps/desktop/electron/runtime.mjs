@@ -83,6 +83,33 @@ export function resolveEvalLocalServerDelayMs(env = process.env) {
   return Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
 }
 
+export function reconcileInjectedUserEnv({
+  processEnv,
+  inheritedEnv,
+  userEnv,
+  previouslyInjectedKeys = new Set(),
+}) {
+  for (const key of previouslyInjectedKeys) {
+    if (Object.prototype.hasOwnProperty.call(userEnv, key)) continue;
+    if (Object.prototype.hasOwnProperty.call(inheritedEnv, key)) {
+      processEnv[key] = inheritedEnv[key];
+    } else {
+      delete processEnv[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(userEnv)) {
+    if (Object.prototype.hasOwnProperty.call(inheritedEnv, key)) continue;
+    processEnv[key] = value;
+  }
+
+  return new Set(
+    Object.keys(userEnv).filter(
+      (key) => !Object.prototype.hasOwnProperty.call(inheritedEnv, key),
+    ),
+  );
+}
+
 export function commandMatchesPackagedSidecar(command, sidecarDirs = []) {
   const value = String(command ?? "");
   if (!sidecarDirs.some((dir) => String(dir ?? "").trim() && value.includes(dir))) {
@@ -1099,6 +1126,8 @@ export function mergeSystemCaChildEnv(baseEnv = {}, caEnv = {}, extra = {}) {
 }
 
 export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, localManagedMcpVaultKey }) {
+  const inheritedProcessEnv = { ...process.env };
+  let injectedUserEnvKeys = new Set();
   const engineState = createEngineState();
   const openworkServerState = createOpenworkServerState();
 
@@ -1278,8 +1307,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // User env is layered first so process.env + any caller overrides always
     // win. See apps/server/src/env-file.ts — all loaders must agree on path +
     // reserved-keys policy.
+    const userEnv = loadUserEnvFile();
+    injectedUserEnvKeys = reconcileInjectedUserEnv({
+      processEnv: process.env,
+      inheritedEnv: inheritedProcessEnv,
+      userEnv,
+      previouslyInjectedKeys: injectedUserEnvKeys,
+    });
     const baseEnv = {
-      ...loadUserEnvFile(),
+      ...userEnv,
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
     };

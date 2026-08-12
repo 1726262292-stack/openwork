@@ -2281,7 +2281,16 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           }));
           if (serverHandlesProviderSync()) {
             lastDenSessionPushKey = "";
-            void options.openworkServer.getSnapshot().openworkServerClient?.deleteDenSession().catch(() => undefined);
+            void (async () => {
+              await options.openworkServer.getSnapshot().openworkServerClient?.deleteDenSession().catch(() => undefined);
+              // The server removes cloud-owned environment entries from disk,
+              // but a running OpenCode child retains its spawn environment.
+              // Explicit desktop sign-out must replace that process so an
+              // account-scoped provider cannot remain connected in the UI.
+              if (detail?.status === "signed_out" && isDesktopRuntime()) {
+                await engineRestart({}).catch(() => undefined);
+              }
+            })();
           }
           // Sign-out or error: remove all cloud-imported providers from the workspace
           // Capture the full import records BEFORE clearing state
