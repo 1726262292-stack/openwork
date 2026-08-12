@@ -129,6 +129,7 @@ import {
   type ModelEntitlementOption,
 } from "@/react-app/domains/connections/provider-auth/provider-policy";
 import {
+  isManagedModelAvailabilityPending,
   isOrganizationModelsEmpty,
   shouldAutoOpenUnavailableModelPicker,
 } from "@/react-app/domains/connections/provider-auth/managed-models-recovery";
@@ -1017,10 +1018,17 @@ export function SessionRoute() {
   useEffect(() => {
     if (entitledOrgDefaultModel) writeStoredDefaultModel(entitledOrgDefaultModel);
   }, [entitledOrgDefaultModel]);
+  const selectedModelAvailabilityPending = isManagedModelAvailabilityPending({
+    signedIn: denAuth.isSignedIn,
+    selectedModelUsesCloudProvider,
+    cloudProviderSyncReady,
+    openWorkModelsSyncing,
+  });
   const selectedModelUnavailable = Boolean(
     selectedWorkspaceId &&
       opencodeClient &&
       !loading &&
+      !selectedModelAvailabilityPending &&
       local.prefs.defaultModel &&
       (!selectedModelUsesCloudProvider || cloudProviderSyncReady) &&
       (
@@ -1071,9 +1079,18 @@ export function SessionRoute() {
     modelPicker.setOpen(true);
   }, [cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, organizationModelsEmpty, selectedModelUnavailableKey]);
 
-  const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
+  const hasUsableModel = Boolean(
+    local.prefs.defaultModel &&
+      !selectedModelUnavailable &&
+      !selectedModelAvailabilityPending,
+  );
   const canCreateTask = Boolean(
-    opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
+    opencodeClient &&
+      selectedWorkspaceId &&
+      !loading &&
+      !selectedWorkspaceError &&
+      !selectedModelUnavailable &&
+      !selectedModelAvailabilityPending,
   );
 
   const {
@@ -1098,6 +1115,7 @@ export function SessionRoute() {
   const showPreparingStatus =
     !organizationModelsEmpty &&
     (effectiveLoading ||
+      selectedModelAvailabilityPending ||
       (!canCreateTask && !routeError && !selectedWorkspaceError));
 
   useEffect(() => {
