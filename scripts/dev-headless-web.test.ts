@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildDetachedRespawnArgs,
+  buildHeadlessCorsOrigins,
   buildHeadlessRuntimeManifest,
   buildOpenworkServerArgs,
   isHeadlessStackCommand,
@@ -102,6 +103,7 @@ describe("dev-headless-web helpers", () => {
       token: "client-token",
       hostToken: "host-token",
       configPath: "/repo/tmp/headless-server.json",
+      corsOrigins: ["http://127.0.0.1:5178"],
     });
     expect(args.slice(0, 2)).toEqual([
       "--config",
@@ -110,6 +112,38 @@ describe("dev-headless-web helpers", () => {
     expect(args).not.toContain("--workspace");
     expect(args).toContain("--token");
     expect(args).toContain("client-token");
+  });
+
+  test("CORS is pinned to the web app origins, never wildcarded", () => {
+    const corsOrigins = buildHeadlessCorsOrigins({
+      webUrl: "http://127.0.0.1:5178",
+      webPort: 5178,
+    });
+    expect(corsOrigins).toEqual([
+      "http://127.0.0.1:5178",
+      "http://localhost:5178",
+    ]);
+    // A public host still gets its own origin alongside the loopback ones.
+    expect(
+      buildHeadlessCorsOrigins({ webUrl: "http://dev.local:5178", webPort: 5178 }),
+    ).toEqual([
+      "http://dev.local:5178",
+      "http://127.0.0.1:5178",
+      "http://localhost:5178",
+    ]);
+
+    const args = buildOpenworkServerArgs({
+      host: "127.0.0.1",
+      port: 8787,
+      token: "client-token",
+      hostToken: "host-token",
+      configPath: "/repo/tmp/headless-server.json",
+      corsOrigins,
+    });
+    expect(args[args.indexOf("--cors") + 1]).toBe(
+      "http://127.0.0.1:5178,http://localhost:5178",
+    );
+    expect(args).not.toContain("*");
   });
 
   test("runtime manifest carries agent-facing local-server fields", () => {

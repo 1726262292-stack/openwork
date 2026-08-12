@@ -8,6 +8,7 @@ import path from "node:path";
 import {
   buildDetachedRespawnArgs,
   normalizeDenTarget,
+  buildHeadlessCorsOrigins,
   buildHeadlessRuntimeManifest,
   buildOpenworkServerArgs,
   isHeadlessStackCommand,
@@ -457,6 +458,7 @@ const headlessProcess = spawnLogged(
     token: openworkToken,
     hostToken: openworkHostToken,
     configPath: serverConfigPath,
+    corsOrigins: buildHeadlessCorsOrigins({ webUrl, webPort }),
   }),
   headlessLogPath,
   headlessEnv,

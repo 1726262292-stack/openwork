@@ -141,6 +141,25 @@ export function resolveHeadlessTokens(input: {
   return { token, hostToken };
 }
 
+/**
+ * Origins allowed to call the local server from a browser. The only browser
+ * client is the Vite app, so listing its origins keeps `--cors *` — which lets
+ * any site the developer visits reach the token-authenticated local API — out
+ * of the dev stack. `localhost` and `127.0.0.1` are distinct origins to a
+ * browser, and either can be typed into the address bar.
+ */
+export function buildHeadlessCorsOrigins(input: {
+  webUrl: string;
+  webPort: number;
+}): string[] {
+  const origins = new Set<string>([
+    new URL(input.webUrl).origin,
+    `http://127.0.0.1:${input.webPort}`,
+    `http://localhost:${input.webPort}`,
+  ]);
+  return Array.from(origins);
+}
+
 // No --workspace flag: a CLI workspace makes the server ignore the config
 // file's persisted `workspaces` list at boot, which would drop workspaces the
 // user added through the UI. The merged config carries the workspace instead.
@@ -150,6 +169,7 @@ export function buildOpenworkServerArgs(input: {
   token: string;
   hostToken: string;
   configPath: string;
+  corsOrigins: string[];
 }): string[] {
   return [
     "--config",
@@ -165,7 +185,7 @@ export function buildOpenworkServerArgs(input: {
     "--approval",
     "auto",
     "--cors",
-    "*",
+    input.corsOrigins.join(","),
     "--verbose",
   ];
 }
