@@ -757,9 +757,14 @@ export class CloudProviderSync {
     const envUpserts = prepared.envEntries.filter((entry) => storedEnv.get(entry.key) !== entry.value);
     if (envUpserts.length > 0) {
       await this.env.upsertMany(envUpserts);
-      for (const entry of envUpserts) this.ownedEnvKeys.add(entry.key);
     }
     const desiredEnvKeys = new Set(prepared.envEntries.map((entry) => entry.key));
+    // Ownership follows the active cloud materialization, not whether this
+    // process happened to write the value. After an app/server restart the
+    // persisted credential can already equal Den's value, so envUpserts is
+    // empty. Reclaim every desired key or the next logout will leave that
+    // cloud credential behind permanently.
+    for (const key of desiredEnvKeys) this.ownedEnvKeys.add(key);
     const envDeletes = [...this.ownedEnvKeys].filter((key) => !desiredEnvKeys.has(key));
     for (const key of envDeletes) {
       await this.env.delete(key);
