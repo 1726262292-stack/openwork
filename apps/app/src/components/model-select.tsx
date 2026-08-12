@@ -197,6 +197,8 @@ interface ModelSelectProps {
   sessionId?: string;
   /** Den/import includes OpenWork Models — never show Subscribe while true. */
   openWorkModelsEntitled?: boolean;
+  /** The server is waiting to reload this workspace with OpenWork Models. */
+  openWorkModelsSyncing?: boolean;
   /** Member-scoped models available before a workspace OpenCode client exists. */
   fallbackOptions?: readonly ModelOption[];
 }
@@ -210,6 +212,7 @@ export function ModelSelect({
   disabled = false,
   sessionId,
   openWorkModelsEntitled = false,
+  openWorkModelsSyncing = false,
   fallbackOptions = [],
 }: ModelSelectProps) {
   const [search, setSearch] = React.useState("");
@@ -261,7 +264,6 @@ export function ModelSelect({
     () => hasOpenWorkModelsProvider(modelOptions.map((option) => option.providerID)),
     [modelOptions],
   );
-  const showOpenWorkModelsSyncing = openWorkModelsEntitled && !openWorkModelsAvailable;
   const showOpenWorkModelsPromo = React.useMemo(
     () =>
       openWorkModelsPromoEligible &&
@@ -369,7 +371,7 @@ export function ModelSelect({
             />
           </CommandHeader>
           <CommandEmpty>No models found.</CommandEmpty>
-          {showOpenWorkModelsSyncing ? (
+          {openWorkModelsSyncing ? (
             <div className="mx-1 mb-1 flex items-center gap-2 rounded-md border border-amber-6/60 bg-amber-2/40 px-2 py-1.5">
               <ProviderIcon
                 providerId={OPENWORK_MODELS_PROVIDER_ID}
@@ -382,7 +384,7 @@ export function ModelSelect({
                   {OPENWORK_MODELS_PROVIDER_NAME}
                 </span>
                 <span className="block truncate text-[11px] text-muted-foreground">
-                  Included — syncing into this workspace…
+                  Included — pending workspace reload…
                 </span>
               </span>
             </div>

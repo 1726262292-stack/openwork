@@ -75,6 +75,7 @@ type ComposerProps = {
   /** When set, the full model picker opened from here targets this session. */
   sessionId?: string;
   openWorkModelsEntitled?: boolean;
+  openWorkModelsSyncing?: boolean;
   onRefreshOrganizationModels?: () => void | Promise<void>;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
@@ -1687,6 +1688,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                   disabled={props.steering}
                   sessionId={props.sessionId}
                   openWorkModelsEntitled={props.openWorkModelsEntitled}
+                  openWorkModelsSyncing={props.openWorkModelsSyncing}
                   fallbackOptions={props.modelOptions}
                 />
                 {props.modelUnavailable ? props.onRefreshOrganizationModels ? (

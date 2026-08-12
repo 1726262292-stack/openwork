@@ -133,6 +133,7 @@ import {
   useOpenWorkModelsPromoEligibility,
   isOpenWorkModelsPromoHidden,
   openWorkModelsPromoChangedEvent,
+  shouldShowOpenWorkModelsSyncing,
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import {
   isDesktopRuntime,
@@ -864,7 +865,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     providerConnectedIds,
     providers,
   });
-  const showOpenWorkModelsSyncing = openWorkModelsEntitled && !openWorkModelsAvailable;
+  const showOpenWorkModelsSyncing = shouldShowOpenWorkModelsSyncing({
+    entitled: openWorkModelsEntitled,
+    available: openWorkModelsAvailable,
+    workspaceReady: Boolean(selectedWorkspaceId && activeClient),
+    reloadPending: providerAuthSnapshot.cloudProviderServerSync?.reloadPending === true,
+  });
   const showOpenWorkModelsSubscribe =
     openWorkModelsPromoEligible &&
     !openWorkModelsEntitled &&
@@ -897,11 +903,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       platform.openLink(getDenInferenceUrl(cloudSession.baseUrl));
     }, 0);
   }, [cloudSession.baseUrl, navigate, platform, providerAuthStore, selectedWorkspaceId]);
-
-  const refreshOpenWorkModels = useCallback(async () => {
-    await providerAuthStore.runCloudProviderSync("settings_cloud_opened");
-    await providerAuthStore.refreshProviders();
-  }, [providerAuthStore]);
 
   const handleOpenProviderAuth = useCallback(() => {
     if (providerAuthStore.isProviderAddRestricted()) {
@@ -2217,7 +2218,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             showOpenWorkModelsConnect={showOpenWorkModelsConnect}
             showOpenWorkModelsSyncing={showOpenWorkModelsSyncing}
             onSubscribeOpenWorkModels={subscribeToOpenWorkModels}
-            onRefreshOpenWorkModels={refreshOpenWorkModels}
             onDismissOpenWorkModels={dismissOpenWorkModelsPromo}
             cloudProvidersView={
               <CloudProvidersView

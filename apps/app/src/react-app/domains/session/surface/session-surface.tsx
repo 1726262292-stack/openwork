@@ -313,6 +313,8 @@ export type SessionSurfaceProps = {
   providerCatalog?: ProviderCatalog;
   /** Den/import includes OpenWork Models for this org member (not just local sync). */
   openWorkModelsEntitled?: boolean;
+  /** The server is waiting to reload this workspace with OpenWork Models. */
+  openWorkModelsSyncing?: boolean;
   onRefreshOrganizationModels?: () => void | Promise<void>;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
@@ -2135,6 +2137,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         modelPickerOpen={modelPickerOpen}
         selectedModel={sessionModel.selectedModel}
         openWorkModelsEntitled={props.openWorkModelsEntitled}
+        openWorkModelsSyncing={props.openWorkModelsSyncing}
         onRefreshOrganizationModels={props.onRefreshOrganizationModels}
         onModelPickerOpenChange={handleModelPickerOpenChange}
         onModelChange={handleModelChange}
