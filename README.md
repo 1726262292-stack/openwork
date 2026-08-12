@@ -119,4 +119,11 @@ This is an isolated launcher:
 - Detaches the servers from the launching terminal, so they survive the terminal closing
 - Supports `--detach` to run the whole stack independent of the invoking shell (recommended for agents): it starts detached, waits for health, prints the URLs, and exits
 
-Open the printed Web URL. Cloud sign-in works in the browser (Account → sign in opens the Den web flow). Point Den at a local stack with `OPENWORK_DEV_DEN_PROXY_TARGET=http://127.0.0.1:3005` while `pnpm dev:web-local` is running. Set `OPENWORK_DEV_HEADLESS_WEB_DEN_PROXY=0` to disable the Den wiring.
+Open the printed Web URL. Cloud sign-in in headless web uses the **copy/paste** handoff (hosted Den cannot redirect session grants back to `http://127.0.0.1`):
+
+1. Account → Sign in (opens Den; the paste field opens in Settings)
+2. Sign in on Den
+3. Copy the OpenWork link / one-time code Den shows
+4. Paste it under **Paste sign-in code** → Finish sign-in
+
+Point Den at a local stack with `OPENWORK_DEV_DEN_PROXY_TARGET=http://127.0.0.1:3005` while `pnpm dev:web-local` is running. Set `OPENWORK_DEV_HEADLESS_WEB_DEN_PROXY=0` to disable the Den wiring.

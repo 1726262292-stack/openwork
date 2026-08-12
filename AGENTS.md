@@ -53,7 +53,9 @@ even before a dedicated UI exists.
  `openwork-server` without Electron, detached from the invoking shell. Read
  `tmp/dev-headless-web.json` for `webUrl`, tokens, logs, and Den proxy URLs.
  It does not use `~/.config/openwork/server.json`. Re-running reuses a healthy
- instance; `--replace` restarts it.
+ instance; `--replace` restarts it. Cloud sign-in is copy/paste handoff (Den
+ cannot redirect grants to localhost): Account → Sign in → copy OpenWork link
+ on Den → Paste sign-in code in Settings.
 
 ## Coding
 

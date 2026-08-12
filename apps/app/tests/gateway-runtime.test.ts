@@ -423,12 +423,27 @@ describe("non-gateway connection modes", () => {
       expect(client.baseUrls.baseUrl).toBe("https://app.openworklabs.com");
 
       // Sign-in still opens the real Den web app, not the proxy origin.
-      expect(
-        buildDenAuthUrl(settings.baseUrl, "sign-in").startsWith("https://app.openworklabs.com/"),
-      ).toBe(true);
+      // Loopback cannot use webAuth return URLs against hosted Den, so the
+      // URL uses desktopAuth (copy link / paste grant) instead.
+      const authUrl = new URL(buildDenAuthUrl(settings.baseUrl, "sign-in"));
+      expect(authUrl.origin).toBe("https://app.openworklabs.com");
+      expect(authUrl.searchParams.get("desktopAuth")).toBe("1");
+      expect(authUrl.searchParams.get("webAuth")).toBeNull();
     } finally {
       restoreEnv("VITE_DEN_API_BASE_URL", previous);
     }
+  });
+
+  test("loopback web auth uses desktop handoff instead of an unapprovable webAuth return URL", () => {
+    installWindow({ origin: "http://127.0.0.1:5178" });
+
+    const authUrl = new URL(buildDenAuthUrl(readDenSettings().baseUrl, "sign-in"));
+
+    expect(authUrl.origin).toBe("https://app.openworklabs.com");
+    expect(authUrl.searchParams.get("desktopAuth")).toBe("1");
+    expect(authUrl.searchParams.get("desktopScheme")).toBe("openwork");
+    expect(authUrl.searchParams.get("webAuth")).toBeNull();
+    expect(authUrl.searchParams.get("webAuthReturn")).toBeNull();
   });
 
   test("force-env clears a stale stored Den base URL on web bootstrap init", async () => {

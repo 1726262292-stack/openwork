@@ -969,15 +969,48 @@ export async function setDenBootstrapConfig(
   return readDenBootstrapConfig();
 }
 
+/**
+ * Hosted Den only approves Cloud web handoff return URLs that are HTTPS
+ * gateway / signed-preview origins. Loopback and plain HTTP (local headless
+ * web) can never be approved, so those clients must use the desktop handoff
+ * (copy link / paste grant) instead of webAuth auto-return.
+ */
+function canUseCloudWebAuthReturn(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname.trim().toLowerCase();
+    if (
+      host === "localhost"
+      || host === "0.0.0.0"
+      || host === "::1"
+      || host === "[::1]"
+      || /^127(?:\.\d{1,3}){3}$/.test(host)
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildDenAuthUrl(baseUrl: string, mode: "sign-in" | "sign-up"): string {
   const target = new URL(resolveDenBaseUrls(baseUrl).baseUrl);
   target.searchParams.set("mode", mode);
-  if (isDesktopDeployment()) {
+  const webReturnOrigin =
+    isWebDeployment() && typeof window !== "undefined" ? window.location.origin : null;
+  if (
+    isDesktopDeployment()
+    || (webReturnOrigin !== null && !canUseCloudWebAuthReturn(webReturnOrigin))
+  ) {
+    // Desktop app, or local/dev web that cannot receive an approved webAuth
+    // redirect: Den shows the copyable openwork:// / grant handoff instead.
     target.searchParams.set("desktopAuth", "1");
     target.searchParams.set("desktopScheme", "openwork");
-  } else if (isWebDeployment() && typeof window !== "undefined") {
+  } else if (webReturnOrigin !== null) {
     target.searchParams.set("webAuth", "1");
-    target.searchParams.set("webAuthReturn", window.location.origin);
+    target.searchParams.set("webAuthReturn", webReturnOrigin);
   }
   return target.toString();
 }
