@@ -44,6 +44,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { WelcomeRoute } from "./welcome-route";
+import { readOrgSelectionPending } from "../../app/lib/den-sign-in-intent";
 import { signedInRoute } from "./den-signin-routing";
 
 
@@ -103,11 +104,25 @@ function DenSigninGate({ children }: DenSigninGateProps) {
       if (!denAuth.isSignedIn && !onSignin) {
         navigate("/signin", { replace: true });
       } else if (denAuth.isSignedIn && onSignin) {
-        navigate(signedInRoute(readDenSettings().activeOrgId), { replace: true });
+        navigate(
+          signedInRoute(readDenSettings().activeOrgId, {
+            orgSelectionPending: readOrgSelectionPending().pending,
+          }),
+          { replace: true },
+        );
       }
     } else if (onSignin) {
       navigate("/session", { replace: true });
     } else if (!denAuth.isSignedIn && hasPreparedBootstrap && !onOnboarding) {
+      navigate("/onboarding", { replace: true });
+    } else if (
+      denAuth.isSignedIn &&
+      !onOnboarding &&
+      readOrgSelectionPending().pending
+    ) {
+      // A desktop-initiated sign-in is still waiting for the user's explicit
+      // organization choice (including after an app relaunch mid-flow); the
+      // onboarding step owns resolving it.
       navigate("/onboarding", { replace: true });
     }
 
@@ -135,7 +150,11 @@ function DenSigninGate({ children }: DenSigninGateProps) {
       const check = () => {
         attempts++;
         const settings = readDenSettings();
-        if (settings.authToken?.trim() && settings.activeOrgId?.trim()) {
+        if (settings.authToken?.trim() && readOrgSelectionPending().pending) {
+          // Desktop-initiated sign-in: the org chooser decides — do not race
+          // it to /session while the choice is deliberately open.
+          navigate("/onboarding", { replace: true });
+        } else if (settings.authToken?.trim() && settings.activeOrgId?.trim()) {
           navigate("/session", { replace: true });
         } else if (attempts < 10) {
           // Session persistence should already be done, but retry briefly in
@@ -213,6 +232,9 @@ function DenAuthControlActions() {
       const result = await exchangeHandoffAndSignIn(grant.trim(), {
         baseUrl: targetBaseUrl,
         client,
+        // Automation surface: commit the exchange-reported org directly; a
+        // UI chooser would strand a headless driver.
+        desktopInitiated: false,
         fallbackErrorMessage: "No token returned",
       });
       if (!result.ok) return { ok: false, error: result.error };

@@ -19,6 +19,7 @@ import {
   type DenSettings,
   type DenOrgSummary,
 } from "@/app/lib/den";
+import { markDesktopSignInInitiated } from "@/app/lib/den-sign-in-intent";
 import { clearDesktopBootstrapConfig } from "@/app/lib/desktop";
 import { exchangeHandoffAndSignIn } from "@/app/lib/den-handoff";
 import {
@@ -240,6 +241,7 @@ export function useDenSession({
   const openBrowserAuth = React.useCallback(
     (mode: "sign-in" | "sign-up") => {
       const url = buildDenAuthUrl(baseUrl, mode);
+      markDesktopSignInInitiated();
       setSigninFallbackUrl(url);
       setStatusMessage(
         mode === "sign-up"
@@ -499,6 +501,8 @@ export function useDenSession({
       const result = await exchangeHandoffAndSignIn(parsed.grant, {
         baseUrl: nextBaseUrl,
         client: exchangeClient,
+        // Pasted one-time codes are desktop-initiated sign-ins.
+        desktopInitiated: true,
         fallbackErrorMessage: t("den.error_no_token"),
       });
       if (!result.ok) {
