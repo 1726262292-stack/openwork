@@ -22,7 +22,7 @@ const installers = [
 test("one Azure OIDC job signs and publishes every Windows installer", async ({ evidence }) => {
   const workflow = await readFile(workflowPath, "utf8");
 
-  expect(workflow.match(/uses: azure\/artifact-signing-action@v2/g)).toHaveLength(1);
+  expect(workflow.match(/uses: azure\/artifact-signing-action@[0-9a-f]{40} # v2/g)).toHaveLength(1);
   expect(workflow).toContain("sign-and-publish-windows:");
   expect(workflow).toContain("runs-on: windows-2022");
   expect(workflow).toContain("environment: windows-signing");
