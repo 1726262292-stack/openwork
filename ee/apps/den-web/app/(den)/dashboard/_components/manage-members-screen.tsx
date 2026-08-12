@@ -153,6 +153,8 @@ export function ManageMembersScreen() {
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("member");
+  const [inviteAddToTeams, setInviteAddToTeams] = useState(false);
+  const [inviteTeamIds, setInviteTeamIds] = useState<string[]>([]);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
   const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null);
   const [memberRoleDraft, setMemberRoleDraft] = useState("member");
@@ -232,6 +234,8 @@ export function ManageMembersScreen() {
   function resetInviteForm() {
     setInviteEmail("");
     setInviteRole(access.canManageRoles ? assignableRoles[0]?.role ?? "member" : "member");
+    setInviteAddToTeams(false);
+    setInviteTeamIds([]);
     setShowInviteForm(false);
   }
 
@@ -357,6 +361,14 @@ export function ManageMembersScreen() {
     );
   }, [access.canManageRoles, assignableRoles]);
 
+  useEffect(() => {
+    const availableTeamIds = new Set((orgContext?.teams ?? []).map((team) => team.id));
+    setInviteTeamIds((current) => current.filter((teamId) => availableTeamIds.has(teamId)));
+    if (availableTeamIds.size === 0) {
+      setInviteAddToTeams(false);
+    }
+  }, [orgContext?.teams]);
+
   if (orgBusy && !orgContext) {
     return (
       <div className="mx-auto max-w-[1200px] px-6 py-8 md:px-8">
@@ -377,6 +389,12 @@ export function ManageMembersScreen() {
     );
   }
 
+  const inviteTeamSummary = inviteTeamIds.length === 0
+    ? "Select teams"
+    : inviteTeamIds.length === 1
+      ? orgContext.teams.find((team) => team.id === inviteTeamIds[0])?.name ?? "1 team selected"
+      : `${inviteTeamIds.length} teams selected`;
+
   const inviteForm =
     showInviteForm && access.canInviteMembers ? (
       <DenCard className="mb-6">
@@ -386,7 +404,11 @@ export function ManageMembersScreen() {
             event.preventDefault();
             setPageError(null);
             try {
-              await inviteMember({ email: inviteEmail, role: access.canManageRoles ? inviteRole : "member" });
+              await inviteMember({
+                email: inviteEmail,
+                role: access.canManageRoles ? inviteRole : "member",
+                teamIds: inviteAddToTeams ? inviteTeamIds : [],
+              });
               resetInviteForm();
             } catch (error) {
               const paymentRequiredError = getOrgPaymentRequiredError(error);
@@ -442,6 +464,55 @@ export function ManageMembersScreen() {
               Send invite
             </DenButton>
           </div>
+          {orgContext.teams.length > 0 ? (
+            <div className="grid gap-3 lg:col-span-full">
+              <label className="inline-flex w-fit items-center gap-2 text-[14px] font-medium text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={inviteAddToTeams}
+                  onChange={(event) => {
+                    setInviteAddToTeams(event.target.checked);
+                    if (!event.target.checked) {
+                      setInviteTeamIds([]);
+                    }
+                  }}
+                  className="h-4 w-4 rounded border-gray-300 text-gray-900"
+                />
+                <span>Add this person to a team</span>
+              </label>
+              {inviteAddToTeams ? (
+                <details className="relative max-w-[420px]">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[14px] text-gray-700 shadow-sm marker:hidden">
+                    <span>{inviteTeamSummary}</span>
+                    <span className="text-[12px] text-gray-400">Choose</span>
+                  </summary>
+                  <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl shadow-gray-900/10">
+                    {orgContext.teams.map((team) => {
+                      const checked = inviteTeamIds.includes(team.id);
+                      return (
+                        <label
+                          key={team.id}
+                          className="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-4 py-3 text-[14px] text-gray-700 last:border-b-0 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            value={team.id}
+                            checked={checked}
+                            onChange={(event) => {
+                              setInviteTeamIds((current) => event.target.checked
+                                ? [...current, team.id]
+                                : current.filter((teamId) => teamId !== team.id));
+                            }}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{team.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
         </form>
       </DenCard>
     ) : null;

@@ -1,5 +1,5 @@
-import { and, desc, eq, isNull } from "@openwork-ee/den-db/drizzle"
-import { AuthUserTable, InvitationTable, MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema"
+import { and, desc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
+import { AuthUserTable, InvitationTable, MemberTable, OrganizationTable, TeamMemberTable, TeamTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -20,6 +20,7 @@ import { buildInvitationLink, createInvitationId, createInvitationToken, ensureI
 const inviteMemberSchema = z.object({
   email: z.string().email(),
   role: z.string().trim().min(1).max(64),
+  teamIds: z.array(denTypeIdSchema("team")).optional().default([]),
 })
 const logger = appLogger.child({ component: "invitations" })
 
@@ -61,8 +62,13 @@ const invitationNotPendingSchema = z.object({
 }).meta({ ref: "InvitationNotPendingError" })
 
 type InvitationId = typeof InvitationTable.$inferSelect.id
+type TeamId = typeof TeamTable.$inferSelect.id
 
 const orgInvitationParamsSchema = idParamSchema("invitationId", "invitation")
+
+function parseTeamIds(teamIds: string[]) {
+  return [...new Set(teamIds.map((value) => normalizeDenTypeId("team", value)))]
+}
 
 export function validateInvitationRefreshRole(input: {
   existingRole: string
@@ -95,7 +101,7 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         401: jsonResponse("The caller must be signed in to invite organization members.", unauthorizedSchema),
         402: jsonResponse("A seat subscription is required before inviting more members.", invitePaymentRequiredSchema),
         403: jsonResponse("Only workspace owners and admins can create invitations. Admins can only invite members.", forbiddenSchema),
-        404: jsonResponse("The organization could not be found.", notFoundSchema),
+        404: jsonResponse("The organization or a referenced team could not be found.", notFoundSchema),
         409: jsonResponse("The email address is outside this workspace's allowed domains.", inviteEmailDomainNotAllowedSchema),
         502: jsonResponse("The invitation was saved but the email provider rejected or failed to deliver it. Retry by submitting the same email again.", invitationEmailFailedSchema),
       },
@@ -141,6 +147,13 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
       return c.json({ error: assignableRole.error, message: assignableRole.message }, 403)
     }
     const assignedRole = assignableRole.role
+
+    let teamIds: TeamId[]
+    try {
+      teamIds = parseTeamIds(input.teamIds)
+    } catch {
+      return c.json({ error: "team_not_found" }, 404)
+    }
 
     const invitationWrite = await db.transaction(async (tx) => {
       await tx
@@ -198,6 +211,18 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         : createInvitationToken()
       let createdOrgMemberId: typeof MemberTable.$inferSelect.id | null = null
       let invitationOrgMemberId: typeof MemberTable.$inferSelect.id | null = null
+
+      if (teamIds.length > 0) {
+        const organizationTeams = await tx
+          .select({ id: TeamTable.id })
+          .from(TeamTable)
+          .where(and(eq(TeamTable.organizationId, payload.organization.id), inArray(TeamTable.id, teamIds)))
+          .for("update")
+        const organizationTeamIds = new Set(organizationTeams.map((team) => team.id))
+        if (!teamIds.every((teamId) => organizationTeamIds.has(teamId))) {
+          return { status: "team_not_found" as const }
+        }
+      }
 
       if (existingInvitation) {
         await tx
@@ -258,6 +283,27 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         invitationOrgMemberId = memberId
       }
 
+      if (invitationOrgMemberId && teamIds.length > 0) {
+        const teamMemberOrgMemberId = invitationOrgMemberId
+        const existingTeamMembers = await tx
+          .select({ teamId: TeamMemberTable.teamId })
+          .from(TeamMemberTable)
+          .where(and(eq(TeamMemberTable.orgMembershipId, teamMemberOrgMemberId), inArray(TeamMemberTable.teamId, teamIds)))
+        const existingTeamIds = new Set(existingTeamMembers.map((teamMember) => teamMember.teamId))
+        const nextTeamMemberRows = teamIds
+          .filter((teamId) => !existingTeamIds.has(teamId))
+          .map((teamId) => ({
+            id: createDenTypeId("teamMember"),
+            teamId,
+            orgMembershipId: teamMemberOrgMemberId,
+            createdAt: now,
+          }))
+
+        if (nextTeamMemberRows.length > 0) {
+          await tx.insert(TeamMemberTable).values(nextTeamMemberRows)
+        }
+      }
+
       return {
         status: "saved" as const,
         createdOrgMemberId,
@@ -292,6 +338,9 @@ export function registerOrgInvitationRoutes<T extends { Variables: OrgRouteVaria
         freeSeatCount: seatEligibility.freeSeatCount,
         message: `This workspace includes ${seatEligibility.freeSeatCount} free members. Start seat billing before inviting another member.`,
       }, 402)
+    }
+    if (invitationWrite.status === "team_not_found") {
+      return c.json({ error: "team_not_found" }, 404)
     }
 
     const {

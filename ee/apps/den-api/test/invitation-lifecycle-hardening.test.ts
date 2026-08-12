@@ -32,6 +32,8 @@ const ownerSessionId = createDenTypeId("session")
 const racingSessionId = createDenTypeId("session")
 const invitationId = createDenTypeId("invitation")
 const teamId = createDenTypeId("team")
+const inviteTeamId = createDenTypeId("team")
+const inviteSecondTeamId = createDenTypeId("team")
 const teamMemberId = createDenTypeId("teamMember")
 const ownerSessionToken = `invitation-lifecycle-owner-${ownerSessionId}`
 const racingSessionToken = `invitation-lifecycle-racing-${racingSessionId}`
@@ -136,6 +138,18 @@ beforeAll(async () => {
     organizationId,
     name: "Invitation Lifecycle Team",
   })
+  await db.insert(schema.TeamTable).values([
+    {
+      id: inviteTeamId,
+      organizationId,
+      name: "Invite Team",
+    },
+    {
+      id: inviteSecondTeamId,
+      organizationId,
+      name: "Invite Second Team",
+    },
+  ])
   await db.insert(schema.TeamMemberTable).values({
     id: teamMemberId,
     teamId,
@@ -165,11 +179,11 @@ afterAll(async () => {
   }
 
   await db.delete(schema.AuditEventTable).where(drizzle.eq(schema.AuditEventTable.org_id, organizationId))
-  await db.delete(schema.TeamMemberTable).where(drizzle.eq(schema.TeamMemberTable.teamId, teamId))
+  await db.delete(schema.TeamMemberTable).where(drizzle.inArray(schema.TeamMemberTable.teamId, [teamId, inviteTeamId, inviteSecondTeamId]))
   await db.delete(schema.AuthSessionTable).where(drizzle.inArray(schema.AuthSessionTable.id, [ownerSessionId, racingSessionId]))
   await db.delete(schema.MemberTable).where(drizzle.eq(schema.MemberTable.organizationId, organizationId))
   await db.delete(schema.InvitationTable).where(drizzle.eq(schema.InvitationTable.organizationId, organizationId))
-  await db.delete(schema.TeamTable).where(drizzle.eq(schema.TeamTable.id, teamId))
+  await db.delete(schema.TeamTable).where(drizzle.inArray(schema.TeamTable.id, [teamId, inviteTeamId, inviteSecondTeamId]))
   await db.delete(schema.OrganizationRoleTable).where(drizzle.eq(schema.OrganizationRoleTable.organizationId, organizationId))
   await db.delete(schema.OrganizationTable).where(drizzle.eq(schema.OrganizationTable.id, organizationId))
   await db.delete(schema.AuthUserTable).where(
@@ -267,6 +281,46 @@ test("concurrent invite requests converge on one pending invitation and one usab
       drizzle.isNull(schema.MemberTable.removedAt),
     ))
   expect(pendingMembers).toHaveLength(1)
+})
+
+test("creating an invite can add its pending member to selected teams", async () => {
+  const teamInviteEmail = `team-invite-${organizationId}@test.local`
+  const response = await app.fetch(new Request(`${API_ORIGIN}/v1/invitations`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: ownerCookie,
+      origin: API_ORIGIN,
+    },
+    body: JSON.stringify({
+      email: teamInviteEmail,
+      role: "member",
+      teamIds: [inviteTeamId, inviteSecondTeamId],
+    }),
+  }))
+  const payload: unknown = await response.json()
+
+  expect(response.status).toBe(201)
+  expect(isRecord(payload)).toBe(true)
+  if (!isRecord(payload) || typeof payload.invitationId !== "string") {
+    throw new Error("Invitation response did not include an invitation id")
+  }
+
+  const pendingMembers = await db
+    .select({ id: schema.MemberTable.id })
+    .from(schema.MemberTable)
+    .where(drizzle.and(
+      drizzle.eq(schema.MemberTable.organizationId, organizationId),
+      drizzle.eq(schema.MemberTable.inviteId, payload.invitationId),
+      drizzle.isNull(schema.MemberTable.removedAt),
+    ))
+  expect(pendingMembers).toHaveLength(1)
+
+  const teamMembers = await db
+    .select({ teamId: schema.TeamMemberTable.teamId })
+    .from(schema.TeamMemberTable)
+    .where(drizzle.eq(schema.TeamMemberTable.orgMembershipId, pendingMembers[0]?.id ?? ownerMemberId))
+  expect(teamMembers.map((teamMember) => teamMember.teamId).sort()).toEqual([inviteSecondTeamId, inviteTeamId].sort())
 })
 
 test("an accepted invitation cannot be canceled by stale admin state", async () => {
