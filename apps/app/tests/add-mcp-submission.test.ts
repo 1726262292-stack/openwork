@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { McpDirectoryInfo } from "../src/app/constants";
+import { conflictsWithOpenworkConnect } from "../src/react-app/domains/connections/mcp-connection-boundary";
 import { submitMcpEntry } from "../src/react-app/domains/connections/modals/add-mcp-submission";
 
 const entry: McpDirectoryInfo = {
@@ -13,6 +14,18 @@ const entry: McpDirectoryInfo = {
 };
 
 describe("local MCP submission feedback", () => {
+  test("reserves the OpenWork Connect runtime name for its managed entry", () => {
+    expect(conflictsWithOpenworkConnect({ name: "OpenWork Cloud" })).toBe(true);
+    expect(conflictsWithOpenworkConnect({ name: "openwork-cloud" })).toBe(true);
+    expect(conflictsWithOpenworkConnect({ id: "openwork-cloud", name: "Custom cloud" })).toBe(true);
+    expect(conflictsWithOpenworkConnect({
+      name: "OpenWork Cloud",
+      serverName: "openwork-cloud",
+      managedBy: "openwork-connect",
+    })).toBe(false);
+    expect(conflictsWithOpenworkConnect({ name: "BigQuery" })).toBe(false);
+  });
+
   test("returns no error only after the connection succeeds", async () => {
     expect(await submitMcpEntry(async () => ({ ok: true }), entry, "Fallback")).toBeNull();
   });

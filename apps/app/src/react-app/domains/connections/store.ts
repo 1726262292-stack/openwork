@@ -40,6 +40,7 @@ import type {
   ReloadTrigger,
 } from "../../../app/types";
 import { isDesktopRuntime, normalizeDirectoryPath, safeStringify } from "../../../app/utils";
+import { conflictsWithOpenworkConnect } from "./mcp-connection-boundary";
 
 import type { OpenworkServerStore } from "./openwork-server-store";
 import { attemptSilentMcpReauth } from "./mcp-silent-reauth";
@@ -671,10 +672,22 @@ export function createConnectionsStore(options: {
     const slug = entry.id ?? getMcpServerName(entry);
     const action = snapshot.mcpServers.some((server) => server.name === slug) ? "updated" : "added";
 
+    if (conflictsWithOpenworkConnect(entry)) {
+      const error = t("mcp.name_reserved_openwork_connect");
+      setStateField("mcpStatus", error);
+      finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
+        reason: "openwork-connect-name-reserved",
+      });
+      return { ok: false, error };
+    }
+
     try {
       mutateState((current) => ({ ...current, mcpStatus: null, mcpConnectingName: entry.name }));
 
-      if (entry.serverName === CLOUD_MCP_SERVER_NAME) {
+      if (entry.managedBy === "openwork-connect") {
+        if (slug !== CLOUD_MCP_SERVER_NAME) {
+          throw new Error("OpenWork Connect MCP metadata is invalid.");
+        }
         if (!canUseOpenworkServer || !openworkClient || !openworkWorkspaceId) {
           throw new Error("OpenWork server is required to repair agent access to connected services.");
         }
