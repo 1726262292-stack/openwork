@@ -301,12 +301,14 @@ const webPort = await resolvePort(
   "127.0.0.1",
 );
 // Reuse the previous run's tokens so a relaunch never breaks open browser
-// tabs or agent-cached manifests with 401s.
+// tabs or agent-cached manifests with 401s. `--rotate-tokens` opts out, which
+// is how you invalidate credentials you believe leaked.
+const rotateTokensRequested = process.argv.includes("--rotate-tokens");
 const { token: openworkToken, hostToken: openworkHostToken } =
   resolveHeadlessTokens({
     envToken: process.env.OPENWORK_TOKEN,
     envHostToken: process.env.OPENWORK_HOST_TOKEN,
-    previous: existingManifest,
+    previous: rotateTokensRequested ? null : existingManifest,
     generate: randomUUID,
   });
 const openworkServerBin = path.join(
