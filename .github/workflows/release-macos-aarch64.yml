@@ -1016,8 +1016,8 @@ jobs:
       always() &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
-      (needs.publish-electron.result == 'success' || needs.publish-electron.result == 'skipped') &&
-      (needs.publish-electron-assets.result == 'success' || needs.publish-electron-assets.result == 'skipped') &&
+      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron.result == 'success') &&
+      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-assets.result == 'success') &&
       (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
       needs.publish-daytona-snapshot.result != 'cancelled'
     runs-on: blacksmith-4vcpu-ubuntu-2404
