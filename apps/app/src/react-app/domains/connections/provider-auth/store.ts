@@ -285,6 +285,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudOrgProvidersLoadKey = "";
   let cloudOrgProvidersInFlightKey = "";
   let cloudOrgProvidersInFlight: Promise<DenOrgLlmProvider[]> | null = null;
+  let cloudOrgProvidersGeneration = 0;
   let cloudProviderSyncTail: Promise<void> = Promise.resolve();
   let cloudProviderSyncContextKey = "";
   let lastDenSessionPushKey = "";
@@ -1017,6 +1018,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (!token || !orgId) {
+      cloudOrgProvidersGeneration += 1;
       setStateField("cloudOrgProviders", []);
       cloudOrgProvidersLoadKey = loadKey;
       return [];
@@ -1026,20 +1028,35 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       baseUrl: settings.baseUrl,
       token,
     });
+    const generation = ++cloudOrgProvidersGeneration;
     const request = client
       .listOrgLlmProviders(orgId)
       .then((providers) => {
+        if (
+          generation !== cloudOrgProvidersGeneration ||
+          getCloudOrgProvidersKey() !== loadKey
+        ) {
+          return state.cloudOrgProviders;
+        }
         setStateField("cloudOrgProviders", providers);
         cloudOrgProvidersLoadKey = loadKey;
         return providers;
       })
       .catch((error) => {
-        setStateField("cloudOrgProviders", []);
-        cloudOrgProvidersLoadKey = "";
+        if (
+          generation === cloudOrgProvidersGeneration &&
+          getCloudOrgProvidersKey() === loadKey
+        ) {
+          setStateField("cloudOrgProviders", []);
+          cloudOrgProvidersLoadKey = "";
+        }
         throw error;
       })
       .finally(() => {
-        if (cloudOrgProvidersInFlightKey === loadKey) {
+        if (
+          generation === cloudOrgProvidersGeneration &&
+          cloudOrgProvidersInFlightKey === loadKey
+        ) {
           cloudOrgProvidersInFlight = null;
           cloudOrgProvidersInFlightKey = "";
         }
@@ -2217,6 +2234,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     lastWorkspaceKey = currentWorkspaceKey();
     if (typeof window !== "undefined") {
       const handleDenSessionUpdate = (event: Event) => {
+        cloudOrgProvidersGeneration += 1;
         cloudOrgProvidersLoadKey = "";
         cloudOrgProvidersInFlightKey = "";
         cloudOrgProvidersInFlight = null;
@@ -2233,6 +2251,16 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           void refreshCloudOrgProviders({ force: true }).catch(() => undefined);
           void pushDenSession().then(() => runCloudProviderSync("sign_in"));
         } else {
+          // Account-scoped catalog state must disappear synchronously. Config
+          // and credential cleanup continues below without leaving stale
+          // models visible while those best-effort operations finish.
+          mutateState((current) => ({
+            ...current,
+            cloudOrgProviders: [],
+            providerAuthMethods: {},
+            cloudProviderServerSync: null,
+            lastSyncError: {},
+          }));
           if (serverHandlesProviderSync()) {
             lastDenSessionPushKey = "";
             void options.openworkServer.getSnapshot().openworkServerClient?.deleteDenSession().catch(() => undefined);

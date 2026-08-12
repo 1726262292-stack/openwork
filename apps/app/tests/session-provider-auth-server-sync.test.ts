@@ -147,7 +147,10 @@ function cloudProviderPayload() {
 
 function installFetchMock(
   requests: RecordedRequest[],
-  options: { runStatuses?: Array<{ status: "applied" | "noop" | "failed" | "no_session"; message?: string }> } = {},
+  options: {
+    runStatuses?: Array<{ status: "applied" | "noop" | "failed" | "no_session"; message?: string }>;
+    providerResponse?: Promise<Response>;
+  } = {},
 ) {
   let runIndex = 0;
   Object.defineProperty(globalThis, "fetch", {
@@ -163,7 +166,7 @@ function installFetchMock(
       });
 
       if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers") {
-        return jsonResponse({ llmProviders: [cloudProviderPayload()] });
+        return options.providerResponse ?? jsonResponse({ llmProviders: [cloudProviderPayload()] });
       }
       if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers/lpr_test/connect") {
         return jsonResponse({ llmProvider: cloudProviderPayload() });
@@ -346,6 +349,38 @@ describe("session-route cloud provider sync wiring", () => {
     store.start();
     await assignedModelsLoaded;
     clearDenSession();
+
+    expect(store.getSnapshot().cloudOrgProviders).toEqual([]);
+    expect(store.getSnapshot().importedCloudProviders).toEqual({});
+    store.dispose();
+  });
+
+  test("an organization provider request started before logout cannot restore stale models", async () => {
+    const storage = installWindow();
+    installCloudSession(storage);
+    const requests: RecordedRequest[] = [];
+    let resolveProviderResponse: (response: Response) => void = () => undefined;
+    const providerResponse = new Promise<Response>((resolve) => {
+      resolveProviderResponse = resolve;
+    });
+    installFetchMock(requests, { providerResponse });
+    const store = createSessionRouteStore({
+      endpoint: null,
+      hostToken: "",
+    });
+
+    store.start();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (requests.some((request) => request.url === "https://den.example/api/den/v1/llm-providers")) break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(
+      requests.filter((request) => request.url === "https://den.example/api/den/v1/llm-providers"),
+    ).toHaveLength(1);
+    clearDenSession();
+    resolveProviderResponse(jsonResponse({ llmProviders: [cloudProviderPayload()] }));
+    await providerResponse;
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(store.getSnapshot().cloudOrgProviders).toEqual([]);
     expect(store.getSnapshot().importedCloudProviders).toEqual({});
