@@ -559,7 +559,6 @@ export function SessionRoute() {
     setLegacySelectedWorkspaceId,
     retryingWorkspaceIds,
     setRetryingWorkspaceIds,
-    refreshInFlightRef,
     startupRetryTimerRef,
     selectedWorkspaceId,
     selectedWorkspace,
@@ -597,9 +596,8 @@ export function SessionRoute() {
       nextStatus: cloudWorkspace.viewModel.variant,
       gatewayMode: cloudWorkspace.gatewayMode && cloudWorkspace.visible,
     })) return;
-    refreshInFlightRef.current = false;
-    void refreshRouteState();
-  }, [cloudWorkspace.gatewayMode, cloudWorkspace.viewModel.variant, cloudWorkspace.visible, refreshInFlightRef, refreshRouteState]);
+    void refreshRouteState({ supersede: true });
+  }, [cloudWorkspace.gatewayMode, cloudWorkspace.viewModel.variant, cloudWorkspace.visible, refreshRouteState]);
   const cloudMcpProviderModel = useMemo(() => local.prefs.defaultModel
     ? {
         provider: local.prefs.defaultModel.providerID,
@@ -1839,8 +1837,7 @@ export function SessionRoute() {
         if (startupRetryTimerRef.current === null) {
           startupRetryTimerRef.current = window.setTimeout(() => {
             startupRetryTimerRef.current = null;
-            refreshInFlightRef.current = false;
-            void refreshRouteState();
+            void refreshRouteState({ supersede: true });
           }, 1_000);
         }
       }
