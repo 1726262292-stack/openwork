@@ -1,6 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { openSync } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -477,11 +477,15 @@ const runtimeManifest = buildHeadlessRuntimeManifest({
   webPid: webProcess.pid ?? null,
   openworkServerPid: headlessProcess.pid ?? null,
 });
+// The manifest carries the server bearer and host tokens, so keep it
+// owner-only. `mode` applies on creation only; chmod covers the rewrite of a
+// manifest an earlier run left with a permissive umask.
 await writeFile(
   runtimeManifestPath,
   `${JSON.stringify(runtimeManifest, null, 2)}\n`,
-  "utf8",
+  { encoding: "utf8", mode: 0o600 },
 );
+await chmod(runtimeManifestPath, 0o600);
 
 logLine("[dev:headless-web] Starting isolated local-server session");
 logLine(`[dev:headless-web] Workspace: ${workspace}`);
