@@ -94,6 +94,7 @@ import {
   readStoredDefaultModel,
   writeStoredDefaultModel,
 } from "../../../kernel/model-config";
+import { DEFAULT_MODEL } from "../../../../app/constants";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 type CloudProviderSyncReason =
@@ -2252,10 +2253,25 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           void refreshCloudOrgProviders({ force: true }).catch(() => undefined);
           void pushDenSession().then(() => runCloudProviderSync("sign_in"));
         } else {
+          const logoutProviderIds = detail?.status === "signed_out"
+            ? [...new Set(options.providerConnectedIds())].filter(
+              (providerId) => providerId.trim().toLowerCase() !== DESKTOP_RESTRICTION_OPENCODE_PROVIDER_ID,
+            )
+            : [];
           // Account-scoped catalog state must disappear synchronously. Config
           // and credential cleanup continues below without leaving stale
           // models visible while those best-effort operations finish.
           clearProviderListQueries(getReactQueryClient());
+          for (const providerId of logoutProviderIds) {
+            removeProviderFromState(providerId);
+          }
+          if (
+            logoutProviderIds.some(
+              (providerId) => providerId === readStoredDefaultModel().providerID,
+            )
+          ) {
+            writeStoredDefaultModel(DEFAULT_MODEL);
+          }
           mutateState((current) => ({
             ...current,
             cloudOrgProviders: [],
@@ -2275,6 +2291,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           // Best-effort cleanup: remove each cloud provider from opencode.jsonc
           // BEFORE clearing state so removeCloudProviderInternal can find the records
           void (async () => {
+            for (const providerId of logoutProviderIds) {
+              try {
+                await removeProviderAuthCredentials(providerId);
+              } catch {
+                // Providers backed exclusively by the environment have no
+                // stored credential to remove. Their environment remains
+                // operator-owned and is not mutated by account logout.
+              }
+            }
             for (const cloudId of importedIds) {
               try {
                 await removeCloudProviderInternal(cloudId, { silent: true });

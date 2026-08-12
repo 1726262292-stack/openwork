@@ -229,6 +229,7 @@ function makeEndpoint(options: { origin: string; isRemote: boolean }): ResolvedW
 function createSessionRouteStore(options: {
   endpoint: ResolvedWorkspaceEndpoint | null;
   hostToken: string;
+  connectedProviderIds?: string[];
 }) {
   const opencodeClient = createClient("https://engine.example", "/tmp/workspace_test", {
     token: "engine-token",
@@ -243,7 +244,7 @@ function createSessionRouteStore(options: {
   } satisfies WorkspaceDisplay;
   let providers: ProviderListItem[] = [];
   let providerDefaults: Record<string, string> = {};
-  let providerConnectedIds: string[] = [];
+  let providerConnectedIds: string[] = options.connectedProviderIds ?? [];
   let disabledProviders: string[] = [];
 
   return createProviderAuthStore({
@@ -352,6 +353,36 @@ describe("session-route cloud provider sync wiring", () => {
 
     expect(store.getSnapshot().cloudOrgProviders).toEqual([]);
     expect(store.getSnapshot().importedCloudProviders).toEqual({});
+    store.dispose();
+  });
+
+  test("logout removes connected provider credentials and resets their saved default", async () => {
+    const storage = installWindow();
+    installCloudSession(storage);
+    storage.setItem("openwork.defaultModel", "anthropic/claude-fable-5");
+    const requests: RecordedRequest[] = [];
+    installFetchMock(requests);
+    const store = createSessionRouteStore({
+      endpoint: null,
+      hostToken: "",
+      connectedProviderIds: ["opencode", "anthropic"],
+    });
+
+    store.start();
+    clearDenSession();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (requests.some((request) =>
+        request.method === "DELETE" && new URL(request.url).pathname === "/auth/anthropic"
+      )) break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(
+      requests.filter((request) =>
+        request.method === "DELETE" && new URL(request.url).pathname === "/auth/anthropic"
+      ),
+    ).toHaveLength(1);
+    expect(storage.getItem("openwork.defaultModel")).not.toBe("anthropic/claude-fable-5");
     store.dispose();
   });
 
