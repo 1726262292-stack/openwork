@@ -92,6 +92,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+let mcpRequestId = 0;
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${label} was not an object: ${JSON.stringify(value).slice(0, 500)}`);
+  return value;
+}
+
+async function agentRpc(
+  apiUrl: string,
+  token: string,
+  method: string,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(`${apiUrl}/mcp/agent`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++mcpRequestId, method, params }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const raw = await response.text();
+  if (!response.ok) throw new Error(`MCP ${method} failed: HTTP ${response.status} ${raw.slice(0, 500)}`);
+  const dataLine = raw.split("\n").find((line) => line.startsWith("data:"));
+  if (!dataLine) throw new Error(`MCP ${method} returned no SSE data frame: ${raw.slice(0, 500)}`);
+  const message = requireRecord(JSON.parse(dataLine.slice(5)), "MCP response");
+  if (message.error) throw new Error(`MCP ${method} returned an error: ${JSON.stringify(message.error)}`);
+  return requireRecord(message.result, `MCP ${method} result`);
+}
+
 test("a Code Mode result becomes a cloud Automation and a durable artifact result", { timeout: 1_500_000 }, async ({ evidence, place }) => {
   needs(requirements);
   await using den = await server({
@@ -278,6 +310,72 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     "No desktop execution thread, model requirement, or error banner is visible",
   ]);
   expect(seen.ok, seen.why).toBe(true);
+
+  const scriptsResponse = await denFetch(den.admin, "/v1/codemode-scripts", {
+    headers: { authorization: `Bearer ${den.admin.token}` },
+  });
+  expect(scriptsResponse.response.ok, scriptsResponse.text).toBe(true);
+  const scripts = isRecord(scriptsResponse.body) && Array.isArray(scriptsResponse.body.items)
+    ? scriptsResponse.body.items.filter(isRecord)
+    : [];
+  const savedScript = scripts.find((candidate) => candidate.title === scriptName);
+  const configObjectId = typeof savedScript?.configObjectId === "string" ? savedScript.configObjectId : "";
+  expect(configObjectId).not.toBe("");
+
+  const tokenResponse = await denFetch(den.admin, "/v1/mcp/token", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+    body: JSON.stringify({ scopes: ["mcp:read", "mcp:write"] }),
+  });
+  expect(tokenResponse.response.ok, tokenResponse.text).toBe(true);
+  const mcpToken = isRecord(tokenResponse.body) && typeof tokenResponse.body.token === "string"
+    ? tokenResponse.body.token
+    : "";
+  expect(mcpToken).toMatch(/^ow_mcp_at_/);
+
+  const toolList = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
+  const tools = Array.isArray(toolList.tools) ? toolList.tools.filter(isRecord) : [];
+  const renderTool = tools.find((candidate) => candidate.name === "render_dynamic_artifact");
+  const renderToolMeta = isRecord(renderTool?._meta) ? renderTool._meta : {};
+  const modernUi = isRecord(renderToolMeta.ui) ? renderToolMeta.ui : {};
+  expect(modernUi.resourceUri).toBe("ui://openwork/dynamic-artifact/v1/view.html");
+  expect(renderToolMeta["ui/resourceUri"]).toBe("ui://openwork/dynamic-artifact/v1/view.html");
+
+  const resourceList = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {});
+  const resources = Array.isArray(resourceList.resources) ? resourceList.resources.filter(isRecord) : [];
+  const appResource = resources.find((candidate) => candidate.uri === "ui://openwork/dynamic-artifact/v1/view.html");
+  expect(appResource?.mimeType).toBe("text/html;profile=mcp-app");
+
+  const resourceRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", {
+    uri: "ui://openwork/dynamic-artifact/v1/view.html",
+  });
+  const resourceContents = Array.isArray(resourceRead.contents) ? resourceRead.contents.filter(isRecord) : [];
+  expect(resourceContents[0]?.mimeType).toBe("text/html;profile=mcp-app");
+  expect(String(resourceContents[0]?.text ?? "")).toContain("ui/initialize");
+  expect(String(resourceContents[0]?.text ?? "")).not.toContain("fetch(");
+
+  const rendered = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "render_dynamic_artifact",
+    arguments: { configObjectId },
+  });
+  expect(rendered.isError).not.toBe(true);
+  const structured = requireRecord(rendered.structuredContent, "Dynamic Artifact structuredContent");
+  const artifact = requireRecord(structured.artifact, "Dynamic Artifact lineage");
+  const fallback = Array.isArray(rendered.content) ? rendered.content.filter(isRecord) : [];
+  expect(structured.schemaVersion).toBe("1");
+  expect(artifact.configObjectId).toBe(configObjectId);
+  expect(artifact.source).toBe("scheduled");
+  expect(String(artifact.receiptId ?? "")).not.toBe("");
+  expect(JSON.stringify(structured.data)).toContain(scheduledMarker);
+  expect(String(fallback[0]?.text ?? "")).toContain(scheduledMarker);
+  evidence.fact(
+    "The latest Automation snapshot is portable as a standards-based MCP App",
+    "The agent endpoint links render_dynamic_artifact to a self-contained ui:// resource and returns the scheduled result as versioned structuredContent plus a Markdown fallback.",
+    true,
+  );
 
   const policyChangedAt = new Date().toISOString();
   const disabled = await denFetch(den.admin, `/v1/mcp-connections/${connection.id}/tool-policy`, {

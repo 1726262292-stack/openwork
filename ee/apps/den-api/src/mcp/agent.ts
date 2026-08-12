@@ -21,6 +21,15 @@ import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { automationService } from "../automations/service.js"
 import { AGENT_AUTOMATION_INDEX_LIMIT, registerAgentAutomationResources } from "./automation-index.js"
 import { env } from "../env.js"
+import { getOrganizationContextForUser, listTeamsForMember } from "../orgs.js"
+import { getCodemodeScriptDetail, getCodemodeScriptSnapshot } from "../codemode-scripts.js"
+import { artifactFreshness } from "../saved-script-artifacts.js"
+import { PluginArchAuthorizationError } from "../routes/org/plugin-system/access.js"
+import {
+  DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
+  dynamicArtifactAppServerCapabilities,
+  registerAgentDynamicArtifactApp,
+} from "./dynamic-artifact-app.js"
 import {
   executeBuiltinSkillCapability,
   listBuiltinSkillDescriptors,
@@ -97,7 +106,7 @@ export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
 })
 
 export const AGENT_MCP_INSTRUCTIONS = [
-  "This OpenWork Cloud connection always exposes search_capabilities and execute_capability; organizations with Code Mode scripts enabled also receive execute_capability_script.",
+  "This OpenWork Cloud connection always exposes search_capabilities and execute_capability; organizations with Code Mode scripts enabled also receive execute_capability_script and render_dynamic_artifact.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
@@ -216,6 +225,7 @@ export function createAgentMcpServer(): McpServer {
     name: "openwork-den-api-agent",
     version: "1.0.0",
   }, {
+    capabilities: dynamicArtifactAppServerCapabilities,
     instructions: AGENT_MCP_INSTRUCTIONS,
   })
 }
@@ -270,8 +280,8 @@ export function registerAgentSkillResources(input: {
 }
 
 /**
- * The minimal, harness-facing MCP surface: two core tools plus one gated
- * confined-script tool.
+ * The minimal, harness-facing MCP surface: two core tools plus gated Code Mode
+ * execution and standards-based Dynamic Artifact presentation.
  *
  * `/mcp` (index.ts) stays exactly as it is — every catalog operation
  * individually registered, ~129 tools today. That's unchanged and still
@@ -282,8 +292,10 @@ export function registerAgentSkillResources(input: {
  * desktop app's "OpenWork Cloud Control" connection, which is what an
  * OpenCode/Claude Code/Codex-style harness actually sees. It always registers
  * `search_capabilities` and `execute_capability`, and conditionally registers
- * `execute_capability_script` over the same authorized capability set. The
- * other ~127 operations are not individually callable on this endpoint.
+ * `execute_capability_script` plus `render_dynamic_artifact`. The renderer is
+ * a read-only MCP App over the same authorized saved-Script snapshots; it does
+ * not create a second execution or scheduling path. The other ~127 operations
+ * are not individually callable on this endpoint.
  */
 export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(app: Hono<T>) {
   app.get("/.well-known/oauth-protected-resource/mcp/agent", publicRoute, (c) =>
@@ -379,7 +391,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         title: "Search capabilities",
         description: [
           codemodeEnabled
-            ? "Search for a capability by keyword. This connection exposes this tool, execute_capability, and execute_capability_script —"
+            ? "Search for a capability by keyword. This connection also exposes execute_capability, execute_capability_script, and the read-only render_dynamic_artifact tool —"
             : "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
@@ -431,6 +443,112 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     )
 
     if (codemodeEnabled) {
+      registerAgentDynamicArtifactApp({
+        server,
+        load: async ({ configObjectId, receiptId, maxAgeMs }) => {
+          if (!memberIdentity) {
+            return {
+              ok: false,
+              error: "saved_script_not_found",
+              message: "The saved Script is unavailable to this member.",
+            }
+          }
+          try {
+            const organizationContext = await getOrganizationContextForUser({
+              userId: normalizeDenTypeId("user", principal.userId),
+              organizationId,
+            })
+            if (!organizationContext) {
+              return {
+                ok: false,
+                error: "saved_script_not_found",
+                message: "The saved Script is unavailable to this member.",
+              }
+            }
+            const memberTeams = await listTeamsForMember({
+              organizationId,
+              memberId: memberIdentity.orgMembershipId,
+            })
+            const context = {
+              organizationContext,
+              memberTeams,
+              session: null,
+            }
+            const detail = await getCodemodeScriptDetail({
+              context,
+              configObjectId,
+              maxAgeMs,
+            })
+            const snapshot = receiptId
+              ? await getCodemodeScriptSnapshot({ context, configObjectId, receiptId })
+              : detail.latestSuccessfulSnapshot
+            if (!snapshot) {
+              return {
+                ok: false,
+                error: "saved_script_snapshot_not_found",
+                message: receiptId
+                  ? "That immutable artifact snapshot was not found."
+                  : "This saved Script does not have a successful artifact snapshot yet. Run it explicitly or through its Automation first.",
+              }
+            }
+            if (snapshot.status !== "succeeded" || snapshot.contentDeletedAt !== null
+              || snapshot.markdown === null
+              || snapshot.resultDigest === null || snapshot.rendererVersion !== "codemode-markdown-v1") {
+              return {
+                ok: false,
+                error: "saved_script_snapshot_unavailable",
+                message: "This artifact snapshot has no readable successful content.",
+              }
+            }
+            const freshness = receiptId
+              ? artifactFreshness({
+                  latestFinishedAt: new Date(snapshot.finishedAt),
+                  latestStatus: "succeeded",
+                  latestSuccessfulFinishedAt: new Date(snapshot.finishedAt),
+                  latestSuccessfulReceiptId: snapshot.receiptId,
+                  maxAgeMs: Math.min(30 * 24 * 60 * 60_000, Math.max(60_000, maxAgeMs ?? 24 * 60 * 60_000)),
+                })
+              : detail.freshness
+            return {
+              ok: true,
+              markdown: snapshot.markdown,
+              payload: {
+                schemaVersion: DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
+                artifact: {
+                  title: detail.title,
+                  description: detail.description,
+                  pluginId: snapshot.pluginId,
+                  configObjectId: snapshot.configObjectId,
+                  configObjectVersionId: snapshot.configObjectVersionId,
+                  receiptId: snapshot.receiptId,
+                  automationRunId: snapshot.automationRunId,
+                  source: snapshot.source,
+                  generatedAt: snapshot.finishedAt,
+                  resultDigest: snapshot.resultDigest,
+                  rendererVersion: snapshot.rendererVersion,
+                  freshness,
+                },
+                data: snapshot.value,
+              },
+            }
+          } catch (error) {
+            if (error instanceof PluginArchAuthorizationError) {
+              return {
+                ok: false,
+                error: "saved_script_not_found",
+                message: "The saved Script is unavailable to this member.",
+              }
+            }
+            const message = error instanceof Error ? error.message : "saved_script_not_found"
+            return {
+              ok: false,
+              error: message.includes("not_found") ? "saved_script_not_found" : "saved_script_unavailable",
+              message: "The Dynamic Artifact could not be loaded.",
+            }
+          }
+        },
+      })
+
       server.registerTool(
         EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
         {
