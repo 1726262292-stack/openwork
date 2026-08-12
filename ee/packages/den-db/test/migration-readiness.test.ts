@@ -93,16 +93,9 @@ describe("Den DB migration readiness wiring", () => {
     assert.match(workflow, /pscale branch safe-migrations enable/)
   })
 
-  test("PR guardrails run readiness tests and smoke Den DB assets in the Den API image", () => {
-    const checkWorkflow = readRepoFile(".github/workflows/den-db-check.yml")
+  test("published Den API images smoke Den DB assets", () => {
     const publishWorkflow = readRepoFile(".github/workflows/publish-ee-images.yml")
 
-    assert.match(checkWorkflow, /pnpm --filter @openwork-ee\/den-db test/)
-    assert.match(checkWorkflow, /"ee\/apps\/den-api\/package\.json"/)
-    assert.match(checkWorkflow, /"ee\/apps\/den-api\/scripts\/build\.mjs"/)
-    assert.match(checkWorkflow, /"packaging\/docker\/Dockerfile\.den"/)
-    assert.match(checkWorkflow, /"packaging\/helm\/openwork-ee\/templates\/migration-job\.yaml"/)
-    assert.match(checkWorkflow, /"\.github\/workflows\/publish-ee-images\.yml"/)
     assert.match(publishWorkflow, /Assert Den DB migration assets/)
     assert.match(publishWorkflow, /test -s \/app\/ee\/packages\/den-db\/dist\/scripts\/bootstrap\.js/)
     assert.match(publishWorkflow, /test -s \/app\/ee\/packages\/den-db\/dist\/current-schema\.sql/)

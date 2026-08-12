@@ -41,13 +41,10 @@ Containerized production installs run the precompiled artifact directly:
 node /app/ee/packages/den-db/dist/scripts/bootstrap.js
 ```
 
-## Automated migrations (CI)
+## Automated migrations
 
-Two GitHub Actions workflows keep schema and database in sync:
+The migration workflow keeps the production database in sync:
 
-- `.github/workflows/den-db-check.yml` — on every PR touching this package,
-  runs `db:generate` and fails if the schema changed without a committed
-  migration.
 - `.github/workflows/den-db-migrate.yml` — applies migrations to the
   production PlanetScale database when migration files land on `dev`
   (and via manual `workflow_dispatch`).
