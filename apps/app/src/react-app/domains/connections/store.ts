@@ -79,6 +79,10 @@ type MutableState = ConnectionsStoreSnapshot;
 
 export type ConnectionsStore = ReturnType<typeof createConnectionsStore>;
 
+export type McpConnectResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export function createConnectionsStore(options: {
   client: () => Client | null;
   setClient: (value: Client | null) => void;
@@ -589,7 +593,7 @@ export function createConnectionsStore(options: {
     }
   }
 
-  async function connectMcp(entry: McpDirectoryInfo): Promise<boolean> {
+  async function connectMcp(entry: McpDirectoryInfo): Promise<McpConnectResult> {
     const startedAt = perfNow();
     const openworkSnapshot = getOpenworkSnapshot();
     const isRemoteWorkspace =
@@ -609,53 +613,59 @@ export function createConnectionsStore(options: {
       await resolveWritableOpenworkTarget();
 
     if (isRemoteWorkspace && !canUseOpenworkServer) {
-      setStateField("mcpStatus", "OpenWork server unavailable. MCP config is read-only.");
+      const error = "OpenWork server unavailable. MCP config is read-only.";
+      setStateField("mcpStatus", error);
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "openwork-server-unavailable",
       });
-      return false;
+      return { ok: false, error };
     }
 
     if (hasOpenworkTarget && !canUseOpenworkServer) {
-      setStateField("mcpStatus", "OpenWork server MCP config is read-only.");
+      const error = "OpenWork server MCP config is read-only.";
+      setStateField("mcpStatus", error);
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "openwork-server-read-only",
       });
-      return false;
+      return { ok: false, error };
     }
 
     if (!canUseOpenworkServer && !isDesktopRuntime()) {
-      setStateField("mcpStatus", t("mcp.desktop_required"));
+      const error = t("mcp.desktop_required");
+      setStateField("mcpStatus", error);
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "desktop-required",
       });
-      return false;
+      return { ok: false, error };
     }
 
     if (!isRemoteWorkspace && !projectDir && !canUseOpenworkServer) {
-      setStateField("mcpStatus", t("mcp.pick_workspace_first"));
+      const error = t("mcp.pick_workspace_first");
+      setStateField("mcpStatus", error);
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "missing-workspace",
       });
-      return false;
+      return { ok: false, error };
     }
 
     const activeClient = canUseOpenworkServer ? options.client() ?? await ensureActiveClient().catch(() => null) : await ensureActiveClient();
     if (!activeClient && !canUseOpenworkServer) {
-      setStateField("mcpStatus", t("mcp.connect_server_first"));
+      const error = t("mcp.connect_server_first");
+      setStateField("mcpStatus", error);
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "no-active-client",
       });
-      return false;
+      return { ok: false, error };
     }
 
     const resolvedProjectDir = activeClient ? await resolveProjectDir(activeClient, projectDir) : projectDir;
     if (!resolvedProjectDir && !canUseOpenworkServer) {
-      setStateField("mcpStatus", t("mcp.pick_workspace_first"));
+      const error = t("mcp.pick_workspace_first");
+      setStateField("mcpStatus", error);
       finishPerf(options.developerMode(), "mcp.connect", "blocked", startedAt, {
         reason: "missing-workspace-after-discovery",
       });
-      return false;
+      return { ok: false, error };
     }
 
     const slug = entry.id ?? getMcpServerName(entry);
@@ -689,7 +699,7 @@ export function createConnectionsStore(options: {
             type: entryType,
             slug,
           });
-          return true;
+          return { ok: true };
         }
         const summary = cloudMcpDisplaySummary({
           signedIn: Boolean(context.denAuthToken?.trim()),
@@ -703,7 +713,7 @@ export function createConnectionsStore(options: {
           type: entryType,
           error: summary.stageLabel,
         });
-        return false;
+        return { ok: false, error: `${summary.stageLabel}. ${summary.recommendedAction}` };
       }
 
       if (entry.managedOAuth) {
@@ -740,7 +750,12 @@ export function createConnectionsStore(options: {
           type: entryType,
           slug,
         });
-        return connected;
+        return connected
+          ? { ok: true }
+          : {
+              ok: false,
+              error: state.mcpStatus ?? "MCP sign-in is still pending. Finish it in your browser, then refresh connections.",
+            };
       }
 
       // Resolve dynamic URLs for built-in MCPs
@@ -917,19 +932,17 @@ export function createConnectionsStore(options: {
         type: entryType,
         slug,
       });
-      return true;
+      return { ok: true };
     } catch (error) {
       console.error("[mcp.connect] failed", entry.name, error);
-      setStateField(
-        "mcpStatus",
-        error instanceof Error ? error.message : t("mcp.connect_failed"),
-      );
+      const message = error instanceof Error ? error.message : t("mcp.connect_failed");
+      setStateField("mcpStatus", message);
       finishPerf(options.developerMode(), "mcp.connect", "error", startedAt, {
         name: entry.name,
         type: entryType,
         error: error instanceof Error ? error.message : safeStringify(error),
       });
-      return false;
+      return { ok: false, error: message };
     } finally {
       setStateField("mcpConnectingName", null);
     }
