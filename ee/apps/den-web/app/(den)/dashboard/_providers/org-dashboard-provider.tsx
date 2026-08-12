@@ -44,7 +44,7 @@ type OrgDashboardContextValue = {
   updateOrganizationSettings: (input: { name?: string; allowedEmailDomains?: string[] | null; allowedDesktopVersions?: string[] | null; requireSso?: boolean; brandAppName?: string | null; brandLogoUrl?: string | null; brandIconUrl?: string | null; brandAccentColor?: string | null }) => Promise<void>;
   deleteOrganization: () => Promise<void>;
   switchOrganization: (slug: string) => void;
-  inviteMember: (input: { email: string; role: string }) => Promise<void>;
+  inviteMember: (input: { email: string; role: string; teamIds?: string[] }) => Promise<void>;
   startSeatCheckout: () => Promise<void>;
   cancelInvitation: (invitationId: string) => Promise<void>;
   updateMemberRole: (memberId: string, role: string) => Promise<void>;
@@ -597,7 +597,7 @@ export function OrgDashboardProvider({
     });
   }
 
-  async function inviteMember(input: { email: string; role: string }) {
+  async function inviteMember(input: { email: string; role: string; teamIds?: string[] }) {
     const access = getCurrentAccess();
     if (!access.canInviteMembers) {
       throw new Error("Only workspace admins can invite members.");
@@ -611,7 +611,7 @@ export function OrgDashboardProvider({
         "/v1/invitations",
         {
           method: "POST",
-          body: JSON.stringify({ email: input.email, role: invitationRole }),
+          body: JSON.stringify({ email: input.email, role: invitationRole, teamIds: input.teamIds ?? [] }),
         },
         12000,
       );
