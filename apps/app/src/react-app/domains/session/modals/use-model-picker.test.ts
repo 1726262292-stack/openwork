@@ -4,7 +4,7 @@ declare const expect: (value: unknown) => {
   toEqual: (expected: unknown) => void;
 };
 
-import { filterCloudManagedModelOptions } from "./use-model-picker";
+import { filterCloudManagedModelOptions } from "@/react-app/domains/connections/provider-auth/assigned-model-options";
 
 describe("filterCloudManagedModelOptions", () => {
   const options = [

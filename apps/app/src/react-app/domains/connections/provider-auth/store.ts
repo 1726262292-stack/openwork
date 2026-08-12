@@ -36,6 +36,7 @@ import {
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
 import {
+  clearProviderListQueries,
   ensureProviderListQuery,
   getConnectedProviderItems,
 } from "../../../infra/provider-list-query";
@@ -2254,6 +2255,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           // Account-scoped catalog state must disappear synchronously. Config
           // and credential cleanup continues below without leaving stale
           // models visible while those best-effort operations finish.
+          clearProviderListQueries(getReactQueryClient());
           mutateState((current) => ({
             ...current,
             cloudOrgProviders: [],

@@ -8,7 +8,10 @@ import type { Client, ModelOption } from "@/app/types";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { isCloudManagedProviderKey } from "@/react-app/domains/connections/provider-auth/cloud-provider-config";
 import { filterEntitledModelOptions } from "@/react-app/domains/connections/provider-auth/provider-policy";
-import { mergeModelOptions } from "@/react-app/domains/connections/provider-auth/assigned-model-options";
+import {
+  filterCloudManagedModelOptions,
+  mergeModelOptions,
+} from "@/react-app/domains/connections/provider-auth/assigned-model-options";
 import {
   getConnectedProviderItems,
   useProviderListQuery,
@@ -31,15 +34,6 @@ export type UseModelPickerInput = {
   /** Account-scoped providers are hidden immediately after cloud sign-out. */
   cloudProvidersEnabled?: boolean;
 };
-
-export function filterCloudManagedModelOptions<T extends Pick<ModelOption, "providerID">>(
-  options: readonly T[],
-  cloudProvidersEnabled: boolean,
-) {
-  return cloudProvidersEnabled
-    ? [...options]
-    : options.filter((option) => !isCloudManagedProviderKey(option.providerID));
-}
 
 export function useModelPicker(input: UseModelPickerInput) {
   const {
