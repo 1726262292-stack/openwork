@@ -57,7 +57,7 @@ describe("MCP Apps sandbox proxy policy", () => {
       logRequests: false,
     };
     const server = await startServer(config);
-    stops.push(() => server.stop(true));
+    stops.push(() => server.stop());
     const base = `http://127.0.0.1:${server.port}`;
     const response = await fetch(`${base}/mcp-apps/sandbox.html?csp=${encodeURIComponent(JSON.stringify({ connectDomains: ["https://api.example.com"] }))}`);
     expect(response.status).toBe(200);
