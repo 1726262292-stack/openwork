@@ -18,6 +18,18 @@ import { buildEngineAuthProbeHeader } from "./engine-registry.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
+import {
+  callMcpAppTool,
+  McpAppHostError,
+  resolveMcpAppResource,
+} from "./mcp-app-host.js";
+import {
+  buildMcpAppSandboxCsp,
+  MCP_APP_SANDBOX_PROXY_CSS,
+  MCP_APP_SANDBOX_PROXY_HTML,
+  MCP_APP_SANDBOX_PROXY_SCRIPT,
+  parseMcpAppSandboxCsp,
+} from "./mcp-app-sandbox.js";
 import { exportExtensions } from "./extensions-export.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -30,7 +42,7 @@ import { startReloadWatchers } from "./reload-watcher.js";
 import { opencodeConfigPath, openworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { defaultWorkspaceOpenworkConfig, ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
-import { sanitizeCommandName, validateMcpName } from "./validators.js";
+import { sanitizeCommandName, validateMcpName, validateUserMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { resetManagedProviderAuthCache, syncManagedProviderAuth } from "./managed-provider-auth.js";
 import { EnvService } from "./env-file.js";
@@ -140,6 +152,18 @@ const AGENT_DIAGNOSTICS_MAX_IN_FLIGHT_PER_SERVER = 16;
 const AGENT_DIAGNOSTICS_MAX_REQUEST_BYTES = 256 * 1024;
 const AGENT_DIAGNOSTICS_DEFAULT_BODY_DEADLINE_MS = 2_000;
 const AGENT_DIAGNOSTICS_ERROR_FLUSH_MS = 25;
+
+function rethrowMcpAppHostError(error: unknown): never {
+  if (!(error instanceof McpAppHostError)) throw error;
+  const status = error.code === "invalid_tool_name" || error.code.startsWith("invalid_resource")
+    ? 400
+    : error.code === "tool_not_found" || error.code === "server_unavailable"
+      ? 404
+      : error.code === "mcp_unreachable"
+        ? 502
+        : 422;
+  throw new ApiError(status, error.code, error.message);
+}
 
 function agentDiagnosticsActorWorkspaceKey(actor: Actor | undefined, workspaceId: string): string {
   const actorKey = actor?.tokenHash ?? actor?.clientId ?? actor?.type ?? "unknown";
@@ -2834,13 +2858,71 @@ function createRoutes(
     });
   });
 
+  addRoute(routes, "GET", "/mcp-apps/sandbox.html", "none", async (ctx) => new Response(MCP_APP_SANDBOX_PROXY_HTML, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": buildMcpAppSandboxCsp(parseMcpAppSandboxCsp(ctx.url.searchParams.get("csp"))),
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "strict-origin",
+      "X-Content-Type-Options": "nosniff",
+    },
+  }));
+  addRoute(routes, "GET", "/mcp-apps/sandbox.js", "none", async () => new Response(MCP_APP_SANDBOX_PROXY_SCRIPT, {
+    headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+  }));
+  addRoute(routes, "GET", "/mcp-apps/sandbox.css", "none", async () => new Response(MCP_APP_SANDBOX_PROXY_CSS, {
+    headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+  }));
+
+  addRoute(routes, "POST", "/workspace/:id/mcp-apps/resolve", "client", async (ctx) => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const projectedToolName = typeof body.projectedToolName === "string" ? body.projectedToolName.trim() : "";
+    try {
+      const app = await resolveMcpAppResource({
+        serverConfig: config,
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        projectedToolName,
+      });
+      return jsonResponse({ app });
+    } catch (error) {
+      rethrowMcpAppHostError(error);
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp-apps/call", "client", async (ctx) => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const serverName = typeof body.serverName === "string" ? body.serverName.trim() : "";
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const args = body.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
+      ? body.arguments as Record<string, unknown>
+      : {};
+    if (!serverName || !name) throw new ApiError(400, "invalid_payload", "serverName and name are required");
+    try {
+      return jsonResponse(await callMcpAppTool({
+        serverConfig: config,
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        serverName,
+        name,
+        arguments: args,
+      }));
+    } catch (error) {
+      rethrowMcpAppHostError(error);
+    }
+  });
+
   addRoute(routes, "POST", "/workspace/:id/mcp/managed", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "").trim();
-    validateMcpName(name);
+    validateUserMcpName(name);
     const serverUrl = typeof body.url === "string" ? body.url.trim() : "";
     const oauth = body.oauth && typeof body.oauth === "object" && !Array.isArray(body.oauth)
       ? body.oauth as Record<string, unknown>
@@ -2872,7 +2954,22 @@ function createRoutes(
         ...(typeof oauth.clientSecret === "string" && oauth.clientSecret.trim() ? { clientSecret: oauth.clientSecret.trim() } : {}),
       },
     });
-    const result = await startLocalManagedMcpAuthorization(config, workspace.id, name);
+    const result = await (async () => {
+      try {
+        return await startLocalManagedMcpAuthorization(config, workspace.id, name);
+      } catch (error) {
+        // Creation writes the encrypted connection and runtime facade before
+        // OAuth discovery starts. If that first handshake fails, roll both back
+        // so the failed Add request cannot leave a ghost connection behind.
+        await deleteLocalManagedMcp(config, workspace.id, name).catch(() => undefined);
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(
+          502,
+          "managed_mcp_connection_failed",
+          "OpenWork could not start sign-in with this MCP server. Check the server URL, OAuth settings, and network connection, then try again.",
+        );
+      }
+    })();
     await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], undefined, engineMcpServerState).catch(() => undefined);
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -2960,6 +3057,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
+    validateUserMcpName(name);
     const configPayload = body.config as Record<string, unknown> | undefined;
     if (!configPayload) {
       throw new ApiError(400, "invalid_payload", "MCP config is required");

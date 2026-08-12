@@ -12,4 +12,11 @@ describe("signed-in routing", () => {
     expect(signedInRoute(null)).toBe("/onboarding");
     expect(signedInRoute("  ")).toBe("/onboarding");
   });
+
+  test("routes to onboarding while an org selection is deliberately pending", () => {
+    expect(signedInRoute(null, { orgSelectionPending: true })).toBe("/onboarding");
+    // Pending wins even if a background layer already wrote a default org id.
+    expect(signedInRoute("org-default", { orgSelectionPending: true })).toBe("/onboarding");
+    expect(signedInRoute("org-default", { orgSelectionPending: false })).toBe("/session");
+  });
 });

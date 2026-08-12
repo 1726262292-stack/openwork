@@ -15,7 +15,10 @@ import {
 } from "../src/app/lib/openwork-server";
 import { createOpenworkServerStore } from "../src/react-app/domains/connections/openwork-server-store";
 import { buildOpenworkHealthHeaders } from "../src/react-app/kernel/server-provider";
-import { resolveOpenworkConnection } from "../src/react-app/shell/openwork-connection";
+import {
+  isStaleStoredDesktopConnection,
+  resolveOpenworkConnection,
+} from "../src/react-app/shell/openwork-connection";
 
 const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
@@ -84,8 +87,14 @@ function installWindow(options: {
     ownerToken: string;
     hostToken?: string;
   };
+  /** Raw openworkServerInfo response for non-ready/restarting server states. */
+  electronServerInfoRaw?: Record<string, unknown>;
+  /** Simulate a desktop bridge whose openworkServerInfo call fails outright. */
+  electronServerInfoError?: boolean;
 }) {
   const localStorage = memoryStorage();
+  const electronBridgeInstalled =
+    options.electronInfo || options.electronServerInfoRaw || options.electronServerInfoError;
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
@@ -94,11 +103,17 @@ function installWindow(options: {
       location: { origin: options.origin },
       __OPENWORK_GATEWAY__: options.gateway ? { version: 1 } : undefined,
       __OPENWORK_BOOTSTRAP__: options.bootstrapToken ? { token: options.bootstrapToken } : undefined,
-      __OPENWORK_ELECTRON__: options.electronInfo
+      __OPENWORK_ELECTRON__: electronBridgeInstalled
         ? {
             invokeDesktop: async (command: string) => {
               if (command !== "openworkServerInfo") {
                 throw new Error(`Unexpected desktop command: ${command}`);
+              }
+              if (options.electronServerInfoError) {
+                throw new Error("desktop bridge unavailable");
+              }
+              if (options.electronServerInfoRaw) {
+                return options.electronServerInfoRaw;
               }
               return {
                 running: true,
@@ -477,5 +492,111 @@ describe("non-gateway connection modes", () => {
     expect(connection.resolvedToken).toBe("owner-token");
     expect(connection.resolvedHostToken).toBe("host-token");
     expect(connection.source).toBe("desktop-runtime");
+  });
+
+  test("a restarting desktop server invalidates stored loopback settings instead of resolving a dead port", async () => {
+    // App update / slow restart: the live runtime answers definitively, but
+    // the server has not republished its base URL and tokens yet. The stored
+    // loopback settings are from the previous server lifetime.
+    const storage = installWindow({
+      origin: "https://instance.example.com",
+      electronServerInfoRaw: { running: false, baseUrl: null, ownerToken: null, clientToken: null },
+    });
+    storage.setItem("openwork.server.urlOverride", "http://127.0.0.1:4100");
+    storage.setItem("openwork.server.token", "tok_previous_lifetime");
+
+    const connection = await resolveOpenworkConnection();
+
+    expect(connection.source).toBe("empty");
+    expect(connection.normalizedBaseUrl).toBe("");
+    expect(connection.resolvedToken).toBe("");
+  });
+
+  test("a restarting desktop server keeps stored remote/manual servers as the fallback", async () => {
+    const storage = installWindow({
+      origin: "https://instance.example.com",
+      electronServerInfoRaw: { running: false, baseUrl: null, ownerToken: null, clientToken: null },
+    });
+    storage.setItem("openwork.server.urlOverride", "https://manual.example.com");
+    storage.setItem("openwork.server.token", "manual-token");
+
+    const connection = await resolveOpenworkConnection();
+
+    expect(connection.source).toBe("stored-settings");
+    expect(connection.normalizedBaseUrl).toBe("https://manual.example.com");
+    expect(connection.resolvedToken).toBe("manual-token");
+  });
+
+  test("a failing desktop bridge still falls back to stored settings", async () => {
+    // No definitive live answer: keep the pre-existing fallback so broken
+    // bridges do not strand configured connections.
+    const storage = installWindow({
+      origin: "https://instance.example.com",
+      electronServerInfoError: true,
+    });
+    storage.setItem("openwork.server.urlOverride", "http://127.0.0.1:4100");
+    storage.setItem("openwork.server.token", "tok_stored");
+
+    const connection = await resolveOpenworkConnection();
+
+    expect(connection.source).toBe("stored-settings");
+    expect(connection.normalizedBaseUrl).toBe("http://127.0.0.1:4100");
+    expect(connection.resolvedToken).toBe("tok_stored");
+  });
+});
+
+describe("isStaleStoredDesktopConnection", () => {
+  test("marks stored loopback connections stale only on a definitive not-ready answer", () => {
+    expect(
+      isStaleStoredDesktopConnection({
+        desktopRuntime: true,
+        desktopServerReportedNotReady: true,
+        storedBaseUrl: "http://127.0.0.1:4100",
+        runtimeReportedBaseUrl: "",
+      }),
+    ).toBe(true);
+    expect(
+      isStaleStoredDesktopConnection({
+        desktopRuntime: true,
+        desktopServerReportedNotReady: false,
+        storedBaseUrl: "http://127.0.0.1:4100",
+        runtimeReportedBaseUrl: "",
+      }),
+    ).toBe(false);
+    expect(
+      isStaleStoredDesktopConnection({
+        desktopRuntime: false,
+        desktopServerReportedNotReady: true,
+        storedBaseUrl: "http://127.0.0.1:4100",
+        runtimeReportedBaseUrl: "",
+      }),
+    ).toBe(false);
+  });
+
+  test("keeps remote URLs unless they match the runtime-reported base URL", () => {
+    expect(
+      isStaleStoredDesktopConnection({
+        desktopRuntime: true,
+        desktopServerReportedNotReady: true,
+        storedBaseUrl: "https://manual.example.com",
+        runtimeReportedBaseUrl: "",
+      }),
+    ).toBe(false);
+    expect(
+      isStaleStoredDesktopConnection({
+        desktopRuntime: true,
+        desktopServerReportedNotReady: true,
+        storedBaseUrl: "https://manual.example.com",
+        runtimeReportedBaseUrl: "https://manual.example.com",
+      }),
+    ).toBe(true);
+    expect(
+      isStaleStoredDesktopConnection({
+        desktopRuntime: true,
+        desktopServerReportedNotReady: true,
+        storedBaseUrl: "",
+        runtimeReportedBaseUrl: "",
+      }),
+    ).toBe(false);
   });
 });

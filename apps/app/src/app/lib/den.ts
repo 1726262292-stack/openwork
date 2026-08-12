@@ -38,6 +38,7 @@ import {
   type DesktopBootstrapConfig as ShellDesktopBootstrapConfig,
 } from "./desktop";
 import { getOpenworkGatewayOrigin } from "./gateway-runtime";
+import { clearDesktopSignInIntent, clearOrgSelectionPending } from "./den-sign-in-intent";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ReloadReason } from "../types";
 import type {
@@ -460,14 +461,36 @@ export class DenApiError extends Error {
 }
 
 /**
- * True only for 401s that actually came from the Den API (its JSON error
- * envelope parsed into a code). A bare/foreign 401 from a corporate proxy,
- * captive portal, or LB while the control plane is unreachable must be
- * treated as "unavailable", not as a revoked session — otherwise a VPN blip
- * signs the user out and destroys the stored token.
+ * Codes the Den API uses when the session itself is invalid, expired, or
+ * revoked. Only these may destroy the stored token; every other 401 code is
+ * treated as the control plane being temporarily unreachable.
+ */
+const DEN_SESSION_TERMINATION_CODES = new Set([
+  "unauthorized",
+  "invalid_session",
+  "session_expired",
+  "session_revoked",
+  "session_not_found",
+  "invalid_token",
+  "token_expired",
+  "token_revoked",
+]);
+
+/**
+ * True only for 401s whose Den error code explicitly names an invalid,
+ * expired, or revoked session. A bare/foreign 401 from a corporate proxy or
+ * captive portal — and structured 401s minted by deployment infrastructure in
+ * front of the control plane (`base_url_not_present`, misrouted proxies,
+ * platform placeholders) — must be treated as "unavailable", not as a revoked
+ * session. Otherwise a VPN blip or a mid-deploy edge response signs the user
+ * out and destroys the stored token.
  */
 export function isDenSessionRevokedError(error: unknown): boolean {
-  return error instanceof DenApiError && error.status === 401 && error.code !== "request_failed";
+  return (
+    error instanceof DenApiError &&
+    error.status === 401 &&
+    DEN_SESSION_TERMINATION_CODES.has(error.code)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1258,6 +1281,10 @@ export function clearDenSession(options?: { includeBaseUrls?: boolean }) {
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
   window.localStorage.removeItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY);
+  // Sign-out resets any in-flight sign-in intent and pending org choice so a
+  // later handoff starts from a clean slate.
+  clearDesktopSignInIntent();
+  clearOrgSelectionPending();
 
   dispatchDenSettingsChanged({
     settings: readDenSettings(),

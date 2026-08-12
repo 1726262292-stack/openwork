@@ -153,6 +153,8 @@ export function JoinOrganizationDialog({
     const result = await exchangeHandoffAndSignIn(parsed.grant, {
       baseUrl,
       client: createDenClient({ baseUrl }),
+      // Pasted one-time codes are desktop-initiated sign-ins.
+      desktopInitiated: true,
       fallbackErrorMessage: t("den.error_no_token"),
     });
 

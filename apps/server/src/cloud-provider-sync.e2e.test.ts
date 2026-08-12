@@ -301,6 +301,12 @@ describe("cloud provider sync gateway", () => {
         marketplaces: { mkp_keep: { name: "Keep" } },
       },
     }));
+    // Simulate an upgrade/restart after an older process persisted the cloud
+    // credential. The next sync sees the same value, performs no upsert, and
+    // must still reclaim ownership so logout removes it.
+    await new EnvService({ path: process.env.OPENWORK_ENV_STORE }).upsertMany([
+      { key: "TEST_PROVIDER_API_KEY", value: "sk-test-provider" },
+    ]);
 
     const server = await startServer(config);
     stops.push(() => server.stop());

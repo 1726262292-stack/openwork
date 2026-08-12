@@ -113,6 +113,29 @@ describe("tool part mapper", () => {
     });
   });
 
+  test("preserves MCP Apps result metadata for the chat host", () => {
+    const part = writeToolPart("completed", { configObjectId: "script_1" });
+    if (part.state.status !== "completed") throw new Error("Expected completed fixture");
+    part.state.metadata = {
+      openworkMcpApp: {
+        content: [{ type: "text", text: "Fallback" }],
+        structuredContent: { schemaVersion: "1", value: 42 },
+        _meta: { receiptId: "receipt_1" },
+      },
+    };
+
+    expect(parseDynamicToolUIPart(part)?.callProviderMetadata).toEqual({
+      opencode: { partId: "part-write" },
+      openwork: {
+        mcpApp: {
+          content: [{ type: "text", text: "Fallback" }],
+          structuredContent: { schemaVersion: "1", value: 42 },
+          _meta: { receiptId: "receipt_1" },
+        },
+      },
+    });
+  });
+
   test("summarizes and clamps huge HTML tool errors at ingestion", () => {
     const htmlError = `<!DOCTYPE html><html><head><title>502 Bad Gateway</title></head><body>${"x".repeat(1_024 * 1_024)}</body></html>`;
     const parsed = parseDynamicToolUIPart(writeToolPart("error", {}, {}, htmlError));

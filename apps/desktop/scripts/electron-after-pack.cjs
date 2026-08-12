@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const asar = require("@electron/asar");
 
 const computerUseHelperAppName = "OpenWork Computer Use.app";
 
@@ -44,6 +45,28 @@ function resolveMacAppPath(context) {
   return fallback ? path.join(context.appOutDir, fallback) : null;
 }
 
+function resolveAppAsarPath(context) {
+  if (context.electronPlatformName === "darwin") {
+    const appPath = resolveMacAppPath(context);
+    return appPath ? path.join(appPath, "Contents", "Resources", "app.asar") : null;
+  }
+  return path.join(context.appOutDir, "resources", "app.asar");
+}
+
+function verifyRuntimeDependencies(context) {
+  const appAsarPath = resolveAppAsarPath(context);
+  if (!appAsarPath || !fs.existsSync(appAsarPath)) {
+    throw new Error(`Missing packaged app.asar at ${appAsarPath || context.appOutDir}`);
+  }
+  const packagedFiles = new Set(asar.listPackage(appAsarPath));
+  for (const packageName of ["ajv", "ajv-formats", "fast-deep-equal", "fast-uri", "json-schema-traverse", "require-from-string"]) {
+    const packageJsonPath = `/node_modules/${packageName}/package.json`;
+    if (!packagedFiles.has(packageJsonPath)) {
+      throw new Error(`Missing MCP validation runtime dependency from app.asar: ${packageName}`);
+    }
+  }
+}
+
 function signComputerUseHelper(context) {
   const appPath = resolveMacAppPath(context);
   if (!appPath) return;
@@ -84,6 +107,7 @@ function copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName) {
 }
 
 async function afterPack(context) {
+  verifyRuntimeDependencies(context);
   const triple = targetTriple(context.electronPlatformName, context.arch);
   if (!triple) return;
 

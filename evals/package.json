@@ -11,7 +11,7 @@
     "fraimz:publish": "node packages/evidence/bin/publish-pr.mjs",
     "fraimz:judge": "node packages/fraimz/bin/judge.mjs",
     "provision:org-connector-two-members": "node scripts/provision-org-connector-two-members.ts",
-    "test": "node --test runner/*.test.ts packages/*/test/*.test.ts",
+    "test": "node --test runner/*.test.ts packages/*/test/*.test.ts bin/*.test.mjs",
     "typecheck": "tsc -p ."
   },
   "dependencies": {

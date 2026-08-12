@@ -8,6 +8,7 @@ import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-ico
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
 import { buildDenAuthUrl, readDenBootstrapConfig } from "../../../../app/lib/den";
+import { markDesktopSignInInitiated } from "../../../../app/lib/den-sign-in-intent";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
@@ -350,6 +351,7 @@ export function SessionPage(props: SessionPageProps) {
   const showCloudSignIn = shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking";
   const openCloudSignIn = useCallback(() => {
     const baseUrl = readDenBootstrapConfig().baseUrl;
+    markDesktopSignInInitiated();
     // Label stays "Sign in"; opens the sign-up tab so new users aren't defaulted into sign-in.
     platform.openLink(buildDenAuthUrl(baseUrl, "sign-up"));
   }, [platform]);

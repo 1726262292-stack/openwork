@@ -83,6 +83,33 @@ export function resolveEvalLocalServerDelayMs(env = process.env) {
   return Number.isFinite(delayMs) && delayMs > 0 ? delayMs : 0;
 }
 
+export function reconcileInjectedUserEnv({
+  processEnv,
+  inheritedEnv,
+  userEnv,
+  previouslyInjectedKeys = new Set(),
+}) {
+  for (const key of previouslyInjectedKeys) {
+    if (Object.prototype.hasOwnProperty.call(userEnv, key)) continue;
+    if (Object.prototype.hasOwnProperty.call(inheritedEnv, key)) {
+      processEnv[key] = inheritedEnv[key];
+    } else {
+      delete processEnv[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(userEnv)) {
+    if (Object.prototype.hasOwnProperty.call(inheritedEnv, key)) continue;
+    processEnv[key] = value;
+  }
+
+  return new Set(
+    Object.keys(userEnv).filter(
+      (key) => !Object.prototype.hasOwnProperty.call(inheritedEnv, key),
+    ),
+  );
+}
+
 export function commandMatchesPackagedSidecar(command, sidecarDirs = []) {
   const value = String(command ?? "");
   if (!sidecarDirs.some((dir) => String(dir ?? "").trim() && value.includes(dir))) {
@@ -461,8 +488,8 @@ async function fetchJson(url, options = {}, timeoutMs = 3000) {
   }
 }
 
-function resolveUserEnvFilePath() {
-  return openworkEnvStorePath();
+export function resolveUserEnvFilePath(env = process.env) {
+  return openworkEnvStorePath({ env });
 }
 
 const USER_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -470,9 +497,9 @@ const USER_ENV_RESERVED_PREFIXES = ["OPENWORK_", "OPENCODE_"];
 
 // Synchronous, best-effort; absent or malformed returns {}. Reserved prefixes
 // are stripped so a tampered file can never shadow OPENWORK_* / OPENCODE_*.
-function loadUserEnvFile() {
+function loadUserEnvFile(env = process.env) {
   try {
-    const raw = readFileSync(resolveUserEnvFilePath(), "utf8");
+    const raw = readFileSync(resolveUserEnvFilePath(env), "utf8");
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.variables)) return {};
     const out = {};
@@ -1099,6 +1126,8 @@ export function mergeSystemCaChildEnv(baseEnv = {}, caEnv = {}, extra = {}) {
 }
 
 export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, localManagedMcpVaultKey }) {
+  const inheritedProcessEnv = { ...process.env };
+  let injectedUserEnvKeys = new Set();
   const engineState = createEngineState();
   const openworkServerState = createOpenworkServerState();
 
@@ -1278,8 +1307,26 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // User env is layered first so process.env + any caller overrides always
     // win. See apps/server/src/env-file.ts — all loaders must agree on path +
     // reserved-keys policy.
+    const devPaths = process.env.OPENWORK_DEV_MODE === "1"
+      ? await ensureDevModePaths()
+      : null;
+    const userEnvPathEnv = devPaths
+      ? {
+          ...process.env,
+          HOME: devPaths.homeDir,
+          USERPROFILE: devPaths.homeDir,
+          XDG_CONFIG_HOME: devPaths.xdgConfigHome,
+        }
+      : process.env;
+    const userEnv = loadUserEnvFile(userEnvPathEnv);
+    injectedUserEnvKeys = reconcileInjectedUserEnv({
+      processEnv: process.env,
+      inheritedEnv: inheritedProcessEnv,
+      userEnv,
+      previouslyInjectedKeys: injectedUserEnvKeys,
+    });
     const baseEnv = {
-      ...loadUserEnvFile(),
+      ...userEnv,
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
     };
@@ -1296,8 +1343,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (pathEnv) {
       env[pathKey] = pathEnv;
     }
-    if (process.env.OPENWORK_DEV_MODE === "1") {
-      const devPaths = await ensureDevModePaths();
+    if (devPaths) {
       env.OPENWORK_DEV_MODE = "1";
       env.HOME = devPaths.homeDir;
       env.USERPROFILE = devPaths.homeDir;

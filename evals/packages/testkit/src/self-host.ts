@@ -10,6 +10,7 @@ import { freePort, killLocalPid } from "@openwork/hosts";
 import type { ChildProcess } from "node:child_process";
 import type { DenRef } from "@openwork/behaviors";
 import type { DbHandle, Place } from "./place.ts";
+import { SkipError } from "./needs.ts";
 import { ephemeralDatabaseName, localMysqlIsRunning, localRedisIsRunning } from "./place.ts";
 import { trustedOrigins } from "./server.ts";
 
@@ -154,7 +155,7 @@ async function stopServices(services: SpawnedService[]): Promise<void> {
 
 export async function selfHostServer(options: SelfHostServerOptions): Promise<SelfHostDen & AsyncDisposable> {
   if (options.place.kind === "daytona") {
-    throw new Error("selfHostServer() currently supports local placement only; unset OPENWORK_EVAL_DAYTONA.");
+    throw new SkipError("selfHostServer requires local placement; unset OPENWORK_EVAL_DAYTONA");
   }
   if (!await localMysqlIsRunning()) {
     throw new Error("Local Den requires MySQL on 127.0.0.1:3306. Run: pnpm dev:den:mysql");

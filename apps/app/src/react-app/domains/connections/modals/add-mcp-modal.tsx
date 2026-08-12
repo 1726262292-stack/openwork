@@ -15,11 +15,14 @@ import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
 import type { McpDirectoryInfo } from "@/app/constants";
 import { t } from "@/i18n";
+import type { McpConnectResult } from "../store";
+import { conflictsWithOpenworkConnect } from "../mcp-connection-boundary";
+import { submitMcpEntry } from "./add-mcp-submission";
 
 export type AddMcpModalProps = {
   open: boolean;
   onClose: () => void;
-  onAdd: (entry: McpDirectoryInfo) => void;
+  onAdd: (entry: McpDirectoryInfo) => Promise<McpConnectResult>;
   busy: boolean;
   isRemoteWorkspace: boolean;
 };
@@ -77,6 +80,10 @@ export function AddMcpModal(props: AddMcpModalProps) {
       dispatch({ error: t("mcp.name_required") });
       return;
     }
+    if (conflictsWithOpenworkConnect({ name: trimmedName })) {
+      dispatch({ error: t("mcp.name_reserved_openwork_connect") });
+      return;
+    }
 
     dispatch({ submitting: true });
 
@@ -102,21 +109,24 @@ export function AddMcpModal(props: AddMcpModalProps) {
           }
         : undefined;
 
-      try {
-        await Promise.resolve(
-          props.onAdd({
-            name: trimmedName,
-            description: "",
-            type: "remote",
-            url: trimmedUrl,
-            oauth: state.oauthExpanded,
-            managedOAuth: state.oauthExpanded,
-            ...(oauthConfig ? { oauthConfig } : {}),
-          }),
-        );
-      } finally {
-        dispatch({ submitting: false });
+      const error = await submitMcpEntry(
+        props.onAdd,
+        {
+          name: trimmedName,
+          description: "",
+          type: "remote",
+          url: trimmedUrl,
+          oauth: state.oauthExpanded,
+          managedOAuth: state.oauthExpanded,
+          ...(oauthConfig ? { oauthConfig } : {}),
+        },
+        t("mcp.connect_failed"),
+      );
+      if (error) {
+        dispatch({ error, submitting: false });
+        return;
       }
+      dispatch({ submitting: false });
     } else {
       const trimmedCommand = state.command.trim();
       if (!trimmedCommand) {
@@ -124,19 +134,22 @@ export function AddMcpModal(props: AddMcpModalProps) {
         return;
       }
 
-      try {
-        await Promise.resolve(
-          props.onAdd({
-            name: trimmedName,
-            description: "",
-            type: "local",
-            command: trimmedCommand.split(/\s+/),
-            oauth: false,
-          }),
-        );
-      } finally {
-        dispatch({ submitting: false });
+      const error = await submitMcpEntry(
+        props.onAdd,
+        {
+          name: trimmedName,
+          description: "",
+          type: "local",
+          command: trimmedCommand.split(/\s+/),
+          oauth: false,
+        },
+        t("mcp.connect_failed"),
+      );
+      if (error) {
+        dispatch({ error, submitting: false });
+        return;
       }
+      dispatch({ submitting: false });
     }
 
     handleClose();

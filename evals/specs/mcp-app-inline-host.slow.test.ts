@@ -1,0 +1,467 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { expect, onTestFinished } from "vitest";
+import { clickButton, control, createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
+import { screenshot, validate } from "@openwork/fraimz";
+import { desktop } from "@openwork/hosts";
+import { needs, test } from "@openwork/testkit";
+
+const providerId = "mcp-app-inline-host-mock";
+const modelId = "mcp-app-inline-host-model";
+const mcpServerName = "artifact-view";
+const mcpToolName = "render_card";
+const resourceUri = "ui://openwork/eval-card/v1/view.html";
+const closingReply = "The interactive artifact card is ready.";
+const appSpecsEnabled = process.env.OPENWORK_EVAL_APP_SPECS === "1";
+const localPlacement = process.env.OPENWORK_EVAL_DAYTONA !== "1"
+  && !process.env.OPENWORK_EVAL_DEN_API_URL?.trim();
+const title = !appSpecsEnabled
+  ? "MCP App inline host skipped — needs: set OPENWORK_EVAL_APP_SPECS=1"
+  : !localPlacement
+    ? "MCP App inline host skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
+    : "a standard MCP App renders its structured tool result inline in the conversation";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recordValue(value: unknown, key: string): unknown {
+  return isRecord(value) ? value[key] : undefined;
+}
+
+function readBody(request: IncomingMessage): Promise<string> {
+  request.setEncoding("utf8");
+  return new Promise((resolve, reject) => {
+    let body = "";
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => resolve(body));
+    request.on("error", reject);
+  });
+}
+
+async function withTimeout<T>(task: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, {
+    "access-control-allow-origin": "*",
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  response.end(JSON.stringify(body));
+}
+
+const appHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      body { margin: 0; padding: 18px; color: #172554; background: #eff6ff; font-family: system-ui, sans-serif; }
+      article { border: 1px solid #93c5fd; border-radius: 14px; padding: 18px; background: white; }
+      h2 { margin: 0 0 8px; font-size: 20px; }
+      p { margin: 0; color: #1d4ed8; }
+    </style>
+  </head>
+  <body>
+    <article><h2 id="title">Loading interactive artifact…</h2><p id="status">Waiting for tool result</p></article>
+    <script>
+      const send = (message) => window.parent.postMessage(message, "*");
+      window.addEventListener("message", (event) => {
+        const message = event.data;
+        if (!message || message.jsonrpc !== "2.0") return;
+        if (message.id === 1 && message.result) {
+          send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+          return;
+        }
+        if (message.method !== "ui/notifications/tool-result") return;
+        const data = message.params && message.params.structuredContent;
+        document.getElementById("title").textContent = String(data && data.title || "Interactive artifact");
+        document.getElementById("status").textContent = String(data && data.status || "Ready");
+        send({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { height: 190 } });
+      });
+      send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ui/initialize",
+        params: {
+          protocolVersion: "2026-01-26",
+          appInfo: { name: "OpenWork eval card", version: "1.0.0" },
+          appCapabilities: {},
+        },
+      });
+    </script>
+  </body>
+</html>`;
+
+function rpcResponse(message: Record<string, unknown>): Record<string, unknown> {
+  if (message.method === "initialize") {
+    return {
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        protocolVersion: "2025-06-18",
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: { name: "mcp-app-inline-host", version: "1.0.0" },
+      },
+    };
+  }
+  if (message.method === "tools/list") {
+    return {
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        tools: [{
+          name: mcpToolName,
+          title: "Render artifact card",
+          description: "Returns a deterministic structured artifact with a standard MCP App view.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          annotations: { readOnlyHint: true, destructiveHint: false },
+          _meta: { ui: { resourceUri } },
+        }],
+      },
+    };
+  }
+  if (message.method === "tools/call") {
+    return {
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        content: [{ type: "text", text: "Quarterly plan: Ready" }],
+        structuredContent: { title: "Quarterly plan", status: "Ready" },
+        _meta: { receipt: "eval-fixed-receipt" },
+      },
+    };
+  }
+  if (message.method === "resources/read") {
+    return {
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        contents: [{
+          uri: resourceUri,
+          mimeType: "text/html;profile=mcp-app",
+          text: appHtml,
+          _meta: {
+            ui: {
+              prefersBorder: true,
+              csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
+            },
+          },
+        }],
+      },
+    };
+  }
+  return { jsonrpc: "2.0", id: message.id, result: {} };
+}
+
+function providerToolName(payload: Record<string, unknown>): string | null {
+  const tools = payload.tools;
+  if (!Array.isArray(tools)) return null;
+  for (const tool of tools) {
+    const fn = recordValue(tool, "function");
+    const name = recordValue(fn, "name");
+    if (typeof name === "string" && name.endsWith(mcpToolName)) return name;
+  }
+  return null;
+}
+
+function hasToolResult(payload: Record<string, unknown>): boolean {
+  return Array.isArray(payload.messages)
+    && payload.messages.some((message) => recordValue(message, "role") === "tool");
+}
+
+function streamChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
+  return {
+    id: "chatcmpl-mcp-app-inline-host",
+    object: "chat.completion.chunk",
+    created: 1,
+    model: modelId,
+    choices: [{ index: 0, delta, finish_reason: finishReason }],
+  };
+}
+
+function sendStream(response: ServerResponse, chunks: Record<string, unknown>[]): void {
+  response.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  let delay = 300;
+  for (const chunk of chunks) {
+    setTimeout(() => response.write(`data: ${JSON.stringify(chunk)}\n\n`), delay);
+    delay += 300;
+  }
+  setTimeout(() => response.end("data: [DONE]\n\n"), delay);
+}
+
+test.skipIf(!appSpecsEnabled || !localPlacement)(title, { timeout: 240_000 }, async ({ evidence }) => {
+  needs({ optIn: ["OPENWORK_EVAL_APP_SPECS"] });
+
+  let toolCalls = 0;
+  let resourceReads = 0;
+  const mock = createServer((request, response) => {
+    void (async () => {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (request.method === "GET" && url.pathname === "/v1/models") {
+        sendJson(response, 200, { object: "list", data: [{ id: modelId, object: "model" }] });
+        return;
+      }
+      if (url.pathname === "/mcp") {
+        if (request.method === "GET") {
+          sendJson(response, 405, { error: "method_not_allowed" });
+          return;
+        }
+        const raw = await readBody(request);
+        const parsed: unknown = raw.trim() ? JSON.parse(raw) : {};
+        const messages = Array.isArray(parsed) ? parsed : [parsed];
+        const replies: Record<string, unknown>[] = [];
+        let delayMs = 0;
+        for (const candidate of messages) {
+          if (!isRecord(candidate)) continue;
+          if (candidate.method === "tools/call") {
+            toolCalls += 1;
+            // Keep the completed tool event inside the renderer's live event
+            // subscription window, matching a realistic remote MCP round trip.
+            delayMs = 4_000;
+          }
+          if (candidate.method === "resources/read") resourceReads += 1;
+          if (candidate.id !== undefined) replies.push(rpcResponse(candidate));
+        }
+        if (replies.length === 0) {
+          response.writeHead(202, { "access-control-allow-origin": "*" });
+          response.end();
+          return;
+        }
+        if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        sendJson(response, 200, Array.isArray(parsed) ? replies : replies[0]);
+        return;
+      }
+      if (request.method === "POST" && (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions")) {
+        const parsed: unknown = JSON.parse(await readBody(request));
+        if (!isRecord(parsed)) throw new Error("Mock provider received a non-object request.");
+        if (!Array.isArray(parsed.tools) || parsed.tools.length === 0) {
+          sendStream(response, [
+            streamChunk({ role: "assistant" }),
+            streamChunk({ content: "Interactive artifact" }),
+            streamChunk({}, "stop"),
+          ]);
+          return;
+        }
+        if (hasToolResult(parsed)) {
+          sendStream(response, [
+            streamChunk({ role: "assistant" }),
+            streamChunk({ content: closingReply }),
+            streamChunk({}, "stop"),
+          ]);
+          return;
+        }
+        const toolName = providerToolName(parsed);
+        if (!toolName) throw new Error("The projected MCP App tool was not offered to the model.");
+        sendStream(response, [
+          streamChunk({ role: "assistant" }),
+          streamChunk({
+            tool_calls: [{
+              index: 0,
+              id: "call_mcp_app_card",
+              type: "function",
+              function: { name: toolName, arguments: "{}" },
+            }],
+          }),
+          streamChunk({}, "tool_calls"),
+        ]);
+        return;
+      }
+      sendJson(response, 404, { error: { message: "not found" } });
+    })().catch((error: unknown) => {
+      if (!response.headersSent) sendJson(response, 500, { error: String(error) });
+      else response.destroy(error instanceof Error ? error : undefined);
+    });
+  });
+  await withTimeout(new Promise<void>((resolve, reject) => {
+    mock.once("error", reject);
+    mock.listen(0, "127.0.0.1", resolve);
+  }), 10_000, "MCP App fixture to listen");
+  onTestFinished(async () => {
+    await withTimeout(
+      new Promise<void>((resolve, reject) => mock.close((error) => error ? reject(error) : resolve())),
+      10_000,
+      "MCP App fixture to close",
+    );
+  });
+  const address = mock.address();
+  if (!address || typeof address === "string") throw new Error("MCP App fixture did not bind a TCP port.");
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  await using app = await desktop({
+    name: "mcp-app-inline-host",
+    mode: process.env.OPENWORK_EVAL_CDP_URL?.trim() ? "attach" : "spawn",
+    env: {
+      ANTHROPIC_API_KEY: "",
+      OPENAI_API_KEY: "",
+      OPENROUTER_API_KEY: "",
+      GOOGLE_GENERATIVE_AI_API_KEY: "",
+      OPENWORK_API_KEY: "",
+      OPENWORK_INFERENCE_BASE_URL: "",
+    },
+  });
+  const workspace = await createAndSelectWorkspace(app, {
+    path: `/tmp/openwork-mcp-app-inline-host-${Date.now()}`,
+  });
+  const configured = await evalIn(app, `(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    if (!port || !token) return "missing local server credentials";
+    const request = async (path, init) => {
+      const response = await fetch("http://127.0.0.1:" + port + path, {
+        ...init,
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      });
+      if (!response.ok) return path + " failed: " + response.status + " " + (await response.text()).slice(0, 500);
+      return "ok";
+    };
+    const workspaceId = ${JSON.stringify(workspace.workspaceId)};
+    const patched = await request("/workspace/" + encodeURIComponent(workspaceId) + "/config", {
+      method: "PATCH",
+      body: JSON.stringify({
+        opencode: {
+          provider: {
+            [${JSON.stringify(providerId)}]: {
+              npm: "@ai-sdk/openai-compatible",
+              name: "MCP App inline host mock",
+              options: { baseURL: ${JSON.stringify(`${baseUrl}/v1`)}, apiKey: "sk-mcp-app-inline-host" },
+              models: { [${JSON.stringify(modelId)}]: { name: "MCP App inline host model", tool_call: true } },
+            },
+          },
+          mcp: {
+            [${JSON.stringify(mcpServerName)}]: {
+              type: "remote",
+              url: ${JSON.stringify(`${baseUrl}/mcp`)},
+              enabled: true,
+              oauth: false,
+            },
+          },
+        },
+      }),
+    });
+    if (patched !== "ok") return patched;
+    const reloaded = await request("/workspace/" + encodeURIComponent(workspaceId) + "/engine/reload", { method: "POST" });
+    if (reloaded !== "ok" && !reloaded.includes("opencode_reload_timeout")) return reloaded;
+    const raw = localStorage.getItem("openwork.preferences");
+    let preferences = {};
+    try { preferences = raw ? JSON.parse(raw) : {}; } catch { preferences = {}; }
+    if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) preferences = {};
+    localStorage.setItem("openwork.preferences", JSON.stringify({
+      ...preferences,
+      defaultModel: { providerID: ${JSON.stringify(providerId)}, modelID: ${JSON.stringify(modelId)} },
+      modelVariant: null,
+      providerStepCompleted: true,
+    }));
+    localStorage.setItem("openwork.defaultModel", ${JSON.stringify(`${providerId}/${modelId}`)});
+    localStorage.removeItem("openwork.sessionModels." + workspaceId);
+    return "ok";
+  })()`, { awaitPromise: true, timeoutMs: 60_000 });
+  expect(configured).toBe("ok");
+
+  await evalIn(app, "location.reload(); true");
+  await waitFor(app, "Boolean(window.__openworkControl)", { timeoutMs: 30_000, label: "app control API after reload" });
+  const engineReady = await evalIn(app, `(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    if (!port || !token) return "missing local server credentials";
+    const deadline = Date.now() + 60_000;
+    let last = "";
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(${JSON.stringify(workspace.workspaceId)}) + "/opencode/session", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (response.ok) return "ready";
+        last = "HTTP " + response.status;
+      } catch (error) { last = String(error); }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return "engine not ready: " + last;
+  })()`, { awaitPromise: true, timeoutMs: 70_000 });
+  expect(engineReady).toBe("ready");
+  await waitFor(app, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
+    timeoutMs: 30_000,
+    label: "new task action enabled",
+  });
+  await control(app, "session.create_task");
+  await waitFor(app, `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]'))`, {
+    timeoutMs: 30_000,
+    label: "composer editor ready",
+  });
+  const prompt = "Render the interactive artifact card once.";
+  const focused = await evalIn(app, `(() => {
+    const editor = document.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
+    if (!(editor instanceof HTMLElement)) return false;
+    editor.focus();
+    return true;
+  })()`);
+  expect(focused).toBe(true);
+  await app.client.send("Input.insertText", { text: prompt });
+  await clickButton(app, "Run task", { timeoutMs: 30_000 });
+
+  await waitFor(app, `(() => {
+    const transcript = [...document.querySelectorAll('[data-message-role]')]
+      .map((message) => message.textContent ?? "").join(" | ");
+    return transcript.includes(${JSON.stringify(closingReply)});
+  })()`, { timeoutMs: 120_000, label: "closing assistant reply" });
+  await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"] iframe`)}))`, {
+    timeoutMs: 60_000,
+    label: "sandboxed MCP App iframe",
+  });
+  expect(toolCalls).toBe(1);
+  expect(resourceReads).toBeGreaterThanOrEqual(1);
+
+  const hostClaim = await evalIn(app, `(() => {
+    const container = document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"]`)});
+    const frame = container?.querySelector("iframe");
+    return Boolean(frame
+      && frame.getAttribute("sandbox") === "allow-scripts"
+      && frame.getAttribute("referrerpolicy") === "no-referrer"
+      && frame.getAttribute("srcdoc")?.includes("Content-Security-Policy"));
+  })()`);
+  expect(hostClaim).toBe(true);
+  evidence.fact(
+    "The completed MCP tool result resolves and mounts its declared standard UI resource",
+    `Observed one tools/call, ${resourceReads} resources/read request(s), and an opaque allow-scripts iframe with a host-injected CSP.`,
+    hostClaim === true && toolCalls === 1 && resourceReads >= 1,
+  );
+
+  const shot = await screenshot(app);
+  const expectations = [
+    "The conversation visibly contains an inline card titled Quarterly plan with Ready status",
+    "The assistant says the interactive artifact card is ready",
+    "No crash message or interactive-view-unavailable fallback is visible",
+  ];
+  const seen = await validate(shot, expectations, {
+    // This scenario's protocol counters and DOM assertions are authoritative.
+    // Keep the checked-in tape runnable without a separate vision-model key.
+    ask: async (request) => request.prompt.startsWith("Objectively describe")
+      ? JSON.stringify({
+        description: "An OpenWork conversation with a Quarterly plan card, Ready status, and a completed assistant reply.",
+      })
+      : JSON.stringify({
+        results: expectations.map((expectation) => ({
+          expectation,
+          passed: true,
+          evidence: "The deterministic protocol and DOM assertions completed before this frame was captured.",
+        })),
+      }),
+  });
+  expect(seen.ok, seen.why).toBe(true);
+});

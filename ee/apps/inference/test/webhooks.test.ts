@@ -153,7 +153,7 @@ test("reports fatal Sentry diagnostics and skips deduction when OpenRouter usage
     requestId: "request-unknown",
     eventId: "event-unknown",
     generationId: "generation-unknown",
-    requestModel: "openrouter/fusion",
+    requestModel: "z-ai/glm-5.2",
     responseModel: "vendor/new-model",
     includeSensitive: true,
   })))
@@ -178,7 +178,7 @@ test("reports fatal Sentry diagnostics and skips deduction when OpenRouter usage
   assert.equal(report.openworkRequestId, "request-unknown")
   assert.equal(report.externalEventId, "event-unknown")
   assert.equal(report.generationId, "generation-unknown")
-  assert.equal(report.usage.requestModel, "openrouter/fusion")
+  assert.equal(report.usage.requestModel, "z-ai/glm-5.2")
   assert.equal(report.usage.responseModel, "vendor/new-model")
   assert.equal(report.usage.inputTokens, 11)
   assert.equal(report.usage.outputTokens, 13)
@@ -197,8 +197,8 @@ test("deducts usage without Sentry diagnostics when OpenRouter usage reports a k
     requestId: "request-known",
     eventId: "event-known",
     generationId: "generation-known",
-    requestModel: "openrouter/fusion",
-    responseModel: "openrouter/fusion",
+    requestModel: "z-ai/glm-5.2",
+    responseModel: "z-ai/glm-5.2",
   })))
 
   assert.equal(response.status, 200)
