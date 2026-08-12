@@ -44,6 +44,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@electron/rebuild": "^4.2.0",
     "@openwork/types": "workspace:*",
     "electron": "^43.2.0",
