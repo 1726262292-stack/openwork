@@ -67,6 +67,32 @@ test("validate rejects malformed model verdicts clearly", async () => {
   );
 });
 
+test("defer mode judges a caller-provided deterministic witness inline", async () => {
+  const previousMode = process.env.OPENWORK_EVAL_VISION;
+  try {
+    process.env.OPENWORK_EVAL_VISION = "defer";
+    const expectation = `Synthetic frame is visible ${randomUUID()}`;
+    let calls = 0;
+    const facts = await validate(testShot(randomUUID()), [expectation], {
+      bypassCache: true,
+      ask: async () => {
+        calls += 1;
+        return calls === 1
+          ? JSON.stringify({ description: "A synthetic frame is visible." })
+          : JSON.stringify({ results: [{ expectation, passed: false, evidence: "The expected detail is absent." }] });
+      },
+    });
+
+    assert.equal(facts.ok, false);
+    assert.equal(facts.results[0]?.passed, false);
+    assert.equal(facts.deferred, undefined);
+    assert.equal(calls, 2);
+  } finally {
+    if (previousMode === undefined) delete process.env.OPENWORK_EVAL_VISION;
+    else process.env.OPENWORK_EVAL_VISION = previousMode;
+  }
+});
+
 test("deferred validation records pending claims that the judge resolves", async () => {
   const dir = await mkdtemp(join(tmpdir(), "openwork-deferred-vision-"));
   const previousMode = process.env.OPENWORK_EVAL_VISION;
@@ -76,17 +102,10 @@ test("deferred validation records pending claims that the judge resolves", async
     const tape = openTape({ name: "deferred vision", outDir: dir });
     tape.recordTake(shot);
     process.env.OPENWORK_EVAL_VISION = "defer";
-    let deferredCalls = 0;
-    const deferred = await withTape(tape, () => validate(shot, [expectation], {
-      ask: async () => {
-        deferredCalls += 1;
-        throw new Error("defer mode must not call the provider");
-      },
-    }));
+    const deferred = await withTape(tape, () => validate(shot, [expectation], { bypassCache: true }));
     assert.equal(deferred.ok, true);
     assert.equal(deferred.deferred, true);
     assert.equal(deferred.why, "vision judgment deferred");
-    assert.equal(deferredCalls, 0);
     await tape.close();
 
     const pendingRoll = await readFile(join(dir, "roll.json"), "utf8");
