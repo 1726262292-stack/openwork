@@ -210,25 +210,50 @@ function toolVisibility(tool: Partial<Tool>, audience: "model" | "app"): boolean
     && ui.visibility.includes(audience);
 }
 
-function findTextResource(
+function strictBase64Bytes(value: string): Uint8Array {
+  if (value.length > Math.ceil(MAX_RESOURCE_BYTES / 3) * 4) {
+    throw new McpAppHostError("resource_too_large", "The MCP App resource exceeds the 512 KiB host limit.");
+  }
+  if (value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new McpAppHostError("invalid_resource", "The MCP App resource blob is not valid base64.");
+  }
+  return Buffer.from(value, "base64");
+}
+
+function decodeResourceHtml(content: { text?: string; blob?: string }): { html: string; bytes: number } {
+  if (typeof content.text === "string" && content.blob === undefined) {
+    const bytes = new TextEncoder().encode(content.text).byteLength;
+    return { html: content.text, bytes };
+  }
+  if (typeof content.blob === "string" && content.text === undefined) {
+    const bytes = strictBase64Bytes(content.blob);
+    try {
+      return { html: new TextDecoder("utf-8", { fatal: true }).decode(bytes), bytes: bytes.byteLength };
+    } catch {
+      throw new McpAppHostError("invalid_resource", "The MCP App resource blob is not valid UTF-8 HTML.");
+    }
+  }
+  throw new McpAppHostError("invalid_resource", "The MCP App resource must contain exactly one of text or blob HTML.");
+}
+
+function findHtmlResource(
   resourceUri: string,
   result: Awaited<ReturnType<Client["readResource"]>>,
 ): { html: string; meta: unknown } {
-  const candidates = result.contents.filter((content) => content.uri === resourceUri && "text" in content);
+  const candidates = result.contents.filter((content) => content.uri === resourceUri);
   if (candidates.length !== 1) {
-    throw new McpAppHostError("invalid_resource", "The MCP App resource must return exactly one matching text resource.");
+    throw new McpAppHostError("invalid_resource", "The MCP App resource must return exactly one matching HTML resource.");
   }
   const content = candidates[0];
-  if (!content || !("text" in content) || typeof content.text !== "string") {
-    throw new McpAppHostError("invalid_resource", "The MCP App resource did not return HTML text.");
-  }
+  if (!content) throw new McpAppHostError("invalid_resource", "The MCP App resource did not return HTML content.");
   if (content.mimeType?.toLowerCase() !== MCP_APP_MIME_TYPE) {
     throw new McpAppHostError("invalid_resource_mime", `MCP App resources must use ${MCP_APP_MIME_TYPE}.`);
   }
-  if (new TextEncoder().encode(content.text).byteLength > MAX_RESOURCE_BYTES) {
+  const decoded = decodeResourceHtml(content);
+  if (decoded.bytes > MAX_RESOURCE_BYTES) {
     throw new McpAppHostError("resource_too_large", "The MCP App resource exceeds the 512 KiB host limit.");
   }
-  return { html: content.text, meta: content._meta };
+  return { html: decoded.html, meta: content._meta };
 }
 
 export async function resolveMcpAppResource(input: {
@@ -259,7 +284,7 @@ export async function resolveMcpAppResource(input: {
       }
       const resourceUri = toolUiResourceUri(tool);
       if (!resourceUri) return null;
-      const resource = findTextResource(resourceUri, await client.readResource({ uri: resourceUri }));
+      const resource = findHtmlResource(resourceUri, await client.readResource({ uri: resourceUri }));
       const presentation = resourcePresentationMeta(resource.meta);
       return {
         serverName: item.name,
