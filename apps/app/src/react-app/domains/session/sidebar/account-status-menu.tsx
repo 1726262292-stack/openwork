@@ -33,6 +33,7 @@ import {
   readDenBootstrapConfig,
   readDenSettings,
 } from "../../../../app/lib/den";
+import { markDesktopSignInInitiated } from "../../../../app/lib/den-sign-in-intent";
 import {
   openWorkConnectAttentionTitle,
   resolveOpenWorkConnectStatus,
@@ -285,6 +286,7 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
   const showStatus = shellConfig.statusBar && (runtimeStatus !== null || connectStatus !== null);
 
   const openSignIn = () => {
+    markDesktopSignInInitiated();
     platform.openLink(buildDenAuthUrl(readDenBootstrapConfig().baseUrl, "sign-up"));
   };
 
@@ -420,7 +422,10 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
           <DropdownMenuItem
             onClick={() => {
               hideOpenWorkModelsPromo();
-              if (!denAuth.isSignedIn) navigate("/settings/cloud-account");
+              if (!denAuth.isSignedIn) {
+                navigate("/settings/cloud-account");
+                markDesktopSignInInitiated();
+              }
               platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
             }}
           >
