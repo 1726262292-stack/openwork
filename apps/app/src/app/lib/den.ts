@@ -79,6 +79,24 @@ const BUILD_DEN_REQUIRE_SIGNIN =
     ? /^(1|true|yes|on)$/i.test(import.meta.env.VITE_DEN_REQUIRE_SIGNIN.trim())
     : false);
 
+/**
+ * Pins Den API calls (not the sign-in pages) to a specific base. Headless/dev
+ * web runs use it to route the Den API through a same-origin proxy so a remote
+ * control plane never needs CORS, while sign-in still opens the real web app.
+ * Read dynamically so tests can vary it; Vite inlines the env in real builds.
+ */
+function readBuildDenApiBaseUrl(): string {
+  return (typeof import.meta !== "undefined" && typeof import.meta.env?.VITE_DEN_API_BASE_URL === "string"
+    ? import.meta.env.VITE_DEN_API_BASE_URL
+    : "").trim();
+}
+
+function readForceEnvDenSettings(): boolean {
+  return (typeof import.meta !== "undefined" && typeof import.meta.env?.VITE_OPENWORK_FORCE_ENV_SETTINGS === "string"
+    ? /^(1|true|yes|on)$/i.test(import.meta.env.VITE_OPENWORK_FORCE_ENV_SETTINGS.trim())
+    : false);
+}
+
 export const HOSTED_DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
 export const DEFAULT_DEN_BASE_URL = BUILD_DEN_BASE_URL;
 export const DEN_INFERENCE_PATH = "/dashboard/inference";
@@ -677,11 +695,17 @@ export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?
   const seedUrl = stripDenApiBasePath(normalizedBaseUrl ?? normalizedApiBaseUrl) ?? DEFAULT_DEN_BASE_URL;
   const baseUrl = stripDenApiBasePath(seedUrl) ?? DEFAULT_DEN_BASE_URL;
 
+  // Build-time API pin (headless/dev web): route API calls through the
+  // configured proxy regardless of which web base the caller resolved.
+  const buildDenApiBaseUrl = normalizedApiBaseUrl ? null : normalizeDenBaseUrl(readBuildDenApiBaseUrl());
+
   return {
     baseUrl,
     apiBaseUrl: normalizedApiBaseUrl
       ? ensureDenApiBasePath(normalizedApiBaseUrl) ?? normalizedApiBaseUrl
-      : ensureDenApiBasePath(baseUrl) ?? baseUrl,
+      : buildDenApiBaseUrl
+        ? ensureDenApiBasePath(buildDenApiBaseUrl) ?? buildDenApiBaseUrl
+        : ensureDenApiBasePath(baseUrl) ?? baseUrl,
   };
 }
 
@@ -817,6 +841,15 @@ export function readDenBootstrapConfig(): DenBootstrapConfig {
 export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig> {
   if (!isDesktopRuntime()) {
     const gatewayOrigin = getOpenworkGatewayOrigin();
+    // Forced env settings (headless/dev runs): stale stored base URLs from
+    // earlier sessions must not override the launcher-provided control plane.
+    if (readForceEnvDenSettings() && typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(STORAGE_BASE_URL);
+      } catch {
+        // Storage unavailable: nothing stale to clear.
+      }
+    }
     desktopBootstrapConfig = resolveDenBootstrapConfig({
       baseUrl: BUILD_DEN_BASE_URL,
       ...(gatewayOrigin ? { apiBaseUrl: gatewayOrigin } : {}),

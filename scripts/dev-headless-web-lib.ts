@@ -1,8 +1,13 @@
 import path from "node:path";
 
-export type HeadlessServerConfig = {
+export type HeadlessServerConfigDocument = Record<string, unknown> & {
   authorizedRoots: string[];
+  workspaces: Array<Record<string, unknown>>;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export type HeadlessRuntimePids = {
   launcher: number;
@@ -69,14 +74,77 @@ export function resolveHeadlessRuntimeManifestPath(cwd: string): string {
   return path.join(cwd, "tmp", "dev-headless-web.json");
 }
 
-export function buildHeadlessServerConfig(workspace: string): HeadlessServerConfig {
+/**
+ * Merges the launcher's requirements into the existing isolated server config
+ * instead of rewriting it. The server persists runtime state into this file
+ * (workspaces registered through the UI, expanded authorizedRoots), so a
+ * relaunch that clobbered it would orphan every workspace the user added —
+ * their browser tabs would land on "Workspace or session not found".
+ */
+export function mergeHeadlessServerConfig(
+  existingRaw: string | null,
+  workspace: string,
+): HeadlessServerConfigDocument {
+  const workspaceRoot = path.resolve(workspace);
+  let existing: Record<string, unknown> = {};
+  if (existingRaw) {
+    try {
+      const parsed: unknown = JSON.parse(existingRaw);
+      if (isRecord(parsed)) existing = parsed;
+    } catch {
+      // Corrupt config: fall back to the minimal document below.
+    }
+  }
+  const existingRoots = Array.isArray(existing.authorizedRoots)
+    ? existing.authorizedRoots.filter(
+        (root): root is string => typeof root === "string",
+      )
+    : [];
+  const authorizedRoots = existingRoots.some(
+    (root) => path.resolve(root) === workspaceRoot,
+  )
+    ? existingRoots
+    : [...existingRoots, workspaceRoot];
+  const existingWorkspaces = Array.isArray(existing.workspaces)
+    ? existing.workspaces.filter(isRecord)
+    : [];
+  const hasWorkspace = existingWorkspaces.some(
+    (entry) =>
+      typeof entry.path === "string" && path.resolve(entry.path) === workspaceRoot,
+  );
   return {
-    authorizedRoots: [path.resolve(workspace)],
+    ...existing,
+    authorizedRoots,
+    workspaces: hasWorkspace
+      ? existingWorkspaces
+      : [...existingWorkspaces, { path: workspaceRoot }],
   };
 }
 
+/**
+ * Tokens survive relaunches: reuse the previous manifest's credentials unless
+ * the caller pins them via env. Rotating tokens on every --replace bricked
+ * every open browser tab (401s) and invalidated agent-cached manifests.
+ */
+export function resolveHeadlessTokens(input: {
+  envToken: string | undefined;
+  envHostToken: string | undefined;
+  previous: Pick<HeadlessRuntimeManifest, "token" | "hostToken"> | null;
+  generate: () => string;
+}): { token: string; hostToken: string } {
+  const token =
+    input.envToken?.trim() || input.previous?.token?.trim() || input.generate();
+  const hostToken =
+    input.envHostToken?.trim() ||
+    input.previous?.hostToken?.trim() ||
+    input.generate();
+  return { token, hostToken };
+}
+
+// No --workspace flag: a CLI workspace makes the server ignore the config
+// file's persisted `workspaces` list at boot, which would drop workspaces the
+// user added through the UI. The merged config carries the workspace instead.
 export function buildOpenworkServerArgs(input: {
-  workspace: string;
   host: string;
   port: number;
   token: string;
@@ -86,8 +154,6 @@ export function buildOpenworkServerArgs(input: {
   return [
     "--config",
     input.configPath,
-    "--workspace",
-    input.workspace,
     "--host",
     input.host,
     "--port",
@@ -137,7 +203,7 @@ export function buildHeadlessRuntimeManifest(input: {
     denTarget,
     denApiUrl: denTarget ? `${input.webUrl.replace(/\/+$/, "")}/api/den` : null,
     notes:
-      "Local openwork-server session. Workspace auth uses token/hostToken. The web UI runs gateway-style: Den/Cloud calls go same-origin through denApiUrl (Vite proxies them to denTarget), so stale localStorage base URLs are ignored. Sign-in uses the Den web flow in the browser.",
+      "Local openwork-server session. Workspace auth uses token/hostToken; both are stable across relaunches, and the server config is merged (never rewritten) so registered workspaces survive --replace. Den/Cloud API calls go same-origin through denApiUrl (Vite proxies them to denTarget; the app is pinned there via VITE_DEN_API_BASE_URL), so no CORS and no stale localStorage base URLs. Sign-in opens the Den web flow in the browser.",
     startedAt: input.startedAt ?? new Date().toISOString(),
     pid: launcherPid,
     pids: {

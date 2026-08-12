@@ -4,12 +4,13 @@ import { describe, expect, test } from "bun:test";
 import {
   buildDetachedRespawnArgs,
   buildHeadlessRuntimeManifest,
-  buildHeadlessServerConfig,
   buildOpenworkServerArgs,
   isHeadlessStackCommand,
+  mergeHeadlessServerConfig,
   normalizeDenTarget,
   resolveHeadlessRuntimeManifestPath,
   resolveHeadlessServerConfigPath,
+  resolveHeadlessTokens,
 } from "./dev-headless-web-lib";
 
 describe("dev-headless-web helpers", () => {
@@ -26,27 +27,87 @@ describe("dev-headless-web helpers", () => {
     ).toBe(path.join(cwd, "tmp", "custom-server.json"));
   });
 
-  test("authorizes the absolute workspace root in the isolated config", () => {
-    expect(buildHeadlessServerConfig("/Users/me/project")).toEqual({
+  test("bootstraps a fresh config with the workspace registered and authorized", () => {
+    expect(mergeHeadlessServerConfig(null, "/Users/me/project")).toEqual({
       authorizedRoots: ["/Users/me/project"],
+      workspaces: [{ path: "/Users/me/project" }],
     });
   });
 
-  test("passes --config before workspace args so ~/.config is never used", () => {
+  test("relaunch merge preserves server-persisted workspaces and roots", () => {
+    const persistedByServer = JSON.stringify({
+      authorizedRoots: ["/Users/me/project", "/Users/me/added-folder"],
+      workspaces: [
+        { id: "ws_added", path: "/Users/me/added-folder", name: "added-folder" },
+        { id: "ws_main", path: "/Users/me/project", name: "project" },
+      ],
+      readOnly: false,
+    });
+    expect(mergeHeadlessServerConfig(persistedByServer, "/Users/me/project")).toEqual({
+      authorizedRoots: ["/Users/me/project", "/Users/me/added-folder"],
+      workspaces: [
+        { id: "ws_added", path: "/Users/me/added-folder", name: "added-folder" },
+        { id: "ws_main", path: "/Users/me/project", name: "project" },
+      ],
+      readOnly: false,
+    });
+  });
+
+  test("merge registers the workspace when missing and survives corrupt config", () => {
+    const missingWorkspace = JSON.stringify({
+      authorizedRoots: ["/Users/me/other"],
+      workspaces: [{ path: "/Users/me/other" }],
+    });
+    expect(mergeHeadlessServerConfig(missingWorkspace, "/Users/me/project")).toEqual({
+      authorizedRoots: ["/Users/me/other", "/Users/me/project"],
+      workspaces: [{ path: "/Users/me/other" }, { path: "/Users/me/project" }],
+    });
+    expect(mergeHeadlessServerConfig("not-json{{", "/Users/me/project")).toEqual({
+      authorizedRoots: ["/Users/me/project"],
+      workspaces: [{ path: "/Users/me/project" }],
+    });
+  });
+
+  test("tokens are reused from the previous manifest across relaunches", () => {
+    expect(
+      resolveHeadlessTokens({
+        envToken: undefined,
+        envHostToken: undefined,
+        previous: { token: "kept-token", hostToken: "kept-host-token" },
+        generate: () => "fresh",
+      }),
+    ).toEqual({ token: "kept-token", hostToken: "kept-host-token" });
+    expect(
+      resolveHeadlessTokens({
+        envToken: "env-token",
+        envHostToken: undefined,
+        previous: { token: "kept-token", hostToken: "kept-host-token" },
+        generate: () => "fresh",
+      }),
+    ).toEqual({ token: "env-token", hostToken: "kept-host-token" });
+    expect(
+      resolveHeadlessTokens({
+        envToken: undefined,
+        envHostToken: undefined,
+        previous: null,
+        generate: () => "fresh",
+      }),
+    ).toEqual({ token: "fresh", hostToken: "fresh" });
+  });
+
+  test("server args use --config only, never --workspace (would drop persisted workspaces)", () => {
     const args = buildOpenworkServerArgs({
-      workspace: "/Users/me/project",
       host: "127.0.0.1",
       port: 8787,
       token: "client-token",
       hostToken: "host-token",
       configPath: "/repo/tmp/headless-server.json",
     });
-    expect(args.slice(0, 4)).toEqual([
+    expect(args.slice(0, 2)).toEqual([
       "--config",
       "/repo/tmp/headless-server.json",
-      "--workspace",
-      "/Users/me/project",
     ]);
+    expect(args).not.toContain("--workspace");
     expect(args).toContain("--token");
     expect(args).toContain("client-token");
   });

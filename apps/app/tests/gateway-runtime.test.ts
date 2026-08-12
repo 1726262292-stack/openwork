@@ -4,6 +4,7 @@ import {
   buildDenAuthUrl,
   createDenClient,
   getDenMcpUrl,
+  initializeDenBootstrapConfig,
   readDenBootstrapConfig,
   readDenSettings,
   resolveDenBaseUrls,
@@ -403,6 +404,46 @@ describe("non-gateway connection modes", () => {
 
     expect(readDenSettings().baseUrl).toBe("https://den.self-hosted.example.com");
     expect(readDenSettings().apiBaseUrl).toBe("https://den.self-hosted.example.com/api/den");
+  });
+
+  test("VITE_DEN_API_BASE_URL pins Den API calls to the proxy while sign-in stays on the web base", () => {
+    const previous = process.env.VITE_DEN_API_BASE_URL;
+    process.env.VITE_DEN_API_BASE_URL = "http://127.0.0.1:5178/api/den";
+    installWindow({ origin: "http://127.0.0.1:5178" });
+
+    try {
+      const settings = readDenSettings();
+      expect(settings.baseUrl).toBe("https://app.openworklabs.com");
+      expect(settings.apiBaseUrl).toBe("http://127.0.0.1:5178/api/den");
+
+      // Every Den client derives its API base the same way, so requests go
+      // through the same-origin proxy even when created from the web base.
+      const client = createDenClient({ baseUrl: settings.baseUrl, token: "den-token" });
+      expect(client.baseUrls.apiBaseUrl).toBe("http://127.0.0.1:5178/api/den");
+      expect(client.baseUrls.baseUrl).toBe("https://app.openworklabs.com");
+
+      // Sign-in still opens the real Den web app, not the proxy origin.
+      expect(
+        buildDenAuthUrl(settings.baseUrl, "sign-in").startsWith("https://app.openworklabs.com/"),
+      ).toBe(true);
+    } finally {
+      restoreEnv("VITE_DEN_API_BASE_URL", previous);
+    }
+  });
+
+  test("force-env clears a stale stored Den base URL on web bootstrap init", async () => {
+    const previous = process.env.VITE_OPENWORK_FORCE_ENV_SETTINGS;
+    process.env.VITE_OPENWORK_FORCE_ENV_SETTINGS = "1";
+    const storage = installWindow({ origin: "http://127.0.0.1:5178" });
+    storage.setItem("openwork.den.baseUrl", "http://127.0.0.1:8779");
+
+    try {
+      await initializeDenBootstrapConfig();
+      expect(storage.getItem("openwork.den.baseUrl")).toBeNull();
+      expect(readDenSettings().baseUrl).toBe("https://app.openworklabs.com");
+    } finally {
+      restoreEnv("VITE_OPENWORK_FORCE_ENV_SETTINGS", previous);
+    }
   });
 
   test("desktop runtime still uses live desktop server info without the marker", async () => {

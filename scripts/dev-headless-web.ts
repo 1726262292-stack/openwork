@@ -9,11 +9,12 @@ import {
   buildDetachedRespawnArgs,
   normalizeDenTarget,
   buildHeadlessRuntimeManifest,
-  buildHeadlessServerConfig,
   buildOpenworkServerArgs,
   isHeadlessStackCommand,
+  mergeHeadlessServerConfig,
   resolveHeadlessRuntimeManifestPath,
   resolveHeadlessServerConfigPath,
+  resolveHeadlessTokens,
   type HeadlessRuntimeManifest,
 } from "./dev-headless-web-lib";
 
@@ -298,8 +299,15 @@ const webPort = await resolvePort(
   process.env.OPENWORK_WEB_PORT ?? DEFAULT_WEB_PORT,
   "127.0.0.1",
 );
-const openworkToken = process.env.OPENWORK_TOKEN ?? randomUUID();
-const openworkHostToken = process.env.OPENWORK_HOST_TOKEN ?? randomUUID();
+// Reuse the previous run's tokens so a relaunch never breaks open browser
+// tabs or agent-cached manifests with 401s.
+const { token: openworkToken, hostToken: openworkHostToken } =
+  resolveHeadlessTokens({
+    envToken: process.env.OPENWORK_TOKEN,
+    envHostToken: process.env.OPENWORK_HOST_TOKEN,
+    previous: existingManifest,
+    generate: randomUUID,
+  });
 const openworkServerBin = path.join(
   cwd,
   "apps/server/dist/bin/openwork-server",
@@ -356,18 +364,25 @@ const ensureOpenworkServer = async () => {
   }
 };
 
+// Merge (never rewrite) the isolated config: the server persists registered
+// workspaces and expanded authorizedRoots into it at runtime.
+const existingServerConfigRaw = await readFile(serverConfigPath, "utf8").catch(
+  () => null,
+);
 await writeFile(
   serverConfigPath,
-  `${JSON.stringify(buildHeadlessServerConfig(workspace), null, 2)}\n`,
+  `${JSON.stringify(mergeHeadlessServerConfig(existingServerConfigRaw, workspace), null, 2)}\n`,
   "utf8",
 );
 
 const openworkUrl = `http://${clientHost}:${openworkPort}`;
 const webUrl = `http://${clientHost}:${webPort}`;
 
-// Gateway-style Den wiring: Vite serves /api/den same-origin (proxied to the
-// target) and injects the gateway marker, so the app never issues
-// cross-origin Den calls and ignores stale localStorage base URLs.
+// Den wiring: Vite serves /api/den same-origin (proxied to the target) and
+// the app pins its Den API calls there via VITE_DEN_API_BASE_URL, so the
+// browser never issues cross-origin Den calls. Sign-in still opens the Den
+// web app itself. Deliberately NOT gateway-marker mode: that runtime assumes
+// a provisioned cloud instance and disables local workspace creation.
 const denTarget = denProxyEnabled
   ? normalizeDenTarget(process.env.OPENWORK_DEV_DEN_PROXY_TARGET)
   : null;
@@ -384,9 +399,11 @@ const viteEnv = {
     process.env.VITE_OPENWORK_HOST_TOKEN ?? openworkHostToken,
   VITE_OPENWORK_FORCE_ENV_SETTINGS: "1",
   VITE_OPENWORK_DEPLOYMENT: process.env.VITE_OPENWORK_DEPLOYMENT ?? "web",
-  ...(denTarget
+  ...(denTarget && denApiUrl
     ? {
         OPENWORK_DEV_HEADLESS_DEN_TARGET: denTarget,
+        // Den API calls go same-origin through the Vite proxy.
+        VITE_DEN_API_BASE_URL: process.env.VITE_DEN_API_BASE_URL ?? denApiUrl,
         // For custom control planes, point the sign-in page at the target's
         // own web UI; the hosted default already resolves inside the app.
         ...(denTarget !== DEFAULT_DEN_TARGET
@@ -435,7 +452,6 @@ children.push(webProcess);
 const headlessProcess = spawnLogged(
   openworkServerBin,
   buildOpenworkServerArgs({
-    workspace,
     host,
     port: openworkPort,
     token: openworkToken,

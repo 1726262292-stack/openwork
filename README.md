@@ -110,9 +110,9 @@ pnpm dev:headless-web
 This is an isolated launcher:
 
 - Writes `tmp/headless-server.json` and never reads `~/.config/openwork/server.json`
-- Authorizes the chosen workspace root automatically
-- Starts Vite + `openwork-server` with fresh tokens forced into the UI
-- Runs the UI gateway-style: Vite serves `/api/den` same-origin (proxied to the Den control plane) and injects the gateway marker, so Cloud calls are never CORS-blocked and stale `localStorage` base URLs are ignored
+- Authorizes the chosen workspace root automatically, and merges (never rewrites) that config on relaunch, so workspaces you add through the UI survive `--replace`
+- Starts Vite + `openwork-server` with stable tokens forced into the UI — tokens are reused across relaunches, so open tabs never turn into 401s
+- Proxies Den Cloud calls same-origin: Vite serves `/api/den` (forwarded to the Den control plane) and the app pins its Den API there via `VITE_DEN_API_BASE_URL`, so Cloud calls are never CORS-blocked and stale `localStorage` base URLs are cleared on load
 - Publishes agent-facing URLs/tokens at `tmp/dev-headless-web.json`
 - Uses stable ports by default (web `5178`, server `8778`; falls back to free ports when taken, override with `OPENWORK_WEB_PORT` / `OPENWORK_PORT`)
 - Is single-instance per worktree: re-running it reuses a healthy instance and prints its URL; stale instances are cleaned up automatically; `--replace` forces a restart
