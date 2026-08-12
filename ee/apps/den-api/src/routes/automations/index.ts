@@ -19,6 +19,7 @@ import {
   automationRunnerTokenResponseSchema,
   automationRunnerWorkResponseSchema,
   createAutomationSchema,
+  createCloudAutomationSchema,
   updateAutomationSchema,
 } from "@openwork/types/automations"
 import {
@@ -73,7 +74,7 @@ function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error
   if (!(error instanceof Error)) return null
   if (error.message === "automation_not_found") return { status: 404, body: { error: "automation_not_found" } }
   if (error.message === "automation_action_target_mismatch") {
-    return { status: 400, body: { error: "automation_action_target_mismatch", message: "Agent Automations run on desktop; saved Script Automations run in OpenWork Cloud." } }
+    return { status: 400, body: { error: "automation_action_target_mismatch", message: "Desktop creates local Automations; Web creates OpenWork Cloud Automations." } }
   }
   if (error.message === "automation_saved_script_input_invalid") {
     return { status: 400, body: { error: "automation_saved_script_input_invalid", message: "The existing Automation input does not match the selected Script version. Correct the input before creating the revision." } }
@@ -87,6 +88,9 @@ function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error
   if (error.message === "automation_owner_inactive") {
     return { status: 409, body: { error: error.message, message: "The Automation owner is no longer an active organization member." } }
   }
+  if (error.message === "automation_cloud_worker_required") {
+    return { status: 409, body: { error: error.message, message: "Set up OpenWork Cloud before creating a Cloud Automation." } }
+  }
   if (["owner_membership_lost", "model_access_lost", "provider_unavailable"].includes(error.name)) {
     return { status: 409, body: { error: error.name, message: error.message } }
   }
@@ -95,7 +99,7 @@ function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error
 
 const routeDescription = [
   "Den schedules Automations and keeps durable run history.",
-  "Agent Automations run on the owner's connected desktop; saved Script Automations run in OpenWork Cloud.",
+  "Automations created by Desktop run on the owner's connected desktop; Automations created by Web run in OpenWork Cloud.",
   "If no desktop runner is connected when a desktop occurrence is due, that occurrence is recorded as missed.",
   "Creation makes an Automation active immediately and uses the owner's current OpenWork Connect integrations.",
   "Deactivation stops future runs but does not cancel a run already in progress.",
@@ -277,17 +281,43 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
 
   app.post(
     "/v1/automations",
-    describeMcpRoute({
-      tags: ["Automations"], operationId: "createAutomation", "x-mcp": true,
-      summary: "Create an active Automation",
-      description: `${routeDescription} There is no draft, review, or permission-grant step.`,
+    describeNonMcpRoute({
+      tags: ["Automations"], operationId: "createAutomation", "x-mcp": false,
+      summary: "Create an active Automation from an app surface",
+      description: `${routeDescription} This compatibility route serves first-party Desktop clients. Agents must use createCloudAutomation so they cannot accidentally create Desktop placement.`,
       responses: {
         201: jsonResponse("Active Automation created.", automationDetailSchema),
         400: jsonResponse("Invalid request.", invalidRequestSchema),
         401: jsonResponse("Sign-in required.", unauthorizedSchema),
+        409: jsonResponse("Cloud runtime or model access is unavailable.", invalidRequestSchema),
       },
     }),
     orgMemberRoute(), jsonValidator(createAutomationSchema),
+    async (c) => {
+      try {
+        return c.json(await service.create(scope(c), c.req.valid("json")), 201)
+      } catch (error) {
+        const mapped = failure(error)
+        if (mapped) return c.json(mapped.body, mapped.status)
+        throw error
+      }
+    },
+  )
+
+  app.post(
+    "/v1/cloud-automations",
+    describeMcpRoute({
+      tags: ["Automations"], operationId: "createCloudAutomation", "x-mcp": true,
+      summary: "Create an active OpenWork Cloud Automation",
+      description: `${routeDescription} This is the Web and Cloud Chat creation surface. Placement is fixed to OpenWork Cloud and the Automation can wake a stopped Cloud container without a desktop. Create only when the person explicitly asks to create or schedule it; there is no draft step.`,
+      responses: {
+        201: jsonResponse("Active Cloud Automation created.", automationDetailSchema),
+        400: jsonResponse("Invalid request.", invalidRequestSchema),
+        401: jsonResponse("Sign-in required.", unauthorizedSchema),
+        409: jsonResponse("Cloud runtime or model access is unavailable.", invalidRequestSchema),
+      },
+    }),
+    orgMemberRoute(), jsonValidator(createCloudAutomationSchema),
     async (c) => {
       try {
         return c.json(await service.create(scope(c), c.req.valid("json")), 201)

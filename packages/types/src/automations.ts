@@ -161,18 +161,17 @@ export type AutomationUsage = z.infer<typeof automationUsageSchema>
 export const automationExecutionThreadSchema = z.object({
   id: idSchema,
   threadKind: z.literal("automation"),
-  executionLocation: z.literal("desktop"),
+  executionLocation: z.enum(["desktop", "cloud"]),
   automationId: idSchema,
   automationRunId: idSchema,
   engineKind: idSchema,
+  /** Native OpenCode session identity for agent runs. */
+  nativeThreadId: idSchema.nullable().optional(),
+  workspaceId: idSchema.nullable().optional(),
 })
 export type AutomationExecutionThread = z.infer<typeof automationExecutionThreadSchema>
 
-/**
- * Execution targets are intentionally a protocol seam. Desktop is the only
- * implemented target; a future sandbox target can be added without moving
- * scheduling out of Den.
- */
+/** Creation surface fixes execution placement: Desktop stays local; Web runs in Cloud. */
 export const automationExecutionTargetSchema = z.enum(["desktop", "cloud"])
 export type AutomationExecutionTarget = z.infer<typeof automationExecutionTargetSchema>
 
@@ -319,16 +318,23 @@ const actionCreateAutomationSchema = z.object({
   action: automationActionSchema,
   executionTarget: automationExecutionTargetSchema,
 }).superRefine((value, context) => {
-  const validPair = (value.action.kind === "agent" && value.executionTarget === "desktop")
-    || (value.action.kind === "saved_script" && value.executionTarget === "cloud")
+  const validPair = value.executionTarget === "cloud"
   if (!validPair) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Agent Automations run on desktop; saved Script Automations run in OpenWork Cloud.",
+      message: "Action-based Automations are created by Web and run in OpenWork Cloud.",
       path: ["executionTarget"],
     })
   }
 })
+
+/** Cloud Chat/Web creation cannot express Desktop placement. */
+export const createCloudAutomationSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  schedule: automationScheduleSchema,
+  action: automationActionSchema,
+}).strict().transform((value) => ({ ...value, executionTarget: "cloud" as const }))
+export type CreateCloudAutomation = z.input<typeof createCloudAutomationSchema>
 
 export const createAutomationSchema = z.union([actionCreateAutomationSchema, legacyCreateAutomationSchema])
 /**
@@ -361,8 +367,9 @@ export const updateAutomationSchema = z.object({
   schedule: automationScheduleSchema.optional(),
   model: automationModelSchema.optional(),
   action: automationActionSchema.optional(),
+  /** Accepted for round-tripping; execution placement itself is immutable. */
   executionTarget: automationExecutionTargetSchema.optional(),
-}).refine(
+}).strict().refine(
   (input) => Object.keys(input).length > 0,
   "At least one behavior-changing field is required",
 )
