@@ -191,7 +191,15 @@ export async function assertLocalManagedMcpUrl(rawUrl: string): Promise<void> {
 type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const guardedDispatcher = new Agent({
-  connect: { lookup: createLocalManagedMcpPublicLookup() },
+  connect: {
+    lookup: createLocalManagedMcpPublicLookup(),
+    // Node's 250 ms family-attempt default is too aggressive for otherwise
+    // healthy dual-stack MCP providers on some macOS networks. Keep fallback
+    // enabled, but give the first family enough time to establish TLS before
+    // trying the validated alternative address.
+    autoSelectFamily: true,
+    autoSelectFamilyAttemptTimeout: 1_000,
+  },
 });
 
 function redirectedRequestInit(init: RequestInit | undefined, status: number, from: URL, to: URL): RequestInit {
