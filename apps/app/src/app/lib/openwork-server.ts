@@ -420,6 +420,11 @@ export type OpenworkMcpAppToolResult = {
   _meta?: Record<string, unknown>;
 };
 
+export type OpenworkMcpAppSandbox = {
+  url: string;
+  expectedOrigin: string;
+};
+
 export type OpenworkManagedMcpConnection = {
   name: string;
   serverUrl: string;
@@ -1901,6 +1906,14 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           timeoutMs: timeouts.config,
         },
       ),
+    mcpAppSandbox: (app: OpenworkMcpAppResource, hostOrigin: string): OpenworkMcpAppSandbox => {
+      const url = new URL(`${baseUrl}/mcp-apps/sandbox.html`);
+      if (url.origin === hostOrigin && url.hostname === "localhost") url.hostname = "127.0.0.1";
+      else if (url.origin === hostOrigin && url.hostname === "127.0.0.1") url.hostname = "localhost";
+      url.searchParams.set("csp", JSON.stringify(app.csp));
+      url.searchParams.set("hostOrigin", hostOrigin);
+      return { url: url.toString(), expectedOrigin: url.origin };
+    },
     callMcpAppTool: (
       workspaceId: string,
       payload: { serverName: string; name: string; arguments?: Record<string, unknown> },

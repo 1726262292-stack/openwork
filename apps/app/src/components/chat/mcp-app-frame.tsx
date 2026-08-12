@@ -63,10 +63,27 @@ function escapeAttribute(value: string): string {
 
 export function secureMcpAppHtml(app: OpenworkMcpAppResource): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildMcpAppCsp(app))}">`
-  const head = /<head(?:\s[^>]*)?>/i
-  if (head.test(app.html)) return app.html.replace(head, (match) => `${match}${meta}`)
-  const html = /<html(?:\s[^>]*)?>/i
-  if (html.test(app.html)) return app.html.replace(html, (match) => `${match}<head>${meta}</head>`)
+  const html = /<html(?:\s[^>]*)?>/i.exec(app.html)
+  if (html?.index !== undefined) {
+    const prefix = app.html.slice(0, html.index).replace(/^\uFEFF/, "")
+    if (!/^\s*(?:<!doctype\s+html\s*>)?\s*$/i.test(prefix)) {
+      throw new Error("The MCP App document contains executable markup before its HTML root.")
+    }
+    const htmlEnd = html.index + html[0].length
+    const head = /<head(?:\s[^>]*)?>/i.exec(app.html)
+    if (head?.index !== undefined) {
+      if (head.index < htmlEnd || app.html.slice(htmlEnd, head.index).trim()) {
+        throw new Error("The MCP App document contains markup before its policy-bearing head.")
+      }
+      const headEnd = head.index + head[0].length
+      return `${app.html.slice(0, headEnd)}${meta}${app.html.slice(headEnd)}`
+    }
+    const body = /<body(?:\s[^>]*)?>/i.exec(app.html)
+    if (body?.index !== undefined && (body.index < htmlEnd || app.html.slice(htmlEnd, body.index).trim())) {
+      throw new Error("The MCP App document contains markup before its policy-bearing head.")
+    }
+    return `${app.html.slice(0, htmlEnd)}<head>${meta}</head>${app.html.slice(htmlEnd)}`
+  }
   return `<!doctype html><html><head>${meta}</head><body>${app.html}</body></html>`
 }
 
@@ -116,6 +133,12 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
     const initializeTimer = window.setTimeout(() => {
       if (!disposed) setError("The interactive view did not finish its MCP Apps handshake.")
     }, INITIALIZE_TIMEOUT_MS)
+    const sandbox = openworkServerClient.mcpAppSandbox(app, window.location.origin)
+    if (sandbox.expectedOrigin === window.location.origin) {
+      window.clearTimeout(initializeTimer)
+      setError("The MCP Apps sandbox must use a different origin from the OpenWork host.")
+      return
+    }
 
     bridge.onsizechange = ({ height: requestedHeight }) => {
       const now = Date.now()
@@ -145,18 +168,28 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         if (!disposed) setError(cause instanceof Error ? cause.message : "The tool result could not be delivered to the view.")
       })
     }
-
-    const transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow)
-    void bridge.connect(transport)
-      .then(() => {
-        if (!disposed) iframe.srcdoc = secureMcpAppHtml(app)
-      })
-      .catch((cause) => {
-        if (!disposed) setError(cause instanceof Error ? cause.message : "The MCP Apps bridge could not start.")
-      })
+    const handleSandboxReady = (event: MessageEvent) => {
+      if (event.source !== iframe.contentWindow
+        || event.origin !== sandbox.expectedOrigin
+        || event.data?.method !== "ui/notifications/sandbox-proxy-ready") return
+      window.removeEventListener("message", handleSandboxReady)
+      const transport = new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!)
+      void bridge.connect(transport)
+        .then(() => bridge.sendSandboxResourceReady({
+          html: secureMcpAppHtml(app),
+          csp: app.csp,
+          sandbox: "allow-scripts allow-same-origin",
+        }))
+        .catch((cause) => {
+          if (!disposed) setError(cause instanceof Error ? cause.message : "The MCP Apps sandbox could not load the view.")
+        })
+    }
+    window.addEventListener("message", handleSandboxReady)
+    iframe.src = sandbox.url
 
     return () => {
       disposed = true
+      window.removeEventListener("message", handleSandboxReady)
       window.clearTimeout(initializeTimer)
       void Promise.race([
         bridge.teardownResource({}),
@@ -185,7 +218,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       <iframe
         ref={iframeRef}
         title={`${part.toolName} interactive view`}
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-same-origin"
         referrerPolicy="no-referrer"
         className="block w-full border-0 bg-transparent"
         style={{ height }}

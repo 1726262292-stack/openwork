@@ -3,6 +3,11 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { ServerConfig } from "./types.js";
+import {
+  assertLocalManagedMcpUrl,
+  createLocalManagedMcpGuardedFetch,
+  LocalManagedMcpPrivateUrlError,
+} from "./local-managed-mcp-url-guard.js";
 import { diagnoseMcpToolDenies, listMcp } from "./mcp.js";
 
 const MCP_APP_EXTENSION = "io.modelcontextprotocol/ui";
@@ -144,12 +149,21 @@ async function withRemoteClient<T>(
 ): Promise<T> {
   const url = remoteUrl(config);
   if (!url) throw new McpAppHostError("unsupported_transport", "MCP Apps currently require a configured remote HTTP MCP server.");
+  try {
+    await assertLocalManagedMcpUrl(url.toString());
+  } catch (error) {
+    if (error instanceof LocalManagedMcpPrivateUrlError) {
+      throw new McpAppHostError("unsafe_server_url", error.message);
+    }
+    throw error;
+  }
+  const guardedFetch = createLocalManagedMcpGuardedFetch();
   const requestInit = Object.keys(stringHeaders(config.headers)).length
     ? { headers: stringHeaders(config.headers) }
     : undefined;
   const attempts = [
-    () => new StreamableHTTPClientTransport(url, { requestInit }),
-    () => new SSEClientTransport(url, { requestInit }),
+    () => new StreamableHTTPClientTransport(url, { requestInit, fetch: guardedFetch }),
+    () => new SSEClientTransport(url, { requestInit, fetch: guardedFetch }),
   ];
   let lastError: unknown;
   for (const createTransport of attempts) {

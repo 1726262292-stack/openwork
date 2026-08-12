@@ -23,6 +23,13 @@ import {
   McpAppHostError,
   resolveMcpAppResource,
 } from "./mcp-app-host.js";
+import {
+  buildMcpAppSandboxCsp,
+  MCP_APP_SANDBOX_PROXY_CSS,
+  MCP_APP_SANDBOX_PROXY_HTML,
+  MCP_APP_SANDBOX_PROXY_SCRIPT,
+  parseMcpAppSandboxCsp,
+} from "./mcp-app-sandbox.js";
 import { exportExtensions } from "./extensions-export.js";
 import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
@@ -2850,6 +2857,22 @@ function createRoutes(
       engineSync: engineMcpSyncStateInState(config, engineMcpServerState, workspace),
     });
   });
+
+  addRoute(routes, "GET", "/mcp-apps/sandbox.html", "none", async (ctx) => new Response(MCP_APP_SANDBOX_PROXY_HTML, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": buildMcpAppSandboxCsp(parseMcpAppSandboxCsp(ctx.url.searchParams.get("csp"))),
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "strict-origin",
+      "X-Content-Type-Options": "nosniff",
+    },
+  }));
+  addRoute(routes, "GET", "/mcp-apps/sandbox.js", "none", async () => new Response(MCP_APP_SANDBOX_PROXY_SCRIPT, {
+    headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+  }));
+  addRoute(routes, "GET", "/mcp-apps/sandbox.css", "none", async () => new Response(MCP_APP_SANDBOX_PROXY_CSS, {
+    headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
+  }));
 
   addRoute(routes, "POST", "/workspace/:id/mcp-apps/resolve", "client", async (ctx) => {
     requireClientScope(ctx, "viewer");

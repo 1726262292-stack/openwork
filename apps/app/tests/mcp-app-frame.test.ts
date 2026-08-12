@@ -48,6 +48,15 @@ describe("MCP App iframe policy", () => {
     expect(fragment).toContain("<body><main>fragment resource</main></body>")
   })
 
+  test("rejects executable markup before an existing document policy", () => {
+    expect(() => secureMcpAppHtml(fixture({
+      html: "<script>globalThis.beforePolicy = true</script><html><head></head><body>bad</body></html>",
+    }))).toThrow("executable markup before its HTML root")
+    expect(() => secureMcpAppHtml(fixture({
+      html: "<html><script>globalThis.beforePolicy = true</script><head></head><body>bad</body></html>",
+    }))).toThrow("markup before its policy-bearing head")
+  })
+
   test("allows only the server-declared origins in each directive", () => {
     const csp = buildMcpAppCsp(fixture({
       csp: {
