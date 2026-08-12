@@ -399,6 +399,32 @@ export type OpenworkMcpItem = {
   managedOAuth?: OpenworkManagedMcpConnection | null;
 };
 
+export type OpenworkMcpAppResource = {
+  serverName: string;
+  toolName: string;
+  resourceUri: string;
+  html: string;
+  csp: {
+    connectDomains: string[];
+    resourceDomains: string[];
+    frameDomains: string[];
+    baseUriDomains: string[];
+  };
+  prefersBorder: boolean;
+};
+
+export type OpenworkMcpAppToolResult = {
+  content: Array<Record<string, unknown>>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
+};
+
+export type OpenworkMcpAppSandbox = {
+  url: string;
+  expectedOrigin: string;
+};
+
 export type OpenworkManagedMcpConnection = {
   name: string;
   serverUrl: string;
@@ -1868,6 +1894,40 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${workspaceId}/mcp`,
         { token, hostToken },
       ),
+    resolveMcpApp: (workspaceId: string, projectedToolName: string) =>
+      requestJson<{ app: OpenworkMcpAppResource | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/resolve`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { projectedToolName },
+          timeoutMs: timeouts.config,
+        },
+      ),
+    mcpAppSandbox: (app: OpenworkMcpAppResource, hostOrigin: string): OpenworkMcpAppSandbox => {
+      const url = new URL(`${baseUrl}/mcp-apps/sandbox.html`);
+      if (url.origin === hostOrigin && url.hostname === "localhost") url.hostname = "127.0.0.1";
+      else if (url.origin === hostOrigin && url.hostname === "127.0.0.1") url.hostname = "localhost";
+      url.searchParams.set("csp", JSON.stringify(app.csp));
+      url.searchParams.set("hostOrigin", hostOrigin);
+      return { url: url.toString(), expectedOrigin: url.origin };
+    },
+    callMcpAppTool: (
+      workspaceId: string,
+      payload: { serverName: string; name: string; arguments?: Record<string, unknown> },
+    ) => requestJson<OpenworkMcpAppToolResult>(
+      baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/call`,
+      {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.binary,
+      },
+    ),
     getOpenworkCloudMcpHealth: (
       workspaceId: string,
       providerModel?: OpenworkCloudMcpProviderModelContext,
