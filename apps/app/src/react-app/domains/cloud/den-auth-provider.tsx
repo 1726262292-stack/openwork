@@ -88,6 +88,21 @@ export function hasRetainedDenSession(status: DenAuthStatus): boolean {
   return status === "signed_in" || status === "unavailable";
 }
 
+/**
+ * True while a retained session has not produced a confirmed user yet: the
+ * initial check is still running, or it failed with a transient error
+ * ("unavailable") before the first success — e.g. the control plane or a
+ * local proxy is unreachable during an app update or server restart. Account
+ * UI must show a restoring state in this window, never "Sign in".
+ */
+export function isDenSessionRestoring(input: {
+  status: DenAuthStatus;
+  hasUser: boolean;
+}): boolean {
+  if (input.status === "checking") return true;
+  return hasRetainedDenSession(input.status) && !input.hasUser;
+}
+
 export function shouldRetryDenAuthOnSignal(input: {
   status: DenAuthStatus;
   online: boolean;

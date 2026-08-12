@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { usePlatform } from "../../../kernel/platform";
-import { useDenAuth } from "../../cloud/den-auth-provider";
+import { isDenSessionRestoring, useDenAuth } from "../../cloud/den-auth-provider";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
 import { useShellConfig } from "../../../shell/shell-config";
 import type { OpenworkServerStatus } from "../../../../app/lib/openwork-server";
@@ -257,8 +257,14 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
 
   const user = denAuth.user;
   const signedIn = denAuth.isSignedIn && user !== null;
-  // A retained session still restores in the background; never flash "Sign in".
-  const restoringSession = denAuth.status === "checking";
+  // A retained session still restores in the background; never flash "Sign
+  // in". This covers both the initial check and a retained session whose
+  // first check failed transiently (local server restart, control-plane
+  // blip) and is being retried.
+  const restoringSession = isDenSessionRestoring({
+    status: denAuth.status,
+    hasUser: user !== null,
+  });
   const accountLabel = signedIn
     ? user.name?.trim() || user.email
     : restoringSession ? "OpenWork Cloud" : "Sign in";

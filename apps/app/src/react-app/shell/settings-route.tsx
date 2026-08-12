@@ -158,7 +158,10 @@ import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picke
 import type { ModelRef } from "@/app/types";
 import { workspaceSwatchColor } from "@/react-app/domains/session/sidebar/utils";
 import { recordInspectorEvent } from "../../app/lib/app-inspector";
-import { ensureDesktopLocalOpenworkConnection } from "./desktop-local-openwork";
+import {
+  ensureDesktopLocalOpenworkConnection,
+  shouldAttemptDesktopLocalReconnect,
+} from "./desktop-local-openwork";
 import { reloadEngineWithDesktopFallback } from "./engine-reload-escalation";
 import { resolveOpenworkConnection } from "./openwork-connection";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
@@ -1282,7 +1285,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     writeStoredBoolean(SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY, updateAutoDownload);
   }, [updateAutoDownload]);
 
-  const { markRouteReady: markBootRouteReady } = useBootState();
+  const {
+    markRouteReady: markBootRouteReady,
+    phase: bootPhase,
+    routeReady: bootRouteReady,
+  } = useBootState();
   const refreshRouteState = useMemo(() => async () => {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
@@ -1606,13 +1613,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
 
   useEffect(() => {
-    if (!isDesktopRuntime()) return;
-    if (loading) return;
     if (openworkClient) {
       reconnectAttemptedWorkspaceIdRef.current = "";
+    }
+    // Same gate as the session route: reconnect must not probe the local
+    // server while desktop runtime bootstrap is still starting it.
+    if (
+      !shouldAttemptDesktopLocalReconnect({
+        desktopRuntime: isDesktopRuntime(),
+        bootPhase,
+        bootRouteReady,
+        routeLoading: loading,
+        hasClient: Boolean(openworkClient),
+        connectionPending: false,
+        workspaceType: selectedWorkspace?.workspaceType ?? null,
+      })
+    ) {
       return;
     }
-    if (!selectedWorkspace || selectedWorkspace.workspaceType !== "local") return;
+    if (!selectedWorkspace) return;
     const workspaceId = selectedWorkspace.id?.trim() ?? "";
     if (!workspaceId || reconnectAttemptedWorkspaceIdRef.current === workspaceId) return;
     reconnectAttemptedWorkspaceIdRef.current = workspaceId;
@@ -1631,7 +1650,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         dedupeKey: "server-reconnect",
       });
     });
-  }, [loading, openworkClient, selectedWorkspace, workspaces]);
+  }, [bootPhase, bootRouteReady, loading, openworkClient, selectedWorkspace, workspaces]);
 
   useEffect(() => {
     void refreshRouteState();
