@@ -185,6 +185,7 @@ function installProviderSyncFetch(
     statusProviders?: Array<Record<string, unknown>>;
     statusReloadPending?: boolean;
     statusSkipped?: Array<Record<string, unknown>>;
+    onRun?: () => void;
   } = {},
 ) {
   let runIndex = 0;
@@ -212,6 +213,7 @@ function installProviderSyncFetch(
         return new Response(null, { status: 204 });
       }
       if (url.origin === "https://server.example" && url.pathname === "/cloud-provider-sync/run" && method === "POST") {
+        options.onRun?.();
         const statuses = options.runStatuses ?? [{ status: "noop" }];
         const result = statuses[Math.min(runIndex, statuses.length - 1)];
         runIndex += 1;
@@ -411,6 +413,31 @@ describe("cloud provider sync in server-capability mode", () => {
 
     expect(await store.runCloudProviderSync("settings_cloud_opened")).toBeUndefined();
     expect(store.getSnapshot().providerAuthError).toContain("Provider import failed");
+  });
+
+  test("does not show a sync failure when logout removes the session in flight", async () => {
+    const storage = installWindow({ origin: "https://self-hosted.example" });
+    installCloudSession(storage);
+    const requests: RecordedRequest[] = [];
+    installProviderSyncFetch(requests, {
+      runStatuses: [{ status: "failed", message: "Cloud provider sync failed." }],
+      onRun: () => storage.clear(),
+    });
+    const { store } = createProviderAuthTestStore({ read: true, write: true, providerSync: true });
+
+    expect(await store.runCloudProviderSync("settings_cloud_opened")).toBeUndefined();
+    expect(store.getSnapshot().providerAuthError).toBeNull();
+  });
+
+  test("does not start settings sync while signed out", async () => {
+    installWindow({ origin: "https://self-hosted.example" });
+    const requests: RecordedRequest[] = [];
+    installProviderSyncFetch(requests, { runStatuses: [{ status: "no_session" }] });
+    const { store } = createProviderAuthTestStore({ read: true, write: true, providerSync: true });
+
+    expect(await store.runCloudProviderSync("settings_cloud_opened")).toBeUndefined();
+    expect(requests).toEqual([]);
+    expect(store.getSnapshot().providerAuthError).toBeNull();
   });
 
   test("pushes the resolved Den API session and retries once when missing", async () => {

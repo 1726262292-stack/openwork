@@ -1828,6 +1828,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     );
   };
 
+  const publishSettingsCloudProviderSyncError = (
+    reason: CloudProviderSyncReason,
+    message: string,
+  ) => {
+    if (reason !== "settings_cloud_opened") return;
+    // A sync that loses its session while logout is clearing account state is
+    // cancellation, not a user-actionable provider failure.
+    setStateField(
+      "providerAuthError",
+      hasCloudProviderSyncPrerequisites() ? message : null,
+    );
+  };
+
   const preselectEntitledOrgDefaultModel = (
     providerList: ProviderListResponse | null | undefined,
   ) => {
@@ -2000,6 +2013,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function runCloudProviderSync(reason: CloudProviderSyncReason) {
+    if (!hasCloudProviderSyncPrerequisites()) {
+      if (reason === "settings_cloud_opened") {
+        setStateField("providerAuthError", null);
+      }
+      return;
+    }
     if (getOpenworkGatewayOrigin()) {
       if (!loggedGatewayCloudProviderSyncSkip) {
         loggedGatewayCloudProviderSyncSkip = true;
@@ -2030,9 +2049,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             reason,
             new Error(result.message ?? "Cloud provider sync failed."),
           );
-          if (reason === "settings_cloud_opened") {
-            setStateField("providerAuthError", message);
-          }
+          publishSettingsCloudProviderSyncError(reason, message);
           return;
         }
         // The server may already be synchronized while this route still holds
@@ -2043,9 +2060,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         return { outcome: "handled_server_side" };
       } catch (error) {
         const message = logCloudProviderSyncError(reason, error);
-        if (reason === "settings_cloud_opened") {
-          setStateField("providerAuthError", message);
-        }
+        publishSettingsCloudProviderSyncError(reason, message);
         return;
       }
     }
@@ -2060,9 +2075,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       )
       .catch((error) => {
         const message = logCloudProviderSyncError(reason, error);
-        if (reason === "settings_cloud_opened") {
-          setStateField("providerAuthError", message);
-        }
+        publishSettingsCloudProviderSyncError(reason, message);
       });
 
     cloudProviderSyncTail = request;
@@ -2247,6 +2260,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             ...current,
             cloudOrgProviders: [],
             providerAuthMethods: {},
+            providerAuthError: null,
             cloudProviderServerSync: null,
             lastSyncError: {},
           }));
@@ -2276,6 +2290,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             ...current,
             cloudOrgProviders: [],
             providerAuthMethods: {},
+            providerAuthError: null,
             cloudProviderServerSync: null,
             lastSyncError: {},
           }));
@@ -2339,6 +2354,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
               ...current,
               cloudOrgProviders: [],
               providerAuthMethods: {},
+              providerAuthError: null,
               importedCloudProviders: {},
               cloudProviderServerSync: null,
               lastSyncError: {},
