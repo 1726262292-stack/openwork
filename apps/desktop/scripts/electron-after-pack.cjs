@@ -59,10 +59,33 @@ function verifyRuntimeDependencies(context) {
     throw new Error(`Missing packaged app.asar at ${appAsarPath || context.appOutDir}`);
   }
   const packagedFiles = new Set(asar.listPackage(appAsarPath));
-  for (const packageName of ["ajv", "ajv-formats", "fast-deep-equal", "fast-uri", "json-schema-traverse", "require-from-string"]) {
-    const packageJsonPath = `/node_modules/${packageName}/package.json`;
+  const stagedNodeModules = path.resolve(__dirname, "..", ".electron-runtime", "node_modules");
+  const packageJsonPaths = [];
+  function visitNodeModules(nodeModulesPath, archivePrefix) {
+    for (const entry of fs.readdirSync(nodeModulesPath, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith("@")) {
+        visitNodeModules(path.join(nodeModulesPath, entry.name), `${archivePrefix}/${entry.name}`);
+        continue;
+      }
+      const packagePath = path.join(nodeModulesPath, entry.name);
+      if (!fs.existsSync(path.join(packagePath, "package.json"))) continue;
+      const packageJsonPath = `${archivePrefix}/${entry.name}/package.json`;
+      packageJsonPaths.push(packageJsonPath);
+      const nestedNodeModules = path.join(packagePath, "node_modules");
+      if (fs.existsSync(nestedNodeModules)) {
+        visitNodeModules(nestedNodeModules, `${archivePrefix}/${entry.name}/node_modules`);
+      }
+    }
+  }
+  if (!fs.existsSync(stagedNodeModules)) {
+    throw new Error(`Missing staged MCP runtime at ${stagedNodeModules}`);
+  }
+  visitNodeModules(stagedNodeModules, "/node_modules");
+  if (packageJsonPaths.length === 0) throw new Error("The staged MCP runtime is empty.");
+  for (const packageJsonPath of packageJsonPaths) {
     if (!packagedFiles.has(packageJsonPath)) {
-      throw new Error(`Missing MCP validation runtime dependency from app.asar: ${packageName}`);
+      throw new Error(`Missing staged MCP runtime package from app.asar: ${packageJsonPath}`);
     }
   }
 }

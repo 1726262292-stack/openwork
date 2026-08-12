@@ -1,15 +1,30 @@
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(dirnameHere, "..");
-const requiredRoots = ["ajv", "ajv-formats"];
+const requiredRoots = [{
+  name: "@modelcontextprotocol/sdk",
+  resolveTarget: "@modelcontextprotocol/sdk/validation/ajv",
+}];
 
-function packageRoot(name, fromPackageJson) {
+function packageRoot(name, fromPackageJson, resolveTarget = name) {
   const requireFromPackage = createRequire(pathToFileURL(fromPackageJson));
-  let current = dirname(requireFromPackage.resolve(name));
+  let current;
+  try {
+    current = dirname(requireFromPackage.resolve(resolveTarget));
+  } catch (error) {
+    const linkedPackageRoot = resolve(dirname(dirname(fromPackageJson)), name);
+    try {
+      const linkedPackageJson = JSON.parse(readFileSync(join(linkedPackageRoot, "package.json"), "utf8"));
+      if (linkedPackageJson.name === name) return { root: linkedPackageRoot, packageJson: linkedPackageJson };
+    } catch {
+      // Preserve the original module-resolution error below.
+    }
+    throw error;
+  }
   while (current !== dirname(current)) {
     try {
       const packageJson = JSON.parse(readFileSync(join(current, "package.json"), "utf8"));
@@ -25,26 +40,46 @@ function packageRoot(name, fromPackageJson) {
 export function stageRuntimeNodeModules(outdir) {
   const output = resolve(outdir);
   const desktopPackageJson = resolve(desktopRoot, "package.json");
-  const pending = requiredRoots.map((name) => ({ name, fromPackageJson: desktopPackageJson }));
-  const staged = new Set();
+  const staged = [];
+  const rootPackages = new Map();
+  const placements = new Set();
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
 
-  while (pending.length > 0) {
-    const item = pending.shift();
-    if (!item || staged.has(item.name)) continue;
-    const resolvedPackage = packageRoot(item.name, item.fromPackageJson);
-    const destination = resolve(output, item.name);
+  function stagePackage({ name, fromPackageJson, resolveTarget }, parentDestination, forceRoot = false) {
+    const resolvedPackage = packageRoot(name, fromPackageJson, resolveTarget);
+    const rootPackage = rootPackages.get(name);
+    if (!rootPackage) rootPackages.set(name, resolvedPackage.root);
+    if (!forceRoot && rootPackage === resolvedPackage.root) return;
+    const nodeModulesRoot = forceRoot || !rootPackage
+      ? output
+      : resolve(parentDestination, "node_modules");
+    const destination = resolve(nodeModulesRoot, name);
+    const placementKey = `${destination}\0${resolvedPackage.root}`;
+    if (placements.has(placementKey)) return;
+    placements.add(placementKey);
     mkdirSync(dirname(destination), { recursive: true });
-    cpSync(resolvedPackage.root, destination, { recursive: true, dereference: true });
-    staged.add(item.name);
+    cpSync(resolvedPackage.root, destination, {
+      recursive: true,
+      dereference: true,
+      filter: (source) => source === resolvedPackage.root
+        || !relative(resolvedPackage.root, source).split(sep).includes("node_modules"),
+    });
+    staged.push(destination.slice(output.length + 1));
     const dependencies = resolvedPackage.packageJson.dependencies ?? {};
     for (const dependencyName of Object.keys(dependencies)) {
-      pending.push({ name: dependencyName, fromPackageJson: resolve(resolvedPackage.root, "package.json") });
+      stagePackage(
+        { name: dependencyName, fromPackageJson: resolve(resolvedPackage.root, "package.json") },
+        destination,
+      );
     }
   }
 
-  return [...staged].sort();
+  for (const item of requiredRoots) {
+    stagePackage({ ...item, fromPackageJson: desktopPackageJson }, output, true);
+  }
+
+  return staged.sort();
 }
 
 const outdirIndex = process.argv.indexOf("--outdir");
