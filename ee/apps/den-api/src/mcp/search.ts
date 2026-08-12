@@ -46,7 +46,8 @@ export type CapabilityMatch = {
 export function compareCapabilityMatches(a: CapabilityMatch, b: CapabilityMatch): number {
   const statusPriority = Number("kind" in b && b.kind === "connection_status")
     - Number("kind" in a && a.kind === "connection_status")
-  return statusPriority || (b.score - a.score) || a.name.localeCompare(b.name)
+  // Relevance leads globally; an actionable status only wins an equal-score tie.
+  return (b.score - a.score) || statusPriority || a.name.localeCompare(b.name)
 }
 
 export function searchCapabilitySourceFilter(type?: SearchCapabilityType) {
