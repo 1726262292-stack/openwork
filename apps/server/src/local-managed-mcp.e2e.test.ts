@@ -155,6 +155,55 @@ describe("OpenWork-managed local MCP OAuth gateway", () => {
     expect(existsSync(join(runtimeStorageDir(config), "local-managed-mcp-vault.json"))).toBe(false);
   });
 
+  test("rolls back a new managed connection when the initial OAuth handshake fails", async () => {
+    const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
+    const previousDevMode = process.env.OPENWORK_DEV_MODE;
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "openwork-local-managed-mcp-rollback-"));
+    roots.push(workspaceRoot);
+    process.env.OPENWORK_RUNTIME_DB = join(workspaceRoot, "runtime.sqlite");
+    process.env.OPENWORK_DEV_MODE = "1";
+
+    try {
+      const engine = startMockOpencode();
+      const unavailableProviderPort = await freePort();
+      const config = createConfig({
+        port: await freePort(),
+        workspaceRoot,
+        engineBaseUrl: `http://127.0.0.1:${engine.server.port}`,
+        vaultKey: randomBytes(32),
+      });
+      const server = await startServer(config);
+      stops.push(() => server.stop());
+      const openworkBaseUrl = `http://127.0.0.1:${server.port}`;
+
+      const created = await fetch(`${openworkBaseUrl}/workspace/ws_managed/mcp/managed`, {
+        method: "POST",
+        headers: clientHeaders(config.token),
+        body: JSON.stringify({
+          name: "unreachable-oauth",
+          url: `http://127.0.0.1:${unavailableProviderPort}/mcp`,
+          oauth: { applicationType: "native", requestedScopes: ["mcp:read"] },
+        }),
+      });
+      expect(created.status).toBe(502);
+      expect(await created.json()).toMatchObject({
+        code: "managed_mcp_connection_failed",
+      });
+
+      const status = await fetch(
+        `${openworkBaseUrl}/workspace/ws_managed/mcp/unreachable-oauth/managed`,
+        { headers: clientHeaders(config.token) },
+      );
+      expect(status.status).toBe(404);
+      expect(await readRuntimeMcpConfig(config, "ws_managed", "unreachable-oauth")).toBeNull();
+    } finally {
+      if (previousRuntimeDb === undefined) delete process.env.OPENWORK_RUNTIME_DB;
+      else process.env.OPENWORK_RUNTIME_DB = previousRuntimeDb;
+      if (previousDevMode === undefined) delete process.env.OPENWORK_DEV_MODE;
+      else process.env.OPENWORK_DEV_MODE = previousDevMode;
+    }
+  });
+
   test("owns OAuth, exposes provider tools to OpenCode, refreshes, survives restart, and disconnects", async () => {
     const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
     const previousDevMode = process.env.OPENWORK_DEV_MODE;

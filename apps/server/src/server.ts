@@ -2872,7 +2872,22 @@ function createRoutes(
         ...(typeof oauth.clientSecret === "string" && oauth.clientSecret.trim() ? { clientSecret: oauth.clientSecret.trim() } : {}),
       },
     });
-    const result = await startLocalManagedMcpAuthorization(config, workspace.id, name);
+    const result = await (async () => {
+      try {
+        return await startLocalManagedMcpAuthorization(config, workspace.id, name);
+      } catch (error) {
+        // Creation writes the encrypted connection and runtime facade before
+        // OAuth discovery starts. If that first handshake fails, roll both back
+        // so the failed Add request cannot leave a ghost connection behind.
+        await deleteLocalManagedMcp(config, workspace.id, name).catch(() => undefined);
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(
+          502,
+          "managed_mcp_connection_failed",
+          "OpenWork could not start sign-in with this MCP server. Check the server URL, OAuth settings, and network connection, then try again.",
+        );
+      }
+    })();
     await syncRuntimeMcpToOpencodeEngine(config, workspace, [name], undefined, engineMcpServerState).catch(() => undefined);
     await recordAudit(workspace.path, {
       id: shortId(),
