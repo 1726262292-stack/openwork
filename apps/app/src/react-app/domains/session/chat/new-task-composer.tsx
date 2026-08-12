@@ -40,6 +40,7 @@ export type NewTaskComposerContext = {
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   openWorkModelsEntitled?: boolean;
+  openWorkModelsSyncing?: boolean;
   modelVariantLabel: string;
   modelVariant: string | null;
   modelBehaviorOptions?: { value: string | null; label: string }[];
@@ -254,6 +255,7 @@ export function NewTaskComposer(props: NewTaskComposerProps) {
       selectedModel={context?.selectedModel ?? FALLBACK_MODEL}
       modelOptions={context?.modelOptions}
       openWorkModelsEntitled={context?.openWorkModelsEntitled}
+      openWorkModelsSyncing={context?.openWorkModelsSyncing}
       onRefreshOrganizationModels={context?.onRefreshOrganizationModels}
       onModelPickerOpenChange={context?.onModelPickerOpenChange ?? noop}
       onModelChange={context?.onModelChange ?? noop}

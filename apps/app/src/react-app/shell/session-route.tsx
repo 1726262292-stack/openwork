@@ -146,6 +146,10 @@ import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-works
 import { useRemoteWorkspaceConnectionEditor } from "@/react-app/domains/workspace/use-remote-workspace-connection-editor";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import {
+  hasOpenWorkModelsAvailable,
+  shouldShowOpenWorkModelsSyncing,
+} from "@/react-app/domains/cloud/openwork-models-promo";
+import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
   testRemoteWorkspaceConnection,
@@ -921,9 +925,6 @@ export function SessionRoute() {
     if (!cloudProviderSyncReady || !cloudProviderList) return;
     clearCloudMcpSubmissionFailure();
   }, [clearCloudMcpSubmissionFailure, cloudProviderList, cloudProviderSyncReady]);
-  const refreshOpenWorkModels = useCallback(async () => {
-    await refreshOrganizationModelAccess();
-  }, [refreshOrganizationModelAccess]);
   const organizationModelsSettingsUrl = useMemo(() => {
     if (!isDenOrgAdminRole(activeOrganizationRole)) {
       return undefined;
@@ -949,6 +950,16 @@ export function SessionRoute() {
     providerListQuery.data,
     restrictToCloudProviders,
   ]);
+  const openWorkModelsAvailable = hasOpenWorkModelsAvailable({
+    providerConnectedIds,
+    providers,
+  });
+  const openWorkModelsSyncing = shouldShowOpenWorkModelsSyncing({
+    entitled: openWorkModelsEntitled,
+    available: openWorkModelsAvailable,
+    workspaceReady: Boolean(selectedWorkspaceId && opencodeClient),
+    reloadPending: sessionProviderAuthSnapshot.cloudProviderServerSync?.reloadPending === true,
+  });
   const organizationModelsEmpty = isOrganizationModelsEmpty({
     workspaceReady: Boolean(selectedWorkspaceId && opencodeClient),
     loading,
@@ -1251,6 +1262,7 @@ export function SessionRoute() {
       organizationModelsEmpty,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       openWorkModelsEntitled,
+      openWorkModelsSyncing,
       onRefreshOrganizationModels: refreshOrganizationModelAccess,
       onModelPickerOpenChange: (open: boolean) => {
         modelPicker.setCompactOpen(open);
@@ -1496,6 +1508,7 @@ export function SessionRoute() {
     navigate,
     providerCatalog,
     openWorkModelsEntitled,
+    openWorkModelsSyncing,
     refreshCloudProviderSync,
     refreshOrganizationModelAccess,
     opencodeBaseUrl,
@@ -1559,6 +1572,7 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       openWorkModelsEntitled,
+      openWorkModelsSyncing,
       modelVariantLabel,
       modelVariant: modelVariantValue,
       modelBehaviorOptions,
@@ -1603,6 +1617,7 @@ export function SessionRoute() {
     modelVariantValue,
     opencodeClient,
     openWorkModelsEntitled,
+    openWorkModelsSyncing,
     organizationAssignedModelOptions,
     organizationModelsEmpty,
     refreshCloudProviderSync,
@@ -2992,7 +3007,7 @@ export function SessionRoute() {
       }}
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
       openWorkModelsEntitled={openWorkModelsEntitled}
-      onRefreshOpenWorkModels={refreshOpenWorkModels}
+      openWorkModelsSyncing={openWorkModelsSyncing}
       onRefreshOrganizationModels={refreshOrganizationModelAccess}
       restrictToCloud={restrictToCloudProviders}
     />
