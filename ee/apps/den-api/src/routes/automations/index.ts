@@ -31,7 +31,8 @@ import {
 } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { automationService, type AutomationService } from "../../automations/service.js"
-import { automationRunnerAudienceFromRequestUrl, automationRunnerAuth } from "../../automations/runner-auth.js"
+import { automationRunnerAudienceFromRequest, automationRunnerAuth } from "../../automations/runner-auth.js"
+import { env } from "../../env.js"
 import {
   RUNNER_KEEPALIVE_INTERVAL_MS,
   RUNNER_NOTIFICATION_POLL_MIN_MS,
@@ -131,7 +132,9 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
           runnerId: registration.runnerId,
           capabilities: registration.capabilities,
         },
-        automationRunnerAudienceFromRequestUrl(c.req.url),
+        automationRunnerAudienceFromRequest(c.req.raw, {
+          trustedOrigins: env.publicUrlTrustedOrigins,
+        }),
       ))
     },
   )

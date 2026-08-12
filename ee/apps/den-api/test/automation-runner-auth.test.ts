@@ -10,11 +10,12 @@ function seedRequiredEnv() {
 }
 
 let AutomationRunnerAuth: typeof import("../src/automations/runner-auth.js")["AutomationRunnerAuth"]
+let automationRunnerAudienceFromRequest: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequest"]
 let automationRunnerAudienceFromRequestUrl: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequestUrl"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ AutomationRunnerAuth, automationRunnerAudienceFromRequestUrl } = await import("../src/automations/runner-auth.js"))
+  ;({ AutomationRunnerAuth, automationRunnerAudienceFromRequest, automationRunnerAudienceFromRequestUrl } = await import("../src/automations/runner-auth.js"))
 })
 
 describe("Automation runner credentials", () => {
@@ -47,6 +48,34 @@ describe("Automation runner credentials", () => {
     )).toBe("https://den.example.com/api/den")
     expect(() => automationRunnerAudienceFromRequestUrl("https://den.example.com/not-the-token-route"))
       .toThrow("automation_runner_audience_invalid")
+  })
+
+  test("binds a Den Web proxied credential to its trusted public route", () => {
+    const request = new Request("http://api.openworklabs.com/v1/automation-runners/token", {
+      headers: {
+        "x-forwarded-host": "app.openworklabs.com",
+        "x-forwarded-proto": "https",
+        "x-forwarded-prefix": "/api/den",
+      },
+    })
+
+    expect(automationRunnerAudienceFromRequest(request, {
+      trustedOrigins: ["https://app.openworklabs.com"],
+    })).toBe("https://app.openworklabs.com/api/den")
+  })
+
+  test("ignores an untrusted forwarded runner destination", () => {
+    const request = new Request("https://api.openworklabs.com/v1/automation-runners/token", {
+      headers: {
+        "x-forwarded-host": "attacker.example.com",
+        "x-forwarded-proto": "https",
+        "x-forwarded-prefix": "/api/den",
+      },
+    })
+
+    expect(automationRunnerAudienceFromRequest(request, {
+      trustedOrigins: ["https://app.openworklabs.com"],
+    })).toBe("https://api.openworklabs.com")
   })
 
   test("keeps legacy v1 credentials capability-free", () => {
