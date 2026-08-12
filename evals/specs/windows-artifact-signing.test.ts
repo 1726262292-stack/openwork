@@ -19,10 +19,20 @@ const installers = [
   ["openwork-enterprise-win-arm64-1.2.3.exe", "enterprise.yml"],
 ] as const;
 
+const unsignedArtifactNames = [
+  "unsigned-electron-windows-x64",
+  "unsigned-electron-windows-arm64",
+  "unsigned-electron-cloud-windows-x64",
+  "unsigned-electron-cloud-windows-arm64",
+  "unsigned-electron-enterprise-windows-x64",
+  "unsigned-electron-enterprise-windows-arm64",
+] as const;
+
 test("one Azure OIDC job signs and publishes every Windows installer", async ({ evidence }) => {
   const workflow = await readFile(workflowPath, "utf8");
 
   expect(workflow.match(/uses: azure\/artifact-signing-action@[0-9a-f]{40} # v2/g)).toHaveLength(1);
+  expect(workflow).toContain("pattern: unsigned-electron-*windows-*");
   expect(workflow).toContain("sign-and-publish-windows:");
   expect(workflow).toContain("runs-on: windows-2022");
   expect(workflow).toContain("environment: windows-signing");
@@ -34,6 +44,28 @@ test("one Azure OIDC job signs and publishes every Windows installer", async ({ 
   evidence.fact(
     "A single protected Azure OIDC job gates publication of all Windows installers",
     "The release workflow has one Artifact Signing action on windows-2022, recursively signs six installers, verifies every signature, and blocks merged-manifest publication until that job succeeds.",
+    true,
+  );
+});
+
+test("Azure signing artifact pattern downloads public, cloud, and enterprise Windows bundles", async ({ evidence }) => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const artifactPattern = workflow.match(/pattern:\s+(unsigned-electron-\*windows-\*)/)?.[1];
+  expect(artifactPattern).toBe("unsigned-electron-*windows-*");
+
+  const regex = new RegExp(
+    `^${artifactPattern
+      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+      .replaceAll("*", ".*")}$`,
+  );
+
+  for (const artifactName of unsignedArtifactNames) {
+    expect(artifactName, `${artifactName} should match ${artifactPattern}`).toMatch(regex);
+  }
+
+  evidence.fact(
+    "The Azure signing download pattern includes all unsigned Windows artifact families",
+    `The pattern ${artifactPattern} matches ${unsignedArtifactNames.join(", ")}.`,
     true,
   );
 });

@@ -671,7 +671,7 @@ jobs:
       - name: Download all unsigned Windows bundles
         uses: actions/download-artifact@v4
         with:
-          pattern: unsigned-electron-*-windows-*
+          pattern: unsigned-electron-*windows-*
           path: ${{ runner.temp }}/windows-artifacts
 
       - name: Validate Azure Artifact Signing configuration
