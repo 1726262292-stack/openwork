@@ -54,7 +54,9 @@ describe("planRouteConnectionGap", () => {
 
 // Mirrors refreshRouteState's control flow: begin → resolve connection →
 // staleness check → gap plan or apply → finish, with route readiness reported
-// only by the attempt that still owns the refresh.
+// only by the attempt that still owns the refresh. On a desktop gap the
+// connection is quarantined (no request may carry the previous bearer token
+// to the freed loopback port) while session display state is retained.
 type SimulatedRouteState = {
   baseUrl: string;
   token: string;
@@ -79,9 +81,10 @@ function createSimulatedRoute(initial: SimulatedRouteState) {
       if (!resolution) {
         const gapPlan = planRouteConnectionGap({ desktopRuntime: true });
         routeReadyAfterRefresh = gapPlan.markRouteReady;
+        // The live connection is quarantined in every gap.
+        state.baseUrl = "";
+        state.token = "";
         if (!gapPlan.retainExistingState) {
-          state.baseUrl = "";
-          state.token = "";
           state.sessions = [];
         }
         return;
@@ -100,7 +103,7 @@ function createSimulatedRoute(initial: SimulatedRouteState) {
 }
 
 describe("desktop restart refresh sequence", () => {
-  test("an empty first resolution retains state and a later one recovers", async () => {
+  test("an empty resolution quarantines the connection, retains sessions, and a later one recovers", async () => {
     const route = createSimulatedRoute({
       baseUrl: "http://127.0.0.1:4100",
       token: "tok_before_restart",
@@ -111,8 +114,11 @@ describe("desktop restart refresh sequence", () => {
     // Local server is restarting: the first resolution has no base URL/token.
     await route.refresh(async () => null);
 
-    expect(route.state.baseUrl).toBe("http://127.0.0.1:4100");
-    expect(route.state.token).toBe("tok_before_restart");
+    // No live endpoint or bearer token survives the gap — the freed loopback
+    // port must never receive the previous credentials…
+    expect(route.state.baseUrl).toBe("");
+    expect(route.state.token).toBe("");
+    // …while the session display state is retained for the user.
     expect(route.state.sessions).toEqual(["task-1", "task-2"]);
     // The boot overlay must not be released by the gap refresh.
     expect(route.state.routeReady).toBe(false);

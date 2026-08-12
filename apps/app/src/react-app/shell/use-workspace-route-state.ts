@@ -442,12 +442,19 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         if (gapPlan.retainExistingState) {
           // Transient desktop gap: the local server is booting or restarting
           // (app update, remote-access toggle, slow cold start) and has not
-          // republished its ephemeral base URL/tokens yet. Keep the last
-          // usable client, connection, sessions, and host info; boot or the
-          // reconnect effect publishes fresh info and supersedes this
-          // refresh. Only seed workspaces when the route has none so a fresh
-          // renderer still shows the sidebar under the boot overlay.
+          // republished its ephemeral base URL/tokens yet. Retain the
+          // workspaces, session lists, and host info as display state, but
+          // quarantine the live connection: the previous loopback port is no
+          // longer owned by our server, and a request there would hand the
+          // stale bearer token to whatever process binds the freed port.
+          // Boot or the reconnect effect publishes fresh info and supersedes
+          // this refresh. Only seed workspaces when the route has none so a
+          // fresh renderer still shows the sidebar under the boot overlay.
           setConnectionPending(true);
+          updateLocalServer({ baseUrl: "", token: "" });
+          setClient(null);
+          setBaseUrl("");
+          setToken("");
           if (workspacesRef.current.length === 0 && desktopWorkspaces.length > 0) {
             const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
             setWorkspaces(orderedDesktopWorkspaces);

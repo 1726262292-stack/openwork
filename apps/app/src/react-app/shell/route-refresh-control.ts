@@ -54,8 +54,11 @@ export function createRouteRefreshLifecycle(): RouteRefreshLifecycle {
 
 export type RouteConnectionGapPlan = {
   /**
-   * Keep the last usable client, base URL, token, workspaces, sessions, and
-   * host info instead of clearing them.
+   * Keep the workspaces, session lists, selection, and host info as display
+   * state instead of clearing them. The live client and endpoint resolver
+   * are quarantined either way: during a gap the previous loopback port is
+   * no longer owned by our server, so no request may carry the previous
+   * bearer token there.
    */
   retainExistingState: boolean;
   /**
@@ -73,9 +76,10 @@ export type RouteConnectionGapPlan = {
  * On desktop the local server owns that URL and mints fresh tokens on every
  * (re)start, so an empty resolution during boot, an app update, or a server
  * restart is a transient gap: boot or the local reconnect path will publish
- * new connection info and trigger another refresh. Clearing route state here
- * is what used to drop the active session list and flash disconnected UI
- * mid-restart.
+ * new connection info and trigger another refresh. Clearing the *display*
+ * state here is what used to drop the active session list and flash
+ * disconnected UI mid-restart; the *connection* is still torn down for the
+ * duration of the gap.
  *
  * On web there is no local process to wait for — an empty resolution is a
  * real disconnected state and the route should reflect it immediately.
