@@ -20,6 +20,11 @@ const originalWindow = globalThis.window;
 const originalFetch = globalThis.fetch;
 const originalDeployment = process.env.VITE_OPENWORK_DEPLOYMENT;
 
+function restoreEnv(key: string, value: string | undefined) {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 function memoryStorage(): Storage {
   const map = new Map<string, string>();
   return {
@@ -321,6 +326,43 @@ describe("non-gateway connection modes", () => {
     expect(connection.normalizedBaseUrl).toBe("https://instance.example.com");
     expect(connection.resolvedToken).toBe("instance-token");
     expect(connection.source).toBe("same-origin");
+  });
+
+  test("force-env settings overwrite stale localStorage openwork-server credentials", () => {
+    const previous = {
+      url: process.env.VITE_OPENWORK_URL,
+      port: process.env.VITE_OPENWORK_PORT,
+      token: process.env.VITE_OPENWORK_TOKEN,
+      hostToken: process.env.VITE_OPENWORK_HOST_TOKEN,
+      force: process.env.VITE_OPENWORK_FORCE_ENV_SETTINGS,
+    };
+    process.env.VITE_OPENWORK_URL = "http://127.0.0.1:8787";
+    process.env.VITE_OPENWORK_PORT = "8787";
+    process.env.VITE_OPENWORK_TOKEN = "fresh-token";
+    process.env.VITE_OPENWORK_HOST_TOKEN = "fresh-host-token";
+    process.env.VITE_OPENWORK_FORCE_ENV_SETTINGS = "1";
+
+    const storage = installWindow({ origin: "http://127.0.0.1:5173" });
+    storage.setItem("openwork.server.urlOverride", "http://127.0.0.1:9999");
+    storage.setItem("openwork.server.token", "stale-token");
+    storage.setItem("openwork.server.hostToken", "stale-host-token");
+
+    try {
+      hydrateOpenworkServerSettingsFromEnv();
+      expect(readOpenworkServerSettings()).toEqual({
+        urlOverride: "http://127.0.0.1:8787",
+        portOverride: 8787,
+        token: "fresh-token",
+        hostToken: "fresh-host-token",
+        remoteAccessEnabled: false,
+      });
+    } finally {
+      restoreEnv("VITE_OPENWORK_URL", previous.url);
+      restoreEnv("VITE_OPENWORK_PORT", previous.port);
+      restoreEnv("VITE_OPENWORK_TOKEN", previous.token);
+      restoreEnv("VITE_OPENWORK_HOST_TOKEN", previous.hostToken);
+      restoreEnv("VITE_OPENWORK_FORCE_ENV_SETTINGS", previous.force);
+    }
   });
 
   test("stored server settings still win without the marker", async () => {
