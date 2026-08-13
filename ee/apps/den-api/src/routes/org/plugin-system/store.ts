@@ -1822,7 +1822,18 @@ export async function listConfigObjectPlugins(input: { context: PluginArchActorC
 }
 
 export async function attachConfigObjectToPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; membershipSource?: PluginMembershipRow["membershipSource"]; pluginId: PluginId }) {
-  await ensureVisibleConfigObject(input.context, input.configObjectId)
+  const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
+  if (configObject.objectType === "script") {
+    // Adding a Program to a Plugin can expand its audience through Plugin and
+    // Marketplace grants, so only a Program manager may make that sharing
+    // decision. Other config-object membership behavior stays compatible.
+    await requirePluginArchResourceRole({
+      context: input.context,
+      resourceId: configObject.id,
+      resourceKind: "config_object",
+      role: "manager",
+    })
+  }
   await ensureEditablePlugin(input.context, input.pluginId)
 
   const existing = await db

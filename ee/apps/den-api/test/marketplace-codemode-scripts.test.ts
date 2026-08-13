@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test"
 import { Tool } from "@openwork/codemode"
-import { eq, inArray } from "@openwork-ee/den-db/drizzle"
+import { and, eq, inArray } from "@openwork-ee/den-db/drizzle"
 import {
   AuthUserTable,
   CodemodeRunTable,
@@ -261,6 +261,72 @@ describe("saved marketplace scripts", () => {
     })
     expect(versions[0]?.normalizedPayloadJson).not.toHaveProperty("requiredCapabilities.0.readOnly")
     expect(versions[0]?.normalizedPayloadJson).not.toHaveProperty("requiredCapabilities.0.unattendedApproved")
+  })
+
+  test("saves a Program directly into a chosen existing Plugin", async () => {
+    const seeded = await seedScript({
+      title: "Chosen Plugin Fixture",
+      code: "return null",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const code = "return { shared: true }"
+    const now = new Date()
+    await db.insert(CodemodeRunTable).values({
+      id: createDenTypeId("codemodeRun"),
+      organization_id: seeded.organizationId,
+      org_membership_id: seeded.member.orgMembershipId,
+      source: "mcp",
+      code_digest: codemodeRuns.codemodeCodeDigest(code),
+      status: "succeeded",
+      tool_calls: [],
+      tool_call_count: 0,
+      duration_ms: 5,
+      started_at: now,
+      finished_at: now,
+    })
+    const context: PluginArchActorContext = {
+      memberTeams: [],
+      organizationContext: {
+        organization: {
+          id: seeded.organizationId,
+          name: "Script Test Org",
+          slug: `scripts-${seeded.organizationId}`,
+          logo: null,
+          allowedEmailDomains: null,
+          metadata: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        currentMember: {
+          id: seeded.member.orgMembershipId,
+          userId: createDenTypeId("user"),
+          role: "owner",
+          createdAt: now,
+          joinedAt: now,
+          isOwner: true,
+        },
+        invitations: [],
+        members: [],
+        roles: [],
+        teams: [],
+      },
+      session: { createdAt: now },
+    }
+
+    const saved = await savedScripts.saveCodemodeScript({
+      organizationId: seeded.organizationId,
+      ownerMemberId: seeded.member.orgMembershipId,
+      context,
+      script: { pluginId: seeded.pluginId, name: "Shared Program", code },
+      buildTools: async () => ({ tools: {}, manifest: [] }),
+    })
+
+    expect(saved.pluginId).toBe(seeded.pluginId)
+    const memberships = await db.select().from(PluginConfigObjectTable).where(and(
+      eq(PluginConfigObjectTable.pluginId, seeded.pluginId),
+      eq(PluginConfigObjectTable.configObjectId, saved.configObjectId),
+    ))
+    expect(memberships).toHaveLength(1)
   })
 
   test("executes a createPluginBundle saved script with typed input binding", async () => {

@@ -43,10 +43,12 @@ import {
 } from "./routes/org/plugin-system/access.js"
 import { memberHasRole } from "./routes/org/shared.js"
 
-const SAVED_SCRIPTS_PLUGIN_NAME = "Saved scripts"
+const DEFAULT_PROGRAMS_PLUGIN_NAME = "My Programs"
+const LEGACY_SAVED_SCRIPTS_PLUGIN_NAME = "Saved scripts"
 const RECENT_RUN_WINDOW_MS = 15 * 60_000
 
 export type SaveCodemodeScriptInput = {
+  pluginId?: string
   name: string
   description?: string
   code: string
@@ -571,9 +573,28 @@ export async function saveCodemodeScript(input: {
   ownerMemberId: string
   script: SaveCodemodeScriptInput
   buildTools: () => Promise<BuiltCodemodeTools>
+  context?: PluginArchActorContext
 }): Promise<{ pluginId: string; configObjectId: string; configObjectVersionId: string }> {
   const organizationId = normalizeDenTypeId("organization", input.organizationId)
   const ownerMemberId = normalizeDenTypeId("member", input.ownerMemberId)
+  const requestedPluginId = input.script.pluginId
+    ? normalizeDenTypeId("plugin", input.script.pluginId)
+    : null
+  if (requestedPluginId) {
+    if (
+      !input.context
+      || input.context.organizationContext.organization.id !== organizationId
+      || input.context.organizationContext.currentMember.id !== ownerMemberId
+    ) {
+      throw new Error("saved_program_plugin_context_required")
+    }
+    await requirePluginArchResourceRole({
+      context: input.context,
+      resourceId: requestedPluginId,
+      resourceKind: "plugin",
+      role: "editor",
+    })
+  }
   const receipts = await db.select().from(CodemodeRunTable).where(and(
     eq(CodemodeRunTable.organization_id, organizationId),
     eq(CodemodeRunTable.org_membership_id, ownerMemberId),
@@ -616,20 +637,38 @@ export async function saveCodemodeScript(input: {
   }
 
   return db.transaction(async (tx) => {
-    const plugins = await tx.select().from(PluginTable).where(and(
-      eq(PluginTable.organizationId, organizationId),
-      eq(PluginTable.createdByOrgMembershipId, ownerMemberId),
-      eq(PluginTable.name, SAVED_SCRIPTS_PLUGIN_NAME),
-      eq(PluginTable.status, "active"),
-      isNull(PluginTable.deletedAt),
-    )).limit(1).for("update")
-    const pluginId = plugins[0]?.id ?? createDenTypeId("plugin")
-    if (!plugins[0]) {
+    const plugins = requestedPluginId
+      ? await tx.select().from(PluginTable).where(and(
+          eq(PluginTable.id, requestedPluginId),
+          eq(PluginTable.organizationId, organizationId),
+          eq(PluginTable.status, "active"),
+          isNull(PluginTable.deletedAt),
+        )).limit(1).for("update")
+      : await tx.select().from(PluginTable).where(and(
+          eq(PluginTable.organizationId, organizationId),
+          eq(PluginTable.createdByOrgMembershipId, ownerMemberId),
+          eq(PluginTable.name, DEFAULT_PROGRAMS_PLUGIN_NAME),
+          eq(PluginTable.status, "active"),
+          isNull(PluginTable.deletedAt),
+        )).limit(1).for("update")
+    const legacyPlugins = requestedPluginId || plugins[0]
+      ? []
+      : await tx.select().from(PluginTable).where(and(
+          eq(PluginTable.organizationId, organizationId),
+          eq(PluginTable.createdByOrgMembershipId, ownerMemberId),
+          eq(PluginTable.name, LEGACY_SAVED_SCRIPTS_PLUGIN_NAME),
+          eq(PluginTable.status, "active"),
+          isNull(PluginTable.deletedAt),
+        )).limit(1).for("update")
+    const plugin = plugins[0] ?? legacyPlugins[0]
+    if (requestedPluginId && !plugin) throw new Error("saved_program_plugin_not_found")
+    const pluginId = plugin?.id ?? createDenTypeId("plugin")
+    if (!plugin) {
       await tx.insert(PluginTable).values({
         id: pluginId,
         organizationId,
-        name: SAVED_SCRIPTS_PLUGIN_NAME,
-        description: "Private reusable Code Mode scripts.",
+        name: DEFAULT_PROGRAMS_PLUGIN_NAME,
+        description: "Private reusable Code Mode Programs.",
         status: "active",
         createdByOrgMembershipId: ownerMemberId,
       })
@@ -643,6 +682,11 @@ export async function saveCodemodeScript(input: {
         role: "manager",
         createdByOrgMembershipId: ownerMemberId,
       })
+    } else if (!requestedPluginId && plugin.name === LEGACY_SAVED_SCRIPTS_PLUGIN_NAME) {
+      await tx.update(PluginTable).set({
+        name: DEFAULT_PROGRAMS_PLUGIN_NAME,
+        description: "Private reusable Code Mode Programs.",
+      }).where(eq(PluginTable.id, plugin.id))
     }
 
     const linked = await tx.select({ object: ConfigObjectTable }).from(PluginConfigObjectTable)

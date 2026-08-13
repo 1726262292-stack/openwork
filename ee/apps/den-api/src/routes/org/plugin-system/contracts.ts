@@ -297,7 +297,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
   },
   attachConfigObjectToPlugin: {
     audience: "admin",
-    description: "Attach a config object to a plugin using plugin-scoped write access.",
+    description: "Attach a config object to a plugin using plugin-scoped write access. Attaching a Program additionally requires manager access to that Program because Plugin or Marketplace membership can expand its audience.",
     method: "POST",
     path: pluginArchRoutePaths.configObjectPlugins,
     request: { body: configObjectPluginAttachSchema, params: configObjectParamsSchema },

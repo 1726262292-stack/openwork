@@ -848,7 +848,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     describeRoute({
       tags: ["Plugins"],
       summary: "Add plugin config object",
-      description: "Adds a config object to a plugin.",
+      description: "Adds a config object to a plugin. Programs require manager access because this can expand their audience through Plugin and Marketplace grants.",
       responses: {
         201: jsonResponse("Plugin membership created successfully.", pluginMembershipMutationResponseSchema),
         400: jsonResponse("The plugin membership request was invalid.", invalidRequestSchema),

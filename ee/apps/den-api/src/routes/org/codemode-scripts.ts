@@ -20,7 +20,7 @@ import {
   testCodemodeScriptDraft,
 } from "../../codemode-scripts.js"
 import { orgMemberRoute, jsonValidator, queryValidator } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { listTeamsForMember } from "../../orgs.js"
 import { env } from "../../env.js"
 import { getCatalog } from "../../mcp/index.js"
@@ -59,6 +59,7 @@ const scriptSchema = z.object({
 })
 const listSchema = z.object({ items: z.array(scriptSchema) })
 const saveSchema = z.object({
+  pluginId: z.string().trim().min(1).max(160).optional().describe("Existing OpenWork Connect Plugin that will contain and share this Program. Omit to use the member's private My Programs Plugin."),
   name: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4_000).optional(),
   code: z.string().min(1).max(200_000),
@@ -210,23 +211,30 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   app.post(
     "/v1/codemode-scripts",
     describeRoute({
-      tags: ["Codemode Runs"], summary: "Save a successful Code Mode run as a reusable script; include outputSchema when it will back an Artifact view",
-      responses: { 201: jsonResponse("Script saved.", savedSchema), 400: jsonResponse("Invalid request.", invalidRequestSchema) },
+      tags: ["Codemode Runs"], summary: "Save a successful Code Mode run as a Program inside an OpenWork Connect Plugin",
+      responses: {
+        201: jsonResponse("Program saved.", savedSchema),
+        400: jsonResponse("Invalid request.", invalidRequestSchema),
+        403: jsonResponse("The caller cannot add Programs to this Plugin.", forbiddenSchema),
+        404: jsonResponse("Plugin not found.", notFoundSchema),
+      },
     }),
     orgMemberRoute(), jsonValidator(saveSchema),
     async (c) => {
       try {
-        const { context, buildTools, codemodeEnabled } = await contextFor(c)
+        const { context, actorContext, buildTools, codemodeEnabled } = await contextFor(c)
         if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
         const saved = await saveCodemodeScript({
           organizationId: context.organization.id,
           ownerMemberId: context.currentMember.id,
           script: c.req.valid("json"),
           buildTools,
+          context: actorContext,
         })
         return c.json(saved, 201)
       } catch (error) {
-        return c.json({ error: "saved_script_rejected", message: error instanceof Error ? error.message : "Script could not be saved." }, 400)
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
       }
     },
   )
