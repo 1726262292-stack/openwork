@@ -109,6 +109,12 @@ function listedToolNames(payload: Record<string, unknown>): string[] {
   return tools.flatMap((tool) => isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [])
 }
 
+function listedTools(payload: Record<string, unknown>): Record<string, unknown>[] {
+  const tools = resultRecord(payload).tools
+  if (!Array.isArray(tools)) throw new Error("Expected MCP tools list")
+  return tools.filter(isRecord)
+}
+
 function firstText(payload: Record<string, unknown>): string {
   const content = resultRecord(payload).content
   if (!Array.isArray(content)) throw new Error("Expected MCP tool content")
@@ -139,8 +145,16 @@ test("does not register execute_capability_script when the org flag is off", asy
 
 test("registers execute_capability_script when the org flag is on", async () => {
   organizationMetadata = { capabilities: { codemodeScripts: true } }
-  const tools = listedToolNames(await rpc(buildApp(), "tools/list"))
-  expect(tools).toContain("execute_capability_script")
+  const tools = listedTools(await rpc(buildApp(), "tools/list"))
+  const names = tools.flatMap((tool) => typeof tool.name === "string" ? [tool.name] : [])
+  expect(names).toContain("execute_capability_script")
+  expect(names).toContain("render_dynamic_artifact")
+  expect(names).toContain("search_dynamic_artifacts")
+  expect(names).toContain("select_dynamic_artifact")
+  expect(names).toContain("clear_dynamic_artifact_selection")
+  expect(isRecord(tools.find((tool) => tool.name === "search_dynamic_artifacts")?.outputSchema)).toBe(true)
+  expect(isRecord(tools.find((tool) => tool.name === "select_dynamic_artifact")?.outputSchema)).toBe(true)
+  expect(isRecord(tools.find((tool) => tool.name === "clear_dynamic_artifact_selection")?.outputSchema)).toBe(true)
 })
 
 test("executes a confined script when the org flag is on", async () => {

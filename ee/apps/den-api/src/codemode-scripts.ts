@@ -34,6 +34,7 @@ import {
   savedScriptArtifactSource,
   SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
 } from "./saved-script-artifacts.js"
+import { redactSavedScriptVersionAuthoringDetails } from "./saved-script-projections.js"
 import {
   requirePluginArchResourceRole,
   resolvePluginArchGrantRole,
@@ -177,7 +178,11 @@ async function currentAutomationReferences(context: PluginArchActorContext, conf
   })
 }
 
-async function savedScriptVersions(context: PluginArchActorContext, configObjectId: ConfigObjectId): Promise<SavedScriptVersion[]> {
+async function savedScriptVersions(
+  context: PluginArchActorContext,
+  configObjectId: ConfigObjectId,
+  includeAuthoringDetails: boolean,
+): Promise<SavedScriptVersion[]> {
   const [rows, automationReferences] = await Promise.all([
     db.select().from(ConfigObjectVersionTable).where(and(
       eq(ConfigObjectVersionTable.organizationId, context.organizationContext.organization.id),
@@ -190,7 +195,7 @@ async function savedScriptVersions(context: PluginArchActorContext, configObject
     const parsed = parseCodemodeScriptPayload(row.normalizedPayloadJson)
     if (!parsed.ok) return []
     const code = row.rawSourceText ?? ""
-    return [{
+    const version: SavedScriptVersion = {
       id: row.id,
       code,
       inputSchema: parsed.payload.inputSchema ?? null,
@@ -202,7 +207,8 @@ async function savedScriptVersions(context: PluginArchActorContext, configObject
       outputSchemaDigest: optionalArtifactDigest(parsed.payload.outputSchema),
       createdAt: row.createdAt.toISOString(),
       automationReferences: automationReferences.filter((reference) => reference.configObjectVersionId === row.id),
-    }]
+    }
+    return [includeAuthoringDetails ? version : redactSavedScriptVersionAuthoringDetails(version)]
   })
 }
 
@@ -223,14 +229,14 @@ export async function getCodemodeScriptDetail(input: {
   maxAgeMs?: number
 }): Promise<SavedScriptDetail> {
   const resource = await savedScriptResource(input.context, input.configObjectId, "viewer")
-  const [versions, rows, role] = await Promise.all([
-    savedScriptVersions(input.context, resource.configObject.id),
+  const role = await resolvePluginArchResourceRole({
+    context: input.context,
+    resourceId: resource.configObject.id,
+    resourceKind: "config_object",
+  })
+  const [versions, rows] = await Promise.all([
+    savedScriptVersions(input.context, resource.configObject.id, role === "manager"),
     snapshotRows(resource.configObject.organizationId, resource.configObject.id),
-    resolvePluginArchResourceRole({
-      context: input.context,
-      resourceId: resource.configObject.id,
-      resourceKind: "config_object",
-    }),
   ])
   const currentVersion = versions[0]
   if (!currentVersion) throw new Error("saved_script_version_not_found")
@@ -249,6 +255,7 @@ export async function getCodemodeScriptDetail(input: {
     configObjectId: resource.configObject.id,
     title: resource.configObject.title,
     description: resource.configObject.description,
+    canRun: role === "editor" || role === "manager",
     canManage: role === "manager",
     currentVersion,
     versions,
@@ -267,7 +274,12 @@ export async function getCodemodeScriptDetail(input: {
 
 export async function listCodemodeScriptVersions(input: { context: PluginArchActorContext; configObjectId: string }) {
   const resource = await savedScriptResource(input.context, input.configObjectId, "viewer")
-  return savedScriptVersions(input.context, resource.configObject.id)
+  const role = await resolvePluginArchResourceRole({
+    context: input.context,
+    resourceId: resource.configObject.id,
+    resourceKind: "config_object",
+  })
+  return savedScriptVersions(input.context, resource.configObject.id, role === "manager")
 }
 
 export async function listCodemodeScriptSnapshots(input: {

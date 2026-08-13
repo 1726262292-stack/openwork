@@ -45,8 +45,8 @@ export function ArtifactDetailScreen({ artifactId }: { artifactId: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <DenButton variant="secondary" onClick={() => void select.mutateAsync(artifactId)} loading={select.isPending}><Bot className="h-3.5 w-3.5" />Use with agent</DenButton>
-          <DenButton variant="secondary" href={`/dashboard/automations?artifact=${encodeURIComponent(artifactId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton>
-          <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton>
+          {manager ? <DenButton variant="secondary" href={`/dashboard/automations?artifact=${encodeURIComponent(artifactId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton> : null}
+          {manager ? <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton> : null}
         </div>
       </header>
 
@@ -83,7 +83,7 @@ export function ArtifactDetailScreen({ artifactId }: { artifactId: string }) {
 
       <div id="script"><SavedScriptDetailPanel configObjectId={artifactId} onClose={() => router.push("/dashboard/library")} /></div>
 
-      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.artifact.role}</strong>. Script versions, retained data, and generated views share this Artifact access boundary; there are no separate data or UI grants.</p><DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}>Manage grants</DenButton></section>
+      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.artifact.role}</strong>. Script versions, retained data, and generated views share this Artifact access boundary; there are no separate data or UI grants.</p>{manager ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}>Manage grants</DenButton> : null}</section>
     </div>
   );
 }

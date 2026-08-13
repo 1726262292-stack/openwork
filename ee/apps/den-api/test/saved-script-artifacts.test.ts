@@ -8,6 +8,7 @@ import {
   savedScriptArtifactSource,
 } from "../src/saved-script-artifacts.js"
 import { recordCodemodeRun } from "../src/codemode-runs.js"
+import { redactSavedScriptVersionAuthoringDetails } from "../src/saved-script-projections.js"
 
 test("canonical JSON and digests are stable across object key order", () => {
   assert.equal(canonicalArtifactJson({ b: 2, a: { d: 4, c: 3 } }), '{"a":{"c":3,"d":4},"b":2}')
@@ -44,6 +45,34 @@ test("durable receipts keep only the input digest", async () => {
   assert.equal(stored.script_input, null)
   assert.equal(stored.script_input_digest, inputDigest)
   assert.equal(JSON.stringify(stored).includes("api-secret"), false)
+})
+
+test("viewer and editor projections omit manager-only Script authoring data", () => {
+  const projected = redactSavedScriptVersionAuthoringDetails({
+    id: "cov_test",
+    code: "return input.token",
+    inputSchema: { type: "object" },
+    outputSchema: { type: "string" },
+    exampleInput: { token: "authoring-secret" },
+    requiredCapabilities: [],
+    codeDigest: `sha256:${"a".repeat(64)}`,
+    inputSchemaDigest: null,
+    outputSchemaDigest: null,
+    createdAt: "2026-08-13T12:00:00.000Z",
+    automationReferences: [{
+      id: "aut_test",
+      name: "Private input automation",
+      state: "active",
+      configObjectVersionId: "cov_test",
+      input: { token: "automation-secret" },
+    }],
+  })
+
+  assert.equal(projected.code, null)
+  assert.equal(projected.exampleInput, null)
+  assert.equal("input" in projected.automationReferences[0]!, false)
+  assert.equal(JSON.stringify(projected).includes("authoring-secret"), false)
+  assert.equal(JSON.stringify(projected).includes("automation-secret"), false)
 })
 
 test("Markdown rendering is deterministic and never emits raw HTML", () => {

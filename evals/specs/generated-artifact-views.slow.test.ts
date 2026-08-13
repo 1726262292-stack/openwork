@@ -1,6 +1,7 @@
 import { expect } from "vitest"
 import { needs, server, test } from "@openwork/testkit"
 import { denFetch, evalIn, waitFor } from "@openwork/behaviors"
+import type { DenSession } from "@openwork/behaviors"
 import { navigate } from "@openwork/cdp"
 import { chrome } from "@openwork/hosts"
 
@@ -50,16 +51,43 @@ function toolResourceUri(result: Record<string, unknown>, name: string): string 
   return isRecord(meta.ui) && typeof meta.ui.resourceUri === "string" ? meta.ui.resourceUri : null
 }
 
+function toolDefinition(result: Record<string, unknown>, name: string): Record<string, unknown> | null {
+  const tools = Array.isArray(result.tools) ? result.tools.filter(isRecord) : []
+  return tools.find((candidate) => candidate.name === name) ?? null
+}
+
 function resourceContent(result: Record<string, unknown>): Record<string, unknown> {
   const contents = Array.isArray(result.contents) ? result.contents.filter(isRecord) : []
   return requireRecord(contents[0], "resource content")
+}
+
+async function organizationMemberIdByEmail(admin: DenSession, organizationId: string, email: string) {
+  const result = await denFetch(admin, "/v1/org", {
+    headers: {
+      authorization: `Bearer ${admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+  })
+  const members = isRecord(result.body) && Array.isArray(result.body.members)
+    ? result.body.members.filter(isRecord)
+    : []
+  const member = members.find((entry) => isRecord(entry.user) && entry.user.email === email)
+  const memberId = member && typeof member.id === "string" ? member.id : ""
+  if (!result.response.ok || !memberId) {
+    throw new Error(`Resolving the Artifact viewer failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`)
+  }
+  return memberId
 }
 
 test("the agent MCP exposes the custom Artifact view authoring lifecycle", { timeout: 300_000 }, async ({ evidence, place }) => {
   needs(requirements)
   await using den = await server({
     place,
-    org: { name: `Generated Artifact Views ${Date.now()}`, admin: { name: "Avery" } },
+    org: {
+      name: `Generated Artifact Views ${Date.now()}`,
+      admin: { name: "Avery" },
+      members: { viewer: { name: "Artifact Viewer" } },
+    },
   })
   const orgs = await denFetch(den.admin, "/v1/me/orgs", {
     headers: { authorization: `Bearer ${den.admin.token}` },
@@ -109,6 +137,10 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
 
   const initialTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   expect(toolResourceUri(initialTools, "save_artifact_view")).toBeNull()
+  expect(toolResourceUri(initialTools, "render_dynamic_artifact")).toBe("ui://openwork/dynamic-artifact/v1/view.html")
+  for (const name of ["search_dynamic_artifacts", "select_dynamic_artifact", "clear_dynamic_artifact_selection"]) {
+    expect(isRecord(toolDefinition(initialTools, name)?.outputSchema)).toBe(true)
+  }
 
   const code = 'return { title: "Quarterly plan", status: "Ready" }'
   const executed = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
@@ -138,6 +170,32 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const saved = requireRecord(savedScript.body, "saved Script")
   const configObjectId = String(saved.configObjectId ?? "")
   expect(configObjectId).toMatch(/^cob_/)
+
+  const viewer = den.members.viewer
+  if (!viewer) throw new Error("The testkit did not provision the Artifact viewer.")
+  const viewerMemberId = await organizationMemberIdByEmail(den.admin, organizationId, viewer.email)
+  const shared = await denFetch(den.admin, `/v1/config-objects/${encodeURIComponent(configObjectId)}/access`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+    body: JSON.stringify({ orgMembershipId: viewerMemberId, role: "viewer" }),
+  })
+  expect(shared.response.ok, shared.text).toBe(true)
+  const viewerDetailResponse = await denFetch(viewer, `/v1/artifacts/${encodeURIComponent(configObjectId)}`, {
+    headers: {
+      authorization: `Bearer ${viewer.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+  })
+  expect(viewerDetailResponse.response.ok, viewerDetailResponse.text).toBe(true)
+  const viewerDetail = requireRecord(viewerDetailResponse.body, "viewer Artifact detail")
+  const viewerScript = requireRecord(viewerDetail.script, "viewer Script detail")
+  const viewerVersion = requireRecord(viewerScript.currentVersion, "viewer Script version")
+  expect(viewerVersion.code).toBeNull()
+  expect(viewerVersion.exampleInput).toBeNull()
+  expect(JSON.stringify(viewerVersion)).not.toContain("return input")
 
   const library = await denFetch(den.admin, "/v1/me/library", {
     headers: { authorization: `Bearer ${den.admin.token}` },
@@ -317,5 +375,10 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     "Custom Artifact view provider is available only on the Code Mode agent MCP",
     "The saved Script appeared immediately as a metadata-only never-run Library Artifact. The live provider then found and selected it through the constant-size catalog, built two custom React revisions, preserved both immutable resources, injected Script data through structuredContent, activated the second revision, rolled back to the first, retired the custom view back to the generic renderer without deleting either resource, and cleared the persisted selection.",
     true,
+  )
+  evidence.fact(
+    "Artifact access does not disclose manager-only Script authoring data",
+    "A viewer with explicit Artifact access could read the composed detail and retained-result contract, while Script source and saved example input were both null.",
+    viewerVersion.code === null && viewerVersion.exampleInput === null,
   )
 })
