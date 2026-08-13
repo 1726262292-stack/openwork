@@ -36,7 +36,9 @@ import {
 
 export const REMOTE_MCP_APP_SCHEMA_VERSION = "openwork.remote-mcp-app/1" as const
 export const REMOTE_MCP_APP_CONFIG_SCHEMA_VERSION = "openwork.remote-mcp-app-installation/1" as const
-export const REMOTE_MCP_APP_MAX_BYTES = 512 * 1024
+// Keep imported portable bundles aligned with the desktop MCP Apps host's
+// authoritative resources/read ceiling.
+export const REMOTE_MCP_APP_MAX_BYTES = 768 * 1024
 export const REMOTE_MCP_APP_FETCH_TIMEOUT_MS = 15_000
 
 const identifierSchema = z.string().trim().min(1).max(64).regex(/^[a-zA-Z][a-zA-Z0-9_.-]*$/)

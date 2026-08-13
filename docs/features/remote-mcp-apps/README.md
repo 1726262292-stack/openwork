@@ -15,7 +15,7 @@ publisher moves or removes the original file.
 Any frontend stack can author an app. React and Vite are build-time choices;
 React source is not the runtime protocol and OpenWork does not server-render
 the app. The published artifact must be a complete UTF-8 HTML document no
-larger than 512 KiB with all JavaScript, CSS, images, fonts, and the MCP Apps
+larger than 768 KiB with all JavaScript, CSS, images, fonts, and the MCP Apps
 client SDK inlined.
 
 The document must contain exactly one manifest:
@@ -145,7 +145,7 @@ execution.
 - Hosted source URLs must use HTTP or HTTPS, may not include credentials,
   fragments, or sensitive query parameters, and pass the existing SSRF-safe
   redirect and address checks. Loopback HTTP is limited to development mode.
-- Import is bounded to 15 seconds and 512 KiB. Invalid UTF-8 and partial or
+- Import is bounded to 15 seconds and 768 KiB. Invalid UTF-8 and partial or
   externally dependent documents fail closed.
 - The cached MCP App resource declares no network, subframe, external resource,
   or base-URI permissions. OpenWork Desktop applies its own opaque sandbox,

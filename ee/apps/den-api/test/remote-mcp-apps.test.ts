@@ -66,5 +66,5 @@ test("rejects manifests that request writes or duplicate capability keys", () =>
 })
 
 test("uses the desktop MCP App host's exact resource byte ceiling", () => {
-  expect(REMOTE_MCP_APP_MAX_BYTES).toBe(512 * 1024)
+  expect(REMOTE_MCP_APP_MAX_BYTES).toBe(768 * 1024)
 })
