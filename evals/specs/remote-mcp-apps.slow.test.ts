@@ -21,6 +21,7 @@ const title = !appSpecsEnabled
 const providerId = "remote-mcp-apps-provider";
 const modelId = "remote-mcp-apps-model";
 const desktopClosingReply = "Project Atlas is open from its cached Library app.";
+const publicAppSourceUrl = "https://reachjalil.github.io/openwork-remote-mcp-app-example/index.html";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -339,7 +340,8 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const address = fixture.address();
   if (!address || typeof address === "string") throw new Error("Remote MCP App fixture did not bind a port.");
   const fixtureUrl = `http://127.0.0.1:${address.port}`;
-  const sourceUrl = `${fixtureUrl}/project-atlas.html`;
+  const sourceUrl = publicAppSourceUrl;
+  const refreshSourceUrl = `${fixtureUrl}/project-atlas.html`;
 
   await using den = await server({
     place,
@@ -641,7 +643,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       "x-openwork-org-id": organizationId,
     },
     body: JSON.stringify({
-      sourceUrl,
+      sourceUrl: refreshSourceUrl,
     }),
   });
   expect(refreshedResult.response.ok, refreshedResult.text).toBe(true);
@@ -666,7 +668,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(activated.activeVersionId).toBe(secondRevisionId);
 
   sourceAvailable = false;
-  const unavailable = await fetch(sourceUrl);
+  const unavailable = await fetch(refreshSourceUrl);
   expect(unavailable.status).toBe(404);
   const cachedFirst = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: firstResourceUri });
   expect(String(contentsFrom(cachedFirst)[0]?.text ?? "")).toContain("Portable revision 1.0.0");
