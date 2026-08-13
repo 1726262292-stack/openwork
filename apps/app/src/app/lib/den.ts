@@ -2862,15 +2862,6 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       return getLibraryPrograms(payload);
     },
 
-    async selectLibraryProgram(orgId: string, programId: string): Promise<void> {
-      await requestJson<unknown>(baseUrls, "/v1/me/program-selection", {
-        method: "PUT",
-        token,
-        organizationId: orgId,
-        body: { programId },
-      });
-    },
-
     async listAssignedMarketplaceCapabilities(orgId: string): Promise<DenAssignedMarketplaceCapability[]> {
       const payload = await requestJson<unknown>(
         baseUrls,

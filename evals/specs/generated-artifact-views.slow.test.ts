@@ -156,8 +156,13 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
       name: "Quarterly plan source",
       description: "Deterministic source for generated Artifact view verification.",
       code,
-      currentInput: {},
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      currentInput: { preview: "private-preview-value" },
+      inputSchema: {
+        type: "object",
+        properties: { preview: { type: "string" } },
+        required: ["preview"],
+        additionalProperties: false,
+      },
       outputSchema: {
         type: "object",
         properties: { title: { type: "string" }, status: { type: "string" } },
@@ -197,6 +202,23 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   expect(viewerVersion.exampleInput).toBeNull()
   expect(JSON.stringify(viewerVersion)).not.toContain("return input")
 
+  const viewerGenericVersionsResponse = await denFetch(viewer, `/v1/config-objects/${encodeURIComponent(configObjectId)}/versions`, {
+    headers: {
+      authorization: `Bearer ${viewer.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+  })
+  expect(viewerGenericVersionsResponse.response.ok, viewerGenericVersionsResponse.text).toBe(true)
+  const viewerGenericVersions = isRecord(viewerGenericVersionsResponse.body) && Array.isArray(viewerGenericVersionsResponse.body.items)
+    ? viewerGenericVersionsResponse.body.items.filter(isRecord)
+    : []
+  const viewerGenericVersion = requireRecord(viewerGenericVersions[0], "viewer generic config-object version")
+  const viewerGenericPayload = requireRecord(viewerGenericVersion.normalizedPayloadJson, "viewer generic normalized payload")
+  expect(viewerGenericVersion.rawSourceText).toBeNull()
+  expect(viewerGenericPayload).not.toHaveProperty("exampleInput")
+  expect(JSON.stringify(viewerGenericVersion)).not.toContain("private-preview-value")
+  expect(JSON.stringify(viewerGenericVersion)).not.toContain(code)
+
   const library = await denFetch(den.admin, "/v1/me/library", {
     headers: { authorization: `Bearer ${den.admin.token}` },
   })
@@ -232,7 +254,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     body: JSON.stringify({
       pluginId: saved.pluginId,
       configObjectVersionId: saved.configObjectVersionId,
-      input: {},
+      input: { preview: "private-preview-value" },
     }),
   })
   expect(scriptRun.response.ok, scriptRun.text).toBe(true)
@@ -380,7 +402,10 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   )
   evidence.fact(
     "Program access does not disclose manager-only Script authoring data",
-    "A viewer with explicit Program access could read the composed detail and retained Artifact contract, while Script source and saved example input were both null.",
-    viewerVersion.code === null && viewerVersion.exampleInput === null,
+    "A viewer with explicit Program access could read the composed detail and retained Artifact contract, while both the Program API and generic config-object version API omitted Script source and saved example input.",
+    viewerVersion.code === null
+      && viewerVersion.exampleInput === null
+      && viewerGenericVersion.rawSourceText === null
+      && !("exampleInput" in viewerGenericPayload),
   )
 })

@@ -27,14 +27,6 @@ export function useLibraryPrograms() {
     }
   }, []);
 
-  const select = useCallback(async (programId: string) => {
-    const settings = readDenSettings();
-    const token = settings.authToken?.trim() ?? "";
-    const orgId = settings.activeOrgId?.trim() ?? "";
-    if (!token || !orgId) throw new Error("Sign in to OpenWork Cloud and select an organization first.");
-    await createDenClient({ baseUrl: settings.baseUrl, token }).selectLibraryProgram(orgId, programId);
-  }, []);
-
   useEffect(() => {
     void refresh();
     const handleSettings = () => void refresh();
@@ -42,5 +34,5 @@ export function useLibraryPrograms() {
     return () => window.removeEventListener(denSettingsChangedEvent, handleSettings);
   }, [refresh]);
 
-  return { programs, loading, error, refresh, select };
+  return { programs, loading, error, refresh };
 }

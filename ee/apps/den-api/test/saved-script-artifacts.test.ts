@@ -8,7 +8,10 @@ import {
   savedScriptArtifactSource,
 } from "../src/saved-script-artifacts.js"
 import { recordCodemodeRun } from "../src/codemode-runs.js"
-import { redactSavedScriptVersionAuthoringDetails } from "../src/saved-script-projections.js"
+import {
+  redactSavedScriptNormalizedPayloadAuthoringDetails,
+  redactSavedScriptVersionAuthoringDetails,
+} from "../src/saved-script-projections.js"
 
 test("canonical JSON and digests are stable across object key order", () => {
   assert.equal(canonicalArtifactJson({ b: 2, a: { d: 4, c: 3 } }), '{"a":{"c":3,"d":4},"b":2}')
@@ -73,6 +76,24 @@ test("viewer and editor projections omit manager-only Script authoring data", ()
   assert.equal("input" in projected.automationReferences[0]!, false)
   assert.equal(JSON.stringify(projected).includes("authoring-secret"), false)
   assert.equal(JSON.stringify(projected).includes("automation-secret"), false)
+})
+
+test("generic config-object projections omit saved Script example input", () => {
+  const projected = redactSavedScriptNormalizedPayloadAuthoringDetails({
+    language: "codemode-js",
+    inputSchema: { type: "object" },
+    outputSchema: { type: "string" },
+    exampleInput: { token: "authoring-secret" },
+    requiredCapabilities: [],
+  })
+
+  assert.deepEqual(projected, {
+    language: "codemode-js",
+    inputSchema: { type: "object" },
+    outputSchema: { type: "string" },
+    requiredCapabilities: [],
+  })
+  assert.equal(JSON.stringify(projected).includes("authoring-secret"), false)
 })
 
 test("Markdown rendering is deterministic and never emits raw HTML", () => {

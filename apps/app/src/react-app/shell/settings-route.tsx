@@ -2377,7 +2377,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 programs={libraryPrograms.programs}
                 programsError={libraryPrograms.error}
                 useProgramInChat={async (program) => {
-                  await libraryPrograms.select(program.id);
                   await connectionsStore.syncCloudControlMcp({ force: true });
                   await connectionsStore.refreshMcpServers();
                   if (!opencodeClient || !selectedWorkspaceId) {
@@ -2387,7 +2386,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   const session = unwrap(await opencodeClient.session.create({ directory: selectedWorkspaceRoot || undefined }));
                   saveSessionDraft(selectedWorkspaceId, session.id, {
                     mode: "prompt",
-                    text: `Open the selected Program "${program.name}" and render its latest retained artifact.`,
+                    text: `Call select_program with programId ${JSON.stringify(program.id)}, then call render_selected_program to open the latest retained Artifact from ${JSON.stringify(program.name)}.`,
                   });
                   navigate(workspaceSessionRoute(selectedWorkspaceId, session.id));
                 }}
