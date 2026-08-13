@@ -337,6 +337,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     headless: true,
     host: place.host(),
   })
+  await navigate(browser.client, den.ref.webUrl)
   await waitFor(browser, `location.href.startsWith(${JSON.stringify(den.ref.webUrl)}) && document.readyState === "complete"`, {
     timeoutMs: 60_000,
     label: "Den Web origin before Program auth handoff",
