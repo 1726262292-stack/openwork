@@ -67,7 +67,6 @@ export const AutomationRevisionTable = mysqlTable(
   },
   (table) => [
     uniqueIndex("automation_revision_version").on(table.automation_id, table.version),
-    uniqueIndex("automation_revision_digest").on(table.automation_id, table.digest),
   ],
 )
 
