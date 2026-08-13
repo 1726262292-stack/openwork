@@ -29,6 +29,16 @@ test("derives a fallback name when the document omits a title", () => {
   expect(inspectRemoteMcpAppHtml(html).metadata.name).toBe("Cached MCP App")
 })
 
+test("decodes document metadata exactly once", () => {
+  const html = appHtml()
+    .replace("Project Explorer", "Project &amp;lt;Explorer&amp;gt;")
+    .replace("Browse connected projects.", "Browse &amp;quot;connected&amp;quot; projects.")
+  expect(inspectRemoteMcpAppHtml(html).metadata).toMatchObject({
+    name: "Project &lt;Explorer&gt;",
+    description: "Browse &quot;connected&quot; projects.",
+  })
+})
+
 test("does not mistake bundled JavaScript strings for external CSS", () => {
   const html = appHtml('<script>const diagnostic = "CSS url() and @import \\\"theme.css\\\""</script>')
   expect(inspectRemoteMcpAppHtml(html).metadata.name).toBe("Project Explorer")

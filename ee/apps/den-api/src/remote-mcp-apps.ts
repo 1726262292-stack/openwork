@@ -91,11 +91,11 @@ function readAttribute(attributes: string, name: string): string | null {
 function documentText(value: string) {
   return value
     .replace(/<[^>]+>/g, " ")
-    .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, "&")
     .replace(/\s+/g, " ")
     .trim()
 }
