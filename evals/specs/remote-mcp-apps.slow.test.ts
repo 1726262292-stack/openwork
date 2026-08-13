@@ -573,6 +573,25 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(configured).toBe("ok");
   await evalIn(desktopApp, "location.reload(); true");
   await waitFor(desktopApp, "Boolean(window.__openworkControl)", { timeoutMs: 30_000, label: "desktop control after reload" });
+  const engineReady = await evalIn(desktopApp, `(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    if (!port || !token) return "missing local server credentials";
+    const deadline = Date.now() + 60_000;
+    let last = "";
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(${JSON.stringify(workspace.workspaceId)}) + "/opencode/session", {
+          headers: { Authorization: "Bearer " + token },
+        });
+        if (response.ok) return "ready";
+        last = "HTTP " + response.status;
+      } catch (error) { last = String(error); }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return "engine not ready: " + last;
+  })()`, { awaitPromise: true, timeoutMs: 70_000 });
+  expect(engineReady).toBe("ready");
   await waitFor(desktopApp, `window.__openworkControl.listActions().some((action) => action.id === "session.create_task" && !action.disabled)`, {
     timeoutMs: 60_000,
     label: "desktop new task ready",
