@@ -6,6 +6,7 @@ import {
   type AgentContextDiagnosticsRequest,
 } from "@openwork/types/agent-context-diagnostics";
 import { normalizeBaseUrl } from "@openwork/types/url";
+import type { WorkspaceArtifactLayout } from "@openwork/types/dynamic-artifacts";
 import {
   AGENT_CONTEXT_DIAGNOSTICS_REQUEST_TIMEOUT_MS,
   requestAgentContextDiagnosticsPayload,
@@ -402,6 +403,7 @@ export type OpenworkMcpItem = {
 export type OpenworkMcpAppResource = {
   serverName: string;
   toolName: string;
+  title: string;
   resourceUri: string;
   html: string;
   csp: {
@@ -1641,6 +1643,24 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         { token, hostToken },
       );
     },
+    getWorkspaceArtifactLayout: (workspaceId: string) =>
+      requestJson<{ layout: WorkspaceArtifactLayout; updatedAt: number | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/artifact-layout`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    updateWorkspaceArtifactLayout: (workspaceId: string, layout: WorkspaceArtifactLayout) =>
+      requestJson<{ layout: WorkspaceArtifactLayout; updatedAt: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/artifact-layout`,
+        {
+          token,
+          hostToken,
+          method: "PUT",
+          body: { layout },
+          timeoutMs: timeouts.config,
+        },
+      ),
     getSession: (workspaceId: string, sessionId: string) =>
       requestJson<{ item: Session }>(
         baseUrl,
@@ -1924,6 +1944,20 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
           timeoutMs: timeouts.config,
         },
       ),
+    resolveMcpAppResource: (
+      workspaceId: string,
+      payload: Pick<OpenworkMcpAppResource, "serverName" | "toolName" | "title" | "resourceUri">,
+    ) => requestJson<{ app: OpenworkMcpAppResource }>(
+      baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/resolve-resource`,
+      {
+        token,
+        hostToken,
+        method: "POST",
+        body: payload,
+        timeoutMs: timeouts.config,
+      },
+    ),
     mcpAppSandbox: (app: OpenworkMcpAppResource, hostOrigin: string): OpenworkMcpAppSandbox => {
       const url = new URL(`${baseUrl}/mcp-apps/sandbox.html`);
       if (url.origin === hostOrigin && url.hostname === "localhost") url.hostname = "127.0.0.1";

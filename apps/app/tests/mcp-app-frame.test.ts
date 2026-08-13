@@ -5,6 +5,7 @@ import { formatMcpAppDiagnostic, safeMcpAppDiagnosticMessage } from "../src/comp
 import {
   buildMcpAppCsp,
   isActionableMcpAppResolutionError,
+  isPinnableWorkspaceArtifactApp,
   secureMcpAppHtml,
 } from "../src/components/chat/mcp-app-frame"
 
@@ -12,6 +13,7 @@ function fixture(overrides: Partial<OpenworkMcpAppResource> = {}): OpenworkMcpAp
   return {
     serverName: "fixture",
     toolName: "render",
+    title: "Render fixture",
     resourceUri: "ui://fixture/view.html",
     html: "<!doctype html><html><head><title>Fixture</title></head><body>ok</body></html>",
     csp: {
@@ -30,6 +32,15 @@ describe("MCP App iframe policy", () => {
     expect(isActionableMcpAppResolutionError(new OpenworkServerError(503, "mcp_unreachable", "offline"))).toBe(false)
     expect(isActionableMcpAppResolutionError(new OpenworkServerError(404, "resource_read_failed", "missing"))).toBe(true)
     expect(isActionableMcpAppResolutionError(new Error("generic failure"))).toBe(false)
+  })
+
+  test("pins only immutable generated Artifact views", () => {
+    expect(isPinnableWorkspaceArtifactApp(fixture({
+      resourceUri: "ui://openwork/artifacts/arv_1/views/avr_2/index.html",
+    }))).toBe(true)
+    expect(isPinnableWorkspaceArtifactApp(fixture({
+      resourceUri: "ui://openwork/dynamic-artifact/v1/view.html",
+    }))).toBe(false)
   })
 
   test("formats safe, copyable handshake diagnostics", () => {

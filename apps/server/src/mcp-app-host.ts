@@ -28,6 +28,7 @@ type McpAppCsp = {
 export type McpAppResource = {
   serverName: string;
   toolName: string;
+  title: string;
   resourceUri: string;
   html: string;
   csp: McpAppCsp;
@@ -296,6 +297,7 @@ export async function resolveMcpAppResource(input: {
       return {
         serverName: item.name,
         toolName: tool.name,
+        title: tool.title?.trim() || tool.name,
         resourceUri,
         html: resource.html,
         ...presentation,
@@ -314,6 +316,46 @@ export async function resolveMcpAppResource(input: {
   }
   if (matches.length === 0 && resolutionErrors[0]) throw resolutionErrors[0];
   return matches[0] ?? null;
+}
+
+export async function resolveMcpAppResourceByUri(input: {
+  serverConfig: ServerConfig;
+  workspaceId: string;
+  workspaceRoot: string;
+  serverName: string;
+  toolName: string;
+  title: string;
+  resourceUri: string;
+}): Promise<McpAppResource> {
+  if (!input.serverName || input.serverName.length > 256) {
+    throw new McpAppHostError("invalid_server_name", "MCP server name is invalid.");
+  }
+  if (!/^[a-zA-Z0-9_-]{1,256}$/.test(input.toolName)) {
+    throw new McpAppHostError("invalid_tool_name", "MCP App data tool name is invalid.");
+  }
+  if (!input.resourceUri.startsWith("ui://openwork/artifacts/") || input.resourceUri.length > 2_048) {
+    throw new McpAppHostError(
+      "invalid_resource_uri",
+      "Workspace Artifact resource URI must be a bounded immutable Dynamic Artifact view URI.",
+    );
+  }
+  const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
+  const item = configured.find((candidate) => candidate.name === input.serverName);
+  if (!item || item.config.enabled === false) {
+    throw new McpAppHostError("server_unavailable", "The originating MCP server is not available to this workspace.");
+  }
+  return await withRemoteClient(item.config, async (client) => {
+    const resource = findHtmlResource(input.resourceUri, await client.readResource({ uri: input.resourceUri }));
+    const presentation = resourcePresentationMeta(resource.meta);
+    return {
+      serverName: input.serverName,
+      toolName: input.toolName,
+      title: input.title.trim().slice(0, 120) || input.toolName,
+      resourceUri: input.resourceUri,
+      html: resource.html,
+      ...presentation,
+    };
+  });
 }
 
 export async function callMcpAppTool(input: {

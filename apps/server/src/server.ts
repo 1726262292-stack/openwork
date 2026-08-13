@@ -24,6 +24,7 @@ import {
   callMcpAppTool,
   McpAppHostError,
   resolveMcpAppResource,
+  resolveMcpAppResourceByUri,
 } from "./mcp-app-host.js";
 import {
   buildMcpAppSandboxCsp,
@@ -83,6 +84,7 @@ import { serve, type ServeResult } from "./serve-node.js";
 import { serveStaticUi } from "./static-ui.js";
 import { externalFetch, loopbackFetch } from "./server-fetch.js";
 import { registerCoreRoutes } from "./routes/core.js";
+import { registerArtifactLayoutRoutes } from "./routes/artifact-layouts.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
@@ -1914,6 +1916,16 @@ function createRoutes(
     },
   });
 
+  registerArtifactLayoutRoutes({
+    routes,
+    config,
+    jsonResponse,
+    readJsonBody,
+    ensureWritable,
+    requireClientScope,
+    resolveWorkspace,
+  });
+
   registerSessionRoutes({
     routes,
     config,
@@ -2903,6 +2915,33 @@ function createRoutes(
         workspaceId: workspace.id,
         workspaceRoot: workspace.path,
         projectedToolName,
+      });
+      return jsonResponse({ app });
+    } catch (error) {
+      rethrowMcpAppHostError(error);
+    }
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/mcp-apps/resolve-resource", "client", async (ctx) => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const serverName = typeof body.serverName === "string" ? body.serverName.trim() : "";
+    const toolName = typeof body.toolName === "string" ? body.toolName.trim() : "";
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    const resourceUri = typeof body.resourceUri === "string" ? body.resourceUri.trim() : "";
+    if (!serverName || !toolName || !resourceUri) {
+      throw new ApiError(400, "invalid_payload", "serverName, toolName, and resourceUri are required");
+    }
+    try {
+      const app = await resolveMcpAppResourceByUri({
+        serverConfig: config,
+        workspaceId: workspace.id,
+        workspaceRoot: workspace.path,
+        serverName,
+        toolName,
+        title,
+        resourceUri,
       });
       return jsonResponse({ app });
     } catch (error) {

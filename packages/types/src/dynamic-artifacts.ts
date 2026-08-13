@@ -111,6 +111,7 @@ export type SavedScriptTestResult = z.infer<typeof savedScriptTestResultSchema>
  * OpenWork surfaces can validate the same result without understanding the UI.
  */
 export const dynamicArtifactAppSchemaVersion = "1" as const
+export const dynamicArtifactAppToolName = "render_dynamic_artifact" as const
 export const dynamicArtifactAppPayloadSchema = z.object({
   schemaVersion: z.literal(dynamicArtifactAppSchemaVersion),
   artifact: z.object({
@@ -130,6 +131,35 @@ export const dynamicArtifactAppPayloadSchema = z.object({
   data: z.unknown(),
 })
 export type DynamicArtifactAppPayload = z.infer<typeof dynamicArtifactAppPayloadSchema>
+
+export const workspaceArtifactWidgetSchema = z.object({
+  id: idSchema,
+  title: z.string().trim().min(1).max(120),
+  programId: idSchema,
+  serverName: z.string().trim().min(1).max(256),
+  resourceUri: z.string().trim().startsWith("ui://openwork/artifacts/").max(2_048),
+  input: z.record(z.string(), z.unknown()),
+})
+export type WorkspaceArtifactWidget = z.infer<typeof workspaceArtifactWidgetSchema>
+
+/**
+ * Workspace-scoped presentation state for pinned MCP App Artifact views.
+ *
+ * Tool results and compiled HTML are intentionally excluded. A pinned widget
+ * retains the producing Program identity and exact immutable resource URI,
+ * then uses the generic read-only Dynamic Artifact renderer for fresh data.
+ * The layout therefore remains small and never becomes a second Artifact or
+ * UI-bundle store, and refresh never changes the member's Program selection.
+ */
+export const workspaceArtifactLayoutSchema = z.object({
+  version: z.literal(1),
+  expanded: z.boolean(),
+  height: z.enum(["compact", "standard", "tall"]),
+  visibleWidgets: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  activeWidgetId: idSchema.nullable(),
+  widgets: z.array(workspaceArtifactWidgetSchema).max(12),
+})
+export type WorkspaceArtifactLayout = z.infer<typeof workspaceArtifactLayoutSchema>
 
 export const generatedArtifactViewCspSchema = z.object({
   connectDomains: z.array(z.string()).length(0),

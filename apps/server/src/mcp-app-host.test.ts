@@ -15,13 +15,14 @@ import {
   callMcpAppTool,
   projectedMcpToolName,
   resolveMcpAppResource,
+  resolveMcpAppResourceByUri,
   toolUiResourceUri,
 } from "./mcp-app-host.js";
 import type { ServerConfig } from "./types.js";
 
 const WORKSPACE_ID = "ws_mcp_apps_host";
-const RESOURCE_URI = "ui://fixture/v1/view.html";
-const UPDATED_RESOURCE_URI = "ui://fixture/v2/view.html";
+const RESOURCE_URI = "ui://openwork/artifacts/arv_fixture/views/avr_fixture/index.html";
+const UPDATED_RESOURCE_URI = "ui://openwork/artifacts/arv_fixture/views/avr_fixture_v2/index.html";
 const RESOURCE_HTML = "<!doctype html><html><head></head><body>Fixture</body></html>";
 const UPDATED_RESOURCE_HTML = "<!doctype html><html><head></head><body>Updated fixture</body></html>";
 const stops: Array<() => void | Promise<void>> = [];
@@ -68,6 +69,7 @@ async function startFixtureMcp(resourceContent: { text?: string; blob?: string }
     tools: [
       {
         name: "render_fixture",
+        title: "Render fixture",
         description: "Render the fixture",
         inputSchema: { type: "object", properties: {} },
         annotations: { readOnlyHint: true, destructiveHint: false },
@@ -208,6 +210,7 @@ describe("MCP Apps host transport", () => {
     expect(app).toEqual({
       serverName: "fixture",
       toolName: "render_fixture",
+      title: "Render fixture",
       resourceUri: RESOURCE_URI,
       html: RESOURCE_HTML,
       csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
@@ -271,6 +274,39 @@ describe("MCP Apps host transport", () => {
       projectedToolName: "fixture_render_fixture",
     });
     expect(app?.html).toBe(RESOURCE_HTML);
+  });
+
+  test("resolves one exact immutable resource independently from the current render-tool binding", async () => {
+    const { config, root } = await configuredFixture("openwork-mcp-app-host-exact-resource-");
+
+    const app = await resolveMcpAppResourceByUri({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      serverName: "fixture",
+      toolName: "read_detail",
+      title: "Pinned fixture",
+      resourceUri: RESOURCE_URI,
+    });
+    expect(app).toMatchObject({
+      serverName: "fixture",
+      toolName: "read_detail",
+      title: "Pinned fixture",
+      resourceUri: RESOURCE_URI,
+      html: RESOURCE_HTML,
+    });
+  });
+
+  test("rejects exact-resource resolution outside the Dynamic Artifact namespace", async () => {
+    await expect(resolveMcpAppResourceByUri({
+      serverConfig: {} as never,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: "/tmp/workspace",
+      serverName: "fixture",
+      toolName: "read_detail",
+      title: "Pinned fixture",
+      resourceUri: "ui://another-app/view.html",
+    })).rejects.toMatchObject({ code: "invalid_resource_uri" });
   });
 
   test("rejects non-UTF-8 blob-backed HTML", async () => {

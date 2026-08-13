@@ -80,6 +80,10 @@ import { useBootOverlayVisible } from "../../../shell/boot-state";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
+import {
+  WorkspaceArtifactLayoutToggle,
+  WorkspaceArtifactShelf,
+} from "../artifacts/workspace-artifact-shelf";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
@@ -1099,7 +1103,8 @@ export function SessionPage(props: SessionPageProps) {
           >
             <ResizablePanel minSize={isMobile ? "0px" : "360px"} className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden bg-dls-surface max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[14px] lg:border lg:border-border lg:shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:lg:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-3 max-lg:h-12 lg:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+          <div className="z-10 shrink-0 border-b border-border mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+          <header className="flex h-9 items-center justify-between px-3 max-lg:h-12 lg:px-6 mac:titlebar-drag @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[13px] font-medium text-dls-text">
@@ -1124,6 +1129,10 @@ export function SessionPage(props: SessionPageProps) {
             </div>
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
+              <WorkspaceArtifactLayoutToggle
+                client={props.openworkServerClient}
+                workspaceId={props.selectedWorkspaceId}
+              />
               {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -1239,6 +1248,11 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </div>
           </header>
+          <WorkspaceArtifactShelf
+            client={props.openworkServerClient}
+            workspaceId={props.selectedWorkspaceId}
+          />
+          </div>
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
