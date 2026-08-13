@@ -133,7 +133,7 @@ export function useWorkspaceArtifactLayout(
     },
     enabled: Boolean(client && workspaceId),
     staleTime: 0,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
   const mutation = useMutation({
     mutationFn: (layout: WorkspaceArtifactLayout) => {
