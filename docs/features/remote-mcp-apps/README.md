@@ -57,6 +57,11 @@ standard `@modelcontextprotocol/ext-apps` client bridge and complete the MCP
 Apps handshake. It receives the launch result through the standard tool-result
 notification.
 
+The public [Project Atlas example](https://github.com/reachjalil/openwork-remote-mcp-app-example)
+contains the Vite/React source, reproducible single-file build, and two
+immutable test revisions. Its installable URL is
+`https://reachjalil.github.io/openwork-remote-mcp-app-example/index.html`.
+
 The launch result has this shape:
 
 ```json
