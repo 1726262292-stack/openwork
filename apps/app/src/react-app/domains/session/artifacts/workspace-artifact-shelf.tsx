@@ -93,7 +93,7 @@ function WorkspaceArtifactWidgetCard({
     },
     staleTime: 30_000,
     refetchOnMount: "always",
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
 
   return (
