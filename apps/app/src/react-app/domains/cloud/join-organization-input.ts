@@ -14,7 +14,7 @@ function parseHttpUrl(value: string): URL | null {
 
 /**
  * A Den web invite: an http(s) link whose path ends at /join-org carrying an
- * `invite` token (e.g. https://den.acme.com/join-org?invite=…). The invite is
+ * `invite` token (e.g. https://den.example.com/join-org?invite=…). The invite is
  * accepted in the browser, so the desktop app points itself at the link's
  * origin and re-opens the link there.
  */
