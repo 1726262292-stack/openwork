@@ -1560,7 +1560,7 @@ export function SessionRoute() {
     !cloudWorkspace.gatewayMode ||
     !cloudWorkspace.visible ||
     cloudWorkspaceStatusHasReadyContent(cloudWorkspace.viewModel.variant);
-  const cloudWorkspaceMainContentTakeover = !bootOverlayVisible && cloudWorkspaceMainContentDecision === "takeover" ? (
+  const cloudWorkspaceMainContentTakeover = cloudWorkspaceMainContentDecision === "takeover" ? (
     <CloudWorkspaceBootTakeover decision={cloudWorkspaceMainContentDecision} />
   ) : null;
   const gatedRouteNotFoundMessage = cloudWorkspaceReadyForRouteErrors ? routeNotFoundMessage : null;
