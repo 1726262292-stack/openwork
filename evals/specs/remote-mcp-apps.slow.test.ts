@@ -21,7 +21,6 @@ const title = !appSpecsEnabled
 const providerId = "remote-mcp-apps-provider";
 const modelId = "remote-mcp-apps-model";
 const desktopClosingReply = "Project Atlas is open from its cached Library app.";
-const publicAppSourceUrl = "https://reachjalil.github.io/openwork-remote-mcp-app-example/index.html";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -340,8 +339,8 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const address = fixture.address();
   if (!address || typeof address === "string") throw new Error("Remote MCP App fixture did not bind a port.");
   const fixtureUrl = `http://127.0.0.1:${address.port}`;
-  const sourceUrl = publicAppSourceUrl;
   const refreshSourceUrl = `${fixtureUrl}/project-atlas.html`;
+  const sourceUrl = refreshSourceUrl;
 
   await using den = await server({
     place,

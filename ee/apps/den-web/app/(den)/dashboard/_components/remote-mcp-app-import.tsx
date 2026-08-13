@@ -91,7 +91,7 @@ export function RemoteMcpAppImport({
                   data-testid="remote-app-source-url"
                 />
                 <p className="mt-2 text-[12px] leading-5 text-gray-400">
-                  Vite apps work when exported as one HTML file with inline JavaScript, CSS, and an embedded OpenWork manifest. Maximum 512 KiB.
+                  Vite apps work when exported as one HTML file with inline JavaScript, CSS, and an embedded OpenWork manifest. Maximum 768 KiB.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
