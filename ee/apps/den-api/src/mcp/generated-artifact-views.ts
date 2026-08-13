@@ -212,6 +212,7 @@ export function registerAgentGeneratedArtifactViews(input: {
         "Compile React source into a self-contained immutable MCP App revision bound to one saved Script output schema.",
         "Provide a default-exported React component that receives { data, artifact }; do not import modules or access host globals.",
         "A first successful revision activates automatically. Editing creates a previewable revision and never changes the active revision.",
+        "This management tool does not render a view; after saving, call the registered render_artifact_* or preview_artifact_* tool named in the result.",
       ].join(" "),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       inputSchema: z.object({
@@ -231,9 +232,14 @@ export function registerAgentGeneratedArtifactViews(input: {
         syncView(view)
         await sendCatalogChanged(extra)
       }
+      const displayToolName = revision?.buildStatus === "ready"
+        ? view.status === "active" && view.activeRevisionId === revision.id
+          ? `render_artifact_${view.id}`
+          : `preview_artifact_${view.id}`
+        : null
       return {
         content: [{ type: "text" as const, text: revision?.buildStatus === "ready"
-          ? `Saved immutable view revision ${revision.id} at ${revision.resourceUri}.`
+          ? `Saved immutable view revision ${revision.id} at ${revision.resourceUri}. This save action has no interactive UI; call ${displayToolName} to display that revision.`
           : `Saved failed view revision ${revision?.id ?? "unknown"}; inspect build diagnostics.` }],
         structuredContent: { view },
       }
@@ -254,7 +260,7 @@ export function registerAgentGeneratedArtifactViews(input: {
       syncView(view)
       await sendCatalogChanged(extra)
       return {
-        content: [{ type: "text" as const, text: `Activated view revision ${request.revisionId}.` }],
+        content: [{ type: "text" as const, text: `Activated view revision ${request.revisionId}. Call render_artifact_${view.id} to display it.` }],
         structuredContent: { view },
       }
     },

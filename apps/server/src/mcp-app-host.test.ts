@@ -21,7 +21,9 @@ import type { ServerConfig } from "./types.js";
 
 const WORKSPACE_ID = "ws_mcp_apps_host";
 const RESOURCE_URI = "ui://fixture/v1/view.html";
+const UPDATED_RESOURCE_URI = "ui://fixture/v2/view.html";
 const RESOURCE_HTML = "<!doctype html><html><head></head><body>Fixture</body></html>";
+const UPDATED_RESOURCE_HTML = "<!doctype html><html><head></head><body>Updated fixture</body></html>";
 const stops: Array<() => void | Promise<void>> = [];
 
 afterEach(async () => {
@@ -49,6 +51,7 @@ function serverConfig(root: string): ServerConfig {
 }
 
 async function startFixtureMcp(resourceContent: { text?: string; blob?: string } = { text: RESOURCE_HTML }) {
+  let activeResourceUri = RESOURCE_URI;
   const mcp = new Server(
     { name: "mcp-app-fixture", version: "1.0.0" },
     {
@@ -68,7 +71,20 @@ async function startFixtureMcp(resourceContent: { text?: string; blob?: string }
         description: "Render the fixture",
         inputSchema: { type: "object", properties: {} },
         annotations: { readOnlyHint: true, destructiveHint: false },
-        _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] } },
+        _meta: { ui: { resourceUri: activeResourceUri, visibility: ["model", "app"] } },
+      },
+      {
+        name: "render_missing",
+        description: "Render a missing fixture resource",
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: true, destructiveHint: false },
+        _meta: { ui: { resourceUri: "ui://fixture/missing/view.html", visibility: ["model", "app"] } },
+      },
+      {
+        name: "save_artifact_view",
+        description: "Save fixture state without rendering it",
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: false, destructiveHint: false },
       },
       {
         name: "read_detail",
@@ -93,12 +109,13 @@ async function startFixtureMcp(resourceContent: { text?: string; blob?: string }
     ],
   }));
   mcp.setRequestHandler(ReadResourceRequestSchema, async ({ params }) => {
-    if (params.uri !== RESOURCE_URI) throw new Error("not found");
+    if (params.uri !== RESOURCE_URI && params.uri !== UPDATED_RESOURCE_URI) throw new Error("not found");
+    const content = params.uri === UPDATED_RESOURCE_URI ? { text: UPDATED_RESOURCE_HTML } : resourceContent;
     return {
       contents: [{
-        uri: RESOURCE_URI,
+        uri: params.uri,
         mimeType: "text/html;profile=mcp-app",
-        ...resourceContent,
+        ...content,
         _meta: {
           ui: {
             csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
@@ -130,13 +147,16 @@ async function startFixtureMcp(resourceContent: { text?: string; blob?: string }
     await mcp.close();
     http.stop(true);
   });
-  return `http://127.0.0.1:${http.port}`;
+  return {
+    url: `http://127.0.0.1:${http.port}`,
+    activateUpdatedResource: () => { activeResourceUri = UPDATED_RESOURCE_URI; },
+  };
 }
 
 async function configuredFixture(
   prefix: string,
   resourceContent?: { text?: string; blob?: string },
-): Promise<{ config: ServerConfig; root: string }> {
+): Promise<{ config: ServerConfig; root: string; activateUpdatedResource: () => void }> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
   const previousDevMode = process.env.OPENWORK_DEV_MODE;
@@ -151,12 +171,13 @@ async function configuredFixture(
   });
   await mkdir(join(root, ".git"), { recursive: true });
   const config = serverConfig(root);
+  const fixture = await startFixtureMcp(resourceContent);
   await addMcp(config, WORKSPACE_ID, "fixture", {
     type: "remote",
-    url: await startFixtureMcp(resourceContent),
+    url: fixture.url,
     enabled: true,
   });
-  return { config, root };
+  return { config, root, activateUpdatedResource: fixture.activateUpdatedResource };
 }
 
 describe("MCP Apps host transport", () => {
@@ -183,6 +204,49 @@ describe("MCP Apps host transport", () => {
       prefersBorder: true,
     });
 
+  });
+
+  test("treats a management tool without a UI resource as a normal result", async () => {
+    const { config, root } = await configuredFixture("openwork-mcp-app-host-management-");
+
+    expect(await resolveMcpAppResource({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      projectedToolName: "fixture_save_artifact_view",
+    })).toBeNull();
+  });
+
+  test("refreshes the current tool definition before reading its exact resource", async () => {
+    const { config, root, activateUpdatedResource } = await configuredFixture("openwork-mcp-app-host-refresh-");
+
+    const first = await resolveMcpAppResource({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      projectedToolName: "fixture_render_fixture",
+    });
+    activateUpdatedResource();
+    const updated = await resolveMcpAppResource({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      projectedToolName: "fixture_render_fixture",
+    });
+
+    expect(first?.resourceUri).toBe(RESOURCE_URI);
+    expect(updated).toMatchObject({ resourceUri: UPDATED_RESOURCE_URI, html: UPDATED_RESOURCE_HTML });
+  });
+
+  test("reports an advertised resource that resources/read cannot load", async () => {
+    const { config, root } = await configuredFixture("openwork-mcp-app-host-missing-");
+
+    await expect(resolveMcpAppResource({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      projectedToolName: "fixture_render_missing",
+    })).rejects.toMatchObject({ code: "resource_read_failed" });
   });
 
   test("decodes a stable-spec blob-backed HTML resource", async () => {

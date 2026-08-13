@@ -280,12 +280,18 @@ export async function resolveMcpAppResource(input: {
       ));
       if (!tool) return null;
       if (!toolVisibility(tool, "model")) return null;
+      const resourceUri = toolUiResourceUri(tool);
+      if (!resourceUri) return null;
       if ((await diagnoseMcpToolDenies(input.workspaceRoot, item.name, [input.projectedToolName])).length > 0) {
         throw new McpAppHostError("tool_denied", "This MCP App tool is denied by the workspace tool policy.");
       }
-      const resourceUri = toolUiResourceUri(tool);
-      if (!resourceUri) return null;
-      const resource = findHtmlResource(resourceUri, await client.readResource({ uri: resourceUri }));
+      const read = await client.readResource({ uri: resourceUri }).catch(() => {
+        throw new McpAppHostError(
+          "resource_read_failed",
+          "The current MCP App tool definition advertises a resource that resources/read could not load.",
+        );
+      });
+      const resource = findHtmlResource(resourceUri, read);
       const presentation = resourcePresentationMeta(resource.meta);
       return {
         serverName: item.name,

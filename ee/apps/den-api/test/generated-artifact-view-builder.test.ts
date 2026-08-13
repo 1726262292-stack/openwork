@@ -35,16 +35,20 @@ test("server-builds React source into a deterministic self-contained MCP App", a
   expect(first.html).toContain("ResizeObserver")
   expect(first.html).toContain("ui/notifications/size-changed")
   expect(first.html).toContain("ui/notifications/tool-result")
+  expect(first.html).toContain("MCP_APP_DOCUMENT_RUNTIME_ERROR")
   expect(first.html).not.toContain("<script src=")
+  expect(first.html).not.toMatch(/<(?:script|link|img)[^>]+(?:src|href)=["']https?:/iu)
   expect(first.html).toContain("script-src 'sha256-")
   expect(first.html).not.toContain("script-src 'unsafe-inline'")
   expect(first.html).toContain("form-action 'none'")
   expect(first.html).toContain("object-src 'none'")
-  expect(first.compilerVersion).toBe("2")
-  const javascript = first.html.match(/<script>([\s\S]*)<\/script>/iu)?.[1]
-  expect(javascript).toBeDefined()
-  const scriptDigest = createHash("sha256").update(javascript ?? "").digest("base64")
-  expect(first.html).toContain(`script-src 'sha256-${scriptDigest}'`)
+  expect(first.compilerVersion).toBe("3")
+  const scripts = Array.from(first.html.matchAll(/<script>([\s\S]*?)<\/script>/giu), (match) => match[1] ?? "")
+  expect(scripts).toHaveLength(2)
+  for (const script of scripts) {
+    const scriptDigest = createHash("sha256").update(script).digest("base64")
+    expect(first.html).toContain(`'sha256-${scriptDigest}'`)
+  }
   expect(first.resourceDigest).toBe(second.resourceDigest)
   expect(first.sourceDigest).toBe(second.sourceDigest)
   expect(first.csp).toEqual({
@@ -67,8 +71,10 @@ test("defers authored module evaluation until after the MCP Apps bootstrap", asy
   })
   expect(result.ok).toBe(true)
   if (!result.ok) return
-  expect(result.compilerVersion).toBe("2")
+  expect(result.compilerVersion).toBe("3")
   expect(result.html).toContain("ui/initialize")
+  expect(result.html).toContain("ui/notifications/tool-result")
+  expect(result.html).toContain("mcp-app-initialize")
   expect(result.html).toContain("This Artifact view could not render. The normal tool result is still available.")
   expect(result.html).toContain("Promise.resolve().then")
 })
@@ -166,8 +172,9 @@ test("rejects bundles larger than the desktop MCP Apps host limit", async () => 
   const result = await buildGeneratedArtifactView({
     title: "Oversized",
     description: null,
-    outputSchema: { const: "x".repeat(400_000) },
-    reactSource: "export default function View({ data }) { return <div>{data}</div> }",
+    outputSchema: {},
+    reactSource: `const oversized = ${JSON.stringify("x".repeat(190_000))}; export default function View() { return <div>{oversized}</div> }`,
+    cssSource: `/*${"x".repeat(99_000)}*/`,
   })
   expect(result.ok).toBe(false)
   expect(result.diagnostics[0]?.message).toContain("524288 bytes")

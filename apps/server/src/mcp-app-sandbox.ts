@@ -74,7 +74,9 @@ export const MCP_APP_SANDBOX_PROXY_SCRIPT = String.raw`
   if (!hostOrigin) throw new Error("MCP App sandbox host origin is unavailable.");
   const hostTargetOrigin = hostOrigin === "null" ? "*" : hostOrigin;
   const ownOrigin = window.location.origin;
-  const notifyHost = (method, params = {}) => window.parent.postMessage({ jsonrpc: "2.0", method, params }, hostTargetOrigin);
+  // OpenWork delivery diagnostics are deliberately outside JSON-RPC so the
+  // stable MCP Apps transport never mistakes them for protocol messages.
+  const notifyHost = (method, params = {}) => window.parent.postMessage({ method, params }, hostTargetOrigin);
   const inner = document.createElement("iframe");
   inner.title = "MCP App view";
   inner.style.cssText = "display:block;width:100%;height:100%;border:0;background:transparent";
@@ -123,7 +125,7 @@ export const MCP_APP_SANDBOX_PROXY_SCRIPT = String.raw`
       window.parent.postMessage(event.data, hostTargetOrigin);
     }
   });
-  notifyHost("ui/notifications/sandbox-proxy-ready");
+  window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, hostTargetOrigin);
 })();
 `;
 
