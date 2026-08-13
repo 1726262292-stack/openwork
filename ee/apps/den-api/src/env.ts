@@ -448,6 +448,15 @@ const publicUrlTrustedOrigins = Array.from(new Set([
   ...corsOrigins,
   ...betterAuthTrustedOrigins,
 ])).filter((origin) => origin !== "*")
+// Den Web serves this API under /api/den on the better-auth origin, so a
+// request forwarded from that origin is first-party by construction. Hosted
+// deployments proxy browser and desktop calls server-side and never need that
+// origin in CORS_ORIGINS, so deriving public routes from the CORS allowlist
+// alone silently drops the one origin clients actually call.
+const publicProxyTrustedOrigins = Array.from(new Set([
+  normalizeOrigin(parsed.BETTER_AUTH_URL),
+  ...publicUrlTrustedOrigins,
+]))
 const orgMode = parseDenOrgMode(parsed.DEN_ORG_MODE)
 // SSRF guard for External MCP Connection URLs: on hosted (multi-tenant)
 // deployments, Den must not fetch private/reserved addresses on behalf of
@@ -582,6 +591,7 @@ export const env = {
     renderGitCommit: parsed.RENDER_GIT_COMMIT,
   }),
   publicUrlTrustedOrigins,
+  publicProxyTrustedOrigins,
   installerArtifactsDir: optionalString(parsed.OPENWORK_INSTALLER_ARTIFACTS_DIR),
   // Standard desktop release assets: the release tag to download from,
   // defaulting to the pinned app release this den-api build shipped with.
