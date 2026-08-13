@@ -355,7 +355,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
 
   await using browser = await chrome({
     name: "dynamic-artifact-library",
-    startUrl: den.ref.webUrl,
+    startUrl: "about:blank",
     headless: true,
     host: place.host(),
   })
