@@ -201,3 +201,37 @@ test("save and retirement refresh the same session's resources and tools", async
     retire: async () => ({ ...savedView, status: "retired", activeRevisionId: null }),
   })
 })
+
+test("returns actionable tool errors for missing schemas and failed builds", async () => {
+  await withClient(async (client) => {
+    const missingSchema = await client.callTool({
+      name: "save_artifact_view",
+      arguments: { configObjectId, title: view.title, reactSource: "export default function View() { return <div /> }" },
+    })
+    expect(missingSchema.isError).toBe(true)
+    expect(JSON.stringify(missingSchema.content)).toContain("artifact_view_output_schema_required")
+    expect(JSON.stringify(missingSchema.content)).toContain("Do not retry save_artifact_view yet")
+  }, {
+    save: async () => { throw new Error("artifact_view_output_schema_required") },
+  })
+
+  const failedRevision = {
+    ...revision(savedRevisionId, "2026-08-12T13:00:00.000Z"),
+    buildStatus: "failed" as const,
+    resourceDigest: null,
+    compiledHtmlBytes: null,
+    diagnostics: [{ level: "error" as const, message: "Unexpected token", line: 1, column: 8 }],
+  }
+  await withClient(async (client) => {
+    const failed = await client.callTool({
+      name: "save_artifact_view",
+      arguments: { configObjectId, title: view.title, reactSource: "export default function View( {" },
+    })
+    expect(failed.isError).toBe(true)
+    expect(JSON.stringify(failed.content)).toContain("artifact_view_build_failed")
+    expect(JSON.stringify(failed.content)).toContain("Unexpected token")
+    expect(JSON.stringify(failed.content)).toContain(viewId)
+  }, {
+    save: async () => ({ ...view, activeRevisionId: null, revisions: [failedRevision] }),
+  })
+})

@@ -80,7 +80,6 @@ function sourcePolicyDiagnostic(reactSource: string, cssSource: string): Generat
   const forbidden = [
     { pattern: /\b(?:import|require)\s*(?:\(|["'{])/u, label: "module imports" },
     { pattern: /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|Worker)\b/u, label: "network APIs" },
-    { pattern: /\b(?:process|globalThis|window|document|self|parent|top|opener|frames|location|navigator|history|postMessage|localStorage|sessionStorage|indexedDB)\b/u, label: "host globals" },
     { pattern: /\b(?:eval|Function|setTimeout|setInterval)\s*\(/u, label: "dynamic code or timers" },
     { pattern: /dangerouslySetInnerHTML/u, label: "dangerous HTML injection" },
     { pattern: /<[A-Za-z][^<>]*\b(?:href|src|srcSet|action|formAction|poster|ping|cite|xlinkHref|data)\s*=/u, label: "URL-bearing attributes" },
@@ -89,6 +88,23 @@ function sourcePolicyDiagnostic(reactSource: string, cssSource: string): Generat
   ]
   const blocked = forbidden.find(({ pattern }) => pattern.test(reactSource))
   if (blocked) return diagnostic(`Generated Artifact views cannot use ${blocked.label}. Use props.data and React rendering only.`)
+
+  // A lexical ban on every host-global spelling also rejected ordinary local
+  // identifiers such as `const top = products[0]`. Treat an explicitly declared
+  // local binding as local, while continuing to reject unbound browser globals.
+  const hostGlobals = [
+    "process", "globalThis", "window", "document", "self", "parent", "top", "opener", "frames",
+    "location", "navigator", "history", "postMessage", "localStorage", "sessionStorage", "indexedDB",
+  ]
+  const declaredBindings = new Set(Array.from(
+    reactSource.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gu),
+    (match) => match[1],
+  ))
+  const hostGlobal = hostGlobals.find((name) =>
+    !declaredBindings.has(name) && new RegExp(`\\b${name}\\b`, "u").test(reactSource))
+  if (hostGlobal) {
+    return diagnostic(`Generated Artifact views cannot use the browser host global "${hostGlobal}". Use component props and React rendering only.`)
+  }
   if (/^\s*@import\b/mu.test(cssSource) || /url\s*\(/u.test(cssSource)) {
     return diagnostic("Generated Artifact CSS cannot import or reference external resources.")
   }

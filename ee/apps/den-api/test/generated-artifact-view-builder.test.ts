@@ -142,6 +142,21 @@ test("stores compiler diagnostics for invalid React source", async () => {
   expect(result.diagnostics.length).toBeGreaterThan(0)
 })
 
+test("allows ordinary local variables whose names overlap browser globals", async () => {
+  const result = await buildGeneratedArtifactView({
+    title: "Top product",
+    description: null,
+    outputSchema: schema,
+    reactSource: `
+      export default function View({ data }) {
+        const top = { name: data.title, total: data.total }
+        return <div>{top.name}: {top.total}</div>
+      }
+    `,
+  })
+  expect(result.ok).toBe(true)
+})
+
 test("does not execute generated constructor-chain code while building", async () => {
   const secret = "must-not-leak-from-host"
   const previous = process.env.OPENWORK_GENERATED_ARTIFACT_TEST_SECRET
