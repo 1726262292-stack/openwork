@@ -329,6 +329,95 @@ describe("saved marketplace scripts", () => {
     expect(memberships).toHaveLength(1)
   })
 
+  test("does not let a Plugin editor replace an existing Program version", async () => {
+    const seeded = await seedScript({
+      title: "Manager-owned Program",
+      code: "return { owner: true }",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const editorUserId = createDenTypeId("user")
+    const editorMemberId = createDenTypeId("member")
+    const now = new Date()
+    const code = "return { replaced: true }"
+    createdUserIds.push(editorUserId)
+    await db.insert(AuthUserTable).values({
+      id: editorUserId,
+      name: "Program Editor",
+      email: `${editorUserId}@scripts.test.local`,
+    })
+    await db.insert(MemberTable).values({
+      id: editorMemberId,
+      organizationId: seeded.organizationId,
+      userId: editorUserId,
+      role: "member",
+    })
+    await db.insert(PluginAccessGrantTable).values({
+      id: createDenTypeId("pluginAccessGrant"),
+      organizationId: seeded.organizationId,
+      pluginId: seeded.pluginId,
+      orgMembershipId: editorMemberId,
+      teamId: null,
+      orgWide: false,
+      role: "editor",
+      createdByOrgMembershipId: seeded.member.orgMembershipId,
+    })
+    await db.insert(CodemodeRunTable).values({
+      id: createDenTypeId("codemodeRun"),
+      organization_id: seeded.organizationId,
+      org_membership_id: editorMemberId,
+      source: "mcp",
+      code_digest: codemodeRuns.codemodeCodeDigest(code),
+      status: "succeeded",
+      tool_calls: [],
+      tool_call_count: 0,
+      duration_ms: 5,
+      started_at: now,
+      finished_at: now,
+    })
+    const context: PluginArchActorContext = {
+      memberTeams: [],
+      organizationContext: {
+        organization: {
+          id: seeded.organizationId,
+          name: "Script Test Org",
+          slug: `scripts-${seeded.organizationId}`,
+          logo: null,
+          allowedEmailDomains: null,
+          metadata: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        currentMember: {
+          id: editorMemberId,
+          userId: editorUserId,
+          role: "member",
+          createdAt: now,
+          joinedAt: now,
+          isOwner: false,
+        },
+        invitations: [],
+        members: [],
+        roles: [],
+        teams: [],
+      },
+      session: { createdAt: now },
+    }
+
+    await expect(savedScripts.saveCodemodeScript({
+      organizationId: seeded.organizationId,
+      ownerMemberId: editorMemberId,
+      context,
+      script: { pluginId: seeded.pluginId, name: "Manager-owned Program", code },
+      buildTools: async () => ({ tools: {}, manifest: [] }),
+    })).rejects.toThrow("Missing manager access for config object.")
+
+    const versions = await db.select().from(ConfigObjectVersionTable).where(eq(
+      ConfigObjectVersionTable.configObjectId,
+      seeded.configObjectId,
+    ))
+    expect(versions).toHaveLength(1)
+  })
+
   test("executes a createPluginBundle saved script with typed input binding", async () => {
     const seeded = await seedScript({
       title: "Summarize Account",
