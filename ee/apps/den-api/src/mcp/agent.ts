@@ -169,7 +169,7 @@ const programRunOutputSchema = z.object({
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications. OpenWork Programs and Remote MCP Apps add only durable identity, Plugin containment, access, retained resources and results, selection, and lifecycle around those MCP primitives.",
-  "Active Remote MCP Apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
+  "When Remote MCP App delivery is enabled, active apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
   "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and render_selected_program; rendering returns an Artifact as fallback text plus retained data in structuredContent and binds the exact immutable MCP App resource URI in the tool definition.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
@@ -459,7 +459,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
     const server = createAgentMcpServer()
-    if (libraryContext && memberIdentity && appCatalogMethod) {
+    if (env.remoteMcpAppsEnabled && libraryContext && memberIdentity && appCatalogMethod) {
       registerAgentRemoteMcpApps({
         server,
         apps: await listActiveRemoteMcpApps({ context: libraryContext }),

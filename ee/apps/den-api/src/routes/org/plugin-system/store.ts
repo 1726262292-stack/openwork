@@ -2385,10 +2385,21 @@ export async function listMeLibraryPluginItems(input: { context: PluginArchActor
       inArray(RemoteMcpAppTable.pluginId, result.items.map((item) => item.plugin.id)),
     ))
   const remoteAppsByPluginId = new Map(remoteApps.map((app) => [app.pluginId, app]))
-  return result.items.map((item) => {
+  return result.items.flatMap((item) => {
     const remoteApp = remoteAppsByPluginId.get(item.plugin.id)
-    if (remoteApp) {
-      return {
+    const pluginItem = {
+      type: "plugin" as const,
+      id: item.plugin.id,
+      name: item.plugin.name,
+      description: item.plugin.description,
+      componentCount: item.plugin.componentCount,
+      componentKinds: item.plugin.componentKinds,
+      sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
+      edges: item.edges,
+      role: item.role,
+    }
+    return remoteApp
+      ? [pluginItem, {
         type: "app" as const,
         id: remoteApp.configObjectId,
         pluginId: item.plugin.id,
@@ -2400,19 +2411,8 @@ export async function listMeLibraryPluginItems(input: { context: PluginArchActor
         state: "ready" as const,
         edges: item.edges,
         role: item.role,
-      }
-    }
-    return {
-      type: "plugin" as const,
-      id: item.plugin.id,
-      name: item.plugin.name,
-      description: item.plugin.description,
-      componentCount: item.plugin.componentCount,
-      componentKinds: item.plugin.componentKinds,
-      sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
-      edges: item.edges,
-      role: item.role,
-    }
+      }]
+      : [pluginItem]
   })
 }
 

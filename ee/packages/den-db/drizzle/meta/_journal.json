@@ -456,13 +456,6 @@
       "when": 1786639498908,
       "tag": "0065_cold_karnak",
       "breakpoints": true
-    },
-    {
-      "idx": 63,
-      "version": "5",
-      "when": 1786622247675,
-      "tag": "0063_ordinary_richard_fisk",
-      "breakpoints": true
     }
   ]
 }

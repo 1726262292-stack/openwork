@@ -286,7 +286,7 @@ afterAll(async () => {
   mock.restore()
 })
 
-test("the member library unifies sorted plugin, app, and connection items", async () => {
+test("the member library keeps Remote MCP Apps beside their parent plugins", async () => {
   const response = await app.fetch(new Request(`${API_ORIGIN}/v1/me/library`))
   expect(response.status).toBe(200)
   const body = meLibraryListResponseSchema.parse(await response.json())
@@ -343,6 +343,17 @@ test("the member library unifies sorted plugin, app, and connection items", asyn
         status: "active",
         activeVersionId: null,
         state: "ready",
+        edges: [{ kind: "org_wide" }],
+        role: "viewer",
+      },
+      {
+        type: "plugin",
+        id: remoteAppPluginId,
+        name: "Delta Dashboard",
+        description: "A portable remote MCP App",
+        componentCount: 1,
+        componentKinds: ["app"],
+        sourceRepositoryUrl: null,
         edges: [{ kind: "org_wide" }],
         role: "viewer",
       },

@@ -96,9 +96,9 @@ or launch result.
    resolved source, byte size, digest, and requested capabilities.
 3. Map every required capability to an authorized OpenWork Connect connection.
 4. Import and activate. The app becomes a first-class **App** item in the same
-   Library contract as plugins, connections, and Dynamic Artifacts, backed by
-   the existing plugin/config-object access model, an immutable active
-   revision, and an exact launch tool.
+   Library contract as Programs, plugins, and connections. Like a Program, it
+   remains a config object contained by its parent OpenWork Connect Plugin,
+   with an immutable active revision and an exact launch tool.
 5. A refresh downloads and caches a new draft without changing the active
    revision or its connection bindings. Activation and rollback are explicit.
    In this first contract, revisions may change UI and metadata but keep the
@@ -138,7 +138,9 @@ visible on the next catalog request. A host that caches a catalog for the life
 of its connection must reconnect or refresh that MCP connection after Library
 changes. Remote MCP Apps are independent of the `codemodeScripts` feature flag;
 Code Mode is not required for import, discovery, rendering, or capability
-execution.
+execution. Agent discovery remains fail-closed until the operator enables
+`DEN_REMOTE_MCP_APPS_ENABLED` after a compatible Desktop MCP Apps host release
+has been deployed.
 
 ## Security and portability limits
 
