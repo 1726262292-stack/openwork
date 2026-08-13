@@ -583,6 +583,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       try {
         const response = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(${JSON.stringify(workspace.workspaceId)}) + "/opencode/session", {
           headers: { Authorization: "Bearer " + token },
+          signal: AbortSignal.timeout(2_000),
         });
         if (response.ok) return "ready";
         last = "HTTP " + response.status;
