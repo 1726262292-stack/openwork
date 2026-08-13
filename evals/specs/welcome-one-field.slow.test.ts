@@ -118,6 +118,14 @@ test(title, async ({ evidence }) => {
   // and hands the invite to the system browser (the join completes on the web).
   await fill(app, "#join-organization-input", INVITE_URL);
   await clickButton(app, "Connect");
+  await waitForText(app, "Trust this organization server?", { timeoutMs: 20_000 });
+  const unchangedBaseUrl = await evalIn(
+    app,
+    `window.__OPENWORK_ELECTRON__.invokeDesktop("getDesktopBootstrapConfig").then((config) => config.baseUrl)`,
+    { awaitPromise: true },
+  );
+  expect(unchangedBaseUrl).toBe("https://openwork.acme.test");
+  await clickButton(app, "Trust and open invite");
   await waitForText(app, "Your invite opened in the browser", { timeoutMs: 20_000 });
 
   const inviteBaseUrl = await evalIn(

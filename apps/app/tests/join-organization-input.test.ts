@@ -67,9 +67,11 @@ describe("welcome one-field contract", () => {
     expect(source.indexOf("submitServerUrl(trimmedInput)")).toBeLessThan(
       source.indexOf("submitManualAuth(trimmedInput)"),
     );
-    expect(source).toContain("saveControlPlaneUrl(parsed.origin)");
-    expect(source).toContain("platform.openLink(parsed.url)");
-    expect(source).toContain('setStatus({ phase: "invite-opened", host: parsed.host });');
+    expect(source).toContain("setPendingInvite(parsed)");
+    expect(source).toContain('data-testid="join-invite-confirm-dialog"');
+    expect(source).toContain("saveControlPlaneUrl(invite.origin)");
+    expect(source).toContain("platform.openLink(invite.url)");
+    expect(source).toContain('setStatus({ phase: "invite-opened", host: invite.host });');
     expect(source).toContain('setStatus({ phase: "server-saved", host: hostFromUrl(persisted.baseUrl) });');
     expect(source).toContain('clearDenSession({ includeBaseUrls: false });');
   });
