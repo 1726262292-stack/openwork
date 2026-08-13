@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   WorkspaceArtifactLayout,
@@ -125,6 +125,7 @@ export function useWorkspaceArtifactLayout(
 ) {
   const queryClient = useQueryClient();
   const queryKey = layoutQueryKey(workspaceId);
+  const latestPendingLayoutRef = useRef<WorkspaceArtifactLayout | null>(null);
   const query = useQuery({
     queryKey,
     queryFn: () => {
@@ -150,19 +151,27 @@ export function useWorkspaceArtifactLayout(
       });
       return { previous };
     },
-    onError: (cause, _layout, context) => {
+    onError: (cause, layout, context) => {
+      if (latestPendingLayoutRef.current !== layout) return;
+      latestPendingLayoutRef.current = null;
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
       toast.error(cause instanceof Error ? cause.message : "Could not update the workspace Artifact layout.");
     },
-    onSuccess: (result) => {
+    onSuccess: (result, layout) => {
+      if (latestPendingLayoutRef.current !== layout) return;
+      latestPendingLayoutRef.current = null;
       queryClient.setQueryData(queryKey, result);
     },
   });
   const layout = query.data?.layout ?? emptyWorkspaceArtifactLayout();
   const update = useCallback((updater: (current: WorkspaceArtifactLayout) => WorkspaceArtifactLayout) => {
-    const current = queryClient.getQueryData<WorkspaceArtifactLayoutResponse>(queryKey)?.layout ?? layout;
+    const current = latestPendingLayoutRef.current
+      ?? queryClient.getQueryData<WorkspaceArtifactLayoutResponse>(queryKey)?.layout
+      ?? layout;
     const next = updater(current);
-    if (next !== current) mutation.mutate(next);
+    if (next === current) return;
+    latestPendingLayoutRef.current = next;
+    mutation.mutate(next);
   }, [layout, mutation, queryClient, queryKey]);
 
   return {
