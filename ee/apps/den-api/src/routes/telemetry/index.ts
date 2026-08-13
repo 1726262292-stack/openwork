@@ -12,7 +12,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { db } from "../../db.js"
 import { checkEntitlement } from "../../entitlements.js"
-import { jsonValidator, orgMemberRoute, queryValidator } from "../../middleware/index.js"
+import { jsonValidator, orgMemberRoute, orgRoleRoute, queryValidator } from "../../middleware/index.js"
 import { enterprisePlanRequiredSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema, emptyResponse } from "../../openapi.js"
 import type { AuthContextVariables } from "../../session.js"
 import type { UserOrganizationsContext, OrganizationContextVariables } from "../../middleware/index.js"
@@ -463,7 +463,7 @@ export function registerTelemetryRoutes<T extends { Variables: TelemetryRouteVar
         402: jsonResponse("Usage analytics requires an Enterprise plan.", enterprisePlanRequiredSchema),
       },
     }),
-    orgMemberRoute(),
+    orgRoleRoute(["admin"]),
     queryValidator(analyticsQuerySchema),
     async (c) => {
       const orgId = c.get("activeOrganizationId")
