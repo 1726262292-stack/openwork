@@ -41,6 +41,11 @@ test("recognizes HTML-whitespace and ignored attributes on script end tags", () 
   expect(inspectRemoteMcpAppHtml(html).manifest.name).toBe("Project Explorer")
 })
 
+test("does not mistake bundled JavaScript strings for external CSS", () => {
+  const html = appHtml('<script>const diagnostic = "CSS url() and @import \\\"theme.css\\\""</script>')
+  expect(inspectRemoteMcpAppHtml(html).manifest.name).toBe("Project Explorer")
+})
+
 test("rejects runtime resource dependencies instead of caching a partially portable app", () => {
   expect(() => inspectRemoteMcpAppHtml(appHtml('<script src="https://cdn.example/app.js"></script>')))
     .toThrow("self-contained HTML file")
@@ -51,6 +56,10 @@ test("rejects runtime resource dependencies instead of caching a partially porta
   expect(() => inspectRemoteMcpAppHtml(appHtml('<img src="/logo.png">')))
     .toThrow("self-contained HTML file")
   expect(() => inspectRemoteMcpAppHtml(appHtml('<iframe srcdoc="<p>nested</p>"></iframe>')))
+    .toThrow("self-contained HTML file")
+  expect(() => inspectRemoteMcpAppHtml(appHtml('<style>main{background:url("./background.png")}</style>')))
+    .toThrow("self-contained HTML file")
+  expect(() => inspectRemoteMcpAppHtml(appHtml('<main style="background:url(./background.png)"></main>')))
     .toThrow("self-contained HTML file")
 })
 

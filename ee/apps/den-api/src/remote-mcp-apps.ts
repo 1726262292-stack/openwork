@@ -164,13 +164,23 @@ function parseEmbeddedManifest(html: string): RemoteMcpAppManifest {
 
 function externalResourceReferences(html: string): string[] {
   const findings: string[] = []
+  const scriptBodiesRemoved = html.replace(
+    /(<script\b[^>]*>)[\s\S]*?(<\/script(?:\s[^>]*)?>)/gi,
+    "$1$2",
+  )
+  const styleSources = [...scriptBodiesRemoved.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style(?:\s[^>]*)?>/gi)]
+    .map((match) => match[1] ?? "")
+  const markup = scriptBodiesRemoved.replace(
+    /(<style\b[^>]*>)[\s\S]*?(<\/style(?:\s[^>]*)?>)/gi,
+    "$1$2",
+  )
   const pushTagReference = (tag: string, attributes: string, attribute: string) => {
     const value = readAttribute(attributes, attribute)?.trim()
     if (!value || value.startsWith("data:") || value.startsWith("#")) return
     findings.push(`<${tag}> ${attribute}`)
   }
 
-  for (const match of html.matchAll(/<(script|img|audio|video|source|iframe|embed)\b([^>]*)>/gi)) {
+  for (const match of markup.matchAll(/<(script|img|audio|video|source|iframe|embed)\b([^>]*)>/gi)) {
     const tag = (match[1] ?? "resource").toLowerCase()
     const attributes = match[2] ?? ""
     if (tag === "iframe" || tag === "embed") findings.push(`<${tag}>`)
@@ -178,23 +188,27 @@ function externalResourceReferences(html: string): string[] {
     if (tag === "img" || tag === "source") pushTagReference(tag, attributes, "srcset")
     if (tag === "video") pushTagReference(tag, attributes, "poster")
   }
-  if (/<frame\b/i.test(html)) findings.push("<frame>")
-  for (const match of html.matchAll(/<object\b([^>]*)>/gi)) {
+  if (/<frame\b/i.test(markup)) findings.push("<frame>")
+  for (const match of markup.matchAll(/<object\b([^>]*)>/gi)) {
     findings.push("<object>")
     pushTagReference("object", match[1] ?? "", "data")
   }
-  for (const match of html.matchAll(/<link\b([^>]*)>/gi)) {
+  for (const match of markup.matchAll(/<link\b([^>]*)>/gi)) {
     const attributes = match[1] ?? ""
     const rel = readAttribute(attributes, "rel")?.toLowerCase() ?? ""
     if (/(?:stylesheet|preload|modulepreload|icon)/.test(rel)) pushTagReference("link", attributes, "href")
   }
-  for (const match of html.matchAll(/url\(\s*(["']?)([^)"']+)\1\s*\)/gi)) {
-    const value = (match[2] ?? "").trim()
-    if (value && !value.startsWith("data:") && !value.startsWith("#")) findings.push("CSS url()")
+  const inlineStyles = [...markup.matchAll(/<[a-z][^>]*\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)]
+    .map((match) => match[1] ?? match[2] ?? match[3] ?? "")
+  for (const css of [...styleSources, ...inlineStyles]) {
+    for (const match of css.matchAll(/url\(\s*(["']?)([^)"']+)\1\s*\)/gi)) {
+      const value = (match[2] ?? "").trim()
+      if (value && !value.startsWith("data:") && !value.startsWith("#")) findings.push("CSS url()")
+    }
+    if (/@import\s+(?:url\()?\s*["']/i.test(css)) findings.push("CSS @import")
   }
-  if (/@import\s+(?:url\()?\s*["']/i.test(html)) findings.push("CSS @import")
-  if (/<base\b/i.test(html)) findings.push("<base>")
-  if (/<meta\b[^>]*http-equiv\s*=\s*["']?content-security-policy/i.test(html)) findings.push("embedded CSP")
+  if (/<base\b/i.test(markup)) findings.push("<base>")
+  if (/<meta\b[^>]*http-equiv\s*=\s*["']?content-security-policy/i.test(markup)) findings.push("embedded CSP")
   return [...new Set(findings)]
 }
 
