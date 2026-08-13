@@ -56,7 +56,7 @@ async function sendCatalogChanged(extra: {
   await extra.sendNotification({ method: "notifications/resources/list_changed" })
 }
 
-function registerRevisionResource(input: {
+export function registerGeneratedArtifactResource(input: {
   server: McpServer
   view: GeneratedArtifactView
   revision: GeneratedArtifactView["revisions"][number]
@@ -94,9 +94,10 @@ function registerRenderTool(input: {
   view: GeneratedArtifactView
   revision: GeneratedArtifactView["revisions"][number]
   preview: boolean
+  toolName?: string
   loadData: (request: LoadDataRequest) => Promise<DynamicArtifactAppLoadResult>
 }): RegisteredTool {
-  const toolName = `${input.preview ? "preview" : "render"}_artifact_${input.view.id}`
+  const toolName = input.toolName ?? `${input.preview ? "preview" : "render"}_artifact_${input.view.id}`
   return registerAppTool(
     input.server,
     toolName,
@@ -152,6 +153,15 @@ function registerRenderTool(input: {
   )
 }
 
+export function registerSelectedGeneratedArtifactRenderTool(input: {
+  server: McpServer
+  view: GeneratedArtifactView
+  revision: GeneratedArtifactView["revisions"][number]
+  loadData: (request: LoadDataRequest) => Promise<DynamicArtifactAppLoadResult>
+}) {
+  return registerRenderTool({ ...input, preview: false, toolName: "render_selected_dynamic_artifact" })
+}
+
 export function registerAgentGeneratedArtifactViews(input: {
   server: McpServer
   views: GeneratedArtifactView[]
@@ -167,6 +177,7 @@ export function registerAgentGeneratedArtifactViews(input: {
   }) => Promise<GeneratedArtifactView>
   activate: (request: { artifactViewId: string; revisionId: string }) => Promise<GeneratedArtifactView>
   retire: (request: { artifactViewId: string }) => Promise<GeneratedArtifactView>
+  exposePerViewRenderTools?: boolean
 }) {
   const registeredResources = new Map<string, RegisteredResource>()
   const registeredTools = new Map<string, { revisionId: string; registration: RegisteredTool }>()
@@ -197,14 +208,16 @@ export function registerAgentGeneratedArtifactViews(input: {
       if (!registeredResources.has(revision.resourceUri)) {
         registeredResources.set(
           revision.resourceUri,
-          registerRevisionResource({ server: input.server, view, revision, loadResource: input.loadResource }),
+          registerGeneratedArtifactResource({ server: input.server, view, revision, loadResource: input.loadResource }),
         )
       }
     }
     const activeRevision = readyRevisions.find((revision) => revision.id === view.activeRevisionId)
     const previewRevision = readyRevisions.find((revision) => revision.id !== view.activeRevisionId)
-    syncTool(view, view.status === "active" ? activeRevision : undefined, false)
-    syncTool(view, previewRevision, true)
+    if (input.exposePerViewRenderTools !== false) {
+      syncTool(view, view.status === "active" ? activeRevision : undefined, false)
+      syncTool(view, previewRevision, true)
+    }
   }
 
   for (const view of input.views) {
@@ -220,7 +233,9 @@ export function registerAgentGeneratedArtifactViews(input: {
         "Prerequisite: the saved Script's current version must declare an explicit JSON Schema outputSchema matching its successful result data. If it does not, test and create a new saved Script version with that outputSchema before calling this tool.",
         "Provide a default-exported React component that receives { data, artifact }. React is already injected: use React.useState and other React APIs without imports. Do not import modules, fetch data, access browser globals, or add URL-bearing elements; all render-time data comes from data.",
         "A first successful revision activates automatically. Editing creates a previewable revision and never changes the active revision.",
-        "This management tool does not render a view. A successful result names the exact registered render_artifact_* or preview_artifact_* tool to call next. A failed build returns artifact_view_build_failed with diagnostics; correct those diagnostics once and retry using the returned artifactViewId.",
+        input.exposePerViewRenderTools === false
+          ? "This management tool does not render a view. After a successful build, select the Artifact, refresh the catalog, and use render_selected_dynamic_artifact only after the intended revision is active. A failed build returns artifact_view_build_failed with diagnostics; correct those diagnostics once and retry using the returned artifactViewId."
+          : "This management tool does not render a view. After a successful build, call the registered render_artifact_* or preview_artifact_* tool named in the result. A failed build returns artifact_view_build_failed with diagnostics; correct those diagnostics once and retry using the returned artifactViewId.",
       ].join(" "),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
       inputSchema: z.object({
@@ -260,11 +275,15 @@ export function registerAgentGeneratedArtifactViews(input: {
       }
       syncView(view)
       await sendCatalogChanged(extra)
-      const displayToolName = view.status === "active" && view.activeRevisionId === revision.id
-        ? `render_artifact_${view.id}`
-        : `preview_artifact_${view.id}`
+      const displayInstruction = input.exposePerViewRenderTools === false
+          ? view.status === "active" && view.activeRevisionId === revision.id
+            ? `Select Artifact ${view.configObjectId} with select_dynamic_artifact, refresh the tool catalog, then call render_selected_dynamic_artifact to display it.`
+            : `This inactive revision has no model-visible preview tool. Activate it explicitly, select Artifact ${view.configObjectId}, refresh the tool catalog, then call render_selected_dynamic_artifact.`
+          : `Call ${view.status === "active" && view.activeRevisionId === revision.id
+            ? `render_artifact_${view.id}`
+            : `preview_artifact_${view.id}`} to display that revision.`
       return {
-        content: [{ type: "text" as const, text: `Saved immutable view revision ${revision.id} at ${revision.resourceUri}. This save action has no interactive UI; call ${displayToolName} to display that revision.` }],
+        content: [{ type: "text" as const, text: `Saved immutable view revision ${revision.id} at ${revision.resourceUri}. This save action has no interactive UI. ${displayInstruction}` }],
         structuredContent: { view },
       }
     },
@@ -284,7 +303,12 @@ export function registerAgentGeneratedArtifactViews(input: {
       syncView(view)
       await sendCatalogChanged(extra)
       return {
-        content: [{ type: "text" as const, text: `Activated view revision ${request.revisionId}. Call render_artifact_${view.id} to display it.` }],
+        content: [{
+          type: "text" as const,
+          text: input.exposePerViewRenderTools === false
+            ? `Activated view revision ${request.revisionId}. Select Artifact ${view.configObjectId} with select_dynamic_artifact, refresh the tool catalog, then call render_selected_dynamic_artifact to display it.`
+            : `Activated view revision ${request.revisionId}. Call render_artifact_${view.id} to display it.`,
+        }],
         structuredContent: { view },
       }
     },

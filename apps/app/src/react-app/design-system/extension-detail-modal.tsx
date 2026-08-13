@@ -104,6 +104,7 @@ export type ExtensionDetailModalProps = {
 
 const taxonomyDesc: Record<ExtensionTaxonomy, string> = {
   app: "Runs on this device and gives your agent tools it can use here.",
+  artifact: "Combines a reusable Script, retained data, generated views, runs, and Automations.",
   connection: "An account your agent can act in, once it is signed in.",
   mcp: "Connects as a Model Context Protocol server, giving your agent access to external tools and data.",
   skill: "A reusable workflow that your agent can execute on demand.",

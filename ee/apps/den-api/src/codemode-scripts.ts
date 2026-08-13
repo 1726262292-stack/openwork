@@ -112,6 +112,7 @@ function normalizedPayload(draft: CodemodeScriptDraft) {
     language: "codemode-js",
     ...(draft.inputSchema === undefined ? {} : { inputSchema: draft.inputSchema }),
     ...(draft.outputSchema === undefined ? {} : { outputSchema: draft.outputSchema }),
+    ...(draft.exampleInput === undefined ? {} : { exampleInput: draft.exampleInput }),
     requiredCapabilities: draft.requiredCapabilities,
   }
   const parsed = parseCodemodeScriptPayload(value)
@@ -194,6 +195,7 @@ async function savedScriptVersions(context: PluginArchActorContext, configObject
       code,
       inputSchema: parsed.payload.inputSchema ?? null,
       outputSchema: parsed.payload.outputSchema ?? null,
+      exampleInput: parsed.payload.exampleInput ?? null,
       requiredCapabilities: parsed.payload.requiredCapabilities,
       codeDigest: codemodeCodeDigest(code),
       inputSchemaDigest: optionalArtifactDigest(parsed.payload.inputSchema),
@@ -591,6 +593,7 @@ export async function saveCodemodeScript(input: {
     language: "codemode-js",
     ...(input.script.inputSchema === undefined ? {} : { inputSchema: input.script.inputSchema }),
     ...(input.script.outputSchema === undefined ? {} : { outputSchema: input.script.outputSchema }),
+    ...(input.script.currentInput === undefined ? {} : { exampleInput: input.script.currentInput }),
     requiredCapabilities,
   }
   const parsed = parseCodemodeScriptPayload(normalizedPayloadJson)

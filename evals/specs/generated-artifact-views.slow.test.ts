@@ -1,6 +1,8 @@
 import { expect } from "vitest"
 import { needs, server, test } from "@openwork/testkit"
-import { denFetch } from "@openwork/behaviors"
+import { denFetch, evalIn, waitFor } from "@openwork/behaviors"
+import { navigate } from "@openwork/cdp"
+import { chrome } from "@openwork/hosts"
 
 const requirements = {
   optIn: ["OPENWORK_EVAL_APP_SPECS", "OPENWORK_EVAL_GENERATED_ARTIFACT_VIEWS_SPEC"],
@@ -137,6 +139,34 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const configObjectId = String(saved.configObjectId ?? "")
   expect(configObjectId).toMatch(/^cob_/)
 
+  const library = await denFetch(den.admin, "/v1/me/library", {
+    headers: { authorization: `Bearer ${den.admin.token}` },
+  })
+  expect(library.response.ok, library.text).toBe(true)
+  const libraryItems = isRecord(library.body) && Array.isArray(library.body.items)
+    ? library.body.items.filter(isRecord)
+    : []
+  const artifactItem = libraryItems.find((item) => item.type === "artifact" && item.id === configObjectId)
+  expect(artifactItem).toMatchObject({
+    type: "artifact",
+    id: configObjectId,
+    resultState: "never_run",
+    viewState: "default",
+    automationCount: 0,
+  })
+  expect(artifactItem).not.toHaveProperty("code")
+  expect(artifactItem).not.toHaveProperty("data")
+  expect(artifactItem).not.toHaveProperty("compiledHtml")
+
+  const artifactSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_dynamic_artifacts",
+    arguments: { query: "Quarterly plan source" },
+  })
+  const searchItems = requireRecord(artifactSearch.structuredContent, "Artifact search").items
+  const searchedItems = Array.isArray(searchItems) ? searchItems.filter(isRecord) : []
+  expect(searchedItems.some((item) => item.id === configObjectId)).toBe(true)
+  expect(JSON.stringify(searchedItems)).not.toContain(code)
+
   const scriptRun = await denFetch(den.admin, `/v1/codemode-scripts/${configObjectId}/run`, {
     method: "POST",
     headers: { authorization: `Bearer ${den.admin.token}` },
@@ -165,7 +195,8 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const firstRevision = Array.isArray(firstView.revisions) ? firstView.revisions.filter(isRecord)[0] : undefined
   const firstUri = String(firstRevision?.resourceUri ?? "")
   expect(firstUri).toBe(`ui://openwork/artifacts/${artifactViewId}/views/${firstRevisionId}/index.html`)
-  expect(JSON.stringify(firstSave.content)).toContain(`render_artifact_${artifactViewId}`)
+  expect(JSON.stringify(firstSave.content)).toContain("render_selected_dynamic_artifact")
+  expect(JSON.stringify(firstSave.content)).not.toContain(`render_artifact_${artifactViewId}`)
 
   const firstRead = resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: firstUri }))
   const firstHtml = String(firstRead.text ?? "")
@@ -179,8 +210,14 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
 
   const renderName = `render_artifact_${artifactViewId}`
   let tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, renderName)).toBe(firstUri)
-  const rendered = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", { name: renderName, arguments: {} })
+  expect(toolResourceUri(tools, renderName)).toBeNull()
+  await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "select_dynamic_artifact",
+    arguments: { artifactId: configObjectId },
+  })
+  tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
+  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(firstUri)
+  const rendered = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", { name: "render_selected_dynamic_artifact", arguments: {} })
   expect(rendered.isError, JSON.stringify(rendered)).not.toBe(true)
   expect(requireRecord(rendered.structuredContent, "render result").data).toEqual({ title: "Quarterly plan", status: "Ready" })
 
@@ -207,22 +244,23 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   expect(secondHtml).not.toBe(firstHtml)
   expect(String(resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: firstUri })).text ?? "")).toBe(firstHtml)
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, renderName)).toBe(firstUri)
-  expect(toolResourceUri(tools, `preview_artifact_${artifactViewId}`)).toBe(secondUri)
+  expect(toolResourceUri(tools, renderName)).toBeNull()
+  expect(toolResourceUri(tools, `preview_artifact_${artifactViewId}`)).toBeNull()
+  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(firstUri)
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "activate_artifact_view_revision",
     arguments: { artifactViewId, revisionId: secondRevisionId },
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, renderName)).toBe(secondUri)
+  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(secondUri)
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "activate_artifact_view_revision",
     arguments: { artifactViewId, revisionId: firstRevisionId },
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, renderName)).toBe(firstUri)
+  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(firstUri)
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "retire_artifact_view",
@@ -230,12 +268,54 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   expect(toolResourceUri(tools, renderName)).toBeNull()
+  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe("ui://openwork/dynamic-artifact/v1/view.html")
   expect(String(resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: firstUri })).text ?? "")).toBe(firstHtml)
   expect(String(resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: secondUri })).text ?? "")).toBe(secondHtml)
 
+  await using browser = await chrome({
+    name: "dynamic-artifact-library",
+    startUrl: den.ref.webUrl,
+    headless: true,
+    host: place.host(),
+  })
+  await waitFor(browser, `location.href.startsWith(${JSON.stringify(den.ref.webUrl)}) && document.readyState === "complete"`, {
+    timeoutMs: 60_000,
+    label: "Den Web origin before Dynamic Artifact auth handoff",
+  })
+  await evalIn(browser, `localStorage.setItem("openwork:web:auth-token", ${JSON.stringify(den.admin.token)})`)
+  await navigate(browser.client, `${den.ref.webUrl}/dashboard/library`)
+  await waitFor(browser, `(() => {
+    const row = [...document.querySelectorAll('[data-library-item-type="artifact"]')]
+      .find((entry) => (entry.textContent ?? "").includes("Quarterly plan source"));
+    const filters = document.querySelector('[aria-label="Library filters"]');
+    return Boolean(row && (filters?.textContent ?? "").includes("Artifacts"));
+  })()`, {
+    timeoutMs: 60_000,
+    label: "Dynamic Artifact row and kind filter in My Library",
+  })
+  await navigate(browser.client, `${den.ref.webUrl}/dashboard/library/artifacts/${encodeURIComponent(configObjectId)}`)
+  await waitFor(browser, `(() => {
+    const detail = document.querySelector('[data-testid="den-dynamic-artifact-detail"]');
+    if (!detail) return false;
+    const text = detail.textContent ?? "";
+    return ["Overview", "Preview & Data", "Script", "Views", "Runs & Automations", "Access"]
+      .every((label) => text.includes(label));
+  })()`, {
+    timeoutMs: 60_000,
+    label: "canonical six-section Dynamic Artifact detail",
+  })
+
+  await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "clear_dynamic_artifact_selection",
+    arguments: {},
+  })
+  tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
+  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBeNull()
+  expect(Array.isArray(tools.tools) && tools.tools.filter(isRecord).some((tool) => tool.name === "run_selected_dynamic_artifact")).toBe(false)
+
   evidence.fact(
     "Custom Artifact view provider is available only on the Code Mode agent MCP",
-    "The live provider built two custom React revisions, preserved both immutable resources, injected Script data through structuredContent, activated the second revision, rolled back to the first, and retired the render tool without deleting either resource.",
+    "The saved Script appeared immediately as a metadata-only never-run Library Artifact. The live provider then found and selected it through the constant-size catalog, built two custom React revisions, preserved both immutable resources, injected Script data through structuredContent, activated the second revision, rolled back to the first, retired the custom view back to the generic renderer without deleting either resource, and cleared the persisted selection.",
     true,
   )
 })

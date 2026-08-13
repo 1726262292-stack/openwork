@@ -2095,7 +2095,7 @@ export async function listTeamEffectivePluginAccess(input: { context: PluginArch
   }
 }
 
-type MePluginAccessEdge =
+export type MePluginAccessEdge =
   | { kind: "mine" }
   | { kind: "person"; sharedBy: { orgMembershipId: MemberId; name: string } | null; grantedAt: string }
   | { kind: "team"; team: { id: TeamId; name: string } }

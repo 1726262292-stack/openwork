@@ -116,6 +116,8 @@ import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActor
 import { pluginArchRoutePaths } from "./contracts.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "../shared.js"
 import { isAgentOAuthClientConnection, listMemberUsableConnectionFacts } from "../mcp-connections.js"
+import { codemodeScriptsEnabled } from "../../../capability-sources/codemode-rollout.js"
+import { listDynamicArtifactLibraryItems } from "../../../artifact-library.js"
 import {
   PluginArchRouteFailure,
   addPluginMembership,
@@ -1043,12 +1045,15 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     async (c: OrgContext) => {
       try {
         const context = actorContext(c)
-        const [pluginItems, connections] = await Promise.all([
+        const [pluginItems, connections, artifactItems] = await Promise.all([
           listMeLibraryPluginItems({ context }),
           listMemberUsableConnectionFacts({ context }),
+          codemodeScriptsEnabled(context.organizationContext.organization.metadata)
+            ? listDynamicArtifactLibraryItems({ context })
+            : Promise.resolve([]),
         ])
         const connectionItems = await listMeLibraryConnectionItems({ connections, context })
-        const items = [...pluginItems, ...connectionItems]
+        const items = [...pluginItems, ...connectionItems, ...artifactItems]
         items.sort((left, right) => {
           const byName = left.name.localeCompare(right.name)
           return byName !== 0 ? byName : left.id.localeCompare(right.id)

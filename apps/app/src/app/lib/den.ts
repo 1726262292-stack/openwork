@@ -111,6 +111,7 @@ import type {
   DenOrgMarketplace,
   DenOrgPlugin,
   DenOrgPluginResolved,
+  DenLibraryArtifactItem,
   DenPluginCloudReadiness,
   DenPluginCloudReadinessConnection,
   DenPluginCloudReadinessState,
@@ -2166,6 +2167,38 @@ function getOrgPluginResolved(plugin: DenOrgPlugin, payload: unknown): DenOrgPlu
   return { plugin, memberships };
 }
 
+function getLibraryArtifacts(payload: unknown): DenLibraryArtifactItem[] {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) return [];
+  return payload.items.flatMap((item) => {
+    if (!isRecord(item) || item.type !== "artifact" || typeof item.id !== "string" || typeof item.name !== "string") return [];
+    const role = item.role === "viewer" || item.role === "editor" || item.role === "manager" ? item.role : null;
+    const state = item.state === "ready" || item.state === "needs_signin" || item.state === "needs_admin_setup" ? item.state : null;
+    const resultState = item.resultState === "never_run" || item.resultState === "fresh" || item.resultState === "stale" || item.resultState === "needs_attention" ? item.resultState : null;
+    const viewState = item.viewState === "default" || item.viewState === "custom_active" || item.viewState === "build_failed" || item.viewState === "retired" ? item.viewState : null;
+    const sourceKind = isRecord(item.source) && (item.source.kind === "created" || item.source.kind === "installed_template") ? item.source.kind : null;
+    if (!role || !state || !resultState || !viewState || !sourceKind || typeof item.automationCount !== "number") return [];
+    const artifact: DenLibraryArtifactItem = {
+      type: "artifact",
+      id: item.id,
+      name: item.name,
+      description: typeof item.description === "string" ? item.description : null,
+      role,
+      state,
+      resultState,
+      latestSuccessfulAt: typeof item.latestSuccessfulAt === "string" ? item.latestSuccessfulAt : null,
+      viewState,
+      activeViewTitle: typeof item.activeViewTitle === "string" ? item.activeViewTitle : null,
+      automationCount: Math.max(0, Math.trunc(item.automationCount)),
+      source: {
+        kind: sourceKind,
+        ...(isRecord(item.source) && typeof item.source.templateName === "string" ? { templateName: item.source.templateName } : {}),
+        ...(isRecord(item.source) && typeof item.source.templateVersion === "string" ? { templateVersion: item.source.templateVersion } : {}),
+      },
+    };
+    return [artifact];
+  });
+}
+
 function getAssignedMarketplaceCapabilities(payload: unknown): DenAssignedMarketplaceCapability[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) return [];
   return payload.items.flatMap((item) => {
@@ -2814,6 +2847,24 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         { method: "GET", token, organizationId: orgId },
       );
       return getOrgMarketplaces(payload);
+    },
+
+    async listLibraryArtifacts(orgId: string): Promise<DenLibraryArtifactItem[]> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/me/library", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      return getLibraryArtifacts(payload);
+    },
+
+    async selectLibraryArtifact(orgId: string, artifactId: string): Promise<void> {
+      await requestJson<unknown>(baseUrls, "/v1/me/artifact-selection", {
+        method: "PUT",
+        token,
+        organizationId: orgId,
+        body: { artifactId },
+      });
     },
 
     async listAssignedMarketplaceCapabilities(orgId: string): Promise<DenAssignedMarketplaceCapability[]> {

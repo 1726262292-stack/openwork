@@ -148,3 +148,18 @@ export type DenResourceSnapshot = {
     marketplaces: Record<string, DenResourceSnapshotMarketplace>;
   };
 };
+
+export type DenLibraryArtifactItem = {
+  type: "artifact";
+  id: string;
+  name: string;
+  description: string | null;
+  role: "viewer" | "editor" | "manager";
+  state: "ready" | "needs_signin" | "needs_admin_setup";
+  resultState: "never_run" | "fresh" | "stale" | "needs_attention";
+  latestSuccessfulAt: string | null;
+  viewState: "default" | "custom_active" | "build_failed" | "retired";
+  activeViewTitle: string | null;
+  automationCount: number;
+  source: { kind: "created" | "installed_template"; templateName?: string; templateVersion?: string };
+};

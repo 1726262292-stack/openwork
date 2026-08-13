@@ -35,6 +35,9 @@ function serializeRevision(row: ArtifactViewRevisionRow): GeneratedArtifactViewR
     outputSchemaDigest: row.output_schema_digest,
     csp: row.csp,
     diagnostics: row.build_diagnostics,
+    compilerName: row.compiler_name,
+    compilerVersion: row.compiler_version,
+    reactVersion: row.react_version,
     compiledHtmlBytes: row.compiled_html_bytes,
     retiredAt: row.retired_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
@@ -103,6 +106,18 @@ export async function listArtifactViews(input: {
   return accessible.filter((view): view is GeneratedArtifactView => view !== null)
 }
 
+export async function listArtifactViewsForScript(input: {
+  context: PluginArchActorContext
+  configObjectId: string
+}): Promise<GeneratedArtifactView[]> {
+  const script = await getCodemodeScriptDetail({ context: input.context, configObjectId: input.configObjectId })
+  const rows = await db.select().from(ArtifactViewTable).where(and(
+    eq(ArtifactViewTable.organization_id, input.context.organizationContext.organization.id),
+    eq(ArtifactViewTable.config_object_id, normalizeDenTypeId("configObject", script.configObjectId)),
+  )).orderBy(desc(ArtifactViewTable.updated_at), desc(ArtifactViewTable.id))
+  return Promise.all(rows.map(async (row) => serializeView(row, await revisionRows(row.id))))
+}
+
 export async function loadArtifactViewRevision(input: {
   context: PluginArchActorContext
   artifactViewId: string
@@ -121,6 +136,18 @@ export async function loadArtifactViewRevision(input: {
   const revision = rows[0]
   if (!revision) throw new Error("artifact_view_revision_not_found")
   return { view, revision }
+}
+
+export async function getGeneratedArtifactViewRevision(input: {
+  context: PluginArchActorContext
+  artifactViewId: string
+  revisionId: string
+}) {
+  const { view, revision } = await loadArtifactViewRevision(input)
+  return {
+    view: serializeView(view, [revision]),
+    revision: serializeRevision(revision),
+  }
 }
 
 export async function saveArtifactViewRevision(input: {

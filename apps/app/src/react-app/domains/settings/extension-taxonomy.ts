@@ -8,7 +8,7 @@ import { t } from "../../../i18n";
  * - mcp: an MCP server configured in this workspace
  * - skill / plugin: installed workflows and organization bundles
  */
-export type ExtensionTaxonomy = "app" | "connection" | "mcp" | "skill" | "plugin";
+export type ExtensionTaxonomy = "app" | "artifact" | "connection" | "mcp" | "skill" | "plugin";
 
 export type ExtensionInventoryFilter = "all" | ExtensionTaxonomy;
 
@@ -19,6 +19,7 @@ export type ExtensionInventoryState = "all" | "needs_signin" | "needs_admin_setu
 export const extensionInventoryFilters: ExtensionInventoryFilter[] = [
   "all",
   "app",
+  "artifact",
   "connection",
   "mcp",
   "skill",
@@ -45,6 +46,8 @@ export function extensionFilterLabel(filter: ExtensionInventoryFilter) {
       return t("extensions.filter_all");
     case "app":
       return t("extensions.filter_apps");
+    case "artifact":
+      return "Artifacts";
     case "connection":
       return t("extensions.filter_connections");
     case "mcp":
@@ -60,6 +63,8 @@ export function extensionTaxonomyLabel(taxonomy: ExtensionTaxonomy) {
   switch (taxonomy) {
     case "app":
       return t("extensions.badge_app");
+    case "artifact":
+      return "Artifact";
     case "connection":
       return t("extensions.badge_connection");
     case "mcp":

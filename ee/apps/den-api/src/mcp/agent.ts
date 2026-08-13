@@ -28,7 +28,8 @@ import { PluginArchAuthorizationError } from "../routes/org/plugin-system/access
 import {
   DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
   dynamicArtifactAppServerCapabilities,
-  registerAgentDynamicArtifactApp,
+  registerAgentDynamicArtifactResource,
+  registerSelectedDynamicArtifactApp,
 } from "./dynamic-artifact-app.js"
 import {
   executeBuiltinSkillCapability,
@@ -47,13 +48,21 @@ import { runCodemodeScript } from "./codemode-run.js"
 import { recordCodemodeScriptResult } from "../codemode-runs.js"
 import {
   activateArtifactViewRevision,
+  getGeneratedArtifactViewRevision,
   listArtifactViews,
   loadArtifactViewRevision,
   retireArtifactView,
   saveArtifactViewRevision,
 } from "../artifact-views.js"
-import { registerAgentGeneratedArtifactViews } from "./generated-artifact-views.js"
-import type { PluginArchActorContext } from "../routes/org/plugin-system/access.js"
+import {
+  registerAgentGeneratedArtifactViews,
+  registerGeneratedArtifactResource,
+  registerSelectedGeneratedArtifactRenderTool,
+} from "./generated-artifact-views.js"
+import { requirePluginArchResourceRole, type PluginArchActorContext } from "../routes/org/plugin-system/access.js"
+import { clearArtifactAgentSelection, getArtifactAgentSelection, selectArtifactForAgent } from "../artifact-agent-selection.js"
+import { getDynamicArtifactDetail, listDynamicArtifactLibraryItems } from "../artifact-library.js"
+import { parseArtifactViewResourceUri } from "../artifact-view-resource.js"
 
 export { externalToolContent } from "./tool-content.js"
 export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
@@ -115,7 +124,8 @@ export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
 })
 
 export const AGENT_MCP_INSTRUCTIONS = [
-  "This OpenWork Cloud connection always exposes search_capabilities and execute_capability; organizations with Code Mode scripts enabled also receive execute_capability_script and render_dynamic_artifact.",
+  "This OpenWork Cloud connection always exposes search_capabilities and execute_capability. Organizations with Code Mode scripts enabled also receive execute_capability_script and a constant-size Dynamic Artifact catalog: search_dynamic_artifacts, select_dynamic_artifact, and clear_dynamic_artifact_selection.",
+  "To use a Dynamic Artifact, search by Library metadata, select one exact accessible Artifact, then refresh the tool catalog. The selected context exposes run_selected_dynamic_artifact and render_selected_dynamic_artifact; rendering returns fallback text plus retained data in structuredContent and binds the exact immutable MCP App resource URI in the tool definition.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
@@ -133,15 +143,20 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
 
-async function mcpRequestMethod(request: Request): Promise<string | null> {
-  if (request.method.toUpperCase() !== "POST") return null
+async function mcpRequestInfo(request: Request): Promise<{ method: string | null; resourceUri: string | null }> {
+  if (request.method.toUpperCase() !== "POST") return { method: null, resourceUri: null }
   const body: unknown = await request.clone().json().catch(() => null)
-  return typeof body === "object"
+  const method = typeof body === "object"
     && body !== null
     && "method" in body
     && typeof body.method === "string"
     ? body.method
     : null
+  const params = typeof body === "object" && body !== null && "params" in body && typeof body.params === "object" && body.params !== null
+    ? body.params
+    : null
+  const resourceUri = params && "uri" in params && typeof params.uri === "string" ? params.uri : null
+  return { method, resourceUri }
 }
 
 export const AGENT_SKILL_INDEX_URI = "skill://index.json"
@@ -302,8 +317,9 @@ export function registerAgentSkillResources(input: {
  * desktop app's "OpenWork Cloud Control" connection, which is what an
  * OpenCode/Claude Code/Codex-style harness actually sees. It always registers
  * `search_capabilities` and `execute_capability`, and conditionally registers
- * `execute_capability_script` plus `render_dynamic_artifact`. The renderer is
- * a read-only MCP App over the same authorized saved-Script snapshots; it does
+ * Code Mode plus a constant-size Dynamic Artifact search/selection catalog.
+ * One selected Artifact contributes exact run/render tools; its renderer is a
+ * read-only MCP App over the same authorized saved-Script snapshots and does
  * not create a second execution or scheduling path. The other ~127 operations
  * are not individually callable on this endpoint.
  */
@@ -344,7 +360,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       .where(eq(OrganizationTable.id, organizationId))
       .limit(1)
     const codemodeEnabled = codemodeScriptsEnabled(organizationRows[0]?.metadata)
-    const method = await mcpRequestMethod(c.req.raw)
+    const requestInfo = await mcpRequestInfo(c.req.raw)
+    const method = requestInfo.method
     const capabilityContext = createCapabilityRegistryContext({
       app: app as unknown as Hono,
       env: c.env,
@@ -423,7 +440,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         title: "Search capabilities",
         description: [
           codemodeEnabled
-            ? "Search for a capability by keyword. This connection also exposes execute_capability, execute_capability_script, and the read-only render_dynamic_artifact tool —"
+            ? "Search for a capability by keyword. This connection also exposes execute_capability, execute_capability_script, and Dynamic Artifact search/selection tools —"
             : "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
@@ -575,39 +592,195 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         }
       }
 
-      registerAgentDynamicArtifactApp({
-        server,
-        load: loadDynamicArtifact,
-      })
+      registerAgentDynamicArtifactResource(server)
+
+      const notifyArtifactCatalogChanged = async (extra: {
+        sendNotification: (notification: { method: "notifications/tools/list_changed" | "notifications/resources/list_changed" }) => Promise<void>
+      }) => {
+        await extra.sendNotification({ method: "notifications/tools/list_changed" })
+        await extra.sendNotification({ method: "notifications/resources/list_changed" })
+      }
+
+      server.registerTool(
+        "search_dynamic_artifacts",
+        {
+          title: "Search Dynamic Artifacts",
+          description: "Search accessible Dynamic Artifacts by Library metadata. Results never include retained data, Script source, generated source, compiled HTML, diagnostics, or credentials.",
+          annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
+          inputSchema: z.object({
+            query: z.string().trim().max(255).optional(),
+            readiness: z.enum(["ready", "needs_signin", "needs_admin_setup"]).optional(),
+            source: z.enum(["created", "installed_template"]).optional(),
+            cursor: z.string().trim().min(1).max(160).optional(),
+            limit: z.number().int().min(1).max(50).optional(),
+          }),
+        },
+        async ({ query, readiness, source, cursor, limit }) => {
+          const items = artifactContext ? await listDynamicArtifactLibraryItems({ context: artifactContext }) : []
+          const normalizedQuery = query?.toLocaleLowerCase() ?? ""
+          const filtered = items.filter((item) =>
+            (!normalizedQuery || `${item.name} ${item.description ?? ""}`.toLocaleLowerCase().includes(normalizedQuery))
+            && (!readiness || item.state === readiness)
+            && (!source || item.source.kind === source))
+          const start = cursor ? Math.max(0, filtered.findIndex((item) => item.id === cursor) + 1) : 0
+          const bounded = limit ?? 10
+          const page = filtered.slice(start, start + bounded)
+          const result = {
+            items: page,
+            nextCursor: start + bounded < filtered.length ? page.at(-1)?.id ?? null : null,
+          }
+          return { content: textContent(JSON.stringify(result, null, 2)), structuredContent: result }
+        },
+      )
+
+      server.registerTool(
+        "select_dynamic_artifact",
+        {
+          title: "Select Dynamic Artifact",
+          description: "Select one accessible Artifact as this member's current organization-scoped MCP context. Selection persists across chats and devices; it does not install or grant access.",
+          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          inputSchema: z.object({ artifactId: z.string().trim().min(1).max(160) }),
+        },
+        async ({ artifactId }, extra) => {
+          if (!artifactContext) {
+            return { isError: true, content: textContent(JSON.stringify({ error: "dynamic_artifact_not_found" })) }
+          }
+          const selection = await selectArtifactForAgent({ context: artifactContext, artifactId })
+          await notifyArtifactCatalogChanged(extra)
+          return {
+            content: textContent(`Selected Dynamic Artifact ${selection.artifactId}. Refresh the tool catalog before rendering or running it.`),
+            structuredContent: { selection },
+          }
+        },
+      )
+
+      server.registerTool(
+        "clear_dynamic_artifact_selection",
+        {
+          title: "Clear Dynamic Artifact selection",
+          description: "Clear this member's current organization-scoped Dynamic Artifact selection.",
+          annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          inputSchema: z.object({}),
+        },
+        async (_request, extra) => {
+          if (artifactContext) await clearArtifactAgentSelection(artifactContext)
+          await notifyArtifactCatalogChanged(extra)
+          return { content: textContent("Cleared the selected Dynamic Artifact."), structuredContent: { selection: null } }
+        },
+      )
 
       // This server deploys independently from Desktop. Do not advertise or
       // serve bridge-dependent generated views until the compatible Desktop
       // MCP Apps host has been released and the operator enables the rollout.
       if (artifactContext && env.generatedArtifactViewsEnabled) {
+        const loadGeneratedResource = async ({ artifactViewId, revisionId }: { artifactViewId: string; revisionId: string }) => {
+          const { revision } = await loadArtifactViewRevision({ context: artifactContext, artifactViewId, revisionId })
+          if (revision.build_status !== "ready" || !revision.compiled_html || !revision.resource_digest) {
+            throw new Error("artifact_view_revision_not_ready")
+          }
+          return { html: revision.compiled_html, resourceDigest: revision.resource_digest, csp: revision.csp }
+        }
         const generatedViews = await listArtifactViews({ context: artifactContext })
         registerAgentGeneratedArtifactViews({
           server,
           views: generatedViews,
-          loadResource: async ({ artifactViewId, revisionId }) => {
-            const { revision } = await loadArtifactViewRevision({
-              context: artifactContext,
-              artifactViewId,
-              revisionId,
-            })
-            if (revision.build_status !== "ready" || !revision.compiled_html || !revision.resource_digest) {
-              throw new Error("artifact_view_revision_not_ready")
-            }
-            return {
-              html: revision.compiled_html,
-              resourceDigest: revision.resource_digest,
-              csp: revision.csp,
-            }
-          },
+          loadResource: loadGeneratedResource,
           loadData: loadDynamicArtifact,
           save: (request) => saveArtifactViewRevision({ context: artifactContext, ...request }),
           activate: (request) => activateArtifactViewRevision({ context: artifactContext, ...request }),
           retire: (request) => retireArtifactView({ context: artifactContext, ...request }),
+          exposePerViewRenderTools: false,
         })
+
+        const exactResource = requestInfo.resourceUri ? parseArtifactViewResourceUri(requestInfo.resourceUri) : null
+        if (exactResource && !generatedViews.some((view) => view.revisions.some((revision) => revision.resourceUri === requestInfo.resourceUri))) {
+          const exact = await getGeneratedArtifactViewRevision({ context: artifactContext, ...exactResource })
+          registerGeneratedArtifactResource({
+            server,
+            view: exact.view,
+            revision: exact.revision,
+            loadResource: loadGeneratedResource,
+          })
+        }
+
+        const selection = await getArtifactAgentSelection(artifactContext)
+        if (selection) {
+          const detail = await getDynamicArtifactDetail({ context: artifactContext, configObjectId: selection.artifactId })
+          const activeView = detail.views.find((view) => view.status === "active" && view.activeRevisionId !== null)
+          const active = activeView?.activeRevisionId
+            ? await getGeneratedArtifactViewRevision({
+                context: artifactContext,
+                artifactViewId: activeView.id,
+                revisionId: activeView.activeRevisionId,
+              }).catch(() => null)
+            : null
+          const compatibleRevision = active?.revision.buildStatus === "ready"
+            && active.revision.retiredAt === null
+            && active.revision.outputSchemaDigest === detail.script.currentVersion.outputSchemaDigest
+            ? active.revision
+            : null
+          if (active && compatibleRevision) {
+            if (!generatedViews.some((view) => view.revisions.some((revision) => revision.resourceUri === compatibleRevision.resourceUri))) {
+              registerGeneratedArtifactResource({
+                server,
+                view: active.view,
+                revision: compatibleRevision,
+                loadResource: loadGeneratedResource,
+              })
+            }
+            registerSelectedGeneratedArtifactRenderTool({
+              server,
+              view: active.view,
+              revision: compatibleRevision,
+              loadData: loadDynamicArtifact,
+            })
+          } else {
+            registerSelectedDynamicArtifactApp({ server, configObjectId: selection.artifactId, load: loadDynamicArtifact })
+          }
+
+          server.registerTool(
+            "run_selected_dynamic_artifact",
+            {
+              title: `Run selected Dynamic Artifact: ${detail.artifact.name}`,
+              description: "Execute the selected Artifact's current immutable Script version after validating access, input schema, and capability readiness.",
+              annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
+              inputSchema: z.object({ input: z.unknown().optional() }),
+            },
+            async ({ input }) => {
+              await requirePluginArchResourceRole({
+                context: artifactContext,
+                requireFreshSession: false,
+                resourceId: normalizeDenTypeId("configObject", selection.artifactId),
+                resourceKind: "config_object",
+                role: "editor",
+              })
+              const result = await executeMarketplaceCapability({
+                organizationId: principal.organizationId,
+                member: memberIdentity,
+                pluginId: detail.script.pluginId,
+                configObjectId: detail.script.configObjectId,
+                configObjectVersionId: detail.script.currentVersion.id,
+                body: input,
+                codemodeEnabled: true,
+                validateScriptOutput: true,
+                buildTools: () => buildCapabilityToolTree(capabilityContext),
+              })
+              if (!result.ok || result.result.status !== "executed") {
+                const message = result.ok ? result.result.hint ?? "The selected Artifact could not run." : result.message
+                return { isError: true, content: textContent(JSON.stringify({ error: "dynamic_artifact_run_failed", message })) }
+              }
+              return {
+                content: textContent(result.result.markdown ?? JSON.stringify(result.result.value, null, 2)),
+                structuredContent: {
+                  status: "succeeded",
+                  value: result.result.value,
+                  receiptId: result.result.receiptId ?? null,
+                  resultDigest: result.result.resultDigest ?? null,
+                },
+              }
+            },
+          )
+        }
       }
 
       server.registerTool(

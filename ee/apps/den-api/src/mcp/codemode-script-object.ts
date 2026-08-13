@@ -7,6 +7,7 @@ export type CodemodeScriptPayload = {
   language: "codemode-js"
   inputSchema?: JsonSchemaObject
   outputSchema?: JsonSchemaObject
+  exampleInput?: unknown
   requiredCapabilities: Array<{
     capabilityName: string
     scriptPath: string
@@ -56,8 +57,8 @@ function isLimit(value: unknown, minimum: number): value is number {
 export function parseCodemodeScriptPayload(normalizedPayloadJson: unknown):
   | { ok: true; payload: CodemodeScriptPayload }
   | { ok: false; message: string } {
-  if (!isRecord(normalizedPayloadJson) || !hasOnlyKeys(normalizedPayloadJson, ["language", "inputSchema", "outputSchema", "requiredCapabilities", "limits"])) {
-    return { ok: false, message: "The saved script payload must contain only language, inputSchema, outputSchema, requiredCapabilities, and limits." }
+  if (!isRecord(normalizedPayloadJson) || !hasOnlyKeys(normalizedPayloadJson, ["language", "inputSchema", "outputSchema", "exampleInput", "requiredCapabilities", "limits"])) {
+    return { ok: false, message: "The saved script payload must contain only language, inputSchema, outputSchema, exampleInput, requiredCapabilities, and limits." }
   }
   if (normalizedPayloadJson.language !== "codemode-js") {
     return { ok: false, message: "The saved script language must be codemode-js." }
@@ -113,6 +114,7 @@ export function parseCodemodeScriptPayload(normalizedPayloadJson: unknown):
       language: "codemode-js",
       ...(normalizedPayloadJson.inputSchema === undefined ? {} : { inputSchema: normalizedPayloadJson.inputSchema }),
       ...(normalizedPayloadJson.outputSchema === undefined ? {} : { outputSchema: normalizedPayloadJson.outputSchema }),
+      ...(normalizedPayloadJson.exampleInput === undefined ? {} : { exampleInput: normalizedPayloadJson.exampleInput }),
       requiredCapabilities,
       ...(limits === undefined ? {} : { limits }),
     },
