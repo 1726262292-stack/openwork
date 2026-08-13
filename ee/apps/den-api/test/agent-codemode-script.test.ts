@@ -74,6 +74,13 @@ function buildApp() {
           tags: ["Workers"],
         },
       },
+      "/v1/codemode-scripts": {
+        post: {
+          operationId: "saveProgram",
+          summary: "Save a successful Code Mode run as a Program inside an OpenWork Connect Plugin",
+          tags: ["Codemode Runs"],
+        },
+      },
     },
   }))
   registerAgentMcpRoutes(app)
@@ -173,4 +180,13 @@ test("exposes in-program capability search over the Den namespace", async () => 
     arguments: { code: "return await tools.$codemode.search({ query: \"workers\" })" },
   })
   expect(firstText(payload)).toContain("tools.den.getWorkers")
+})
+
+test("makes the Program save operation discoverable through the standard capability catalog", async () => {
+  organizationMetadata = { capabilities: { codemodeScripts: true } }
+  const payload = await rpc(buildApp(), "tools/call", {
+    name: "search_capabilities",
+    arguments: { query: "save Program to Plugin" },
+  })
+  expect(firstText(payload)).toContain("saveProgram")
 })

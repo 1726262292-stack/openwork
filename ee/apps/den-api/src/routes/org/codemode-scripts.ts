@@ -159,6 +159,8 @@ function routeFailure(error: unknown) {
   return { status: 400, body: { error: "saved_script_rejected", message } } as const
 }
 
+export const saveProgramOperationId = "saveProgram"
+
 export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
   const contextFor = async (c: {
     get(name: "organizationContext"): OrgRouteVariables["organizationContext"]
@@ -211,6 +213,7 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   app.post(
     "/v1/codemode-scripts",
     describeRoute({
+      operationId: saveProgramOperationId,
       tags: ["Codemode Runs"], summary: "Save a successful Code Mode run as a Program inside an OpenWork Connect Plugin",
       responses: {
         201: jsonResponse("Program saved.", savedSchema),
