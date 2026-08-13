@@ -56,7 +56,6 @@ export type ExtensionCardProps = {
 
 const taxonomyStyle: Record<ExtensionTaxonomy, string> = {
   app: "bg-teal-3 text-teal-11",
-  program: "bg-cyan-3 text-cyan-11",
   connection: "bg-blue-3 text-blue-11",
   mcp: "bg-dls-hover text-dls-secondary",
   skill: "bg-amber-3 text-amber-11",

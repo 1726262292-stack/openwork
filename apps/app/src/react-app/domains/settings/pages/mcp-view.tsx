@@ -57,7 +57,7 @@ import {
   revealDesktopItemInDir,
   type OpencodeConfigFile,
 } from "../../../../app/lib/desktop";
-import { readDenSettings, type DenLibraryProgramItem } from "../../../../app/lib/den";
+import { readDenSettings } from "../../../../app/lib/den";
 import {
   getMcpIdentityKey,
   normalizeMcpSlug,
@@ -133,9 +133,6 @@ export type McpViewProps = {
   inventoryLoading?: boolean;
   /** Installed organization extensions to render alongside runtime extensions. */
   installedPlugins?: CloudImportedPlugin[];
-  programs?: DenLibraryProgramItem[];
-  programsError?: string | null;
-  useProgramInChat?: (program: DenLibraryProgramItem) => Promise<void> | void;
   /** Uninstall a skill by name. */
   uninstallSkill?: (name: string) => void;
   /** Remove an imported marketplace package by plugin id. */
@@ -299,7 +296,6 @@ type ExtensionDetailTarget =
   | { kind: "skill"; skill: SkillItem }
   | { kind: "connect-mcp"; entry: McpServerEntry }
   | { kind: "plugin"; plugin: CloudImportedPlugin }
-  | { kind: "program"; program: DenLibraryProgramItem }
   | { kind: "org-mcp"; item: ExtensionItem };
 
 function extensionDetailIdForTarget(target: ExtensionDetailTarget): string {
@@ -312,8 +308,6 @@ function extensionDetailIdForTarget(target: ExtensionDetailTarget): string {
       return `connect-mcp:${target.entry.name}`;
     case "plugin":
       return `plugin:${target.plugin.pluginId}`;
-    case "program":
-      return `program:${target.program.id}`;
     case "org-mcp":
       return target.item.id.startsWith("org-mcp:")
         ? target.item.id
@@ -328,7 +322,6 @@ function resolveExtensionDetailTarget(
     skills: SkillItem[];
     connectMcps: McpServerEntry[];
     plugins: CloudImportedPlugin[];
-    programs: DenLibraryProgramItem[];
     orgMcpItems: ExtensionItem[];
   },
 ): ExtensionDetailTarget | null {
@@ -346,11 +339,6 @@ function resolveExtensionDetailTarget(
     const pluginId = detailId.slice("plugin:".length);
     const plugin = lists.plugins.find((entry) => entry.pluginId === pluginId);
     return plugin ? { kind: "plugin", plugin } : null;
-  }
-  if (detailId.startsWith("program:")) {
-    const programId = detailId.slice("program:".length);
-    const program = lists.programs.find((entry) => entry.id === programId);
-    return program ? { kind: "program", program } : null;
   }
   if (detailId.startsWith("org-mcp:")) {
     const connectionId = detailId.slice("org-mcp:".length);
@@ -378,7 +366,6 @@ export function McpView(props: McpViewProps) {
   const detailSkill = detailTarget?.kind === "skill" ? detailTarget.skill : null;
   const detailConnectMcp = detailTarget?.kind === "connect-mcp" ? detailTarget.entry : null;
   const detailPlugin = detailTarget?.kind === "plugin" ? detailTarget.plugin : null;
-  const detailProgram = detailTarget?.kind === "program" ? detailTarget.program : null;
   const detailOrgMcpItem = detailTarget?.kind === "org-mcp" ? detailTarget.item : null;
   const [detailSkillContent, setDetailSkillContent] = useState<string | null>(null);
   const [openworkUiMcpCommand, setOpenworkUiMcpCommand] = useState<string[] | null>(null);
@@ -395,7 +382,6 @@ export function McpView(props: McpViewProps) {
   const [showHidden, setShowHidden] = useState(false);
   const [layout, setLayout] = useState<ExtensionLayout>(readExtensionLayout);
   const [claudeImportOpen, setClaudeImportOpen] = useState(false);
-  const [programUseBusy, setProgramUseBusy] = useState<string | null>(null);
   const [, setExtensionStateVersion] = useState(0);
 
   const [localState, dispatchLocal] = useReducer(
@@ -438,7 +424,6 @@ export function McpView(props: McpViewProps) {
   const installedSkills = props.installedSkills ?? [];
   const availableConnectMcpServers = props.availableConnectMcpServers ?? [];
   const installedPlugins = props.installedPlugins ?? [];
-  const programs = props.programs ?? [];
   const orgMcpItems = props.orgMcpItems ?? [];
   const detailPresentation = useRoutedDetail ? "page" : "dialog";
   const openInDenAction = (target: DenLibraryTarget): ReactNode => {
@@ -510,7 +495,6 @@ export function McpView(props: McpViewProps) {
       skills: installedSkills,
       connectMcps: availableConnectMcpServers,
       plugins: installedPlugins,
-      programs,
       orgMcpItems,
     });
     setDetailTarget(resolved);
@@ -534,7 +518,6 @@ export function McpView(props: McpViewProps) {
     installedSkills,
     availableConnectMcpServers,
     installedPlugins,
-    programs,
     orgMcpItems,
   ]);
 
@@ -910,49 +893,6 @@ export function McpView(props: McpViewProps) {
         );
       })() : null}
 
-      {detailProgram ? (
-        <ExtensionDetailModal
-          open={true}
-          onClose={closeDetail}
-          presentation={detailPresentation}
-          backLabel={t("extensions.title")}
-          name={detailProgram.name}
-          description={detailProgram.description ?? "Reusable Code Mode Script with retained artifacts, generated views, runs, and Automations."}
-          taxonomy="program"
-          connected={detailProgram.state === "ready"}
-          connectedLabel={detailProgram.resultState === "never_run" ? "Ready · not run yet" : `Ready · ${detailProgram.resultState.replace("_", " ")}`}
-          disconnectedLabel={detailProgram.state === "needs_signin" ? "Needs your sign-in" : "Needs admin setup"}
-          errorInfo={props.programsError}
-          showEnablementCard={false}
-          configSlot={(
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap gap-2 text-xs text-dls-secondary">
-                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1">{detailProgram.role}</span>
-                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1">{detailProgram.viewState === "custom_active" ? detailProgram.activeViewTitle ?? "Custom view" : detailProgram.viewState.replace("_", " ")}</span>
-                <span className="rounded-full border border-dls-border bg-dls-hover px-2 py-1">{detailProgram.automationCount} Automation{detailProgram.automationCount === 1 ? "" : "s"}</span>
-              </div>
-              <p className="text-xs text-dls-secondary">{detailProgram.latestSuccessfulAt ? `Last successful run ${formatRelativeTime(new Date(detailProgram.latestSuccessfulAt).getTime())}` : "This Program has not produced retained data yet."}</p>
-              <p className="text-xs text-dls-secondary">Inside OpenWork Connect Plugin <strong>{detailProgram.plugin.name}</strong>.</p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  disabled={detailProgram.state !== "ready" || !props.useProgramInChat || programUseBusy === detailProgram.id}
-                  onClick={() => {
-                    if (!props.useProgramInChat) return;
-                    setProgramUseBusy(detailProgram.id);
-                    void Promise.resolve(props.useProgramInChat(detailProgram)).finally(() => setProgramUseBusy(null));
-                  }}
-                >
-                  {programUseBusy === detailProgram.id ? <Loader2 size={13} className="animate-spin" /> : null}
-                  Use in chat
-                </Button>
-                {openInDenAction({ id: `program:${detailProgram.id}`, programId: detailProgram.id })}
-              </div>
-            </div>
-          )}
-        />
-      ) : null}
-
       {detailOrgMcpItem && isOrgMcpConnectionItem(detailOrgMcpItem) ? (() => {
         const connection = detailOrgMcpItem.orgMcpConnection;
         const ready = isOrgMcpConnectionReady(connection);
@@ -1133,12 +1073,6 @@ export function McpView(props: McpViewProps) {
               .includes(q);
           })
         }
-        programs={programs.filter((program) => {
-          if (!matchesExtensionFilter(filter, "program")) return false;
-          if (!search.trim()) return true;
-          const q = search.toLowerCase();
-          return [program.name, program.description ?? "", program.activeViewTitle ?? ""].join(" ").toLowerCase().includes(q);
-        })}
         orgMcpItems={
           orgMcpItems.filter((item) => {
             if (!isOrgMcpConnectionItem(item)) return false;
@@ -1173,7 +1107,6 @@ export function McpView(props: McpViewProps) {
         onSkillDetail={(skill) => openDetail({ kind: "skill", skill })}
         onConnectMcpDetail={(entry) => openDetail({ kind: "connect-mcp", entry })}
         onPluginDetail={(plugin) => openDetail({ kind: "plugin", plugin })}
-        onProgramDetail={(program) => openDetail({ kind: "program", program })}
         onOrgMcpDetail={(item) => openDetail({ kind: "org-mcp", item })}
         orgMcpDisconnectingId={props.orgMcpDisconnectingId ?? null}
         disconnectOrgMcp={props.disconnectOrgMcp}
@@ -1446,7 +1379,6 @@ function McpQuickConnectSection(props: {
   state: ExtensionInventoryState;
   onStateCountsChange: (counts: InventoryStateCounts) => void;
   installedPlugins?: CloudImportedPlugin[];
-  programs?: DenLibraryProgramItem[];
   orgMcpItems?: ExtensionItem[];
   organizationName?: string | null;
   busy: boolean;
@@ -1463,7 +1395,6 @@ function McpQuickConnectSection(props: {
   onSkillDetail?: (skill: SkillItem) => void;
   onConnectMcpDetail?: (entry: McpServerEntry) => void;
   onPluginDetail?: (plugin: CloudImportedPlugin) => void;
-  onProgramDetail?: (program: DenLibraryProgramItem) => void;
   onOrgMcpDetail?: (item: ExtensionItem) => void;
   orgMcpDisconnectingId: string | null;
   disconnectOrgMcp?: (connectionId: string) => void;
@@ -1583,33 +1514,6 @@ function McpQuickConnectSection(props: {
           meta={orgMeta}
           actionLabel="View details"
           onClick={() => props.onPluginDetail?.(plugin)}
-        />
-      ),
-    });
-  }
-
-  for (const program of props.programs ?? []) {
-    const group: ExtensionInventoryGroup = program.state === "needs_signin"
-      ? "needs_signin"
-      : program.state === "needs_admin_setup" ? "needs_admin_setup" : "ready";
-    const lifecycle = program.resultState === "never_run"
-      ? "Not run yet"
-      : program.resultState === "needs_attention" ? "Latest run needs attention" : program.resultState;
-    cards.push({
-      key: `program:${program.id}`,
-      group,
-      node: (
-        <ExtensionCard
-          layout={props.layout}
-          name={program.name}
-          description={program.description ?? `Code Mode Program · ${lifecycle}`}
-          taxonomy="program"
-          connected={group === "ready"}
-          connectedLabel={lifecycle}
-          meta={`${program.plugin.name} · ${orgMeta} · ${program.viewState === "custom_active" ? program.activeViewTitle ?? "Custom view" : program.viewState.replace("_", " ")}`}
-          actionLabel="View details"
-          nextActionLabel={group === "needs_signin" ? t("mcp.login_action") : undefined}
-          onClick={() => props.onProgramDetail?.(program)}
         />
       ),
     });

@@ -59,8 +59,6 @@ import {
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
 import { cleanupOpenworkCloudMcpAfterSignOut } from "@/react-app/domains/connections/cloud-mcp-reconciler";
 import { useOrgMcpConnections } from "@/react-app/domains/connections/use-org-mcp-connections";
-import { useLibraryPrograms } from "@/react-app/domains/settings/cloud/use-library-programs";
-import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "@/react-app/domains/connections/openwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
@@ -310,7 +308,6 @@ export function parseSettingsPath(pathname: string): {
       if (tail === "mcp") return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
       if (
         tail === "apps"
-        || tail === "programs"
         || tail === "connections"
         || tail === "mcps"
         || tail === "skills"
@@ -757,7 +754,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const providerAuthSnapshot = useProviderAuthStoreSnapshot(providerAuthStore);
   const extensionsSnapshot = useExtensionsStoreSnapshot(extensionsStore);
   const orgMcpConnections = useOrgMcpConnections();
-  const libraryPrograms = useLibraryPrograms();
 
   const openworkServerStatusForMcp = openworkServerSnapshot.openworkServerStatus;
   useEffect(() => {
@@ -2322,7 +2318,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshPlugins();
               void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
               void orgMcpConnections.refresh();
-              void libraryPrograms.refresh();
               void refreshConnectCapabilities({ force: true });
             }}
             mcpView={({ initialFilter, onFilterChange, initialState, onStateChange, detailId, onDetailIdChange }) => (
@@ -2372,24 +2367,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   ),
                 )}
                 availableConnectMcpStatuses={connectCapabilities.mcpStatuses}
-                inventoryLoading={connectCapabilitiesLoading || orgMcpConnections.loading || libraryPrograms.loading}
+                inventoryLoading={connectCapabilitiesLoading || (orgMcpConnections.loading && !orgMcpConnections.loaded)}
                 installedPlugins={extensionItems.installedCloudPlugins}
-                programs={libraryPrograms.programs}
-                programsError={libraryPrograms.error}
-                useProgramInChat={async (program) => {
-                  await connectionsStore.syncCloudControlMcp({ force: true });
-                  await connectionsStore.refreshMcpServers();
-                  if (!opencodeClient || !selectedWorkspaceId) {
-                    navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
-                    return;
-                  }
-                  const session = unwrap(await opencodeClient.session.create({ directory: selectedWorkspaceRoot || undefined }));
-                  saveSessionDraft(selectedWorkspaceId, session.id, {
-                    mode: "prompt",
-                    text: `Call select_program with programId ${JSON.stringify(program.id)}, then call render_selected_program to open the latest retained Artifact from ${JSON.stringify(program.name)}.`,
-                  });
-                  navigate(workspaceSessionRoute(selectedWorkspaceId, session.id));
-                }}
                 orgMcpItems={orgMcpConnectionItems}
                 organizationName={cloudSession.activeOrgName}
                 orgMcpError={orgMcpConnections.error}

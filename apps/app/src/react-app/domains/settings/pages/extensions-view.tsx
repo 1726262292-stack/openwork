@@ -11,7 +11,6 @@ import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 export type ExtensionsSection =
   | "all"
   | "apps"
-  | "programs"
   | "connections"
   | "mcps"
   | "skills"
@@ -25,8 +24,6 @@ function filterForSection(section: ExtensionsSection | undefined): ExtensionInve
   switch (section) {
     case "apps":
       return "app";
-    case "programs":
-      return "program";
     case "connections":
       return "connection";
     case "mcps":
@@ -44,8 +41,6 @@ function sectionForFilter(filter: ExtensionInventoryFilter): ExtensionsSection {
   switch (filter) {
     case "app":
       return "apps";
-    case "program":
-      return "programs";
     case "connection":
       return "connections";
     case "mcp":
