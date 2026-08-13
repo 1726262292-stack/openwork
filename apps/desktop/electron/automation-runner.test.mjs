@@ -146,8 +146,10 @@ test("a runner credential bound elsewhere reports why this desktop stays disconn
   await new Promise((resolve) => setTimeout(resolve, 25))
   runner.stop()
   assert.deepEqual(attempted, [])
-  assert.ok(logged.some((entry) =>
-    entry.includes("https://den.example.com/api/den") && entry.includes("https://api.example.com")))
+  assert.deepEqual(logged, [
+    "rejected runner credential for https://den.example.com/api/den"
+      + ": token audience https://api.example.com",
+  ])
 })
 
 test("desktop Automation execution creates a normal visible local OpenWork thread", async () => {
