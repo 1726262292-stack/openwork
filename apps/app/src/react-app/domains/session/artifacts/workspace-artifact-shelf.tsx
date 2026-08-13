@@ -9,7 +9,6 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  GripHorizontal,
   LayoutDashboard,
   LoaderCircle,
   MoveLeft,
@@ -63,13 +62,11 @@ function WorkspaceArtifactWidgetCard({
   workspaceId,
   widget,
   height,
-  showTitle,
 }: {
   client: OpenworkServerClient;
   workspaceId: string;
   widget: WorkspaceArtifactWidget;
   height: number;
-  showTitle: boolean;
 }) {
   const query = useQuery({
     queryKey: workspaceArtifactWidgetQueryKey(workspaceId, widget.id),
@@ -101,20 +98,15 @@ function WorkspaceArtifactWidgetCard({
 
   return (
     <article
-      className="min-w-0 overflow-hidden rounded-2xl border border-border bg-background shadow-sm"
+      className="min-w-0 overflow-hidden bg-transparent"
       data-workspace-artifact-widget={widget.id}
       aria-label={widget.title}
     >
-      {showTitle ? (
-        <div className="flex h-8 items-center gap-2 border-b border-border/70 bg-muted/20 px-3">
-          <LayoutDashboard className="size-3.5 shrink-0 text-primary" />
-          <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{widget.title}</h2>
-          {query.isFetching ? <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" aria-label={`Refreshing ${widget.title}`} /> : null}
-        </div>
-      ) : null}
-      <div className="relative bg-background" style={{ height: height - (showTitle ? 32 : 0) }}>
-        {!showTitle && query.isFetching ? (
-          <LoaderCircle className="absolute end-3 top-3 z-10 size-3.5 animate-spin text-muted-foreground" aria-label={`Refreshing ${widget.title}`} />
+      <div className="relative overflow-hidden bg-transparent" style={{ height }}>
+        {query.isFetching ? (
+          <div className="absolute end-3 top-3 z-10 flex size-7 items-center justify-center rounded-full bg-background/90 text-muted-foreground shadow-sm backdrop-blur-sm">
+            <LoaderCircle className="size-3.5 animate-spin" aria-label={`Refreshing ${widget.title}`} />
+          </div>
         ) : null}
         {query.data ? (
           <McpAppFrame
@@ -123,7 +115,7 @@ function WorkspaceArtifactWidgetCard({
             toolName={query.data.toolName}
             input={query.data.input}
             result={query.data.result}
-            fixedHeight={height - (showTitle ? 32 : 0)}
+            fixedHeight={height}
           />
         ) : query.isError ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center" role="status">
@@ -237,12 +229,12 @@ export function WorkspaceArtifactShelf({
 
   return (
     <section
-      className="border-t border-border bg-dls-surface/95 px-3 pb-3 pt-2 mac:bg-dls-surface/80"
+      className="border-t border-border/70 bg-dls-surface/95 px-4 pb-3 pt-2 mac:bg-dls-surface/80"
       data-workspace-artifact-layout
       aria-label="Workspace artifacts"
     >
       <div
-        className="mb-2 flex h-8 touch-pan-y items-center gap-2 rounded-xl px-1"
+        className="mb-2 flex h-9 touch-pan-y items-center gap-2 px-0.5"
         onPointerDown={(event) => {
           swipeStartRef.current = event.clientX;
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -400,7 +392,7 @@ export function WorkspaceArtifactShelf({
         </div>
       ) : null}
 
-      <div className={cn("grid gap-2", gridClass)}>
+      <div className={cn("grid gap-3", gridClass)}>
         {widgets.map((widget) => (
           <WorkspaceArtifactWidgetCard
             key={widget.id}
@@ -408,16 +400,9 @@ export function WorkspaceArtifactShelf({
             workspaceId={workspaceId}
             widget={widget}
             height={height}
-            showTitle={configuredCount > 1}
           />
         ))}
       </div>
-      {layout.widgets.length > 1 ? (
-        <div className="mt-2 flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
-          <GripHorizontal className="size-3" />
-          Swipe the dashboard title or use the arrows to move between widgets
-        </div>
-      ) : null}
     </section>
   );
 }

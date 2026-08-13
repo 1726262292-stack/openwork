@@ -568,9 +568,9 @@ export function McpAppFrame(props: McpAppFrameProps) {
   return (
     <div
       className={cn(
-        "group/mcp-app overflow-hidden rounded-xl bg-background",
-        surface === "conversation" ? "mt-3" : "h-full",
-        app?.prefersBorder && "border border-border",
+        "group/mcp-app overflow-hidden",
+        surface === "conversation" ? "mt-3 rounded-xl bg-background" : "h-full bg-transparent",
+        surface === "conversation" && app?.prefersBorder && "border border-border",
       )}
       data-mcp-app-resource={app?.resourceUri}
       data-mcp-app-surface={surface}
