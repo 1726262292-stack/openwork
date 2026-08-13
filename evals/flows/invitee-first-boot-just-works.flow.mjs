@@ -224,13 +224,13 @@ export default {
                 label: "join org success",
               });
               await ctx.expectText("You're in");
-              await ctx.expectText("Download for");
+              await ctx.expectText("Get the desktop app");
               await assertMayaAcceptedAndActive(ctx);
               await redactInviteCredentialInPage(ctx);
             },
             screenshot: {
               name: "maya-joined-get-desktop-app",
-              requireText: ["You're in", ORG_NAME, "Download for"],
+              requireText: ["You're in", ORG_NAME, "Get the desktop app"],
               rejectText: ["Something went wrong", "invite="],
             },
           });
@@ -1013,7 +1013,7 @@ async function completeMayaJoin(ctx) {
     await clickButtonStartingWithOneOf(ctx, ["Join Acme Robotics"], 30_000);
   }
   await ctx.waitFor("Boolean(document.querySelector('[data-testid=\"join-org-success\"]'))", { timeoutMs: 60_000, label: "join success" });
-  await ctx.waitForText("Download for", { timeoutMs: 30_000 });
+  await ctx.waitForText("Get the desktop app", { timeoutMs: 30_000 });
 }
 
 async function clickButtonStartingWithOneOf(ctx, prefixes, timeoutMs) {
@@ -1157,19 +1157,8 @@ async function assertModelAccessCard(ctx, { mode, adminException, zenAllowed }) 
 }
 
 async function openInstallGuideFromJoinSuccess(ctx) {
-  await ctx.waitFor("Boolean(document.querySelector('[data-testid=\"join-org-get-app\"]'))", {
-    timeoutMs: 30_000,
-    label: "join success download CTA",
-  });
-  await ctx.trustedClick("[data-testid=join-org-get-app]");
-  const downloadHref = await ctx.waitFor(
-    "document.querySelector('[data-testid=join-org-get-app]')?.getAttribute('data-download-href') || ''",
-    { timeoutMs: 30_000, label: "org-served installer href" },
-  );
-  const token = new URL(String(downloadHref)).searchParams.get("token")?.trim() ?? "";
-  ctx.assert(token.length > 0, `Join success download did not include an install token: ${downloadHref}`);
-  const installPageUrl = new URL(`/install?token=${encodeURIComponent(token)}`, denWebUrl()).toString();
-  await ctx.eval(`window.location.assign(${JSON.stringify(installPageUrl)})`);
+  await ctx.waitForText("Get the desktop app", { timeoutMs: 30_000 });
+  await ctx.clickText("Get the desktop app", { selector: "button", timeoutMs: 30_000 });
   await ctx.waitFor("Boolean(document.querySelector('[data-testid=\"install-page\"]'))", {
     timeoutMs: 45_000,
     label: "install guide page",
