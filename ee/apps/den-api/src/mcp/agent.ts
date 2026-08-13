@@ -128,6 +128,7 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "External MCP matches include the provider-advertised argumentsSchema, schemaDigest, and invocation.argumentsField. Put an object matching argumentsSchema in execute_capability.body and copy schemaDigest into execute_capability.schemaDigest.",
   "OpenWork always attempts the downstream provider call when local schema checks find a mismatch. schemaGuidance is advisory and appears alongside the provider result: if the provider succeeded, accept that result and do not retry solely because of the warning; if it failed, use the warning to correct the arguments or search again.",
   "If the provider returns invalid_capability_arguments, correct the listed issues and retry once with changed arguments; never retry the same arguments unchanged. If it returns unknown_capability, call search_capabilities again before retrying.",
+  "When save_artifact_view is advertised, create or update the saved Script with an explicit JSON Schema outputSchema matching its returned data before calling it. React is injected into view source, so use React APIs without imports and render only the supplied data prop. A failed view build includes diagnostics: change the source once and retry with the returned artifactViewId; do not search for a different Artifact tool or call render_dynamic_artifact. After a successful save, call the exact render_artifact_* or preview_artifact_* tool named in its result.",
   "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
@@ -579,7 +580,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         load: loadDynamicArtifact,
       })
 
-      if (artifactContext) {
+      // This server deploys independently from Desktop. Do not advertise or
+      // serve bridge-dependent generated views until the compatible Desktop
+      // MCP Apps host has been released and the operator enables the rollout.
+      if (artifactContext && env.generatedArtifactViewsEnabled) {
         const generatedViews = await listArtifactViews({ context: artifactContext })
         registerAgentGeneratedArtifactViews({
           server,

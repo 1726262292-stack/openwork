@@ -19,6 +19,9 @@ describe("MCP Apps sandbox proxy policy", () => {
     expect(MCP_APP_SANDBOX_PROXY_SCRIPT).toContain("ui/notifications/sandbox-resource-accepted");
     expect(MCP_APP_SANDBOX_PROXY_SCRIPT).toContain("ui/notifications/sandbox-resource-loaded");
     expect(MCP_APP_SANDBOX_PROXY_SCRIPT).toContain("ui/notifications/sandbox-diagnostic");
+    expect(MCP_APP_SANDBOX_PROXY_SCRIPT).toContain("postMessage({ method, params }, hostTargetOrigin)");
+    expect(MCP_APP_SANDBOX_PROXY_SCRIPT).toContain('jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready"');
+    expect(MCP_APP_SANDBOX_PROXY_SCRIPT).not.toContain('postMessage({ jsonrpc: "2.0", method, params }');
     expect(MCP_APP_SANDBOX_PROXY_SCRIPT).not.toContain("params.html");
   });
 

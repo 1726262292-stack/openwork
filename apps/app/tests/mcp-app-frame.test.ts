@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test"
 
-import type { OpenworkMcpAppResource } from "../src/app/lib/openwork-server"
+import { OpenworkServerError, type OpenworkMcpAppResource } from "../src/app/lib/openwork-server"
 import { formatMcpAppDiagnostic, safeMcpAppDiagnosticMessage } from "../src/components/chat/mcp-app-diagnostics"
-import { buildMcpAppCsp, secureMcpAppHtml } from "../src/components/chat/mcp-app-frame"
+import {
+  buildMcpAppCsp,
+  isActionableMcpAppResolutionError,
+  secureMcpAppHtml,
+} from "../src/components/chat/mcp-app-frame"
 
 function fixture(overrides: Partial<OpenworkMcpAppResource> = {}): OpenworkMcpAppResource {
   return {
@@ -22,6 +26,12 @@ function fixture(overrides: Partial<OpenworkMcpAppResource> = {}): OpenworkMcpAp
 }
 
 describe("MCP App iframe policy", () => {
+  test("keeps ordinary tools silent while surfacing advertised resource failures", () => {
+    expect(isActionableMcpAppResolutionError(new OpenworkServerError(503, "mcp_unreachable", "offline"))).toBe(false)
+    expect(isActionableMcpAppResolutionError(new OpenworkServerError(404, "resource_read_failed", "missing"))).toBe(true)
+    expect(isActionableMcpAppResolutionError(new Error("generic failure"))).toBe(false)
+  })
+
   test("formats safe, copyable handshake diagnostics", () => {
     const details = formatMcpAppDiagnostic({
       code: "MCP_APP_INITIALIZE_TIMEOUT",
