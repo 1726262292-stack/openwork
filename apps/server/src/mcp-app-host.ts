@@ -15,7 +15,7 @@ const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const MAX_TOOL_PAGES = 32;
 const MAX_TOOLS = 2_048;
-const MAX_RESOURCE_BYTES = 512 * 1024;
+const MAX_RESOURCE_BYTES = 768 * 1024;
 const MAX_RESULT_BYTES = 1024 * 1024;
 
 type McpAppCsp = {
@@ -212,7 +212,7 @@ function toolVisibility(tool: Partial<Tool>, audience: "model" | "app"): boolean
 
 function strictBase64Bytes(value: string): Uint8Array {
   if (value.length > Math.ceil(MAX_RESOURCE_BYTES / 3) * 4) {
-    throw new McpAppHostError("resource_too_large", "The MCP App resource exceeds the 512 KiB host limit.");
+    throw new McpAppHostError("resource_too_large", "The MCP App resource exceeds the 768 KiB host limit.");
   }
   if (value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
     throw new McpAppHostError("invalid_resource", "The MCP App resource blob is not valid base64.");
@@ -251,7 +251,7 @@ function findHtmlResource(
   }
   const decoded = decodeResourceHtml(content);
   if (decoded.bytes > MAX_RESOURCE_BYTES) {
-    throw new McpAppHostError("resource_too_large", "The MCP App resource exceeds the 512 KiB host limit.");
+    throw new McpAppHostError("resource_too_large", "The MCP App resource exceeds the 768 KiB host limit.");
   }
   return { html: decoded.html, meta: content._meta };
 }

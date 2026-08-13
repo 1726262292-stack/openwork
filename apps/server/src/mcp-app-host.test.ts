@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
@@ -136,27 +136,37 @@ async function startFixtureMcp(resourceContent: { text?: string; blob?: string }
     port: 0,
     fetch: (request) => transport.handleRequest(request),
   });
-  transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: randomUUID,
-    enableJsonResponse: true,
-    enableDnsRebindingProtection: true,
-    allowedHosts: [`127.0.0.1:${http.port}`, `localhost:${http.port}`],
-  });
-  await mcp.connect(transport);
+  const reconnect = async () => {
+    await mcp.close();
+    transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: randomUUID,
+      enableJsonResponse: true,
+      enableDnsRebindingProtection: true,
+      allowedHosts: [`127.0.0.1:${http.port}`, `localhost:${http.port}`],
+    });
+    await mcp.connect(transport);
+  };
+  await reconnect();
   stops.push(async () => {
     await mcp.close();
     http.stop(true);
   });
   return {
     url: `http://127.0.0.1:${http.port}`,
-    activateUpdatedResource: () => { activeResourceUri = UPDATED_RESOURCE_URI; },
+    activateUpdatedResource: async () => {
+      activeResourceUri = UPDATED_RESOURCE_URI;
+      // A stateful SDK server transport owns one initialized MCP session. The
+      // host deliberately creates a fresh client for each exact resolution,
+      // so reset the fixture transport before exercising the second lookup.
+      await reconnect();
+    },
   };
 }
 
 async function configuredFixture(
   prefix: string,
   resourceContent?: { text?: string; blob?: string },
-): Promise<{ config: ServerConfig; root: string; activateUpdatedResource: () => void }> {
+): Promise<{ config: ServerConfig; root: string; activateUpdatedResource: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
   const previousDevMode = process.env.OPENWORK_DEV_MODE;
@@ -226,7 +236,7 @@ describe("MCP Apps host transport", () => {
       workspaceRoot: root,
       projectedToolName: "fixture_render_fixture",
     });
-    activateUpdatedResource();
+    await activateUpdatedResource();
     const updated = await resolveMcpAppResource({
       serverConfig: config,
       workspaceId: WORKSPACE_ID,

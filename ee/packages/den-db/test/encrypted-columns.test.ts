@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test"
+import assert from "node:assert/strict"
+import test from "node:test"
 import { mysqlTable } from "drizzle-orm/mysql-core"
 import { encryptedTextColumn } from "../src/columns.js"
 
@@ -10,7 +11,7 @@ test("encrypted columns round-trip an empty string", () => {
       value: encryptedTextColumn("value").notNull(),
     })
     const encrypted = table.value.mapToDriverValue("")
-    expect(table.value.mapFromDriverValue(encrypted)).toBe("")
+    assert.equal(table.value.mapFromDriverValue(encrypted), "")
   } finally {
     if (previous === undefined) delete process.env.DEN_DB_ENCRYPTION_KEY
     else process.env.DEN_DB_ENCRYPTION_KEY = previous

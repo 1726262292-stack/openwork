@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
 import { Worker } from "node:worker_threads"
-import { build, type Message, type Plugin } from "esbuild"
+import { build, transform, type Message, type Plugin } from "esbuild"
 import React from "react"
 import type {
   GeneratedArtifactViewBuildDiagnostic,
@@ -11,10 +11,12 @@ import type {
 const MAX_SOURCE_BYTES = 200_000
 const MAX_CSS_BYTES = 100_000
 // Keep provider output within the desktop MCP Apps host's resources/read limit.
-const MAX_HTML_BYTES = 512 * 1024
+const MAX_HTML_BYTES = 768 * 1024
 const BUILD_TIMEOUT_MS = 2_000
 const require = createRequire(import.meta.url)
-const extAppsEntry = require.resolve("@modelcontextprotocol/ext-apps")
+// The browser-ready entry retains the stable MCP Apps client while avoiding
+// rebundling the SDK's validation dependencies into every immutable view.
+const extAppsEntry = require.resolve("@modelcontextprotocol/ext-apps/app-with-deps")
 const reactPackageRoot = require.resolve("react/package.json").replace(/\/package\.json$/u, "")
 const reactDomPackageRoot = require.resolve("react-dom/package.json").replace(/\/package\.json$/u, "")
 
@@ -71,7 +73,17 @@ function diagnosticsFrom(error: unknown): GeneratedArtifactViewBuildDiagnostic[]
   return [diagnostic(error instanceof Error ? error.message : "React view build failed.")]
 }
 
-function sourcePolicyDiagnostic(reactSource: string, cssSource: string): GeneratedArtifactViewBuildDiagnostic | null {
+const HOST_GLOBAL_NAMES = [
+  "process", "globalThis", "window", "document", "self", "parent", "top", "opener", "frames",
+  "location", "navigator", "history", "postMessage", "localStorage", "sessionStorage", "indexedDB",
+] as const
+
+const HOST_GLOBAL_DEFINES = Object.fromEntries(HOST_GLOBAL_NAMES.map((name, index) => [
+  name,
+  `__openwork_forbidden_host_global_${index}__`,
+]))
+
+async function sourcePolicyDiagnostic(reactSource: string, cssSource: string): Promise<GeneratedArtifactViewBuildDiagnostic | null> {
   const sourceBytes = Buffer.byteLength(reactSource)
   const cssBytes = Buffer.byteLength(cssSource)
   if (sourceBytes > MAX_SOURCE_BYTES) return diagnostic(`React source exceeds ${MAX_SOURCE_BYTES} bytes.`)
@@ -89,19 +101,24 @@ function sourcePolicyDiagnostic(reactSource: string, cssSource: string): Generat
   const blocked = forbidden.find(({ pattern }) => pattern.test(reactSource))
   if (blocked) return diagnostic(`Generated Artifact views cannot use ${blocked.label}. Use props.data and React rendering only.`)
 
-  // A lexical ban on every host-global spelling also rejected ordinary local
-  // identifiers such as `const top = products[0]`. Treat an explicitly declared
-  // local binding as local, while continuing to reject unbound browser globals.
-  const hostGlobals = [
-    "process", "globalThis", "window", "document", "self", "parent", "top", "opener", "frames",
-    "location", "navigator", "history", "postMessage", "localStorage", "sessionStorage", "indexedDB",
-  ]
-  const declaredBindings = new Set(Array.from(
-    reactSource.matchAll(/\b(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gu),
-    (match) => match[1],
-  ))
-  const hostGlobal = hostGlobals.find((name) =>
-    !declaredBindings.has(name) && new RegExp(`\\b${name}\\b`, "u").test(reactSource))
+  // esbuild's define substitution is scope-aware: it replaces only unbound
+  // global references and leaves local bindings such as `const top = ...`
+  // untouched. Inspecting the parsed output avoids both the old local-name
+  // false positive and whole-file shadowing bypasses across nested scopes.
+  let scopeAnalyzedSource: string
+  try {
+    scopeAnalyzedSource = (await transform(reactSource, {
+      loader: "tsx",
+      format: "esm",
+      target: "es2022",
+      legalComments: "none",
+      define: HOST_GLOBAL_DEFINES,
+    })).code
+  } catch (error) {
+    return diagnosticsFrom(error)[0] ?? diagnostic("React view build failed.")
+  }
+  const hostGlobal = HOST_GLOBAL_NAMES.find((_, index) =>
+    scopeAnalyzedSource.includes(`__openwork_forbidden_host_global_${index}__`))
   if (hostGlobal) {
     return diagnostic(`Generated Artifact views cannot use the browser host global "${hostGlobal}". Use component props and React rendering only.`)
   }
@@ -269,7 +286,7 @@ export async function buildGeneratedArtifactViewInWorker(input: GeneratedArtifac
     reactVersion: React.version,
     csp: GENERATED_ARTIFACT_VIEW_CSP,
   }
-  const policyFailure = sourcePolicyDiagnostic(reactSource, cssSource)
+  const policyFailure = await sourcePolicyDiagnostic(reactSource, cssSource)
   if (policyFailure) return { ok: false, ...shared, diagnostics: [policyFailure] }
 
   try {
