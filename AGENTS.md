@@ -39,6 +39,10 @@ even before a dedicated UI exists.
 
 ## Pull requests
 
+- Do not default to draft PRs. A request to create or make a PR means a
+  ready-for-review PR once the required proof is published. Use a draft only
+  when the requester explicitly asks for one or the current verdict is
+  `Incomplete` or `Failed`, and state exactly what proof is missing.
 - Run tests and report commands + results. A runtime-observable change is not
   done until its testkit tape is visible on the PR. If validation cannot run,
   say why and give exact repro steps.
