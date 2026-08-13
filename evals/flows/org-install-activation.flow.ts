@@ -269,9 +269,14 @@ async function acceptInvitationAndOpenWelcome(ctx: FlowContext): Promise<void> {
 
 async function openInstallGuide(ctx: FlowContext): Promise<void> {
   await ctx.trustedClick("[data-testid=join-org-get-app]");
+  const downloadHref = await ctx.waitFor(
+    "document.querySelector('[data-testid=join-org-get-app]')?.getAttribute('data-download-href') || ''",
+    { timeoutMs: BROWSER_TIMEOUT_MS, label: "org-served installer href" },
+  );
+  const token = extractInstallToken(requiredString(downloadHref, "download href"));
+  state.installLink = new URL(`/install?token=${encodeURIComponent(token)}`, getDenStackUrls().webBaseUrl).toString();
+  await ctx.eval(`window.location.assign(${JSON.stringify(state.installLink)})`);
   await ctx.waitForText("Download the OpenWork installer", { timeoutMs: BROWSER_TIMEOUT_MS });
-  const href = await ctx.eval(`window.location.href`);
-  state.installLink = requiredString(href, "install link");
 }
 
 function extractInstallToken(installLink: string): string {
@@ -464,7 +469,7 @@ async function prepareFlow(ctx: FlowContext): Promise<void> {
 async function assertBrandedWelcome(ctx: FlowContext): Promise<void> {
   await ctx.expectText("You're in, welcome to");
   await ctx.expectText(requiredString(ctx.env.OPENWORK_EVAL_ORG_NAME, "OPENWORK_EVAL_ORG_NAME"));
-  await ctx.expectText("Get the desktop app");
+  await ctx.expectText("Download for");
   await ctx.expectText("Continue in the browser");
 }
 
@@ -535,7 +540,7 @@ const flow = defineFlow({
             assert: async () => assertBrandedWelcome(ctx),
             screenshot: {
               name: "branded-organization-welcome",
-              requireText: ["You're in, welcome to", "Get the desktop app", "Continue in the browser"],
+              requireText: ["You're in, welcome to", "Download for", "Continue in the browser"],
             },
           });
         });

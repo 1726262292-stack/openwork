@@ -70,7 +70,7 @@ export default {
             await ctx.waitFor("Boolean(document.querySelector('[data-testid=join-org-success]'))", { timeoutMs: 45_000, label: "join-org success" });
             await ctx.expectText("You're in, welcome to Acme Robotics");
             const ctaText = await ctx.eval("document.querySelector('[data-testid=join-org-get-app]')?.textContent?.replace(/\\s+/g, ' ').trim() ?? ''");
-            witness(ctx, ctaText === "Get the desktop app", "The join success primary CTA is the guided install button", ctaText);
+            witness(ctx, ctaText.startsWith("Download for"), "The join success primary CTA downloads for this computer", ctaText);
             await ctx.expectNoText("Copy sign-in link");
             const oldOpenButtonVisible = await ctx.eval(`(() => {
               const oldTestId = document.querySelector('[data-testid=join-org-open-openwork]');
@@ -82,7 +82,7 @@ export default {
           },
           screenshot: {
             name: "join-success-one-clear-next-step",
-            requireText: ["You're in", "Get the desktop app"],
+            requireText: ["You're in", "Download for"],
             rejectText: ["Copy sign-in link"],
           },
         }));
@@ -94,10 +94,14 @@ export default {
         await withWeb(ctx, async () => ctx.prove("The join CTA opens Acme's guided setup and the org-served installer endpoint", {
           voiceover: vo[1],
           action: async () => {
-            await clickSelector(ctx, "[data-testid=join-org-get-app]", "guided install CTA");
-            await ctx.waitFor("location.pathname === '/install'", { timeoutMs: 30_000, label: "install page navigation" });
-            const installHref = await ctx.eval("location.href");
-            state.installToken = extractInstallToken(installHref, ctx);
+            await clickSelector(ctx, "[data-testid=join-org-get-app]", "detected-OS download CTA");
+            const downloadHref = await ctx.waitFor(
+              "document.querySelector('[data-testid=join-org-get-app]')?.getAttribute('data-download-href') || ''",
+              { timeoutMs: 30_000, label: "org-served installer href" },
+            );
+            witness(ctx, /\/v1\/install\//.test(String(downloadHref)), "The join CTA starts an installer download instead of opening /install", downloadHref);
+            witness(ctx, await ctx.eval("location.pathname !== '/install'"), "Join success stays on the joined card after download", await ctx.eval("location.pathname"));
+            state.installToken = extractInstallToken(String(downloadHref), ctx);
             // The eval stack mints install links on the den-proxy origin; the
             // guide page lives on den-web, so rebuild before asserting it
             // (idempotent on deployments whose first trusted origin is den-web).

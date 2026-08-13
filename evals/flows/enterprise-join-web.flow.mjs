@@ -147,13 +147,22 @@ export default {
         await ctx.prove("New member can get the desktop app installer from the welcome screen", {
           action: async () => {
             const cta = await getInstallerCta(ctx);
-            assertEvidence(ctx, cta.exists, "The joined welcome screen exposes a Get the desktop app CTA", cta);
+            assertEvidence(ctx, cta.exists, "The joined welcome screen exposes a Download for {OS} CTA", cta);
             const installer = await captureInstallerTarget(ctx);
             state.installerUrl = installer.url.trim();
             const redactedInstaller = redactNavigationWitness(installer);
             assertEvidence(ctx, state.installerUrl.length > 0, "The installer/download action produced a non-empty URL", redactedInstaller);
             ctx.output("installer-download-url", JSON.stringify({ url: redactUrlParam(state.installerUrl, "token"), source: installer.source }, null, 2));
             ctx.log(`Installer/download URL: ${redactUrlParam(state.installerUrl, "token")}`);
+            let installToken = "";
+            try {
+              installToken = new URL(state.installerUrl).searchParams.get("token")?.trim() ?? "";
+            } catch {
+              installToken = "";
+            }
+            assertEvidence(ctx, installToken.length > 0, "The download URL carries the organization install token", redactUrlParam(state.installerUrl, "token"));
+            const installPageUrl = new URL(`/install?token=${encodeURIComponent(installToken)}`, denWebBase(ctx)).toString();
+            await ctx.eval(`window.location.assign(${JSON.stringify(installPageUrl)})`);
             await ctx.waitFor("Boolean(document.querySelector('[data-testid=install-guide]'))", {
               timeoutMs: 30_000,
               label: "company install guide",
@@ -453,7 +462,7 @@ async function getInstallerCta(ctx) {
   return ctx.eval(`(() => {
     const normalize = (value) => (value ?? '').replace(/\\s+/g, ' ').trim();
     const element = [...document.querySelectorAll('a, button, [role="button"]')]
-      .find((entry) => normalize(entry.textContent) === 'Get the desktop app');
+      .find((entry) => normalize(entry.textContent).startsWith('Download for') || entry.getAttribute('data-testid') === 'join-org-get-app');
     return {
       exists: Boolean(element),
       tagName: element?.tagName ?? '',
@@ -469,7 +478,7 @@ async function captureInstallerTarget(ctx) {
   const href = await ctx.eval(`(() => {
     const normalize = (value) => (value ?? '').replace(/\\s+/g, ' ').trim();
     const element = [...document.querySelectorAll('a, button, [role="button"]')]
-      .find((entry) => normalize(entry.textContent) === 'Get the desktop app');
+      .find((entry) => normalize(entry.textContent).startsWith('Download for') || entry.getAttribute('data-testid') === 'join-org-get-app');
     const anchor = element instanceof HTMLAnchorElement ? element : element?.closest?.('a[href]') ?? element?.querySelector?.('a[href]') ?? null;
     if (!anchor) return '';
     return anchor.href || anchor.getAttribute('href') || '';
@@ -481,7 +490,7 @@ async function captureInstallerTarget(ctx) {
   await ctx.eval(`(() => {
     const normalize = (value) => (value ?? '').replace(/\\s+/g, ' ').trim();
     const element = [...document.querySelectorAll('a, button, [role="button"]')]
-      .find((entry) => normalize(entry.textContent) === 'Get the desktop app');
+      .find((entry) => normalize(entry.textContent).startsWith('Download for') || entry.getAttribute('data-testid') === 'join-org-get-app');
     if (!element) return false;
     window.__enterpriseDownloadCapture = { opened: '', downloadHref: '', before: ${JSON.stringify(before)} };
     if (!window.__enterpriseOriginalOpen) window.__enterpriseOriginalOpen = window.open;
@@ -502,9 +511,11 @@ async function captureInstallerTarget(ctx) {
     const capture = window.__enterpriseDownloadCapture;
     if (capture?.opened) return capture.opened;
     if (capture?.downloadHref) return capture.downloadHref;
+    const minted = document.querySelector('[data-testid=join-org-get-app]')?.getAttribute('data-download-href');
+    if (minted) return minted;
     if (location.href !== ${JSON.stringify(before)}) return location.href;
     return '';
-  })()`, { timeoutMs: 30_000, label: "installer/download URL after Get the desktop app" });
+  })()`, { timeoutMs: 30_000, label: "installer/download URL after Download for OS" });
   const after = await ctx.eval("location.href").catch(() => "");
   await ctx.eval(`(() => {
     if (window.__enterpriseOriginalOpen) window.open = window.__enterpriseOriginalOpen;
