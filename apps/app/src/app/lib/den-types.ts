@@ -149,9 +149,10 @@ export type DenResourceSnapshot = {
   };
 };
 
-export type DenLibraryArtifactItem = {
-  type: "artifact";
+export type DenLibraryProgramItem = {
+  type: "program";
   id: string;
+  plugin: { id: string; name: string };
   name: string;
   description: string | null;
   role: "viewer" | "editor" | "manager";

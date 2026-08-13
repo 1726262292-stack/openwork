@@ -117,7 +117,7 @@ import { pluginArchRoutePaths } from "./contracts.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "../shared.js"
 import { isAgentOAuthClientConnection, listMemberUsableConnectionFacts } from "../mcp-connections.js"
 import { codemodeScriptsEnabled } from "../../../capability-sources/codemode-rollout.js"
-import { listDynamicArtifactLibraryItems } from "../../../artifact-library.js"
+import { listProgramLibraryItems } from "../../../program-library.js"
 import {
   PluginArchRouteFailure,
   addPluginMembership,
@@ -1036,7 +1036,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     describeRoute({
       tags: ["Plugins"],
       summary: "List my library",
-      description: "Lists the active plugins and connections the caller can use, with every applicable access edge.",
+      description: "Lists the active plugins, Programs, and connections the caller can use, with every applicable access edge. Programs remain Script config objects contained by their parent OpenWork Connect Plugin.",
       responses: {
         200: jsonResponse("Effective member library returned successfully.", meLibraryListResponseSchema),
         401: jsonResponse("The caller must be signed in to view their library.", unauthorizedSchema),
@@ -1045,15 +1045,15 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     async (c: OrgContext) => {
       try {
         const context = actorContext(c)
-        const [pluginItems, connections, artifactItems] = await Promise.all([
+        const [pluginItems, connections, programItems] = await Promise.all([
           listMeLibraryPluginItems({ context }),
           listMemberUsableConnectionFacts({ context }),
           codemodeScriptsEnabled(context.organizationContext.organization.metadata)
-            ? listDynamicArtifactLibraryItems({ context })
+            ? listProgramLibraryItems({ context })
             : Promise.resolve([]),
         ])
         const connectionItems = await listMeLibraryConnectionItems({ connections, context })
-        const items = [...pluginItems, ...connectionItems, ...artifactItems]
+        const items = [...pluginItems, ...connectionItems, ...programItems]
         items.sort((left, right) => {
           const byName = left.name.localeCompare(right.name)
           return byName !== 0 ? byName : left.id.localeCompare(right.id)

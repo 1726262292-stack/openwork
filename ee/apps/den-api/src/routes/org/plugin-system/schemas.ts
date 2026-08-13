@@ -551,8 +551,9 @@ export const libraryItemSchema = z.discriminatedUnion("type", [
     edges: z.array(effectiveAccessEdgeSchema),
   }),
   z.object({
-    type: z.literal("artifact"),
+    type: z.literal("program"),
     id: configObjectIdSchema,
+    plugin: z.object({ id: pluginIdSchema, name: z.string().trim().min(1).max(255) }),
     name: z.string().trim().min(1).max(255),
     description: nullableStringSchema,
     role: accessRoleSchema,

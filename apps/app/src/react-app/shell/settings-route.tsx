@@ -59,7 +59,7 @@ import {
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
 import { cleanupOpenworkCloudMcpAfterSignOut } from "@/react-app/domains/connections/cloud-mcp-reconciler";
 import { useOrgMcpConnections } from "@/react-app/domains/connections/use-org-mcp-connections";
-import { useLibraryArtifacts } from "@/react-app/domains/settings/cloud/use-library-artifacts";
+import { useLibraryPrograms } from "@/react-app/domains/settings/cloud/use-library-programs";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { createOpenworkServerStore, useOpenworkServerStoreSnapshot } from "@/react-app/domains/connections/openwork-server-store";
 import { createProviderAuthStore, useProviderAuthStoreSnapshot } from "@/react-app/domains/connections/provider-auth/store";
@@ -310,7 +310,7 @@ export function parseSettingsPath(pathname: string): {
       if (tail === "mcp") return { tab: "extensions", redirectPath: "extensions/mcps", extensionsSection: "mcps" };
       if (
         tail === "apps"
-        || tail === "artifacts"
+        || tail === "programs"
         || tail === "connections"
         || tail === "mcps"
         || tail === "skills"
@@ -757,7 +757,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const providerAuthSnapshot = useProviderAuthStoreSnapshot(providerAuthStore);
   const extensionsSnapshot = useExtensionsStoreSnapshot(extensionsStore);
   const orgMcpConnections = useOrgMcpConnections();
-  const libraryArtifacts = useLibraryArtifacts();
+  const libraryPrograms = useLibraryPrograms();
 
   const openworkServerStatusForMcp = openworkServerSnapshot.openworkServerStatus;
   useEffect(() => {
@@ -2322,7 +2322,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               void extensionsStore.refreshPlugins();
               void extensionsStore.refreshCloudOrgMarketplaces({ force: true });
               void orgMcpConnections.refresh();
-              void libraryArtifacts.refresh();
+              void libraryPrograms.refresh();
               void refreshConnectCapabilities({ force: true });
             }}
             mcpView={({ initialFilter, onFilterChange, initialState, onStateChange, detailId, onDetailIdChange }) => (
@@ -2372,12 +2372,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   ),
                 )}
                 availableConnectMcpStatuses={connectCapabilities.mcpStatuses}
-                inventoryLoading={connectCapabilitiesLoading || orgMcpConnections.loading || libraryArtifacts.loading}
+                inventoryLoading={connectCapabilitiesLoading || orgMcpConnections.loading || libraryPrograms.loading}
                 installedPlugins={extensionItems.installedCloudPlugins}
-                artifacts={libraryArtifacts.artifacts}
-                artifactsError={libraryArtifacts.error}
-                useArtifactInChat={async (artifact) => {
-                  await libraryArtifacts.select(artifact.id);
+                programs={libraryPrograms.programs}
+                programsError={libraryPrograms.error}
+                useProgramInChat={async (program) => {
+                  await libraryPrograms.select(program.id);
                   await connectionsStore.syncCloudControlMcp({ force: true });
                   await connectionsStore.refreshMcpServers();
                   if (!opencodeClient || !selectedWorkspaceId) {
@@ -2387,7 +2387,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   const session = unwrap(await opencodeClient.session.create({ directory: selectedWorkspaceRoot || undefined }));
                   saveSessionDraft(selectedWorkspaceId, session.id, {
                     mode: "prompt",
-                    text: `Open the selected Dynamic Artifact "${artifact.name}" and render its latest retained result.`,
+                    text: `Open the selected Program "${program.name}" and render its latest retained artifact.`,
                   });
                   navigate(workspaceSessionRoute(selectedWorkspaceId, session.id));
                 }}

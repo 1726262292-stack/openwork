@@ -36,9 +36,9 @@ export function AutomationsScreen() {
   const searchParams = useSearchParams();
   const automationId = searchParams.get("automation")?.trim() || null;
   const runId = searchParams.get("run")?.trim() || null;
-  const artifactId = searchParams.get("artifact")?.trim() || null;
-  const artifactVersionId = searchParams.get("version")?.trim() || null;
-  const artifactDetail = useSavedScriptDetail(artifactId ?? "", 86_400_000);
+  const programId = searchParams.get("program")?.trim() || null;
+  const programVersionId = searchParams.get("version")?.trim() || null;
+  const programDetail = useSavedScriptDetail(programId ?? "", 86_400_000);
   const listQuery = useAutomations();
   const detailQuery = useAutomation(automationId);
   const runsQuery = useAutomationRuns(automationId);
@@ -52,8 +52,8 @@ export function AutomationsScreen() {
   const [editing, setEditing] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   useEffect(() => {
-    if (artifactId && artifactDetail.data && !automationId) setCreating(true);
-  }, [artifactDetail.data, artifactId, automationId]);
+    if (programId && programDetail.data && !automationId) setCreating(true);
+  }, [programDetail.data, programId, automationId]);
   const action = detailQuery.data?.revision.action;
   const configObjectId = action?.kind === "saved_script" ? action.script.configObjectId : null;
   const selectedSnapshot = useAutomationArtifactSnapshot(configObjectId, runQuery.data?.run.codemodeReceiptId ?? null);
@@ -71,11 +71,11 @@ export function AutomationsScreen() {
 
   if (!automationId) {
     const items = listQuery.data?.items.filter((item) => item.automation.state !== "archived") ?? [];
-    const artifactVersion = artifactDetail.data?.versions.find((version) => version.id === artifactVersionId) ?? artifactDetail.data?.currentVersion;
-    const savedScriptPrefill = artifactId && artifactDetail.data && artifactVersion ? {
-      name: artifactDetail.data.title,
-      script: { pluginId: artifactDetail.data.pluginId, configObjectId: artifactId, configObjectVersionId: artifactVersion.id },
-      input: artifactVersion.exampleInput ?? {},
+    const programVersion = programDetail.data?.versions.find((version) => version.id === programVersionId) ?? programDetail.data?.currentVersion;
+    const savedScriptPrefill = programId && programDetail.data && programVersion ? {
+      name: programDetail.data.title,
+      script: { pluginId: programDetail.data.pluginId, configObjectId: programId, configObjectVersionId: programVersion.id },
+      input: programVersion.exampleInput ?? {},
     } : undefined;
     return (
       <div className="mx-auto max-w-[980px] px-6 py-8 md:px-8">
@@ -104,7 +104,7 @@ export function AutomationsScreen() {
       <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
         <div className="space-y-5">
           <section className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">{action?.kind === "saved_script" ? "Saved Script" : "Instructions"}</h2>{action?.kind === "saved_script" ? <div className="mt-3 space-y-3 text-[12px]"><div><p className="text-gray-400">Exact Script version</p><p className="break-all font-mono text-gray-700">{action.script.configObjectVersionId}</p></div><div><p className="text-gray-400">Input</p><pre className="mt-1 overflow-auto whitespace-pre-wrap rounded-xl bg-gray-950 p-3 font-mono text-[11px] text-gray-100">{JSON.stringify(action.input ?? {}, null, 2)}</pre></div></div> : <p className="mt-3 whitespace-pre-wrap text-[13px] text-gray-700">{detail.revision.instructions}</p>}</section>
-          {latestSnapshot.data ? <section className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Latest validated result</h2><p className="mt-1 text-[12px] text-gray-400">The last successful Dynamic Artifact remains readable after later failures.</p><div className="mt-4"><SavedScriptArtifactResult snapshot={latestSnapshot.data} lastSuccessful /></div></section> : null}
+          {latestSnapshot.data ? <section className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Latest validated result</h2><p className="mt-1 text-[12px] text-gray-400">The Program's last successful Artifact remains readable after later failures.</p><div className="mt-4"><SavedScriptArtifactResult snapshot={latestSnapshot.data} lastSuccessful /></div></section> : null}
           <section className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="flex items-center gap-2 text-[14px] font-semibold text-gray-900"><CalendarClock className="h-4 w-4" />Run history</h2><div className="mt-3 space-y-2">{runs.length === 0 ? <p className="text-[13px] text-gray-400">No runs yet.</p> : runs.map((run) => <button key={run.id} type="button" onClick={() => setQuery(detail.automation.id, run.id)} className="flex w-full items-center justify-between rounded-xl border border-gray-100 p-3 text-left hover:bg-gray-50"><span><span className={`rounded-full px-2 py-0.5 text-[10px] ${statusTone(run.status)}`}>{run.status}</span><span className="ml-2 text-[11px] text-gray-400">{run.trigger}</span><span className="mt-1 block text-[11px] text-gray-400">{new Date(run.startedAt ?? run.createdAt).toLocaleString()}</span></span><span className="flex items-center gap-1 text-[11px] text-gray-400"><Cloud className="h-3 w-3" />{run.executionTarget === "cloud" ? "OpenWork Cloud" : "Desktop"}</span></button>)}</div></section>
         </div>
         <section className="h-fit rounded-2xl border border-gray-100 bg-white p-5"><div className="flex items-center justify-between gap-3"><h2 className="text-[14px] font-semibold text-gray-900">Run receipt</h2>{activeRun ? <DenButton variant="destructive" size="sm" loading={cancelRun.isPending} onClick={() => void cancelRun.mutateAsync(activeRun.id)}><Square className="h-3 w-3" />Cancel run</DenButton> : null}</div>{!runId ? <p className="mt-8 text-center text-[13px] text-gray-400">Select a run to inspect its durable receipt.</p> : runQuery.isLoading ? <p className="mt-4 text-[13px] text-gray-400">Loading receipt…</p> : runQuery.data ? <div className="mt-4 space-y-4">{cancelRun.error ? <div className="rounded-xl bg-red-50 p-3 text-[12px] text-red-600">{cancelRun.error.message}</div> : null}{runQuery.data.run.executionThread?.nativeThreadId ? <div className="rounded-xl bg-gray-50 p-3 text-[11px] text-gray-500"><p className="font-medium text-gray-700">Native OpenWork Cloud thread</p><p className="mt-1 break-all font-mono">{runQuery.data.run.executionThread.nativeThreadId}</p>{runQuery.data.run.executionThread.workspaceId ? <p className="mt-1 break-all font-mono">Workspace {runQuery.data.run.executionThread.workspaceId}</p> : null}</div> : null}{runQuery.data.run.error ? <div className="rounded-xl bg-red-50 p-3 text-[12px] text-red-600">{runQuery.data.run.error.message}</div> : null}{selectedSnapshot.data ? <SavedScriptArtifactResult snapshot={selectedSnapshot.data} lastSuccessful={selectedSnapshot.data.receiptId === latestSnapshot.data?.receiptId} /> : runQuery.data.run.validatedResult !== undefined ? <pre className="overflow-auto whitespace-pre-wrap rounded-xl bg-gray-950 p-3 font-mono text-[11px] text-gray-100">{JSON.stringify(runQuery.data.run.validatedResult, null, 2)}</pre> : runQuery.data.run.resultSummary ? <p className="whitespace-pre-wrap text-[13px] leading-6 text-gray-700">{runQuery.data.run.resultSummary}</p> : <p className="text-[13px] text-gray-400">This run has no result yet.</p>}<p className="text-[11px] text-gray-400">Usage: {runQuery.data.run.usage.inputTokens ?? "—"} input · {runQuery.data.run.usage.outputTokens ?? "—"} output · {runQuery.data.run.usage.costMicros === null ? "cost unavailable" : `$${(runQuery.data.run.usage.costMicros / 1_000_000).toFixed(4)}`}</p>{runQuery.data.events.length ? <ol className="space-y-2 border-l border-gray-200 pl-3">{runQuery.data.events.map((event) => <li key={event.id} className="text-[11px]"><div className="flex justify-between gap-2"><span className="font-medium text-gray-700">{event.type.replaceAll("_", " ")}</span><time className="text-gray-400">{new Date(event.createdAt).toLocaleTimeString()}</time></div><pre className="mt-1 overflow-auto whitespace-pre-wrap text-gray-500">{JSON.stringify(event.payload, null, 2)}</pre></li>)}</ol> : null}</div> : <p className="mt-4 text-[13px] text-red-600">The run receipt could not be loaded.</p>}</section>

@@ -156,7 +156,7 @@ test("keeps the model-visible catalog constant-sized and binds the selected exac
     const tools = await client.listTools()
     expect(tools.tools.some((tool) => tool.name === `render_artifact_${viewId}`)).toBe(false)
     expect(tools.tools.some((tool) => tool.name === `preview_artifact_${viewId}`)).toBe(false)
-    expect(tools.tools.find((tool) => tool.name === "render_selected_dynamic_artifact")?._meta)
+    expect(tools.tools.find((tool) => tool.name === "render_selected_program")?._meta)
       .toMatchObject({ ui: { resourceUri: artifactViewResourceUri(viewId, activeRevisionId) } })
     expect(tools.tools.some((tool) => tool.name === "save_artifact_view")).toBe(true)
     const saved = await client.callTool({
@@ -168,7 +168,7 @@ test("keeps the model-visible catalog constant-sized and binds the selected exac
         reactSource: "export default function View() { return <div /> }",
       },
     })
-    expect(JSON.stringify(saved.content)).toContain("render_selected_dynamic_artifact")
+    expect(JSON.stringify(saved.content)).toContain("render_selected_program")
     expect(JSON.stringify(saved.content)).not.toContain(`render_artifact_${viewId}`)
     expect(JSON.stringify(saved.content)).not.toContain(`preview_artifact_${viewId}`)
   }, { exposePerViewRenderTools: false })

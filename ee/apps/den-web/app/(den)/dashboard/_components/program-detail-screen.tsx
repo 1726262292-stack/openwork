@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Bot, CalendarClock, Check, History, Layers3, Share2 } from "lucide-react";
 import { DenButton } from "../../_components/ui/button";
 import { DenChip } from "../../_components/ui/chip";
-import { useActivateArtifactView, useArtifactDetail, useRetireArtifactView, useSelectArtifact } from "./artifact-detail-data";
+import { useActivateArtifactView, useProgramDetail, useRetireArtifactView, useSelectProgram } from "./program-detail-data";
 import { SavedScriptDetailPanel } from "./saved-script-detail-panel";
 
 function shortDigest(value: string | null) {
@@ -21,31 +21,32 @@ function cspSummary(csp: {
   return domains.length === 0 ? "CSP: no external origins" : `CSP: ${domains.join(", ")}`;
 }
 
-export function ArtifactDetailScreen({ artifactId }: { artifactId: string }) {
+export function ProgramDetailScreen({ programId }: { programId: string }) {
   const router = useRouter();
-  const detailQuery = useArtifactDetail(artifactId);
-  const activate = useActivateArtifactView(artifactId);
-  const retire = useRetireArtifactView(artifactId);
-  const select = useSelectArtifact();
+  const detailQuery = useProgramDetail(programId);
+  const activate = useActivateArtifactView(programId);
+  const retire = useRetireArtifactView(programId);
+  const select = useSelectProgram();
   const detail = detailQuery.data;
   if (detailQuery.isLoading || !detail) {
-    return <div className="mx-auto max-w-[1180px] px-6 py-10 text-[13px] text-gray-400">{detailQuery.error?.message ?? "Loading Dynamic Artifact…"}</div>;
+    return <div className="mx-auto max-w-[1180px] px-6 py-10 text-[13px] text-gray-400">{detailQuery.error?.message ?? "Loading Program…"}</div>;
   }
-  const manager = detail.artifact.role === "manager";
+  const manager = detail.program.role === "manager";
   const actionError = activate.error ?? retire.error ?? select.error;
   return (
-    <div className="mx-auto max-w-[1180px] space-y-6 px-6 py-8 md:px-8" data-testid="den-dynamic-artifact-detail">
+    <div className="mx-auto max-w-[1180px] space-y-6 px-6 py-8 md:px-8" data-testid="den-dynamic-program-detail">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <button type="button" aria-label="Back to Library" onClick={() => router.push("/dashboard/library")} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-800"><ArrowLeft className="h-4 w-4" /></button>
           <div>
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-[22px] font-semibold tracking-[-0.02em] text-gray-950">{detail.artifact.name}</h1><DenChip tone="teal">Dynamic Artifact</DenChip><DenChip tone={detail.artifact.resultState === "fresh" ? "success" : detail.artifact.resultState === "needs_attention" ? "danger" : "warning"}>{detail.artifact.resultState.replace("_", " ")}</DenChip></div>
-            <p className="mt-1 max-w-3xl text-[13px] text-gray-500">{detail.artifact.description || "A reusable Script, retained data, generated views, runs, Automations, and access in one Library item."}</p>
+            <div className="flex flex-wrap items-center gap-2"><h1 className="text-[22px] font-semibold tracking-[-0.02em] text-gray-950">{detail.program.name}</h1><DenChip tone="teal">Program</DenChip><DenChip tone={detail.program.resultState === "fresh" ? "success" : detail.program.resultState === "needs_attention" ? "danger" : "warning"}>{detail.program.resultState.replace("_", " ")}</DenChip></div>
+            <p className="mt-1 max-w-3xl text-[13px] text-gray-500">{detail.program.description || "A reusable Code Mode Script with retained artifacts, generated views, runs, Automations, and access."}</p>
+            <p className="mt-1 text-[12px] text-gray-400">Inside OpenWork Connect Plugin <strong>{detail.program.plugin.name}</strong>.</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <DenButton variant="secondary" onClick={() => void select.mutateAsync(artifactId)} loading={select.isPending}><Bot className="h-3.5 w-3.5" />Use with agent</DenButton>
-          {manager ? <DenButton variant="secondary" href={`/dashboard/automations?artifact=${encodeURIComponent(artifactId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton> : null}
+          <DenButton variant="secondary" onClick={() => void select.mutateAsync(programId)} loading={select.isPending}><Bot className="h-3.5 w-3.5" />Use with agent</DenButton>
+          {manager ? <DenButton variant="secondary" href={`/dashboard/automations?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton> : null}
           {manager ? <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton> : null}
         </div>
       </header>
@@ -59,10 +60,10 @@ export function ArtifactDetailScreen({ artifactId }: { artifactId: string }) {
 
       <section id="overview" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Access", detail.artifact.role],
+          ["Access", detail.program.role],
           ["Current Script", detail.script.currentVersion.id.slice(0, 12)],
-          ["View", detail.artifact.activeViewTitle ?? detail.artifact.viewState.replace("_", " ")],
-          ["Automations", String(detail.artifact.automationCount)],
+          ["View", detail.program.activeViewTitle ?? detail.program.viewState.replace("_", " ")],
+          ["Automations", String(detail.program.automationCount)],
         ].map(([label, value]) => <div key={label} className="rounded-2xl border border-gray-100 bg-white p-4"><p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</p><p className="mt-2 break-all text-[14px] font-medium text-gray-800">{value}</p></div>)}
       </section>
 
@@ -81,9 +82,9 @@ export function ArtifactDetailScreen({ artifactId }: { artifactId: string }) {
         </div>
       </section>
 
-      <div id="script"><SavedScriptDetailPanel configObjectId={artifactId} onClose={() => router.push("/dashboard/library")} /></div>
+      <div id="script"><SavedScriptDetailPanel configObjectId={programId} onClose={() => router.push("/dashboard/library")} /></div>
 
-      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.artifact.role}</strong>. Script versions, retained data, and generated views share this Artifact access boundary; there are no separate data or UI grants.</p>{manager ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}>Manage grants</DenButton> : null}</section>
+      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.program.role}</strong>. Script versions, retained data, and generated views share this Program access boundary; there are no separate data or UI grants.</p>{manager ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}>Manage grants</DenButton> : null}</section>
     </div>
   );
 }

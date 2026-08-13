@@ -3,6 +3,7 @@ import {
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
   PluginConfigObjectTable,
+  PluginTable,
 } from "@openwork-ee/den-db/schema"
 import type { GeneratedArtifactView } from "@openwork/types/dynamic-artifacts"
 import { db } from "./db.js"
@@ -23,9 +24,10 @@ import {
   type MemberUsableConnectionFacts,
 } from "./routes/org/mcp-connections.js"
 
-export type DynamicArtifactLibraryItem = {
-  type: "artifact"
+export type ProgramLibraryItem = {
+  type: "program"
   id: string
+  plugin: { id: string; name: string }
   name: string
   description: string | null
   role: PluginArchRole
@@ -39,8 +41,8 @@ export type DynamicArtifactLibraryItem = {
   source: { kind: "created" | "installed_template"; templateName?: string; templateVersion?: string }
 }
 
-export type DynamicArtifactDetail = {
-  artifact: DynamicArtifactLibraryItem
+export type ProgramDetail = {
+  program: ProgramLibraryItem
   script: Awaited<ReturnType<typeof getCodemodeScriptDetail>>
   views: GeneratedArtifactView[]
 }
@@ -109,12 +111,12 @@ function connectionReadiness(connection: MemberUsableConnectionFacts) {
   return "ready" as const
 }
 
-function artifactReadiness(input: {
+function programReadiness(input: {
   connections: MemberUsableConnectionFacts[]
   requiredCapabilities: Array<{ capabilityName: string }>
 }) {
   const connections = new Map(input.connections.map((connection) => [connection.id, connection]))
-  let state: DynamicArtifactLibraryItem["state"] = "ready"
+  let state: ProgramLibraryItem["state"] = "ready"
   for (const capability of input.requiredCapabilities) {
     const match = /^mcp:([^:]+):/.exec(capability.capabilityName)
     if (!match) continue
@@ -126,12 +128,13 @@ function artifactReadiness(input: {
   return state
 }
 
-async function artifactItem(input: {
+async function programItem(input: {
   context: PluginArchActorContext
   row: typeof ConfigObjectTable.$inferSelect
+  plugin: { id: string; name: string }
   inheritedEdges: MePluginAccessEdge[]
   connections: MemberUsableConnectionFacts[]
-}): Promise<DynamicArtifactLibraryItem | null> {
+}): Promise<ProgramLibraryItem | null> {
   const role = await resolvePluginArchResourceRole({
     context: input.context,
     resourceId: input.row.id,
@@ -150,8 +153,9 @@ async function artifactItem(input: {
     const automationIds = new Set(script.versions.flatMap((version) => version.automationReferences.map((reference) => reference.id)))
     const latestSuccessfulAt = script.latestSuccessfulSnapshot?.finishedAt ?? null
     return {
-      type: "artifact",
+      type: "program",
       id: script.configObjectId,
+      plugin: input.plugin,
       name: script.title,
       description: script.description,
       role,
@@ -161,7 +165,7 @@ async function artifactItem(input: {
         grants,
         inheritedEdges: input.inheritedEdges,
       }),
-      state: artifactReadiness({
+      state: programReadiness({
         connections: input.connections,
         requiredCapabilities: script.currentVersion.requiredCapabilities,
       }),
@@ -176,13 +180,23 @@ async function artifactItem(input: {
   }
 }
 
-export async function listDynamicArtifactLibraryItems(input: { context: PluginArchActorContext }) {
+export async function listProgramLibraryItems(input: { context: PluginArchActorContext }) {
   const [rows, effectiveAccess, connections] = await Promise.all([
-    db.select({ configObject: ConfigObjectTable, pluginId: PluginConfigObjectTable.pluginId })
+    db.select({
+      configObject: ConfigObjectTable,
+      pluginId: PluginConfigObjectTable.pluginId,
+      pluginName: PluginTable.name,
+    })
       .from(ConfigObjectTable)
       .innerJoin(PluginConfigObjectTable, and(
         eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id),
         isNull(PluginConfigObjectTable.removedAt),
+      ))
+      .innerJoin(PluginTable, and(
+        eq(PluginTable.id, PluginConfigObjectTable.pluginId),
+        eq(PluginTable.organizationId, ConfigObjectTable.organizationId),
+        eq(PluginTable.status, "active"),
+        isNull(PluginTable.deletedAt),
       ))
       .where(and(
         eq(ConfigObjectTable.organizationId, input.context.organizationContext.organization.id),
@@ -195,21 +209,21 @@ export async function listDynamicArtifactLibraryItems(input: { context: PluginAr
     listMemberUsableConnectionFacts({ context: input.context }),
   ])
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
-  const artifacts = new Map<string, { row: typeof ConfigObjectTable.$inferSelect; inheritedEdges: MePluginAccessEdge[] }>()
-  for (const { configObject, pluginId } of rows) {
-    const artifact = artifacts.get(configObject.id) ?? { row: configObject, inheritedEdges: [] }
-    artifact.inheritedEdges.push(...(pluginEdges.get(pluginId) ?? []))
-    artifacts.set(configObject.id, artifact)
+  const programs = new Map<string, { row: typeof ConfigObjectTable.$inferSelect; plugin: { id: string; name: string }; inheritedEdges: MePluginAccessEdge[] }>()
+  for (const { configObject, pluginId, pluginName } of rows) {
+    const program = programs.get(configObject.id) ?? { row: configObject, plugin: { id: pluginId, name: pluginName }, inheritedEdges: [] }
+    program.inheritedEdges.push(...(pluginEdges.get(pluginId) ?? []))
+    programs.set(configObject.id, program)
   }
-  const items = await Promise.all([...artifacts.values()].map(({ row, inheritedEdges }) =>
-    artifactItem({ context: input.context, row, inheritedEdges, connections })))
-  return items.filter((item): item is DynamicArtifactLibraryItem => item !== null)
+  const items = await Promise.all([...programs.values()].map(({ row, plugin, inheritedEdges }) =>
+    programItem({ context: input.context, row, plugin, inheritedEdges, connections })))
+  return items.filter((item): item is ProgramLibraryItem => item !== null)
 }
 
-export async function getDynamicArtifactDetail(input: {
+export async function getProgramDetail(input: {
   context: PluginArchActorContext
   configObjectId: string
-}): Promise<DynamicArtifactDetail> {
+}): Promise<ProgramDetail> {
   const [script, views, effectiveAccess, connections] = await Promise.all([
     getCodemodeScriptDetail({ context: input.context, configObjectId: input.configObjectId }),
     listArtifactViewsForScript({ context: input.context, configObjectId: input.configObjectId }),
@@ -221,9 +235,10 @@ export async function getDynamicArtifactDetail(input: {
     normalizeDenTypeId("configObject", script.configObjectId),
   )).limit(1)
   const row = rows[0]
-  if (!row) throw new Error("dynamic_artifact_not_found")
-  const memberships = await db.select({ pluginId: PluginConfigObjectTable.pluginId })
+  if (!row) throw new Error("dynamic_program_not_found")
+  const memberships = await db.select({ pluginId: PluginConfigObjectTable.pluginId, pluginName: PluginTable.name })
     .from(PluginConfigObjectTable)
+    .innerJoin(PluginTable, eq(PluginTable.id, PluginConfigObjectTable.pluginId))
     .where(and(
       eq(PluginConfigObjectTable.organizationId, input.context.organizationContext.organization.id),
       eq(PluginConfigObjectTable.configObjectId, row.id),
@@ -231,7 +246,9 @@ export async function getDynamicArtifactDetail(input: {
     ))
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
   const inheritedEdges = memberships.flatMap(({ pluginId }) => pluginEdges.get(pluginId) ?? [])
-  const artifact = await artifactItem({ context: input.context, row, inheritedEdges, connections })
-  if (!artifact) throw new Error("dynamic_artifact_not_found")
-  return { artifact, script, views }
+  const parent = memberships[0]
+  if (!parent) throw new Error("dynamic_program_not_found")
+  const program = await programItem({ context: input.context, row, plugin: { id: parent.pluginId, name: parent.pluginName }, inheritedEdges, connections })
+  if (!program) throw new Error("dynamic_program_not_found")
+  return { program, script, views }
 }

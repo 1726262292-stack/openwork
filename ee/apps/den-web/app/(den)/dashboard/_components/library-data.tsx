@@ -47,9 +47,10 @@ export type LibraryConnectionItem = {
   edges: LibraryAccessEdge[];
 };
 
-export type LibraryArtifactItem = {
-  type: "artifact";
+export type LibraryProgramItem = {
+  type: "program";
   id: string;
+  plugin: LibraryNamedEntity;
   name: string;
   description: string | null;
   role: PluginAccessRole;
@@ -63,7 +64,7 @@ export type LibraryArtifactItem = {
   source: { kind: "created" | "installed_template"; templateName?: string; templateVersion?: string };
 };
 
-export type LibraryItem = LibraryPluginItem | LibraryConnectionItem | LibraryArtifactItem;
+export type LibraryItem = LibraryPluginItem | LibraryConnectionItem | LibraryProgramItem;
 
 export const libraryQueryKeys = {
   items: ["me", "library"],
@@ -221,8 +222,9 @@ function parseConnection(value: Record<string, unknown>): LibraryConnectionItem 
   };
 }
 
-function parseArtifact(value: Record<string, unknown>): LibraryArtifactItem | null {
+function parseProgram(value: Record<string, unknown>): LibraryProgramItem | null {
   const id = readString(value.id);
+  const plugin = parseNamedEntity(value.plugin);
   const name = readString(value.name);
   const description = readNullableString(value.description);
   const role = readRole(value.role);
@@ -233,24 +235,24 @@ function parseArtifact(value: Record<string, unknown>): LibraryArtifactItem | nu
   const viewState = value.viewState === "default" || value.viewState === "custom_active" || value.viewState === "build_failed" || value.viewState === "retired" ? value.viewState : null;
   const activeViewTitle = readNullableString(value.activeViewTitle);
   const sourceKind = isRecord(value.source) && (value.source.kind === "created" || value.source.kind === "installed_template") ? value.source.kind : null;
-  const source: LibraryArtifactItem["source"] | null = isRecord(value.source) && sourceKind
+  const source: LibraryProgramItem["source"] | null = isRecord(value.source) && sourceKind
     ? {
         kind: sourceKind,
         ...(readString(value.source.templateName) ? { templateName: readString(value.source.templateName) ?? undefined } : {}),
         ...(readString(value.source.templateVersion) ? { templateVersion: readString(value.source.templateVersion) ?? undefined } : {}),
       }
     : null;
-  if (!id || !name || description === undefined || !role || !edges || !state || !resultState
+  if (!id || !plugin || !name || description === undefined || !role || !edges || !state || !resultState
     || latestSuccessfulAt === undefined || !viewState || activeViewTitle === undefined || !source
     || typeof value.automationCount !== "number" || !Number.isInteger(value.automationCount) || value.automationCount < 0) return null;
-  return { type: "artifact", id, name, description, role, edges, state, resultState, latestSuccessfulAt, viewState, activeViewTitle, automationCount: value.automationCount, source };
+  return { type: "program", id, plugin, name, description, role, edges, state, resultState, latestSuccessfulAt, viewState, activeViewTitle, automationCount: value.automationCount, source };
 }
 
 function parseLibraryItem(value: unknown): LibraryItem | null {
   if (!isRecord(value)) return null;
   if (value.type === "plugin") return parsePlugin(value);
   if (value.type === "connection") return parseConnection(value);
-  if (value.type === "artifact") return parseArtifact(value);
+  if (value.type === "program") return parseProgram(value);
   return null;
 }
 

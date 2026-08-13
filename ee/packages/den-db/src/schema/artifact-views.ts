@@ -71,17 +71,17 @@ export const ArtifactViewRevisionTable = mysqlTable(
   ],
 )
 
-export const ArtifactAgentSelectionTable = mysqlTable(
-  "artifact_agent_selection",
+export const ProgramAgentSelectionTable = mysqlTable(
+  "program_agent_selection",
   {
     organization_id: denTypeIdColumn("organization", "organization_id").notNull(),
     org_membership_id: denTypeIdColumn("member", "org_membership_id").notNull(),
-    artifact_id: denTypeIdColumn("configObject", "artifact_id").notNull(),
+    program_id: denTypeIdColumn("configObject", "program_id").notNull(),
     selected_at: timestamp("selected_at", { fsp: 3 }).notNull().defaultNow(),
     ...timestamps,
   },
   (table) => [
-    uniqueIndex("artifact_agent_selection_org_member").on(table.organization_id, table.org_membership_id),
-    index("artifact_agent_selection_artifact").on(table.organization_id, table.artifact_id),
+    uniqueIndex("program_agent_selection_org_member").on(table.organization_id, table.org_membership_id),
+    index("program_agent_selection_program").on(table.organization_id, table.program_id),
   ],
 )

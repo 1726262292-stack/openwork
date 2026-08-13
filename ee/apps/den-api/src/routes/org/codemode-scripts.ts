@@ -34,17 +34,17 @@ import { codemodeScriptsEnabled } from "../../capability-sources/codemode-rollou
 import { PluginArchAuthorizationError } from "./plugin-system/access.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { codemodeCodeDigest } from "../../codemode-runs.js"
-import { getDynamicArtifactDetail } from "../../artifact-library.js"
+import { getProgramDetail } from "../../program-library.js"
 import {
   activateArtifactViewRevision,
   listArtifactViewsForScript,
   retireArtifactView,
 } from "../../artifact-views.js"
 import {
-  clearArtifactAgentSelection,
-  getArtifactAgentSelection,
-  selectArtifactForAgent,
-} from "../../artifact-agent-selection.js"
+  clearProgramAgentSelection,
+  getProgramAgentSelection,
+  selectProgramForAgent,
+} from "../../program-agent-selection.js"
 
 const capabilitySchema = z.object({ capabilityName: z.string(), scriptPath: z.string() })
 const scriptSchema = z.object({
@@ -106,9 +106,9 @@ const versionSchema = draftSchema.extend({
 })
 const versionsResponseSchema = z.object({ items: z.array(savedScriptVersionSchema) })
 const snapshotsResponseSchema = z.object({ items: z.array(savedScriptArtifactSnapshotSchema) })
-const artifactDetailSchema = z.object({
-  artifact: z.object({
-    type: z.literal("artifact"), id: z.string(), name: z.string(), description: z.string().nullable(),
+const programDetailSchema = z.object({
+  program: z.object({
+    type: z.literal("program"), id: z.string(), plugin: z.object({ id: z.string(), name: z.string() }), name: z.string(), description: z.string().nullable(),
     role: z.enum(["viewer", "editor", "manager"]), edges: z.array(z.unknown()),
     state: z.enum(["ready", "needs_signin", "needs_admin_setup"]),
     resultState: z.enum(["never_run", "fresh", "stale", "needs_attention"]),
@@ -121,11 +121,11 @@ const artifactDetailSchema = z.object({
   views: z.array(generatedArtifactViewSchema),
 })
 const artifactViewsResponseSchema = z.object({ items: z.array(generatedArtifactViewSchema) })
-const artifactSelectionSchema = z.object({
-  organizationId: z.string(), orgMembershipId: z.string(), artifactId: z.string(), selectedAt: z.string().datetime(),
+const programSelectionSchema = z.object({
+  organizationId: z.string(), orgMembershipId: z.string(), programId: z.string(), selectedAt: z.string().datetime(),
 })
-const artifactSelectionResponseSchema = z.object({ selection: artifactSelectionSchema.nullable() })
-const artifactSelectionWriteSchema = z.object({ artifactId: z.string().trim().min(1).max(160) })
+const programSelectionResponseSchema = z.object({ selection: programSelectionSchema.nullable() })
+const programSelectionWriteSchema = z.object({ programId: z.string().trim().min(1).max(160) })
 const artifactViewParamsSchema = z.object({
   artifactViewId: z.string().trim().min(1).max(160),
   revisionId: z.string().trim().min(1).max(160).optional(),
@@ -260,19 +260,19 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   )
 
   app.get(
-    "/v1/artifacts/:configObjectId",
+    "/v1/programs/:configObjectId",
     describeRoute({
-      tags: ["Codemode Runs"], summary: "Inspect a Dynamic Artifact",
-      responses: { 200: jsonResponse("Dynamic Artifact returned.", artifactDetailSchema), 404: jsonResponse("Artifact not found.", notFoundSchema) },
+      tags: ["Codemode Runs"], summary: "Inspect a Program",
+      responses: { 200: jsonResponse("Program returned.", programDetailSchema), 404: jsonResponse("Program not found.", notFoundSchema) },
     }),
     orgMemberRoute(),
     async (c) => {
       const params = detailParamsSchema.safeParse(c.req.param())
-      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Artifact id." }, 400)
+      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Program id." }, 400)
       try {
         const { actorContext, codemodeEnabled } = await contextFor(c)
-        if (!codemodeEnabled) return c.json({ error: "dynamic_artifact_not_found" }, 404)
-        return c.json(await getDynamicArtifactDetail({ context: actorContext, configObjectId: params.data.configObjectId }))
+        if (!codemodeEnabled) return c.json({ error: "program_not_found" }, 404)
+        return c.json(await getProgramDetail({ context: actorContext, configObjectId: params.data.configObjectId }))
       } catch (error) {
         const failure = routeFailure(error)
         return c.json(failure.body, failure.status)
@@ -281,15 +281,15 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   )
 
   app.get(
-    "/v1/artifacts/:configObjectId/views",
+    "/v1/programs/:configObjectId/views",
     describeRoute({
-      tags: ["Codemode Runs"], summary: "List generated views for a Dynamic Artifact",
+      tags: ["Codemode Runs"], summary: "List generated Artifact views for a Program",
       responses: { 200: jsonResponse("Artifact views returned.", artifactViewsResponseSchema) },
     }),
     orgMemberRoute(),
     async (c) => {
       const params = detailParamsSchema.safeParse(c.req.param())
-      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Artifact id." }, 400)
+      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Program id." }, 400)
       try {
         const { actorContext, codemodeEnabled } = await contextFor(c)
         if (!codemodeEnabled) return c.json({ items: [] })
@@ -344,24 +344,24 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   )
 
   app.get(
-    "/v1/me/artifact-selection",
-    describeRoute({ tags: ["Codemode Runs"], summary: "Get my selected Dynamic Artifact", responses: { 200: jsonResponse("Artifact selection returned.", artifactSelectionResponseSchema) } }),
+    "/v1/me/program-selection",
+    describeRoute({ tags: ["Codemode Runs"], summary: "Get my selected Program", responses: { 200: jsonResponse("Program selection returned.", programSelectionResponseSchema) } }),
     orgMemberRoute(),
     async (c) => {
       const { actorContext, codemodeEnabled } = await contextFor(c)
-      return c.json({ selection: codemodeEnabled ? await getArtifactAgentSelection(actorContext) : null })
+      return c.json({ selection: codemodeEnabled ? await getProgramAgentSelection(actorContext) : null })
     },
   )
 
   app.put(
-    "/v1/me/artifact-selection",
-    describeRoute({ tags: ["Codemode Runs"], summary: "Select a Dynamic Artifact for MCP", responses: { 200: jsonResponse("Artifact selected.", artifactSelectionResponseSchema) } }),
-    orgMemberRoute(), jsonValidator(artifactSelectionWriteSchema),
+    "/v1/me/program-selection",
+    describeRoute({ tags: ["Codemode Runs"], summary: "Select a Program for MCP", responses: { 200: jsonResponse("Program selected.", programSelectionResponseSchema) } }),
+    orgMemberRoute(), jsonValidator(programSelectionWriteSchema),
     async (c) => {
       try {
         const { actorContext, codemodeEnabled } = await contextFor(c)
         if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
-        return c.json({ selection: await selectArtifactForAgent({ context: actorContext, artifactId: c.req.valid("json").artifactId }) })
+        return c.json({ selection: await selectProgramForAgent({ context: actorContext, programId: c.req.valid("json").programId }) })
       } catch (error) {
         const failure = routeFailure(error)
         return c.json(failure.body, failure.status)
@@ -370,12 +370,12 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   )
 
   app.delete(
-    "/v1/me/artifact-selection",
-    describeRoute({ tags: ["Codemode Runs"], summary: "Clear my selected Dynamic Artifact", responses: { 200: jsonResponse("Artifact selection cleared.", artifactSelectionResponseSchema) } }),
+    "/v1/me/program-selection",
+    describeRoute({ tags: ["Codemode Runs"], summary: "Clear my selected Program", responses: { 200: jsonResponse("Program selection cleared.", programSelectionResponseSchema) } }),
     orgMemberRoute(),
     async (c) => {
       const { actorContext } = await contextFor(c)
-      await clearArtifactAgentSelection(actorContext)
+      await clearProgramAgentSelection(actorContext)
       return c.json({ selection: null })
     },
   )

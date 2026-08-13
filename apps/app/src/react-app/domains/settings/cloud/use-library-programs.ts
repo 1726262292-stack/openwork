@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { createDenClient, readDenSettings, type DenLibraryArtifactItem } from "@/app/lib/den";
+import { createDenClient, readDenSettings, type DenLibraryProgramItem } from "@/app/lib/den";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
 
-export function useLibraryArtifacts() {
-  const [artifacts, setArtifacts] = useState<DenLibraryArtifactItem[]>([]);
+export function useLibraryPrograms() {
+  const [programs, setPrograms] = useState<DenLibraryProgramItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -12,27 +12,27 @@ export function useLibraryArtifacts() {
     const token = settings.authToken?.trim() ?? "";
     const orgId = settings.activeOrgId?.trim() ?? "";
     if (!token || !orgId) {
-      setArtifacts([]);
+      setPrograms([]);
       setError(null);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      setArtifacts(await createDenClient({ baseUrl: settings.baseUrl, token }).listLibraryArtifacts(orgId));
+      setPrograms(await createDenClient({ baseUrl: settings.baseUrl, token }).listLibraryPrograms(orgId));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Failed to load Dynamic Artifacts.");
+      setError(reason instanceof Error ? reason.message : "Failed to load Programs.");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const select = useCallback(async (artifactId: string) => {
+  const select = useCallback(async (programId: string) => {
     const settings = readDenSettings();
     const token = settings.authToken?.trim() ?? "";
     const orgId = settings.activeOrgId?.trim() ?? "";
     if (!token || !orgId) throw new Error("Sign in to OpenWork Cloud and select an organization first.");
-    await createDenClient({ baseUrl: settings.baseUrl, token }).selectLibraryArtifact(orgId, artifactId);
+    await createDenClient({ baseUrl: settings.baseUrl, token }).selectLibraryProgram(orgId, programId);
   }, []);
 
   useEffect(() => {
@@ -42,5 +42,5 @@ export function useLibraryArtifacts() {
     return () => window.removeEventListener(denSettingsChangedEvent, handleSettings);
   }, [refresh]);
 
-  return { artifacts, loading, error, refresh, select };
+  return { programs, loading, error, refresh, select };
 }

@@ -149,12 +149,12 @@ test("registers execute_capability_script when the org flag is on", async () => 
   const names = tools.flatMap((tool) => typeof tool.name === "string" ? [tool.name] : [])
   expect(names).toContain("execute_capability_script")
   expect(names).toContain("render_dynamic_artifact")
-  expect(names).toContain("search_dynamic_artifacts")
-  expect(names).toContain("select_dynamic_artifact")
-  expect(names).toContain("clear_dynamic_artifact_selection")
-  expect(isRecord(tools.find((tool) => tool.name === "search_dynamic_artifacts")?.outputSchema)).toBe(true)
-  expect(isRecord(tools.find((tool) => tool.name === "select_dynamic_artifact")?.outputSchema)).toBe(true)
-  expect(isRecord(tools.find((tool) => tool.name === "clear_dynamic_artifact_selection")?.outputSchema)).toBe(true)
+  expect(names).toContain("search_programs")
+  expect(names).toContain("select_program")
+  expect(names).toContain("clear_program_selection")
+  expect(isRecord(tools.find((tool) => tool.name === "search_programs")?.outputSchema)).toBe(true)
+  expect(isRecord(tools.find((tool) => tool.name === "select_program")?.outputSchema)).toBe(true)
+  expect(isRecord(tools.find((tool) => tool.name === "clear_program_selection")?.outputSchema)).toBe(true)
 })
 
 test("executes a confined script when the org flag is on", async () => {

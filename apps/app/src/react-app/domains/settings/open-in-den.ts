@@ -1,7 +1,7 @@
 export type DenLibraryTarget = {
   id: string;
   pluginId?: string;
-  artifactId?: string;
+  programId?: string;
 };
 
 export function denLibraryFocus(target: DenLibraryTarget): string | null {
@@ -26,8 +26,8 @@ export function denLibraryFocus(target: DenLibraryTarget): string | null {
 }
 
 export function openInDenLibraryUrl(baseUrl: string, target: DenLibraryTarget): string | null {
-  if (baseUrl.trim() && target.artifactId) {
-    return new URL(`/dashboard/library/artifacts/${encodeURIComponent(target.artifactId)}`, baseUrl).toString();
+  if (baseUrl.trim() && target.programId) {
+    return new URL(`/dashboard/library/programs/${encodeURIComponent(target.programId)}`, baseUrl).toString();
   }
   const focus = denLibraryFocus(target);
   if (!baseUrl.trim() || !focus) return null;
@@ -39,5 +39,5 @@ export function shouldShowOpenInDenAction(
   hasCloudSession: boolean,
   target: DenLibraryTarget,
 ): boolean {
-  return hasCloudSession && Boolean(baseUrl.trim()) && Boolean(target.artifactId || denLibraryFocus(target) !== null);
+  return hasCloudSession && Boolean(baseUrl.trim()) && Boolean(target.programId || denLibraryFocus(target) !== null);
 }

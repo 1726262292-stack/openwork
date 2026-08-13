@@ -111,7 +111,7 @@ import type {
   DenOrgMarketplace,
   DenOrgPlugin,
   DenOrgPluginResolved,
-  DenLibraryArtifactItem,
+  DenLibraryProgramItem,
   DenPluginCloudReadiness,
   DenPluginCloudReadinessConnection,
   DenPluginCloudReadinessState,
@@ -2167,19 +2167,23 @@ function getOrgPluginResolved(plugin: DenOrgPlugin, payload: unknown): DenOrgPlu
   return { plugin, memberships };
 }
 
-function getLibraryArtifacts(payload: unknown): DenLibraryArtifactItem[] {
+function getLibraryPrograms(payload: unknown): DenLibraryProgramItem[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) return [];
   return payload.items.flatMap((item) => {
-    if (!isRecord(item) || item.type !== "artifact" || typeof item.id !== "string" || typeof item.name !== "string") return [];
+    if (!isRecord(item) || item.type !== "program" || typeof item.id !== "string" || typeof item.name !== "string") return [];
     const role = item.role === "viewer" || item.role === "editor" || item.role === "manager" ? item.role : null;
     const state = item.state === "ready" || item.state === "needs_signin" || item.state === "needs_admin_setup" ? item.state : null;
     const resultState = item.resultState === "never_run" || item.resultState === "fresh" || item.resultState === "stale" || item.resultState === "needs_attention" ? item.resultState : null;
     const viewState = item.viewState === "default" || item.viewState === "custom_active" || item.viewState === "build_failed" || item.viewState === "retired" ? item.viewState : null;
     const sourceKind = isRecord(item.source) && (item.source.kind === "created" || item.source.kind === "installed_template") ? item.source.kind : null;
-    if (!role || !state || !resultState || !viewState || !sourceKind || typeof item.automationCount !== "number") return [];
-    const artifact: DenLibraryArtifactItem = {
-      type: "artifact",
+    const plugin = isRecord(item.plugin) && typeof item.plugin.id === "string" && typeof item.plugin.name === "string"
+      ? { id: item.plugin.id, name: item.plugin.name }
+      : null;
+    if (!plugin || !role || !state || !resultState || !viewState || !sourceKind || typeof item.automationCount !== "number") return [];
+    const program: DenLibraryProgramItem = {
+      type: "program",
       id: item.id,
+      plugin,
       name: item.name,
       description: typeof item.description === "string" ? item.description : null,
       role,
@@ -2195,7 +2199,7 @@ function getLibraryArtifacts(payload: unknown): DenLibraryArtifactItem[] {
         ...(isRecord(item.source) && typeof item.source.templateVersion === "string" ? { templateVersion: item.source.templateVersion } : {}),
       },
     };
-    return [artifact];
+    return [program];
   });
 }
 
@@ -2849,21 +2853,21 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       return getOrgMarketplaces(payload);
     },
 
-    async listLibraryArtifacts(orgId: string): Promise<DenLibraryArtifactItem[]> {
+    async listLibraryPrograms(orgId: string): Promise<DenLibraryProgramItem[]> {
       const payload = await requestJson<unknown>(baseUrls, "/v1/me/library", {
         method: "GET",
         token,
         organizationId: orgId,
       });
-      return getLibraryArtifacts(payload);
+      return getLibraryPrograms(payload);
     },
 
-    async selectLibraryArtifact(orgId: string, artifactId: string): Promise<void> {
-      await requestJson<unknown>(baseUrls, "/v1/me/artifact-selection", {
+    async selectLibraryProgram(orgId: string, programId: string): Promise<void> {
+      await requestJson<unknown>(baseUrls, "/v1/me/program-selection", {
         method: "PUT",
         token,
         organizationId: orgId,
-        body: { artifactId },
+        body: { programId },
       });
     },
 

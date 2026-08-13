@@ -74,7 +74,7 @@ async function organizationMemberIdByEmail(admin: DenSession, organizationId: st
   const member = members.find((entry) => isRecord(entry.user) && entry.user.email === email)
   const memberId = member && typeof member.id === "string" ? member.id : ""
   if (!result.response.ok || !memberId) {
-    throw new Error(`Resolving the Artifact viewer failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`)
+    throw new Error(`Resolving the Program viewer failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`)
   }
   return memberId
 }
@@ -86,7 +86,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     org: {
       name: `Generated Artifact Views ${Date.now()}`,
       admin: { name: "Avery" },
-      members: { viewer: { name: "Artifact Viewer" } },
+      members: { viewer: { name: "Program Viewer" } },
     },
   })
   const orgs = await denFetch(den.admin, "/v1/me/orgs", {
@@ -138,7 +138,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const initialTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   expect(toolResourceUri(initialTools, "save_artifact_view")).toBeNull()
   expect(toolResourceUri(initialTools, "render_dynamic_artifact")).toBe("ui://openwork/dynamic-artifact/v1/view.html")
-  for (const name of ["search_dynamic_artifacts", "select_dynamic_artifact", "clear_dynamic_artifact_selection"]) {
+  for (const name of ["search_programs", "select_program", "clear_program_selection"]) {
     expect(isRecord(toolDefinition(initialTools, name)?.outputSchema)).toBe(true)
   }
 
@@ -172,7 +172,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   expect(configObjectId).toMatch(/^cob_/)
 
   const viewer = den.members.viewer
-  if (!viewer) throw new Error("The testkit did not provision the Artifact viewer.")
+  if (!viewer) throw new Error("The testkit did not provision the Program viewer.")
   const viewerMemberId = await organizationMemberIdByEmail(den.admin, organizationId, viewer.email)
   const shared = await denFetch(den.admin, `/v1/config-objects/${encodeURIComponent(configObjectId)}/access`, {
     method: "POST",
@@ -183,14 +183,14 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     body: JSON.stringify({ orgMembershipId: viewerMemberId, role: "viewer" }),
   })
   expect(shared.response.ok, shared.text).toBe(true)
-  const viewerDetailResponse = await denFetch(viewer, `/v1/artifacts/${encodeURIComponent(configObjectId)}`, {
+  const viewerDetailResponse = await denFetch(viewer, `/v1/programs/${encodeURIComponent(configObjectId)}`, {
     headers: {
       authorization: `Bearer ${viewer.token}`,
       "x-openwork-org-id": organizationId,
     },
   })
   expect(viewerDetailResponse.response.ok, viewerDetailResponse.text).toBe(true)
-  const viewerDetail = requireRecord(viewerDetailResponse.body, "viewer Artifact detail")
+  const viewerDetail = requireRecord(viewerDetailResponse.body, "viewer Program detail")
   const viewerScript = requireRecord(viewerDetail.script, "viewer Script detail")
   const viewerVersion = requireRecord(viewerScript.currentVersion, "viewer Script version")
   expect(viewerVersion.code).toBeNull()
@@ -204,23 +204,24 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const libraryItems = isRecord(library.body) && Array.isArray(library.body.items)
     ? library.body.items.filter(isRecord)
     : []
-  const artifactItem = libraryItems.find((item) => item.type === "artifact" && item.id === configObjectId)
-  expect(artifactItem).toMatchObject({
-    type: "artifact",
+  const programItem = libraryItems.find((item) => item.type === "program" && item.id === configObjectId)
+  expect(programItem).toMatchObject({
+    type: "program",
     id: configObjectId,
+    plugin: { id: saved.pluginId },
     resultState: "never_run",
     viewState: "default",
     automationCount: 0,
   })
-  expect(artifactItem).not.toHaveProperty("code")
-  expect(artifactItem).not.toHaveProperty("data")
-  expect(artifactItem).not.toHaveProperty("compiledHtml")
+  expect(programItem).not.toHaveProperty("code")
+  expect(programItem).not.toHaveProperty("data")
+  expect(programItem).not.toHaveProperty("compiledHtml")
 
-  const artifactSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: "search_dynamic_artifacts",
+  const programSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_programs",
     arguments: { query: "Quarterly plan source" },
   })
-  const searchItems = requireRecord(artifactSearch.structuredContent, "Artifact search").items
+  const searchItems = requireRecord(programSearch.structuredContent, "Program search").items
   const searchedItems = Array.isArray(searchItems) ? searchItems.filter(isRecord) : []
   expect(searchedItems.some((item) => item.id === configObjectId)).toBe(true)
   expect(JSON.stringify(searchedItems)).not.toContain(code)
@@ -253,7 +254,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const firstRevision = Array.isArray(firstView.revisions) ? firstView.revisions.filter(isRecord)[0] : undefined
   const firstUri = String(firstRevision?.resourceUri ?? "")
   expect(firstUri).toBe(`ui://openwork/artifacts/${artifactViewId}/views/${firstRevisionId}/index.html`)
-  expect(JSON.stringify(firstSave.content)).toContain("render_selected_dynamic_artifact")
+  expect(JSON.stringify(firstSave.content)).toContain("render_selected_program")
   expect(JSON.stringify(firstSave.content)).not.toContain(`render_artifact_${artifactViewId}`)
 
   const firstRead = resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: firstUri }))
@@ -270,12 +271,12 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   let tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   expect(toolResourceUri(tools, renderName)).toBeNull()
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: "select_dynamic_artifact",
-    arguments: { artifactId: configObjectId },
+    name: "select_program",
+    arguments: { programId: configObjectId },
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(firstUri)
-  const rendered = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", { name: "render_selected_dynamic_artifact", arguments: {} })
+  expect(toolResourceUri(tools, "render_selected_program")).toBe(firstUri)
+  const rendered = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", { name: "render_selected_program", arguments: {} })
   expect(rendered.isError, JSON.stringify(rendered)).not.toBe(true)
   expect(requireRecord(rendered.structuredContent, "render result").data).toEqual({ title: "Quarterly plan", status: "Ready" })
 
@@ -304,21 +305,21 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   expect(toolResourceUri(tools, renderName)).toBeNull()
   expect(toolResourceUri(tools, `preview_artifact_${artifactViewId}`)).toBeNull()
-  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(firstUri)
+  expect(toolResourceUri(tools, "render_selected_program")).toBe(firstUri)
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "activate_artifact_view_revision",
     arguments: { artifactViewId, revisionId: secondRevisionId },
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(secondUri)
+  expect(toolResourceUri(tools, "render_selected_program")).toBe(secondUri)
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "activate_artifact_view_revision",
     arguments: { artifactViewId, revisionId: firstRevisionId },
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe(firstUri)
+  expect(toolResourceUri(tools, "render_selected_program")).toBe(firstUri)
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "retire_artifact_view",
@@ -326,7 +327,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   expect(toolResourceUri(tools, renderName)).toBeNull()
-  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBe("ui://openwork/dynamic-artifact/v1/view.html")
+  expect(toolResourceUri(tools, "render_selected_program")).toBe("ui://openwork/dynamic-artifact/v1/view.html")
   expect(String(resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: firstUri })).text ?? "")).toBe(firstHtml)
   expect(String(resourceContent(await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: secondUri })).text ?? "")).toBe(secondHtml)
 
@@ -338,47 +339,47 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   })
   await waitFor(browser, `location.href.startsWith(${JSON.stringify(den.ref.webUrl)}) && document.readyState === "complete"`, {
     timeoutMs: 60_000,
-    label: "Den Web origin before Dynamic Artifact auth handoff",
+    label: "Den Web origin before Program auth handoff",
   })
   await evalIn(browser, `localStorage.setItem("openwork:web:auth-token", ${JSON.stringify(den.admin.token)})`)
   await navigate(browser.client, `${den.ref.webUrl}/dashboard/library`)
   await waitFor(browser, `(() => {
-    const row = [...document.querySelectorAll('[data-library-item-type="artifact"]')]
+    const row = [...document.querySelectorAll('[data-library-item-type="program"]')]
       .find((entry) => (entry.textContent ?? "").includes("Quarterly plan source"));
     const filters = document.querySelector('[aria-label="Library filters"]');
-    return Boolean(row && (filters?.textContent ?? "").includes("Artifacts"));
+    return Boolean(row && (filters?.textContent ?? "").includes("Programs"));
   })()`, {
     timeoutMs: 60_000,
-    label: "Dynamic Artifact row and kind filter in My Library",
+    label: "Program row and kind filter in My Library",
   })
-  await navigate(browser.client, `${den.ref.webUrl}/dashboard/library/artifacts/${encodeURIComponent(configObjectId)}`)
+  await navigate(browser.client, `${den.ref.webUrl}/dashboard/library/programs/${encodeURIComponent(configObjectId)}`)
   await waitFor(browser, `(() => {
-    const detail = document.querySelector('[data-testid="den-dynamic-artifact-detail"]');
+    const detail = document.querySelector('[data-testid="den-dynamic-program-detail"]');
     if (!detail) return false;
     const text = detail.textContent ?? "";
     return ["Overview", "Preview & Data", "Script", "Views", "Runs & Automations", "Access"]
       .every((label) => text.includes(label));
   })()`, {
     timeoutMs: 60_000,
-    label: "canonical six-section Dynamic Artifact detail",
+    label: "canonical six-section Program detail",
   })
 
   await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: "clear_dynamic_artifact_selection",
+    name: "clear_program_selection",
     arguments: {},
   })
   tools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
-  expect(toolResourceUri(tools, "render_selected_dynamic_artifact")).toBeNull()
-  expect(Array.isArray(tools.tools) && tools.tools.filter(isRecord).some((tool) => tool.name === "run_selected_dynamic_artifact")).toBe(false)
+  expect(toolResourceUri(tools, "render_selected_program")).toBeNull()
+  expect(Array.isArray(tools.tools) && tools.tools.filter(isRecord).some((tool) => tool.name === "run_selected_program")).toBe(false)
 
   evidence.fact(
     "Custom Artifact view provider is available only on the Code Mode agent MCP",
-    "The saved Script appeared immediately as a metadata-only never-run Library Artifact. The live provider then found and selected it through the constant-size catalog, built two custom React revisions, preserved both immutable resources, injected Script data through structuredContent, activated the second revision, rolled back to the first, retired the custom view back to the generic renderer without deleting either resource, and cleared the persisted selection.",
+    "The saved Script appeared immediately as a metadata-only never-run Library Program inside its OpenWork Connect Plugin. The live provider then found and selected it through the constant-size catalog, built two custom React revisions, preserved both immutable resources, injected retained Artifact data through structuredContent, activated the second revision, rolled back to the first, retired the custom view back to the generic renderer without deleting either resource, and cleared the persisted selection.",
     true,
   )
   evidence.fact(
-    "Artifact access does not disclose manager-only Script authoring data",
-    "A viewer with explicit Artifact access could read the composed detail and retained-result contract, while Script source and saved example input were both null.",
+    "Program access does not disclose manager-only Script authoring data",
+    "A viewer with explicit Program access could read the composed detail and retained Artifact contract, while Script source and saved example input were both null.",
     viewerVersion.code === null && viewerVersion.exampleInput === null,
   )
 })

@@ -159,7 +159,7 @@ export function registerSelectedGeneratedArtifactRenderTool(input: {
   revision: GeneratedArtifactView["revisions"][number]
   loadData: (request: LoadDataRequest) => Promise<DynamicArtifactAppLoadResult>
 }) {
-  return registerRenderTool({ ...input, preview: false, toolName: "render_selected_dynamic_artifact" })
+  return registerRenderTool({ ...input, preview: false, toolName: "render_selected_program" })
 }
 
 export function registerAgentGeneratedArtifactViews(input: {
@@ -234,7 +234,7 @@ export function registerAgentGeneratedArtifactViews(input: {
         "Provide a default-exported React component that receives { data, artifact }. React is already injected: use React.useState and other React APIs without imports. Do not import modules, fetch data, access browser globals, or add URL-bearing elements; all render-time data comes from data.",
         "A first successful revision activates automatically. Editing creates a previewable revision and never changes the active revision.",
         input.exposePerViewRenderTools === false
-          ? "This management tool does not render a view. After a successful build, select the Artifact, refresh the catalog, and use render_selected_dynamic_artifact only after the intended revision is active. A failed build returns artifact_view_build_failed with diagnostics; correct those diagnostics once and retry using the returned artifactViewId."
+          ? "This management tool does not render a view. After a successful build, select the Program, refresh the catalog, and use render_selected_program only after the intended revision is active. A failed build returns artifact_view_build_failed with diagnostics; correct those diagnostics once and retry using the returned artifactViewId."
           : "This management tool does not render a view. After a successful build, call the registered render_artifact_* or preview_artifact_* tool named in the result. A failed build returns artifact_view_build_failed with diagnostics; correct those diagnostics once and retry using the returned artifactViewId.",
       ].join(" "),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -277,8 +277,8 @@ export function registerAgentGeneratedArtifactViews(input: {
       await sendCatalogChanged(extra)
       const displayInstruction = input.exposePerViewRenderTools === false
           ? view.status === "active" && view.activeRevisionId === revision.id
-            ? `Select Artifact ${view.configObjectId} with select_dynamic_artifact, refresh the tool catalog, then call render_selected_dynamic_artifact to display it.`
-            : `This inactive revision has no model-visible preview tool. Activate it explicitly, select Artifact ${view.configObjectId}, refresh the tool catalog, then call render_selected_dynamic_artifact.`
+            ? `Select Program ${view.configObjectId} with select_program, refresh the tool catalog, then call render_selected_program to display its Artifact.`
+            : `This inactive revision has no model-visible preview tool. Activate it explicitly, select Program ${view.configObjectId}, refresh the tool catalog, then call render_selected_program.`
           : `Call ${view.status === "active" && view.activeRevisionId === revision.id
             ? `render_artifact_${view.id}`
             : `preview_artifact_${view.id}`} to display that revision.`
@@ -306,7 +306,7 @@ export function registerAgentGeneratedArtifactViews(input: {
         content: [{
           type: "text" as const,
           text: input.exposePerViewRenderTools === false
-            ? `Activated view revision ${request.revisionId}. Select Artifact ${view.configObjectId} with select_dynamic_artifact, refresh the tool catalog, then call render_selected_dynamic_artifact to display it.`
+            ? `Activated view revision ${request.revisionId}. Select Program ${view.configObjectId} with select_program, refresh the tool catalog, then call render_selected_program to display its Artifact.`
             : `Activated view revision ${request.revisionId}. Call render_artifact_${view.id} to display it.`,
         }],
         structuredContent: { view },

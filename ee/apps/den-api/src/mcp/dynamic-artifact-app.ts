@@ -523,11 +523,11 @@ export function registerSelectedDynamicArtifactApp(input: {
 }) {
   registerAppTool(
     input.server,
-    "render_selected_dynamic_artifact",
+    "render_selected_program",
     {
-      title: "Render selected Dynamic Artifact",
+      title: "Render selected Program artifact",
       description: [
-        "Render the currently selected Dynamic Artifact without asking the model to carry its internal identifier.",
+        "Render the latest retained Artifact from the currently selected Program without asking the model to carry its internal identifier.",
         "Use the latest successful snapshot by default, or pass receiptId to pin an exact snapshot.",
       ].join(" "),
       annotations: {
