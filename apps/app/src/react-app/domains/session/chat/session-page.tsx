@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Cloud, FileText, Globe, Mic2, PanelRight, TextSearch, Zap } from "lucide-react";
+import { Cloud, FileText, Globe, Mic2, MoreHorizontal, PanelRight, TextSearch, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
@@ -26,6 +26,19 @@ import type { ShareWorkspaceModalProps } from "../../workspace/types";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Dialog,
   DialogClose,
@@ -1000,7 +1013,7 @@ export function SessionPage(props: SessionPageProps) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
+    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text max-lg:pt-[env(safe-area-inset-top)] mac:bg-transparent">
       <SidebarProvider
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
@@ -1078,15 +1091,15 @@ export function SessionPage(props: SessionPageProps) {
           }}
         />
         <SidebarInset className="min-h-0 overflow-hidden bg-sidebar mac:bg-transparent mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
-          <div className="flex min-h-0 flex-1 py-2 pl-2">
+          <div className="flex min-h-0 flex-1 max-lg:p-0 lg:py-2 lg:pl-2">
           <ResizablePanelGroup
             orientation="horizontal"
             onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}
-            className="min-h-0 flex-1 rounded-[14px]"
+            className="min-h-0 flex-1 max-lg:rounded-none lg:rounded-[14px]"
           >
             <ResizablePanel minSize={isMobile ? "0px" : "360px"} className="min-w-0">
-              <main className="flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+              <main className="flex h-full min-w-0 flex-col overflow-hidden bg-dls-surface max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[14px] lg:border lg:border-border lg:shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:lg:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+          <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-3 max-lg:h-12 lg:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[13px] font-medium text-dls-text">
@@ -1111,7 +1124,6 @@ export function SessionPage(props: SessionPageProps) {
             </div>
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
-              {/* Revert/redo moved to per-message actions */}
               {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -1119,7 +1131,7 @@ export function SessionPage(props: SessionPageProps) {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground"
+                        className="hidden rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground lg:inline-flex"
                         aria-label="Find in conversation"
                         onClick={() => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId })}
                       >
@@ -1137,7 +1149,7 @@ export function SessionPage(props: SessionPageProps) {
                       variant="ghost"
                       size="icon-sm"
                       className={cn(
-                        "hidden rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground md:inline-flex",
+                        "hidden rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground lg:inline-flex",
                         sidePanelOpen && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                       )}
                       aria-label={sidePanelOpen ? "Close side panel" : "Open side panel"}
@@ -1160,6 +1172,7 @@ export function SessionPage(props: SessionPageProps) {
                 <Button
                   variant="secondary"
                   size="sm"
+                  className="hidden lg:inline-flex"
                   onClick={openCloudSignIn}
                   title={t("den.signin_title")}
                   aria-label={t("den.signin_title")}
@@ -1168,10 +1181,51 @@ export function SessionPage(props: SessionPageProps) {
                   <span>{t("den.signin_button")}</span>
                 </Button>
               ) : null}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+                      aria-label="More actions"
+                    >
+                      <MoreHorizontal size={18} />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-56">
+                  {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
+                    <DropdownMenuItem
+                      onClick={() => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId })}
+                    >
+                      <TextSearch className="size-4" />
+                      Find in conversation
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem onClick={openArtifactRailPane}>
+                    <FileText className="size-4" />
+                    Artifacts{artifactTargetCount > 0 ? ` (${artifactTargetCount})` : ""}
+                  </DropdownMenuItem>
+                  {voiceExtensionEnabled ? (
+                    <DropdownMenuItem onClick={openVoiceRailPane}>
+                      <Mic2 className="size-4" />
+                      Voice Mode
+                    </DropdownMenuItem>
+                  ) : null}
+                  {showCloudSignIn ? (
+                    <DropdownMenuItem onClick={openCloudSignIn}>
+                      <Cloud className="size-4" />
+                      {t("den.signin_button")}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
               {props.developerMode ? (
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="hidden lg:inline-flex"
                   onClick={() => {
                     try {
                       window.localStorage.removeItem("openwork.acknowledgedProviders");
@@ -1454,8 +1508,51 @@ export function SessionPage(props: SessionPageProps) {
                 </ResizablePanel>
               </>
             ) : null}
+            {isMobile ? (
+              <Sheet
+                open={sidePanelOpen}
+                onOpenChange={(open) => {
+                  if (!open) closeRightPane();
+                }}
+              >
+                <SheetContent
+                  side="bottom"
+                  className="h-[min(88dvh,100dvh)] max-h-[88dvh] p-0 pb-[env(safe-area-inset-bottom)]"
+                >
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Session panel</SheetTitle>
+                    <SheetDescription>Artifacts, files, and session tools</SheetDescription>
+                  </SheetHeader>
+                  <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-dls-surface">
+                    {activeSidePanel === "extensions" && props.settingsSlot ? (
+                      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+                        {props.settingsSlot}
+                      </div>
+                    ) : activeSidePanel === "voice" ? (
+                      <VoicePanel
+                        client={props.openworkServerClient}
+                        workspaceId={props.runtimeWorkspaceId}
+                        sessionId={props.selectedSessionId}
+                        onClose={closeRightPane}
+                      />
+                    ) : activeSidePanel === "panel" ? (
+                      <SidePanel
+                        sessionId={sidePanelSessionKey}
+                        client={props.openworkServerClient}
+                        workspaceId={props.runtimeWorkspaceId}
+                        workspaceRoot={props.selectedWorkspaceRoot}
+                        isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                        onClose={closeRightPane}
+                        onOpenExtensions={props.settingsSlot ? () => setCurrentSidePanel("extensions") : undefined}
+                        onOpenVoice={voiceExtensionEnabled ? openVoiceRailPane : undefined}
+                      />
+                    ) : null}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            ) : null}
           </ResizablePanelGroup>
-          <aside className="hidden w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground md:flex mac:titlebar-no-drag">
+          <aside className="hidden w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground lg:flex mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"
