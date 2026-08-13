@@ -306,7 +306,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
   },
   removeConfigObjectFromPlugin: {
     audience: "admin",
-    description: "Remove one active plugin membership from a config object.",
+    description: "Remove one active plugin membership from a config object. Removing a Program additionally requires manager access to that Program because it revokes inherited Plugin or Marketplace access.",
     method: "DELETE",
     path: pluginArchRoutePaths.configObjectPlugin,
     request: { params: configObjectParamsSchema.extend({ pluginId: pluginParamsSchema.shape.pluginId }) },

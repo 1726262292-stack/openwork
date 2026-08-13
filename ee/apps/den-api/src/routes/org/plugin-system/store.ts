@@ -1865,7 +1865,15 @@ export async function attachConfigObjectToPlugin(input: { context: PluginArchAct
 }
 
 export async function removeConfigObjectFromPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; pluginId: PluginId }) {
-  await ensureVisibleConfigObject(input.context, input.configObjectId)
+  const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
+  if (configObject.objectType === "script") {
+    await requirePluginArchResourceRole({
+      context: input.context,
+      resourceId: configObject.id,
+      resourceKind: "config_object",
+      role: "manager",
+    })
+  }
   await ensureEditablePlugin(input.context, input.pluginId)
   const rows = await db
     .select()

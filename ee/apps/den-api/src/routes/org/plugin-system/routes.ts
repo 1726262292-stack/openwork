@@ -872,7 +872,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     describeRoute({
       tags: ["Plugins"],
       summary: "Remove plugin config object",
-      description: "Removes one config object from a plugin.",
+      description: "Removes one config object from a plugin. Programs require manager access because this revokes inherited Plugin or Marketplace access.",
       responses: {
         204: emptyResponse("Plugin membership removed successfully."),
         400: jsonResponse("The plugin membership path parameters were invalid.", invalidRequestSchema),
