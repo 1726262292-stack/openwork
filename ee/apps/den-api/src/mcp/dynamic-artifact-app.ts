@@ -439,23 +439,7 @@ export function registerAgentDynamicArtifactApp(input: {
     maxAgeMs?: number
   }) => Promise<DynamicArtifactAppLoadResult>
 }) {
-  registerAppResource(
-    input.server,
-    "OpenWork Dynamic Artifact",
-    DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
-    {
-      description: "A data-first Preview, Data, and Lineage view for an immutable saved Script result.",
-      _meta: dynamicArtifactAppResourceMeta,
-    },
-    async () => ({
-      contents: [{
-        uri: DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
-        mimeType: RESOURCE_MIME_TYPE,
-        text: DYNAMIC_ARTIFACT_APP_HTML,
-        _meta: dynamicArtifactAppResourceMeta,
-      }],
-    }),
-  )
+  registerAgentDynamicArtifactResource(input.server)
 
   registerAppTool(
     input.server,
@@ -487,29 +471,87 @@ export function registerAgentDynamicArtifactApp(input: {
         },
       },
     },
-    async ({ configObjectId, receiptId, maxAgeMs }) => {
-      const loaded = await input.load({ configObjectId, receiptId, maxAgeMs })
-      if (!loaded.ok) {
-        return {
-          isError: true,
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: loaded.error, message: loaded.message }),
-          }],
-        }
-      }
-      return {
-        content: [{
-          type: "text" as const,
-          text: dynamicArtifactTextFallback(loaded),
-        }],
-        structuredContent: loaded.payload,
-        _meta: {
-          schemaVersion: loaded.payload.schemaVersion,
-          receiptId: loaded.payload.artifact.receiptId,
-          resultDigest: loaded.payload.artifact.resultDigest,
-        },
-      }
+    async ({ configObjectId, receiptId, maxAgeMs }) => dynamicArtifactToolResult(await input.load({ configObjectId, receiptId, maxAgeMs })),
+  )
+}
+
+export function registerAgentDynamicArtifactResource(server: McpServer) {
+  registerAppResource(
+    server,
+    "OpenWork Dynamic Artifact",
+    DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
+    {
+      description: "A data-first Preview, Data, and Lineage view for an immutable saved Script result.",
+      _meta: dynamicArtifactAppResourceMeta,
     },
+    async () => ({
+      contents: [{
+        uri: DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
+        mimeType: RESOURCE_MIME_TYPE,
+        text: DYNAMIC_ARTIFACT_APP_HTML,
+        _meta: dynamicArtifactAppResourceMeta,
+      }],
+    }),
+  )
+}
+
+function dynamicArtifactToolResult(loaded: DynamicArtifactAppLoadResult) {
+  if (!loaded.ok) {
+    return {
+      isError: true,
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ error: loaded.error, message: loaded.message }),
+      }],
+    }
+  }
+  return {
+    content: [{ type: "text" as const, text: dynamicArtifactTextFallback(loaded) }],
+    structuredContent: loaded.payload,
+    _meta: {
+      schemaVersion: loaded.payload.schemaVersion,
+      receiptId: loaded.payload.artifact.receiptId,
+      resultDigest: loaded.payload.artifact.resultDigest,
+    },
+  }
+}
+
+export function registerSelectedDynamicArtifactApp(input: {
+  server: McpServer
+  configObjectId: string
+  load: (request: { configObjectId: string; receiptId?: string; maxAgeMs?: number }) => Promise<DynamicArtifactAppLoadResult>
+}) {
+  registerAppTool(
+    input.server,
+    "render_selected_program",
+    {
+      title: "Render selected Program artifact",
+      description: [
+        "Render the latest retained Artifact from the currently selected Program without asking the model to carry its internal identifier.",
+        "Use the latest successful snapshot by default, or pass receiptId to pin an exact snapshot.",
+      ].join(" "),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: z.object({
+        receiptId: idSchema.optional().describe("Optional exact immutable artifact receipt. Defaults to the latest successful snapshot."),
+        maxAgeMs: z.number().int().min(60_000).max(30 * 24 * 60 * 60_000).optional().describe("Freshness threshold used for the rendered status. Defaults to 24 hours."),
+      }),
+      outputSchema: dynamicArtifactAppPayloadSchema,
+      _meta: {
+        ui: {
+          resourceUri: DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
+          visibility: ["model", "app"],
+        },
+      },
+    },
+    async ({ receiptId, maxAgeMs }) => dynamicArtifactToolResult(await input.load({
+      configObjectId: input.configObjectId,
+      receiptId,
+      maxAgeMs,
+    })),
   )
 }

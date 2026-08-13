@@ -37,9 +37,12 @@ export type SavedScriptAutomationReference = z.infer<typeof savedScriptAutomatio
 
 export const savedScriptVersionSchema = z.object({
   id: idSchema,
-  code: z.string(),
+  // Authoring source and example input are OpenWork management data, not MCP
+  // runtime data. Non-manager detail responses intentionally return null.
+  code: z.string().nullable(),
   inputSchema: z.unknown().nullable(),
   outputSchema: z.unknown().nullable(),
+  exampleInput: z.unknown().nullable().optional(),
   requiredCapabilities: z.array(savedScriptCapabilitySchema),
   codeDigest: digestSchema,
   inputSchemaDigest: digestSchema.nullable(),
@@ -77,6 +80,7 @@ export const savedScriptDetailSchema = z.object({
   configObjectId: idSchema,
   title: z.string().trim().min(1).max(255),
   description: z.string().nullable(),
+  canRun: z.boolean(),
   canManage: z.boolean(),
   currentVersion: savedScriptVersionSchema,
   versions: z.array(savedScriptVersionSchema),
@@ -153,6 +157,9 @@ export const generatedArtifactViewRevisionSchema = z.object({
   outputSchemaDigest: digestSchema,
   csp: generatedArtifactViewCspSchema,
   diagnostics: z.array(generatedArtifactViewBuildDiagnosticSchema),
+  compilerName: z.string().trim().min(1),
+  compilerVersion: z.string().trim().min(1),
+  reactVersion: z.string().trim().min(1),
   compiledHtmlBytes: z.number().int().nonnegative().nullable(),
   retiredAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),

@@ -6,7 +6,7 @@ import type {
   SavedScriptDetail,
   SavedScriptVersion,
 } from "@openwork/types/dynamic-artifacts"
-import { and, desc, eq, gt, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, asc, desc, eq, gt, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   AutomationRevisionTable,
   AutomationRunTable,
@@ -34,6 +34,7 @@ import {
   savedScriptArtifactSource,
   SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
 } from "./saved-script-artifacts.js"
+import { redactSavedScriptVersionAuthoringDetails } from "./saved-script-projections.js"
 import {
   requirePluginArchResourceRole,
   resolvePluginArchGrantRole,
@@ -42,10 +43,12 @@ import {
 } from "./routes/org/plugin-system/access.js"
 import { memberHasRole } from "./routes/org/shared.js"
 
-const SAVED_SCRIPTS_PLUGIN_NAME = "Saved scripts"
+const DEFAULT_PROGRAMS_PLUGIN_NAME = "My Programs"
+const LEGACY_SAVED_SCRIPTS_PLUGIN_NAME = "Saved scripts"
 const RECENT_RUN_WINDOW_MS = 15 * 60_000
 
 export type SaveCodemodeScriptInput = {
+  pluginId?: string
   name: string
   description?: string
   code: string
@@ -94,9 +97,12 @@ async function savedScriptResource(
       eq(ConfigObjectTable.objectType, "script"),
       eq(ConfigObjectTable.status, "active"),
       isNull(ConfigObjectTable.deletedAt),
-    )).limit(1)
-  const row = rows[0]
-  if (!row) throw new Error("saved_script_not_found")
+    ))
+    // A Program may be assigned to more than one Plugin. Keep memberships in
+    // a stable order so the first one visible to this member becomes the
+    // execution/provenance context.
+    .orderBy(asc(PluginConfigObjectTable.createdAt), asc(PluginConfigObjectTable.id))
+  if (!rows[0]) throw new Error("saved_script_not_found")
   await requirePluginArchResourceRole({
     context,
     requireFreshSession: false,
@@ -104,7 +110,18 @@ async function savedScriptResource(
     resourceKind: "config_object",
     role,
   })
-  return row
+  for (const row of rows) {
+    const pluginRole = await resolvePluginArchResourceRole({
+      context,
+      resourceId: row.plugin.id,
+      resourceKind: "plugin",
+    })
+    if (pluginRole) return row
+  }
+  // Direct Program grants are intentionally independent from Plugin access.
+  // In that case retain the deterministic oldest membership as its execution
+  // context; capability execution separately enforces the Program grant.
+  return rows[0]
 }
 
 function normalizedPayload(draft: CodemodeScriptDraft) {
@@ -112,6 +129,7 @@ function normalizedPayload(draft: CodemodeScriptDraft) {
     language: "codemode-js",
     ...(draft.inputSchema === undefined ? {} : { inputSchema: draft.inputSchema }),
     ...(draft.outputSchema === undefined ? {} : { outputSchema: draft.outputSchema }),
+    ...(draft.exampleInput === undefined ? {} : { exampleInput: draft.exampleInput }),
     requiredCapabilities: draft.requiredCapabilities,
   }
   const parsed = parseCodemodeScriptPayload(value)
@@ -176,7 +194,11 @@ async function currentAutomationReferences(context: PluginArchActorContext, conf
   })
 }
 
-async function savedScriptVersions(context: PluginArchActorContext, configObjectId: ConfigObjectId): Promise<SavedScriptVersion[]> {
+async function savedScriptVersions(
+  context: PluginArchActorContext,
+  configObjectId: ConfigObjectId,
+  includeAuthoringDetails: boolean,
+): Promise<SavedScriptVersion[]> {
   const [rows, automationReferences] = await Promise.all([
     db.select().from(ConfigObjectVersionTable).where(and(
       eq(ConfigObjectVersionTable.organizationId, context.organizationContext.organization.id),
@@ -189,18 +211,20 @@ async function savedScriptVersions(context: PluginArchActorContext, configObject
     const parsed = parseCodemodeScriptPayload(row.normalizedPayloadJson)
     if (!parsed.ok) return []
     const code = row.rawSourceText ?? ""
-    return [{
+    const version: SavedScriptVersion = {
       id: row.id,
       code,
       inputSchema: parsed.payload.inputSchema ?? null,
       outputSchema: parsed.payload.outputSchema ?? null,
+      exampleInput: parsed.payload.exampleInput ?? null,
       requiredCapabilities: parsed.payload.requiredCapabilities,
       codeDigest: codemodeCodeDigest(code),
       inputSchemaDigest: optionalArtifactDigest(parsed.payload.inputSchema),
       outputSchemaDigest: optionalArtifactDigest(parsed.payload.outputSchema),
       createdAt: row.createdAt.toISOString(),
       automationReferences: automationReferences.filter((reference) => reference.configObjectVersionId === row.id),
-    }]
+    }
+    return [includeAuthoringDetails ? version : redactSavedScriptVersionAuthoringDetails(version)]
   })
 }
 
@@ -221,14 +245,14 @@ export async function getCodemodeScriptDetail(input: {
   maxAgeMs?: number
 }): Promise<SavedScriptDetail> {
   const resource = await savedScriptResource(input.context, input.configObjectId, "viewer")
-  const [versions, rows, role] = await Promise.all([
-    savedScriptVersions(input.context, resource.configObject.id),
+  const role = await resolvePluginArchResourceRole({
+    context: input.context,
+    resourceId: resource.configObject.id,
+    resourceKind: "config_object",
+  })
+  const [versions, rows] = await Promise.all([
+    savedScriptVersions(input.context, resource.configObject.id, role === "manager"),
     snapshotRows(resource.configObject.organizationId, resource.configObject.id),
-    resolvePluginArchResourceRole({
-      context: input.context,
-      resourceId: resource.configObject.id,
-      resourceKind: "config_object",
-    }),
   ])
   const currentVersion = versions[0]
   if (!currentVersion) throw new Error("saved_script_version_not_found")
@@ -247,6 +271,7 @@ export async function getCodemodeScriptDetail(input: {
     configObjectId: resource.configObject.id,
     title: resource.configObject.title,
     description: resource.configObject.description,
+    canRun: role === "editor" || role === "manager",
     canManage: role === "manager",
     currentVersion,
     versions,
@@ -265,7 +290,12 @@ export async function getCodemodeScriptDetail(input: {
 
 export async function listCodemodeScriptVersions(input: { context: PluginArchActorContext; configObjectId: string }) {
   const resource = await savedScriptResource(input.context, input.configObjectId, "viewer")
-  return savedScriptVersions(input.context, resource.configObject.id)
+  const role = await resolvePluginArchResourceRole({
+    context: input.context,
+    resourceId: resource.configObject.id,
+    resourceKind: "config_object",
+  })
+  return savedScriptVersions(input.context, resource.configObject.id, role === "manager")
 }
 
 export async function listCodemodeScriptSnapshots(input: {
@@ -557,9 +587,28 @@ export async function saveCodemodeScript(input: {
   ownerMemberId: string
   script: SaveCodemodeScriptInput
   buildTools: () => Promise<BuiltCodemodeTools>
+  context?: PluginArchActorContext
 }): Promise<{ pluginId: string; configObjectId: string; configObjectVersionId: string }> {
   const organizationId = normalizeDenTypeId("organization", input.organizationId)
   const ownerMemberId = normalizeDenTypeId("member", input.ownerMemberId)
+  const requestedPluginId = input.script.pluginId
+    ? normalizeDenTypeId("plugin", input.script.pluginId)
+    : null
+  if (requestedPluginId) {
+    if (
+      !input.context
+      || input.context.organizationContext.organization.id !== organizationId
+      || input.context.organizationContext.currentMember.id !== ownerMemberId
+    ) {
+      throw new Error("saved_program_plugin_context_required")
+    }
+    await requirePluginArchResourceRole({
+      context: input.context,
+      resourceId: requestedPluginId,
+      resourceKind: "plugin",
+      role: "editor",
+    })
+  }
   const receipts = await db.select().from(CodemodeRunTable).where(and(
     eq(CodemodeRunTable.organization_id, organizationId),
     eq(CodemodeRunTable.org_membership_id, ownerMemberId),
@@ -591,6 +640,7 @@ export async function saveCodemodeScript(input: {
     language: "codemode-js",
     ...(input.script.inputSchema === undefined ? {} : { inputSchema: input.script.inputSchema }),
     ...(input.script.outputSchema === undefined ? {} : { outputSchema: input.script.outputSchema }),
+    ...(input.script.currentInput === undefined ? {} : { exampleInput: input.script.currentInput }),
     requiredCapabilities,
   }
   const parsed = parseCodemodeScriptPayload(normalizedPayloadJson)
@@ -601,20 +651,38 @@ export async function saveCodemodeScript(input: {
   }
 
   return db.transaction(async (tx) => {
-    const plugins = await tx.select().from(PluginTable).where(and(
-      eq(PluginTable.organizationId, organizationId),
-      eq(PluginTable.createdByOrgMembershipId, ownerMemberId),
-      eq(PluginTable.name, SAVED_SCRIPTS_PLUGIN_NAME),
-      eq(PluginTable.status, "active"),
-      isNull(PluginTable.deletedAt),
-    )).limit(1).for("update")
-    const pluginId = plugins[0]?.id ?? createDenTypeId("plugin")
-    if (!plugins[0]) {
+    const plugins = requestedPluginId
+      ? await tx.select().from(PluginTable).where(and(
+          eq(PluginTable.id, requestedPluginId),
+          eq(PluginTable.organizationId, organizationId),
+          eq(PluginTable.status, "active"),
+          isNull(PluginTable.deletedAt),
+        )).limit(1).for("update")
+      : await tx.select().from(PluginTable).where(and(
+          eq(PluginTable.organizationId, organizationId),
+          eq(PluginTable.createdByOrgMembershipId, ownerMemberId),
+          eq(PluginTable.name, DEFAULT_PROGRAMS_PLUGIN_NAME),
+          eq(PluginTable.status, "active"),
+          isNull(PluginTable.deletedAt),
+        )).limit(1).for("update")
+    const legacyPlugins = requestedPluginId || plugins[0]
+      ? []
+      : await tx.select().from(PluginTable).where(and(
+          eq(PluginTable.organizationId, organizationId),
+          eq(PluginTable.createdByOrgMembershipId, ownerMemberId),
+          eq(PluginTable.name, LEGACY_SAVED_SCRIPTS_PLUGIN_NAME),
+          eq(PluginTable.status, "active"),
+          isNull(PluginTable.deletedAt),
+        )).limit(1).for("update")
+    const plugin = plugins[0] ?? legacyPlugins[0]
+    if (requestedPluginId && !plugin) throw new Error("saved_program_plugin_not_found")
+    const pluginId = plugin?.id ?? createDenTypeId("plugin")
+    if (!plugin) {
       await tx.insert(PluginTable).values({
         id: pluginId,
         organizationId,
-        name: SAVED_SCRIPTS_PLUGIN_NAME,
-        description: "Private reusable Code Mode scripts.",
+        name: DEFAULT_PROGRAMS_PLUGIN_NAME,
+        description: "Private reusable Code Mode Programs.",
         status: "active",
         createdByOrgMembershipId: ownerMemberId,
       })
@@ -628,6 +696,11 @@ export async function saveCodemodeScript(input: {
         role: "manager",
         createdByOrgMembershipId: ownerMemberId,
       })
+    } else if (!requestedPluginId && plugin.name === LEGACY_SAVED_SCRIPTS_PLUGIN_NAME) {
+      await tx.update(PluginTable).set({
+        name: DEFAULT_PROGRAMS_PLUGIN_NAME,
+        description: "Private reusable Code Mode Programs.",
+      }).where(eq(PluginTable.id, plugin.id))
     }
 
     const linked = await tx.select({ object: ConfigObjectTable }).from(PluginConfigObjectTable)
@@ -641,7 +714,18 @@ export async function saveCodemodeScript(input: {
         isNull(ConfigObjectTable.deletedAt),
       )).limit(1).for("update")
     const configObjectId = linked[0]?.object.id ?? createDenTypeId("configObject")
-    if (!linked[0]) {
+    if (linked[0]) {
+      // Saving the same name creates a new immutable version of the existing
+      // Program. Plugin edit access can widen the audience, but it must never
+      // grant authority to replace another Program manager's executable code.
+      if (!input.context) throw new Error("saved_program_manager_context_required")
+      await requirePluginArchResourceRole({
+        context: input.context,
+        resourceId: configObjectId,
+        resourceKind: "config_object",
+        role: "manager",
+      })
+    } else {
       await tx.insert(ConfigObjectTable).values({
         id: configObjectId,
         organizationId,

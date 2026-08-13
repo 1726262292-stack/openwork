@@ -74,6 +74,13 @@ function buildApp() {
           tags: ["Workers"],
         },
       },
+      "/v1/codemode-scripts": {
+        post: {
+          operationId: "saveProgram",
+          summary: "Save a successful Code Mode run as a Program inside an OpenWork Connect Plugin",
+          tags: ["Codemode Runs"],
+        },
+      },
     },
   }))
   registerAgentMcpRoutes(app)
@@ -109,6 +116,12 @@ function listedToolNames(payload: Record<string, unknown>): string[] {
   return tools.flatMap((tool) => isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [])
 }
 
+function listedTools(payload: Record<string, unknown>): Record<string, unknown>[] {
+  const tools = resultRecord(payload).tools
+  if (!Array.isArray(tools)) throw new Error("Expected MCP tools list")
+  return tools.filter(isRecord)
+}
+
 function firstText(payload: Record<string, unknown>): string {
   const content = resultRecord(payload).content
   if (!Array.isArray(content)) throw new Error("Expected MCP tool content")
@@ -139,8 +152,16 @@ test("does not register execute_capability_script when the org flag is off", asy
 
 test("registers execute_capability_script when the org flag is on", async () => {
   organizationMetadata = { capabilities: { codemodeScripts: true } }
-  const tools = listedToolNames(await rpc(buildApp(), "tools/list"))
-  expect(tools).toContain("execute_capability_script")
+  const tools = listedTools(await rpc(buildApp(), "tools/list"))
+  const names = tools.flatMap((tool) => typeof tool.name === "string" ? [tool.name] : [])
+  expect(names).toContain("execute_capability_script")
+  expect(names).toContain("render_dynamic_artifact")
+  expect(names).toContain("search_programs")
+  expect(names).toContain("select_program")
+  expect(names).toContain("clear_program_selection")
+  expect(isRecord(tools.find((tool) => tool.name === "search_programs")?.outputSchema)).toBe(true)
+  expect(isRecord(tools.find((tool) => tool.name === "select_program")?.outputSchema)).toBe(true)
+  expect(isRecord(tools.find((tool) => tool.name === "clear_program_selection")?.outputSchema)).toBe(true)
 })
 
 test("executes a confined script when the org flag is on", async () => {
@@ -159,4 +180,13 @@ test("exposes in-program capability search over the Den namespace", async () => 
     arguments: { code: "return await tools.$codemode.search({ query: \"workers\" })" },
   })
   expect(firstText(payload)).toContain("tools.den.getWorkers")
+})
+
+test("makes the Program save operation discoverable through the standard capability catalog", async () => {
+  organizationMetadata = { capabilities: { codemodeScripts: true } }
+  const payload = await rpc(buildApp(), "tools/call", {
+    name: "search_capabilities",
+    arguments: { query: "save Program to Plugin" },
+  })
+  expect(firstText(payload)).toContain("saveProgram")
 })

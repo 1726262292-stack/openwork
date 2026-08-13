@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test"
 import { Tool } from "@openwork/codemode"
-import { eq, inArray } from "@openwork-ee/den-db/drizzle"
+import { and, eq, inArray } from "@openwork-ee/den-db/drizzle"
 import {
   AuthUserTable,
   CodemodeRunTable,
@@ -35,6 +35,7 @@ type CapabilityRegistry = typeof import("../src/mcp/capability-registry.js")
 type PluginStore = typeof import("../src/routes/org/plugin-system/store.js")
 type SavedScripts = typeof import("../src/codemode-scripts.js")
 type CodemodeRuns = typeof import("../src/codemode-runs.js")
+type ProgramLibrary = typeof import("../src/program-library.js")
 
 type SeededScript = {
   configObjectId: DenTypeId<"configObject">
@@ -49,6 +50,7 @@ let capabilityRegistry: CapabilityRegistry
 let pluginStore: PluginStore
 let savedScripts: SavedScripts
 let codemodeRuns: CodemodeRuns
+let programLibrary: ProgramLibrary
 const createdOrganizationIds: DenTypeId<"organization">[] = []
 const createdUserIds: DenTypeId<"user">[] = []
 
@@ -64,6 +66,7 @@ beforeAll(async () => {
   marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
   savedScripts = await import("../src/codemode-scripts.js")
   codemodeRuns = await import("../src/codemode-runs.js")
+  programLibrary = await import("../src/program-library.js")
   capabilityRegistry = await import("../src/mcp/capability-registry.js")
 })
 
@@ -261,6 +264,241 @@ describe("saved marketplace scripts", () => {
     })
     expect(versions[0]?.normalizedPayloadJson).not.toHaveProperty("requiredCapabilities.0.readOnly")
     expect(versions[0]?.normalizedPayloadJson).not.toHaveProperty("requiredCapabilities.0.unattendedApproved")
+  })
+
+  test("saves a Program directly into a chosen existing Plugin", async () => {
+    const seeded = await seedScript({
+      title: "Chosen Plugin Fixture",
+      code: "return null",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const code = "return { shared: true }"
+    const now = new Date()
+    await db.insert(CodemodeRunTable).values({
+      id: createDenTypeId("codemodeRun"),
+      organization_id: seeded.organizationId,
+      org_membership_id: seeded.member.orgMembershipId,
+      source: "mcp",
+      code_digest: codemodeRuns.codemodeCodeDigest(code),
+      status: "succeeded",
+      tool_calls: [],
+      tool_call_count: 0,
+      duration_ms: 5,
+      started_at: now,
+      finished_at: now,
+    })
+    const context: PluginArchActorContext = {
+      memberTeams: [],
+      organizationContext: {
+        organization: {
+          id: seeded.organizationId,
+          name: "Script Test Org",
+          slug: `scripts-${seeded.organizationId}`,
+          logo: null,
+          allowedEmailDomains: null,
+          metadata: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        currentMember: {
+          id: seeded.member.orgMembershipId,
+          userId: createDenTypeId("user"),
+          role: "owner",
+          createdAt: now,
+          joinedAt: now,
+          isOwner: true,
+        },
+        invitations: [],
+        members: [],
+        roles: [],
+        teams: [],
+      },
+      session: { createdAt: now },
+    }
+
+    const saved = await savedScripts.saveCodemodeScript({
+      organizationId: seeded.organizationId,
+      ownerMemberId: seeded.member.orgMembershipId,
+      context,
+      script: { pluginId: seeded.pluginId, name: "Shared Program", code },
+      buildTools: async () => ({ tools: {}, manifest: [] }),
+    })
+
+    expect(saved.pluginId).toBe(seeded.pluginId)
+    const memberships = await db.select().from(PluginConfigObjectTable).where(and(
+      eq(PluginConfigObjectTable.pluginId, seeded.pluginId),
+      eq(PluginConfigObjectTable.configObjectId, saved.configObjectId),
+    ))
+    expect(memberships).toHaveLength(1)
+  })
+
+  test("does not let a Plugin editor replace an existing Program version", async () => {
+    const seeded = await seedScript({
+      title: "Manager-owned Program",
+      code: "return { owner: true }",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const editorUserId = createDenTypeId("user")
+    const editorMemberId = createDenTypeId("member")
+    const now = new Date()
+    const code = "return { replaced: true }"
+    createdUserIds.push(editorUserId)
+    await db.insert(AuthUserTable).values({
+      id: editorUserId,
+      name: "Program Editor",
+      email: `${editorUserId}@scripts.test.local`,
+    })
+    await db.insert(MemberTable).values({
+      id: editorMemberId,
+      organizationId: seeded.organizationId,
+      userId: editorUserId,
+      role: "member",
+    })
+    await db.insert(PluginAccessGrantTable).values({
+      id: createDenTypeId("pluginAccessGrant"),
+      organizationId: seeded.organizationId,
+      pluginId: seeded.pluginId,
+      orgMembershipId: editorMemberId,
+      teamId: null,
+      orgWide: false,
+      role: "editor",
+      createdByOrgMembershipId: seeded.member.orgMembershipId,
+    })
+    await db.insert(CodemodeRunTable).values({
+      id: createDenTypeId("codemodeRun"),
+      organization_id: seeded.organizationId,
+      org_membership_id: editorMemberId,
+      source: "mcp",
+      code_digest: codemodeRuns.codemodeCodeDigest(code),
+      status: "succeeded",
+      tool_calls: [],
+      tool_call_count: 0,
+      duration_ms: 5,
+      started_at: now,
+      finished_at: now,
+    })
+    const context: PluginArchActorContext = {
+      memberTeams: [],
+      organizationContext: {
+        organization: {
+          id: seeded.organizationId,
+          name: "Script Test Org",
+          slug: `scripts-${seeded.organizationId}`,
+          logo: null,
+          allowedEmailDomains: null,
+          metadata: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        currentMember: {
+          id: editorMemberId,
+          userId: editorUserId,
+          role: "member",
+          createdAt: now,
+          joinedAt: now,
+          isOwner: false,
+        },
+        invitations: [],
+        members: [],
+        roles: [],
+        teams: [],
+      },
+      session: { createdAt: now },
+    }
+
+    await expect(savedScripts.saveCodemodeScript({
+      organizationId: seeded.organizationId,
+      ownerMemberId: editorMemberId,
+      context,
+      script: { pluginId: seeded.pluginId, name: "Manager-owned Program", code },
+      buildTools: async () => ({ tools: {}, manifest: [] }),
+    })).rejects.toThrow("Missing manager access for config object.")
+
+    const versions = await db.select().from(ConfigObjectVersionTable).where(eq(
+      ConfigObjectVersionTable.configObjectId,
+      seeded.configObjectId,
+    ))
+    expect(versions).toHaveLength(1)
+  })
+
+  test("does not disclose an inaccessible parent Plugin through a direct Program grant", async () => {
+    const seeded = await seedScript({
+      title: "Directly shared Program",
+      code: "return { shared: true }",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const viewerUserId = createDenTypeId("user")
+    const viewerMemberId = createDenTypeId("member")
+    const now = new Date()
+    createdUserIds.push(viewerUserId)
+    await db.insert(AuthUserTable).values({
+      id: viewerUserId,
+      name: "Direct Program Viewer",
+      email: `${viewerUserId}@scripts.test.local`,
+    })
+    await db.insert(MemberTable).values({
+      id: viewerMemberId,
+      organizationId: seeded.organizationId,
+      userId: viewerUserId,
+      role: "member",
+    })
+    await db.update(PluginAccessGrantTable).set({ removedAt: now }).where(and(
+      eq(PluginAccessGrantTable.pluginId, seeded.pluginId),
+      eq(PluginAccessGrantTable.orgWide, true),
+    ))
+    await db.update(ConfigObjectAccessGrantTable).set({ removedAt: now }).where(and(
+      eq(ConfigObjectAccessGrantTable.configObjectId, seeded.configObjectId),
+      eq(ConfigObjectAccessGrantTable.orgWide, true),
+    ))
+    await db.insert(ConfigObjectAccessGrantTable).values({
+      id: createDenTypeId("configObjectAccessGrant"),
+      organizationId: seeded.organizationId,
+      configObjectId: seeded.configObjectId,
+      orgMembershipId: viewerMemberId,
+      teamId: null,
+      orgWide: false,
+      role: "viewer",
+      createdByOrgMembershipId: seeded.member.orgMembershipId,
+    })
+    const context: PluginArchActorContext = {
+      memberTeams: [],
+      organizationContext: {
+        organization: {
+          id: seeded.organizationId,
+          name: "Script Test Org",
+          slug: `scripts-${seeded.organizationId}`,
+          logo: null,
+          allowedEmailDomains: null,
+          metadata: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        currentMember: {
+          id: viewerMemberId,
+          userId: viewerUserId,
+          role: "member",
+          createdAt: now,
+          joinedAt: now,
+          isOwner: false,
+        },
+        invitations: [],
+        members: [],
+        roles: [],
+        teams: [],
+      },
+      session: { createdAt: now },
+    }
+
+    const detail = await programLibrary.getProgramDetail({
+      context,
+      configObjectId: seeded.configObjectId,
+    })
+    expect(detail.program.plugin).toBeNull()
+    expect(JSON.stringify(detail.program)).not.toContain("Directly shared Program Plugin")
+
+    const library = await programLibrary.listProgramLibraryItems({ context })
+    expect(library).toHaveLength(1)
+    expect(library[0]?.plugin).toBeNull()
   })
 
   test("executes a createPluginBundle saved script with typed input binding", async () => {

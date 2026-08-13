@@ -69,6 +69,7 @@ import { db } from "../../../db.js"
 import { env } from "../../../env.js"
 import { appLogger } from "../../../observability/logger.js"
 import { roleIncludesOwner } from "../../../orgs.js"
+import { redactSavedScriptNormalizedPayloadAuthoringDetails } from "../../../saved-script-projections.js"
 import { memberFacingMcpConnectionsEnabled } from "../../../capability-sources/external-mcp-rollout.js"
 import { comparablePluginMcpRequirementUrl, marketplaceMcpServerEntries, resolveMarketplacePluginCloudReadiness } from "../../../mcp/marketplace-capabilities.js"
 import { assertPublicUrl } from "../../../capability-sources/url-guard.js"
@@ -701,6 +702,9 @@ async function getLatestVersions(configObjectIds: ConfigObjectId[]) {
 }
 
 function serializeVersion(row: ConfigObjectVersionRow) {
+  // Program authoring data belongs to the role-aware Program management API.
+  // Generic config-object reads must not bypass that boundary for viewers.
+  const isCodemodeProgramVersion = row.schemaVersion === "codemode-script-v1"
   return {
     configObjectId: row.configObjectId,
     connectorSyncEventId: row.connectorSyncEventId,
@@ -709,8 +713,10 @@ function serializeVersion(row: ConfigObjectVersionRow) {
     createdVia: row.createdVia,
     id: row.id,
     isDeletedVersion: row.isDeletedVersion,
-    normalizedPayloadJson: row.normalizedPayloadJson,
-    rawSourceText: row.rawSourceText,
+    normalizedPayloadJson: isCodemodeProgramVersion
+      ? redactSavedScriptNormalizedPayloadAuthoringDetails(row.normalizedPayloadJson)
+      : row.normalizedPayloadJson,
+    rawSourceText: isCodemodeProgramVersion ? null : row.rawSourceText,
     schemaVersion: row.schemaVersion,
     sourceRevisionRef: row.sourceRevisionRef,
   }
@@ -1816,7 +1822,18 @@ export async function listConfigObjectPlugins(input: { context: PluginArchActorC
 }
 
 export async function attachConfigObjectToPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; membershipSource?: PluginMembershipRow["membershipSource"]; pluginId: PluginId }) {
-  await ensureVisibleConfigObject(input.context, input.configObjectId)
+  const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
+  if (configObject.objectType === "script") {
+    // Adding a Program to a Plugin can expand its audience through Plugin and
+    // Marketplace grants, so only a Program manager may make that sharing
+    // decision. Other config-object membership behavior stays compatible.
+    await requirePluginArchResourceRole({
+      context: input.context,
+      resourceId: configObject.id,
+      resourceKind: "config_object",
+      role: "manager",
+    })
+  }
   await ensureEditablePlugin(input.context, input.pluginId)
 
   const existing = await db
@@ -1848,7 +1865,15 @@ export async function attachConfigObjectToPlugin(input: { context: PluginArchAct
 }
 
 export async function removeConfigObjectFromPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; pluginId: PluginId }) {
-  await ensureVisibleConfigObject(input.context, input.configObjectId)
+  const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
+  if (configObject.objectType === "script") {
+    await requirePluginArchResourceRole({
+      context: input.context,
+      resourceId: configObject.id,
+      resourceKind: "config_object",
+      role: "manager",
+    })
+  }
   await ensureEditablePlugin(input.context, input.pluginId)
   const rows = await db
     .select()
@@ -2095,7 +2120,7 @@ export async function listTeamEffectivePluginAccess(input: { context: PluginArch
   }
 }
 
-type MePluginAccessEdge =
+export type MePluginAccessEdge =
   | { kind: "mine" }
   | { kind: "person"; sharedBy: { orgMembershipId: MemberId; name: string } | null; grantedAt: string }
   | { kind: "team"; team: { id: TeamId; name: string } }

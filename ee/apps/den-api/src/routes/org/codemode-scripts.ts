@@ -7,6 +7,7 @@ import {
   savedScriptDetailSchema,
   savedScriptTestResultSchema,
   savedScriptVersionSchema,
+  generatedArtifactViewSchema,
 } from "@openwork/types/dynamic-artifacts"
 import {
   createCodemodeScriptVersion,
@@ -19,7 +20,7 @@ import {
   testCodemodeScriptDraft,
 } from "../../codemode-scripts.js"
 import { orgMemberRoute, jsonValidator, queryValidator } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { listTeamsForMember } from "../../orgs.js"
 import { env } from "../../env.js"
 import { getCatalog } from "../../mcp/index.js"
@@ -33,6 +34,17 @@ import { codemodeScriptsEnabled } from "../../capability-sources/codemode-rollou
 import { PluginArchAuthorizationError } from "./plugin-system/access.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { codemodeCodeDigest } from "../../codemode-runs.js"
+import { getProgramDetail } from "../../program-library.js"
+import {
+  activateArtifactViewRevision,
+  listArtifactViewsForScript,
+  retireArtifactView,
+} from "../../artifact-views.js"
+import {
+  clearProgramAgentSelection,
+  getProgramAgentSelection,
+  selectProgramForAgent,
+} from "../../program-agent-selection.js"
 
 const capabilitySchema = z.object({ capabilityName: z.string(), scriptPath: z.string() })
 const scriptSchema = z.object({
@@ -47,6 +59,7 @@ const scriptSchema = z.object({
 })
 const listSchema = z.object({ items: z.array(scriptSchema) })
 const saveSchema = z.object({
+  pluginId: z.string().trim().min(1).max(160).optional().describe("Existing OpenWork Connect Plugin that will contain and share this Program. Omit to use the member's private My Programs Plugin."),
   name: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4_000).optional(),
   code: z.string().min(1).max(200_000),
@@ -94,6 +107,30 @@ const versionSchema = draftSchema.extend({
 })
 const versionsResponseSchema = z.object({ items: z.array(savedScriptVersionSchema) })
 const snapshotsResponseSchema = z.object({ items: z.array(savedScriptArtifactSnapshotSchema) })
+const programDetailSchema = z.object({
+  program: z.object({
+    type: z.literal("program"), id: z.string(), plugin: z.object({ id: z.string(), name: z.string() }).nullable(), name: z.string(), description: z.string().nullable(),
+    role: z.enum(["viewer", "editor", "manager"]), edges: z.array(z.unknown()),
+    state: z.enum(["ready", "needs_signin", "needs_admin_setup"]),
+    resultState: z.enum(["never_run", "fresh", "stale", "needs_attention"]),
+    latestSuccessfulAt: z.string().datetime().nullable(),
+    viewState: z.enum(["default", "custom_active", "build_failed", "retired"]),
+    activeViewTitle: z.string().nullable(), automationCount: z.number().int().nonnegative(),
+    source: z.object({ kind: z.enum(["created", "installed_template"]), templateName: z.string().optional(), templateVersion: z.string().optional() }),
+  }),
+  script: savedScriptDetailSchema,
+  views: z.array(generatedArtifactViewSchema),
+})
+const artifactViewsResponseSchema = z.object({ items: z.array(generatedArtifactViewSchema) })
+const programSelectionSchema = z.object({
+  organizationId: z.string(), orgMembershipId: z.string(), programId: z.string(), selectedAt: z.string().datetime(),
+})
+const programSelectionResponseSchema = z.object({ selection: programSelectionSchema.nullable() })
+const programSelectionWriteSchema = z.object({ programId: z.string().trim().min(1).max(160) })
+const artifactViewParamsSchema = z.object({
+  artifactViewId: z.string().trim().min(1).max(160),
+  revisionId: z.string().trim().min(1).max(160).optional(),
+})
 
 function routeFailure(error: unknown) {
   if (error instanceof PluginArchAuthorizationError) {
@@ -121,6 +158,8 @@ function routeFailure(error: unknown) {
   }
   return { status: 400, body: { error: "saved_script_rejected", message } } as const
 }
+
+export const saveProgramOperationId = "saveProgram"
 
 export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
   const contextFor = async (c: {
@@ -174,23 +213,31 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
   app.post(
     "/v1/codemode-scripts",
     describeRoute({
-      tags: ["Codemode Runs"], summary: "Save a successful Code Mode run as a reusable script; include outputSchema when it will back an Artifact view",
-      responses: { 201: jsonResponse("Script saved.", savedSchema), 400: jsonResponse("Invalid request.", invalidRequestSchema) },
+      operationId: saveProgramOperationId,
+      tags: ["Codemode Runs"], summary: "Save a successful Code Mode run as a Program inside an OpenWork Connect Plugin",
+      responses: {
+        201: jsonResponse("Program saved.", savedSchema),
+        400: jsonResponse("Invalid request.", invalidRequestSchema),
+        403: jsonResponse("The caller cannot add Programs to this Plugin.", forbiddenSchema),
+        404: jsonResponse("Plugin not found.", notFoundSchema),
+      },
     }),
     orgMemberRoute(), jsonValidator(saveSchema),
     async (c) => {
       try {
-        const { context, buildTools, codemodeEnabled } = await contextFor(c)
+        const { context, actorContext, buildTools, codemodeEnabled } = await contextFor(c)
         if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
         const saved = await saveCodemodeScript({
           organizationId: context.organization.id,
           ownerMemberId: context.currentMember.id,
           script: c.req.valid("json"),
           buildTools,
+          context: actorContext,
         })
         return c.json(saved, 201)
       } catch (error) {
-        return c.json({ error: "saved_script_rejected", message: error instanceof Error ? error.message : "Script could not be saved." }, 400)
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
       }
     },
   )
@@ -220,6 +267,127 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
         const failure = routeFailure(error)
         return c.json(failure.body, failure.status)
       }
+    },
+  )
+
+  app.get(
+    "/v1/programs/:configObjectId",
+    describeRoute({
+      tags: ["Codemode Runs"], summary: "Inspect a Program",
+      responses: { 200: jsonResponse("Program returned.", programDetailSchema), 404: jsonResponse("Program not found.", notFoundSchema) },
+    }),
+    orgMemberRoute(),
+    async (c) => {
+      const params = detailParamsSchema.safeParse(c.req.param())
+      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Program id." }, 400)
+      try {
+        const { actorContext, codemodeEnabled } = await contextFor(c)
+        if (!codemodeEnabled) return c.json({ error: "program_not_found" }, 404)
+        return c.json(await getProgramDetail({ context: actorContext, configObjectId: params.data.configObjectId }))
+      } catch (error) {
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
+      }
+    },
+  )
+
+  app.get(
+    "/v1/programs/:configObjectId/views",
+    describeRoute({
+      tags: ["Codemode Runs"], summary: "List generated Artifact views for a Program",
+      responses: { 200: jsonResponse("Artifact views returned.", artifactViewsResponseSchema) },
+    }),
+    orgMemberRoute(),
+    async (c) => {
+      const params = detailParamsSchema.safeParse(c.req.param())
+      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Program id." }, 400)
+      try {
+        const { actorContext, codemodeEnabled } = await contextFor(c)
+        if (!codemodeEnabled) return c.json({ items: [] })
+        return c.json({ items: await listArtifactViewsForScript({ context: actorContext, configObjectId: params.data.configObjectId }) })
+      } catch (error) {
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
+      }
+    },
+  )
+
+  app.post(
+    "/v1/artifact-views/:artifactViewId/revisions/:revisionId/activate",
+    describeRoute({
+      tags: ["Codemode Runs"], summary: "Activate or roll back an immutable Artifact view revision",
+      responses: { 200: jsonResponse("Artifact view activated.", generatedArtifactViewSchema) },
+    }),
+    orgMemberRoute(),
+    async (c) => {
+      const params = artifactViewParamsSchema.safeParse(c.req.param())
+      if (!params.success || !params.data.revisionId) return c.json({ error: "invalid_request", message: "Invalid view revision." }, 400)
+      try {
+        const { actorContext, codemodeEnabled } = await contextFor(c)
+        if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
+        return c.json(await activateArtifactViewRevision({ context: actorContext, artifactViewId: params.data.artifactViewId, revisionId: params.data.revisionId }))
+      } catch (error) {
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
+      }
+    },
+  )
+
+  app.post(
+    "/v1/artifact-views/:artifactViewId/retire",
+    describeRoute({
+      tags: ["Codemode Runs"], summary: "Retire a generated Artifact view",
+      responses: { 200: jsonResponse("Artifact view retired.", generatedArtifactViewSchema) },
+    }),
+    orgMemberRoute(),
+    async (c) => {
+      const params = artifactViewParamsSchema.safeParse(c.req.param())
+      if (!params.success) return c.json({ error: "invalid_request", message: "Invalid view." }, 400)
+      try {
+        const { actorContext, codemodeEnabled } = await contextFor(c)
+        if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
+        return c.json(await retireArtifactView({ context: actorContext, artifactViewId: params.data.artifactViewId }))
+      } catch (error) {
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
+      }
+    },
+  )
+
+  app.get(
+    "/v1/me/program-selection",
+    describeRoute({ tags: ["Codemode Runs"], summary: "Get my selected Program", responses: { 200: jsonResponse("Program selection returned.", programSelectionResponseSchema) } }),
+    orgMemberRoute(),
+    async (c) => {
+      const { actorContext, codemodeEnabled } = await contextFor(c)
+      return c.json({ selection: codemodeEnabled ? await getProgramAgentSelection(actorContext) : null })
+    },
+  )
+
+  app.put(
+    "/v1/me/program-selection",
+    describeRoute({ tags: ["Codemode Runs"], summary: "Select a Program for MCP", responses: { 200: jsonResponse("Program selected.", programSelectionResponseSchema) } }),
+    orgMemberRoute(), jsonValidator(programSelectionWriteSchema),
+    async (c) => {
+      try {
+        const { actorContext, codemodeEnabled } = await contextFor(c)
+        if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
+        return c.json({ selection: await selectProgramForAgent({ context: actorContext, programId: c.req.valid("json").programId }) })
+      } catch (error) {
+        const failure = routeFailure(error)
+        return c.json(failure.body, failure.status)
+      }
+    },
+  )
+
+  app.delete(
+    "/v1/me/program-selection",
+    describeRoute({ tags: ["Codemode Runs"], summary: "Clear my selected Program", responses: { 200: jsonResponse("Program selection cleared.", programSelectionResponseSchema) } }),
+    orgMemberRoute(),
+    async (c) => {
+      const { actorContext } = await contextFor(c)
+      await clearProgramAgentSelection(actorContext)
+      return c.json({ selection: null })
     },
   )
 

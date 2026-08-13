@@ -15,6 +15,11 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type Props = {
   automation?: AutomationDetail;
+  savedScript?: {
+    name: string;
+    script: { pluginId: string; configObjectId: string; configObjectVersionId: string };
+    input: unknown;
+  };
   onClose: () => void;
   onSaved: (automationId: string) => void;
 };
@@ -30,7 +35,7 @@ function initialTime(schedule?: AutomationSchedule) {
     : "09:00";
 }
 
-export function CloudAutomationForm({ automation, onClose, onSaved }: Props) {
+export function CloudAutomationForm({ automation, savedScript, onClose, onSaved }: Props) {
   const { orgId, orgContext } = useOrgDashboard();
   const { llmProviders, busy, error } = useOrgLlmProviders(orgId, { scope: "usable" });
   const createAutomation = useCreateCloudAutomation();
@@ -43,7 +48,7 @@ export function CloudAutomationForm({ automation, onClose, onSaved }: Props) {
     modelId: model.id,
     modelName: model.name,
   }))), [llmProviders]);
-  const [name, setName] = useState(automation?.automation.name ?? "");
+  const [name, setName] = useState(automation?.automation.name ?? (savedScript ? `${savedScript.name} refresh` : ""));
   const [instructions, setInstructions] = useState(action?.instructions ?? "");
   const [scheduleKind, setScheduleKind] = useState<AutomationSchedule["kind"]>(automation?.revision.schedule.kind ?? "daily");
   const [time, setTime] = useState(initialTime(automation?.revision.schedule));
@@ -75,7 +80,21 @@ export function CloudAutomationForm({ automation, onClose, onSaved }: Props) {
   const submit = async () => {
     const model = models.find((entry) => entry.key === modelKey);
     const nextSchedule = schedule();
-    if (!model || !nextSchedule || !name.trim() || !instructions.trim()) return;
+    if (!nextSchedule || !name.trim() || (!savedScript && (!model || !instructions.trim()))) return;
+    if (savedScript) {
+      try {
+        const saved = await createAutomation.mutateAsync({
+          name: name.trim(),
+          schedule: nextSchedule,
+          action: { kind: "saved_script", script: savedScript.script, input: savedScript.input },
+        });
+        onSaved(saved.automation.id);
+      } catch {
+        // The mutation exposes the server's actionable message below.
+      }
+      return;
+    }
+    if (!model) return;
     const modelSelection = {
       providerId: model.providerId,
       modelId: model.modelId,
@@ -118,8 +137,7 @@ export function CloudAutomationForm({ automation, onClose, onSaved }: Props) {
       {!cloudEnabled ? <p className="mt-4 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">OpenWork Cloud is not enabled for this workspace.</p> : null}
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <label className="space-y-1.5 text-[12px] font-medium text-gray-700">Name<DenInput value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning customer brief" maxLength={120} /></label>
-        <label className="space-y-1.5 text-[12px] font-medium text-gray-700">Model<DenSelect value={modelKey} onChange={(event) => setModelKey(event.target.value)} disabled={busy || models.length === 0} aria-label="Automation model"><option value="">{busy ? "Loading models…" : "Select a model"}</option>{models.map((model) => <option key={model.key} value={model.key}>{model.providerName} · {model.modelName}</option>)}</DenSelect></label>
-        <label className="space-y-1.5 text-[12px] font-medium text-gray-700 md:col-span-2">Instructions<DenTextarea value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} placeholder="Review my connected sources and prepare…" maxLength={100_000} /></label>
+        {savedScript ? <div className="rounded-xl border border-sky-100 bg-white p-3 text-[12px] text-gray-600"><p className="font-medium text-gray-800">Pinned Program Script</p><p className="mt-1 break-all font-mono text-[10px]">{savedScript.script.configObjectVersionId}</p></div> : <><label className="space-y-1.5 text-[12px] font-medium text-gray-700">Model<DenSelect value={modelKey} onChange={(event) => setModelKey(event.target.value)} disabled={busy || models.length === 0} aria-label="Automation model"><option value="">{busy ? "Loading models…" : "Select a model"}</option>{models.map((model) => <option key={model.key} value={model.key}>{model.providerName} · {model.modelName}</option>)}</DenSelect></label><label className="space-y-1.5 text-[12px] font-medium text-gray-700 md:col-span-2">Instructions<DenTextarea value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={5} placeholder="Review my connected sources and prepare…" maxLength={100_000} /></label></>}
         <label className="space-y-1.5 text-[12px] font-medium text-gray-700">Schedule<DenSelect value={scheduleKind} onChange={(event) => setScheduleKind(event.target.value as AutomationSchedule["kind"])}><option value="once">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option></DenSelect></label>
         {scheduleKind === "once"
           ? <label className="space-y-1.5 text-[12px] font-medium text-gray-700">Run at<DenInput type="datetime-local" value={onceAt} onChange={(event) => setOnceAt(event.target.value)} /></label>
@@ -129,7 +147,7 @@ export function CloudAutomationForm({ automation, onClose, onSaved }: Props) {
       </div>
       {error ? <p className="mt-3 text-[12px] text-red-600">{error}</p> : null}
       {mutation.error ? <p className="mt-3 text-[12px] text-red-600">{mutation.error.message}</p> : null}
-      <div className="mt-5 flex justify-end gap-2"><DenButton variant="secondary" onClick={onClose}>Cancel</DenButton><DenButton loading={mutation.isPending} disabled={!cloudEnabled || !name.trim() || !instructions.trim() || !modelKey || !schedule()} onClick={() => void submit()}>{automation ? "Save revision" : "Create in Cloud"}</DenButton></div>
+      <div className="mt-5 flex justify-end gap-2"><DenButton variant="secondary" onClick={onClose}>Cancel</DenButton><DenButton loading={mutation.isPending} disabled={!cloudEnabled || !name.trim() || (!savedScript && (!instructions.trim() || !modelKey)) || !schedule()} onClick={() => void submit()}>{automation ? "Save revision" : "Create in Cloud"}</DenButton></div>
     </section>
   );
 }

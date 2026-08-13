@@ -7,7 +7,10 @@ import { createHash } from "node:crypto"
 import type { DynamicArtifactAppPayload, GeneratedArtifactView } from "@openwork/types/dynamic-artifacts"
 import { artifactViewResourceUri } from "../src/artifact-view-resource.js"
 import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
-import { registerAgentGeneratedArtifactViews } from "../src/mcp/generated-artifact-views.js"
+import {
+  registerAgentGeneratedArtifactViews,
+  registerSelectedGeneratedArtifactRenderTool,
+} from "../src/mcp/generated-artifact-views.js"
 
 const viewId = "arv_01k28e8vz5e5svgkde54dgqy0c"
 const activeRevisionId = "avr_01k28e91dcf6ftyz9e90pcrv7p"
@@ -29,6 +32,9 @@ function revision(id: string, createdAt: string) {
     outputSchemaDigest: digest,
     csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
     diagnostics: [],
+    compilerName: "esbuild",
+    compilerVersion: "test",
+    reactVersion: "19.1.1",
     compiledHtmlBytes: Buffer.byteLength(html),
     retiredAt: null,
     createdAt,
@@ -76,6 +82,7 @@ async function withClient<T>(
     save: () => Promise<GeneratedArtifactView>
     activate: (request: { artifactViewId: string; revisionId: string }) => Promise<GeneratedArtifactView>
     retire: () => Promise<GeneratedArtifactView>
+    exposePerViewRenderTools: boolean
   }> = {},
 ): Promise<T> {
   const server = new McpServer(
@@ -90,7 +97,16 @@ async function withClient<T>(
     save: overrides.save ?? (async () => view),
     activate: overrides.activate ?? (async ({ revisionId }) => ({ ...view, activeRevisionId: revisionId })),
     retire: overrides.retire ?? (async () => ({ ...view, status: "retired", activeRevisionId: null })),
+    exposePerViewRenderTools: overrides.exposePerViewRenderTools,
   })
+  if (overrides.exposePerViewRenderTools === false) {
+    registerSelectedGeneratedArtifactRenderTool({
+      server,
+      view,
+      revision: view.revisions[1]!,
+      loadData: async () => ({ ok: true, payload, markdown: "# Custom pipeline" }),
+    })
+  }
   const client = new Client({ name: "host", version: "1.0.0" }, { capabilities: {} })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport)
@@ -133,6 +149,29 @@ test("serves the stored HTML bytes and keeps Artifact data in structuredContent"
     expect(result.structuredContent).toEqual(payload)
     expect(html).not.toContain("Qualified")
   })
+})
+
+test("keeps the model-visible catalog constant-sized and binds the selected exact revision", async () => {
+  await withClient(async (client) => {
+    const tools = await client.listTools()
+    expect(tools.tools.some((tool) => tool.name === `render_artifact_${viewId}`)).toBe(false)
+    expect(tools.tools.some((tool) => tool.name === `preview_artifact_${viewId}`)).toBe(false)
+    expect(tools.tools.find((tool) => tool.name === "render_selected_program")?._meta)
+      .toMatchObject({ ui: { resourceUri: artifactViewResourceUri(viewId, activeRevisionId) } })
+    expect(tools.tools.some((tool) => tool.name === "save_artifact_view")).toBe(true)
+    const saved = await client.callTool({
+      name: "save_artifact_view",
+      arguments: {
+        artifactViewId: viewId,
+        configObjectId,
+        title: view.title,
+        reactSource: "export default function View() { return <div /> }",
+      },
+    })
+    expect(JSON.stringify(saved.content)).toContain("render_selected_program")
+    expect(JSON.stringify(saved.content)).not.toContain(`render_artifact_${viewId}`)
+    expect(JSON.stringify(saved.content)).not.toContain(`preview_artifact_${viewId}`)
+  }, { exposePerViewRenderTools: false })
 })
 
 test("activation and rollback refresh the render tool to each exact immutable URI", async () => {
