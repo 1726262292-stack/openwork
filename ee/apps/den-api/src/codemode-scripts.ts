@@ -6,7 +6,7 @@ import type {
   SavedScriptDetail,
   SavedScriptVersion,
 } from "@openwork/types/dynamic-artifacts"
-import { and, desc, eq, gt, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, asc, desc, eq, gt, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   AutomationRevisionTable,
   AutomationRunTable,
@@ -97,9 +97,12 @@ async function savedScriptResource(
       eq(ConfigObjectTable.objectType, "script"),
       eq(ConfigObjectTable.status, "active"),
       isNull(ConfigObjectTable.deletedAt),
-    )).limit(1)
-  const row = rows[0]
-  if (!row) throw new Error("saved_script_not_found")
+    ))
+    // A Program may be assigned to more than one Plugin. Keep memberships in
+    // a stable order so the first one visible to this member becomes the
+    // execution/provenance context.
+    .orderBy(asc(PluginConfigObjectTable.createdAt), asc(PluginConfigObjectTable.id))
+  if (!rows[0]) throw new Error("saved_script_not_found")
   await requirePluginArchResourceRole({
     context,
     requireFreshSession: false,
@@ -107,7 +110,18 @@ async function savedScriptResource(
     resourceKind: "config_object",
     role,
   })
-  return row
+  for (const row of rows) {
+    const pluginRole = await resolvePluginArchResourceRole({
+      context,
+      resourceId: row.plugin.id,
+      resourceKind: "plugin",
+    })
+    if (pluginRole) return row
+  }
+  // Direct Program grants are intentionally independent from Plugin access.
+  // In that case retain the deterministic oldest membership as its execution
+  // context; capability execution separately enforces the Program grant.
+  return rows[0]
 }
 
 function normalizedPayload(draft: CodemodeScriptDraft) {
@@ -700,7 +714,18 @@ export async function saveCodemodeScript(input: {
         isNull(ConfigObjectTable.deletedAt),
       )).limit(1).for("update")
     const configObjectId = linked[0]?.object.id ?? createDenTypeId("configObject")
-    if (!linked[0]) {
+    if (linked[0]) {
+      // Saving the same name creates a new immutable version of the existing
+      // Program. Plugin edit access can widen the audience, but it must never
+      // grant authority to replace another Program manager's executable code.
+      if (!input.context) throw new Error("saved_program_manager_context_required")
+      await requirePluginArchResourceRole({
+        context: input.context,
+        resourceId: configObjectId,
+        resourceKind: "config_object",
+        role: "manager",
+      })
+    } else {
       await tx.insert(ConfigObjectTable).values({
         id: configObjectId,
         organizationId,

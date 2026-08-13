@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, asc, desc, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
@@ -204,14 +204,34 @@ export async function listProgramLibraryItems(input: { context: PluginArchActorC
         eq(ConfigObjectTable.status, "active"),
         isNull(ConfigObjectTable.deletedAt),
       ))
-      .orderBy(desc(ConfigObjectTable.updatedAt), desc(ConfigObjectTable.id)),
+      .orderBy(
+        desc(ConfigObjectTable.updatedAt),
+        desc(ConfigObjectTable.id),
+        asc(PluginConfigObjectTable.createdAt),
+        asc(PluginConfigObjectTable.id),
+      ),
     listMeEffectivePluginAccess({ context: input.context }),
     listMemberUsableConnectionFacts({ context: input.context }),
   ])
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
-  const programs = new Map<string, { row: typeof ConfigObjectTable.$inferSelect; plugin: { id: string; name: string }; inheritedEdges: MePluginAccessEdge[] }>()
+  const programs = new Map<string, {
+    row: typeof ConfigObjectTable.$inferSelect
+    plugin: { id: string; name: string }
+    pluginIsVisible: boolean
+    inheritedEdges: MePluginAccessEdge[]
+  }>()
   for (const { configObject, pluginId, pluginName } of rows) {
-    const program = programs.get(configObject.id) ?? { row: configObject, plugin: { id: pluginId, name: pluginName }, inheritedEdges: [] }
+    const pluginIsVisible = pluginEdges.has(pluginId)
+    const program = programs.get(configObject.id) ?? {
+      row: configObject,
+      plugin: { id: pluginId, name: pluginName },
+      pluginIsVisible,
+      inheritedEdges: [],
+    }
+    if (!program.pluginIsVisible && pluginIsVisible) {
+      program.plugin = { id: pluginId, name: pluginName }
+      program.pluginIsVisible = true
+    }
     program.inheritedEdges.push(...(pluginEdges.get(pluginId) ?? []))
     programs.set(configObject.id, program)
   }
@@ -244,9 +264,10 @@ export async function getProgramDetail(input: {
       eq(PluginConfigObjectTable.configObjectId, row.id),
       isNull(PluginConfigObjectTable.removedAt),
     ))
+    .orderBy(asc(PluginConfigObjectTable.createdAt), asc(PluginConfigObjectTable.id))
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
   const inheritedEdges = memberships.flatMap(({ pluginId }) => pluginEdges.get(pluginId) ?? [])
-  const parent = memberships[0]
+  const parent = memberships.find(({ pluginId }) => pluginEdges.has(pluginId)) ?? memberships[0]
   if (!parent) throw new Error("dynamic_program_not_found")
   const program = await programItem({ context: input.context, row, plugin: { id: parent.pluginId, name: parent.pluginName }, inheritedEdges, connections })
   if (!program) throw new Error("dynamic_program_not_found")
