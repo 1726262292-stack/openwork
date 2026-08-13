@@ -35,6 +35,7 @@ type CapabilityRegistry = typeof import("../src/mcp/capability-registry.js")
 type PluginStore = typeof import("../src/routes/org/plugin-system/store.js")
 type SavedScripts = typeof import("../src/codemode-scripts.js")
 type CodemodeRuns = typeof import("../src/codemode-runs.js")
+type ProgramLibrary = typeof import("../src/program-library.js")
 
 type SeededScript = {
   configObjectId: DenTypeId<"configObject">
@@ -49,6 +50,7 @@ let capabilityRegistry: CapabilityRegistry
 let pluginStore: PluginStore
 let savedScripts: SavedScripts
 let codemodeRuns: CodemodeRuns
+let programLibrary: ProgramLibrary
 const createdOrganizationIds: DenTypeId<"organization">[] = []
 const createdUserIds: DenTypeId<"user">[] = []
 
@@ -64,6 +66,7 @@ beforeAll(async () => {
   marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
   savedScripts = await import("../src/codemode-scripts.js")
   codemodeRuns = await import("../src/codemode-runs.js")
+  programLibrary = await import("../src/program-library.js")
   capabilityRegistry = await import("../src/mcp/capability-registry.js")
 })
 
@@ -416,6 +419,86 @@ describe("saved marketplace scripts", () => {
       seeded.configObjectId,
     ))
     expect(versions).toHaveLength(1)
+  })
+
+  test("does not disclose an inaccessible parent Plugin through a direct Program grant", async () => {
+    const seeded = await seedScript({
+      title: "Directly shared Program",
+      code: "return { shared: true }",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    const viewerUserId = createDenTypeId("user")
+    const viewerMemberId = createDenTypeId("member")
+    const now = new Date()
+    createdUserIds.push(viewerUserId)
+    await db.insert(AuthUserTable).values({
+      id: viewerUserId,
+      name: "Direct Program Viewer",
+      email: `${viewerUserId}@scripts.test.local`,
+    })
+    await db.insert(MemberTable).values({
+      id: viewerMemberId,
+      organizationId: seeded.organizationId,
+      userId: viewerUserId,
+      role: "member",
+    })
+    await db.update(PluginAccessGrantTable).set({ removedAt: now }).where(and(
+      eq(PluginAccessGrantTable.pluginId, seeded.pluginId),
+      eq(PluginAccessGrantTable.orgWide, true),
+    ))
+    await db.update(ConfigObjectAccessGrantTable).set({ removedAt: now }).where(and(
+      eq(ConfigObjectAccessGrantTable.configObjectId, seeded.configObjectId),
+      eq(ConfigObjectAccessGrantTable.orgWide, true),
+    ))
+    await db.insert(ConfigObjectAccessGrantTable).values({
+      id: createDenTypeId("configObjectAccessGrant"),
+      organizationId: seeded.organizationId,
+      configObjectId: seeded.configObjectId,
+      orgMembershipId: viewerMemberId,
+      teamId: null,
+      orgWide: false,
+      role: "viewer",
+      createdByOrgMembershipId: seeded.member.orgMembershipId,
+    })
+    const context: PluginArchActorContext = {
+      memberTeams: [],
+      organizationContext: {
+        organization: {
+          id: seeded.organizationId,
+          name: "Script Test Org",
+          slug: `scripts-${seeded.organizationId}`,
+          logo: null,
+          allowedEmailDomains: null,
+          metadata: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+        currentMember: {
+          id: viewerMemberId,
+          userId: viewerUserId,
+          role: "member",
+          createdAt: now,
+          joinedAt: now,
+          isOwner: false,
+        },
+        invitations: [],
+        members: [],
+        roles: [],
+        teams: [],
+      },
+      session: { createdAt: now },
+    }
+
+    const detail = await programLibrary.getProgramDetail({
+      context,
+      configObjectId: seeded.configObjectId,
+    })
+    expect(detail.program.plugin).toBeNull()
+    expect(JSON.stringify(detail.program)).not.toContain("Directly shared Program Plugin")
+
+    const library = await programLibrary.listProgramLibraryItems({ context })
+    expect(library).toHaveLength(1)
+    expect(library[0]?.plugin).toBeNull()
   })
 
   test("executes a createPluginBundle saved script with typed input binding", async () => {

@@ -50,7 +50,7 @@ export type LibraryConnectionItem = {
 export type LibraryProgramItem = {
   type: "program";
   id: string;
-  plugin: LibraryNamedEntity;
+  plugin: LibraryNamedEntity | null;
   name: string;
   description: string | null;
   role: PluginAccessRole;
@@ -224,7 +224,7 @@ function parseConnection(value: Record<string, unknown>): LibraryConnectionItem 
 
 function parseProgram(value: Record<string, unknown>): LibraryProgramItem | null {
   const id = readString(value.id);
-  const plugin = parseNamedEntity(value.plugin);
+  const plugin = value.plugin === null ? null : parseNamedEntity(value.plugin);
   const name = readString(value.name);
   const description = readNullableString(value.description);
   const role = readRole(value.role);
@@ -242,7 +242,7 @@ function parseProgram(value: Record<string, unknown>): LibraryProgramItem | null
         ...(readString(value.source.templateVersion) ? { templateVersion: readString(value.source.templateVersion) ?? undefined } : {}),
       }
     : null;
-  if (!id || !plugin || !name || description === undefined || !role || !edges || !state || !resultState
+  if (!id || (value.plugin !== null && !plugin) || !name || description === undefined || !role || !edges || !state || !resultState
     || latestSuccessfulAt === undefined || !viewState || activeViewTitle === undefined || !source
     || typeof value.automationCount !== "number" || !Number.isInteger(value.automationCount) || value.automationCount < 0) return null;
   return { type: "program", id, plugin, name, description, role, edges, state, resultState, latestSuccessfulAt, viewState, activeViewTitle, automationCount: value.automationCount, source };

@@ -553,7 +553,7 @@ export const libraryItemSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("program"),
     id: configObjectIdSchema,
-    plugin: z.object({ id: pluginIdSchema, name: z.string().trim().min(1).max(255) }),
+    plugin: z.object({ id: pluginIdSchema, name: z.string().trim().min(1).max(255) }).nullable(),
     name: z.string().trim().min(1).max(255),
     description: nullableStringSchema,
     role: accessRoleSchema,

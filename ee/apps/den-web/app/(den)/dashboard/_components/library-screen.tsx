@@ -252,7 +252,7 @@ function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: Libr
           {item.type === "program" ? (
             <>
               {item.description ? <span aria-hidden> · </span> : null}
-              <span>Plugin {item.plugin.name} · {item.latestSuccessfulAt ? `Last run ${new Date(item.latestSuccessfulAt).toLocaleString()}` : "Not run yet"} · {item.automationCount} Automation{item.automationCount === 1 ? "" : "s"}</span>
+              <span>{item.plugin ? `Plugin ${item.plugin.name} · ` : ""}{item.latestSuccessfulAt ? `Last run ${new Date(item.latestSuccessfulAt).toLocaleString()}` : "Not run yet"} · {item.automationCount} Automation{item.automationCount === 1 ? "" : "s"}</span>
             </>
           ) : null}
           {nonPersonSource ? (

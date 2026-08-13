@@ -41,13 +41,13 @@ export function ProgramDetailScreen({ programId }: { programId: string }) {
           <div>
             <div className="flex flex-wrap items-center gap-2"><h1 className="text-[22px] font-semibold tracking-[-0.02em] text-gray-950">{detail.program.name}</h1><DenChip tone="teal">Program</DenChip><DenChip tone={detail.program.resultState === "fresh" ? "success" : detail.program.resultState === "needs_attention" ? "danger" : "warning"}>{detail.program.resultState.replace("_", " ")}</DenChip></div>
             <p className="mt-1 max-w-3xl text-[13px] text-gray-500">{detail.program.description || "A reusable Code Mode Script with retained artifacts, generated views, runs, Automations, and access."}</p>
-            <p className="mt-1 text-[12px] text-gray-400">Inside OpenWork Connect Plugin <strong>{detail.program.plugin.name}</strong>.</p>
+            {detail.program.plugin ? <p className="mt-1 text-[12px] text-gray-400">Inside OpenWork Connect Plugin <strong>{detail.program.plugin.name}</strong>.</p> : null}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <DenButton variant="secondary" onClick={() => void select.mutateAsync(programId)} loading={select.isPending}><Bot className="h-3.5 w-3.5" />Use with agent</DenButton>
           {manager ? <DenButton variant="secondary" href={`/dashboard/automations?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton> : null}
-          {manager ? <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton> : null}
+          {manager && detail.program.plugin ? <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.program.plugin.id)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton> : null}
         </div>
       </header>
 
@@ -84,7 +84,7 @@ export function ProgramDetailScreen({ programId }: { programId: string }) {
 
       <div id="script"><SavedScriptDetailPanel configObjectId={programId} onClose={() => router.push("/dashboard/library")} /></div>
 
-      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.program.role}</strong>. Script versions, retained data, and generated views share this Program access boundary; there are no separate data or UI grants.</p>{manager ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.script.pluginId)}`}>Manage grants</DenButton> : null}</section>
+      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.program.role}</strong>. Script versions, retained data, and generated views share this Program access boundary; there are no separate data or UI grants.</p>{manager && detail.program.plugin ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.program.plugin.id)}`}>Manage grants</DenButton> : null}</section>
     </div>
   );
 }

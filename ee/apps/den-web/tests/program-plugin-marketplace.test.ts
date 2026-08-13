@@ -6,6 +6,9 @@ const components = join(import.meta.dir, "../app/(den)/dashboard/_components");
 const marketplaceDetail = readFileSync(join(components, "marketplace-detail-screen.tsx"), "utf8");
 const pluginData = readFileSync(join(components, "plugin-data.tsx"), "utf8");
 const pluginDetail = readFileSync(join(components, "plugin-detail-screen.tsx"), "utf8");
+const libraryData = readFileSync(join(components, "library-data.tsx"), "utf8");
+const libraryScreen = readFileSync(join(components, "library-screen.tsx"), "utf8");
+const programDetail = readFileSync(join(components, "program-detail-screen.tsx"), "utf8");
 
 describe("Program Plugin and Marketplace presentation", () => {
   test("presents saved Code Mode scripts as Programs inside Plugins", () => {
@@ -25,5 +28,12 @@ describe("Program Plugin and Marketplace presentation", () => {
   test("labels Program component counts on Marketplace Plugin rows", () => {
     expect(marketplaceDetail).toContain('script: { singular: "Program", plural: "Programs" }');
     expect(marketplaceDetail).toContain("componentTypeLabel(type, count)");
+  });
+
+  test("does not render an inaccessible parent Plugin for a directly shared Program", () => {
+    expect(libraryData).toContain("plugin: LibraryNamedEntity | null");
+    expect(libraryScreen).toContain("item.plugin ? `Plugin ${item.plugin.name} · ` : \"\"");
+    expect(programDetail).toContain("detail.program.plugin ?");
+    expect(pluginDetail).toContain('program.plugin ? `Currently in ${program.plugin.name}` : "Shared directly"');
   });
 });

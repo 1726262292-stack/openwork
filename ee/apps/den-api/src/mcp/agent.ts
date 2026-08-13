@@ -125,7 +125,7 @@ export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
 
 const programSearchItemOutputSchema = z.object({
   id: z.string(),
-  plugin: z.object({ id: z.string(), name: z.string() }),
+  plugin: z.object({ id: z.string(), name: z.string() }).nullable(),
   name: z.string(),
   description: z.string().nullable(),
   role: z.enum(["viewer", "editor", "manager"]),

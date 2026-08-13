@@ -109,7 +109,7 @@ const versionsResponseSchema = z.object({ items: z.array(savedScriptVersionSchem
 const snapshotsResponseSchema = z.object({ items: z.array(savedScriptArtifactSnapshotSchema) })
 const programDetailSchema = z.object({
   program: z.object({
-    type: z.literal("program"), id: z.string(), plugin: z.object({ id: z.string(), name: z.string() }), name: z.string(), description: z.string().nullable(),
+    type: z.literal("program"), id: z.string(), plugin: z.object({ id: z.string(), name: z.string() }).nullable(), name: z.string(), description: z.string().nullable(),
     role: z.enum(["viewer", "editor", "manager"]), edges: z.array(z.unknown()),
     state: z.enum(["ready", "needs_signin", "needs_admin_setup"]),
     resultState: z.enum(["never_run", "fresh", "stale", "needs_attention"]),

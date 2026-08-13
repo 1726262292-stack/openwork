@@ -664,7 +664,7 @@ function AddProgramDialog({
           ) : available.map((program) => (
             <button key={program.id} type="button" disabled={busy} onClick={() => onAttach(program.id)} className="w-full rounded-xl border border-gray-100 px-4 py-3 text-left transition hover:border-gray-200 hover:bg-gray-50 disabled:opacity-60">
               <p className="text-[14px] font-semibold text-gray-900">{program.name}</p>
-              <p className="mt-0.5 text-[12.5px] text-gray-500">Currently in {program.plugin.name}{program.description ? ` · ${program.description}` : ""}</p>
+              <p className="mt-0.5 text-[12.5px] text-gray-500">{program.plugin ? `Currently in ${program.plugin.name}` : "Shared directly"}{program.description ? ` · ${program.description}` : ""}</p>
             </button>
           ))}
         </div>

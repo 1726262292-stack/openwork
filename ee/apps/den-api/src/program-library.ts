@@ -27,7 +27,7 @@ import {
 export type ProgramLibraryItem = {
   type: "program"
   id: string
-  plugin: { id: string; name: string }
+  plugin: { id: string; name: string } | null
   name: string
   description: string | null
   role: PluginArchRole
@@ -131,7 +131,7 @@ function programReadiness(input: {
 async function programItem(input: {
   context: PluginArchActorContext
   row: typeof ConfigObjectTable.$inferSelect
-  plugin: { id: string; name: string }
+  plugin: { id: string; name: string } | null
   inheritedEdges: MePluginAccessEdge[]
   connections: MemberUsableConnectionFacts[]
 }): Promise<ProgramLibraryItem | null> {
@@ -216,21 +216,18 @@ export async function listProgramLibraryItems(input: { context: PluginArchActorC
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
   const programs = new Map<string, {
     row: typeof ConfigObjectTable.$inferSelect
-    plugin: { id: string; name: string }
-    pluginIsVisible: boolean
+    plugin: { id: string; name: string } | null
     inheritedEdges: MePluginAccessEdge[]
   }>()
   for (const { configObject, pluginId, pluginName } of rows) {
     const pluginIsVisible = pluginEdges.has(pluginId)
     const program = programs.get(configObject.id) ?? {
       row: configObject,
-      plugin: { id: pluginId, name: pluginName },
-      pluginIsVisible,
+      plugin: null,
       inheritedEdges: [],
     }
-    if (!program.pluginIsVisible && pluginIsVisible) {
+    if (!program.plugin && pluginIsVisible) {
       program.plugin = { id: pluginId, name: pluginName }
-      program.pluginIsVisible = true
     }
     program.inheritedEdges.push(...(pluginEdges.get(pluginId) ?? []))
     programs.set(configObject.id, program)
@@ -267,9 +264,15 @@ export async function getProgramDetail(input: {
     .orderBy(asc(PluginConfigObjectTable.createdAt), asc(PluginConfigObjectTable.id))
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
   const inheritedEdges = memberships.flatMap(({ pluginId }) => pluginEdges.get(pluginId) ?? [])
-  const parent = memberships.find(({ pluginId }) => pluginEdges.has(pluginId)) ?? memberships[0]
-  if (!parent) throw new Error("dynamic_program_not_found")
-  const program = await programItem({ context: input.context, row, plugin: { id: parent.pluginId, name: parent.pluginName }, inheritedEdges, connections })
+  if (!memberships[0]) throw new Error("dynamic_program_not_found")
+  const visibleParent = memberships.find(({ pluginId }) => pluginEdges.has(pluginId))
+  const program = await programItem({
+    context: input.context,
+    row,
+    plugin: visibleParent ? { id: visibleParent.pluginId, name: visibleParent.pluginName } : null,
+    inheritedEdges,
+    connections,
+  })
   if (!program) throw new Error("dynamic_program_not_found")
   return { program, script, views }
 }

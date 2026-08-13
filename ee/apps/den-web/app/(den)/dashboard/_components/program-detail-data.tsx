@@ -10,7 +10,7 @@ import {
 import { getErrorMessage, requestJson } from "../../_lib/den-flow";
 
 type ProgramSummary = {
-  type: "program"; id: string; plugin: { id: string; name: string }; name: string; description: string | null;
+  type: "program"; id: string; plugin: { id: string; name: string } | null; name: string; description: string | null;
   role: "viewer" | "editor" | "manager"; state: "ready" | "needs_signin" | "needs_admin_setup";
   resultState: "never_run" | "fresh" | "stale" | "needs_attention"; latestSuccessfulAt: string | null;
   viewState: "default" | "custom_active" | "build_failed" | "retired"; activeViewTitle: string | null;
@@ -31,7 +31,7 @@ function parseProgramDetail(value: unknown): ProgramDetail {
   const viewState = program.viewState === "default" || program.viewState === "custom_active" || program.viewState === "build_failed" || program.viewState === "retired" ? program.viewState : null;
   const sourceKind = isRecord(program.source) && (program.source.kind === "created" || program.source.kind === "installed_template") ? program.source.kind : null;
   const plugin = isRecord(program.plugin) && typeof program.plugin.id === "string" && typeof program.plugin.name === "string" ? { id: program.plugin.id, name: program.plugin.name } : null;
-  if (program.type !== "program" || typeof program.id !== "string" || !plugin || typeof program.name !== "string" || !role || !state || !resultState || !viewState || !sourceKind || typeof program.automationCount !== "number") {
+  if (program.type !== "program" || typeof program.id !== "string" || (program.plugin !== null && !plugin) || typeof program.name !== "string" || !role || !state || !resultState || !viewState || !sourceKind || typeof program.automationCount !== "number") {
     throw new Error("Program response was incomplete.");
   }
   return {
