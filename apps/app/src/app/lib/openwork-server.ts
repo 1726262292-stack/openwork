@@ -1186,6 +1186,12 @@ export function hydrateOpenworkServerSettingsFromEnv() {
     if (envHostToken && (forceEnvSettings || !current.hostToken) && current.hostToken !== envHostToken) {
       next.hostToken = envHostToken;
       changed = true;
+    } else if (forceEnvSettings && !envHostToken && current.hostToken) {
+      // Headless web does not inject the host token into the Vite bundle.
+      // Drop a leftover value from an earlier desktop/dev session so it
+      // cannot keep authorizing host-token routes from the browser.
+      next.hostToken = undefined;
+      changed = true;
     }
 
     if (changed) {

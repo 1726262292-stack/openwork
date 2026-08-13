@@ -381,6 +381,36 @@ describe("non-gateway connection modes", () => {
     }
   });
 
+  test("force-env without a VITE host token clears a leftover browser host token", () => {
+    const previous = {
+      url: process.env.VITE_OPENWORK_URL,
+      port: process.env.VITE_OPENWORK_PORT,
+      token: process.env.VITE_OPENWORK_TOKEN,
+      hostToken: process.env.VITE_OPENWORK_HOST_TOKEN,
+      force: process.env.VITE_OPENWORK_FORCE_ENV_SETTINGS,
+    };
+    process.env.VITE_OPENWORK_URL = "http://127.0.0.1:8787";
+    process.env.VITE_OPENWORK_PORT = "8787";
+    process.env.VITE_OPENWORK_TOKEN = "fresh-token";
+    delete process.env.VITE_OPENWORK_HOST_TOKEN;
+    process.env.VITE_OPENWORK_FORCE_ENV_SETTINGS = "1";
+
+    const storage = installWindow({ origin: "http://127.0.0.1:5178" });
+    storage.setItem("openwork.server.hostToken", "leaked-host-token");
+
+    try {
+      hydrateOpenworkServerSettingsFromEnv();
+      expect(readOpenworkServerSettings().hostToken).toBeUndefined();
+      expect(storage.getItem("openwork.server.hostToken")).toBeNull();
+    } finally {
+      restoreEnv("VITE_OPENWORK_URL", previous.url);
+      restoreEnv("VITE_OPENWORK_PORT", previous.port);
+      restoreEnv("VITE_OPENWORK_TOKEN", previous.token);
+      restoreEnv("VITE_OPENWORK_HOST_TOKEN", previous.hostToken);
+      restoreEnv("VITE_OPENWORK_FORCE_ENV_SETTINGS", previous.force);
+    }
+  });
+
   test("stored server settings still win without the marker", async () => {
     const storage = installWindow({ origin: "https://instance.example.com" });
     storage.setItem("openwork.server.urlOverride", "https://manual.example.com");

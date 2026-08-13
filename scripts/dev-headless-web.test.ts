@@ -86,8 +86,8 @@ describe("dev-headless-web helpers", () => {
         generate: () => "fresh",
       }),
     ).toEqual({ token: "env-token", hostToken: "kept-host-token" });
-    // `--rotate-tokens` drops the previous manifest, invalidating credentials
-    // the developer believes leaked.
+    // `--replace` drops the previous manifest so leaked credentials die with
+    // the old process. `--keep-tokens` is the opt-in that passes previous.
     expect(
       resolveHeadlessTokens({
         envToken: undefined,

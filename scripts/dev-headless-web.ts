@@ -300,10 +300,13 @@ const webPort = await resolvePort(
   process.env.OPENWORK_WEB_PORT ?? DEFAULT_WEB_PORT,
   "127.0.0.1",
 );
-// Reuse the previous run's tokens so a relaunch never breaks open browser
-// tabs or agent-cached manifests with 401s. `--rotate-tokens` opts out, which
-// is how you invalidate credentials you believe leaked.
-const rotateTokensRequested = process.argv.includes("--rotate-tokens");
+// `--replace` starts a new process, so leaked credentials from the previous
+// run must not stay valid. Crash-restart (stale pid cleanup) still reuses
+// tokens so open tabs survive. `--keep-tokens` opts into reuse across replace.
+const keepTokensRequested = process.argv.includes("--keep-tokens");
+const rotateTokensRequested =
+  process.argv.includes("--rotate-tokens") ||
+  (replaceRequested && !keepTokensRequested);
 const { token: openworkToken, hostToken: openworkHostToken } =
   resolveHeadlessTokens({
     envToken: process.env.OPENWORK_TOKEN,
@@ -398,8 +401,9 @@ const viteEnv = {
   VITE_OPENWORK_URL: process.env.VITE_OPENWORK_URL ?? openworkUrl,
   VITE_OPENWORK_PORT: process.env.VITE_OPENWORK_PORT ?? String(openworkPort),
   VITE_OPENWORK_TOKEN: process.env.VITE_OPENWORK_TOKEN ?? openworkToken,
-  VITE_OPENWORK_HOST_TOKEN:
-    process.env.VITE_OPENWORK_HOST_TOKEN ?? openworkHostToken,
+  // Never put the host token in VITE_*: Vite inlines those into the browser
+  // bundle. The owner bearer is enough for the web UI; host-token routes
+  // (env secrets, den-session) stay on the server process.
   VITE_OPENWORK_FORCE_ENV_SETTINGS: "1",
   VITE_OPENWORK_DEPLOYMENT: process.env.VITE_OPENWORK_DEPLOYMENT ?? "web",
   ...(denTarget && denApiUrl

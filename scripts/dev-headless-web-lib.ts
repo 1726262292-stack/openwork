@@ -122,11 +122,10 @@ export function mergeHeadlessServerConfig(
 }
 
 /**
- * Tokens survive relaunches: reuse the previous manifest's credentials unless
- * the caller pins them via env. Rotating tokens on every --replace bricked
- * every open browser tab (401s) and invalidated agent-cached manifests.
- * Callers pass `previous: null` (via `--rotate-tokens`) to force fresh
- * credentials, which is how a suspected leak gets invalidated.
+ * Tokens survive crash-restarts: reuse the previous manifest's credentials
+ * unless the caller pins them via env. `--replace` passes `previous: null`
+ * so leaked credentials die with the old process; `--keep-tokens` opts back
+ * into reuse for a controlled handoff.
  */
 export function resolveHeadlessTokens(input: {
   envToken: string | undefined;
