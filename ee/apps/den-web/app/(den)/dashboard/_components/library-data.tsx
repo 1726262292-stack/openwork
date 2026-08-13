@@ -30,6 +30,9 @@ export type LibraryPluginItem = {
   componentCount: number;
   componentKinds: string[];
   sourceRepositoryUrl: string | null;
+  remoteMcpAppId: string | null;
+  remoteMcpAppStatus: "active" | "retired" | null;
+  remoteMcpAppActiveVersionId: string | null;
   edges: LibraryAccessEdge[];
   role: PluginAccessRole;
 };
@@ -155,6 +158,13 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
   const name = readString(value.name);
   const description = readNullableString(value.description);
   const sourceRepositoryUrl = readNullableString(value.sourceRepositoryUrl);
+  const remoteMcpAppId = value.remoteMcpAppId === undefined ? null : readNullableString(value.remoteMcpAppId);
+  const remoteMcpAppActiveVersionId = value.remoteMcpAppActiveVersionId === undefined ? null : readNullableString(value.remoteMcpAppActiveVersionId);
+  const remoteMcpAppStatus = value.remoteMcpAppStatus === undefined || value.remoteMcpAppStatus === null
+    ? null
+    : value.remoteMcpAppStatus === "active" || value.remoteMcpAppStatus === "retired"
+      ? value.remoteMcpAppStatus
+      : undefined;
   const componentKinds = readStringArray(value.componentKinds);
   const role = readRole(value.role);
   const edges = parseEdges(value.edges);
@@ -163,6 +173,9 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
     || !name
     || description === undefined
     || sourceRepositoryUrl === undefined
+    || remoteMcpAppId === undefined
+    || remoteMcpAppActiveVersionId === undefined
+    || remoteMcpAppStatus === undefined
     || typeof value.componentCount !== "number"
     || !Number.isInteger(value.componentCount)
     || value.componentCount < 0
@@ -180,6 +193,9 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
     componentCount: value.componentCount,
     componentKinds,
     sourceRepositoryUrl,
+    remoteMcpAppId,
+    remoteMcpAppStatus,
+    remoteMcpAppActiveVersionId,
     edges,
     role,
   };

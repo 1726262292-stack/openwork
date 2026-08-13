@@ -23,6 +23,7 @@ import {
   PluginConfigObjectTable,
   PluginMcpRequirementBindingTable,
   PluginTable,
+  RemoteMcpAppTable,
   TeamTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
@@ -2371,7 +2372,27 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
 
 export async function listMeLibraryPluginItems(input: { context: PluginArchActorContext }) {
   const result = await listMeEffectivePluginAccessWithComponentKinds(input)
+  const remoteApps = result.items.length === 0
+    ? []
+    : await db.select({
+      activeVersionId: RemoteMcpAppTable.activeVersionId,
+      configObjectId: RemoteMcpAppTable.configObjectId,
+      pluginId: RemoteMcpAppTable.pluginId,
+      status: RemoteMcpAppTable.status,
+    }).from(RemoteMcpAppTable).where(and(
+      eq(RemoteMcpAppTable.organizationId, input.context.organizationContext.organization.id),
+      inArray(RemoteMcpAppTable.pluginId, result.items.map((item) => item.plugin.id)),
+    ))
+  const remoteAppsByPluginId = new Map(remoteApps.map((app) => [app.pluginId, app]))
   return result.items.map((item) => ({
+    ...(() => {
+      const remoteApp = remoteAppsByPluginId.get(item.plugin.id)
+      return {
+        remoteMcpAppId: remoteApp?.configObjectId ?? null,
+        remoteMcpAppStatus: remoteApp?.status ?? null,
+        remoteMcpAppActiveVersionId: remoteApp?.activeVersionId ?? null,
+      }
+    })(),
     type: "plugin",
     id: item.plugin.id,
     name: item.plugin.name,
@@ -4801,7 +4822,7 @@ async function derivePluginMcpRequirementAccess(input: {
   pluginId: PluginId
 }): Promise<PluginMcpRequirementAccess> {
   const activeRows = await db
-    .select({ id: PluginConfigObjectTable.id })
+    .select({ id: PluginConfigObjectTable.id, objectType: ConfigObjectTable.objectType })
     .from(PluginConfigObjectTable)
     .innerJoin(PluginTable, eq(PluginConfigObjectTable.pluginId, PluginTable.id))
     .innerJoin(ConfigObjectTable, eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id))
@@ -4820,6 +4841,17 @@ async function derivePluginMcpRequirementAccess(input: {
     .limit(1)
   if (!activeRows[0]) {
     return { memberIds: [], orgWide: false, teamIds: [] }
+  }
+  if (activeRows[0].objectType === "app") {
+    const activeApp = await db.select({ configObjectId: RemoteMcpAppTable.configObjectId })
+      .from(RemoteMcpAppTable)
+      .where(and(
+        eq(RemoteMcpAppTable.organizationId, input.organizationId),
+        eq(RemoteMcpAppTable.configObjectId, input.configObjectId),
+        eq(RemoteMcpAppTable.status, "active"),
+      ))
+      .limit(1)
+    if (!activeApp[0]) return { memberIds: [], orgWide: false, teamIds: [] }
   }
 
   const marketplaceIds = await activeMarketplaceIdsForPlugin({ organizationId: input.organizationId, pluginId: input.pluginId })
@@ -4911,7 +4943,7 @@ async function pluginMcpRequirementBindingsForResource(input: ResourceTarget & {
   return []
 }
 
-async function syncPluginMcpRequirementAccessForResource(input: ResourceTarget & { context: PluginArchActorContext }) {
+export async function syncPluginMcpRequirementAccessForResource(input: ResourceTarget & { context: PluginArchActorContext }) {
   const organizationId = input.context.organizationContext.organization.id
   const rows = input.resourceKind === "config_object"
     ? await pluginMcpRequirementBindingsForResource({ organizationId, resourceId: input.resourceId, resourceKind: "config_object" })
