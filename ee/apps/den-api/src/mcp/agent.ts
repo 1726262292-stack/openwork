@@ -569,7 +569,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         maxAgeMs?: number
         expectedOutputSchemaDigest?: string
       }) => {
-        if (!libraryContext) {
+        if (!artifactContext) {
           return {
             ok: false as const,
             error: "saved_script_not_found",
@@ -578,12 +578,12 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         }
         try {
           const detail = await getCodemodeScriptDetail({
-            context: libraryContext,
+            context: artifactContext,
             configObjectId,
             maxAgeMs,
           })
           const snapshot = receiptId
-            ? await getCodemodeScriptSnapshot({ context: libraryContext, configObjectId, receiptId })
+            ? await getCodemodeScriptSnapshot({ context: artifactContext, configObjectId, receiptId })
             : detail.latestSuccessfulSnapshot
           if (!snapshot) {
             return {

@@ -30,9 +30,20 @@ export type LibraryPluginItem = {
   componentCount: number;
   componentKinds: string[];
   sourceRepositoryUrl: string | null;
-  remoteMcpAppId: string | null;
-  remoteMcpAppStatus: "active" | "retired" | null;
-  remoteMcpAppActiveVersionId: string | null;
+  edges: LibraryAccessEdge[];
+  role: PluginAccessRole;
+};
+
+export type LibraryRemoteMcpAppItem = {
+  type: "app";
+  id: string;
+  pluginId: string;
+  name: string;
+  description: string | null;
+  sourceUrl: string;
+  status: "active" | "retired";
+  activeVersionId: string | null;
+  state: "ready";
   edges: LibraryAccessEdge[];
   role: PluginAccessRole;
 };
@@ -67,7 +78,7 @@ export type LibraryProgramItem = {
   source: { kind: "created" | "installed_template"; templateName?: string; templateVersion?: string };
 };
 
-export type LibraryItem = LibraryPluginItem | LibraryConnectionItem | LibraryProgramItem;
+export type LibraryItem = LibraryPluginItem | LibraryRemoteMcpAppItem | LibraryConnectionItem | LibraryProgramItem;
 
 export const libraryQueryKeys = {
   items: ["me", "library"],
@@ -158,13 +169,6 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
   const name = readString(value.name);
   const description = readNullableString(value.description);
   const sourceRepositoryUrl = readNullableString(value.sourceRepositoryUrl);
-  const remoteMcpAppId = value.remoteMcpAppId === undefined ? null : readNullableString(value.remoteMcpAppId);
-  const remoteMcpAppActiveVersionId = value.remoteMcpAppActiveVersionId === undefined ? null : readNullableString(value.remoteMcpAppActiveVersionId);
-  const remoteMcpAppStatus = value.remoteMcpAppStatus === undefined || value.remoteMcpAppStatus === null
-    ? null
-    : value.remoteMcpAppStatus === "active" || value.remoteMcpAppStatus === "retired"
-      ? value.remoteMcpAppStatus
-      : undefined;
   const componentKinds = readStringArray(value.componentKinds);
   const role = readRole(value.role);
   const edges = parseEdges(value.edges);
@@ -173,9 +177,6 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
     || !name
     || description === undefined
     || sourceRepositoryUrl === undefined
-    || remoteMcpAppId === undefined
-    || remoteMcpAppActiveVersionId === undefined
-    || remoteMcpAppStatus === undefined
     || typeof value.componentCount !== "number"
     || !Number.isInteger(value.componentCount)
     || value.componentCount < 0
@@ -193,12 +194,24 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
     componentCount: value.componentCount,
     componentKinds,
     sourceRepositoryUrl,
-    remoteMcpAppId,
-    remoteMcpAppStatus,
-    remoteMcpAppActiveVersionId,
     edges,
     role,
   };
+}
+
+function parseRemoteMcpApp(value: Record<string, unknown>): LibraryRemoteMcpAppItem | null {
+  const id = readString(value.id);
+  const pluginId = readString(value.pluginId);
+  const name = readString(value.name);
+  const description = readNullableString(value.description);
+  const sourceUrl = readString(value.sourceUrl);
+  const status = value.status === "active" || value.status === "retired" ? value.status : null;
+  const activeVersionId = readNullableString(value.activeVersionId);
+  const role = readRole(value.role);
+  const edges = parseEdges(value.edges);
+  if (!id || !pluginId || !name || description === undefined || !sourceUrl || !status
+    || activeVersionId === undefined || value.state !== "ready" || !role || !edges) return null;
+  return { type: "app", id, pluginId, name, description, sourceUrl, status, activeVersionId, state: "ready", edges, role };
 }
 
 function parseConnection(value: Record<string, unknown>): LibraryConnectionItem | null {
@@ -267,6 +280,7 @@ function parseProgram(value: Record<string, unknown>): LibraryProgramItem | null
 function parseLibraryItem(value: unknown): LibraryItem | null {
   if (!isRecord(value)) return null;
   if (value.type === "plugin") return parsePlugin(value);
+  if (value.type === "app") return parseRemoteMcpApp(value);
   if (value.type === "connection") return parseConnection(value);
   if (value.type === "program") return parseProgram(value);
   return null;

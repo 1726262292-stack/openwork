@@ -68,7 +68,7 @@ function matchesKind(item: LibraryItem, kind: KindFilter): boolean {
   if (kind === "all") return true;
   if (kind === "programs") return item.type === "program";
   if (kind === "connections") return item.type === "connection";
-  if (kind === "apps") return item.type === "plugin" && hasComponentKind(item, "app");
+  if (kind === "apps") return item.type === "app";
   if (kind === "plugins") return item.type === "plugin";
   if (kind === "skills") return item.type === "plugin" && hasComponentKind(item, "skill");
   return (item.type === "plugin" && hasComponentKind(item, "mcp"))
@@ -89,8 +89,8 @@ function matchesState(item: LibraryItem, state: LibraryStateTab): boolean {
 
 function getRowKind(item: LibraryItem): RowKind {
   if (item.type === "program") return "program";
+  if (item.type === "app") return "app";
   if (item.type === "connection") return "connection";
-  if (hasComponentKind(item, "app")) return "app";
   return hasComponentKind(item, "skill") ? "skill" : "plugin";
 }
 
@@ -186,15 +186,15 @@ function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: Libr
     : undefined;
   const rowHref = item.type === "program"
     ? `/dashboard/library/programs/${encodeURIComponent(item.id)}`
-    : item.type === "plugin" && item.remoteMcpAppId
-      ? getRemoteMcpAppRoute(orgSlug, item.remoteMcpAppId)
+    : item.type === "app"
+      ? getRemoteMcpAppRoute(orgSlug, item.id)
       : item.type === "plugin" && isAdmin
         ? getPluginRoute(orgSlug, item.id)
         : undefined;
   const iconUrl = item.type === "connection" && item.provider === "google-workspace"
     ? "/integrations/google.svg"
-    : item.type === "plugin"
-      ? getGitHubOwnerAvatar(item.sourceRepositoryUrl)
+    : item.type === "plugin" || item.type === "app"
+      ? getGitHubOwnerAvatar(item.type === "plugin" ? item.sourceRepositoryUrl : item.sourceUrl)
       : undefined;
   const simpleIconSlug = item.type === "connection" && item.provider === "microsoft-365"
     ? "microsoft"
@@ -248,7 +248,7 @@ function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: Libr
               {sectionState === "needs_signin" ? "Connect your account" : "Waiting on your admin"}
             </DenChip>
           ) : null}
-          {item.type === "plugin" && item.remoteMcpAppStatus === "retired" ? (
+          {item.type === "app" && item.status === "retired" ? (
             <DenChip data-library-chip="" tone="warning">Retired</DenChip>
           ) : null}
           {source?.isPerson ? (
@@ -280,7 +280,7 @@ function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: Libr
       focused={isFocused}
       dataAttributes={{
         "data-library-item-type": item.type,
-        "data-library-item-state": item.type === "connection" || item.type === "program" ? item.state : undefined,
+        "data-library-item-state": item.type === "connection" || item.type === "program" || item.type === "app" ? item.state : undefined,
         "data-library-item-key": rowKey,
         "data-library-focused": isFocused ? "" : undefined,
       }}
@@ -383,7 +383,7 @@ export function LibraryScreen() {
 
   useEffect(() => {
     if (!requestedFocus || handledFocusRef.current === requestedFocus) return;
-    if (!/^(program|plugin|connection)-.+$/.test(requestedFocus)) return;
+    if (!/^(program|app|plugin|connection)-.+$/.test(requestedFocus)) return;
     const item = items.find((candidate) => `${candidate.type}-${candidate.id}` === requestedFocus);
     if (!item) return;
     handledFocusRef.current = requestedFocus;

@@ -95,8 +95,10 @@ or launch result.
    fetcher, validates portability and the embedded manifest, and shows the
    resolved source, byte size, digest, and requested capabilities.
 3. Map every required capability to an authorized OpenWork Connect connection.
-4. Import and activate. The app becomes a shared plugin/config object with an
-   immutable active revision and an exact launch tool.
+4. Import and activate. The app becomes a first-class **App** item in the same
+   Library contract as plugins, connections, and Dynamic Artifacts, backed by
+   the existing plugin/config-object access model, an immutable active
+   revision, and an exact launch tool.
 5. A refresh downloads and caches a new draft without changing the active
    revision or its connection bindings. Activation and rollback are explicit.
    In this first contract, revisions may change UI and metadata but keep the

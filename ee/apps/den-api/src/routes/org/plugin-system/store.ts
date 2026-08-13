@@ -2378,31 +2378,42 @@ export async function listMeLibraryPluginItems(input: { context: PluginArchActor
       activeVersionId: RemoteMcpAppTable.activeVersionId,
       configObjectId: RemoteMcpAppTable.configObjectId,
       pluginId: RemoteMcpAppTable.pluginId,
+      sourceUrl: RemoteMcpAppTable.sourceUrl,
       status: RemoteMcpAppTable.status,
     }).from(RemoteMcpAppTable).where(and(
       eq(RemoteMcpAppTable.organizationId, input.context.organizationContext.organization.id),
       inArray(RemoteMcpAppTable.pluginId, result.items.map((item) => item.plugin.id)),
     ))
   const remoteAppsByPluginId = new Map(remoteApps.map((app) => [app.pluginId, app]))
-  return result.items.map((item) => ({
-    ...(() => {
-      const remoteApp = remoteAppsByPluginId.get(item.plugin.id)
+  return result.items.map((item) => {
+    const remoteApp = remoteAppsByPluginId.get(item.plugin.id)
+    if (remoteApp) {
       return {
-        remoteMcpAppId: remoteApp?.configObjectId ?? null,
-        remoteMcpAppStatus: remoteApp?.status ?? null,
-        remoteMcpAppActiveVersionId: remoteApp?.activeVersionId ?? null,
+        type: "app" as const,
+        id: remoteApp.configObjectId,
+        pluginId: item.plugin.id,
+        name: item.plugin.name,
+        description: item.plugin.description,
+        sourceUrl: remoteApp.sourceUrl,
+        status: remoteApp.status,
+        activeVersionId: remoteApp.activeVersionId,
+        state: "ready" as const,
+        edges: item.edges,
+        role: item.role,
       }
-    })(),
-    type: "plugin",
-    id: item.plugin.id,
-    name: item.plugin.name,
-    description: item.plugin.description,
-    componentCount: item.plugin.componentCount,
-    componentKinds: item.plugin.componentKinds,
-    sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
-    edges: item.edges,
-    role: item.role,
-  }))
+    }
+    return {
+      type: "plugin" as const,
+      id: item.plugin.id,
+      name: item.plugin.name,
+      description: item.plugin.description,
+      componentCount: item.plugin.componentCount,
+      componentKinds: item.plugin.componentKinds,
+      sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
+      edges: item.edges,
+      role: item.role,
+    }
+  })
 }
 
 function memberConnectionState(connection: MemberUsableConnectionFacts) {
