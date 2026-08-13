@@ -461,8 +461,6 @@ const headlessProcess = spawnLogged(
   buildOpenworkServerArgs({
     host,
     port: openworkPort,
-    token: openworkToken,
-    hostToken: openworkHostToken,
     configPath: serverConfigPath,
     corsOrigins: buildHeadlessCorsOrigins({ webUrl, webPort }),
   }),

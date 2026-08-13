@@ -102,8 +102,6 @@ describe("dev-headless-web helpers", () => {
     const args = buildOpenworkServerArgs({
       host: "127.0.0.1",
       port: 8787,
-      token: "client-token",
-      hostToken: "host-token",
       configPath: "/repo/tmp/headless-server.json",
       corsOrigins: ["http://127.0.0.1:5178"],
     });
@@ -112,8 +110,8 @@ describe("dev-headless-web helpers", () => {
       "/repo/tmp/headless-server.json",
     ]);
     expect(args).not.toContain("--workspace");
-    expect(args).toContain("--token");
-    expect(args).toContain("client-token");
+    expect(args).not.toContain("--token");
+    expect(args).not.toContain("--host-token");
   });
 
   test("CORS is pinned to the web app origins, never wildcarded", () => {
@@ -137,8 +135,6 @@ describe("dev-headless-web helpers", () => {
     const args = buildOpenworkServerArgs({
       host: "127.0.0.1",
       port: 8787,
-      token: "client-token",
-      hostToken: "host-token",
       configPath: "/repo/tmp/headless-server.json",
       corsOrigins,
     });

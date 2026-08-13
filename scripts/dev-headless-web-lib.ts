@@ -167,8 +167,6 @@ export function buildHeadlessCorsOrigins(input: {
 export function buildOpenworkServerArgs(input: {
   host: string;
   port: number;
-  token: string;
-  hostToken: string;
   configPath: string;
   corsOrigins: string[];
 }): string[] {
@@ -179,10 +177,6 @@ export function buildOpenworkServerArgs(input: {
     input.host,
     "--port",
     String(input.port),
-    "--token",
-    input.token,
-    "--host-token",
-    input.hostToken,
     "--approval",
     "auto",
     "--cors",
