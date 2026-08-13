@@ -36,8 +36,15 @@ test("accepts a self-contained HTML app and extracts its portable manifest", () 
   expect(inspected.digest).toMatch(/^sha256:[a-f0-9]{64}$/)
 })
 
+test("recognizes HTML-whitespace and ignored attributes on script end tags", () => {
+  const html = appHtml().replace("</script><script>", "</script\t\n ignored><script>")
+  expect(inspectRemoteMcpAppHtml(html).manifest.name).toBe("Project Explorer")
+})
+
 test("rejects runtime resource dependencies instead of caching a partially portable app", () => {
   expect(() => inspectRemoteMcpAppHtml(appHtml('<script src="https://cdn.example/app.js"></script>')))
+    .toThrow("self-contained HTML file")
+  expect(() => inspectRemoteMcpAppHtml(appHtml('<script\tsrc="https://cdn.example/app.js"></script\t\n ignored>')))
     .toThrow("self-contained HTML file")
   expect(() => inspectRemoteMcpAppHtml(appHtml('<link rel="stylesheet" href="./app.css">')))
     .toThrow("self-contained HTML file")

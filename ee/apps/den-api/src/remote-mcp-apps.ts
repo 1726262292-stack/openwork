@@ -128,7 +128,7 @@ function readAttribute(attributes: string, name: string): string | null {
 
 function parseEmbeddedManifest(html: string): RemoteMcpAppManifest {
   const candidates: string[] = []
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+  for (const match of html.matchAll(/<script((?:[\t\n\f\r /][^>]*)?)>([\s\S]*?)<\/script(?:[\t\n\f\r /][^>]*)?>/gi)) {
     const attributes = match[1] ?? ""
     if (readAttribute(attributes, "id") !== "openwork-mcp-app") continue
     if (readAttribute(attributes, "type")?.toLowerCase() !== "application/json") {
