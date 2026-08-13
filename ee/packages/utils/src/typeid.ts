@@ -98,7 +98,6 @@ export const idTypesMapNameToPrefix = {
   telegramUpdate: "tgu",
   memory: "mem",
   memctx: "mctx",
-  tempFile: "tmpf",
 } as const
 
 export const denTypeIdPrefixes = idTypesMapNameToPrefix
