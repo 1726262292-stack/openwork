@@ -731,7 +731,7 @@ function renderRemoteMcpAppRow(app: PluginRemoteMcpApp, href: string) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="truncate text-[14px] font-semibold tracking-[-0.01em] text-gray-900">{app.name}</p>
         <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] text-gray-500">
-          {app.requiredCapabilityCount} read-only capabilit{app.requiredCapabilityCount === 1 ? "y" : "ies"}
+          Standard MCP App resource
         </span>
       </div>
       {app.description ? <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">{app.description}</p> : null}

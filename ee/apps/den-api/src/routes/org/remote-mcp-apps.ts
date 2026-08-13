@@ -12,7 +12,6 @@ import {
   previewRemoteMcpApp,
   refreshRemoteMcpApp,
   RemoteMcpAppError,
-  replaceRemoteMcpAppBindings,
   setRemoteMcpAppRetired,
 } from "../../remote-mcp-apps.js"
 import { PluginArchAuthorizationError, type PluginArchActorContext } from "./plugin-system/access.js"
@@ -20,18 +19,12 @@ import { PluginArchRouteFailure } from "./plugin-system/store.js"
 import type { OrgRouteVariables } from "./shared.js"
 
 const sourceSchema = z.object({ sourceUrl: z.string().trim().url().max(2048) })
-const bindingSchema = z.object({
-  capabilityKey: z.string().trim().min(1).max(64),
-  connectionId: z.string().trim().min(1).max(160),
-})
 const importSchema = sourceSchema.extend({
-  bindings: z.array(bindingSchema).max(20).default([]),
   activate: z.boolean().optional().default(true),
 })
 const refreshSchema = z.object({
   sourceUrl: z.string().trim().url().max(2048).optional(),
 })
-const bindingsSchema = z.object({ bindings: z.array(bindingSchema).max(20) })
 const appParamsSchema = z.object({ appId: z.string().trim().min(1).max(160) })
 const revisionParamsSchema = appParamsSchema.extend({ versionId: z.string().trim().min(1).max(160) })
 const activateSchema = z.object({ versionId: z.string().trim().min(1).max(160) })
@@ -166,29 +159,6 @@ export function registerRemoteMcpAppRoutes<T extends { Variables: OrgRouteVariab
     },
   )
 
-  app.put(
-    "/v1/remote-mcp-apps/:appId/bindings",
-    describeRoute({
-      tags: ["Remote MCP Apps"],
-      summary: "Bind declared app capabilities to authorized Connect MCP connections",
-      responses: { 200: jsonResponse("Remote MCP App bindings updated.", remoteAppResponseSchema) },
-    }),
-    orgMemberRoute(),
-    paramValidator(appParamsSchema),
-    jsonValidator(bindingsSchema),
-    async (c) => {
-      try {
-        return c.json({ item: await replaceRemoteMcpAppBindings({
-          context: await actorContext(c as unknown as OrgContext),
-          configObjectId: c.req.valid("param").appId,
-          bindings: c.req.valid("json").bindings,
-        }) })
-      } catch (error) {
-        return errorResponse(c as unknown as OrgContext, error)
-      }
-    },
-  )
-
   app.post(
     "/v1/remote-mcp-apps/:appId/activate",
     describeRoute({
@@ -255,7 +225,7 @@ export function registerRemoteMcpAppRoutes<T extends { Variables: OrgRouteVariab
         return new Response(loaded.html, {
           headers: {
             "content-type": "text/html; charset=utf-8",
-            "content-disposition": `attachment; filename="${safeDownloadName(loaded.payload.manifest.name)}"`,
+            "content-disposition": `attachment; filename="${safeDownloadName(loaded.payload.metadata.name)}"`,
             "content-length": String(Buffer.byteLength(loaded.html, "utf8")),
             etag: `"${loaded.payload.resource.digest}"`,
             "x-content-type-options": "nosniff",

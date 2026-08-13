@@ -65,6 +65,8 @@ import { getProgramDetail, listProgramLibraryItems } from "../program-library.js
 import { parseArtifactViewResourceUri } from "../artifact-view-resource.js"
 import { listActiveRemoteMcpApps, loadRemoteMcpAppRevision } from "../remote-mcp-apps.js"
 import { registerAgentRemoteMcpApps } from "./remote-mcp-apps.js"
+import { listUsableExternalMcpConnections } from "../capability-sources/external-mcp-connections.js"
+import { registerConnectMcpServerIndex } from "./connect-mcp-server-index.js"
 
 export { externalToolContent } from "./tool-content.js"
 export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
@@ -463,9 +465,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       registerAgentRemoteMcpApps({
         server,
         apps: await listActiveRemoteMcpApps({ context: libraryContext }),
-        organizationId,
-        member: memberIdentity,
-        redirectUriBase,
         loadResource: async ({ configObjectId, versionId }) => {
           const loaded = await loadRemoteMcpAppRevision({
             context: libraryContext,
@@ -477,6 +476,17 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       })
     }
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
+      if (memberIdentity) {
+        registerConnectMcpServerIndex({
+          server,
+          connections: await listUsableExternalMcpConnections({
+            organizationId,
+            orgMembershipId: memberIdentity.orgMembershipId,
+            teamIds: memberIdentity.teamIds,
+          }),
+          publicOrigin: redirectUriBase,
+        })
+      }
       registerAgentSkillResources({
         server,
         skills: remoteSkills,

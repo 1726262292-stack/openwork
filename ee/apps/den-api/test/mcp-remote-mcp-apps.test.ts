@@ -13,7 +13,6 @@ process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_den"
 
 const {
   registerAgentRemoteMcpApps,
-  remoteMcpAppCapabilityToolName,
   remoteMcpAppLaunchToolName,
 } = await import("../src/mcp/remote-mcp-apps.js")
 const { remoteMcpAppResourceUri } = await import("../src/remote-mcp-apps.js")
@@ -22,26 +21,15 @@ const configObjectId = "cob_01k28e8q8pf8r9sff9mhyqxved"
 const versionId = "cov_01k28e8q8pf8r9sff9mhyqxved"
 const pluginId = "plg_01k28e8q8pf8r9sff9mhyqxved"
 const organizationId = "org_01k28e8q8pf8r9sff9mhyqxved"
-const memberId = "om_01k28e8q8pf8r9sff9mhyqxved"
-const connectionId = "emc_01k28e8q8pf8r9sff9mhyqxved"
 const html = '<!doctype html><html><body><div id="app"></div><script>window.ready=true</script></body></html>'
 const resourceDigest = `sha256:${createHash("sha256").update(html).digest("hex")}`
 const resourceUri = remoteMcpAppResourceUri(configObjectId, versionId)
 const activePayload = {
   kind: "remote_mcp_app",
-  manifest: {
-    schemaVersion: "openwork.remote-mcp-app/1",
+  metadata: {
     name: "Project Explorer",
     version: "1.0.0",
     description: "Browse connected projects.",
-    capabilities: [{
-      key: "project-search",
-      title: "Project search",
-      toolName: "search_projects",
-      access: "read",
-      required: true,
-      schemaDigest: `sha256:${"a".repeat(64)}`,
-    }],
   },
   source: {
     url: "https://apps.example/project-explorer.html",
@@ -70,19 +58,6 @@ const activeApp = {
     updatedAt: new Date("2026-08-13T10:00:00.000Z"),
     retiredAt: null,
   },
-  bindings: [{
-    id: "pmr_01k28e8q8pf8r9sff9mhyqxved",
-    organizationId,
-    pluginId,
-    configObjectId,
-    serverName: "project-search",
-    externalMcpConnectionId: connectionId,
-    requiredAuthType: null,
-    connectionOwnedByPlugin: false,
-    createdByOrgMembershipId: memberId,
-    createdAt: new Date("2026-08-13T10:00:00.000Z"),
-    updatedAt: new Date("2026-08-13T10:00:00.000Z"),
-  }],
   payload: activePayload,
   resourceUri,
   versionId,
@@ -101,9 +76,6 @@ async function withClient<T>(run: (client: Client) => Promise<T>) {
   registerAgentRemoteMcpApps({
     server,
     apps: [activeApp as never],
-    organizationId,
-    member: { orgMembershipId: memberId, teamIds: [] },
-    redirectUriBase: "https://cloud.openwork.software",
     loadResource: async () => ({ html, payload: activePayload as never }),
   })
   const client = new Client({ name: "desktop-host", version: "1.0.0" }, { capabilities: {} })
@@ -118,14 +90,12 @@ async function withClient<T>(run: (client: Client) => Promise<T>) {
   }
 }
 
-test("advertises the exact immutable ui resource and app-scoped Connect proxy", async () => {
+test("advertises one standard tool with the exact immutable ui resource", async () => {
   await withClient(async (client) => {
     const tools = await client.listTools()
     const launch = tools.tools.find((tool) => tool.name === remoteMcpAppLaunchToolName(configObjectId))
     expect(launch?._meta).toMatchObject({ ui: { resourceUri, visibility: ["model", "app"] } })
-    const proxy = tools.tools.find((tool) => tool.name === remoteMcpAppCapabilityToolName(configObjectId, "project-search"))
-    expect(proxy?._meta).toMatchObject({ ui: { visibility: ["app"] } })
-    expect(proxy?.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false })
+    expect(tools.tools).toHaveLength(1)
 
     const resources = await client.listResources()
     expect(resources.resources).toContainEqual(expect.objectContaining({
@@ -139,28 +109,18 @@ test("advertises the exact immutable ui resource and app-scoped Connect proxy", 
   })
 })
 
-test("serves exact cached bytes and gives render-time capability names through structuredContent", async () => {
+test("serves exact cached bytes and delivers launch data through structuredContent", async () => {
   await withClient(async (client) => {
     const resource = await client.readResource({ uri: resourceUri })
     const content = resource.contents[0]
     expect(content && "text" in content ? content.text : null).toBe(html)
-    expect(html).not.toContain(connectionId)
-
     const launch = await client.callTool({
       name: remoteMcpAppLaunchToolName(configObjectId),
       arguments: { input: { project: "alpha" } },
     })
     expect(launch.structuredContent).toMatchObject({
-      schemaVersion: "openwork.remote-mcp-app-launch/1",
       app: { id: configObjectId, revisionId: versionId, resourceDigest },
-      capabilities: [{
-        key: "project-search",
-        toolName: remoteMcpAppCapabilityToolName(configObjectId, "project-search"),
-        argumentsField: "arguments",
-        bound: true,
-      }],
       input: { project: "alpha" },
     })
-    expect(JSON.stringify(launch.structuredContent)).not.toContain(connectionId)
   })
 })

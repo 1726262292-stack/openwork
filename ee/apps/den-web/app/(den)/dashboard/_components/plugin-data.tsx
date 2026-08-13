@@ -101,7 +101,6 @@ export type PluginRemoteMcpApp = {
   description: string;
   version: string | null;
   sourceUrl: string | null;
-  requiredCapabilityCount: number;
 };
 
 export type PluginSource =
@@ -667,15 +666,14 @@ async function fetchResolvedPlugin(id: string): Promise<DenPlugin | null> {
   const apps = membershipItems
     .filter((item) => item.objectType === "app" && item.normalizedPayload?.kind === "remote_mcp_app")
     .map((item) => {
-      const manifest = isRecord(item.normalizedPayload?.manifest) ? item.normalizedPayload.manifest : {};
+      const metadata = isRecord(item.normalizedPayload?.metadata) ? item.normalizedPayload.metadata : {};
       const source = isRecord(item.normalizedPayload?.source) ? item.normalizedPayload.source : {};
       return {
         id: item.id,
-        name: asString(manifest.name) ?? item.title,
-        description: asString(manifest.description) ?? item.description,
-        version: asString(manifest.version),
+        name: asString(metadata.name) ?? item.title,
+        description: asString(metadata.description) ?? item.description,
+        version: asString(metadata.version),
         sourceUrl: asString(source.url),
-        requiredCapabilityCount: Array.isArray(manifest.capabilities) ? manifest.capabilities.length : 0,
       } satisfies PluginRemoteMcpApp;
     });
   const hooks = membershipItems

@@ -1,75 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Download, ExternalLink, History, Link2, RefreshCw, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Check, Download, ExternalLink, History, Link2, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
 import { buttonVariants, DenButton } from "../../_components/ui/button";
 import { DenChip } from "../../_components/ui/chip";
 import { DenInput } from "../../_components/ui/input";
 import { DenNotice } from "../../_components/ui/notice";
 import { DenPageHeader } from "../../_components/ui/page-header";
-import { DenSelect } from "../../_components/ui/select";
 import { getOrgDashboardRoute, getPluginRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
-import { useMcpConnections } from "./mcp-connections-data";
 import {
-  type RemoteMcpAppBinding,
   downloadRemoteMcpAppRevision,
   useActivateRemoteMcpApp,
   usePreviewRemoteMcpApp,
   useRefreshRemoteMcpApp,
   useRemoteMcpApp,
   useRemoteMcpAppLifecycle,
-  useReplaceRemoteMcpAppBindings,
 } from "./remote-mcp-app-data";
 
 function timestamp(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-function bindingsFrom(keys: string[], current: Array<{ capabilityKey: string; connectionId: string }>) {
-  const byKey = new Map(current.map((binding) => [binding.capabilityKey, binding.connectionId]));
-  return Object.fromEntries(keys.map((key) => [key, byKey.get(key) ?? ""]));
-}
-
 export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
   const { orgSlug } = useOrgDashboard();
   const appQuery = useRemoteMcpApp(appId);
-  const connectionsQuery = useMcpConnections("usable");
   const preview = usePreviewRemoteMcpApp();
   const refresh = useRefreshRemoteMcpApp(appId);
   const activate = useActivateRemoteMcpApp(appId);
   const lifecycle = useRemoteMcpAppLifecycle(appId);
-  const replaceBindings = useReplaceRemoteMcpAppBindings(appId);
   const [refreshUrl, setRefreshUrl] = useState("");
-  const [bindingByKey, setBindingByKey] = useState<Record<string, string>>({});
   const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<Error | null>(null);
   const app = appQuery.data;
-  const activeCapabilities = app?.activeRevision?.manifest.capabilities ?? [];
-  const editableCapabilities = preview.data?.manifest.capabilities ?? activeCapabilities;
 
   useEffect(() => {
     if (!app) return;
     setRefreshUrl(app.sourceUrl);
-    setBindingByKey(bindingsFrom(
-      activeCapabilities.map((capability) => capability.key),
-      app.bindings,
-    ));
   }, [app?.id, app?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const mcpConnections = useMemo(
-    () => (connectionsQuery.data ?? []).filter((connection) => !connection.nativeProviderKey),
-    [connectionsQuery.data],
-  );
   const canEdit = app?.role === "editor" || app?.role === "manager";
   const canManage = app?.role === "manager";
-  const currentBindings = editableCapabilities.flatMap((capability): RemoteMcpAppBinding[] => {
-    const connectionId = bindingByKey[capability.key];
-    return connectionId ? [{ capabilityKey: capability.key, connectionId }] : [];
-  });
-  const missingRequired = editableCapabilities.some((capability) => capability.required && !bindingByKey[capability.key]);
-  const operationError = preview.error ?? refresh.error ?? activate.error ?? lifecycle.error ?? replaceBindings.error ?? downloadError;
+  const operationError = preview.error ?? refresh.error ?? activate.error ?? lifecycle.error ?? downloadError;
 
   if (appQuery.isLoading && !app) {
     return <div className="mx-auto max-w-[860px] px-6 py-10 text-[13px] text-gray-400">Loading Remote MCP App…</div>;
@@ -78,16 +51,12 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
     return <div className="mx-auto max-w-[860px] px-6 py-10"><DenNotice tone="error" message={appQuery.error?.message ?? "That Remote MCP App could not be found."} /></div>;
   }
 
-  const manifest = app.activeRevision?.manifest ?? app.latestRevision?.manifest;
-  if (!manifest) {
+  const metadata = app.activeRevision?.metadata ?? app.latestRevision?.metadata;
+  if (!metadata) {
     return <div className="mx-auto max-w-[860px] px-6 py-10"><DenNotice tone="error" message="This installation has no readable app revision." /></div>;
   }
   const remoteAppId = app.id;
-  const safeDownloadName = manifest.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
-
-  async function saveBindings() {
-    await replaceBindings.mutateAsync({ bindings: currentBindings });
-  }
+  const safeDownloadName = metadata.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
 
   async function cacheRefresh() {
     await refresh.mutateAsync({ sourceUrl: refreshUrl });
@@ -112,12 +81,12 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
         <ArrowLeft className="h-4 w-4" /> Back to Library
       </Link>
       <DenPageHeader
-        title={manifest.name}
-        description={manifest.description ?? "A portable app cached and served by OpenWork."}
+        title={metadata.name}
+        description={metadata.description ?? "A portable app cached and served by OpenWork."}
         action={(
           <div className="flex items-center gap-2">
             <DenChip tone={app.status === "active" ? "success" : "warning"}>{app.status === "active" ? "Ready" : "Retired"}</DenChip>
-            <DenChip tone="neutral">v{manifest.version}</DenChip>
+            <DenChip tone="neutral">v{metadata.version}</DenChip>
             {canManage ? <Link href={getPluginRoute(orgSlug, app.pluginId)} className={buttonVariants({ variant: "secondary", size: "xs" })}>Manage sharing</Link> : null}
           </div>
         )}
@@ -156,38 +125,10 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
       </section>
 
       <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-[14px] font-semibold text-gray-900">Connect capabilities</h2>
-            <p className="mt-1 text-[12px] leading-5 text-gray-500">Only the exact read-only tools below are exposed to this app. Credentials stay in OpenWork Connect.</p>
-          </div>
-          {canEdit && !preview.data ? (
-            <DenButton size="sm" variant="secondary" icon={Save} loading={replaceBindings.isPending} disabled={missingRequired} onClick={saveBindings}>Save bindings</DenButton>
-          ) : null}
-        </div>
-        {editableCapabilities.length === 0 ? (
-          <p className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-[12px] text-gray-500">This revision requests no Connect capabilities.</p>
-        ) : (
-          <div className="mt-4 divide-y divide-gray-100 rounded-xl border border-gray-100">
-            {editableCapabilities.map((capability) => (
-              <div key={capability.key} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_280px] sm:items-center">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2"><span className="truncate text-[13px] font-semibold text-gray-800">{capability.title ?? capability.key}</span><DenChip tone="teal">Read only</DenChip></div>
-                  <p className="mt-1 truncate font-mono text-[11px] text-gray-400">{capability.toolName}</p>
-                </div>
-                <DenSelect
-                  aria-label={`Connection for ${capability.title ?? capability.key}`}
-                  value={bindingByKey[capability.key] ?? ""}
-                  disabled={!canEdit || Boolean(preview.data)}
-                  onChange={(event) => setBindingByKey((current) => ({ ...current, [capability.key]: event.target.value }))}
-                >
-                  <option value="">Choose a connection…</option>
-                  {mcpConnections.map((connection) => <option key={connection.id} value={connection.id}>{connection.name}</option>)}
-                </DenSelect>
-              </div>
-            ))}
-          </div>
-        )}
+        <h2 className="text-[14px] font-semibold text-gray-900">Standard MCP runtime</h2>
+        <p className="mt-1 text-[12px] leading-5 text-gray-500">
+          This installed copy is a static adapter: OpenWork exposes its immutable HTML as a standard MCP App resource from the OpenWork Cloud server. Apps distributed with their own MCP server keep that server's native tools, resources, UI metadata, and same-server calls through OpenWork Connect.
+        </p>
       </section>
 
       {canEdit ? (
@@ -202,12 +143,12 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
                 {!preview.data ? (
                   <DenButton variant="secondary" icon={ExternalLink} loading={preview.isPending} onClick={() => preview.mutate(refreshUrl)}>Review update</DenButton>
                 ) : (
-                  <DenButton icon={Check} loading={refresh.isPending} disabled={missingRequired} onClick={cacheRefresh}>Cache draft</DenButton>
+                  <DenButton icon={Check} loading={refresh.isPending} onClick={cacheRefresh}>Cache draft</DenButton>
                 )}
               </div>
               {preview.data ? (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-[12px] text-blue-900">
-                  <span>Validated {preview.data.manifest.name} v{preview.data.manifest.version} · {Math.ceil(preview.data.resource.byteSize / 1024)} KiB · current bindings and activation remain unchanged</span>
+                  <span>Validated {preview.data.metadata.name} v{preview.data.metadata.version} · {Math.ceil(preview.data.resource.byteSize / 1024)} KiB · activation remains unchanged</span>
                   <button type="button" onClick={() => preview.reset()} className="font-semibold">Cancel review</button>
                 </div>
               ) : null}
@@ -223,7 +164,7 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
             <div key={revision.id} className="flex flex-wrap items-center justify-between gap-4 px-4 py-4" data-remote-app-revision={revision.id}>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[13px] font-semibold text-gray-800">{revision.manifest.name} v{revision.manifest.version}</span>
+                  <span className="text-[13px] font-semibold text-gray-800">{revision.metadata.name} v{revision.metadata.version}</span>
                   {revision.active ? <DenChip tone="success">Active</DenChip> : index === 0 ? <DenChip tone="info">Latest draft</DenChip> : null}
                 </div>
                 <p className="mt-1 text-[11px] text-gray-400">{timestamp(revision.createdAt)} · <span className="font-mono">{revision.resource.digest.slice(0, 22)}…</span></p>

@@ -2,25 +2,12 @@ import { createHash } from "node:crypto"
 import { and, desc, eq } from "@openwork-ee/den-db/drizzle"
 import {
   ConfigObjectVersionTable,
-  ExternalMcpConnectionTable,
-  PluginMcpRequirementBindingTable,
   RemoteMcpAppTable,
 } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { db } from "./db.js"
 import { createGuardedFetch, createRealmSafeFetch } from "./capability-sources/url-guard.js"
-import {
-  getExternalMcpConnection,
-  memberCanUseExternalMcpConnection,
-} from "./capability-sources/external-mcp-connections.js"
-import { evaluateToolPolicy } from "./capability-sources/external-mcp-tool-policy.js"
-import { externalMcpToolSchemaDigest } from "./mcp/external-mcp-tool-arguments.js"
-import {
-  deletePluginMcpRequirementBindingsByIds,
-  listPluginMcpRequirementBindings,
-  upsertPluginMcpRequirementBinding,
-} from "./mcp/plugin-mcp-requirement-bindings.js"
 import {
   createConfigObject,
   createConfigObjectVersion,
@@ -34,26 +21,13 @@ import {
   type PluginArchActorContext,
 } from "./routes/org/plugin-system/access.js"
 
-export const REMOTE_MCP_APP_SCHEMA_VERSION = "openwork.remote-mcp-app/1" as const
 export const REMOTE_MCP_APP_CONFIG_SCHEMA_VERSION = "openwork.remote-mcp-app-installation/1" as const
 // Keep imported portable bundles aligned with the desktop MCP Apps host's
 // authoritative resources/read ceiling.
 export const REMOTE_MCP_APP_MAX_BYTES = 768 * 1024
 export const REMOTE_MCP_APP_FETCH_TIMEOUT_MS = 15_000
 
-const identifierSchema = z.string().trim().min(1).max(64).regex(/^[a-zA-Z][a-zA-Z0-9_.-]*$/)
-const capabilitySchema = z.object({
-  key: identifierSchema,
-  title: z.string().trim().min(1).max(120).optional(),
-  description: z.string().trim().min(1).max(1_000).optional(),
-  toolName: z.string().trim().min(1).max(255),
-  access: z.literal("read"),
-  required: z.boolean().optional().default(true),
-  schemaDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
-}).strict()
-
-export const remoteMcpAppManifestSchema = z.object({
-  schemaVersion: z.literal(REMOTE_MCP_APP_SCHEMA_VERSION),
+export const remoteMcpAppDocumentMetadataSchema = z.object({
   name: z.string().trim().min(1).max(120),
   version: z.string().trim().min(1).max(64),
   description: z.string().trim().max(2_000).optional(),
@@ -61,27 +35,13 @@ export const remoteMcpAppManifestSchema = z.object({
     title: z.string().trim().min(1).max(120).optional(),
     description: z.string().trim().min(1).max(1_000).optional(),
   }).strict().optional(),
-  capabilities: z.array(capabilitySchema).max(20).optional().default([]),
-}).strict().superRefine((manifest, context) => {
-  const keys = new Set<string>()
-  for (const [index, capability] of manifest.capabilities.entries()) {
-    if (keys.has(capability.key)) {
-      context.addIssue({
-        code: "custom",
-        message: `Capability key "${capability.key}" is duplicated.`,
-        path: ["capabilities", index, "key"],
-      })
-    }
-    keys.add(capability.key)
-  }
-})
+}).strict()
 
-export type RemoteMcpAppManifest = z.infer<typeof remoteMcpAppManifestSchema>
-export type RemoteMcpAppBindingInput = { capabilityKey: string; connectionId: string }
+export type RemoteMcpAppDocumentMetadata = z.infer<typeof remoteMcpAppDocumentMetadataSchema>
 
 type RemoteMcpAppVersionPayload = {
   kind: "remote_mcp_app"
-  manifest: RemoteMcpAppManifest
+  metadata: RemoteMcpAppDocumentMetadata
   source: {
     url: string
     resolvedUrl: string
@@ -128,38 +88,33 @@ function readAttribute(attributes: string, name: string): string | null {
   return match ? (match[1] ?? match[2] ?? match[3] ?? "") : null
 }
 
-function parseEmbeddedManifest(html: string): RemoteMcpAppManifest {
-  const candidates: string[] = []
-  for (const match of html.matchAll(/<script((?:[\t\n\f\r /][^>]*)?)>([\s\S]*?)<\/script(?:[\t\n\f\r /][^>]*)?>/gi)) {
-    const attributes = match[1] ?? ""
-    if (readAttribute(attributes, "id") !== "openwork-mcp-app") continue
-    if (readAttribute(attributes, "type")?.toLowerCase() !== "application/json") {
-      throw new RemoteMcpAppError(422, "invalid_manifest", "The openwork-mcp-app script must use type=\"application/json\".")
-    }
-    candidates.push(match[2] ?? "")
-  }
-  if (candidates.length !== 1) {
-    throw new RemoteMcpAppError(
-      422,
-      "invalid_manifest",
-      candidates.length === 0
-        ? "The HTML must contain one <script type=\"application/json\" id=\"openwork-mcp-app\"> manifest."
-        : "The HTML contains more than one openwork-mcp-app manifest.",
-    )
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(candidates[0] ?? "")
-  } catch {
-    throw new RemoteMcpAppError(422, "invalid_manifest", "The embedded openwork-mcp-app manifest is not valid JSON.")
-  }
-  const result = remoteMcpAppManifestSchema.safeParse(parsed)
-  if (!result.success) {
-    const issue = result.error.issues[0]
-    const location = issue?.path.length ? ` at ${issue.path.join(".")}` : ""
-    throw new RemoteMcpAppError(422, "invalid_manifest", `The embedded app manifest is invalid${location}: ${issue?.message ?? "unknown error"}`)
-  }
-  return result.data
+function documentText(value: string) {
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function documentMetadata(html: string, digest: string): RemoteMcpAppDocumentMetadata {
+  const title = documentText(html.match(/<title\b[^>]*>([\s\S]*?)<\/title(?:\s[^>]*)?>/i)?.[1] ?? "")
+  const descriptionTag = [...html.matchAll(/<meta\b([^>]*)>/gi)].find((match) => (
+    readAttribute(match[1] ?? "", "name")?.toLowerCase() === "description"
+  ))
+  const description = documentText(readAttribute(descriptionTag?.[1] ?? "", "content") ?? "")
+  return remoteMcpAppDocumentMetadataSchema.parse({
+    name: title || "Cached MCP App",
+    version: digest.slice("sha256:".length, "sha256:".length + 12),
+    ...(description ? { description } : {}),
+    launchTool: {
+      title: title ? `Open ${title}` : "Open cached MCP App",
+      description: description || "Open the cached self-contained MCP App resource.",
+    },
+  })
 }
 
 function externalResourceReferences(html: string): string[] {
@@ -224,13 +179,15 @@ export function inspectRemoteMcpAppHtml(html: string) {
       `The app must be one self-contained HTML file. Remove external resource references: ${references.join(", ")}.`,
     )
   }
-  const manifest = parseEmbeddedManifest(html)
+  const digest = sha256(html)
+  const metadata = documentMetadata(html, digest)
   return {
-    manifest,
+    metadata,
     byteSize: Buffer.byteLength(html, "utf8"),
-    digest: sha256(html),
+    digest,
     diagnostics: [
       "Self-contained HTML validated.",
+      "The cached HTML is exposed through standard MCP tools and resources; no embedded OpenWork runtime manifest is required.",
       "Runtime network, subframes, external resources, and base URI changes are blocked by the host CSP.",
     ],
   }
@@ -334,7 +291,7 @@ export async function fetchRemoteMcpApp(sourceUrl: string) {
 function payloadForFetchedApp(fetched: Awaited<ReturnType<typeof fetchRemoteMcpApp>>): RemoteMcpAppVersionPayload {
   return {
     kind: "remote_mcp_app",
-    manifest: fetched.manifest,
+    metadata: fetched.metadata,
     source: {
       url: fetched.sourceUrl,
       resolvedUrl: fetched.resolvedSourceUrl,
@@ -355,151 +312,16 @@ function parseVersionPayload(row: Pick<RemoteMcpAppVersionRow, "normalizedPayloa
   if (!isRecord(value) || value.kind !== "remote_mcp_app") {
     throw new RemoteMcpAppError(422, "invalid_cached_app", "The cached app revision metadata is invalid.")
   }
-  const manifest = remoteMcpAppManifestSchema.safeParse(value.manifest)
+  const metadata = remoteMcpAppDocumentMetadataSchema.safeParse(value.metadata)
   const source = isRecord(value.source) ? value.source : null
   const resource = isRecord(value.resource) ? value.resource : null
-  if (!manifest.success || !source || !resource
+  if (!metadata.success || !source || !resource
     || typeof source.url !== "string" || typeof source.resolvedUrl !== "string" || typeof source.fetchedAt !== "string"
     || (source.contentType !== null && typeof source.contentType !== "string")
     || typeof resource.byteSize !== "number" || typeof resource.digest !== "string") {
     throw new RemoteMcpAppError(422, "invalid_cached_app", "The cached app revision metadata is invalid.")
   }
   return value as RemoteMcpAppVersionPayload
-}
-
-async function redirectUriForConnection(connectionId: string) {
-  const { env } = await import("./env.js")
-  const base = env.apiPublicUrl ?? env.betterAuthUrl
-  return new URL(`/v1/mcp-connections/${encodeURIComponent(connectionId)}/connect/callback`, base).toString()
-}
-
-async function validateBindings(input: {
-  context: PluginArchActorContext
-  manifest: RemoteMcpAppManifest
-  bindings: RemoteMcpAppBindingInput[]
-}) {
-  const bindings = new Map(input.bindings.map((binding) => [binding.capabilityKey, binding.connectionId]))
-  const knownKeys = new Set(input.manifest.capabilities.map((capability) => capability.key))
-  for (const key of bindings.keys()) {
-    if (!knownKeys.has(key)) throw new RemoteMcpAppError(400, "unknown_capability_binding", `The app does not declare capability "${key}".`)
-  }
-  const organizationId = input.context.organizationContext.organization.id
-  const member = input.context.organizationContext.currentMember
-  const teamIds = input.context.memberTeams.map((team) => team.id)
-  const validated: Array<RemoteMcpAppBindingInput & { schemaDigest: string }> = []
-  for (const capability of input.manifest.capabilities) {
-    const rawConnectionId = bindings.get(capability.key)
-    if (!rawConnectionId) {
-      if (capability.required) throw new RemoteMcpAppError(400, "missing_capability_binding", `Choose a Connect connection for "${capability.title ?? capability.key}".`)
-      continue
-    }
-    let connectionId: DenTypeId<"externalMcpConnection">
-    try {
-      connectionId = normalizeDenTypeId("externalMcpConnection", rawConnectionId)
-    } catch {
-      throw new RemoteMcpAppError(400, "invalid_capability_binding", `The connection for "${capability.key}" is invalid.`)
-    }
-    const canUse = await memberCanUseExternalMcpConnection({
-      connectionId,
-      orgMembershipId: member.id,
-      teamIds,
-    })
-    if (!canUse) throw new RemoteMcpAppError(403, "connection_forbidden", `You cannot use the selected connection for "${capability.key}".`)
-    const connection = await getExternalMcpConnection({ organizationId, connectionId })
-    if (!connection || connection.kind !== "external_mcp") {
-      throw new RemoteMcpAppError(400, "invalid_capability_binding", `"${capability.key}" must use an MCP connection.`)
-    }
-    let tools: Awaited<ReturnType<(typeof import("./capability-sources/external-mcp-client-runtime.js"))["listExternalMcpTools"]>>
-    try {
-      const { listExternalMcpTools } = await import("./capability-sources/external-mcp-client-runtime.js")
-      tools = await listExternalMcpTools(
-        connection,
-        await redirectUriForConnection(connection.id),
-        connection.credentialMode === "per_member" ? { orgMembershipId: member.id } : undefined,
-      )
-    } catch (error) {
-      throw new RemoteMcpAppError(422, "connection_catalog_unavailable", `OpenWork could not verify "${capability.toolName}" on ${connection.name}: ${error instanceof Error ? error.message : "tool discovery failed"}`)
-    }
-    const tool = tools.find((candidate) => candidate.name === capability.toolName)
-    if (!tool) throw new RemoteMcpAppError(422, "capability_not_found", `${connection.name} does not currently expose "${capability.toolName}".`)
-    const policy = evaluateToolPolicy(connection.toolPolicy, capability.toolName)
-    if (policy.blocked) throw new RemoteMcpAppError(422, "capability_policy_blocked", `"${capability.toolName}" is disabled on ${connection.name}.`)
-    if (tool.annotations?.readOnlyHint !== true || tool.annotations?.destructiveHint === true) {
-      throw new RemoteMcpAppError(422, "capability_not_read_only", `"${capability.toolName}" must advertise readOnlyHint=true and must not advertise destructiveHint=true.`)
-    }
-    const schemaDigest = externalMcpToolSchemaDigest(tool.inputSchema)
-    if (capability.schemaDigest && capability.schemaDigest !== schemaDigest) {
-      throw new RemoteMcpAppError(
-        409,
-        "capability_schema_changed",
-        `"${capability.toolName}" now advertises a different input schema. Refresh the app from its source before activating or restoring this revision.`,
-      )
-    }
-    validated.push({ capabilityKey: capability.key, connectionId, schemaDigest })
-  }
-  return validated
-}
-
-function withValidatedSchemaDigests(
-  manifest: RemoteMcpAppManifest,
-  validated: Array<RemoteMcpAppBindingInput & { schemaDigest: string }>,
-) {
-  const digests = new Map(validated.map((binding) => [binding.capabilityKey, binding.schemaDigest]))
-  return {
-    ...manifest,
-    capabilities: manifest.capabilities.map((capability) => ({
-      ...capability,
-      ...(digests.get(capability.key) ? { schemaDigest: digests.get(capability.key) } : {}),
-    })),
-  }
-}
-
-function assertCompatibleRevisionCapabilities(active: RemoteMcpAppManifest, candidate: RemoteMcpAppManifest) {
-  const contract = (manifest: RemoteMcpAppManifest) => manifest.capabilities
-    .map((capability) => ({
-      access: capability.access,
-      key: capability.key,
-      required: capability.required,
-      toolName: capability.toolName,
-    }))
-    .sort((left, right) => left.key.localeCompare(right.key))
-  if (JSON.stringify(contract(active)) !== JSON.stringify(contract(candidate))) {
-    throw new RemoteMcpAppError(
-      409,
-      "capability_contract_changed",
-      "This revision changes the app capability contract. Remote MCP App revisions may update the UI and metadata, but capability keys, tools, access, and required status must remain compatible.",
-    )
-  }
-}
-
-async function replaceBindings(input: {
-  context: PluginArchActorContext
-  app: RemoteMcpAppRow
-  bindings: Array<RemoteMcpAppBindingInput & { schemaDigest: string }>
-}) {
-  const organizationId = input.context.organizationContext.organization.id
-  const existing = await listPluginMcpRequirementBindings({ organizationId, configObjectIds: [input.app.configObjectId] })
-  const desiredKeys = new Set(input.bindings.map((binding) => binding.capabilityKey))
-  for (const binding of input.bindings) {
-    await upsertPluginMcpRequirementBinding({
-      configObjectId: input.app.configObjectId,
-      createdByOrgMembershipId: input.context.organizationContext.currentMember.id,
-      externalMcpConnectionId: normalizeDenTypeId("externalMcpConnection", binding.connectionId),
-      organizationId,
-      pluginId: input.app.pluginId,
-      serverName: binding.capabilityKey,
-      requiredAuthType: null,
-      connectionOwnedByPlugin: false,
-    })
-  }
-  await deletePluginMcpRequirementBindingsByIds({
-    bindingIds: existing.filter((binding) => !desiredKeys.has(binding.serverName)).map((binding) => binding.id),
-  })
-  await syncPluginMcpRequirementAccessForResource({
-    context: input.context,
-    resourceId: input.app.configObjectId,
-    resourceKind: "config_object",
-  })
 }
 
 async function getAppRow(context: PluginArchActorContext, configObjectId: string, role: "viewer" | "editor" | "manager" = "viewer") {
@@ -527,7 +349,7 @@ function serializeRevision(row: RemoteMcpAppVersionRow, activeVersionId: string 
     active: row.id === activeVersionId,
     createdAt: row.createdAt.toISOString(),
     createdByOrgMembershipId: row.createdByOrgMembershipId,
-    manifest: payload.manifest,
+    metadata: payload.metadata,
     source: payload.source,
     resource: payload.resource,
     diagnostics: payload.diagnostics,
@@ -536,21 +358,9 @@ function serializeRevision(row: RemoteMcpAppVersionRow, activeVersionId: string 
 }
 
 async function serializeApp(app: RemoteMcpAppRow, role: "viewer" | "editor" | "manager") {
-  const [versions, bindings] = await Promise.all([
-    db.select().from(ConfigObjectVersionTable)
-      .where(and(eq(ConfigObjectVersionTable.configObjectId, app.configObjectId), eq(ConfigObjectVersionTable.isDeletedVersion, false)))
-      .orderBy(desc(ConfigObjectVersionTable.createdAt), desc(ConfigObjectVersionTable.id)),
-    db.select({
-      capabilityKey: PluginMcpRequirementBindingTable.serverName,
-      connectionId: PluginMcpRequirementBindingTable.externalMcpConnectionId,
-      connectionName: ExternalMcpConnectionTable.name,
-    }).from(PluginMcpRequirementBindingTable)
-      .innerJoin(ExternalMcpConnectionTable, eq(ExternalMcpConnectionTable.id, PluginMcpRequirementBindingTable.externalMcpConnectionId))
-      .where(and(
-        eq(PluginMcpRequirementBindingTable.organizationId, app.organizationId),
-        eq(PluginMcpRequirementBindingTable.configObjectId, app.configObjectId),
-      )),
-  ])
+  const versions = await db.select().from(ConfigObjectVersionTable)
+    .where(and(eq(ConfigObjectVersionTable.configObjectId, app.configObjectId), eq(ConfigObjectVersionTable.isDeletedVersion, false)))
+    .orderBy(desc(ConfigObjectVersionTable.createdAt), desc(ConfigObjectVersionTable.id))
   const revisions = versions.map((version) => serializeRevision(version, app.activeVersionId))
   const activeRevision = revisions.find((revision) => revision.active) ?? null
   const latestRevision = revisions[0] ?? null
@@ -564,7 +374,6 @@ async function serializeApp(app: RemoteMcpAppRow, role: "viewer" | "editor" | "m
     activeRevision,
     latestRevision,
     revisions,
-    bindings,
     role,
     createdAt: app.createdAt.toISOString(),
     updatedAt: app.updatedAt.toISOString(),
@@ -579,7 +388,7 @@ export function remoteMcpAppResourceUri(configObjectId: string, versionId: strin
 export async function previewRemoteMcpApp(sourceUrl: string) {
   const fetched = await fetchRemoteMcpApp(sourceUrl)
   return {
-    manifest: fetched.manifest,
+    metadata: fetched.metadata,
     sourceUrl: fetched.sourceUrl,
     resolvedSourceUrl: fetched.resolvedSourceUrl,
     resource: {
@@ -594,16 +403,13 @@ export async function previewRemoteMcpApp(sourceUrl: string) {
 export async function importRemoteMcpApp(input: {
   context: PluginArchActorContext
   sourceUrl: string
-  bindings: RemoteMcpAppBindingInput[]
   activate?: boolean
 }) {
   const fetched = await fetchRemoteMcpApp(input.sourceUrl)
-  const validated = await validateBindings({ context: input.context, manifest: fetched.manifest, bindings: input.bindings })
-  fetched.manifest = withValidatedSchemaDigests(fetched.manifest, validated)
   const plugin = await createPlugin({
     context: input.context,
-    name: fetched.manifest.name,
-    description: fetched.manifest.description,
+    name: fetched.metadata.name,
+    description: fetched.metadata.description,
     sourceRepositoryUrl: fetched.sourceUrl.length <= 1024 ? fetched.sourceUrl : null,
   })
   const configObject = await createConfigObject({
@@ -633,7 +439,6 @@ export async function importRemoteMcpApp(input: {
     retiredAt: null,
   }
   await db.insert(RemoteMcpAppTable).values(app)
-  await replaceBindings({ context: input.context, app, bindings: validated })
   return serializeApp(app, "manager")
 }
 
@@ -656,23 +461,8 @@ export async function refreshRemoteMcpApp(input: {
     eq(ConfigObjectVersionTable.id, app.activeVersionId),
     eq(ConfigObjectVersionTable.isDeletedVersion, false),
   )).limit(1)
-  const activeVersion = activeVersions[0]
-  if (!activeVersion) throw new RemoteMcpAppError(404, "app_revision_not_found", "The active app revision was not found.")
+  if (!activeVersions[0]) throw new RemoteMcpAppError(404, "app_revision_not_found", "The active app revision was not found.")
   const fetched = await fetchRemoteMcpApp(input.sourceUrl ?? app.sourceUrl)
-  assertCompatibleRevisionCapabilities(parseVersionPayload(activeVersion).manifest, fetched.manifest)
-  const existingBindings = await listPluginMcpRequirementBindings({
-    organizationId: app.organizationId,
-    configObjectIds: [app.configObjectId],
-  })
-  const validated = await validateBindings({
-    context: input.context,
-    manifest: fetched.manifest,
-    bindings: existingBindings.map((binding) => ({
-      capabilityKey: binding.serverName,
-      connectionId: binding.externalMcpConnectionId,
-    })),
-  })
-  fetched.manifest = withValidatedSchemaDigests(fetched.manifest, validated)
   await createConfigObjectVersion({
     context: input.context,
     configObjectId: app.configObjectId,
@@ -691,24 +481,6 @@ export async function refreshRemoteMcpApp(input: {
   }).where(eq(RemoteMcpAppTable.configObjectId, app.configObjectId))
   const updated = { ...app, sourceUrl: fetched.sourceUrl, resolvedSourceUrl: fetched.resolvedSourceUrl, updatedAt }
   return serializeApp(updated, "editor")
-}
-
-export async function replaceRemoteMcpAppBindings(input: {
-  context: PluginArchActorContext
-  configObjectId: string
-  bindings: RemoteMcpAppBindingInput[]
-}) {
-  const app = await getAppRow(input.context, input.configObjectId, "editor")
-  const versionId = app.activeVersionId
-  if (!versionId) throw new RemoteMcpAppError(409, "app_has_no_active_revision", "Activate an app revision before changing its bindings.")
-  const rows = await db.select().from(ConfigObjectVersionTable).where(and(
-    eq(ConfigObjectVersionTable.configObjectId, app.configObjectId),
-    eq(ConfigObjectVersionTable.id, versionId),
-  )).limit(1)
-  if (!rows[0]) throw new RemoteMcpAppError(404, "app_revision_not_found", "The active app revision was not found.")
-  const validated = await validateBindings({ context: input.context, manifest: parseVersionPayload(rows[0]).manifest, bindings: input.bindings })
-  await replaceBindings({ context: input.context, app, bindings: validated })
-  return serializeApp(app, "editor")
 }
 
 export async function activateRemoteMcpAppRevision(input: {
@@ -737,26 +509,14 @@ export async function activateRemoteMcpAppRevision(input: {
   if (sha256(version.rawSourceText) !== payload.resource.digest) {
     throw new RemoteMcpAppError(422, "cached_app_digest_mismatch", "The cached app revision failed its integrity check.")
   }
-  const existingBindings = await listPluginMcpRequirementBindings({
-    organizationId: app.organizationId,
-    configObjectIds: [app.configObjectId],
-  })
-  await validateBindings({
-    context: input.context,
-    manifest: payload.manifest,
-    bindings: existingBindings.map((binding) => ({
-      capabilityKey: binding.serverName,
-      connectionId: binding.externalMcpConnectionId,
-    })),
-  })
   const updatedAt = new Date()
   await db.update(RemoteMcpAppTable).set({ activeVersionId: versionId, status: "active", retiredAt: null, updatedAt })
     .where(eq(RemoteMcpAppTable.configObjectId, app.configObjectId))
   await updatePlugin({
     context: input.context,
     pluginId: app.pluginId,
-    name: payload.manifest.name,
-    description: payload.manifest.description ?? null,
+    name: payload.metadata.name,
+    description: payload.metadata.description ?? null,
   })
   return serializeApp({ ...app, activeVersionId: versionId, status: "active", retiredAt: null, updatedAt }, "editor")
 }
@@ -844,7 +604,6 @@ export async function listActiveRemoteMcpApps(input: { context: PluginArchActorC
   )).orderBy(desc(RemoteMcpAppTable.updatedAt)).limit(100)
   const visible: Array<{
     app: RemoteMcpAppRow
-    bindings: typeof PluginMcpRequirementBindingTable.$inferSelect[]
     payload: RemoteMcpAppVersionPayload
     resourceUri: string
     versionId: DenTypeId<"configObjectVersion">
@@ -875,13 +634,8 @@ export async function listActiveRemoteMcpApps(input: { context: PluginArchActorC
     })
     const activeRevision = revisions.find((revision) => revision.versionId === app.activeVersionId)
     if (!activeRevision) continue
-    const bindings = await listPluginMcpRequirementBindings({
-      organizationId: app.organizationId,
-      configObjectIds: [app.configObjectId],
-    })
     visible.push({
       app,
-      bindings,
       ...activeRevision,
       revisions,
     })

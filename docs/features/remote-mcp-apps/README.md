@@ -1,165 +1,162 @@
 # Remote MCP Apps
 
-Remote MCP Apps let a person publish a portable MCP App as one self-contained
-HTML file, import it into the OpenWork Library by URL, and bind its declared
-read-only capabilities to MCP connections already managed by OpenWork Connect.
+OpenWork renders MCP Apps as MCP Apps. A server advertises the stable
+`io.modelcontextprotocol/ui` extension, a tool binds an exact UI resource with
+`_meta.ui.resourceUri`, the host reads that resource with `resources/read`, and
+tool inputs and results move over the standard MCP Apps bridge.
 
-The published URL is an import source, not a runtime origin. OpenWork stores the
-exact HTML and normalized manifest in an immutable encrypted config-object
-revision, identifies it by SHA-256, and serves it from a versioned `ui://`
-resource. A cached revision therefore remains usable and downloadable if the
-publisher moves or removes the original file.
+There are two distribution paths:
 
-## Authoring contract
+1. A normal MCP server added through OpenWork Connect. This is the primary
+   path for an app that has tools. OpenWork exposes each authorized Connect
+   connection as its own MCP endpoint so tool names, JSON Schemas, resource
+   URIs, UI metadata, results, and same-server app calls keep their provider
+   meaning.
+2. A self-contained HTML file imported by URL. This is a convenience adapter
+   for a static app bundle. OpenWork caches the bytes, exposes one standard MCP
+   launch tool and one immutable `ui://` resource, and does not invent a second
+   tool or capability protocol.
 
-Any frontend stack can author an app. React and Vite are build-time choices;
-React source is not the runtime protocol and OpenWork does not server-render
-the app. The published artifact must be a complete UTF-8 HTML document no
-larger than 768 KiB with all JavaScript, CSS, images, fonts, and the MCP Apps
-client SDK inlined.
+Programs remain executable `script` config objects. A Program's generated
+views are MCP resources, but turning a view into a resource does not turn
+Program execution into resource loading.
 
-The document must contain exactly one manifest:
+## Standard MCP server path
 
-```html
-<script type="application/json" id="openwork-mcp-app">
-{
-  "schemaVersion": "openwork.remote-mcp-app/1",
-  "name": "Project Explorer",
-  "version": "1.0.0",
-  "description": "Browse projects from an authorized connection.",
-  "launchTool": {
-    "title": "Open Project Explorer",
-    "description": "Open the project explorer."
-  },
-  "capabilities": [
-    {
-      "key": "projects",
-      "title": "Project search",
-      "description": "Search the connected project catalog.",
-      "toolName": "search_projects",
-      "access": "read",
-      "required": true
-    }
-  ]
-}
-</script>
+Connect continues to own server configuration, authentication, access grants,
+per-member credentials, and tool policy. The OpenWork Cloud control server
+publishes a member-scoped resource at:
+
+```text
+openwork://connect/mcp-servers/index.json
 ```
 
-Capability keys must be unique. This first contract accepts only `read`
-capabilities. During import, OpenWork requires the selected live provider tool
-to advertise `readOnlyHint: true`, rejects destructive tools, applies the
-connection's tool policy, and records the current input-schema digest.
+Desktop reads that resource with the member's existing Cloud MCP bearer
+configuration and reconciles each entry as a separate remote MCP server. A
+connection is proxied at:
 
-A Vite build can use a single-file output plugin or an equivalent post-build
-step. The resulting HTML must not reference external scripts, stylesheets,
-preloads, images, media, frames, CSS URLs, or imports. The app must use the
-standard `@modelcontextprotocol/ext-apps` client bridge and complete the MCP
-Apps handshake. It receives the launch result through the standard tool-result
-notification.
+```text
+/mcp/agent/connections/{connectionId}
+```
+
+The proxy preserves:
+
+- exact `tools/list` names, input/output schemas, annotations, and `_meta`;
+- exact resource descriptors from `resources/list` and
+  `resources/templates/list`, plus exact `resources/read` content;
+- `content`, `structuredContent`, `_meta`, and `isError` from `tools/call`;
+- the stable MCP Apps extension, `ui://` URIs, and
+  `text/html;profile=mcp-app` resources;
+- one server identity per Connect connection, preventing name collisions and
+  preserving the MCP Apps same-server tool-call boundary.
+
+OpenWork access grants and disabled-tool policy still apply at the proxy
+boundary. The proxy deliberately advertises `listChanged: false` because the
+current enterprise connector opens bounded request sessions rather than a
+durable downstream notification stream. Catalog refresh therefore happens on
+Connect reconciliation, Desktop startup, engine refresh, or an explicit Cloud
+MCP refresh. Forwarding downstream list-change notifications is follow-up
+interoperability work, not a custom substitute protocol.
+
+## Static URL adapter
+
+Any frontend stack can author the bundle. React and Vite are build-time
+choices; React source is not the runtime protocol and OpenWork does not perform
+React SSR. The import artifact is a complete UTF-8 HTML document no larger than
+768 KiB with its JavaScript, CSS, images, fonts, and MCP Apps client code
+inlined.
+
+No OpenWork-specific embedded manifest is required. OpenWork derives display
+metadata from the document `<title>` and optional description meta tag, then
+uses the SHA-256 digest as the revision version. The source URL is an import
+source, never the runtime origin.
+
+The static adapter rejects external scripts, stylesheets, preloads, images,
+media, frames, CSS URLs/imports, embedded CSP, and base-URI changes. It stores:
+
+- exact HTML bytes in an immutable encrypted config-object revision;
+- source and final redirect URLs, fetch time, and response content type;
+- byte size, SHA-256 digest, validation diagnostics, and a closed CSP;
+- an explicitly selected active revision plus retained rollback revisions.
+
+For each visible active installation, OpenWork registers one deterministic
+launch tool with nested `_meta.ui.resourceUri` and every retained revision at:
+
+```text
+ui://openwork/library-apps/{appId}/revisions/{revisionId}/index.html
+```
+
+The launch result uses ordinary `structuredContent` for the app identity,
+revision, digest, and optional input. There are no OpenWork capability wrapper
+tools. If the app needs tools, publish it with a standard MCP server and add
+that server through Connect.
+
+## Authoring and execution contract
 
 The public [Project Atlas example](https://github.com/reachjalil/openwork-remote-mcp-app-example)
-contains the Vite/React source, reproducible single-file build, and two
-immutable test revisions. Its installable URL is
+is an open-source Vite/React repository with:
+
+- normal local `dev`, `build`, `start:mcp`, and verification commands;
+- mock data so an author or coding agent can iterate without OpenWork;
+- a reproducible single-file production bundle for the static adapter;
+- a standard MCP server fixture that advertises its render tool, UI resource,
+  render-time structured data, and app-visible same-server tools.
+
+Its GitHub Pages bundle is installable from
 `https://reachjalil.github.io/openwork-remote-mcp-app-example/index.html`.
 
-The launch result has this shape:
+The execution contract is intentionally portable:
 
-```json
-{
-  "schemaVersion": "openwork.remote-mcp-app-launch/1",
-  "app": {
-    "id": "cob_...",
-    "name": "Project Explorer",
-    "version": "1.0.0",
-    "revisionId": "cov_...",
-    "resourceDigest": "sha256:..."
-  },
-  "capabilities": [
-    {
-      "key": "projects",
-      "title": "Project search",
-      "toolName": "remote_app_..._...",
-      "argumentsField": "arguments",
-      "bound": true
-    }
-  ]
-}
-```
-
-The app calls only the returned proxy tool name, passing the downstream MCP
-arguments under `arguments`. It must not assume a stable proxy name or know an
-OpenWork connection ID. OpenWork invokes the exact bound downstream tool and
-returns provider data in `structuredContent` using
-`openwork.remote-mcp-app-capability-result/1`. Credentials never enter the HTML
-or launch result.
+- local development may provide mock tool results directly to the UI;
+- production MCP execution supplies input and results through the MCP Apps
+  bridge;
+- credentials remain in the MCP host/Connect connection and never enter the
+  HTML resource;
+- an app calls only tools from its originating MCP server;
+- the host enforces visibility, workspace denies, and user approval for
+  non-read-only calls;
+- the source bundle, tool data, and retained Program/Artifact data remain
+  separate objects.
 
 ## Installation and lifecycle
 
+For a standard server, add or install the MCP through OpenWork Connect and
+grant the intended members or teams access. Desktop reconciles the authorized
+server endpoint, agents discover its native tool definitions, and UI tools
+render without an OpenWork-specific import step.
+
+For a static bundle:
+
 1. In Den Web, open Library and choose **Add remote MCP App**.
-2. Paste the published HTML URL. OpenWork downloads it through the guarded URL
-   fetcher, validates portability and the embedded manifest, and shows the
-   resolved source, byte size, digest, and requested capabilities.
-3. Map every required capability to an authorized OpenWork Connect connection.
-4. Import and activate. The app becomes a first-class **App** item in the same
-   Library contract as Programs, plugins, and connections. Like a Program, it
-   remains a config object contained by its parent OpenWork Connect Plugin,
-   with an immutable active revision and an exact launch tool.
-5. A refresh downloads and caches a new draft without changing the active
-   revision or its connection bindings. Activation and rollback are explicit.
-   In this first contract, revisions may change UI and metadata but keep the
-   same capability keys, downstream tool names, access, and required status;
-   bindings are edited separately against the active contract.
-6. Retirement removes the app from agent discovery and revokes binding-derived
-   connection access without deleting revisions. Restore revalidates the live
-   capability catalog before making the app available again.
+2. Paste the HTML URL. OpenWork performs guarded download and portability
+   validation and shows the resolved source, size, and digest.
+3. Import and activate. The adapter appears as an App inside its owning Plugin
+   and shares through the existing Plugin/Marketplace access model.
+4. Refresh caches a new immutable draft without changing the active revision.
+5. Activate or roll back explicitly. Retire removes the launch tool from agent
+   discovery without deleting cached revisions; restore re-exposes the active
+   revision.
+6. Download always returns the exact cached HTML revision, so the installed
+   copy remains usable after the source URL disappears.
 
-Managers can use the existing plugin sharing surface to grant app access to
-people, teams, or the organization. Viewers can discover the app through the
-agent MCP and download revisions they can access. Editors can update bindings
-and revisions; managers also control sharing and retirement.
+The static adapter is independent of `codemodeScripts`. Runtime discovery is
+gated by `DEN_REMOTE_MCP_APPS_ENABLED` until a compatible Desktop host is
+released. Normal MCP Apps delivered by an existing Connect server use the
+standard Connect and Desktop MCP host paths rather than this static-adapter
+flag.
 
-## MCP Apps provider contract
+## Host security and compatibility
 
-For every visible active installation, the agent MCP:
+Desktop negotiates the stable extension, resolves the current tool definition,
+reads the exact `ui://` resource even when it is absent from `resources/list`,
+accepts text or base64 HTML, enforces MIME and size limits, validates CSP
+origins, and loads the document through the isolated sandbox proxy. It sends
+tool input and the complete preserved tool result after initialization, bounds
+size changes, tears the bridge down on unmount, and contains resolution,
+handshake, document, and runtime failures without hiding the normal tool
+result.
 
-- advertises `text/html;profile=mcp-app` support through the standard MCP Apps
-  extension;
-- registers a deterministic launch tool whose `_meta.ui.resourceUri` is the
-  exact active revision URI;
-- registers every retained revision as an immutable resource at
-  `ui://openwork/library-apps/{appId}/revisions/{revisionId}/index.html`;
-- returns the cached HTML with an empty connect/resource/frame/base URI CSP and
-  its SHA-256 digest in resource metadata;
-- returns launch-time app and capability mappings through `structuredContent`;
-- registers bound capability proxies as app-visible rather than model-visible;
-- repeats the authorization, tool-policy, schema, and strict read-only checks
-  at execution time.
-
-The current agent endpoint is stateless per HTTP request, so every
-`tools/list`, `tools/call`, `resources/list`, and `resources/read` request sees
-the current Library state without requiring a persistent-session
-`tools/list_changed` notification. Retirement and restore are consequently
-visible on the next catalog request. A host that caches a catalog for the life
-of its connection must reconnect or refresh that MCP connection after Library
-changes. Remote MCP Apps are independent of the `codemodeScripts` feature flag;
-Code Mode is not required for import, discovery, rendering, or capability
-execution. Agent discovery remains fail-closed until the operator enables
-`DEN_REMOTE_MCP_APPS_ENABLED` after a compatible Desktop MCP Apps host release
-has been deployed.
-
-## Security and portability limits
-
-- Hosted source URLs must use HTTP or HTTPS, may not include credentials,
-  fragments, or sensitive query parameters, and pass the existing SSRF-safe
-  redirect and address checks. Loopback HTTP is limited to development mode.
-- Import is bounded to 15 seconds and 768 KiB. Invalid UTF-8 and partial or
-  externally dependent documents fail closed.
-- The cached MCP App resource declares no network, subframe, external resource,
-  or base-URI permissions. OpenWork Desktop applies its own opaque sandbox,
-  payload-size, teardown, and error-containment rules described in the MCP Apps
-  host feature documentation.
-- Only live tools that remain strictly read-only are callable from imported
-  apps. Changes in visibility, policy, annotations, or schema are detected
-  before activation or execution.
-- The source URL and app bytes are separate from artifact/tool data. Runtime
-  data comes only from the launch result and scoped capability tool results.
+App-requested tools are resolved only on the originating server and must be
+visible to the app. Workspace tool denies apply. Explicitly read-only,
+non-destructive calls run directly; other calls require a user confirmation
+and collaborator authority. Cross-server calls are not allowed.

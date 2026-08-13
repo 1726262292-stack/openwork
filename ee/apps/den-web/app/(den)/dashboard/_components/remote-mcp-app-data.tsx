@@ -4,23 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getRequestError, requestJson } from "../../_lib/den-flow";
 import { libraryQueryKeys } from "./library-data";
 
-export type RemoteMcpAppCapability = {
-  key: string;
-  title?: string;
-  description?: string;
-  toolName: string;
-  access: "read";
-  required: boolean;
-  schemaDigest?: string;
-};
-
-export type RemoteMcpAppManifest = {
-  schemaVersion: "openwork.remote-mcp-app/1";
+export type RemoteMcpAppDocumentMetadata = {
   name: string;
   version: string;
   description?: string;
   launchTool?: { title?: string; description?: string };
-  capabilities: RemoteMcpAppCapability[];
 };
 
 export type RemoteMcpAppRevision = {
@@ -28,7 +16,7 @@ export type RemoteMcpAppRevision = {
   active: boolean;
   createdAt: string;
   createdByOrgMembershipId: string | null;
-  manifest: RemoteMcpAppManifest;
+  metadata: RemoteMcpAppDocumentMetadata;
   source: { url: string; resolvedUrl: string; fetchedAt: string; contentType: string | null };
   resource: {
     byteSize: number;
@@ -49,7 +37,6 @@ export type RemoteMcpApp = {
   activeRevision: RemoteMcpAppRevision | null;
   latestRevision: RemoteMcpAppRevision | null;
   revisions: RemoteMcpAppRevision[];
-  bindings: Array<{ capabilityKey: string; connectionId: string; connectionName: string }>;
   role: "viewer" | "editor" | "manager";
   createdAt: string;
   updatedAt: string;
@@ -57,14 +44,12 @@ export type RemoteMcpApp = {
 };
 
 export type RemoteMcpAppPreview = {
-  manifest: RemoteMcpAppManifest;
+  metadata: RemoteMcpAppDocumentMetadata;
   sourceUrl: string;
   resolvedSourceUrl: string;
   resource: RemoteMcpAppRevision["resource"];
   diagnostics: string[];
 };
-
-export type RemoteMcpAppBinding = { capabilityKey: string; connectionId: string };
 
 export const remoteMcpAppQueryKeys = {
   detail: (appId: string) => ["remote-mcp-apps", appId] as const,
@@ -100,7 +85,7 @@ export function usePreviewRemoteMcpApp() {
 export function useImportRemoteMcpApp() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { sourceUrl: string; bindings: RemoteMcpAppBinding[] }) => appRequest("/v1/remote-mcp-apps", {
+    mutationFn: (input: { sourceUrl: string }) => appRequest("/v1/remote-mcp-apps", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...input, activate: true }),
@@ -155,14 +140,6 @@ export function useActivateRemoteMcpApp(appId: string) {
 export function useRemoteMcpAppLifecycle(appId: string) {
   return useAppMutation(appId, (input) => appRequest(`/v1/remote-mcp-apps/${encodeURIComponent(appId)}/lifecycle`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
-  }));
-}
-
-export function useReplaceRemoteMcpAppBindings(appId: string) {
-  return useAppMutation(appId, (input) => appRequest(`/v1/remote-mcp-apps/${encodeURIComponent(appId)}/bindings`, {
-    method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   }));
