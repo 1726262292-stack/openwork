@@ -51,7 +51,6 @@ export function MarketplacesScreen() {
   return (
     <DashboardPageTemplate
       icon={Store}
-      badgeLabel="Preview"
       title="Marketplaces"
       description="Marketplaces contain plugins. OpenWork Marketplace is built in, and assigned marketplaces show up inside the desktop app after sign-in."
       colors={["#FEF3C7", "#92400E", "#F59E0B", "#FDE68A"]}
