@@ -13,7 +13,7 @@ import {
   EMAIL_PASSWORD_SIGN_UP_PATH,
   getBreachedPasswordResponse,
   getEmailPasswordLockoutResponse,
-  getShortPasswordResponse,
+  getPasswordPolicyResponse,
   getWeakPasswordResponse,
   readEmailSignInAttempt,
   recordEmailSignInResult,
@@ -606,9 +606,9 @@ async function handleAuthRequest(c: Context) {
     return singleOrgAuthGuardResponse
   }
 
-  const shortPasswordResponse = await getShortPasswordResponse(authRequest)
-  if (shortPasswordResponse) {
-    return shortPasswordResponse
+  const passwordPolicyResponse = await getPasswordPolicyResponse(authRequest)
+  if (passwordPolicyResponse) {
+    return passwordPolicyResponse
   }
 
   const weakPasswordResponse = await getWeakPasswordResponse(authRequest)
@@ -750,7 +750,7 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
       responses: {
         200: emptyResponse("Better Auth handled the request successfully."),
         302: emptyResponse("Better Auth redirected the user to continue the auth flow."),
-        400: emptyResponse("Better Auth rejected the request as invalid. Password creation, password change, or reset is also rejected when the proposed password is too short or is known to be compromised."),
+        400: emptyResponse("Better Auth rejected the request as invalid. Password creation, password change, or reset is also rejected when the proposed password fails Den password policy or is known to be compromised."),
         401: emptyResponse("Better Auth rejected the request because authentication failed."),
         429: jsonResponse("Email/password sign-in is temporarily locked after too many failed attempts. The response includes a Retry-After header.", authLoginLockedSchema),
         503: jsonResponse("Password breach screening is temporarily unavailable, so password creation or reset should be retried later.", authPasswordScreeningUnavailableSchema),
