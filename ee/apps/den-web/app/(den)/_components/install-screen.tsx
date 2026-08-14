@@ -730,7 +730,7 @@ export function InstallScreen() {
                       <ul className="m-0 grid list-none gap-2 p-0" data-testid="install-running-checklist">
                         {[
                           `${config.appName} is installed and open on this computer.`,
-                          "It is waiting on its activation screen.",
+                          "Its sign-in screen is open and ready for your organization server.",
                         ].map((item) => (
                           <li key={item} className="flex items-start gap-2.5">
                             <Check className="mt-0.5 size-4 shrink-0 text-[#30a46c]" aria-hidden="true" />

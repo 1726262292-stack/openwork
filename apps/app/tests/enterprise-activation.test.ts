@@ -115,7 +115,7 @@ describe("enterprise desktop activation", () => {
     );
   });
 
-  test("matches the desktop login gate without guessing a Den portal URL", () => {
+  test("matches the desktop login gate and offers actionable sign-in", () => {
     for (const marker of [
       'type="2x2"',
       "size={20.3}",
@@ -126,8 +126,10 @@ describe("enterprise desktop activation", () => {
       expect(signInSurfaceSource).toContain(marker);
       expect(activationGateSource).toContain(marker);
     }
-    expect(activationGateSource).not.toContain("Open Den portal");
-    expect(activationGateSource).not.toContain("openDesktopUrl");
+    expect(activationGateSource).toContain('id="organization-server-input"');
+    expect(activationGateSource).toContain('data-testid="organization-server-input"');
+    expect(activationGateSource).toContain("Continue in browser");
+    expect(activationGateSource).not.toContain("Waiting for your organization");
   });
 
   test("reuses the activated enterprise Den URL when signing in again", () => {
