@@ -345,6 +345,7 @@ test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbo
   assert.ok(prepare[0]?.includes("egress.ts.b64"));
   assert.ok(commands.prepare.every((command) => command.slice(0, 3).join(" ") === "exec desktop-sandbox --"));
   assert.ok(commands.prepare.every((command) => !command.includes("bash -s")));
+  assert.ok(commands.prepare.every((command) => !command.includes("sudo -n")));
   const commandLengths = [
     ...commands.prepare,
     commands.start,
@@ -384,8 +385,15 @@ test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbo
   assert.ok(start.includes("</dev/null &\nattempt=0\nuntil /usr/bin/curl"));
   assert.ok(start.includes("/usr/bin/tail -c 4000"));
   assert.ok(start.includes(">&2"));
-  assert.ok(commands.installRoot[3]?.includes("install"));
-  assert.ok(commands.removeRoot[3]?.includes("remove"));
+  const installRoot = commands.installRoot[3] ?? "";
+  const removeRoot = commands.removeRoot[3] ?? "";
+  assert.ok(installRoot.includes("install"));
+  assert.ok(removeRoot.includes("remove"));
+  assert.ok(installRoot.includes("sudo -n"));
+  assert.ok(removeRoot.includes("sudo -n"));
+  for (const command of [commands.start, commands.probe, commands.requests, commands.stop]) {
+    assert.ok(!command[3]?.includes("sudo -n"));
+  }
   const stop = commands.stop[3] ?? "";
   assert.ok(stop.includes("stop"));
   assert.ok(stop.includes("&& /usr/bin/rm -rf"));

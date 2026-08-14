@@ -347,9 +347,9 @@ export function enterpriseTlsEdgeDaytonaCommands(options: EnterpriseTlsEdgeDayto
     "--admin-port", String(adminPort),
     "--manifest", manifestPath,
   ].map(shellQuote).join(" ");
-  const action = (name: "install" | "remove") => remote([
+  const action = (name: "install" | "remove") => remote(`/usr/bin/sudo -n ${[
     "/usr/bin/env", "node", script, name, "--manifest", manifestPath,
-  ].map(shellQuote).join(" "));
+  ].map(shellQuote).join(" ")}`);
   const adminUrl = `http://127.0.0.1:${adminPort}`;
   return {
     candidateUrl: `https://localhost:${candidatePort}`,
