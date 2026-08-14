@@ -376,8 +376,21 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 900_000 }, async (
     await evalIn(desktopApp, denProbeExpression(link.ref.apiUrl), { awaitPromise: true, timeoutMs: 10_000 });
   }
 
-  await control(desktopApp, "session.create_task");
-  const offlineSessionId = newestSessionId(await control(desktopApp, "session.list_sessions"));
+  await link.admin.offline(45_000);
+  const offlineSessionResult = await control(desktopApp, "session.create_task");
+  if (typeof offlineSessionResult !== "string" || !offlineSessionResult.trim()) {
+    throw new Error(`session.create_task did not return an offline session ID: ${JSON.stringify(offlineSessionResult)}`);
+  }
+  const offlineSessionId = offlineSessionResult;
+  await waitFor(desktopApp, `(() => {
+    const parts = window.__openworkControl.snapshot().route.split("/");
+    const sessionIndex = parts.indexOf("session");
+    return sessionIndex >= 0
+      && decodeURIComponent(parts[sessionIndex + 1] ?? "") === ${JSON.stringify(offlineSessionId)};
+  })()`, {
+    timeoutMs: 60_000,
+    label: `route reached offline session ${offlineSessionId}`,
+  });
   const offlineSessionAppeared = offlineSessionId !== longSessionId;
   const beforeOfflineAttempt = await readComposerState(desktopApp);
   await writeComposerText(
