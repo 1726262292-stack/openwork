@@ -87,7 +87,7 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
           <div className="flex items-center gap-2">
             <DenChip tone={app.status === "active" ? "success" : "warning"}>{app.status === "active" ? "Ready" : "Retired"}</DenChip>
             <DenChip tone="neutral">v{metadata.version}</DenChip>
-            {canManage ? <Link href={getPluginRoute(orgSlug, app.pluginId)} className={buttonVariants({ variant: "secondary", size: "xs" })}>Manage sharing</Link> : null}
+            {canManage ? <Link href={getPluginRoute(orgSlug, app.pluginId)} className={buttonVariants({ variant: "secondary", size: "xs" })}>Manage Plugin</Link> : null}
           </div>
         )}
         className="mb-8"
@@ -127,7 +127,7 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
       <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-[14px] font-semibold text-gray-900">Standard MCP runtime</h2>
         <p className="mt-1 text-[12px] leading-5 text-gray-500">
-          This installed copy is a static adapter: OpenWork exposes its immutable HTML as a standard MCP App resource from the OpenWork Cloud server. Apps distributed with their own MCP server keep that server's native tools, resources, UI metadata, and same-server calls through OpenWork Connect.
+          OpenWork exposes this immutable HTML as a standard MCP App resource from the OpenWork Cloud server. It may call its app-visible Program tool on that same server; a selected Code Mode Program inside this Plugin can compose OpenWork Connect capabilities without sending credentials into the UI. Apps distributed with their own MCP server keep that server&apos;s native tools, resources, UI metadata, and same-server calls through Connect.
         </p>
       </section>
 

@@ -171,7 +171,8 @@ const programRunOutputSchema = z.object({
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications. OpenWork Programs and Remote MCP Apps add only durable identity, Plugin containment, access, retained resources and results, selection, and lifecycle around those MCP primitives.",
-  "When Remote MCP App delivery is enabled, active apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
+  "MCP App UI is authored and bundled outside OpenWork. Agents do not author, compile, or save MCP App UI in OpenWork. Active imported apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
+  "An imported app may call the app-visible Program tool named in its launch structuredContent through the standard same-server MCP Apps bridge. That tool runs an exact accessible Program inside the app's Plugin, or the member's selected Program when no id is supplied; the Program is the only layer that reaches OpenWork Connect capabilities.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
   "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and render_selected_program; rendering returns an Artifact as fallback text plus retained data in structuredContent and binds the exact immutable MCP App resource URI in the tool definition.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
@@ -187,7 +188,6 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "External MCP matches include the provider-advertised argumentsSchema, schemaDigest, and invocation.argumentsField. Put an object matching argumentsSchema in execute_capability.body and copy schemaDigest into execute_capability.schemaDigest.",
   "OpenWork always attempts the downstream provider call when local schema checks find a mismatch. schemaGuidance is advisory and appears alongside the provider result: if the provider succeeded, accept that result and do not retry solely because of the warning; if it failed, use the warning to correct the arguments or search again.",
   "If the provider returns invalid_capability_arguments, correct the listed issues and retry once with changed arguments; never retry the same arguments unchanged. If it returns unknown_capability, call search_capabilities again before retrying.",
-  "When save_artifact_view is advertised, create or update the saved Script with an explicit JSON Schema outputSchema matching its returned data before calling it. React is injected into view source, so use React APIs without imports and render only the supplied data prop. A failed view build includes diagnostics: change the source once and retry with the returned artifactViewId; do not search for a different Artifact tool or call render_dynamic_artifact. After a successful save, call the exact render_artifact_* or preview_artifact_* tool named in its result.",
   "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
@@ -449,6 +449,85 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       }
     }
     const artifactContext = codemodeEnabled ? libraryContext : null
+    const executeRemoteAppProgram = artifactContext
+      ? async ({ programId, pluginId, input }: { programId?: string; pluginId: string; input?: unknown }) => {
+          try {
+            const resolvedProgramId = programId
+              ?? (await getProgramAgentSelection(artifactContext))?.programId
+            if (!resolvedProgramId) {
+              return {
+                isError: true,
+                content: textContent(JSON.stringify({
+                  error: "program_not_selected",
+                  message: "Select a Program in OpenWork before this MCP App runs it, or pass an exact accessible programId.",
+                })),
+              }
+            }
+            const detail = await getProgramDetail({
+              context: artifactContext,
+              configObjectId: resolvedProgramId,
+            })
+            if (detail.script.pluginId !== pluginId) {
+              return {
+                isError: true,
+                content: textContent(JSON.stringify({
+                  error: "program_not_in_app_plugin",
+                  message: "The selected Program is not inside this MCP App's Plugin.",
+                })),
+              }
+            }
+            await requirePluginArchResourceRole({
+              context: artifactContext,
+              requireFreshSession: false,
+              resourceId: normalizeDenTypeId("configObject", resolvedProgramId),
+              resourceKind: "config_object",
+              role: "editor",
+            })
+            const execution = await executeMarketplaceCapability({
+              organizationId: principal.organizationId,
+              member: memberIdentity,
+              pluginId: detail.script.pluginId,
+              configObjectId: detail.script.configObjectId,
+              configObjectVersionId: detail.script.currentVersion.id,
+              body: input,
+              codemodeEnabled: true,
+              validateScriptOutput: true,
+              buildTools: () => buildCapabilityToolTree(capabilityContext),
+            })
+            if (!execution.ok || execution.result.status !== "executed") {
+              const message = execution.ok
+                ? execution.result.hint ?? "The Program could not run."
+                : execution.message
+              return {
+                isError: true,
+                content: textContent(JSON.stringify({ error: "program_run_failed", message })),
+              }
+            }
+            const result = {
+              status: "succeeded" as const,
+              value: execution.result.value,
+              receiptId: execution.result.receiptId ?? null,
+              resultDigest: execution.result.resultDigest ?? null,
+            }
+            return {
+              content: textContent(JSON.stringify(result, null, 2)),
+              structuredContent: result,
+            }
+          } catch (error) {
+            const unavailable = error instanceof PluginArchAuthorizationError
+              || (error instanceof Error && error.message.includes("not_found"))
+            return {
+              isError: true,
+              content: textContent(JSON.stringify({
+                error: unavailable ? "program_not_found" : "program_run_failed",
+                message: unavailable
+                  ? "The Program is not available to this member."
+                  : "The Program could not run.",
+              })),
+            }
+          }
+        }
+      : undefined
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       remoteSkills = [
         ...listBuiltinSkillDescriptors(),
@@ -473,6 +552,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           })
           return { html: loaded.html, payload: loaded.payload }
         },
+        runProgram: executeRemoteAppProgram,
       })
     }
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {

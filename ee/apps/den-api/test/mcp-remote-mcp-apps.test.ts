@@ -14,6 +14,7 @@ process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_den"
 const {
   registerAgentRemoteMcpApps,
   remoteMcpAppLaunchToolName,
+  remoteMcpAppRunProgramToolName,
 } = await import("../src/mcp/remote-mcp-apps.js")
 const { remoteMcpAppResourceUri } = await import("../src/remote-mcp-apps.js")
 
@@ -68,7 +69,10 @@ const activeApp = {
   }],
 }
 
-async function withClient<T>(run: (client: Client) => Promise<T>) {
+async function withClient<T>(
+  run: (client: Client) => Promise<T>,
+  options: { withProgramTool?: boolean } = {},
+) {
   const server = new McpServer(
     { name: "remote-mcp-app-test", version: "1.0.0" },
     { capabilities: dynamicArtifactAppServerCapabilities },
@@ -77,6 +81,18 @@ async function withClient<T>(run: (client: Client) => Promise<T>) {
     server,
     apps: [activeApp as never],
     loadResource: async () => ({ html, payload: activePayload as never }),
+    ...(options.withProgramTool ? {
+      runProgram: async ({ appConfigObjectId, pluginId, programId, input }) => ({
+        content: [{ type: "text" as const, text: "Program completed." }],
+        structuredContent: {
+          status: "succeeded",
+          appConfigObjectId,
+          pluginId,
+          programId: programId ?? "selected-program",
+          value: input ?? null,
+        },
+      }),
+    } : {}),
   })
   const client = new Client({ name: "desktop-host", version: "1.0.0" }, { capabilities: {} })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -123,4 +139,35 @@ test("serves exact cached bytes and delivers launch data through structuredConte
       input: { project: "alpha" },
     })
   })
+})
+
+test("lets an imported app run a Program through an app-only same-server tool", async () => {
+  await withClient(async (client) => {
+    const tools = await client.listTools()
+    const runProgramToolName = remoteMcpAppRunProgramToolName(configObjectId)
+    const runProgram = tools.tools.find((tool) => tool.name === runProgramToolName)
+    expect(runProgram?._meta).toEqual({ ui: { visibility: ["app"] } })
+    expect(runProgram?._meta).not.toHaveProperty("ui.resourceUri")
+
+    const launch = await client.callTool({
+      name: remoteMcpAppLaunchToolName(configObjectId),
+      arguments: { input: { query: "migration" } },
+    })
+    expect(launch.structuredContent).toMatchObject({
+      serverTools: { runProgram: runProgramToolName },
+      input: { query: "migration" },
+    })
+
+    const result = await client.callTool({
+      name: runProgramToolName,
+      arguments: { input: { query: "migration" } },
+    })
+    expect(result.structuredContent).toEqual({
+      status: "succeeded",
+      appConfigObjectId: configObjectId,
+      pluginId,
+      programId: "selected-program",
+      value: { query: "migration" },
+    })
+  }, { withProgramTool: true })
 })

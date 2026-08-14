@@ -28,13 +28,13 @@ function probeRemoteMcpApps(value?: string) {
   })
 }
 
-test("Remote MCP Apps stay undiscoverable until a compatible Desktop rollout is enabled", () => {
+test("Remote MCP Apps default on after the compatible Desktop rollout and remain disableable", () => {
   const unset = probeRemoteMcpApps()
   const disabled = probeRemoteMcpApps("false")
   const enabled = probeRemoteMcpApps("true")
 
   expect(unset.status).toBe(0)
-  expect(unset.stdout.trim()).toBe("false")
+  expect(unset.stdout.trim()).toBe("true")
   expect(disabled.status).toBe(0)
   expect(disabled.stdout.trim()).toBe("false")
   expect(enabled.status).toBe(0)

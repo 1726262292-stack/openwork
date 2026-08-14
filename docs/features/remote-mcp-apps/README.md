@@ -13,9 +13,10 @@ There are two distribution paths:
    URIs, UI metadata, results, and same-server app calls keep their provider
    meaning.
 2. A self-contained HTML file imported by URL. This is a convenience adapter
-   for a static app bundle. OpenWork caches the bytes, exposes one standard MCP
-   launch tool and one immutable `ui://` resource, and does not invent a second
-   tool or capability protocol.
+   for an externally authored app bundle. OpenWork caches the bytes, exposes
+   one standard MCP launch tool and one immutable `ui://` resource, and may
+   expose an app-specific, app-only Program tool on that same MCP server. The
+   Program, not the browser UI, composes OpenWork Connect capabilities.
 
 Programs remain executable `script` config objects. A Program's generated
 views are MCP resources, but turning a view into a resource does not turn
@@ -87,9 +88,20 @@ ui://openwork/library-apps/{appId}/revisions/{revisionId}/index.html
 ```
 
 The launch result uses ordinary `structuredContent` for the app identity,
-revision, digest, and optional input. There are no OpenWork capability wrapper
-tools. If the app needs tools, publish it with a standard MCP server and add
-that server through Connect.
+revision, digest, optional input, and the name of any available same-server
+Program tool. When Code Mode is enabled, an app-specific `run_program_*` tool
+is advertised with `_meta.ui.visibility: ["app"]`. Its exact name is delivered
+in the launch result rather than embedded in the HTML. It accepts an optional
+exact `programId` or uses the member's selected Program, and rejects Programs
+outside the app's owning Plugin. Normal host approval and Plugin access checks
+still apply. The Program executes server-side and receives the member's
+authorized Connect tool tree; the HTML receives only the Program result.
+
+This is the only OpenWork-specific execution affordance in the URL adapter.
+The transport remains standard MCP `tools/call`, and the tool stays on the
+same server as the `ui://` resource. OpenWork does not let a browser app call
+tools on another MCP server. Apps distributed with their own MCP server keep
+using that server's native tools and should be added through Connect.
 
 ## Authoring and execution contract
 
@@ -110,6 +122,8 @@ The execution contract is intentionally portable:
 - local development may provide mock tool results directly to the UI;
 - production MCP execution supplies input and results through the MCP Apps
   bridge;
+- an imported app can call the advertised same-server Program tool, while the
+  Program calls OpenWork Connect capabilities server-side;
 - credentials remain in the MCP host/Connect connection and never enter the
   HTML resource;
 - an app calls only tools from its originating MCP server;
@@ -132,18 +146,24 @@ For a static bundle:
    validation and shows the resolved source, size, and digest.
 3. Import and activate. The adapter appears as an App inside its owning Plugin
    and shares through the existing Plugin/Marketplace access model.
-4. Refresh caches a new immutable draft without changing the active revision.
-5. Activate or roll back explicitly. Retire removes the launch tool from agent
+4. To give the UI Connect-backed behavior, open **Manage Plugin**, add a Code
+   Mode Program to that Plugin, and select it. The app-specific tool rejects a
+   selected Program from any other Plugin.
+5. Refresh caches a new immutable draft without changing the active revision.
+6. Activate or roll back explicitly. Retire removes the launch tool from agent
    discovery without deleting cached revisions; restore re-exposes the active
    revision.
-6. Download always returns the exact cached HTML revision, so the installed
+7. Download always returns the exact cached HTML revision, so the installed
    copy remains usable after the source URL disappears.
 
-The static adapter is independent of `codemodeScripts`. Runtime discovery is
-gated by `DEN_REMOTE_MCP_APPS_ENABLED` until a compatible Desktop host is
-released. Normal MCP Apps delivered by an existing Connect server use the
-standard Connect and Desktop MCP host paths rather than this static-adapter
-flag.
+The static adapter is independently disableable with
+`DEN_REMOTE_MCP_APPS_ENABLED`, but defaults on after the compatible Desktop
+host release. `DEN_GENERATED_ARTIFACT_VIEWS_ENABLED` remains off by default;
+imported UI availability does not let agents author or compile MCP App UI in
+OpenWork. The optional Program tool is present only for organizations with
+`codemodeScripts` enabled. Normal MCP Apps delivered by an existing Connect
+server use the standard Connect and Desktop MCP host paths rather than this
+static-adapter flag.
 
 ## Host security and compatibility
 
