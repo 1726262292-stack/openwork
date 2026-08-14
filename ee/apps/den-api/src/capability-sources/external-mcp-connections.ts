@@ -1356,6 +1356,50 @@ export async function listUsableExternalMcpConnections(input: {
   return [...byId.values()]
 }
 
+export async function externalMcpConnectionReadyForMember(
+  connection: ExternalMcpConnectionRow,
+  orgMembershipId: OrgMembershipId,
+  readAccount: typeof readConnectedAccountForExternalMcpIdentity = readConnectedAccountForExternalMcpIdentity,
+): Promise<boolean> {
+  if (connection.oauthIssuerReviewRequiredAt) return false
+  if (connection.authType === "none") return true
+  if (connection.credentialMode === "shared") {
+    if (connection.authType === "oauth") return Boolean(connection.accessToken)
+    if (connection.authType === "apikey") return Boolean(connection.apiKey)
+    return false
+  }
+  if (connection.authType !== "oauth") return false
+  const account = await readAccount({ connection, orgMembershipId })
+  return account.current && Boolean(account.value?.accessToken)
+}
+
+/**
+ * Native server projection is stricter than capability search: the Connect
+ * management and search surfaces retain disconnected rows so they can explain
+ * how to reconnect, while Desktop's server index receives only connections
+ * that can initialize for this exact member now.
+ */
+export async function listReadyExternalMcpConnections(input: {
+  organizationId: OrganizationId
+  orgMembershipId: OrgMembershipId
+  teamIds: TeamId[]
+}): Promise<ExternalMcpConnectionRow[]> {
+  const usable = await listUsableExternalMcpConnections(input)
+  return readyExternalMcpConnectionsForMember(usable, input.orgMembershipId)
+}
+
+export async function readyExternalMcpConnectionsForMember(
+  connections: ExternalMcpConnectionRow[],
+  orgMembershipId: OrgMembershipId,
+  readAccount: typeof readConnectedAccountForExternalMcpIdentity = readConnectedAccountForExternalMcpIdentity,
+): Promise<ExternalMcpConnectionRow[]> {
+  const readiness = await Promise.all(connections.map(async (connection) => ({
+    connection,
+    ready: await externalMcpConnectionReadyForMember(connection, orgMembershipId, readAccount),
+  })))
+  return readiness.flatMap(({ connection, ready }) => ready ? [connection] : [])
+}
+
 export async function listUsableNativeProviderConnections(input: {
   organizationId: OrganizationId
   orgMembershipId: OrgMembershipId

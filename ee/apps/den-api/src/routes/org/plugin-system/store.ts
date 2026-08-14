@@ -1259,12 +1259,22 @@ async function ensureVisibleConfigObject(context: PluginArchActorContext, config
   return row
 }
 
-async function ensureEditablePlugin(context: PluginArchActorContext, pluginId: PluginId) {
+async function ensureEditablePlugin(
+  context: PluginArchActorContext,
+  pluginId: PluginId,
+  requireFreshSession?: boolean,
+) {
   const row = await getPluginRow(context.organizationContext.organization.id, pluginId)
   if (!row) {
     throw new PluginArchRouteFailure(404, "plugin_not_found", "Plugin not found.")
   }
-  await requirePluginArchResourceRole({ context, resourceId: row.id, resourceKind: "plugin", role: "editor" })
+  await requirePluginArchResourceRole({
+    context,
+    requireFreshSession,
+    resourceId: row.id,
+    resourceKind: "plugin",
+    role: "editor",
+  })
   return row
 }
 
@@ -1607,6 +1617,7 @@ export async function createConfigObject(input: {
   context: PluginArchActorContext
   objectType: ConfigObjectRow["objectType"]
   pluginIds?: PluginId[]
+  requireFreshSession?: boolean
   sourceMode: ConfigObjectRow["sourceMode"]
   value: ConfigObjectInput
 }) {
@@ -1615,7 +1626,7 @@ export async function createConfigObject(input: {
   }
 
   for (const pluginId of input.pluginIds ?? []) {
-    await ensureEditablePlugin(input.context, pluginId)
+    await ensureEditablePlugin(input.context, pluginId, input.requireFreshSession)
   }
 
   const now = new Date()

@@ -76,6 +76,7 @@ export type ParsedCapability =
 export type ExecuteCapabilityToolResult = {
   isError?: boolean
   content: AgentToolContentPart[]
+  structuredContent?: Record<string, unknown>
 }
 
 export type CapabilityExecuteInput = {
@@ -95,6 +96,7 @@ export type CapabilityRegistryContext = {
   member: McpMemberIdentity | null
   redirectUriBase: string
   codemodeEnabled: boolean
+  generatedArtifactViewsEnabled: boolean
   externalMcpConnectionsEnabled: boolean
   resolvePlatformAdmin: () => Promise<boolean>
   resolveNamespaceContext: () => Promise<CodemodeConnectionNamespaceContext>
@@ -109,6 +111,7 @@ export type CapabilityRegistryContextInput = {
   member: McpMemberIdentity | null
   redirectUriBase: string
   codemodeEnabled: boolean
+  generatedArtifactViewsEnabled: boolean
   organizationMetadata: Parameters<typeof memberFacingMcpConnectionsEnabled>[0]
   mcpConnectionsGatingEnabled: boolean
 }
@@ -140,10 +143,34 @@ export function createCapabilityRegistryContext(input: CapabilityRegistryContext
     member: input.member,
     redirectUriBase: input.redirectUriBase,
     codemodeEnabled: input.codemodeEnabled,
+    generatedArtifactViewsEnabled: input.generatedArtifactViewsEnabled,
     externalMcpConnectionsEnabled,
     resolvePlatformAdmin,
     resolveNamespaceContext,
   }
+}
+
+export function catalogOperationAvailableToCapabilities(
+  context: Pick<CapabilityRegistryContext, "generatedArtifactViewsEnabled">,
+  operation: Pick<McpToolOperation, "method" | "path">,
+) {
+  // Installation is reachable only through the dedicated model-visible MCP
+  // tool. This also prevents a sandboxed App or a Program from finding and
+  // invoking the REST importer through the generic capability gateway.
+  if (operation.method === "POST" && operation.path === "/v1/remote-mcp-apps") return false
+  if (context.generatedArtifactViewsEnabled) return true
+  return operation.path !== "/v1/programs/{configObjectId}/views"
+    && !operation.path.startsWith("/v1/artifact-views/")
+}
+
+export function catalogOperationChangesRemoteMcpAppDiscovery(
+  operation: Pick<McpToolOperation, "method" | "path">,
+) {
+  return operation.method !== "GET"
+    && operation.path.startsWith("/v1/remote-mcp-apps/")
+    && (operation.path.endsWith("/refresh")
+      || operation.path.endsWith("/activate")
+      || operation.path.endsWith("/lifecycle"))
 }
 
 type CapabilitySearchContext = CapabilityRegistryContext & {
@@ -242,12 +269,20 @@ export function externalCapabilitySuccessToolResult(
   result: Extract<ExternalCapabilityExecuteResult, { ok: true }>,
 ): ExecuteCapabilityToolResult {
   const content = externalToolContent(result.result)
-  if (!result.schemaGuidance) return { content }
+  const structuredContent = isRecord(result.result)
+    && isRecord(result.result.structuredContent)
+    ? result.result.structuredContent
+    : undefined
+  if (!result.schemaGuidance) return { content, ...(structuredContent ? { structuredContent } : {}) }
   return {
     content: [
       ...content,
       ...textContent(JSON.stringify({ schemaGuidance: result.schemaGuidance })),
     ],
+    structuredContent: {
+      ...(structuredContent ?? {}),
+      schemaGuidance: result.schemaGuidance,
+    },
   }
 }
 
@@ -357,18 +392,26 @@ const catalogSource: CapabilitySource = {
   search: async (ctx, query, limit) => {
     if (!ctx.sourceFilter.api) return []
     return searchCapabilities(
-      ctx.catalog.filter((operation) => !isCredentialBoundNativeOperation(operation)),
+      ctx.catalog.filter((operation) => (
+        !isCredentialBoundNativeOperation(operation)
+        && catalogOperationAvailableToCapabilities(ctx, operation)
+      )),
       query,
       limit,
     ).map((match) => ctx.codemodeEnabled
       ? { ...match, scriptPath: codemodeScriptPath("den", match.name) }
       : match)
   },
-  enumerate: (ctx) => Promise.resolve(leavesFromBuilt(buildDenCatalogToolTree(ctx))),
+  enumerate: (ctx) => Promise.resolve(leavesFromBuilt(buildDenCatalogToolTree({
+    ...ctx,
+    catalog: ctx.catalog.filter((operation) => catalogOperationAvailableToCapabilities(ctx, operation)),
+  }))),
   execute: async (ctx, parsed, input) => {
     if (!parsedForKind(parsed, "catalog")) return unknownCapabilityResult(input.name)
     const operation = ctx.catalog.find((candidate) => (
-      candidate.name === parsed.name && !isCredentialBoundNativeOperation(candidate)
+      candidate.name === parsed.name
+      && !isCredentialBoundNativeOperation(candidate)
+      && catalogOperationAvailableToCapabilities(ctx, candidate)
     ))
     if (!operation) return unknownCapabilityResult(input.name)
     return invokeMcpOperation({
@@ -542,7 +585,10 @@ const marketplaceSource: CapabilitySource = {
         ? unknownCapabilityResult(input.name)
         : marketplaceCapabilityErrorToolResult(result)
     }
-    return { content: textContent(JSON.stringify(result.result, null, 2)) }
+    return {
+      content: textContent(JSON.stringify(result.result, null, 2)),
+      structuredContent: result.result,
+    }
   },
 }
 

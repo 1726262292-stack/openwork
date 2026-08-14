@@ -127,7 +127,7 @@ export function RemoteMcpAppImport({
                 </dl>
               </div>
 
-              <DenNotice tone="info" message="OpenWork will expose this cached HTML through an ordinary MCP tool and immutable ui:// resource. Apps that need tools should be distributed with a standard MCP server; OpenWork Connect will preserve that server's native tools, resources, and same-server calls." />
+              <DenNotice tone="info" message="OpenWork will expose this cached HTML through an ordinary MCP tool and immutable ui:// resource. The app can use app-visible capability search on that same OpenWork MCP server to call authorized Connect tools and Code Mode Programs. Apps with their own MCP server keep that server's native tools and same-server calls through Connect." />
               {importApp.error ? <DenNotice tone="error" message={importApp.error.message} /> : null}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-5">
                 <DenButton variant="ghost" icon={ArrowLeft} onClick={() => preview.reset()}>Use another URL</DenButton>

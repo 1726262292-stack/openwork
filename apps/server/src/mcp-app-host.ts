@@ -322,6 +322,7 @@ export async function callMcpAppTool(input: {
   workspaceRoot: string;
   serverName: string;
   name: string;
+  resourceUri?: string;
   arguments?: Record<string, unknown>;
   approved?: boolean;
 }): Promise<CallToolResult> {
@@ -335,6 +336,13 @@ export async function callMcpAppTool(input: {
     if (!tool) throw new McpAppHostError("tool_not_found", "The requested same-server MCP tool was not found.");
     if (!toolVisibility(tool, "app")) {
       throw new McpAppHostError("tool_not_visible", "The requested MCP tool is not visible to apps.");
+    }
+    const boundResourceUri = toolUiResourceUri(tool);
+    if (boundResourceUri && boundResourceUri !== input.resourceUri) {
+      throw new McpAppHostError(
+        "tool_resource_mismatch",
+        "The requested MCP tool is bound to a different MCP App resource.",
+      );
     }
     const projectedName = projectedMcpToolName(input.serverName, tool.name);
     if ((await diagnoseMcpToolDenies(input.workspaceRoot, input.serverName, [projectedName])).length > 0) {
