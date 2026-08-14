@@ -1,3 +1,4 @@
+import { processBlankSlateProfile, resolveBlankSlateLaunch } from "./blank-slate-profile.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
@@ -73,7 +74,6 @@ import {
 } from "./brand-icon-windows.mjs";
 import { resetMacDockIcon } from "./brand-icon-darwin.mjs";
 import { createDesktopVaultKeyProvider } from "./secure-vault-key.mjs";
-import { resolveBlankSlateLaunch } from "./blank-slate-profile.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, "../../..");
@@ -110,8 +110,8 @@ const DEFAULT_APP_NAME =
   (!app.isPackaged ? process.env.OPENWORK_ELECTRON_APP_NAME?.trim() : "") ||
   (isDevMode ? `${DESKTOP_DISTRIBUTION.appName} - Dev` : DESKTOP_DISTRIBUTION.appName);
 const BLANK_SLATE_LAUNCH = resolveBlankSlateLaunch({
-  argv: process.argv,
   appName: DEFAULT_APP_NAME,
+  profile: processBlankSlateProfile,
 });
 const APP_NAME = BLANK_SLATE_LAUNCH.appName;
 let currentDisplayAppName = APP_NAME;
@@ -192,6 +192,7 @@ function killTerminalsForWebContents(webContentsId) {
 // OPENWORK_DEV_PROFILE in unpackaged dev; then the legacy identifier default.
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_IDENTIFIER);
+if (BLANK_SLATE_LAUNCH.homePath) app.setPath("home", BLANK_SLATE_LAUNCH.homePath);
 if (
   app.isPackaged
   && !BLANK_SLATE_LAUNCH.enabled
@@ -381,12 +382,12 @@ const BRAND_ICON_FETCH_TIMEOUT_MS = 10_000;
 const BRAND_ICON_FETCH_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 function scheduleBlankSlateProfileCleanup() {
-  if (!BLANK_SLATE_LAUNCH.userDataPath) return;
+  if (!BLANK_SLATE_LAUNCH.rootPath) return;
   try {
     const child = spawn(process.execPath, [
       path.join(__dirname, "blank-slate-cleanup.mjs"),
       String(process.pid),
-      BLANK_SLATE_LAUNCH.userDataPath,
+      BLANK_SLATE_LAUNCH.rootPath,
     ], {
       detached: true,
       stdio: "ignore",
