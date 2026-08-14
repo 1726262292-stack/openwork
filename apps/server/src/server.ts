@@ -2916,6 +2916,7 @@ function createRoutes(
     const body = await readJsonBody(ctx.request);
     const serverName = typeof body.serverName === "string" ? body.serverName.trim() : "";
     const name = typeof body.name === "string" ? body.name.trim() : "";
+    const resourceUri = typeof body.resourceUri === "string" ? body.resourceUri.trim() : "";
     const args = body.arguments && typeof body.arguments === "object" && !Array.isArray(body.arguments)
       ? body.arguments as Record<string, unknown>
       : {};
@@ -2929,6 +2930,7 @@ function createRoutes(
         workspaceRoot: workspace.path,
         serverName,
         name,
+        resourceUri,
         arguments: args,
         approved,
       }));

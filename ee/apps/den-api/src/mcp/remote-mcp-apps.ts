@@ -23,8 +23,8 @@ export function remoteMcpAppLaunchToolName(configObjectId: string) {
   return `launch_remote_app_${stableSuffix(configObjectId)}`
 }
 
-export function remoteMcpAppRunProgramToolName(configObjectId: string) {
-  return `run_program_${stableSuffix(configObjectId)}`
+export function remoteMcpAppRunProgramToolName(configObjectId: string, versionId: string) {
+  return `run_program_${stableSuffix(`${configObjectId}:${versionId}`)}`
 }
 
 function resourceMeta(revision: Pick<ActiveRemoteMcpApp, "payload">): { ui: McpUiResourceMeta; resourceDigest: string } {
@@ -55,35 +55,34 @@ export function registerAgentRemoteMcpApps(input: {
   const runProgram = input.runProgram
   for (const app of input.apps) {
     const metadata = app.payload.metadata
-    const runProgramToolName = remoteMcpAppRunProgramToolName(app.app.configObjectId)
-    if (runProgram) {
-      registerAppTool(
-        input.server,
-        runProgramToolName,
-        {
-          title: `Run ${metadata.name} Program`,
-          description: [
-            `Run a Code Mode Program inside the ${metadata.name} Plugin through OpenWork Connect.`,
-            "Omit programId to use the member's selected Program, or pass an exact accessible Program id from this Plugin.",
-            "This app-only tool stays on the same MCP server as the imported UI resource; the Program owns all downstream Connect capability calls.",
-          ].join(" "),
-          annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
-          inputSchema: z.object({
-            programId: z.string().trim().min(1).max(160).optional(),
-            input: z.unknown().optional(),
-          }),
-          _meta: { ui: { visibility: ["app"] } },
-        },
-        async ({ programId, input: programInput }) => runProgram({
-          appConfigObjectId: app.app.configObjectId,
-          pluginId: app.app.pluginId,
-          ...(programId ? { programId } : {}),
-          ...(programInput === undefined ? {} : { input: programInput }),
-        }),
-      )
-    }
     for (const revision of app.revisions) {
       const metadata = resourceMeta(revision)
+      if (runProgram) {
+        registerAppTool(
+          input.server,
+          remoteMcpAppRunProgramToolName(app.app.configObjectId, revision.versionId),
+          {
+            title: `Run ${app.payload.metadata.name} Program`,
+            description: [
+              `Run a Code Mode Program inside the ${app.payload.metadata.name} Plugin through OpenWork Connect.`,
+              "Omit programId to use the member's selected Program, or pass an exact accessible Program id from this Plugin.",
+              "This app-only tool is bound to the exact immutable MCP App resource; the Program owns all downstream Connect capability calls.",
+            ].join(" "),
+            annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+            inputSchema: z.object({
+              programId: z.string().trim().min(1).max(160).optional(),
+              input: z.unknown().optional(),
+            }),
+            _meta: { ui: { resourceUri: revision.resourceUri, visibility: ["app"] } },
+          },
+          async ({ programId, input: programInput }) => runProgram({
+            appConfigObjectId: app.app.configObjectId,
+            pluginId: app.app.pluginId,
+            ...(programId ? { programId } : {}),
+            ...(programInput === undefined ? {} : { input: programInput }),
+          }),
+        )
+      }
       registerAppResource(
         input.server,
         `Remote MCP App ${app.app.configObjectId} ${revision.versionId}`,
@@ -134,7 +133,7 @@ export function registerAgentRemoteMcpApps(input: {
             resourceDigest: app.payload.resource.digest,
           },
           ...(input.runProgram ? {
-            serverTools: { runProgram: runProgramToolName },
+            serverTools: { runProgram: remoteMcpAppRunProgramToolName(app.app.configObjectId, app.versionId) },
           } : {}),
           ...(launchInput === undefined ? {} : { input: launchInput }),
         }

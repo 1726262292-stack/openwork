@@ -244,7 +244,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       setApp(null)
     }
     bridge.oncalltool = async ({ name, arguments: args }) => {
-      const request = { serverName: app.serverName, name, arguments: args }
+      const request = { serverName: app.serverName, name, resourceUri: app.resourceUri, arguments: args }
       try {
         return mcpToolResult(await openworkServerClient.callMcpAppTool(workspaceId, request))
       } catch (cause) {

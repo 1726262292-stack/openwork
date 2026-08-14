@@ -758,6 +758,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   );
   const runProgramToolName = String(runProgramTool.name);
   expect(requireRecord(requireRecord(runProgramTool._meta, "Program tool metadata").ui, "Program tool UI metadata")).toEqual({
+    resourceUri: firstResourceUri,
     visibility: ["app"],
   });
   const rejectedCrossPluginRun = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {

@@ -144,10 +144,12 @@ test("serves exact cached bytes and delivers launch data through structuredConte
 test("lets an imported app run a Program through an app-only same-server tool", async () => {
   await withClient(async (client) => {
     const tools = await client.listTools()
-    const runProgramToolName = remoteMcpAppRunProgramToolName(configObjectId)
+    const runProgramToolName = remoteMcpAppRunProgramToolName(configObjectId, versionId)
     const runProgram = tools.tools.find((tool) => tool.name === runProgramToolName)
-    expect(runProgram?._meta).toEqual({ ui: { visibility: ["app"] } })
-    expect(runProgram?._meta).not.toHaveProperty("ui.resourceUri")
+    expect(runProgram?._meta).toMatchObject({
+      ui: { resourceUri, visibility: ["app"] },
+      "ui/resourceUri": resourceUri,
+    })
 
     const launch = await client.callTool({
       name: remoteMcpAppLaunchToolName(configObjectId),

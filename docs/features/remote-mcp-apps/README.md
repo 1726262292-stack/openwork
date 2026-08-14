@@ -90,12 +90,13 @@ ui://openwork/library-apps/{appId}/revisions/{revisionId}/index.html
 The launch result uses ordinary `structuredContent` for the app identity,
 revision, digest, optional input, and the name of any available same-server
 Program tool. When Code Mode is enabled, an app-specific `run_program_*` tool
-is advertised with `_meta.ui.visibility: ["app"]`. Its exact name is delivered
-in the launch result rather than embedded in the HTML. It accepts an optional
-exact `programId` or uses the member's selected Program, and rejects Programs
-outside the app's owning Plugin. Normal host approval and Plugin access checks
-still apply. The Program executes server-side and receives the member's
-authorized Connect tool tree; the HTML receives only the Program result.
+is advertised with `_meta.ui.visibility: ["app"]` and the exact revision's
+standard `_meta.ui.resourceUri`. Its exact name is delivered in the launch
+result rather than embedded in the HTML. It accepts an optional exact
+`programId` or uses the member's selected Program, and rejects Programs outside
+the app's owning Plugin. Normal host approval and Plugin access checks still
+apply. The Program executes server-side and receives the member's authorized
+Connect tool tree; the HTML receives only the Program result.
 
 This is the only OpenWork-specific execution affordance in the URL adapter.
 The transport remains standard MCP `tools/call`, and the tool stays on the
@@ -177,6 +178,9 @@ handshake, document, and runtime failures without hiding the normal tool
 result.
 
 App-requested tools are resolved only on the originating server and must be
-visible to the app. Workspace tool denies apply. Explicitly read-only,
-non-destructive calls run directly; other calls require a user confirmation
-and collaborator authority. Cross-server calls are not allowed.
+visible to the app. When a tool carries `_meta.ui.resourceUri`, Desktop also
+requires it to match the exact immutable resource loaded in the calling iframe;
+one imported app therefore cannot invoke another revision's bound Program
+tool. Workspace tool denies apply. Explicitly read-only, non-destructive calls
+run directly; other calls require a user confirmation and collaborator
+authority. Cross-server calls are not allowed.
