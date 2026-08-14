@@ -389,8 +389,12 @@ test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbo
   const removeRoot = commands.removeRoot[3] ?? "";
   assert.ok(installRoot.includes("install"));
   assert.ok(removeRoot.includes("remove"));
-  assert.ok(installRoot.includes("sudo -n"));
-  assert.ok(removeRoot.includes("sudo -n"));
+  for (const command of [installRoot, removeRoot]) {
+    assert.ok(command.includes("node_path=$(command -v node)"));
+    assert.ok(command.includes('test -n "$node_path"'));
+    assert.ok(command.includes('/usr/bin/sudo -n "$node_path"'));
+    assert.ok(!command.includes("/usr/bin/sudo -n '/usr/bin/env' 'node'"));
+  }
   for (const command of [commands.start, commands.probe, commands.requests, commands.stop]) {
     assert.ok(!command[3]?.includes("sudo -n"));
   }
