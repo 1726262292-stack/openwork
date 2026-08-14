@@ -65,7 +65,7 @@ const saveSchema = z.object({
   code: z.string().min(1).max(200_000),
   currentInput: z.unknown().optional(),
   inputSchema: z.unknown().optional(),
-  outputSchema: z.unknown().optional().describe("JSON Schema for the returned value. Include this when the Script will back a custom Artifact view."),
+  outputSchema: z.unknown().optional().describe("Optional JSON Schema for the value returned by this Program."),
 })
 const savedSchema = z.object({ pluginId: z.string(), configObjectId: z.string(), configObjectVersionId: z.string() })
 const runParamsSchema = z.object({ configObjectId: z.string().min(1).max(160) })
@@ -98,7 +98,7 @@ const draftSchema = z.object({
   code: z.string().min(1).max(200_000),
   exampleInput: z.unknown().optional(),
   inputSchema: z.unknown().optional(),
-  outputSchema: z.unknown().optional().describe("Explicit JSON Schema for the returned value. It must be present before this Script can back a custom Artifact view."),
+  outputSchema: z.unknown().optional().describe("Optional JSON Schema for the value returned by this Program."),
   requiredCapabilities: z.array(savedScriptCapabilitySchema).max(100),
 })
 const testSchema = draftSchema.extend({ configObjectId: z.string().min(1).max(160) })
@@ -188,6 +188,7 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       member,
       redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
       codemodeEnabled,
+      generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
       organizationMetadata: context.organization.metadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
     })
@@ -283,7 +284,14 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       try {
         const { actorContext, codemodeEnabled } = await contextFor(c)
         if (!codemodeEnabled) return c.json({ error: "program_not_found" }, 404)
-        return c.json(await getProgramDetail({ context: actorContext, configObjectId: params.data.configObjectId }))
+        const detail = await getProgramDetail({ context: actorContext, configObjectId: params.data.configObjectId })
+        return c.json(env.generatedArtifactViewsEnabled
+          ? detail
+          : {
+              ...detail,
+              program: { ...detail.program, viewState: "default" as const, activeViewTitle: null },
+              views: [],
+            })
       } catch (error) {
         const failure = routeFailure(error)
         return c.json(failure.body, failure.status)
@@ -303,7 +311,7 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Program id." }, 400)
       try {
         const { actorContext, codemodeEnabled } = await contextFor(c)
-        if (!codemodeEnabled) return c.json({ items: [] })
+        if (!codemodeEnabled || !env.generatedArtifactViewsEnabled) return c.json({ items: [] })
         return c.json({ items: await listArtifactViewsForScript({ context: actorContext, configObjectId: params.data.configObjectId }) })
       } catch (error) {
         const failure = routeFailure(error)
@@ -320,6 +328,7 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
     }),
     orgMemberRoute(),
     async (c) => {
+      if (!env.generatedArtifactViewsEnabled) return c.json({ error: "artifact_view_not_found" }, 404)
       const params = artifactViewParamsSchema.safeParse(c.req.param())
       if (!params.success || !params.data.revisionId) return c.json({ error: "invalid_request", message: "Invalid view revision." }, 400)
       try {
@@ -341,6 +350,7 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
     }),
     orgMemberRoute(),
     async (c) => {
+      if (!env.generatedArtifactViewsEnabled) return c.json({ error: "artifact_view_not_found" }, 404)
       const params = artifactViewParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid view." }, 400)
       try {

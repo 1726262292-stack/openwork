@@ -17,6 +17,7 @@ import { getJsonRequestBodySchema, getParameters, hasJsonRequestBody, pathParame
  */
 
 export const SEARCH_CAPABILITIES_TOOL_NAME = "search_capabilities"
+export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
 export type SearchCapabilityType = "all" | "api" | "admin" | "mcp" | "marketplace" | "skills"
 
 export type CapabilityMatch = {

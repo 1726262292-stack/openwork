@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { expect, onTestFinished } from "vitest";
-import { clickButton, control, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, fill, waitFor } from "@openwork/behaviors";
+import { clickButton, control, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors";
 import { connect, debuggerUrlFor, evaluate, listTargets, navigate } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/fraimz";
 import { chrome, desktop } from "@openwork/hosts";
@@ -17,11 +18,11 @@ const title = !appSpecsEnabled
     ? "Remote MCP Apps skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
     : !mysqlOpen
       ? "Remote MCP Apps skipped — needs MySQL on 127.0.0.1:3306"
-      : "externally authored MCP Apps run through Connect or Plugin Programs as immutable standard resources";
+      : "agents install external MCP Apps while Apps use standard same-server capability search";
 const providerId = "remote-mcp-apps-provider";
 const modelId = "remote-mcp-apps-model";
 const desktopClosingReply = "Project Atlas is open through its standard MCP server.";
-const installedClosingReply = "Installed Project Atlas is open with its selected OpenWork Program.";
+const installedClosingReply = "Installed Project Atlas is open with Connect and Program results.";
 const connectedResourceUri = "ui://project-atlas/view.html";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -164,7 +165,7 @@ function programAppHtml(version: string): string {
 <html>
   <head>
     <meta charset="utf-8">
-    <meta name="description" content="Run a selected OpenWork Program through the standard MCP Apps bridge.">
+    <meta name="description" content="Search and execute authorized OpenWork Connect tools and Programs through the standard MCP Apps bridge.">
     <title>Project Atlas</title>
     <style>
       body{margin:0;padding:18px;color:#172033;background:#f5f7fb;font-family:system-ui,sans-serif}
@@ -180,19 +181,26 @@ function programAppHtml(version: string): string {
         const INIT_ID = "project-atlas-init";
         let requestId = 0;
         const pending = new Map();
+        let serverTools = null;
+        let connectResult = null;
         const status = document.querySelector("#status");
         const result = document.querySelector("#result");
         const post = (message) => window.parent.postMessage(message, "*");
-        const runProgram = (name, input) => {
-          const id = "project-atlas-program-" + (++requestId);
-          pending.set(id, true);
-          status.textContent = "Running selected Program through OpenWork Connect…";
+        const call = (kind, name, args) => {
+          const id = "project-atlas-" + kind + "-" + (++requestId);
+          pending.set(id, kind);
           post({
             jsonrpc: "2.0",
             id,
             method: "tools/call",
-            params: { name, arguments: { input: input || {} } },
+            params: { name, arguments: args || {} },
           });
+        };
+        const structured = (message) => message && message.result && message.result.structuredContent;
+        const firstMatch = (message, kind) => {
+          const value = structured(message);
+          const matches = value && Array.isArray(value.matches) ? value.matches : [];
+          return matches.find((entry) => entry && (kind ? entry.kind === kind : true)) || matches[0];
         };
         window.addEventListener("message", (event) => {
           if (event.source !== window.parent || !event.data || event.data.jsonrpc !== "2.0") return;
@@ -202,13 +210,14 @@ function programAppHtml(version: string): string {
             return;
           }
           if (message.method === "ui/notifications/tool-result") {
-            const structured = message.params && message.params.structuredContent;
-            const toolName = structured && structured.serverTools && structured.serverTools.runProgram;
-            if (typeof toolName !== "string") {
-              status.textContent = "No Program tool is available.";
+            const launch = message.params && message.params.structuredContent;
+            serverTools = launch && launch.serverTools;
+            if (!serverTools || typeof serverTools.searchCapabilities !== "string" || typeof serverTools.executeCapability !== "string") {
+              status.textContent = "Capability gateway unavailable.";
               return;
             }
-            runProgram(toolName, structured.input);
+            status.textContent = "Confirming the installer is unavailable to Apps…";
+            call("installer", "import_remote_mcp_app", {});
             return;
           }
           if (message.method === "ui/resource-teardown" && message.id !== undefined) {
@@ -216,14 +225,51 @@ function programAppHtml(version: string): string {
             return;
           }
           if (pending.has(message.id)) {
+            const kind = pending.get(message.id);
             pending.delete(message.id);
-            if (message.error || (message.result && message.result.isError)) {
-              status.textContent = "Program failed.";
+            const failed = message.error || (message.result && message.result.isError);
+            if (kind === "installer") {
+              if (!failed) {
+                status.textContent = "Unsafe installer access.";
+                return;
+              }
+              status.textContent = "Installer blocked; searching authorized Connect tools…";
+              call("search-connect", serverTools.searchCapabilities, { query: "Atlas read-only projects", type: "mcp", limit: 5 });
+              return;
+            }
+            if (failed) {
+              status.textContent = "Capability call failed.";
               result.textContent = JSON.stringify(message.error || message.result, null, 2);
               return;
             }
-            status.textContent = "Connected through an OpenWork Program.";
-            result.textContent = JSON.stringify(message.result && message.result.structuredContent, null, 2);
+            if (kind === "search-connect") {
+              const match = firstMatch(message);
+              if (!match || typeof match.name !== "string") throw new Error("Connect capability missing");
+              status.textContent = "Executing the authorized Connect tool…";
+              call("execute-connect", serverTools.executeCapability, {
+                name: match.name,
+                schemaDigest: match.schemaDigest,
+                body: { query: "migration" },
+              });
+              return;
+            }
+            if (kind === "execute-connect") {
+              connectResult = structured(message);
+              status.textContent = "Searching authorized Programs…";
+              call("search-program", serverTools.searchCapabilities, { query: "Project Atlas Connect program", type: "marketplace", limit: 5 });
+              return;
+            }
+            if (kind === "search-program") {
+              const match = firstMatch(message, "script");
+              if (!match || typeof match.name !== "string") throw new Error("Program capability missing");
+              status.textContent = "Executing the authorized Program…";
+              call("execute-program", serverTools.executeCapability, { name: match.name, body: { query: "migration" } });
+              return;
+            }
+            if (kind === "execute-program") {
+              status.textContent = "Connected through OpenWork capability search.";
+              result.textContent = JSON.stringify({ installer: "blocked", connect: connectResult, program: structured(message) }, null, 2);
+            }
           }
         });
         post({
@@ -575,82 +621,17 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     access: { orgWide: true },
   });
 
-  await using browser = await chrome({ name: "remote-mcp-apps", startUrl: den.ref.webUrl, headless: true });
-  await navigate(browser.client, den.ref.webUrl);
-  await waitFor(browser, `location.href.startsWith(${JSON.stringify(den.ref.webUrl)}) && document.readyState === "complete"`, {
-    timeoutMs: 60_000,
-    label: "Den Web origin",
-  });
-  const tokenStored = await evalIn(browser, `(() => {
-    localStorage.setItem("openwork:web:auth-token", ${JSON.stringify(den.admin.token)});
-    return localStorage.getItem("openwork:web:auth-token") === ${JSON.stringify(den.admin.token)};
-  })()`);
-  expect(tokenStored).toBe(true);
-  await navigate(browser.client, `${den.ref.webUrl}/dashboard/library`);
-  await waitFor(browser, "document.body.innerText.includes('Add remote MCP App')", {
-    timeoutMs: 60_000,
-    label: "Remote MCP App Library action",
-  });
-  const modalOpened = await evalIn(browser, `(async () => {
-    const deadline = Date.now() + 30000;
-    while (Date.now() < deadline) {
-      const existing = document.querySelector("[data-remote-app-import]");
-      if (existing) return true;
-      const button = [...document.querySelectorAll("button")]
-        .find((entry) => entry.textContent?.trim() === "Add remote MCP App");
-      if (button instanceof HTMLButtonElement) button.click();
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    return false;
-  })()`, { awaitPromise: true, timeoutMs: 35_000 });
-  expect(modalOpened).toBe(true);
-  await fill(browser, "[data-testid=remote-app-source-url]", sourceUrl);
-  await clickButton(browser, "Download and review");
-  await waitFor(browser, `document.body.innerText.includes("Project Atlas")
-    && document.body.innerText.includes("Validated")
-    && document.body.innerText.includes("ordinary MCP tool")`, {
-    timeoutMs: 30_000,
-    label: "validated Remote MCP App import review",
-  });
-
-  const reviewShot = await screenshot(browser);
-  const reviewExpectations = [
-    "A Remote MCP App review shows Project Atlas as validated",
-    "The review explains that the cached HTML becomes an ordinary immutable MCP App resource",
-    "An Import and activate action is visible",
-  ];
-  const reviewed = await validate(reviewShot, reviewExpectations, {
-    ask: async (request) => request.prompt.startsWith("Objectively describe")
-      ? JSON.stringify({ description: "The Den Web Remote MCP App review for a validated, cached Project Atlas HTML resource." })
-      : JSON.stringify({ results: reviewExpectations.map((expectation) => ({ expectation, passed: true, evidence: "The deterministic DOM assertions completed before capture." })) }),
-  });
-  expect(reviewed.ok, reviewed.why).toBe(true);
-
-  await clickButton(browser, "Import and activate");
-  await waitFor(browser, `location.pathname.includes("/dashboard/apps/")
-    && document.body.innerText.includes("Installed copy")
-    && document.body.innerText.includes("Immutable revisions")
-    && document.body.innerText.includes("ui://openwork/library-apps/")`, {
-    timeoutMs: 60_000,
-    label: "active Remote MCP App detail",
-  });
-  const appId = await evalIn(browser, `document.querySelector("[data-remote-app-detail]")?.getAttribute("data-remote-app-detail") ?? ""`);
-  expect(typeof appId === "string" && appId.startsWith("cob_")).toBe(true);
-  if (typeof appId !== "string") throw new Error("Imported app id was unavailable.");
-
-  const detailResult = await denFetch(den.admin, `/v1/remote-mcp-apps/${encodeURIComponent(appId)}`, {
+  const pluginResult = await denFetch(den.admin, "/v1/plugins", {
+    method: "POST",
     headers: {
       authorization: `Bearer ${den.admin.token}`,
       "x-openwork-org-id": organizationId,
     },
+    body: JSON.stringify({ name: "Project Atlas Plugin", components: [] }),
   });
-  expect(detailResult.response.ok, detailResult.text).toBe(true);
-  const detail = requireRecord(requireRecord(detailResult.body, "app detail response").item, "app detail");
-  const firstRevision = requireRecord(detail.activeRevision, "active revision");
-  const firstRevisionId = String(firstRevision.id);
-  const firstResourceUri = String(firstRevision.resourceUri);
-  const firstDigest = String(requireRecord(firstRevision.resource, "active revision resource").digest);
-  expect(firstResourceUri).toBe(`ui://openwork/library-apps/${appId}/revisions/${firstRevisionId}/index.html`);
+  expect(pluginResult.response.status, pluginResult.text).toBe(201);
+  const pluginId = String(requireRecord(requireRecord(pluginResult.body, "Plugin response").item, "Plugin").id ?? "");
+  expect(pluginId).toMatch(/^plg_/);
 
   const tokenResult = await denFetch(den.admin, "/v1/mcp/token", {
     method: "POST",
@@ -675,6 +656,75 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     clientInfo: { name: "remote-mcp-app-eval", version: "1.0.0" },
   });
   expect(initialized.protocolVersion).toBeTruthy();
+  expect(String(initialized.instructions ?? "")).toContain("authored and bundled outside OpenWork");
+  const initializedCapabilities = requireRecord(initialized.capabilities, "agent capabilities");
+  expect(requireRecord(initializedCapabilities.tools, "agent tool capabilities").listChanged).toBe(true);
+  expect(requireRecord(initializedCapabilities.resources, "agent resource capabilities").listChanged).toBe(true);
+
+  const beforeImport = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
+  const importTool = requireRecord(toolsFrom(beforeImport).find((tool) => tool.name === "import_remote_mcp_app"), "remote App import tool");
+  expect(requireRecord(requireRecord(importTool._meta, "import metadata").ui, "import UI metadata").visibility).toEqual(["model"]);
+  for (const generatedTool of ["save_artifact_view", "activate_artifact_view_revision", "retire_artifact_view"]) {
+    expect(toolsFrom(beforeImport).some((tool) => tool.name === generatedTool)).toBe(false);
+    const rejected = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", { name: generatedTool, arguments: {} });
+    expect(rejected.isError).toBe(true);
+  }
+  const inlineRejected = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "import_remote_mcp_app",
+    arguments: { pluginId, sourceUrl, inlineHtml: programAppHtml("inline") },
+  });
+  expect(inlineRejected.isError).toBe(true);
+  const unsafeRejected = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "import_remote_mcp_app",
+    arguments: { pluginId, sourceUrl: "file:///etc/passwd" },
+  });
+  expect(unsafeRejected.isError).toBe(true);
+
+  const imported = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "import_remote_mcp_app",
+    arguments: { pluginId, sourceUrl, activate: true },
+  });
+  expect(imported.isError, JSON.stringify(imported)).not.toBe(true);
+  const importedApp = requireRecord(requireRecord(imported.structuredContent, "import structured content").app, "imported App");
+  const appId = String(importedApp.id ?? "");
+  expect(appId).toMatch(/^cob_/);
+  expect(importedApp.pluginId).toBe(pluginId);
+
+  const detailResult = await denFetch(den.admin, `/v1/remote-mcp-apps/${encodeURIComponent(appId)}`, {
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+  });
+  expect(detailResult.response.ok, detailResult.text).toBe(true);
+  const detail = requireRecord(requireRecord(detailResult.body, "app detail response").item, "app detail");
+  const firstRevision = requireRecord(detail.activeRevision, "active revision");
+  const firstRevisionId = String(firstRevision.id);
+  const firstResourceUri = String(firstRevision.resourceUri);
+  const firstDigest = String(requireRecord(firstRevision.resource, "active revision resource").digest);
+  const firstHtml = programAppHtml("1.0.0");
+  expect(firstResourceUri).toBe(`ui://openwork/library-apps/${appId}/revisions/${firstRevisionId}/index.html`);
+  expect(firstDigest).toBe(`sha256:${createHash("sha256").update(firstHtml).digest("hex")}`);
+  expect(detail.pluginId).toBe(pluginId);
+
+  await using browser = await chrome({ name: "remote-mcp-apps", startUrl: den.ref.webUrl, headless: true });
+  await navigate(browser.client, den.ref.webUrl);
+  await waitFor(browser, `location.href.startsWith(${JSON.stringify(den.ref.webUrl)}) && document.readyState === "complete"`, {
+    timeoutMs: 60_000,
+    label: "Den Web origin",
+  });
+  const tokenStored = await evalIn(browser, `(() => {
+    localStorage.setItem("openwork:web:auth-token", ${JSON.stringify(den.admin.token)});
+    return localStorage.getItem("openwork:web:auth-token") === ${JSON.stringify(den.admin.token)};
+  })()`);
+  expect(tokenStored).toBe(true);
+  await navigate(browser.client, `${den.ref.webUrl}/dashboard/apps/${encodeURIComponent(appId)}`);
+  await waitFor(browser, `document.body.innerText.includes("Installed copy")
+    && document.body.innerText.includes("Immutable revisions")
+    && document.body.innerText.includes(${JSON.stringify(firstResourceUri)})`, {
+    timeoutMs: 60_000,
+    label: "agent-imported Remote MCP App detail",
+  });
 
   const programCode = "return { projects: await tools.atlas_read_only_projects.search_projects({ query: input.query }) }";
   const programInput = { query: "migration" };
@@ -686,35 +736,6 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(JSON.stringify(programDraft.content)).toContain("Atlas migration");
   expect(standardMcpCalls).toBe(1);
 
-  const unrelatedProgramResult = await denFetch(den.admin, "/v1/codemode-scripts", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${den.admin.token}`,
-      "x-openwork-org-id": organizationId,
-    },
-    body: JSON.stringify({
-      name: "Unrelated Project Atlas program",
-      description: "Proves an imported app cannot run a Program from another Plugin.",
-      code: programCode,
-      currentInput: programInput,
-      inputSchema: {
-        type: "object",
-        properties: { query: { type: "string" } },
-        required: ["query"],
-        additionalProperties: false,
-      },
-      outputSchema: {
-        type: "object",
-        properties: { projects: {} },
-        required: ["projects"],
-        additionalProperties: false,
-      },
-    }),
-  });
-  expect(unrelatedProgramResult.response.status, unrelatedProgramResult.text).toBe(201);
-  const unrelatedProgramId = String(requireRecord(unrelatedProgramResult.body, "unrelated Program").configObjectId ?? "");
-  expect(unrelatedProgramId).toMatch(/^cob_/);
-
   const savedProgramResult = await denFetch(den.admin, "/v1/codemode-scripts", {
     method: "POST",
     headers: {
@@ -722,7 +743,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       "x-openwork-org-id": organizationId,
     },
     body: JSON.stringify({
-      pluginId: detail.pluginId,
+      pluginId,
       name: "Project Atlas Connect program",
       description: "Loads Project Atlas data through the connected standard MCP server.",
       code: programCode,
@@ -745,35 +766,10 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const savedProgram = requireRecord(savedProgramResult.body, "saved Program");
   const programId = String(savedProgram.configObjectId ?? "");
   expect(programId).toMatch(/^cob_/);
-  await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: "select_program",
-    arguments: { programId: unrelatedProgramId },
-  });
 
   const listed = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
   expect(toolsFrom(listed).some((tool) => tool.name === "save_artifact_view")).toBe(false);
-  const runProgramTool = requireRecord(
-    toolsFrom(listed).find((tool) => typeof tool.name === "string" && tool.name.startsWith("run_program_")),
-    "app-only Program tool",
-  );
-  const runProgramToolName = String(runProgramTool.name);
-  expect(requireRecord(requireRecord(runProgramTool._meta, "Program tool metadata").ui, "Program tool UI metadata")).toEqual({
-    resourceUri: firstResourceUri,
-    visibility: ["app"],
-  });
-  const rejectedCrossPluginRun = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: runProgramToolName,
-    arguments: { input: programInput },
-  });
-  expect(rejectedCrossPluginRun.isError).toBe(true);
-  expect(JSON.stringify(rejectedCrossPluginRun.content)).toContain("program_not_in_app_plugin");
-  expect(standardMcpCalls).toBe(1);
-
-  const selectedProgram = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: "select_program",
-    arguments: { programId },
-  });
-  expect(requireRecord(requireRecord(selectedProgram.structuredContent, "selected Program").selection, "selection").programId).toBe(programId);
+  expect(toolsFrom(listed).some((tool) => typeof tool.name === "string" && tool.name.startsWith("run_program_"))).toBe(false);
   const launchTool = toolsFrom(listed).find((tool) => tool.title === "Open Project Atlas");
   expect(launchTool).toBeTruthy();
   const launchMeta = requireRecord(requireRecord(launchTool?._meta, "launch metadata").ui, "launch UI metadata");
@@ -787,15 +783,42 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const launchStructured = requireRecord(launched.structuredContent, "launch structured content");
   expect(JSON.stringify(launchStructured)).not.toContain(connection.id);
   expect(requireRecord(launchStructured.app, "launch app").id).toBe(appId);
-  expect(requireRecord(launchStructured.serverTools, "launch server tools").runProgram).toBe(runProgramToolName);
+  expect(requireRecord(launchStructured.serverTools, "launch server tools")).toEqual({
+    searchCapabilities: "search_capabilities",
+    executeCapability: "execute_capability",
+  });
 
+  const programSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_capabilities",
+    arguments: { query: "Project Atlas Connect program", type: "marketplace", limit: 5 },
+  });
+  const programMatches = Array.isArray(requireRecord(programSearch.structuredContent, "Program search").matches)
+    ? (requireRecord(programSearch.structuredContent, "Program search").matches as unknown[]).filter(isRecord)
+    : [];
+  const programMatch = requireRecord(programMatches.find((match) => match.kind === "script"), "Program capability match");
   const programRun = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: runProgramToolName,
-    arguments: { input: programInput },
+    name: "execute_capability",
+    arguments: { name: programMatch.name, body: programInput },
   });
   expect(programRun.isError, JSON.stringify(programRun)).not.toBe(true);
-  expect(JSON.stringify(requireRecord(programRun.structuredContent, "Program run result").value)).toContain("Atlas migration");
+  expect(JSON.stringify(programRun.structuredContent)).toContain("Atlas migration");
   expect(standardMcpCalls).toBe(2);
+
+  const connectSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_capabilities",
+    arguments: { query: "Atlas read-only projects", type: "mcp", limit: 5 },
+  });
+  const connectMatches = Array.isArray(requireRecord(connectSearch.structuredContent, "Connect search").matches)
+    ? (requireRecord(connectSearch.structuredContent, "Connect search").matches as unknown[]).filter(isRecord)
+    : [];
+  const connectMatch = requireRecord(connectMatches.find((match) => String(match.name ?? "").includes("search_projects")), "Connect capability match");
+  const connectRun = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "execute_capability",
+    arguments: { name: connectMatch.name, schemaDigest: connectMatch.schemaDigest, body: programInput },
+  });
+  expect(connectRun.isError, JSON.stringify(connectRun)).not.toBe(true);
+  expect(JSON.stringify(connectRun.structuredContent)).toContain("Atlas migration");
+  expect(standardMcpCalls).toBe(3);
 
   const resources = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {});
   expect(Array.isArray(resources.resources) && resources.resources.some((resource) => isRecord(resource) && resource.uri === firstResourceUri)).toBe(true);
@@ -844,7 +867,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     name: "search_projects",
     arguments: { query: "migration" },
   }, connectedEndpoint);
-  expect(standardMcpCalls).toBe(3);
+  expect(standardMcpCalls).toBe(4);
   expect(JSON.stringify(proxied.content)).toContain("Atlas project result for migration");
   expect(JSON.stringify(proxied.structuredContent)).toContain("Atlas migration");
   expect(requireRecord(proxied._meta, "proxied metadata").source).toBe("project-atlas-standard-mcp");
@@ -1016,7 +1039,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(mountedProjectAtlas, `${desktopTranscript}\nPersisted tool: ${persistedProjectAtlasTool}`).toBe(true);
   expect(desktopTranscript).not.toContain("MCP_APP_INITIALIZE_TIMEOUT");
   expect(desktopTranscript).not.toContain("Interactive view unavailable");
-  expect(standardMcpCalls).toBe(4);
+  expect(standardMcpCalls).toBe(5);
   const desktopShot = await screenshot(desktopApp);
   const desktopExpectations = [
     "The conversation visibly contains the connected Project Atlas MCP App",
@@ -1049,7 +1072,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   })()`);
   expect(installedComposerFocused).toBe(true);
   await desktopApp.client.send("Input.insertText", {
-    text: "Open installed Project Atlas and load the migration projects through its selected Program once.",
+    text: "Open installed Project Atlas and let it search and execute the authorized Connect tool and Program once.",
   });
   await clickButton(desktopApp, "Run task", { timeoutMs: 30_000 });
   await waitFor(desktopApp, `document.body.innerText.includes(${JSON.stringify(installedClosingReply)})`, {
@@ -1062,26 +1085,27 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   });
   const mountedProgramApp = await waitForMountedProjectAtlas(
     desktopApp,
-    ["Project Atlas", "Connected through an OpenWork Program", "Atlas migration"],
+    ["Project Atlas", "Connected through OpenWork capability search", "Atlas migration", "blocked"],
     30_000,
   );
   const approvalCount = await evalIn(desktopApp, "window.__remoteMcpApprovalCount ?? 0");
   const installedTranscript = await evalIn(desktopApp, "document.body?.innerText ?? ''");
   expect(mountedProgramApp, String(installedTranscript)).toBe(true);
-  expect(approvalCount).toBe(1);
+  expect(approvalCount).toBe(2);
   expect(installedTranscript).not.toContain("MCP_APP_INITIALIZE_TIMEOUT");
   expect(installedTranscript).not.toContain("Interactive view unavailable");
-  expect(standardMcpCalls).toBe(5);
+  expect(standardMcpCalls).toBe(7);
   const installedShot = await screenshot(desktopApp);
   const installedExpectations = [
     "The conversation visibly contains the installed Project Atlas MCP App",
-    "The app reports that it connected through an OpenWork Program",
-    "The Program-backed result contains Atlas migration",
+    "The app reports that it connected through OpenWork capability search",
+    "The Connect tool and Program results contain Atlas migration",
+    "The app-visible attempt to invoke the model-only installer was blocked",
     "No interactive-view-unavailable or crash message is visible",
   ];
   const installedSeen = await validate(installedShot, installedExpectations, {
     ask: async (request) => request.prompt.startsWith("Objectively describe")
-      ? JSON.stringify({ description: "An installed Project Atlas MCP App calling a selected OpenWork Program, with Atlas migration data returned through OpenWork Connect." })
+      ? JSON.stringify({ description: "An installed Project Atlas MCP App using same-server capability search to call an authorized Connect tool and Program, with the model-only installer blocked." })
       : JSON.stringify({ results: installedExpectations.map((expectation) => ({ expectation, passed: true, evidence: "The deterministic Desktop, MCP Apps bridge, approval, Program, and downstream Connect assertions completed before capture." })) }),
   });
   expect(installedSeen.ok, installedSeen.why).toBe(true);
@@ -1138,7 +1162,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     "content-disposition": expect.stringContaining("project-atlas.html"),
     etag: `"${firstDigest}"`,
   });
-  expect(await download.text()).toContain("Portable revision 1.0.0");
+  expect(await download.text()).toBe(firstHtml);
 
   await navigate(browser.client, `${den.ref.webUrl}/dashboard/apps/${encodeURIComponent(appId)}`);
   await waitFor(browser, `document.body.innerText.includes("Project Atlas")
@@ -1179,7 +1203,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
 
   evidence.fact(
     "Externally authored MCP Apps use standard same-server tools while Programs compose OpenWork Connect",
-    `Preserved native Project Atlas server identity, tools, exact UI metadata, resources, structuredContent, and _meta through connection ${connection.id}; completed both MCP Apps handshakes; imported ${appId}; called app-visible run_program on the originating OpenWork server; returned Atlas migration from the selected Program's downstream Connect call; served two immutable ui:// revisions after the source returned 404; and removed/restored ${launchToolName} through the Library lifecycle.`,
-    standardMcpCalls === 5 && mountedProjectAtlas && mountedProgramApp && approvalCount === 1,
+    `Preserved native Project Atlas server identity, tools, exact UI metadata, resources, structuredContent, and _meta through connection ${connection.id}; completed both MCP Apps handshakes; imported ${appId} through the model-only installer; blocked installer access from the App; searched and executed an authorized Connect tool and durable Program through ordinary same-server tools/call; returned Atlas migration; served two immutable ui:// revisions after the source returned 404; and removed/restored ${launchToolName} through the Library lifecycle.`,
+    standardMcpCalls === 7 && mountedProjectAtlas && mountedProgramApp && approvalCount === 2,
   );
 });

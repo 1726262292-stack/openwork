@@ -14,7 +14,11 @@ import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
-import { SEARCH_CAPABILITIES_TOOL_NAME, type CapabilityMatch } from "./search.js"
+import {
+  EXECUTE_CAPABILITY_TOOL_NAME,
+  SEARCH_CAPABILITIES_TOOL_NAME,
+  type CapabilityMatch,
+} from "./search.js"
 import { resolveMcpMemberIdentity } from "./external-capabilities.js"
 import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
@@ -37,6 +41,7 @@ import {
 } from "./builtin-skills.js"
 import {
   buildCapabilityToolTree,
+  catalogOperationChangesRemoteMcpAppDiscovery,
   createCapabilityRegistryContext,
   executeCapability,
   externalCapabilityErrorToolResult,
@@ -63,16 +68,16 @@ import { requirePluginArchResourceRole, type PluginArchActorContext } from "../r
 import { clearProgramAgentSelection, getProgramAgentSelection, selectProgramForAgent } from "../program-agent-selection.js"
 import { getProgramDetail, listProgramLibraryItems } from "../program-library.js"
 import { parseArtifactViewResourceUri } from "../artifact-view-resource.js"
-import { listActiveRemoteMcpApps, loadRemoteMcpAppRevision } from "../remote-mcp-apps.js"
+import { importRemoteMcpApp, listActiveRemoteMcpApps, loadRemoteMcpAppRevision } from "../remote-mcp-apps.js"
 import { registerAgentRemoteMcpApps } from "./remote-mcp-apps.js"
-import { listUsableExternalMcpConnections } from "../capability-sources/external-mcp-connections.js"
+import { listReadyExternalMcpConnections } from "../capability-sources/external-mcp-connections.js"
 import { registerConnectMcpServerIndex } from "./connect-mcp-server-index.js"
 
 export { externalToolContent } from "./tool-content.js"
 export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
 export type { ExecuteCapabilityToolResult }
 
-export const EXECUTE_CAPABILITY_TOOL_NAME = "execute_capability"
+export { EXECUTE_CAPABILITY_TOOL_NAME }
 export const EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME = "execute_capability_script"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
@@ -171,10 +176,11 @@ const programRunOutputSchema = z.object({
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications. OpenWork Programs and Remote MCP Apps add only durable identity, Plugin containment, access, retained resources and results, selection, and lifecycle around those MCP primitives.",
-  "MCP App UI is authored and bundled outside OpenWork. Agents do not author, compile, or save MCP App UI in OpenWork. Active imported apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
-  "An imported app may call the app-visible Program tool named in its launch structuredContent through the standard same-server MCP Apps bridge. That tool runs an exact accessible Program inside the app's Plugin, or the member's selected Program when no id is supplied; the Program is the only layer that reaches OpenWork Connect capabilities.",
+  "MCP App UI is authored and bundled outside OpenWork. Agents do not author, generate, compile, revise, activate, or publish UI source in OpenWork. Active imported apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
+  "Use import_remote_mcp_app only after the user has selected an existing Plugin and approved installation of third-party executable content. Supply only the Plugin id and a public HTTPS URL for one self-contained index.html; never send inline HTML, React or JavaScript source, or build-project contents.",
+  "An imported app receives the exact search_capabilities and execute_capability tool names in launch structuredContent. Through the standard same-server MCP Apps bridge it can search the member's authorized Connect tools and Programs, then execute an exact returned capability. The host retains workspace policy, user approval, and result-size enforcement; credentials never enter the app.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
-  "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and render_selected_program; rendering returns an Artifact as fallback text plus retained data in structuredContent and binds the exact immutable MCP App resource URI in the tool definition.",
+  "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and a standard renderer for its retained Artifact data; Program execution remains server-mediated and returns structuredContent.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
@@ -299,7 +305,11 @@ export function createAgentMcpServer(): McpServer {
     name: "openwork-den-api-agent",
     version: "1.0.0",
   }, {
-    capabilities: dynamicArtifactAppServerCapabilities,
+    capabilities: {
+      ...dynamicArtifactAppServerCapabilities,
+      tools: { listChanged: true },
+      resources: { listChanged: true },
+    },
     instructions: AGENT_MCP_INSTRUCTIONS,
   })
 }
@@ -421,6 +431,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       member: memberIdentity,
       redirectUriBase,
       codemodeEnabled,
+      generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
       organizationMetadata: organizationRows[0]?.metadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
     })
@@ -449,85 +460,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       }
     }
     const artifactContext = codemodeEnabled ? libraryContext : null
-    const executeRemoteAppProgram = artifactContext
-      ? async ({ programId, pluginId, input }: { programId?: string; pluginId: string; input?: unknown }) => {
-          try {
-            const resolvedProgramId = programId
-              ?? (await getProgramAgentSelection(artifactContext))?.programId
-            if (!resolvedProgramId) {
-              return {
-                isError: true,
-                content: textContent(JSON.stringify({
-                  error: "program_not_selected",
-                  message: "Select a Program in OpenWork before this MCP App runs it, or pass an exact accessible programId.",
-                })),
-              }
-            }
-            const detail = await getProgramDetail({
-              context: artifactContext,
-              configObjectId: resolvedProgramId,
-            })
-            if (detail.script.pluginId !== pluginId) {
-              return {
-                isError: true,
-                content: textContent(JSON.stringify({
-                  error: "program_not_in_app_plugin",
-                  message: "The selected Program is not inside this MCP App's Plugin.",
-                })),
-              }
-            }
-            await requirePluginArchResourceRole({
-              context: artifactContext,
-              requireFreshSession: false,
-              resourceId: normalizeDenTypeId("configObject", resolvedProgramId),
-              resourceKind: "config_object",
-              role: "editor",
-            })
-            const execution = await executeMarketplaceCapability({
-              organizationId: principal.organizationId,
-              member: memberIdentity,
-              pluginId: detail.script.pluginId,
-              configObjectId: detail.script.configObjectId,
-              configObjectVersionId: detail.script.currentVersion.id,
-              body: input,
-              codemodeEnabled: true,
-              validateScriptOutput: true,
-              buildTools: () => buildCapabilityToolTree(capabilityContext),
-            })
-            if (!execution.ok || execution.result.status !== "executed") {
-              const message = execution.ok
-                ? execution.result.hint ?? "The Program could not run."
-                : execution.message
-              return {
-                isError: true,
-                content: textContent(JSON.stringify({ error: "program_run_failed", message })),
-              }
-            }
-            const result = {
-              status: "succeeded" as const,
-              value: execution.result.value,
-              receiptId: execution.result.receiptId ?? null,
-              resultDigest: execution.result.resultDigest ?? null,
-            }
-            return {
-              content: textContent(JSON.stringify(result, null, 2)),
-              structuredContent: result,
-            }
-          } catch (error) {
-            const unavailable = error instanceof PluginArchAuthorizationError
-              || (error instanceof Error && error.message.includes("not_found"))
-            return {
-              isError: true,
-              content: textContent(JSON.stringify({
-                error: unavailable ? "program_not_found" : "program_run_failed",
-                message: unavailable
-                  ? "The Program is not available to this member."
-                  : "The Program could not run.",
-              })),
-            }
-          }
-        }
-      : undefined
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       remoteSkills = [
         ...listBuiltinSkillDescriptors(),
@@ -552,14 +484,20 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           })
           return { html: loaded.html, payload: loaded.payload }
         },
-        runProgram: executeRemoteAppProgram,
+        importApp: async ({ pluginId, sourceUrl, activate }) => importRemoteMcpApp({
+          context: libraryContext,
+          pluginId,
+          sourceUrl,
+          activate,
+          requireFreshSession: false,
+        }),
       })
     }
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       if (memberIdentity) {
         registerConnectMcpServerIndex({
           server,
-          connections: await listUsableExternalMcpConnections({
+          connections: await listReadyExternalMcpConnections({
             organizationId,
             orgMembershipId: memberIdentity.orgMembershipId,
             teamIds: memberIdentity.teamIds,
@@ -600,11 +538,13 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             : "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
+          "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
           "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
+        _meta: { ui: { visibility: ["model", "app"] } },
         inputSchema: z.object({
           query: z.string().min(1).describe("Keywords describing the capability you need, e.g. \"create organization\" or \"list workers\"."),
           limit: z.number().int().min(1).max(20).optional().describe("Max number of matches to return. Defaults to 5."),
@@ -631,6 +571,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           "Returns unknown_capability if name doesn't match a current capability — call search_capabilities again.",
         ].join(" "),
         annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
+        _meta: { ui: { visibility: ["model", "app"] } },
         inputSchema: z.object({
           name: z.string().min(1).describe("The exact tool name returned by search_capabilities."),
           schemaDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional().describe("For an external MCP match, copy the exact schemaDigest returned by search_capabilities so schema drift can be reported as advisory guidance without blocking the provider call."),
@@ -639,11 +580,17 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           body: z.unknown().optional().describe("For native API capabilities, the JSON body. For external MCP capabilities, the arguments object matching argumentsSchema."),
         }),
       },
-      async ({ name, schemaDigest, path, query, body }) => {
-        return executeCapabilityWithBudget({
+      async ({ name, schemaDigest, path, query, body }, extra) => {
+        const result = await executeCapabilityWithBudget({
           capability: name,
           invoke: () => executeCapability(capabilityContext, { name, schemaDigest, path, query, body }),
         })
+        const catalogOperation = catalog.find((operation) => operation.name === name)
+        if (!result.isError && catalogOperation && catalogOperationChangesRemoteMcpAppDiscovery(catalogOperation)) {
+          await extra.sendNotification({ method: "notifications/tools/list_changed" })
+          await extra.sendNotification({ method: "notifications/resources/list_changed" })
+        }
+        return result
       },
     )
 
@@ -795,8 +742,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             state: item.state,
             resultState: item.resultState,
             latestSuccessfulAt: item.latestSuccessfulAt,
-            viewState: item.viewState,
-            activeViewTitle: item.activeViewTitle,
+            ...(env.generatedArtifactViewsEnabled
+              ? { viewState: item.viewState, activeViewTitle: item.activeViewTitle }
+              : { viewState: "default" as const, activeViewTitle: null }),
             automationCount: item.automationCount,
             source: item.source,
           }))

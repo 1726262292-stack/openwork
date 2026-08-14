@@ -259,6 +259,7 @@ configureCloudSavedScriptExecutor(async ({ organizationId, ownerMemberId, automa
     member,
     redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
     codemodeEnabled,
+    generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
     organizationMetadata,
     mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
   })

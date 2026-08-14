@@ -127,7 +127,7 @@ export function RemoteMcpAppDetailScreen({ appId }: { appId: string }) {
       <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-[14px] font-semibold text-gray-900">Standard MCP runtime</h2>
         <p className="mt-1 text-[12px] leading-5 text-gray-500">
-          OpenWork exposes this immutable HTML as a standard MCP App resource from the OpenWork Cloud server. It may call its app-visible Program tool on that same server; a selected Code Mode Program inside this Plugin can compose OpenWork Connect capabilities without sending credentials into the UI. Apps distributed with their own MCP server keep that server&apos;s native tools, resources, UI metadata, and same-server calls through Connect.
+          OpenWork exposes this immutable HTML as a standard MCP App resource from the OpenWork Cloud server. It can use app-visible capability search on that same server to call authorized Connect tools and Code Mode Programs without receiving credentials. Apps distributed with their own MCP server keep that server&apos;s native tools, resources, UI metadata, and same-server calls through Connect.
         </p>
       </section>
 

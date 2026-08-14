@@ -170,6 +170,26 @@ test("registers Code Mode without enabling agent-authored MCP App views", async 
   expect(isRecord(tools.find((tool) => tool.name === "clear_program_selection")?.outputSchema)).toBe(true)
 })
 
+test("rejects guessed generated-view tool calls while keeping Programs enabled", async () => {
+  organizationMetadata = { capabilities: { codemodeScripts: true } }
+  for (const name of ["save_artifact_view", "activate_artifact_view_revision", "retire_artifact_view"]) {
+    const payload = await rpc(buildApp(), "tools/call", { name, arguments: {} })
+    expect(resultRecord(payload).isError).toBe(true)
+    expect(JSON.stringify(payload)).toContain("not found")
+  }
+})
+
+test("advertises external-only MCP App authoring instructions", async () => {
+  const initialized = resultRecord(await rpc(buildApp(), "initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "agent-codemode-test", version: "1.0.0" },
+  }))
+  expect(initialized.instructions).toContain("authored and bundled outside OpenWork")
+  expect(initialized.instructions).toContain("never send inline HTML")
+  expect(initialized.instructions).not.toContain("Compile React source")
+})
+
 test("executes a confined script when the org flag is on", async () => {
   organizationMetadata = { capabilities: { codemodeScripts: true } }
   const payload = await rpc(buildApp(), "tools/call", {
