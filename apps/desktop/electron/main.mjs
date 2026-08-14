@@ -1,3 +1,4 @@
+import { processBlankSlateProfile, resolveBlankSlateLaunch } from "./blank-slate-profile.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
@@ -105,9 +106,14 @@ const DESKTOP_DISTRIBUTION = resolveDesktopDistribution({
 const TAURI_APP_IDENTIFIER = DESKTOP_DISTRIBUTION.appIdentifier;
 const DEV_APP_IDENTIFIER = `${DESKTOP_DISTRIBUTION.appIdentifier}.dev`;
 const DESKTOP_PROTOCOL_SCHEME = DESKTOP_DISTRIBUTION.protocolScheme;
-const APP_NAME =
+const DEFAULT_APP_NAME =
   (!app.isPackaged ? process.env.OPENWORK_ELECTRON_APP_NAME?.trim() : "") ||
   (isDevMode ? `${DESKTOP_DISTRIBUTION.appName} - Dev` : DESKTOP_DISTRIBUTION.appName);
+const BLANK_SLATE_LAUNCH = resolveBlankSlateLaunch({
+  appName: DEFAULT_APP_NAME,
+  profile: processBlankSlateProfile,
+});
+const APP_NAME = BLANK_SLATE_LAUNCH.appName;
 let currentDisplayAppName = APP_NAME;
 const BASE_APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const APP_IDENTIFIER = resolveAppIdentifier({
@@ -119,7 +125,7 @@ const APP_IDENTIFIER = resolveAppIdentifier({
   isDevMode,
   isPackaged: app.isPackaged,
 });
-if (process.env.OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN === "1") {
+if (BLANK_SLATE_LAUNCH.enabled || process.env.OPENWORK_ELECTRON_USE_MOCK_KEYCHAIN === "1") {
   // Fresh, isolated development profiles otherwise trigger macOS's native
   // "Login" keychain prompt as soon as Chromium persists an authenticated
   // cookie. That modal blocks the entire Electron main loop and makes the demo
@@ -186,14 +192,16 @@ function killTerminalsForWebContents(webContentsId) {
 // OPENWORK_DEV_PROFILE in unpackaged dev; then the legacy identifier default.
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_IDENTIFIER);
+if (BLANK_SLATE_LAUNCH.homePath) app.setPath("home", BLANK_SLATE_LAUNCH.homePath);
 if (
   app.isPackaged
+  && !BLANK_SLATE_LAUNCH.enabled
   && process.env.OPENWORK_ELECTRON_DISABLE_PROTOCOL_REGISTRATION !== "1"
   && !(process.platform === "linux" && process.env.APPIMAGE)
 ) {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
 }
-const userDataPath = resolveUserDataPath({
+const userDataPath = BLANK_SLATE_LAUNCH.userDataPath ?? resolveUserDataPath({
   appDataPath: app.getPath("appData"),
   appIdentifier: APP_IDENTIFIER,
   userDataOverride: process.env.OPENWORK_ELECTRON_USERDATA,
@@ -372,6 +380,28 @@ const BRAND_ICON_FETCH_TIMEOUT_MS = 10_000;
 // Keep in sync with ee/apps/den-api/src/brand-icon-validation.ts so logo CDNs
 // that expect a browser request behave the same at save time and apply time.
 const BRAND_ICON_FETCH_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+function scheduleBlankSlateProfileCleanup() {
+  if (!BLANK_SLATE_LAUNCH.rootPath) return;
+  try {
+    const child = spawn(process.execPath, [
+      path.join(__dirname, "blank-slate-cleanup.mjs"),
+      String(process.pid),
+      BLANK_SLATE_LAUNCH.rootPath,
+    ], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    });
+    child.once("error", (error) => {
+      console.warn("[blank-slate] failed to schedule temporary profile cleanup", error);
+    });
+    child.unref();
+  } catch (error) {
+    console.warn("[blank-slate] failed to schedule temporary profile cleanup", error);
+  }
+}
 let brandIconApplySequence = 0;
 let brandIconRuntimeState = { applied: false, sourceUrl: null, reason: null };
 
@@ -1737,9 +1767,11 @@ const desktopCommandHandlers = {
       return linuxDesktopIntegration.getStatus();
   },
   "desktopIntegrationInstall": async (event, ...args) => {
+      if (BLANK_SLATE_LAUNCH.enabled) throw new Error("Desktop integration is disabled for test profiles.");
       return linuxDesktopIntegration.install(args[0] ?? {});
   },
   "desktopIntegrationRemove": async (event, ...args) => {
+      if (BLANK_SLATE_LAUNCH.enabled) throw new Error("Desktop integration is disabled for test profiles.");
       return linuxDesktopIntegration.remove();
   },
   "getUiControlBridgeInfo": async (event, ...args) => {
@@ -2062,7 +2094,7 @@ const desktopCommandHandlers = {
   },
   "__applyBrandAppName": async (event, ...args) => {
     currentDisplayAppName = applyBrandAppName(
-      DESKTOP_DISTRIBUTION.flavor === "enterprise" ? null : args[0],
+      BLANK_SLATE_LAUNCH.enabled || DESKTOP_DISTRIBUTION.flavor === "enterprise" ? null : args[0],
       {
       fallbackName: APP_NAME,
       platform: process.platform,
@@ -2073,12 +2105,13 @@ const desktopCommandHandlers = {
       window: mainWindow,
       },
     );
-    if (process.platform === "win32") {
+    if (process.platform === "win32" && !BLANK_SLATE_LAUNCH.enabled) {
       await registerWindowsDisplayShortcut();
     }
     return { ok: true, appName: currentDisplayAppName };
   },
   "__applyBrandIcon": async (event, ...args) => {
+      if (BLANK_SLATE_LAUNCH.enabled) return { ok: true };
       const value = args[0] === null ? null : String(args[0] ?? "");
       return applyBrandIconUrl(value);
   },
@@ -2569,7 +2602,13 @@ or use: pnpm dev:worktree`);
     if (runtimeDisposeInProgress) return;
     showShutdownScreen();
     desktopAutomationRunner.stop();
-    void Promise.all([disposeRuntimeBeforeQuit(), uiControlServer.stop()]).finally(() => app.quit());
+    void Promise.all([
+      disposeRuntimeBeforeQuit(),
+      uiControlServer.stop(),
+    ]).finally(() => {
+      scheduleBlankSlateProfileCleanup();
+      app.quit();
+    });
   });
 
   app.on("second-instance", async (_event, argv) => {
@@ -2605,7 +2644,7 @@ or use: pnpm dev:worktree`);
     });
     const bootstrapConfig = await workspaceStore.getDesktopBootstrapConfig();
     currentDisplayAppName = applyBrandAppName(
-      DESKTOP_DISTRIBUTION.flavor === "enterprise"
+      BLANK_SLATE_LAUNCH.enabled || DESKTOP_DISTRIBUTION.flavor === "enterprise"
         ? null
         : bootstrapConfig.brandAppName,
       {
@@ -2617,10 +2656,10 @@ or use: pnpm dev:worktree`);
       applicationMenu,
       },
     );
-    if (process.platform === "win32") {
+    if (process.platform === "win32" && !BLANK_SLATE_LAUNCH.enabled) {
       await registerWindowsDisplayShortcut();
     }
-    if (process.platform !== "linux") {
+    if (process.platform !== "linux" && !BLANK_SLATE_LAUNCH.enabled) {
       await applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl);
     }
     applicationMenu.install();
@@ -2649,17 +2688,19 @@ or use: pnpm dev:worktree`);
 
     queueDeepLinks(forwardedDeepLinks(process.argv));
     const win = await createMainWindow();
-    if (process.platform === "linux") {
+    if (process.platform === "linux" && !BLANK_SLATE_LAUNCH.enabled) {
       await applyDesktopBootstrapBrandIcon(bootstrapConfig, applyBrandIconUrl);
     }
     win.webContents.on("did-finish-load", () => {
       flushPendingDeepLinks();
     });
-    setTimeout(() => {
-      void linuxDesktopIntegration.maybePrompt(win).catch((error) => {
-        console.warn("[desktop-integration] prompt failed", error);
-      });
-    }, 500);
+    if (!BLANK_SLATE_LAUNCH.enabled) {
+      setTimeout(() => {
+        void linuxDesktopIntegration.maybePrompt(win).catch((error) => {
+          console.warn("[desktop-integration] prompt failed", error);
+        });
+      }, 500);
+    }
 
     // Initialize the packaged updater after the window is up so the user sees
     // a working app first. Renderer-owned checks pass the selected release
