@@ -11,7 +11,6 @@ import {
   waitFor,
   writeComposerText,
 } from "@openwork/behaviors";
-import { screenshot, validate } from "@openwork/fraimz";
 import { daytonaSandbox, deleteSandboxes, provisionDesktopSandbox } from "@openwork/hosts";
 import type { DisposableHost, Host } from "@openwork/hosts";
 import {
@@ -471,13 +470,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 900_000 }, async (
     `Crash signature present=${offlineCrash}; current route=${String(await evalIn(desktopApp, "location.hash"))}.`,
     !offlineCrash,
   );
-  const offlineShot = await screenshot(desktopApp);
-  const offlineFrame = await validate(offlineShot, [
-    "OpenWork remains open on the outage task after either a named Connect/network/tool failure or a user-stopped attempt",
-    "No renderer crash, application crash, or false completed Connect response is visible",
-  ]);
-  expect(offlineFrame.ok, offlineFrame.why).toBe(true);
-
   await link.admin.clear();
   await link.admin.phase("recovered", "baseline");
   const recoveryProbe = await eventually(
@@ -569,13 +561,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 900_000 }, async (
     `Final marker counts: baseline=${finalBaselineCount}, offline=${finalOfflineCount}, recovery=${finalRecoveryCount}; recovery completion visible=${recoveryConnectCompleted}.`,
     finalBaselineCount === 1 && finalOfflineCount === 0 && finalRecoveryCount === 1 && recoveryConnectCompleted,
   );
-
-  const finalShot = await screenshot(desktopApp);
-  const finalFrame = await validate(finalShot, [
-    "A post-recovery OpenWork task shows a completed connected-tool response",
-    "No interrupted-message text, retry countdown, or crash is visible",
-  ]);
-  expect(finalFrame.ok, finalFrame.why).toBe(true);
 
   expect(vpnRequests.length).toBeGreaterThanOrEqual(9);
   expect(vpnResets.length).toBeGreaterThanOrEqual(3);

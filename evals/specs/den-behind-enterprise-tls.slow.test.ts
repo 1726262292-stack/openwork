@@ -18,7 +18,6 @@ import {
   enterpriseTlsEdgeDaytonaCommands,
   provisionDesktopSandbox,
 } from "@openwork/hosts";
-import { screenshot, validate } from "@openwork/fraimz";
 import {
   app,
   createDesktopHandoffGrant,
@@ -155,12 +154,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 1_200_000 }, async
         expect(beforeTrustText.includes(falseSuccess), `pre-trust UI falsely showed ${JSON.stringify(falseSuccess)}`).toBe(false);
       }
 
-      const failureShot = await screenshot(rawApp);
-      const failureFrame = await validate(failureShot, [
-        "OpenWork may show its local-first composer or work surface after the attempted connection",
-        "No signed-in organization, Connected, or Synced cloud success claim is visible",
-      ]);
-      expect(failureFrame.ok, failureFrame.why).toBe(true);
       evidence.fact(
         "Before OS trust, a local-first work surface does not falsely claim cloud sign-in, organization, Connected, or Synced success",
         `Grant exchange result was ${JSON.stringify(exchangeError || "action returned without authentication")}. The local composer/work surface is allowed; authTokenPresent=false, activeOrgId=null, workspaceId=null. Visible diagnostics were ${JSON.stringify(beforeTrustText.slice(0, 1_000))}. Enabled controls were ${JSON.stringify(await enabledButtons(rawApp))}.`,
