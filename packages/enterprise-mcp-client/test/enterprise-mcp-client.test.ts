@@ -671,6 +671,26 @@ describe("enterprise MCP client", () => {
     assert.match(JSON.stringify(result.content), /Provider rejected the operation/)
   })
 
+  it("rejects resource URIs over the byte limit before opening a provider connection", async () => {
+    let fetchCount = 0
+    const client = createEnterpriseMcpClient({
+      fetch: async () => {
+        fetchCount += 1
+        return new Response(null, { status: 500 })
+      },
+    })
+    await assert.rejects(
+      client.readResource({
+        connection: noAuthConnection(),
+        redirectUri: "https://den.example.test/callback",
+        uri: `ui://${"🚀".repeat(4_096)}`,
+      }),
+      (error: unknown) => error instanceof EnterpriseMcpClientError
+        && error.operationPhase === "configuration",
+    )
+    assert.equal(fetchCount, 0)
+  })
+
   it("retains only a safe invalid-argument signal from standardized MCP SDK tool errors", async () => {
     const privateText = "Input validation error: Invalid arguments for tool lookup-record: private provider detail"
     const client = createEnterpriseMcpClient({

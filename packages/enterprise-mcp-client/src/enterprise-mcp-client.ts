@@ -32,6 +32,7 @@ import {
   assertEnterpriseMcpResourceResult,
   collectEnterpriseMcpResources,
   collectEnterpriseMcpResourceTemplates,
+  ENTERPRISE_MCP_RESOURCE_URI_LIMIT_BYTES,
 } from "./resource-catalog.js"
 import { assertEnterpriseMcpToolArguments } from "./tool-input.js"
 
@@ -52,7 +53,10 @@ const oauthConfigurationSchema = z.object({
   requestedScopes: z.array(z.string().trim().min(1)).max(128).optional(),
 })
 const toolNameSchema = z.string().trim().min(1)
-const resourceUriSchema = z.string().trim().min(1).max(16 * 1024)
+const resourceUriSchema = z.string().trim().min(1).max(ENTERPRISE_MCP_RESOURCE_URI_LIMIT_BYTES).refine(
+  (value) => Buffer.byteLength(value, "utf8") <= ENTERPRISE_MCP_RESOURCE_URI_LIMIT_BYTES,
+  "MCP resource URIs must not exceed 16 KiB.",
+)
 const authorizationIdSchema = z.string().min(1).max(8 * 1024)
 const authorizationCodeSchema = z.string().min(1).max(8 * 1024)
 

@@ -92,9 +92,9 @@ export function registerExternalConnectionProxyRoutes<T extends { Variables: Req
     }
     const descriptor = await describeExternalMcpServer(operation)
     const downstreamUi = descriptor.capabilities.extensions?.[EXTENSION_ID]
-    const server = new McpServer({
-      name: descriptor.serverInfo?.name ?? connection.name,
-      version: descriptor.serverInfo?.version ?? "1.0.0",
+    const server = new McpServer(descriptor.serverInfo ?? {
+      name: connection.name,
+      version: "1.0.0",
     }, {
       capabilities: {
         ...(descriptor.capabilities.tools ? { tools: { listChanged: false } } : {}),
