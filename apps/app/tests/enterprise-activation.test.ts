@@ -128,6 +128,9 @@ describe("enterprise desktop activation", () => {
     }
     expect(activationGateSource).toContain('id="organization-server-input"');
     expect(activationGateSource).toContain('data-testid="organization-server-input"');
+    expect(activationGateSource).toContain('data-testid="organization-server-confirm"');
+    expect(activationGateSource).toContain("Connect this app to");
+    expect(activationGateSource).toContain("binds OpenWork Enterprise to it");
     expect(activationGateSource).toContain("Continue in browser");
     expect(activationGateSource).not.toContain("Waiting for your organization");
   });

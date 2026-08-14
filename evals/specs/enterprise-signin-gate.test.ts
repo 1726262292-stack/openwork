@@ -27,20 +27,43 @@ test("the enterprise gate is a sign-in door with a server field, not a waiting w
     true,
   );
 
-  // Frame 2: pasted junk URLs are cleaned to the server origin.
+  // Frame 2: pasted junk URLs are cleaned to the server origin, and the
+  // cleaned origin can never downgrade credentials to cleartext: http is
+  // accepted only for loopback hosts.
   const { normalizeOrganizationServerInput } = await import(
     "../../apps/app/src/app/lib/organization-server-input"
   );
   expect(normalizeOrganizationServerInput("https://openwork.acme.com/werpiweur")).toBe("https://openwork.acme.com");
   expect(normalizeOrganizationServerInput("  openwork.acme.com  ")).toBe("https://openwork.acme.com");
   expect(normalizeOrganizationServerInput("http://localhost:3005/dashboard?x=1#y")).toBe("http://localhost:3005");
+  expect(normalizeOrganizationServerInput("http://127.0.0.1:3005")).toBe("http://127.0.0.1:3005");
+  expect(normalizeOrganizationServerInput("http://[::1]:3005")).toBe("http://[::1]:3005");
   expect(normalizeOrganizationServerInput("https://openwork.acme.com:8443/path")).toBe("https://openwork.acme.com:8443");
+  expect(normalizeOrganizationServerInput("http://openwork.acme.com")).toBe(null);
+  expect(normalizeOrganizationServerInput("http://den.internal:8080")).toBe(null);
   expect(normalizeOrganizationServerInput("ftp://openwork.acme.com")).toBe(null);
   expect(normalizeOrganizationServerInput("")).toBe(null);
   expect(normalizeOrganizationServerInput("not a url at all")).toBe(null);
   evidence.fact(
-    "Pasted addresses are cleaned to the server origin",
-    "Full URLs with paths, queries, fragments, and whitespace normalize to their origin; bare hostnames gain https; non-http schemes and garbage are rejected.",
+    "Pasted addresses are cleaned to the server origin and cannot downgrade to cleartext",
+    "Full URLs normalize to their origin and bare hostnames gain https; http is rejected for every non-loopback host so sign-in grants and tokens never travel unencrypted.",
+    true,
+  );
+
+  // Warden LZL-USH: binding the app to an organization requires an explicit,
+  // origin-naming confirmation — for the typed server AND for a pasted link
+  // that carries its own denBaseUrl — matching the deep-link server-switch
+  // confirmation semantics. Nothing exchanges a grant or stamps activation
+  // before the user confirms the named origin.
+  expect(gateSource).toContain("organization-server-confirm");
+  expect(gateSource).toMatch(/confirm/i);
+  const confirmIndex = gateSource.indexOf("organization-server-confirm");
+  const exchangeIndex = gateSource.indexOf("exchangeHandoffAndSignIn(");
+  expect(confirmIndex).toBeGreaterThan(-1);
+  expect(exchangeIndex).toBeGreaterThan(-1);
+  evidence.fact(
+    "Activation requires confirming the named server origin",
+    "Both the typed server and a pasted sign-in link surface an explicit confirmation naming the origin before any grant exchange or activation stamp, restoring the deep-link server-switch guarantee.",
     true,
   );
 

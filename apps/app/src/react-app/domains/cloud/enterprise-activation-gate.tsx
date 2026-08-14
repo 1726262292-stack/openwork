@@ -26,6 +26,10 @@ function subscribeToBootstrap(onStoreChange: () => void) {
   return () => window.removeEventListener(denSettingsChangedEvent, onStoreChange);
 }
 
+type PendingServerConfirmation =
+  | { kind: "browser"; baseUrl: string }
+  | { kind: "manual"; baseUrl: string; grant: string };
+
 export function useEnterpriseActivationRequired() {
   const bootstrap = useSyncExternalStore(
     subscribeToBootstrap,
@@ -37,7 +41,8 @@ export function useEnterpriseActivationRequired() {
 
 function EnterpriseActivationPage() {
   const [serverInput, setServerInput] = useState("");
-  const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(null);
+  const [confirmedBaseUrl, setConfirmedBaseUrl] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingServerConfirmation | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [browserBusy, setBrowserBusy] = useState(false);
@@ -46,7 +51,7 @@ function EnterpriseActivationPage() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const submitServer = async (event: FormEvent<HTMLFormElement>) => {
+  const submitServer = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const baseUrl = normalizeOrganizationServerInput(serverInput);
     if (!baseUrl) {
@@ -54,56 +59,24 @@ function EnterpriseActivationPage() {
       return;
     }
 
-    setBrowserBusy(true);
+    setServerInput(baseUrl);
+    setPendingConfirmation({ kind: "browser", baseUrl });
     setServerError(null);
     setAuthError(null);
-    try {
-      await setDenBootstrapConfig({ baseUrl, requireSignin: true });
-      setServerInput(baseUrl);
-      setServerBaseUrl(baseUrl);
-      markDesktopSignInInitiated();
-      const opened = await tryOpenBrowserAuthUrl(buildDenAuthUrl(baseUrl, "sign-in"));
-      if (!opened) {
-        setStatusMessage(null);
-        setAuthError("We couldn't open your browser automatically. Paste your sign-in code below.");
-        setManualAuthOpen(true);
-        return;
-      }
-      setStatusMessage("Finish signing in in your browser, then return to OpenWork.");
-    } catch (error) {
-      setStatusMessage(null);
-      setServerError(
-        error instanceof Error ? error.message : "Unable to save this OpenWork server.",
-      );
-    } finally {
-      setBrowserBusy(false);
-    }
+    setStatusMessage(`Confirm ${baseUrl} before continuing.`);
   };
 
-  const submitManualAuth = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const parsed = parseManualAuthInput(manualAuthInput);
-    if (!parsed) {
-      setAuthError("Paste a valid OpenWork sign-in link or one-time sign-in code.");
-      return;
-    }
-
-    const linkBaseUrl = parsed.baseUrl
-      ? normalizeOrganizationServerInput(parsed.baseUrl)
-      : null;
-    const enteredBaseUrl = normalizeOrganizationServerInput(serverInput) ?? serverBaseUrl;
-    const baseUrl = linkBaseUrl ?? enteredBaseUrl;
-    if (!baseUrl) {
-      setServerError("Enter your organization's OpenWork server before using a raw sign-in code.");
-      return;
-    }
-
+  const exchangeConfirmedGrant = async (grant: string, baseUrl: string) => {
     setAuthBusy(true);
     setAuthError(null);
     setServerError(null);
     setStatusMessage("Finishing OpenWork Enterprise sign-in…");
     try {
-      const result = await exchangeHandoffAndSignIn(parsed.grant, {
+      // Persist the confirmed server before exchanging so the session is
+      // scoped to this organization's base URL and survives the provider
+      // remount that follows activation.
+      await setDenBootstrapConfig({ baseUrl, requireSignin: true });
+      const result = await exchangeHandoffAndSignIn(grant, {
         baseUrl,
         client: createDenClient({ baseUrl }),
         desktopInitiated: true,
@@ -130,6 +103,76 @@ function EnterpriseActivationPage() {
       );
     } finally {
       setAuthBusy(false);
+    }
+  };
+
+  const submitManualAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const parsed = parseManualAuthInput(manualAuthInput);
+    if (!parsed) {
+      setAuthError("Paste a valid OpenWork sign-in link or one-time sign-in code.");
+      return;
+    }
+
+    if (parsed.baseUrl) {
+      const linkBaseUrl = normalizeOrganizationServerInput(parsed.baseUrl);
+      if (!linkBaseUrl) {
+        setAuthError("Paste a valid OpenWork sign-in link or one-time sign-in code.");
+        return;
+      }
+      if (linkBaseUrl !== confirmedBaseUrl) {
+        setPendingConfirmation({ kind: "manual", baseUrl: linkBaseUrl, grant: parsed.grant });
+        setAuthError(null);
+        setServerError(null);
+        setStatusMessage(`Confirm ${linkBaseUrl} before continuing.`);
+        return;
+      }
+
+      await exchangeConfirmedGrant(parsed.grant, linkBaseUrl);
+      return;
+    }
+
+    if (!confirmedBaseUrl) {
+      setServerError("Enter your organization's OpenWork server before using a raw sign-in code.");
+      return;
+    }
+
+    await exchangeConfirmedGrant(parsed.grant, confirmedBaseUrl);
+  };
+
+  const confirmServer = async () => {
+    const pending = pendingConfirmation;
+    if (!pending || browserBusy || authBusy) return;
+
+    setPendingConfirmation(null);
+    setConfirmedBaseUrl(pending.baseUrl);
+    setServerInput(pending.baseUrl);
+    if (pending.kind === "manual") {
+      await exchangeConfirmedGrant(pending.grant, pending.baseUrl);
+      return;
+    }
+
+    setBrowserBusy(true);
+    setServerError(null);
+    setAuthError(null);
+    try {
+      await setDenBootstrapConfig({ baseUrl: pending.baseUrl, requireSignin: true });
+      markDesktopSignInInitiated();
+      const opened = await tryOpenBrowserAuthUrl(buildDenAuthUrl(pending.baseUrl, "sign-in"));
+      if (!opened) {
+        setStatusMessage(null);
+        setAuthError("We couldn't open your browser automatically. Paste your sign-in code below.");
+        setManualAuthOpen(true);
+        return;
+      }
+      setStatusMessage("Finish signing in in your browser, then return to OpenWork.");
+    } catch (error) {
+      setStatusMessage(null);
+      setServerError(
+        error instanceof Error ? error.message : "Unable to save this OpenWork server.",
+      );
+    } finally {
+      setBrowserBusy(false);
     }
   };
 
@@ -192,7 +235,7 @@ function EnterpriseActivationPage() {
           </div>
 
           <div className="mt-11 flex flex-col gap-4">
-            <form className="space-y-2" onSubmit={(event) => void submitServer(event)}>
+            <form className="space-y-2" onSubmit={submitServer}>
               <label
                 className="text-sm font-medium text-foreground"
                 htmlFor="organization-server-input"
@@ -218,10 +261,41 @@ function EnterpriseActivationPage() {
                   disabled={browserBusy || authBusy}
                   data-testid="organization-server-continue"
                 >
-                  Continue in browser
+                  Continue
                 </Button>
               </div>
             </form>
+
+            {pendingConfirmation ? (
+              <section className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+                <p className="text-sm leading-6 text-foreground">
+                  Connect this app to <strong className="break-all font-semibold">{pendingConfirmation.baseUrl}</strong>? This signs you in with that organization and binds OpenWork Enterprise to it.
+                </p>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setPendingConfirmation(null);
+                      setStatusMessage(null);
+                    }}
+                    disabled={browserBusy || authBusy}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void confirmServer()}
+                    disabled={browserBusy || authBusy}
+                    data-testid="organization-server-confirm"
+                  >
+                    {pendingConfirmation.kind === "browser"
+                      ? "Continue in browser"
+                      : "Confirm and finish sign-in"}
+                  </Button>
+                </div>
+              </section>
+            ) : null}
 
             <div className="min-h-5 text-xs leading-5" aria-live="polite" role="status">
               {liveMessage ? (

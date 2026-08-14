@@ -18,6 +18,32 @@ describe("normalizeOrganizationServerInput", () => {
     );
   });
 
+  test("allows http only for loopback hosts", () => {
+    expect(normalizeOrganizationServerInput("http://localhost:3005")).toBe(
+      "http://localhost:3005",
+    );
+    expect(normalizeOrganizationServerInput("http://127.0.0.1")).toBe(
+      "http://127.0.0.1",
+    );
+    expect(normalizeOrganizationServerInput("http://127.42.7.9:8080")).toBe(
+      "http://127.42.7.9:8080",
+    );
+    expect(normalizeOrganizationServerInput("http://[::1]:3005")).toBe(
+      "http://[::1]:3005",
+    );
+    expect(normalizeOrganizationServerInput("http://openwork.acme.com")).toBeNull();
+    expect(normalizeOrganizationServerInput("http://den.internal:8080")).toBeNull();
+  });
+
+  test("keeps https available for non-loopback hosts", () => {
+    expect(normalizeOrganizationServerInput("https://openwork.acme.com")).toBe(
+      "https://openwork.acme.com",
+    );
+    expect(normalizeOrganizationServerInput("https://den.internal:8080/path")).toBe(
+      "https://den.internal:8080",
+    );
+  });
+
   test("rejects unsupported schemes, empty values, and malformed input", () => {
     expect(normalizeOrganizationServerInput("ftp://openwork.acme.com")).toBeNull();
     expect(normalizeOrganizationServerInput("")).toBeNull();
