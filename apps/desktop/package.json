@@ -28,9 +28,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opencode-ai/sdk": "^1.17.11",
     "@openwork/enterprise-mcp-client": "workspace:*",
     "@openwork/paths": "workspace:*",
-    "@opencode-ai/sdk": "^1.17.11",
+    "@sentry/electron": "^7.16.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "better-sqlite3": "^13.0.2",

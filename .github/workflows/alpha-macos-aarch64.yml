@@ -46,6 +46,8 @@ jobs:
       # and launch without Gatekeeper friction. Alpha builds are served
       # from GitHub Releases like stable, just from a different tag.
       MACOS_NOTARIZE: ${{ vars.MACOS_NOTARIZE || 'true' }}
+      OPENWORK_DESKTOP_SENTRY_DSN: ${{ secrets.OPENWORK_DESKTOP_SENTRY_DSN || vars.OPENWORK_DESKTOP_SENTRY_DSN }}
+      OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '0.01' }}
 
     steps:
       - name: Checkout

@@ -73,6 +73,11 @@ import {
 } from "./brand-icon-windows.mjs";
 import { resetMacDockIcon } from "./brand-icon-darwin.mjs";
 import { createDesktopVaultKeyProvider } from "./secure-vault-key.mjs";
+import {
+  clearOpenworkSentrySession,
+  initOpenworkSentry,
+  setOpenworkSentrySession,
+} from "./sentry.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, "../../..");
@@ -109,6 +114,11 @@ const APP_NAME =
   (!app.isPackaged ? process.env.OPENWORK_ELECTRON_APP_NAME?.trim() : "") ||
   (isDevMode ? `${DESKTOP_DISTRIBUTION.appName} - Dev` : DESKTOP_DISTRIBUTION.appName);
 let currentDisplayAppName = APP_NAME;
+await initOpenworkSentry({
+  app,
+  distribution: DESKTOP_DISTRIBUTION,
+  packageMetadata: desktopPackageMetadata,
+});
 const BASE_APP_IDENTIFIER = isDevMode ? DEV_APP_IDENTIFIER : TAURI_APP_IDENTIFIER;
 const APP_IDENTIFIER = resolveAppIdentifier({
   appIdentifierOverride: process.env.OPENWORK_ELECTRON_APP_IDENTIFIER,
@@ -1732,6 +1742,18 @@ const desktopCommandHandlers = {
   },
   "desktopNotificationShow": async (event, ...args) => {
       return showDesktopNotification(args[0] ?? {});
+  },
+  "desktopSentrySetSession": async (event, ...args) => {
+      const input = args[0] ?? {};
+      return {
+        enabled: setOpenworkSentrySession({
+          userId: input.userId,
+          orgId: input.orgId,
+        }),
+      };
+  },
+  "desktopSentryClearSession": async (event, ...args) => {
+      return { enabled: clearOpenworkSentrySession() };
   },
   "desktopIntegrationStatus": async (event, ...args) => {
       return linuxDesktopIntegration.getStatus();
