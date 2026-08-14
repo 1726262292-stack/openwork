@@ -25,19 +25,18 @@ describe("connector and marketplace polish", () => {
     expect(shell).toContain('badge: "Alpha"');
   });
 
-  test("uses the shared page maturity badge to label Sources alpha", () => {
+  test("keeps the Sources page title free of maturity badges", () => {
     const screen = readDashboardComponent("integrations-screen.tsx");
 
     expect(screen).toContain('title="Sources"');
-    expect(screen).toContain('badgeLabel="Alpha"');
-    expect(screen).not.toContain('badgeLabel="Preview"');
+    expect(screen).not.toContain("badgeLabel");
   });
 
   test("uses the smart connector bar and the approved connector copy", () => {
     const screen = readDashboardComponent("mcp-connections-screen.tsx");
 
     expect(screen).toContain('title="Connectors"');
-    expect(screen).toContain('badgeLabel="Beta"');
+    expect(screen).not.toContain("badgeLabel");
     expect(screen).toContain('description="Connectors is where you can add MCP servers that your whole team can use."');
     expect(screen).toContain('data-testid="connector-smart-bar"');
     expect(screen).not.toMatch(/>\s*Add MCP\s*</);

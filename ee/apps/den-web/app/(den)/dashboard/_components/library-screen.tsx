@@ -489,12 +489,6 @@ export function LibraryScreen() {
   return (
     <DashboardPageTemplate
       icon={LibraryBig}
-      badgeLabel="Member library"
-      badgeCompanion={(
-        <DenChip tone="success">
-          {stateCounts.ready} ready to use
-        </DenChip>
-      )}
       title="My Library"
       description="Everything you can use in chat — yours, shared with you, from your teams, and org-wide."
       descriptionPlacement="hero"
