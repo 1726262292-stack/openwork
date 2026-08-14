@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { createDaytonaHost } from "../src/daytona.ts";
+import {
+  checkedExec,
+  createDaytonaHost,
+  defaultDaytonaExec,
+  enterpriseTlsEdgeDaytonaCommands,
+  MAX_ENTERPRISE_TLS_DAYTONA_COMMAND_LENGTH,
+} from "../src/daytona.ts";
 import type { DaytonaExec } from "../src/daytona.ts";
 import type { SurfaceHandle } from "../src/types.ts";
 import type { Server } from "node:http";
@@ -86,6 +94,36 @@ function base64AfterEcho(call: ExecCall): string {
   assert(echoIndex >= 0, "Expected echo in base64 write call.");
   return call.args[echoIndex + 1] ?? "";
 }
+
+test("checkedExec reports stderr and stdout from a failed Daytona command", async () => {
+  const exec: DaytonaExec = async () => ({
+    stdout: "remote process log\n",
+    stderr: "Daytona version warning\n",
+    code: 1,
+  });
+
+  await assert.rejects(
+    checkedExec(exec, ["exec"], "Start enterprise TLS edge"),
+    (error: Error) => {
+      assert.equal(
+        error.message,
+        "Start enterprise TLS edge failed with exit 1:\nstderr:\nDaytona version warning\n\nstdout:\nremote process log",
+      );
+      return true;
+    },
+  );
+});
+
+test("defaultDaytonaExec handles stdin EPIPE when the child exits", async () => {
+  const result = await defaultDaytonaExec(
+    ["-e", "process.stderr.write('remote exited\\n'); process.exit(23)"],
+    { input: "x".repeat(8 * 1024 * 1024) },
+    process.execPath,
+  );
+
+  assert.equal(result.code, 23);
+  assert.equal(result.stderr, "remote exited\n");
+});
 
 test("Daytona previewUrl parses the first https URL and caches by port", async () => {
   const { exec, calls } = createFakeExec(() => "https://9825-preview.example.test/json/list");
@@ -280,6 +318,90 @@ test("Daytona host requires a sandbox option or OPENWORK_EVAL_DAYTONA_SANDBOX", 
     if (previous === undefined) delete process.env.OPENWORK_EVAL_DAYTONA_SANDBOX;
     else process.env.OPENWORK_EVAL_DAYTONA_SANDBOX = previous;
   }
+});
+
+test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbox", () => {
+  const commands = enterpriseTlsEdgeDaytonaCommands({
+    sandboxId: "desktop-sandbox",
+    upstream: "https://den.example.test",
+  });
+
+  assert.equal(commands.candidateUrl, "https://localhost:8443");
+  assert.equal(commands.negativeUrl, "https://localhost:9443");
+  assert.equal(commands.adminUrl, "http://127.0.0.1:8445");
+  for (const command of [commands.start, commands.probe, commands.requests, commands.installRoot, commands.removeRoot, commands.stop]) {
+    assert.deepEqual(command.slice(0, 3), ["exec", "desktop-sandbox", "--"]);
+  }
+  const runtimeRoot = "/tmp/openwork-enterprise-tls-runtime";
+  const localSources = [
+    fileURLToPath(new URL("../../../scripts/enterprise-tls-edge.mts", import.meta.url)),
+    fileURLToPath(new URL("../../labs/src/egress.ts", import.meta.url)),
+  ];
+  assert.ok(commands.prepare.length > localSources.length * 2);
+  const prepare = commands.prepare.map((command) => command.join(" "));
+  assert.ok(prepare[0]?.includes(`/usr/bin/rm -rf ${runtimeRoot}`));
+  assert.ok(prepare[0]?.includes("/usr/bin/mkdir -p"));
+  assert.ok(prepare[0]?.includes("enterprise-tls-edge.mts.b64"));
+  assert.ok(prepare[0]?.includes("egress.ts.b64"));
+  assert.ok(commands.prepare.every((command) => command.slice(0, 3).join(" ") === "exec desktop-sandbox --"));
+  assert.ok(commands.prepare.every((command) => !command.includes("bash -s")));
+  const commandLengths = [
+    ...commands.prepare,
+    commands.start,
+    commands.probe,
+    commands.requests,
+    commands.installRoot,
+    commands.removeRoot,
+    commands.stop,
+  ].map((command) => command.join(" ").length);
+  assert.ok(Math.max(...commandLengths) <= MAX_ENTERPRISE_TLS_DAYTONA_COMMAND_LENGTH);
+  const chunkPattern = /\/usr\/bin\/printf %s ([A-Za-z0-9+/=]+) >> (\S+\.b64)/;
+  const chunksByRemote = new Map<string, string[]>();
+  for (const command of prepare) {
+    const match = chunkPattern.exec(command);
+    if (!match) continue;
+    assert.ok((match[1]?.length ?? 0) <= 8 * 1024);
+    const chunks = chunksByRemote.get(match[2] ?? "") ?? [];
+    chunks.push(match[1] ?? "");
+    chunksByRemote.set(match[2] ?? "", chunks);
+  }
+  for (const [index, source] of localSources.entries()) {
+    const content = readFileSync(source);
+    const remote = index === 0
+      ? `${runtimeRoot}/evals/scripts/enterprise-tls-edge.mts`
+      : `${runtimeRoot}/evals/packages/labs/src/egress.ts`;
+    assert.equal(chunksByRemote.get(`${remote}.b64`)?.join(""), content.toString("base64"));
+    const finalize = prepare.find((command) => command.includes(`/usr/bin/base64 -d ${remote}.b64`));
+    assert.ok(finalize?.includes(`/usr/bin/wc -c < ${remote}`));
+    assert.ok(finalize?.includes(`/usr/bin/rm -f ${remote}.b64`));
+    assert.ok(finalize?.includes(`test \"$actual_bytes\" -eq ${content.byteLength}`));
+  }
+  assert.ok(!prepare.some((command) => command.includes("https://den.example.test")));
+  const start = commands.start[3] ?? "";
+  assert.match(start, /\/tmp\/openwork-enterprise-tls-runtime\/evals\/scripts\/enterprise-tls-edge\.mts/);
+  assert.ok(!start.includes("/workspace/evals/scripts/enterprise-tls-edge.mts"));
+  assert.ok(!start.includes("&;"));
+  assert.ok(start.includes("</dev/null &\nattempt=0\nuntil /usr/bin/curl"));
+  assert.ok(start.includes("/usr/bin/tail -c 4000"));
+  assert.ok(start.includes(">&2"));
+  assert.ok(commands.installRoot[3]?.includes("install"));
+  assert.ok(commands.removeRoot[3]?.includes("remove"));
+  const stop = commands.stop[3] ?? "";
+  assert.ok(stop.includes("stop"));
+  assert.ok(stop.includes("&& /usr/bin/rm -rf"));
+  assert.ok(stop.indexOf("stop") < stop.indexOf("/usr/bin/rm -rf"));
+  assert.ok(stop.includes(runtimeRoot));
+});
+
+test("enterprise TLS edge commands reject steering and port collisions", () => {
+  assert.throws(
+    () => enterpriseTlsEdgeDaytonaCommands({ sandboxId: "sandbox", upstream: "https://den.example.test/path" }),
+    /HTTP\(S\) origin/,
+  );
+  assert.throws(
+    () => enterpriseTlsEdgeDaytonaCommands({ sandboxId: "sandbox", upstream: "https://den.example.test", adminPort: 8443 }),
+    /must be distinct/,
+  );
 });
 
 test("startDen attaches to preset Den env without running daytona exec", async () => {

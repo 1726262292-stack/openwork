@@ -5,6 +5,7 @@ export * from "./app.ts";
 export * from "./brief.ts";
 export * from "./eventually.ts";
 export * from "./faults.ts";
+export * from "./link.ts";
 export * from "./mock.ts";
 export * from "./needs.ts";
 export * from "./place.ts";

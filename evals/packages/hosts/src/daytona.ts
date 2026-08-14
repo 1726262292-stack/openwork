@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import type { ChromeSurfaceOptions, DenServiceHandle, DenServiceOptions, ElectronSurfaceOptions, Host, ShareLinks, SurfaceHandle } from "./types.ts";
 
 export interface DaytonaExecResult {
@@ -31,6 +33,29 @@ export interface DaytonaHost extends Host, AsyncDisposable {
   stop(): Promise<void>;
 }
 
+export type EnterpriseTlsEdgeDaytonaOptions = {
+  sandboxId: string;
+  upstream: string;
+  candidatePort?: number;
+  negativePort?: number;
+  adminPort?: number;
+  manifestPath?: string;
+};
+
+export type EnterpriseTlsEdgeDaytonaCommands = {
+  candidateUrl: string;
+  negativeUrl: string;
+  adminUrl: string;
+  manifestPath: string;
+  prepare: string[][];
+  start: string[];
+  probe: string[];
+  requests: string[];
+  installRoot: string[];
+  removeRoot: string[];
+  stop: string[];
+};
+
 interface PortAllocation {
   primary: number;
   next: number;
@@ -51,17 +76,37 @@ const STANDARD_NOVNC_PORT = 6080;
 const STANDARD_ARTIFACTS_PORT = 8090;
 const HTTPS_URL = /https:\/\/[^\s"'<>)]+/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const ENTERPRISE_TLS_RUNTIME_ROOT = "/tmp/openwork-enterprise-tls-runtime";
+const MAX_ENTERPRISE_TLS_RUNTIME_SOURCE_BYTES = 64 * 1024;
+const ENTERPRISE_TLS_BASE64_CHUNK_LENGTH = 8 * 1024;
+/** Conservative ceiling for each complete Daytona argv command string. */
+export const MAX_ENTERPRISE_TLS_DAYTONA_COMMAND_LENGTH = 12 * 1024;
+const ENTERPRISE_TLS_RUNTIME_SOURCES = [
+  {
+    local: new URL("../../../scripts/enterprise-tls-edge.mts", import.meta.url),
+    remote: `${ENTERPRISE_TLS_RUNTIME_ROOT}/evals/scripts/enterprise-tls-edge.mts`,
+  },
+  {
+    local: new URL("../../labs/src/egress.ts", import.meta.url),
+    remote: `${ENTERPRISE_TLS_RUNTIME_ROOT}/evals/packages/labs/src/egress.ts`,
+  },
+];
 
 function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function defaultDaytonaExec(args: string[], opts: { input?: string; timeoutMs?: number } = {}): Promise<DaytonaExecResult> {
+export function defaultDaytonaExec(
+  args: string[],
+  opts: { input?: string; timeoutMs?: number } = {},
+  command = "daytona",
+): Promise<DaytonaExecResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("daytona", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
     const timer = opts.timeoutMs
       ? globalThis.setTimeout(() => {
         timedOut = true;
@@ -79,15 +124,25 @@ export function defaultDaytonaExec(args: string[], opts: { input?: string; timeo
     });
     child.on("error", (error) => {
       if (timer) clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       reject(error);
     });
     child.on("close", (code) => {
       if (timer) clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       resolve({
         stdout,
         stderr: timedOut ? `${stderr}\nTimed out after ${opts.timeoutMs}ms.` : stderr,
         code: timedOut ? 124 : code ?? 1,
       });
+    });
+    child.stdin.on("error", (error) => {
+      if (("code" in error && error.code === "EPIPE") || settled) return;
+      if (timer) clearTimeout(timer);
+      settled = true;
+      reject(error);
     });
     child.stdin.end(opts.input ?? "");
   });
@@ -217,10 +272,105 @@ async function orgModeOrDefault(webUrl: string, log: (msg: string) => void): Pro
 export async function checkedExec(exec: DaytonaExec, args: string[], context: string, opts: { input?: string; timeoutMs?: number } = {}): Promise<DaytonaExecResult> {
   const result = await exec(args, opts);
   if (result.code !== 0) {
-    const details = (result.stderr || result.stdout).trim();
-    throw new Error(`${context} failed with exit ${result.code}${details ? `: ${details}` : ""}`);
+    const stderr = result.stderr.trim();
+    const stdout = result.stdout.trim();
+    const details = [stderr ? `stderr:\n${stderr}` : "", stdout ? `stdout:\n${stdout}` : ""].filter(Boolean).join("\n\n");
+    throw new Error(`${context} failed with exit ${result.code}${details ? `:\n${details}` : ""}`);
   }
   return result;
+}
+
+/** Daytona exec argv for a co-located enterprise TLS edge lifecycle. */
+export function enterpriseTlsEdgeDaytonaCommands(options: EnterpriseTlsEdgeDaytonaOptions): EnterpriseTlsEdgeDaytonaCommands {
+  const sandbox = options.sandboxId.trim();
+  if (!sandbox) throw new Error("Enterprise TLS edge Daytona sandboxId is required.");
+  const upstream = new URL(options.upstream);
+  if ((upstream.protocol !== "http:" && upstream.protocol !== "https:")
+    || upstream.username || upstream.password || upstream.pathname !== "/" || upstream.search || upstream.hash) {
+    throw new Error("Enterprise TLS edge upstream must be an HTTP(S) origin.");
+  }
+  const candidatePort = options.candidatePort ?? 8443;
+  const negativePort = options.negativePort ?? 9443;
+  const adminPort = options.adminPort ?? 8445;
+  for (const port of [candidatePort, negativePort, adminPort]) {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`Invalid enterprise TLS edge port: ${port}`);
+  }
+  if (new Set([candidatePort, negativePort, adminPort]).size !== 3) {
+    throw new Error("Enterprise TLS edge candidate, negative, and admin ports must be distinct.");
+  }
+  const manifestPath = options.manifestPath ?? "/tmp/openwork-enterprise-tls-edge.json";
+  if (!manifestPath.startsWith("/")) throw new Error("Enterprise TLS edge manifestPath must be absolute.");
+  const sources = ENTERPRISE_TLS_RUNTIME_SOURCES.map(({ local, remote }) => ({
+    content: readFileSync(fileURLToPath(local)),
+    remote,
+  }));
+  const sourceBytes = sources.reduce((total, source) => total + source.content.byteLength, 0);
+  if (sourceBytes > MAX_ENTERPRISE_TLS_RUNTIME_SOURCE_BYTES) {
+    throw new Error(`Enterprise TLS runtime source is ${sourceBytes} bytes; maximum is ${MAX_ENTERPRISE_TLS_RUNTIME_SOURCE_BYTES}.`);
+  }
+  const script = ENTERPRISE_TLS_RUNTIME_SOURCES[0].remote;
+  const log = "/tmp/openwork-enterprise-tls-edge.log";
+  const remote = (command: string) => {
+    const args = ["exec", sandbox, "--", `bash -lc ${shellQuote(command)}`];
+    const commandLength = args.join(" ").length;
+    if (commandLength > MAX_ENTERPRISE_TLS_DAYTONA_COMMAND_LENGTH) {
+      throw new Error(`Enterprise TLS Daytona command is ${commandLength} characters; maximum is ${MAX_ENTERPRISE_TLS_DAYTONA_COMMAND_LENGTH}.`);
+    }
+    return args;
+  };
+  const directories = sources.map((source) => source.remote.slice(0, source.remote.lastIndexOf("/")));
+  const prepare = [remote([
+    `/usr/bin/rm -rf ${ENTERPRISE_TLS_RUNTIME_ROOT}`,
+    `/usr/bin/mkdir -p ${directories.join(" ")}`,
+    `/usr/bin/touch ${sources.map((source) => `${source.remote}.b64`).join(" ")}`,
+  ].join(" && "))];
+  for (const source of sources) {
+    const encoded = source.content.toString("base64");
+    for (let offset = 0; offset < encoded.length; offset += ENTERPRISE_TLS_BASE64_CHUNK_LENGTH) {
+      const chunk = encoded.slice(offset, offset + ENTERPRISE_TLS_BASE64_CHUNK_LENGTH);
+      prepare.push(remote(`/usr/bin/printf %s ${chunk} >> ${source.remote}.b64`));
+    }
+    prepare.push(remote([
+      "decode_status=0",
+      `/usr/bin/base64 -d ${source.remote}.b64 > ${source.remote} || decode_status=$?`,
+      `actual_bytes=$(/usr/bin/wc -c < ${source.remote})`,
+      `/usr/bin/rm -f ${source.remote}.b64`,
+      'test "$decode_status" -eq 0',
+      `test "$actual_bytes" -eq ${source.content.byteLength}`,
+    ].join("; ")));
+  }
+  const serve = [
+    "/usr/bin/env", "node", script, "serve",
+    "--upstream", upstream.origin,
+    "--candidate-port", String(candidatePort),
+    "--negative-port", String(negativePort),
+    "--admin-port", String(adminPort),
+    "--manifest", manifestPath,
+  ].map(shellQuote).join(" ");
+  const action = (name: "install" | "remove") => remote([
+    "/usr/bin/env", "node", script, name, "--manifest", manifestPath,
+  ].map(shellQuote).join(" "));
+  const adminUrl = `http://127.0.0.1:${adminPort}`;
+  return {
+    candidateUrl: `https://localhost:${candidatePort}`,
+    negativeUrl: `https://localhost:${negativePort}`,
+    adminUrl,
+    manifestPath,
+    prepare,
+    start: remote([
+      `rm -f ${shellQuote(manifestPath)}`,
+      `nohup ${serve} >${shellQuote(log)} 2>&1 </dev/null &`,
+      "attempt=0",
+      `until /usr/bin/curl --fail --silent ${shellQuote(`${adminUrl}/health`)} >/dev/null; do attempt=$((attempt + 1)); if [ "$attempt" -ge 120 ]; then /usr/bin/tail -c 4000 ${shellQuote(log)} >&2; exit 1; fi; sleep 0.25; done`,
+    ].join("\n")),
+    probe: remote(`/usr/bin/curl --fail --silent --show-error ${shellQuote(`${adminUrl}/health`)}`),
+    requests: remote(`/usr/bin/curl --fail --silent --show-error ${shellQuote(`${adminUrl}/requests`)}`),
+    installRoot: action("install"),
+    removeRoot: action("remove"),
+    stop: remote(`${[
+      "/usr/bin/env", "node", script, "stop", "--manifest", manifestPath,
+    ].map(shellQuote).join(" ")} && /usr/bin/rm -rf ${shellQuote(ENTERPRISE_TLS_RUNTIME_ROOT)}`),
+  };
 }
 
 async function waitForHttpOk(url: string, timeoutMs: number, label: string): Promise<void> {

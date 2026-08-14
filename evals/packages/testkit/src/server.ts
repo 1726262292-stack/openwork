@@ -59,6 +59,7 @@ export interface ServerOptions {
 
 export interface Den extends AsyncDisposable {
   ref: DenRef;
+  placement?: { kind: "local" } | { kind: "daytona"; sandboxId: string };
   admin: DenSession;
   members: Record<string, DenSession>;
   mocks: Record<string, MockHandle>;
@@ -504,6 +505,7 @@ export async function server(options: ServerOptions): Promise<Den> {
       let disposed = false;
       return {
         ref,
+        placement: { kind: "daytona", sandboxId: provisioned.sandbox },
         admin: organization.admin,
         members: organization.members,
         mocks: bootedMocks.handles,
@@ -607,6 +609,7 @@ export async function server(options: ServerOptions): Promise<Den> {
     let disposed = false;
     return {
       ref,
+      placement: { kind: "local" },
       admin: organization.admin,
       members: organization.members,
       mocks: bootedMocks.handles,
