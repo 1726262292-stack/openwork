@@ -511,10 +511,20 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 900_000 }, async (
   );
 
   await control(desktopApp, "session.open", { sessionId: longSessionId });
-  const longRunCompleted = await waitFor(desktopApp, assistantHasText(LONG_RUN_MARKER), {
+  await waitFor(desktopApp, `(() => {
+    const parts = window.__openworkControl.snapshot().route.split("/");
+    const sessionIndex = parts.indexOf("session");
+    return sessionIndex >= 0
+      && decodeURIComponent(parts[sessionIndex + 1] ?? "") === ${JSON.stringify(longSessionId)};
+  })()`, {
+    timeoutMs: 60_000,
+    label: `route reached long-running session ${longSessionId}`,
+  });
+  await waitFor(desktopApp, assistantHasText(LONG_RUN_MARKER), {
     timeoutMs: 240_000,
     label: "already-materialized local workflow completed after Den recovery",
-  }).then(() => true, () => false);
+  });
+  const longRunCompleted = true;
   await sendComposerMessage(desktopApp, `Reply with exactly: ${FOLLOWUP_MARKER}`);
   const followupCompleted = await waitFor(desktopApp, assistantHasText(FOLLOWUP_MARKER), {
     timeoutMs: 180_000,
