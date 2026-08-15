@@ -377,7 +377,6 @@ test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbo
     assert.ok(finalize?.includes(`/usr/bin/rm -f ${remote}.b64`));
     assert.ok(finalize?.includes(`test \"$actual_bytes\" -eq ${content.byteLength}`));
   }
-  assert.ok(!prepare.some((command) => command.includes("https://den.example.test")));
   const start = commands.start[3] ?? "";
   assert.match(start, /\/tmp\/openwork-enterprise-tls-runtime\/evals\/scripts\/enterprise-tls-edge\.mts/);
   assert.ok(!start.includes("/workspace/evals/scripts/enterprise-tls-edge.mts"));

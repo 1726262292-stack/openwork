@@ -360,8 +360,8 @@ const adminServer = createServer((request, response) => {
       return;
     }
     sendJson(response, 200, { ok: true });
-  })().catch((error) => {
-    if (!response.headersSent) sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+  })().catch(() => {
+    if (!response.headersSent) sendJson(response, 400, { error: "Invalid request" });
     else response.destroy();
   });
 });

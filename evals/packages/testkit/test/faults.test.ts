@@ -107,7 +107,11 @@ test("faultProxy clear removes pending rules", async () => {
 
 test("faultProxy pins absolute-form request targets to its upstream", async () => {
   let attackerRequests = 0;
-  const upstream = createServer((request, response) => response.end(`upstream:${request.url}`));
+  let upstreamRequestUrl: string | undefined;
+  const upstream = createServer((request, response) => {
+    upstreamRequestUrl = request.url;
+    response.end("upstream");
+  });
   const attacker = createServer((_request, response) => {
     attackerRequests += 1;
     response.end("attacker");
@@ -120,8 +124,9 @@ test("faultProxy pins absolute-form request targets to its upstream", async () =
     });
     assert.equal(
       await absoluteGet(proxy.ref.webUrl, `http://127.0.0.1:${attackerPort}/steered?x=1`),
-      "upstream:/steered?x=1",
+      "upstream",
     );
+    assert.equal(upstreamRequestUrl, "/steered?x=1");
     assert.equal(attackerRequests, 0);
   } finally {
     await Promise.all([close(upstream), close(attacker)]);
