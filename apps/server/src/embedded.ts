@@ -84,7 +84,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
     const identity = managedOpencodeIdentity;
     managedOpencodeIdentity = null;
-    if (identity) {
+    if (identity && !enginePool) {
       try {
         clearTrustedOpencodeProcess(config, identity);
       } catch (error) {
@@ -284,7 +284,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     void syncAllWorkspacesRuntimeMcpToEngine(config);
   }
 
-  if (managedOpencode && engineSpawnTemplate && config.engineRollover) {
+  if (managedOpencode && engineSpawnTemplate) {
     enginePool = createEnginePoolForConfig({
       config,
       template: engineSpawnTemplate,

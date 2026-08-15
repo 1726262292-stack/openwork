@@ -58,6 +58,10 @@ export type EnginePoolHooks = {
   writeRuntimeConfigFile: (config: ServerConfig, workspaceId: string) => Promise<{ path: string }>;
   registerTrusted: (config: ServerConfig, generation: { baseUrl: string; identity: string; isAlive: () => boolean }) => void;
   clearTrusted: (config: ServerConfig, identity: string) => void;
+  spawn?: (template: EngineSpawnTemplate) => Promise<ManagedOpencodeServer>;
+  now?: () => number;
+  schedule?: (operation: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  waitForHealthy?: (handle: ManagedOpencodeServer) => Promise<void>;
   logger?: EnginePoolLogger;
 };
 
@@ -158,6 +162,24 @@ function portOf(url: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isConnectionRefusedClassError(error: unknown): boolean {
+  const visited = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current !== null && current !== undefined; depth += 1) {
+    if (typeof current === "string") {
+      return /ECONNREFUSED|ECONNRESET|socket hang up/i.test(current);
+    }
+    if (!isRecord(current) || visited.has(current)) return false;
+    visited.add(current);
+    const code = current.code;
+    if (code === "ECONNREFUSED" || code === "ECONNRESET") return true;
+    const message = current.message;
+    if (typeof message === "string" && /ECONNREFUSED|ECONNRESET|socket hang up/i.test(message)) return true;
+    current = current.cause;
+  }
+  return false;
 }
 
 function isRoutableGeneration(
@@ -269,6 +291,12 @@ export class EnginePool {
   private inFlight: Promise<RolloverOutcome> | null = null;
   private pendingRollover: { reason: RolloverReason; workspace: WorkspaceInfo; manual: boolean } | null = null;
   private lastSpawnAt = 0;
+  private consecutiveConnectionFailures = 0;
+  private lastRecoveryAt = Number.NEGATIVE_INFINITY;
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private recoveryWorkspace: WorkspaceInfo | null = null;
+  private recoveryInFlight: Promise<void> | null = null;
+  private recoveryOrphan: ManagedOpencodeServer | null = null;
   private disposed = false;
   private readonly sessionOwnership = new Map<string, string>();
   private readonly pinnedRequests = new Map<string, string>();
@@ -312,6 +340,22 @@ export class EnginePool {
   primaryProcess(): EnginePoolProcess | null {
     const primary = this.generations.find((entry) => entry.status === "primary") ?? null;
     return primary ? { pid: primary.handle.pid ?? null, isAlive: primary.handle.isAlive } : null;
+  }
+
+  reportRequestSuccess(baseUrl: string): void {
+    if (this.isPrimaryEndpoint(baseUrl)) this.consecutiveConnectionFailures = 0;
+  }
+
+  reportRequestFailure(baseUrl: string, error: unknown, workspace: WorkspaceInfo): void {
+    if (!this.isPrimaryEndpoint(baseUrl) || !isConnectionRefusedClassError(error)) return;
+    this.consecutiveConnectionFailures += 1;
+    if (this.consecutiveConnectionFailures < 3) return;
+    const now = this.now();
+    if (now - this.lastRecoveryAt < minSpawnIntervalMs()) return;
+    this.consecutiveConnectionFailures = 0;
+    this.lastRecoveryAt = now;
+    this.recoveryWorkspace = workspace;
+    void this.recoverDeadPrimary(workspace).catch(() => undefined);
   }
 
   connections(): EnginePoolConnection[] {
@@ -507,16 +551,7 @@ export class EnginePool {
     let handle: ManagedOpencodeServer;
     this.lastSpawnAt = Date.now();
     try {
-      handle = await createManagedOpencodeServer({
-        bin: this.template.bin,
-        cwd: this.template.cwd,
-        excludedPorts: this.template.reservedPorts(),
-        ...(this.template.spawnTimeoutMs ? { timeoutMs: this.template.spawnTimeoutMs } : {}),
-        env: {
-          ...this.template.env,
-          OPENCODE_CONFIG: this.template.runtimeConfigPath,
-        },
-      });
+      handle = await this.spawn();
     } catch (error) {
       this.hooks.logger?.log("error", "Engine rollover standby failed to start; the live engine is untouched.", {
         "engine.rollover.reason": reason,
@@ -700,7 +735,12 @@ export class EnginePool {
       }
       generation.trustedIdentity = null;
     }
-    await generation.handle.close().catch(() => undefined);
+    let closeError: unknown;
+    try {
+      await generation.handle.close();
+    } catch (error) {
+      closeError = error;
+    }
     if (generation.registryId) {
       await removeEngineInstance(this.config, generation.registryId).catch(() => undefined);
       generation.registryId = null;
@@ -713,28 +753,180 @@ export class EnginePool {
       this.pendingRollover = null;
       void this.requestRollover(next).catch(() => undefined);
     }
+    if (closeError !== undefined && cause === "shutdown") throw closeError;
   }
 
   /** Close every engine this pool owns. Draining generations go first. */
   async disposeAll(): Promise<void> {
     this.disposed = true;
     this.pendingRollover = null;
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
     this.abortEventProxies();
+    const errors: unknown[] = [];
+    const recoveryOrphan = this.recoveryOrphan;
+    this.recoveryOrphan = null;
+    if (recoveryOrphan) {
+      try {
+        await recoveryOrphan.close();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     const ordered = [...this.generations].sort((left, right) => {
       if (left.status === right.status) return 0;
       return left.status === "draining" ? -1 : 1;
     });
     for (const generation of ordered) {
-      await this.retire(generation, "shutdown");
+      try {
+        await this.retire(generation, "shutdown");
+      } catch (error) {
+        errors.push(error);
+      }
     }
     this.generations = [];
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, "Failed to close managed engines");
   }
 
   private async currentFingerprint(): Promise<string> {
     return computeEngineConfigFingerprint(this.template);
   }
 
+  private async recoverDeadPrimary(workspace: WorkspaceInfo): Promise<void> {
+    if (this.disposed) return;
+    if (this.recoveryInFlight) return this.recoveryInFlight;
+    const recovery = this.runDeadPrimaryRecovery(workspace);
+    this.recoveryInFlight = recovery;
+    try {
+      await recovery;
+    } finally {
+      this.recoveryInFlight = null;
+    }
+  }
+
+  private async runDeadPrimaryRecovery(workspace: WorkspaceInfo): Promise<void> {
+    const previous = this.generations.find((entry) => entry.status === "primary") ?? null;
+    let replacement: ManagedOpencodeServer | null = null;
+    try {
+      if (this.recoveryOrphan) {
+        await this.recoveryOrphan.close();
+        if (this.recoveryOrphan.isAlive()) throw new Error("Failed replacement remained alive after close");
+        this.recoveryOrphan = null;
+      }
+      if (previous) {
+        if (previous.trustedIdentity) {
+          try {
+            this.hooks.clearTrusted(this.config, previous.trustedIdentity);
+          } catch {
+            // Advisory only; process teardown must still happen.
+          }
+        }
+        await previous.handle.close();
+        if (previous.handle.isAlive()) throw new Error("Managed OpenCode process remained alive after close");
+        previous.status = "dead";
+        if (previous.registryId) await removeEngineInstance(this.config, previous.registryId).catch(() => undefined);
+        this.generations = this.generations.filter((entry) => entry.id !== previous.id);
+      }
+
+      const handle = await this.spawn();
+      replacement = handle;
+      await this.waitForHealthy(handle);
+      const generation: Generation = {
+        id: randomUUID(),
+        handle,
+        status: "starting",
+        spawnedAt: this.now(),
+        fingerprint: await this.currentFingerprint(),
+        registryId: null,
+        trustedIdentity: null,
+        drainTimer: null,
+        drainDeadline: null,
+      };
+      this.generations.push(generation);
+      if (handle.pid) {
+        generation.registryId = randomUUID();
+        await registerEngineInstance(this.config, {
+          id: generation.registryId,
+          pid: handle.pid,
+          port: portOf(handle.url),
+          url: handle.url,
+          startedAt: generation.spawnedAt,
+          role: "starting",
+          serverRunId: generation.id,
+          ownerPid: process.pid,
+          authProbe: buildEngineAuthProbeHeader(handle.username, handle.password),
+          bin: this.template.bin?.trim() || "opencode",
+        }).catch(() => undefined);
+      }
+      this.flip(generation, null, [], []);
+      replacement = null;
+      this.consecutiveConnectionFailures = 0;
+      this.recoveryWorkspace = null;
+      if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = null;
+      void this.hooks.postRefreshSync(this.config, workspace).catch(() => undefined);
+    } catch (error) {
+      if (replacement) {
+        try {
+          await replacement.close();
+          if (replacement.isAlive()) this.recoveryOrphan = replacement;
+        } catch {
+          this.recoveryOrphan = replacement;
+        }
+      }
+      this.hooks.logger?.log("error", "Managed engine recovery failed; retry scheduled.", {
+        "engine.recovery.failure": error instanceof Error ? error.message : String(error),
+      });
+      this.scheduleRecovery(workspace);
+      throw error;
+    }
+  }
+
+  private scheduleRecovery(workspace: WorkspaceInfo): void {
+    if (this.disposed || this.recoveryTimer) return;
+    this.recoveryWorkspace = workspace;
+    const delayMs = Math.max(1, minSpawnIntervalMs() - (this.now() - this.lastRecoveryAt));
+    const schedule = this.hooks.schedule ?? ((operation: () => void, delay: number) => setTimeout(operation, delay));
+    this.recoveryTimer = schedule(() => {
+      this.recoveryTimer = null;
+      const pendingWorkspace = this.recoveryWorkspace;
+      if (!pendingWorkspace || this.disposed) return;
+      this.lastRecoveryAt = this.now();
+      void this.recoverDeadPrimary(pendingWorkspace).catch(() => undefined);
+    }, delayMs);
+    this.recoveryTimer.unref?.();
+  }
+
+  private spawn(): Promise<ManagedOpencodeServer> {
+    if (this.hooks.spawn) return this.hooks.spawn(this.template);
+    return createManagedOpencodeServer({
+      bin: this.template.bin,
+      cwd: this.template.cwd,
+      excludedPorts: this.template.reservedPorts(),
+      ...(this.template.spawnTimeoutMs ? { timeoutMs: this.template.spawnTimeoutMs } : {}),
+      env: {
+        ...this.template.env,
+        OPENCODE_CONFIG: this.template.runtimeConfigPath,
+      },
+    });
+  }
+
+  private now(): number {
+    return this.hooks.now?.() ?? Date.now();
+  }
+
+  private isPrimaryEndpoint(baseUrl: string): boolean {
+    try {
+      const primary = this.primaryUrl();
+      return primary !== null && new URL(primary).origin === new URL(baseUrl).origin;
+    } catch {
+      return false;
+    }
+  }
+
   private async waitForHealthy(handle: ManagedOpencodeServer, attempts = 10): Promise<void> {
+    if (this.hooks.waitForHealthy) return this.hooks.waitForHealthy(handle);
     const authorization = buildEngineAuthProbeHeader(handle.username, handle.password);
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -844,6 +1036,10 @@ export function setEnginePoolForConfig(config: ServerConfig, pool: EnginePool): 
 
 export function enginePoolForConfig(config: ServerConfig): EnginePool | null {
   if (!config.engineRollover) return null;
+  return poolByConfig.get(config) ?? null;
+}
+
+export function managedEnginePoolForConfig(config: ServerConfig): EnginePool | null {
   return poolByConfig.get(config) ?? null;
 }
 
