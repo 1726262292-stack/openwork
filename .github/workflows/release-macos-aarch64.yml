@@ -633,6 +633,23 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
+      # Belt-and-braces: a broken or skipped stamp would otherwise ship
+      # 0.0.0-dev artifacts silently. Every packaged build must produce at
+      # least one artifact carrying the release version (also holds for
+      # pre-redesign tags — their committed version equals the tag).
+      - name: Assert artifact versions match the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          matches=(apps/desktop/dist-electron/*"$RELEASE_VERSION"*)
+          if [ ${#matches[@]} -eq 0 ]; then
+            echo "No packaged artifact carries version $RELEASE_VERSION — version stamping failed?" >&2
+            ls apps/desktop/dist-electron >&2 || true
+            exit 1
+          fi
+          printf 'Version-checked artifact: %s\n' "${matches[@]}"
+
       - name: Use unsigned Windows installer fallback
         if: matrix.os_type == 'windows' && env.SIGN_WINDOWS != 'true'
         shell: bash
