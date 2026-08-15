@@ -563,6 +563,7 @@ export default {
   "den.error_no_token": "Desktop sign-in completed, but OpenWork Cloud did not return a session token.",
   "den.error_paste_valid_code": "Paste a valid OpenWork sign-in link or one-time sign-in code.",
   "den.error_signin_failed": "Failed to complete OpenWork Cloud sign-in.",
+  "den.error_signin_link_other_server": "This sign-in link belongs to {origin}. Update the workspace address to that server first, then paste the code again.",
   "den.error_signout_failed": "Could not sign out of OpenWork Cloud. Try again.",
   "den.finish_signin": "Finish sign-in",
   "den.finishing": "Finishing...",

@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { expect } from "vitest";
 import { test } from "@openwork/testkit";
 import {
-  CONFIRM_RUNNING_STEP,
+  LINK_STEP,
   parseGuideStep,
   TOTAL_GUIDE_STEPS,
 } from "../../ee/apps/den-web/app/(den)/_lib/install-guide";
@@ -26,39 +26,50 @@ function stepBody(source: string, testId: string) {
   return source.slice(start, end);
 }
 
-test("the enterprise install guide confirms the app is running in its own step", async ({ evidence }) => {
+test("the enterprise install guide is three steps ending in one copy-paste link", async ({ evidence }) => {
   const source = readFileSync(installScreenPath, "utf8");
-  const confirmStep = stepBody(source, "install-guide-step-confirm-running");
+  const downloadStep = stepBody(source, "install-guide-step-download");
   const openStep = stepBody(source, "install-guide-step-open");
+  const linkStep = stepBody(source, "install-guide-step-link");
 
-  expect(TOTAL_GUIDE_STEPS).toBe(4);
-  expect(CONFIRM_RUNNING_STEP).toBe(3);
+  expect(TOTAL_GUIDE_STEPS).toBe(3);
+  expect(LINK_STEP).toBe(3);
   expect(parseGuideStep("2")).toBe(2);
   expect(parseGuideStep("3")).toBe(3);
-  expect(parseGuideStep("4")).toBe(4);
+  expect(parseGuideStep("4")).toBe(1);
   expect(parseGuideStep(null)).toBe(1);
   expect(parseGuideStep("nonsense")).toBe(1);
 
-  // Activation is reachable only from the confirm-running step, never from installing.
-  expect(confirmStep).toContain('data-testid="install-connect-open"');
-  expect(confirmStep).toContain('data-testid="install-running-checklist"');
-  expect(confirmStep).toContain("is installed and open on this computer.");
-  expect(confirmStep).toContain("Its sign-in screen is open and ready for your organization server.");
-  expect(openStep).not.toContain('data-testid="install-connect-open"');
+  // Step 1 downloads with every OS available; step 2 installs and opens in one
+  // sentence; step 3 connects with the workspace address, keeping the OpenWork
+  // link as the quiet backup.
+  expect(downloadStep).toContain("DownloadPlatformGrid");
+  expect(downloadStep).toContain("Already installed? Skip to step 3");
   expect(openStep).toContain('data-testid="install-app-ready"');
-  expect(openStep).toContain("advanceGuide(CONFIRM_RUNNING_STEP)");
+  expect(openStep).toContain("advanceGuide(LINK_STEP)");
+  expect(openStep).toContain('{guidance.actions.join(" ")}');
+  expect(openStep).toContain('<InstallVisual');
+  expect(openStep).not.toContain("Come back to this page");
+  expect(source).not.toContain('data-testid="install-connect-copy"');
+  expect(source).not.toContain("Copy OpenWork link");
+  expect(linkStep).toContain("In the app, enter your workspace address:");
+  expect(linkStep).toContain('data-testid="install-workspace-address"');
+  expect(linkStep).toContain("sign-in finishes in this browser and sends you back to the app.");
 
-  // The install step stays light: no nested card, no heading repeating its own title.
-  expect(openStep).not.toContain("Next, on your computer");
-  expect(openStep).not.toContain("Open the file you just downloaded");
-  expect(openStep).not.toContain("bg-white p-4 shadow-");
-  expect(source).toContain("Step {guideStep} of {TOTAL_GUIDE_STEPS}");
-  expect(source).toContain('index={4}');
-  expect(source).toContain('testId="install-guide-step-signin"');
+  // The old ceremony stays deleted: no fourth step, no running checklist, no
+  // handoff mechanism note, no activation-link language.
+  expect(source).not.toContain("install-guide-step-signin");
+  expect(source).not.toContain("install-guide-step-confirm-running");
+  expect(source).not.toContain("install-running-checklist");
+  expect(source).not.toContain("install-handoff-note");
+  expect(source).not.toMatch(/activation link/i);
+  expect(source).toContain("Set up OpenWork Enterprise");
+  expect(source).toContain('variant="flat"');
+  expect(source).toContain('width="enterprise"');
 
   evidence.fact(
-    "Confirming the app runs is its own install step",
-    "parseGuideStep accepts steps 1-4, the activate action lives only in step 3 next to the running checklist, and step 2 only installs/opens the app and hands off with install-app-ready.",
+    "The guide is download, install/open, then connect",
+    "parseGuideStep accepts steps 1-3, step 3 is only the workspace address and Continue guidance, step 2 is a picture plus one sentence, and the copy-link button, checklist, fourth step, and activation-link copy are gone.",
     true,
   );
 });

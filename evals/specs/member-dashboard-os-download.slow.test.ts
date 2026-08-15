@@ -12,7 +12,7 @@ const requirements: NeedsSpec = {
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `member dashboard download skipped — needs: ${missingRequirements.join(", ")}`
-  : "the member dashboard downloads the detected OS installer without opening /install";
+  : "the member dashboard opens the clean authenticated install guide";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -98,10 +98,8 @@ test(title, async ({ evidence, place }) => {
   await waitFor(
     browser,
     `Boolean(document.querySelector('[data-testid="member-dashboard"]'))
-      && Boolean(document.querySelector('[data-testid="member-download-app"]'))
-      && !(document.querySelector('[data-testid="member-download-app"]') instanceof HTMLButtonElement
-        && document.querySelector('[data-testid="member-download-app"]').disabled)`,
-    { timeoutMs: 60_000, label: "member dashboard download CTA" },
+      && Boolean(document.querySelector('[data-testid="member-download-app"]'))`,
+    { timeoutMs: 60_000, label: "member dashboard install CTA" },
   );
 
   const dashboard = await evalIn(browser, `(() => {
@@ -109,7 +107,6 @@ test(title, async ({ evidence, place }) => {
     return {
       pathname: location.pathname,
       cta: (cta?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-      copyLink: Boolean(document.querySelector('[data-testid="member-copy-install-link"]')),
     };
   })()`);
   if (!isRecord(dashboard) || typeof dashboard.pathname !== "string" || typeof dashboard.cta !== "string") {
@@ -117,79 +114,68 @@ test(title, async ({ evidence, place }) => {
   }
 
   expect(dashboard.pathname).toBe("/dashboard");
-  expect(dashboard.cta.startsWith("Download for")).toBe(true);
-  expect(dashboard.cta).not.toContain("Download OpenWork");
-  expect(dashboard.copyLink).toBe(true);
+  expect(dashboard.cta).toBe("Get OpenWork");
   evidence.fact(
-    "The member dashboard offers Download for this computer instead of Download OpenWork",
-    `pathname=${dashboard.pathname}; cta=${dashboard.cta}; copyLink=${String(dashboard.copyLink)}`,
-    dashboard.pathname === "/dashboard" && dashboard.cta.startsWith("Download for") && dashboard.copyLink === true,
+    "The member dashboard offers the authenticated install guide",
+    `pathname=${dashboard.pathname}; cta=${dashboard.cta}`,
+    dashboard.pathname === "/dashboard" && dashboard.cta === "Get OpenWork",
   );
 
   {
     const shot = await screenshot(browser);
     const seen = await validate(shot, [
       "The heading says the workspace is set up for you",
-      "The primary button starts with Download for",
-      "A smaller action offers to copy the install link instead",
+      "The primary button says Get OpenWork",
     ]);
     expect(seen.ok, seen.why).toBe(true);
   }
 
-  await evalIn(browser, `(() => {
-    const hrefs = [];
-    window.__memberInstallerHrefs = hrefs;
-    const original = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function patchedInstallerClick() {
-      const href = this.getAttribute("href") || this.href || "";
-      if (href.includes("/v1/install/")) {
-        hrefs.push(href);
-        return;
-      }
-      return original.call(this);
-    };
-    return true;
-  })()`);
-
-  const startedDownload = await evalIn(browser, `(() => {
+  const openedInstall = await evalIn(browser, `(() => {
     const button = document.querySelector('[data-testid="member-download-app"]');
     if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
     button.scrollIntoView({ block: "center" });
     button.click();
     return true;
   })()`);
-  expect(startedDownload).toBe(true);
+  expect(openedInstall).toBe(true);
 
-  const downloadHref = await waitFor(
+  await waitFor(
     browser,
-    `document.querySelector('[data-testid="member-download-app"]')?.getAttribute("data-download-href") || ""`,
-    { timeoutMs: 30_000, label: "org-served installer href on the member CTA" },
+    `location.pathname === "/install" && location.search === ""
+      && Boolean(document.querySelector('[data-testid="install-page"]'))
+      && !document.body.textContent?.includes("Loading your install link")`,
+    { timeoutMs: 60_000, label: "clean authenticated install guide from member dashboard" },
   );
-  if (typeof downloadHref !== "string" || downloadHref.length === 0) {
-    throw new Error(`Member dashboard did not write an installer href: ${JSON.stringify(downloadHref)}`);
+
+  const install = await evalIn(browser, `(() => {
+    const resources = performance.getEntriesByType("resource").map((entry) => entry.name);
+    const hrefs = [...document.querySelectorAll("a[href]")].map((anchor) => anchor.href);
+    return {
+      pathname: location.pathname,
+      search: location.search,
+      configLoaded: resources.some((url) => url.includes("/v1/me/install-config")),
+      mintedToken: resources.some((url) => url.includes("/install-links") || url.includes("/v1/install-config?token=")),
+      downloadHref: hrefs.find((href) => href.includes("/v1/me/install/")) || "",
+    };
+  })()`);
+  if (!isRecord(install) || typeof install.pathname !== "string" || typeof install.search !== "string" || typeof install.downloadHref !== "string") {
+    throw new Error(`Install guide facts had an unexpected shape: ${JSON.stringify(install)}`);
   }
 
-  const afterDownload = await evalIn(browser, `({
-    pathname: location.pathname,
-    captured: Array.isArray(window.__memberInstallerHrefs) ? window.__memberInstallerHrefs.slice() : [],
-  })`);
-  if (!isRecord(afterDownload) || typeof afterDownload.pathname !== "string" || !Array.isArray(afterDownload.captured)) {
-    throw new Error(`Download facts had an unexpected shape: ${JSON.stringify(afterDownload)}`);
-  }
-  const capturedHref = afterDownload.captured.find((entry) => typeof entry === "string") ?? "";
-
-  expect(afterDownload.pathname).toBe("/dashboard");
-  expect(downloadHref).toContain("/v1/install/");
-  expect(downloadHref).toContain("token=");
-  expect(downloadHref.includes("/install?")).toBe(false);
-  expect(capturedHref).toBe(downloadHref);
+  expect(install.pathname).toBe("/install");
+  expect(install.search).toBe("");
+  expect(install.configLoaded).toBe(true);
+  expect(install.mintedToken).toBe(false);
+  expect(install.downloadHref).toContain("/v1/me/install/");
+  expect(install.downloadHref).not.toContain("token=");
   evidence.fact(
-    "The member CTA starts the org-served installer and stays on the dashboard",
-    `pathname=${afterDownload.pathname}; href=${downloadHref}`,
-    afterDownload.pathname === "/dashboard"
-      && downloadHref.includes("/v1/install/")
-      && downloadHref.includes("token=")
-      && !downloadHref.includes("/install?")
-      && capturedHref === downloadHref,
+    "The member CTA opens clean authenticated installation without minting an installer token",
+    `url=${install.pathname}${install.search}; configLoaded=${String(install.configLoaded)}; download=${install.downloadHref}`,
+    install.pathname === "/install"
+      && install.search === ""
+      && install.configLoaded === true
+      && install.mintedToken === false
+      && install.downloadHref.includes("/v1/me/install/")
+      && !install.downloadHref.includes("token="),
   );
 });

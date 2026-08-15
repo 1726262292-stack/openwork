@@ -7,6 +7,7 @@ import {
   clearDenSession,
   createDenClient,
   DEFAULT_DEN_BASE_URL,
+  denOriginComparisonKey,
   normalizeDenBaseUrl,
   readDenBootstrapConfig,
   readDenSettings,
@@ -154,6 +155,19 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
       if (!parsed) {
         setAuthError(t("den.error_paste_valid_code"));
       }
+      return;
+    }
+
+    if (parsed.baseUrl && denOriginComparisonKey(parsed.baseUrl) !== denOriginComparisonKey(baseUrl)) {
+      let pastedOrigin = parsed.baseUrl;
+      try {
+        pastedOrigin = new URL(parsed.baseUrl).origin;
+      } catch {
+        // Keep the parsed URL as the safe display fallback.
+      }
+      // Warden LZL-USH: switching servers must use the explicit workspace-address control, never a pasted link.
+      setBaseUrlDraft(parsed.baseUrl);
+      setAuthError(t("den.error_signin_link_other_server", { origin: pastedOrigin }));
       return;
     }
 

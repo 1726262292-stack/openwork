@@ -41,18 +41,30 @@ export function useEnterpriseActivationRequired() {
 
 function EnterpriseActivationPage() {
   const [serverInput, setServerInput] = useState("");
-  const [confirmedBaseUrl, setConfirmedBaseUrl] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingServerConfirmation | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [browserBusy, setBrowserBusy] = useState(false);
-  const [manualAuthOpen, setManualAuthOpen] = useState(false);
-  const [manualAuthInput, setManualAuthInput] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const submitServer = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    // The address field quietly accepts a pasted openwork:// sign-in link as
+    // the recovery path when the browser round trip cannot come back.
+    const pastedLink = parseManualAuthInput(serverInput);
+    if (pastedLink?.baseUrl && pastedLink.grant) {
+      const linkBaseUrl = normalizeOrganizationServerInput(pastedLink.baseUrl);
+      if (linkBaseUrl) {
+        setPendingConfirmation({ kind: "manual", baseUrl: linkBaseUrl, grant: pastedLink.grant });
+        setServerError(null);
+        setAuthError(null);
+        setStatusMessage(`Confirm ${linkBaseUrl} before continuing.`);
+        return;
+      }
+    }
+
     const baseUrl = normalizeOrganizationServerInput(serverInput);
     if (!baseUrl) {
       setServerError("Enter a valid OpenWork server address.");
@@ -106,46 +118,11 @@ function EnterpriseActivationPage() {
     }
   };
 
-  const submitManualAuth = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const parsed = parseManualAuthInput(manualAuthInput);
-    if (!parsed) {
-      setAuthError("Paste a valid OpenWork sign-in link or one-time sign-in code.");
-      return;
-    }
-
-    if (parsed.baseUrl) {
-      const linkBaseUrl = normalizeOrganizationServerInput(parsed.baseUrl);
-      if (!linkBaseUrl) {
-        setAuthError("Paste a valid OpenWork sign-in link or one-time sign-in code.");
-        return;
-      }
-      if (linkBaseUrl !== confirmedBaseUrl) {
-        setPendingConfirmation({ kind: "manual", baseUrl: linkBaseUrl, grant: parsed.grant });
-        setAuthError(null);
-        setServerError(null);
-        setStatusMessage(`Confirm ${linkBaseUrl} before continuing.`);
-        return;
-      }
-
-      await exchangeConfirmedGrant(parsed.grant, linkBaseUrl);
-      return;
-    }
-
-    if (!confirmedBaseUrl) {
-      setServerError("Enter your organization's OpenWork server before using a raw sign-in code.");
-      return;
-    }
-
-    await exchangeConfirmedGrant(parsed.grant, confirmedBaseUrl);
-  };
-
   const confirmServer = async () => {
     const pending = pendingConfirmation;
     if (!pending || browserBusy || authBusy) return;
 
     setPendingConfirmation(null);
-    setConfirmedBaseUrl(pending.baseUrl);
     setServerInput(pending.baseUrl);
     if (pending.kind === "manual") {
       await exchangeConfirmedGrant(pending.grant, pending.baseUrl);
@@ -161,8 +138,7 @@ function EnterpriseActivationPage() {
       const opened = await tryOpenBrowserAuthUrl(buildDenAuthUrl(pending.baseUrl, "sign-in"));
       if (!opened) {
         setStatusMessage(null);
-        setAuthError("We couldn't open your browser automatically. Paste your sign-in code below.");
-        setManualAuthOpen(true);
+        setAuthError("We couldn't open your browser automatically. Try again, or paste the sign-in link from your browser into the address field.");
         return;
       }
       setStatusMessage("Finish signing in in your browser, then return to OpenWork.");
@@ -176,7 +152,9 @@ function EnterpriseActivationPage() {
     }
   };
 
-  const liveMessage = serverError ?? authError ?? statusMessage;
+  // While the origin confirmation is on screen it is the only decision; the
+  // redundant "Confirm X before continuing" status would repeat its question.
+  const liveMessage = serverError ?? authError ?? (pendingConfirmation ? null : statusMessage);
 
   return (
     <div
@@ -227,44 +205,46 @@ function EnterpriseActivationPage() {
 
           <div className="mt-10 flex flex-col gap-2.5 sm:mt-14">
             <h1 className="text-[30px] font-semibold leading-[38px] tracking-[-0.03em] text-foreground sm:text-[38px] sm:leading-[46px]">
-              Sign in to OpenWork Enterprise
+              Link this app to your organization
             </h1>
             <p className="text-[15px] leading-[23px] text-muted-foreground">
-              On your organization&apos;s OpenWork page, choose <strong className="font-semibold text-foreground">Open OpenWork</strong>, or enter your organization&apos;s server below.
+              Enter your workspace address — the page where you downloaded this app. Sign-in finishes in your browser and returns here.
             </p>
           </div>
 
           <div className="mt-11 flex flex-col gap-4">
-            <form className="space-y-2" onSubmit={submitServer}>
-              <label
-                className="text-sm font-medium text-foreground"
-                htmlFor="organization-server-input"
-              >
-                Organization server
-              </label>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Input
-                  id="organization-server-input"
-                  data-testid="organization-server-input"
-                  value={serverInput}
-                  onChange={(event) => setServerInput(event.currentTarget.value)}
-                  placeholder="openwork.acme.com"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  disabled={browserBusy || authBusy}
-                  aria-invalid={serverError ? true : undefined}
-                />
-                <Button
-                  type="submit"
-                  className="sm:min-w-40"
-                  disabled={browserBusy || authBusy}
-                  data-testid="organization-server-continue"
+            {pendingConfirmation ? null : (
+              <form className="space-y-2" onSubmit={submitServer}>
+                <label
+                  className="text-sm font-medium text-foreground"
+                  htmlFor="organization-server-input"
                 >
-                  Continue
-                </Button>
-              </div>
-            </form>
+                  Workspace address
+                </label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    id="organization-server-input"
+                    data-testid="organization-server-input"
+                    value={serverInput}
+                    onChange={(event) => setServerInput(event.currentTarget.value)}
+                    placeholder="openwork.acme.com"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    disabled={browserBusy || authBusy}
+                    aria-invalid={serverError ? true : undefined}
+                  />
+                  <Button
+                    type="submit"
+                    className="sm:min-w-40"
+                    disabled={browserBusy || authBusy}
+                    data-testid="organization-server-continue"
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </form>
+            )}
 
             {pendingConfirmation ? (
               <section className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
@@ -305,45 +285,6 @@ function EnterpriseActivationPage() {
               ) : null}
             </div>
 
-            <div className="space-y-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setManualAuthOpen((open) => !open);
-                  setAuthError(null);
-                }}
-                disabled={browserBusy || authBusy}
-              >
-                {manualAuthOpen ? "Hide sign-in code" : "Paste sign-in code"}
-              </Button>
-
-              {manualAuthOpen ? (
-                <form
-                  className="space-y-3 rounded-xl border border-border bg-muted/30 p-4"
-                  onSubmit={(event) => void submitManualAuth(event)}
-                >
-                  <label className="text-sm font-medium text-foreground" htmlFor="enterprise-signin-code">
-                    Sign-in link or one-time code
-                  </label>
-                  <Input
-                    id="enterprise-signin-code"
-                    value={manualAuthInput}
-                    onChange={(event) => setManualAuthInput(event.currentTarget.value)}
-                    placeholder="openwork://den-auth?... or pasted code"
-                    disabled={authBusy}
-                  />
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={authBusy || !manualAuthInput.trim()}
-                  >
-                    {authBusy ? "Finishing…" : "Finish sign-in"}
-                  </Button>
-                </form>
-              ) : null}
-            </div>
           </div>
         </section>
       </div>

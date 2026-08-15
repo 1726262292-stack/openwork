@@ -12,6 +12,7 @@ const SURFACE_WIDTHS = {
   compact: "max-w-md",
   wide: "max-w-3xl",
   full: "max-w-5xl",
+  enterprise: "max-w-6xl",
 } as const;
 
 function subscribeToReducedMotion(onStoreChange: () => void) {
@@ -95,7 +96,7 @@ export function OnboardingShell({
 }: {
   children: ReactNode;
   state: string;
-  width?: DitheredOnboardingShellProps["width"];
+  width?: DitheredOnboardingShellProps["width"] | "enterprise";
   background?: "onboarding" | "surface";
 }) {
   if (background === "surface") {
@@ -107,7 +108,7 @@ export function OnboardingShell({
   }
 
   return (
-    <DitheredOnboardingShell state={state} width={width}>
+    <DitheredOnboardingShell state={state} width={width === "enterprise" ? "full" : width}>
       {children}
     </DitheredOnboardingShell>
   );
