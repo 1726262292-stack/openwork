@@ -232,8 +232,27 @@ wait_for_http_status() {
 
 wait_for_http_status "http://127.0.0.1:$DEN_WORKER_PROXY_PORT/unknown" "worker proxy" 120
 
+echo "==> Building Den Web (dev-mode HMR websockets 502 through the preview proxy and block hydration)..."
+if ! env \
+  DEN_WEB_PORT="$DEN_WEB_PORT" \
+  DEN_API_BASE="$DEN_API_BASE" \
+  DEN_AUTH_ORIGIN="$DEN_AUTH_ORIGIN" \
+  DEN_AUTH_FALLBACK_BASE="$DEN_AUTH_FALLBACK_BASE" \
+  NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL="$NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL" \
+  NEXT_PUBLIC_POSTHOG_KEY= \
+  NEXT_PUBLIC_POSTHOG_API_KEY= \
+  DEN_ORG_MODE="$DEN_ORG_MODE" \
+  OPENWORK_DEV_MODE="$OPENWORK_DEV_MODE" \
+  DEN_WEB_ALLOWED_DEV_ORIGINS="$DEN_WEB_ALLOWED_DEV_ORIGINS" \
+  bash -c 'pnpm --filter @openwork/ui build && pnpm --filter @openwork-ee/utils build && pnpm --filter @openwork-ee/den-web build' > /tmp/den-web-build.log 2>&1; then
+  echo "ERROR: Den Web build failed. Last 80 lines:" >&2
+  tail -n 80 /tmp/den-web-build.log >&2
+  exit 1
+fi
+
 echo "==> Starting Den Web on :$DEN_WEB_PORT..."
 pkill -f "next dev --hostname 0.0.0.0 --port $DEN_WEB_PORT" >/dev/null 2>&1 || true
+pkill -f "next start --hostname 0.0.0.0 --port $DEN_WEB_PORT" >/dev/null 2>&1 || true
 nohup env \
   DEN_WEB_PORT="$DEN_WEB_PORT" \
   DEN_API_BASE="$DEN_API_BASE" \
@@ -245,18 +264,9 @@ nohup env \
   DEN_ORG_MODE="$DEN_ORG_MODE" \
   OPENWORK_DEV_MODE="$OPENWORK_DEV_MODE" \
   DEN_WEB_ALLOWED_DEV_ORIGINS="$DEN_WEB_ALLOWED_DEV_ORIGINS" \
-  pnpm --filter @openwork-ee/den-web exec next dev --hostname 0.0.0.0 --port "$DEN_WEB_PORT" > /tmp/den-web.log 2>&1 &
+  pnpm --filter @openwork-ee/den-web exec next start --hostname 0.0.0.0 --port "$DEN_WEB_PORT" > /tmp/den-web.log 2>&1 &
 
 wait_for_http "http://127.0.0.1:$DEN_WEB_PORT/api/den/health" "Den Web" 180
-
-echo "==> Prewarming Den Web routes and chunks..."
-for route in / /join-org /install; do
-  PREWARM_HTML="$(curl -sf "http://127.0.0.1:$DEN_WEB_PORT$route" 2>/dev/null || true)"
-  printf '%s' "$PREWARM_HTML" | grep -o 'src="/_next/[^"]*"' | cut -d'"' -f2 | sort -u | while read -r chunk; do
-    [ -n "$chunk" ] && curl -sf "http://127.0.0.1:$DEN_WEB_PORT$chunk" -o /dev/null || true
-  done
-done
-echo "==> Den Web prewarm done"
 
 cat > .openwork-daytona/server-env <<EOF
 DEN_API_URL=$DEN_API_PUBLIC_URL
