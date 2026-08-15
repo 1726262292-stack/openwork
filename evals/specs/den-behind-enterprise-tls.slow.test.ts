@@ -129,7 +129,15 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 1_200_000 }, async
         profileDir,
         bootstrap: { baseUrl: edge.candidateUrl, apiBaseUrl: `${edge.candidateUrl}/api/den`, requireSignin: false },
       });
-      await evalIn(rawApp, `localStorage.setItem(${JSON.stringify(PROFILE_MARKER)}, "present")`);
+      const seededWorkspaceNames = await evalIn(
+        rawApp,
+        `window.__OPENWORK_ELECTRON__.invokeDesktop("workspaceCreate", {
+          folderPath: ${JSON.stringify(`${profileDir}/continuity-workspace`)},
+          name: ${JSON.stringify(PROFILE_MARKER)}
+        }).then((state) => state.workspaces.map((workspace) => workspace.displayName))`,
+        { awaitPromise: true },
+      );
+      expect(seededWorkspaceNames).toContain(PROFILE_MARKER);
       await waitFor(
         rawApp,
         "Boolean(window.__openworkControl?.listActions?.().some((action) => action.id === 'auth.exchange-grant'))",
@@ -181,7 +189,13 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 1_200_000 }, async
         host: desktopHost,
         profileDir,
       });
-      expect(await evalIn(trustedApp, `localStorage.getItem(${JSON.stringify(PROFILE_MARKER)})`)).toBe("present");
+      const recoveredWorkspaceNames = await evalIn(
+        trustedApp,
+        `window.__OPENWORK_ELECTRON__.invokeDesktop("workspaceBootstrap")
+          .then((state) => state.workspaces.map((workspace) => workspace.displayName))`,
+        { awaitPromise: true },
+      );
+      expect(recoveredWorkspaceNames).toContain(PROFILE_MARKER);
 
       const denState = await readDenClientState(trustedApp);
       expect(denState.authTokenPresent).toBe(true);
