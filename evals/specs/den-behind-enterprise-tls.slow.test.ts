@@ -66,7 +66,7 @@ function edgeRequests(value: string): EdgeRequest[] {
 }
 
 function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'"'"'`)}`;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 function remote(sandbox: string, command: string): string[] {
