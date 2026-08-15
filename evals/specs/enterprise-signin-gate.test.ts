@@ -14,6 +14,20 @@ const gateSource = readFileSync(
   )),
   "utf8",
 );
+const installGuideSource = readFileSync(
+  fileURLToPath(new URL(
+    "../../ee/apps/den-web/app/(den)/_components/install-screen.tsx",
+    import.meta.url,
+  )),
+  "utf8",
+);
+const workspaceClaimSource = readFileSync(
+  fileURLToPath(new URL(
+    "../../ee/apps/den-web/app/(den)/_components/workspace-claim-screen.tsx",
+    import.meta.url,
+  )),
+  "utf8",
+);
 
 test("the enterprise gate is a sign-in door with a server field, not a waiting wall", async ({ evidence }) => {
   // Frame 1: no activation wall — the first screen asks for the organization
@@ -81,6 +95,65 @@ test("the enterprise gate is a sign-in door with a server field, not a waiting w
   evidence.fact(
     "Sign-in is the single gate and the lockdown posture is unchanged",
     "Enterprise still requires sign-in and activation; the first successful sign-in stamps activation automatically, and arbitrary IPC remains blocked before it.",
+    true,
+  );
+});
+
+test("enterprise onboarding is workspace-address-first with a silent paste recovery", async ({ evidence }) => {
+  // The blank-slate desktop asks one question: the workspace address. There is
+  // no second method, no link vocabulary, and no sign-in-code concept.
+  expect(gateSource).toContain("Link this app to your organization");
+  expect(gateSource).toContain("Enter your workspace address — the page where you downloaded this app. Sign-in finishes in your browser and returns here.");
+  expect(gateSource).toContain("{pendingConfirmation ? null : (");
+  expect(gateSource).not.toContain("OpenWork link");
+  expect(gateSource).not.toContain("enterprise-openwork-link-connect");
+  expect(gateSource).not.toContain("enterprise-connection-method-toggle");
+  expect(gateSource).not.toContain("manualAuthOpen");
+  expect(gateSource).not.toMatch(/(?:paste|hide) sign-in code/i);
+  expect(gateSource).not.toContain("Sign-in link or one-time code");
+
+  evidence.fact(
+    "The enterprise blank slate asks only for the workspace address",
+    "The gate shows a single workspace-address form with Continue; there is no link field, method toggle, or sign-in-code terminology.",
+    true,
+  );
+
+  // The install guide's connect step hands the user the exact address to type,
+  // and the workspace-claim page still copies the complete OpenWork URL for the
+  // desktop's silent paste recovery.
+  expect(installGuideSource).toContain('data-testid="install-workspace-address"');
+  expect(installGuideSource).toContain("In the app, enter your workspace address:");
+  expect(installGuideSource).not.toContain("Copy OpenWork link");
+  expect(workspaceClaimSource).toContain("const openworkUrl = await createDesktopHandoff();");
+  expect(workspaceClaimSource).toContain("await navigator.clipboard.writeText(openworkUrl);");
+  expect(workspaceClaimSource).not.toMatch(/sign-in code/i);
+  expect(workspaceClaimSource).not.toContain("getDesktopGrant");
+
+  const authenticatedGuide = installGuideSource.slice(installGuideSource.indexOf("const installerFile"));
+  expect(authenticatedGuide).not.toMatch(/activation link/i);
+  expect(installGuideSource).toContain('title: "macOS confirms apps downloaded from the internet"');
+  expect(installGuideSource).toContain('title: "Windows may warn before it opens the installer"');
+  expect(installGuideSource).toContain('"Make the downloaded AppImage executable."');
+
+  evidence.fact(
+    "The guide hands over the workspace address, not a credential",
+    "The install guide's connect step shows the exact workspace address to type, keeps macOS, Windows, and Linux install guidance, avoids activation-link language, and the workspace-claim page still copies a complete OpenWork URL.",
+    true,
+  );
+
+  // The single address field silently accepts a pasted openwork:// URL, and a
+  // pasted URL still reaches the explicit origin confirmation before its
+  // one-time grant is exchanged.
+  expect(gateSource).toContain("const pastedLink = parseManualAuthInput(serverInput);");
+  expect(gateSource).toContain('setPendingConfirmation({ kind: "manual", baseUrl: linkBaseUrl, grant: pastedLink.grant })');
+  expect(gateSource).toContain('data-testid="organization-server-confirm"');
+  expect(gateSource).toMatch(
+    /if \(pending\.kind === "manual"\) \{\s+await exchangeConfirmedGrant\(pending\.grant, pending\.baseUrl\);/,
+  );
+
+  evidence.fact(
+    "Pasted openwork:// URLs recover through the same field with confirmation",
+    "parseManualAuthInput runs on the workspace-address input, and a pasted URL's origin reaches the named confirmation before exchangeHandoffAndSignIn.",
     true,
   );
 });

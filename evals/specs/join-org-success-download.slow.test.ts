@@ -12,7 +12,7 @@ const requirements: NeedsSpec = {
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `join success download skipped — needs: ${missingRequirements.join(", ")}`
-  : "joining a workspace downloads the detected OS installer without opening /install";
+  : "joining a workspace opens the clean authenticated install guide";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -106,103 +106,50 @@ test(title, async ({ evidence, place }) => {
 
   await waitFor(
     browser,
-    `Boolean(document.querySelector('[data-testid="join-org-success"]'))
-      && Boolean(document.querySelector('[data-testid="join-org-get-app"]'))
-      && !(document.querySelector('[data-testid="join-org-get-app"]') instanceof HTMLButtonElement
-        && document.querySelector('[data-testid="join-org-get-app"]').disabled)`,
-    { timeoutMs: 45_000, label: "join success download CTA" },
+    `location.pathname === "/install"
+      && location.search === ""
+      && Boolean(document.querySelector('[data-testid="install-page"]'))
+      && !document.body.textContent?.includes("Loading your install link")`,
+    { timeoutMs: 60_000, label: "clean authenticated install guide after join" },
   );
 
-  const success = await evalIn(browser, `(() => {
-    const cta = document.querySelector('[data-testid="join-org-get-app"]');
-    const openApp = document.querySelector('[data-testid="join-org-open-app"]');
+  const install = await evalIn(browser, `(() => {
+    const resources = performance.getEntriesByType("resource").map((entry) => entry.name);
+    const hrefs = [...document.querySelectorAll("a[href]")].map((anchor) => anchor.href);
     return {
       pathname: location.pathname,
-      cta: (cta?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-      openApp: (openApp?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-      connected: Boolean(document.querySelector('[data-testid="join-org-connected"]')),
+      search: location.search,
+      configLoaded: resources.some((url) => url.includes("/v1/me/install-config")),
+      mintedToken: resources.some((url) => url.includes("/install-links") || url.includes("/v1/install-config?token=")),
+      downloadHref: hrefs.find((href) => href.includes("/v1/me/install/")) || "",
+      clipboardGuide: Boolean(document.querySelector('[data-testid="install-connect-copy"]')),
     };
   })()`);
-  if (!isRecord(success) || typeof success.pathname !== "string" || typeof success.cta !== "string" || typeof success.openApp !== "string") {
-    throw new Error(`Join success facts had an unexpected shape: ${JSON.stringify(success)}`);
+  if (!isRecord(install) || typeof install.pathname !== "string" || typeof install.search !== "string" || typeof install.downloadHref !== "string") {
+    throw new Error(`Authenticated install facts had an unexpected shape: ${JSON.stringify(install)}`);
   }
 
-  expect(success.pathname).not.toBe("/install");
-  expect(success.cta.startsWith("Download for")).toBe(true);
-  expect(success.cta).not.toContain("Get the desktop app");
-  expect(success.openApp).toBe("Already have OpenWork? Open it.");
-  expect(success.connected).toBe(true);
+  expect(install.pathname).toBe("/install");
+  expect(install.search).toBe("");
+  expect(install.configLoaded).toBe(true);
+  expect(install.mintedToken).toBe(false);
+  expect(install.downloadHref).toContain("/v1/me/install/");
+  expect(install.downloadHref).not.toContain("token=");
   evidence.fact(
-    "You're in offers Download for this computer instead of Get the desktop app",
-    `pathname=${success.pathname}; cta=${success.cta}; openApp=${success.openApp}`,
-    success.pathname !== "/install" && success.cta.startsWith("Download for") && success.openApp === "Already have OpenWork? Open it.",
+    "Joining opens clean authenticated installation without minting an installer token",
+    `url=${install.pathname}${install.search}; configLoaded=${String(install.configLoaded)}; download=${install.downloadHref}`,
+    install.pathname === "/install"
+      && install.search === ""
+      && install.configLoaded === true
+      && install.mintedToken === false
+      && install.downloadHref.includes("/v1/me/install/")
+      && !install.downloadHref.includes("token="),
   );
 
-  {
-    const shot = await screenshot(browser);
-    const seen = await validate(shot, [
-      "The heading says You're in",
-      "The primary button starts with Download for",
-      "A secondary action says Already have OpenWork? Open it.",
-      "The page does not say Get the desktop app",
-    ]);
-    expect(seen.ok, seen.why).toBe(true);
-  }
-
-  await evalIn(browser, `(() => {
-    const hrefs = [];
-    window.__joinInstallerHrefs = hrefs;
-    const original = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function patchedInstallerClick() {
-      const href = this.getAttribute("href") || this.href || "";
-      if (href.includes("/v1/install/")) {
-        hrefs.push(href);
-        return;
-      }
-      return original.call(this);
-    };
-    return true;
-  })()`);
-
-  const startedDownload = await evalIn(browser, `(() => {
-    const button = document.querySelector('[data-testid="join-org-get-app"]');
-    if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
-    button.scrollIntoView({ block: "center" });
-    button.click();
-    return true;
-  })()`);
-  expect(startedDownload).toBe(true);
-
-  const downloadHref = await waitFor(
-    browser,
-    `document.querySelector('[data-testid="join-org-get-app"]')?.getAttribute("data-download-href") || ""`,
-    { timeoutMs: 30_000, label: "org-served installer href on the join CTA" },
-  );
-  if (typeof downloadHref !== "string" || downloadHref.length === 0) {
-    throw new Error(`Join success did not write an installer href: ${JSON.stringify(downloadHref)}`);
-  }
-
-  const afterDownload = await evalIn(browser, `({
-    pathname: location.pathname,
-    captured: Array.isArray(window.__joinInstallerHrefs) ? window.__joinInstallerHrefs.slice() : [],
-  })`);
-  if (!isRecord(afterDownload) || typeof afterDownload.pathname !== "string" || !Array.isArray(afterDownload.captured)) {
-    throw new Error(`Download facts had an unexpected shape: ${JSON.stringify(afterDownload)}`);
-  }
-  const capturedHref = afterDownload.captured.find((entry) => typeof entry === "string") ?? "";
-
-  expect(afterDownload.pathname).not.toBe("/install");
-  expect(downloadHref).toContain("/v1/install/");
-  expect(downloadHref).toContain("token=");
-  expect(downloadHref.includes("/install?")).toBe(false);
-  expect(capturedHref).toBe(downloadHref);
-  evidence.fact(
-    "The join CTA starts the org-served installer and stays on You're in",
-    `pathname=${afterDownload.pathname}; href=${downloadHref}`,
-    afterDownload.pathname !== "/install"
-      && downloadHref.includes("/v1/install/")
-      && downloadHref.includes("token=")
-      && !downloadHref.includes("/install?")
-      && capturedHref === downloadHref,
-  );
+  const shot = await screenshot(browser);
+  const seen = await validate(shot, [
+    "The page is an OpenWork download or install guide",
+    "The page offers downloads for desktop computers",
+  ]);
+  expect(seen.ok, seen.why).toBe(true);
 });

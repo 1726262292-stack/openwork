@@ -1179,7 +1179,13 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     setAuthBusy(true);
     setAuthError(null);
     setSignupPasswordFeedback([]);
-    const submitMode: AuthMode = isSingleOrgMode && !runtimeConfig.singleOrgAllowPublicSignup && authMode === "sign-up" ? "sign-in" : authMode;
+    const pendingInvitationId = getPendingOrgInvitationId();
+    const submitMode: AuthMode = isSingleOrgMode
+      && !runtimeConfig.singleOrgAllowPublicSignup
+      && authMode === "sign-up"
+      && !pendingInvitationId
+      ? "sign-in"
+      : authMode;
     trackPosthogEvent("den_auth_submitted", {
       mode: submitMode,
       method: "email"
@@ -1190,7 +1196,6 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       if (trimmedEmail && await redirectToRequiredSso(trimmedEmail)) {
         return null;
       }
-      const pendingInvitationId = getPendingOrgInvitationId();
       const endpoint = submitMode === "sign-up" && pendingInvitationId
         ? `/api/auth/sign-up/email?invite=${encodeURIComponent(pendingInvitationId)}`
         : submitMode === "sign-up"
@@ -1202,6 +1207,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
               name: authName.trim() || DEFAULT_AUTH_NAME,
               email: trimmedEmail,
               password,
+              invite: pendingInvitationId ?? undefined,
             }
           : {
               email: trimmedEmail,

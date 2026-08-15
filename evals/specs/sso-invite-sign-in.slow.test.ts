@@ -120,6 +120,8 @@ test.skipIf(!localPlacement || !mysqlOpen)(title, async ({ evidence, place }) =>
 
   const inviteScreen: unknown = JSON.parse(String(await evalIn(browser, `(() => {
     const scope = document.querySelector('[data-testid="join-org-auth"]');
+    const ssoButton = [...document.querySelectorAll("button")]
+      .find((candidate) => /sign in with sso/i.test(candidate.textContent ?? ""));
     const text = document.body.innerText;
     return JSON.stringify({
       offersSso: /sign in with sso/i.test(text),
@@ -127,16 +129,22 @@ test.skipIf(!localPlacement || !mysqlOpen)(title, async ({ evidence, place }) =>
       showsTheInvitedEmail: text.includes(${JSON.stringify(invitee)}),
       asksForAPassword: Boolean(scope?.querySelector('input[type="password"]')),
       stillCheckingSignInMethod: /checking the workspace sign-in method/i.test(text),
+      authIntroHidden: !scope?.querySelector("h2, .den-eyebrow, .den-copy"),
+      usesPickerBackground: Boolean(document.querySelector('[data-testid="join-org-background"][data-shader-speed]')),
+      buttonRadius: ssoButton ? getComputedStyle(ssoButton).borderRadius : "",
       text: text.replace(/\\s+/g, " ").slice(0, 240),
     });
   })()`)));
   expect(readBooleanField(inviteScreen, "offersSso")).toBe(true);
-  expect(readBooleanField(inviteScreen, "saysTheOrganizationManagesIt")).toBe(true);
+  expect(readBooleanField(inviteScreen, "saysTheOrganizationManagesIt")).toBe(false);
   expect(readBooleanField(inviteScreen, "showsTheInvitedEmail")).toBe(true);
   expect(readBooleanField(inviteScreen, "asksForAPassword")).toBe(false);
   expect(readBooleanField(inviteScreen, "stillCheckingSignInMethod")).toBe(false);
+  expect(readBooleanField(inviteScreen, "authIntroHidden")).toBe(true);
+  expect(readBooleanField(inviteScreen, "usesPickerBackground")).toBe(true);
+  expect(readStringField(inviteScreen, "buttonRadius")).toBe("12px");
   evidence.fact(
-    "An invited person governed by SSO is offered their identity provider, never a password",
+    "The quiet invite shell keeps only the invited identity and required SSO action",
     `The invite screen rendered: ${readStringField(inviteScreen, "text")}`,
     true,
   );
