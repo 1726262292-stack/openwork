@@ -54,6 +54,9 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.sha }}
+          # Alpha versions are computed from the latest stable v* tag
+          # (package.json holds a permanent 0.0.0-dev placeholder).
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -95,43 +98,23 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          node <<'NODE' >> "$GITHUB_OUTPUT"
-          const fs = require("node:fs");
-          const path = "apps/desktop/package.json";
-          const raw = JSON.parse(fs.readFileSync(path, "utf8"));
-          const current = String(raw.version || "").trim();
-          const match = current.match(/^(\d+)\.(\d+)\.(\d+)(?:-.+)?$/);
-          if (!match) {
-            throw new Error(`Unsupported version in ${path}: ${current}`);
-          }
-          const [, major, minor, patch] = match;
-          // Alpha builds advertise the *next* patch version so semver
-          // comparison makes the alpha newer than the current stable
-          // (e.g. stable 0.11.207 < alpha 0.11.208-alpha.<run>). Once
-          // stable 0.11.208 ships, its semver beats the alpha prerelease
-          // tag and alpha users cleanly migrate forward.
-          const nextPatch = Number(patch) + 1;
-          const run = process.env.GITHUB_RUN_NUMBER || "0";
-          const sha = (process.env.GITHUB_SHA || "").slice(0, 7) || "local";
-          const alpha = `${major}.${minor}.${nextPatch}-alpha.${run}+${sha}`;
-          console.log(`alpha_version=${alpha}`);
-          console.log(`base_version=${major}.${minor}.${nextPatch}`);
-          NODE
+          # Alpha builds advertise the *next* patch after the latest stable
+          # tag so semver comparison makes the alpha newer than the current
+          # stable (e.g. stable 0.11.207 < alpha 0.11.208-alpha.<run>). Once
+          # stable 0.11.208 ships, its semver beats the alpha prerelease tag
+          # and alpha users cleanly migrate forward. Tags are the version
+          # source of truth — package.json is a permanent placeholder.
+          base="$(node scripts/release/versions.mjs next --bump patch)"
+          run="${GITHUB_RUN_NUMBER:-0}"
+          sha="$(printf '%.7s' "${GITHUB_SHA:-local}")"
+          echo "alpha_version=${base}-alpha.${run}+${sha}" >> "$GITHUB_OUTPUT"
+          echo "base_version=${base}" >> "$GITHUB_OUTPUT"
 
       - name: Write alpha Electron package version
         shell: bash
         env:
           ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const fs = require("node:fs");
-          for (const path of ["apps/desktop/package.json", "apps/app/package.json"]) {
-            const json = JSON.parse(fs.readFileSync(path, "utf8"));
-            json.version = process.env.ALPHA_VERSION;
-            fs.writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`);
-          }
-          NODE
+        run: node scripts/release/stamp-version.mjs --version "$ALPHA_VERSION"
 
       - name: Write notary API key
         if: env.MACOS_NOTARIZE == 'true'

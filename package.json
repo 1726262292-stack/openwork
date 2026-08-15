@@ -65,16 +65,10 @@
     "evals:spec": "pnpm --dir evals run spec",
     "evals:spec:stack": "pnpm --dir evals run spec:stack",
     "owt": "node evals/runner/run-owt.mjs",
-    "bump:patch": "pnpm --filter @openwork/app bump:patch",
-    "bump:minor": "pnpm --filter @openwork/app bump:minor",
-    "bump:major": "pnpm --filter @openwork/app bump:major",
-    "bump:set": "pnpm --filter @openwork/app bump:set",
     "release:review": "node scripts/release/review.mjs",
-    "release:prepare": "node scripts/release/prepare.mjs",
-    "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",
     "release:rollback": "node scripts/release/rollback.mjs",
-    "release:ship": "node scripts/release/ship.mjs",
-    "release:ship:watch": "node scripts/release/ship.mjs --watch"
+    "release:cut": "node scripts/release/cut.mjs",
+    "release:cut:watch": "node scripts/release/cut.mjs --watch"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -146,6 +146,9 @@ jobs:
       - name: Run desktop unit tests
         run: pnpm --filter @openwork/desktop test
 
+      - name: Run release script tests
+        run: node --test scripts/release/*.test.mjs
+
       - name: Run eval runner unit tests
         run: pnpm test:eval-runner
 

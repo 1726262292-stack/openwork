@@ -6,8 +6,21 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Cut a fresh release: bump from the highest v* tag and tag origin/dev HEAD"
+        required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      version:
+        description: "Explicit version for a fresh release (X.Y.Z, overrides bump)"
+        required: false
+        type: string
       tag:
-        description: "Tag to release (e.g., v0.1.2). Leave empty to use current ref."
+        description: "Existing tag to re-run for recovery (e.g., v0.1.2). Skips tag creation."
         required: false
         type: string
       release_name:
@@ -19,10 +32,10 @@ on:
         required: false
         type: string
       draft:
-        description: "Create the GitHub Release as a draft"
+        description: "Create the GitHub Release as a draft until assets are ready (publish-release flips it public)"
         required: false
         type: boolean
-        default: false
+        default: true
       prerelease:
         description: "Mark the GitHub Release as a prerelease"
         required: false
@@ -57,10 +70,11 @@ on:
 permissions:
   actions: read
   contents: write
-  pull-requests: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Tag pushes dedupe per tag ref; dispatches keyed on the recovery tag or the
+  # run id so cutting a fresh release never cancels another in-flight release.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || inputs.tag || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -69,6 +83,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+      release_mode: ${{ steps.tag.outputs.release_mode }}
       release_name: ${{ steps.resolve.outputs.release_name }}
       release_body: ${{ steps.resolve.outputs.release_body }}
       draft: ${{ steps.resolve.outputs.draft }}
@@ -79,11 +95,79 @@ jobs:
       publish_npm: ${{ steps.resolve.outputs.publish_npm }}
       publish_daytona_snapshot: ${{ steps.resolve.outputs.publish_daytona_snapshot }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Tag resolution compares against every v* tag, and fresh dispatch
+          # releases tag origin/dev HEAD — both need full history + tags.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_BUMP: ${{ github.event.inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            # Manual tag-first push (admin expedited path). The tag already
+            # exists; the Expedited Release Audit workflow covers tags whose
+            # commit is not on dev.
+            TAG="${GITHUB_REF_NAME}"
+            MODE="fresh"
+          elif [ -n "${INPUT_TAG:-}" ]; then
+            TAG="${INPUT_TAG}"
+            if [[ "$TAG" != v* ]]; then
+              TAG="v${TAG}"
+            fi
+            if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              echo "Recovery dispatch requires an existing tag; ${TAG} was not found." >&2
+              exit 1
+            fi
+            MODE="recovery"
+          else
+            # Fresh release with no commits anywhere: versions live only in
+            # git tags, so compute the next one and tag origin/dev HEAD.
+            VERSION="${INPUT_VERSION:-}"
+            if [ -n "$VERSION" ]; then
+              VERSION="${VERSION#v}"
+            else
+              VERSION="$(node scripts/release/versions.mjs next --bump "${INPUT_BUMP:-patch}")"
+            fi
+            TAG="v${VERSION}"
+            MODE="fresh"
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              echo "Tag ${TAG} already exists. Re-run with tag=${TAG} (recovery) instead." >&2
+              exit 1
+            fi
+            git fetch origin dev
+            git tag "$TAG" origin/dev
+            # A GITHUB_TOKEN tag push does not retrigger tag workflows, so
+            # this run continues as THE release run (no double-trigger). The
+            # v* tag ruleset must list GitHub Actions as a bypass actor.
+            if ! git push origin "refs/tags/${TAG}"; then
+              echo "::error::Pushing ${TAG} was rejected by the v* tag ruleset. Add the GitHub Actions principal to its bypass list (Settings → Rules → v* tags), or push the tag manually and rerun." >&2
+              exit 1
+            fi
+            echo "Created ${TAG} at $(git rev-parse "${TAG}^{commit}") (origin/dev HEAD)."
+          fi
+
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_mode=${MODE}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve metadata
         id: resolve
         shell: bash
         env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RESOLVED_TAG: ${{ steps.tag.outputs.release_tag }}
           INPUT_RELEASE_NAME: ${{ github.event.inputs.release_name }}
           INPUT_RELEASE_BODY: ${{ github.event.inputs.release_body }}
           INPUT_DRAFT: ${{ github.event.inputs.draft }}
@@ -101,19 +185,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG_INPUT="${INPUT_TAG:-}"
-          if [ -n "$TAG_INPUT" ]; then
-            if [[ "$TAG_INPUT" == v* ]]; then
-              TAG="$TAG_INPUT"
-            else
-              TAG="v$TAG_INPUT"
-            fi
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
-
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid release tag: $TAG (expected vX.Y.Z)" >&2
+          TAG="${RESOLVED_TAG}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $TAG (expected stable vX.Y.Z)" >&2
             exit 1
           fi
 
@@ -137,15 +211,10 @@ jobs:
               "- Public, Cloud, and enterprise Electron builds use separate updater manifests on this release."
           fi
 
-          draft="${INPUT_DRAFT:-}"
-          if [ -z "$draft" ]; then
-            if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-              # Keep tag-triggered releases out of /releases/latest until assets + latest.json are ready.
-              draft="true"
-            else
-              draft="false"
-            fi
-          fi
+          # A release must never be public while its artifacts are still
+          # building: default to draft for every entry path (tag push AND
+          # fresh dispatch). publish-release flips it public at the end.
+          draft="${INPUT_DRAFT:-true}"
           prerelease="${INPUT_PRERELEASE:-false}"
           notarize="${INPUT_NOTARIZE:-}"
           if [ -z "$notarize" ]; then
@@ -186,6 +255,7 @@ jobs:
           RELEASE_NAME="${RELEASE_NAME//$'\r'/ }"
 
           echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release_version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
@@ -235,6 +305,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_MODE: ${{ needs.resolve-release.outputs.release_mode }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -247,8 +318,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Verify tag matches app versions
-        run: node scripts/release/verify-tag.mjs --tag "$RELEASE_TAG"
+      - name: Verify release tag
+        run: node scripts/release/verify-tag.mjs --tag "$RELEASE_TAG" --mode "$RELEASE_MODE"
 
       - name: Release review (strict)
         run: node scripts/release/review.mjs --strict
@@ -261,6 +332,7 @@ jobs:
     timeout-minutes: 120
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.resolve-release.outputs.release_version }}
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
       SIGN_WINDOWS: ${{ needs.resolve-release.outputs.sign_windows }}
       OPENWORK_DESKTOP_SENTRY_DSN: ${{ secrets.OPENWORK_DESKTOP_SENTRY_DSN || vars.OPENWORK_DESKTOP_SENTRY_DSN }}
@@ -419,9 +491,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Recovery dispatches build from the workflow ref so release fixes can
-          # complete an existing draft without moving its published tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          # Source is always pinned to the tag. Recovery reruns pick up
+          # workflow-file fixes from the dispatched ref automatically (the
+          # workflow definition runs from github.ref), while the shipped code
+          # stays exactly what the tag names.
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Enable git long paths (Windows)
@@ -461,6 +535,21 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The repo commits a permanent 0.0.0-dev placeholder; the release
+      # version exists only as the git tag. Stamp it into the workspace so
+      # electron-builder, app.getVersion(), and the Vite bundle carry it.
+      # Pre-redesign tags carry real committed versions and no stamp script —
+      # skipping is exactly the old behavior for them.
+      - name: Stamp release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/release/stamp-version.mjs ]; then
+            node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+          else
+            echo "Pre-redesign tag: committed package.json versions are in effect."
+          fi
 
       - name: Write Electron notary API key (macOS)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -543,6 +632,23 @@ jobs:
             --config ${{ matrix.builder_config }} \
             ${{ matrix.electron_args }} \
             --publish never
+
+      # Belt-and-braces: a broken or skipped stamp would otherwise ship
+      # 0.0.0-dev artifacts silently. Every packaged build must produce at
+      # least one artifact carrying the release version (also holds for
+      # pre-redesign tags — their committed version equals the tag).
+      - name: Assert artifact versions match the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          matches=(apps/desktop/dist-electron/*"$RELEASE_VERSION"*)
+          if [ ${#matches[@]} -eq 0 ]; then
+            echo "No packaged artifact carries version $RELEASE_VERSION — version stamping failed?" >&2
+            ls apps/desktop/dist-electron >&2 || true
+            exit 1
+          fi
+          printf 'Version-checked artifact: %s\n' "${matches[@]}"
 
       - name: Use unsigned Windows installer fallback
         if: matrix.os_type == 'windows' && env.SIGN_WINDOWS != 'true'
@@ -634,7 +740,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup pnpm
@@ -768,9 +874,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # release asset publishing can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -800,13 +904,12 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.resolve-release.outputs.release_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # npm release automation can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -842,17 +945,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Resolve package versions
-        id: package-versions
+      # openwork-server publishes with the tag-derived version; the committed
+      # package.json holds the permanent 0.0.0-dev placeholder. Pre-redesign
+      # tags carry real committed versions and no stamp script.
+      - name: Stamp release version
         shell: bash
         run: |
-          node -e "const fs=require('fs'); const server=JSON.parse(fs.readFileSync('apps/server/package.json','utf8')); console.log('server=' + server.version);" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -f scripts/release/stamp-version.mjs ]; then
+            node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+          else
+            echo "Pre-redesign tag: committed package.json versions are in effect."
+          fi
 
       - name: Check npm versions
         id: npm-versions
         shell: bash
         env:
-          SERVER_VERSION: ${{ steps.package-versions.outputs.server }}
+          SERVER_VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           set -euo pipefail
           # npm view exits non-zero for packages that don't exist yet (404).
@@ -922,7 +1032,7 @@ jobs:
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
-      contents: write
+      contents: read
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
     steps:
@@ -932,66 +1042,15 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      - name: Update AUR packaging files
-        run: scripts/aur/update-aur.sh "$RELEASE_TAG"
-
-      - name: Open packaging update PR
-        id: aur-packaging-pr
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          if ! git status --porcelain -- packaging/aur/PKGBUILD packaging/aur/.SRCINFO | grep -q .; then
-            echo "AUR packaging already up to date in dev."
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          version="${RELEASE_TAG#v}"
-          branch="automation/aur-${version}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          git add packaging/aur/PKGBUILD packaging/aur/.SRCINFO
-          git -c user.name="OpenWork Release Bot" \
-              -c user.email="release-bot@users.noreply.github.com" \
-              commit -m "chore(aur): update PKGBUILD for ${version}"
-          git push origin "HEAD:${branch}"
-
-          body_file="$RUNNER_TEMP/aur-pr-body.md"
-          cat > "$body_file" <<EOF
-          Updates AUR packaging files for ${RELEASE_TAG}.
-
-          This PR is opened by the release workflow instead of pushing directly
-          to dev because dev requires PR review, signed protected-branch commits,
-          linear history, resolved conversations, and no bypasses.
-
-          After this PR is reviewed and squash/rebase-merged, rerun the Release
-          App workflow with tag=${RELEASE_TAG} so the AUR publish step can run.
-          EOF
-
-          pr_url="$(gh pr create \
-            --repo "$GITHUB_REPOSITORY" \
-            --base dev \
-            --head "$branch" \
-            --title "chore(aur): update PKGBUILD for ${version}" \
-            --body-file "$body_file")"
-
-          echo "created=true" >> "$GITHUB_OUTPUT"
-          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
-          {
-            echo "### AUR packaging PR opened"
-            echo
-            echo "$pr_url"
-            echo
-            echo "Merge this PR through the protected-branch review flow, then rerun Release App with tag=${RELEASE_TAG}."
-          } >> "$GITHUB_STEP_SUMMARY"
-
+      # packaging/aur holds a version-agnostic template (pkgver=0.0.0).
+      # publish-aur.sh renders the real version + checksums from the published
+      # release assets in the CI workspace and pushes ONLY to the AUR remote —
+      # the commit to aur.archlinux.org is AUR's publish protocol, and nothing
+      # is ever committed to this repo.
       - name: Publish to AUR
-        if: steps.aur-packaging-pr.outputs.created != 'true'
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           AUR_REPO: ${{ vars.AUR_REPO || 'openwork' }}
-          AUR_SKIP_UPDATE: "1"
         run: |
           set -euo pipefail
           if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then

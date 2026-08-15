@@ -14,6 +14,7 @@ import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
 import { mintDesktopConnectLink } from "../../desktop-connect-link.js"
+import { resolveInstallerReleaseTag } from "../../desktop-releases.js"
 import {
   consumeDesktopConnectGrant,
   inspectDesktopConnectGrant,
@@ -246,24 +247,24 @@ function maxAllowedDesktopVersion(versions: string[]) {
   return maxVersion
 }
 
-function installerReleaseTagForMetadata(metadataInput: unknown) {
+async function installerReleaseTagForMetadata(metadataInput: unknown) {
   const metadata = normalizeOrganizationMetadata(organizationMetadataInput(metadataInput)).metadata
   const allowedVersions = metadata.allowedDesktopVersions
   if (!allowedVersions?.length) {
-    return env.installerReleaseTag
+    return resolveInstallerReleaseTag()
   }
 
   const maxVersion = maxAllowedDesktopVersion(allowedVersions)
-  return maxVersion ? `v${maxVersion}` : env.installerReleaseTag
+  return maxVersion ? `v${maxVersion}` : resolveInstallerReleaseTag()
 }
 
-function resolveInstallConfigForOrganization(input: {
+async function resolveInstallConfigForOrganization(input: {
   organization: { name: string; logo: string | null; metadata: unknown }
   request: Request
 }) {
   return {
     config: buildInstallConfig(input),
-    installerReleaseTag: installerReleaseTagForMetadata(input.organization.metadata),
+    installerReleaseTag: await installerReleaseTagForMetadata(input.organization.metadata),
   }
 }
 
@@ -288,7 +289,7 @@ async function resolveInstallConfigForToken(token: string, request: Request) {
   }
 
   return {
-    ...resolveInstallConfigForOrganization({ organization: row.organization, request }),
+    ...await resolveInstallConfigForOrganization({ organization: row.organization, request }),
     installLinkId: row.installLink.id,
     organizationSlug: row.organization.slug,
   }
@@ -420,9 +421,9 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
       },
     }),
     orgMemberRoute(),
-    (c) => {
+    async (c) => {
       const payload = c.get("organizationContext")
-      const resolved = resolveInstallConfigForOrganization({
+      const resolved = await resolveInstallConfigForOrganization({
         organization: payload.organization,
         request: c.req.raw,
       })
@@ -467,7 +468,7 @@ export function registerOrgInstallLinkRoutes<T extends { Variables: OrgRouteVari
         c,
         installer,
         platformResult.data.platform,
-        installerReleaseTagForMetadata(payload.organization.metadata),
+        await installerReleaseTagForMetadata(payload.organization.metadata),
       )
     },
   )
