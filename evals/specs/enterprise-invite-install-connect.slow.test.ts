@@ -7,7 +7,7 @@ import { expect } from "vitest";
 import { denFetch, evalIn, signIn, waitFor } from "@openwork/behaviors";
 import { attachSurface, navigate } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/fraimz";
-import { chrome } from "@openwork/hosts";
+import { chrome, localHost } from "@openwork/hosts";
 import { startEgressLab } from "@openwork/labs";
 import { needs, server, test, unmetNeeds } from "@openwork/testkit";
 import { resolveSystemCaEnv } from "../../apps/desktop/electron/runtime.mjs";
@@ -165,7 +165,6 @@ test(title, async ({ evidence, place }) => {
     name: "enterprise-invite-install-connect",
     startUrl: webOrigin,
     headless: true,
-    host: place.host(),
   });
   await browser.client.send("Emulation.setDeviceMetricsOverride", {
     width: 1280,
@@ -370,7 +369,9 @@ test(title, async ({ evidence, place }) => {
     throw new Error(`Desktop handoff mint failed: HTTP ${handoff.response.status} ${handoff.text.slice(0, 400)}`);
   }
 
-  const host = place.host();
+  const placedHost = place.host();
+  await using localElectronHost = placedHost ? undefined : localHost();
+  const host = placedHost ?? localElectronHost;
   const handle = await host.spawnElectron("enterprise-invite-connect", {
     profile: "fresh",
     env: { OPENWORK_DESKTOP_DISTRIBUTION: "enterprise" },
