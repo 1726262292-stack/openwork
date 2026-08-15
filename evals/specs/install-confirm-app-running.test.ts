@@ -43,7 +43,7 @@ test("the enterprise install guide confirms the app is running in its own step",
   expect(confirmStep).toContain('data-testid="install-connect-open"');
   expect(confirmStep).toContain('data-testid="install-running-checklist"');
   expect(confirmStep).toContain("is installed and open on this computer.");
-  expect(confirmStep).toContain("It is waiting on its activation screen.");
+  expect(confirmStep).toContain("Its sign-in screen is open and ready for your organization server.");
   expect(openStep).not.toContain('data-testid="install-connect-open"');
   expect(openStep).toContain('data-testid="install-app-ready"');
   expect(openStep).toContain("advanceGuide(CONFIRM_RUNNING_STEP)");
