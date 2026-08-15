@@ -164,20 +164,44 @@ async function readSnapshots({ apiUrl, apiKey, fetchImpl }) {
 
 async function readSandboxes({ apiUrl, apiKey, fetchImpl }) {
   const sandboxes = []
-  for (let page = 1; ; page += 1) {
+  let nextCursor = ""
+  for (let page = 1; page <= 100; page += 1) {
+    const pagination = nextCursor
+      ? `&cursor=${encodeURIComponent(nextCursor)}`
+      : page > 1
+        ? `&page=${page}`
+        : ""
     const response = await fetchImpl(
-      `${apiUrl}/sandbox?limit=${PAGE_LIMIT}&page=${page}`,
+      `${apiUrl}/sandbox?limit=${PAGE_LIMIT}${pagination}`,
       { method: "GET", headers: authorizationHeaders(apiKey) },
     )
     const parsed = await responseJson(response, "sandboxes")
-    if (!Array.isArray(parsed)) {
-      throw new Error("Daytona API sandbox response was not an array.")
+    if (Array.isArray(parsed)) {
+      sandboxes.push(...parsed)
+      if (parsed.length < PAGE_LIMIT) {
+        return sandboxes
+      }
+      continue
     }
-    sandboxes.push(...parsed)
-    if (parsed.length < PAGE_LIMIT) {
+
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      !Array.isArray(parsed.items)
+    ) {
+      throw new Error("Daytona API sandbox response did not contain a sandbox list.")
+    }
+    sandboxes.push(...parsed.items)
+    nextCursor =
+      typeof parsed.nextCursor === "string" && parsed.nextCursor.length > 0
+        ? parsed.nextCursor
+        : ""
+    if (!nextCursor) {
       return sandboxes
     }
   }
+
+  throw new Error("Daytona API sandbox pagination exceeded 100 pages.")
 }
 
 export async function pruneDaytonaDevSnapshots({

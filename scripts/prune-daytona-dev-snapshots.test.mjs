@@ -144,22 +144,31 @@ test("pagination protects newest snapshots and reads all sandbox pages", async (
   const calls = []
   const fetchImpl = async (url, options) => {
     calls.push({ url, options })
-    const page = Number(new URL(url).searchParams.get("page"))
     if (url.includes("/snapshots?")) {
+      const page = Number(new URL(url).searchParams.get("page"))
       return jsonResponse({
         items: page === 1 ? firstPage : [newest],
         total: 201,
       })
     }
     if (url.includes("/sandbox?")) {
+      const cursor = new URL(url).searchParams.get("cursor")
       return jsonResponse(
-        page === 1
-          ? Array.from({ length: 200 }, (_, index) => ({
-              id: `sandbox-${index}`,
-              state: "stopped",
-              snapshot: null,
-            }))
-          : [{ id: "active", state: "started", snapshot: firstPage[0].name }],
+        cursor
+          ? {
+              items: [
+                { id: "active", state: "started", snapshot: firstPage[0].name },
+              ],
+              nextCursor: null,
+            }
+          : {
+              items: Array.from({ length: 200 }, (_, index) => ({
+                id: `sandbox-${index}`,
+                state: "stopped",
+                snapshot: null,
+              })),
+              nextCursor: "cursor-2",
+            },
       )
     }
     return jsonResponse({})
@@ -179,7 +188,10 @@ test("pagination protects newest snapshots and reads all sandbox pages", async (
   assert.equal(calls.some((call) => call.url.includes("/snapshots/newest")), false)
   assert.equal(calls.some((call) => call.url.includes("/snapshots/old-0")), false)
   assert.equal(calls.some((call) => call.url.endsWith("/snapshots/old-1")), true)
-  assert.equal(calls.filter((call) => call.url.includes("/sandbox?")).length, 2)
+  const sandboxCalls = calls.filter((call) => call.url.includes("/sandbox?"))
+  assert.equal(sandboxCalls.length, 2)
+  assert.equal(sandboxCalls[1].url.includes("cursor=cursor-2"), true)
+  assert.equal(sandboxCalls[1].url.includes("page="), false)
 })
 
 test("a failed DELETE does not prevent later deletes and rejects with the result", async () => {
