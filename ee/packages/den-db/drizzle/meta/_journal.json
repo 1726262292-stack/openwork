@@ -463,6 +463,20 @@
       "when": 1786661029943,
       "tag": "0066_lying_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "5",
+      "when": 1786803358248,
+      "tag": "0067_loving_the_santerians",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "5",
+      "when": 1786805740962,
+      "tag": "0068_glamorous_virginia_dare",
+      "breakpoints": true
     }
   ]
 }

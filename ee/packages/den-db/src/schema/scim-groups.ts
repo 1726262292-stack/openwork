@@ -25,6 +25,8 @@ export const ScimGroupMemberTable = mysqlTable(
   {
     id: denTypeIdColumn("scimGroupMember", "id").notNull().primaryKey(),
     groupId: denTypeIdColumn("scimGroup", "group_id").notNull(),
+    organizationId: denTypeIdColumn("organization", "organization_id"),
+    providerId: varchar("provider_id", { length: 255 }),
     remoteUserId: varchar("remote_user_id", { length: 191 }).notNull(),
     userId: denTypeIdColumn("user", "user_id"),
     orgMembershipId: denTypeIdColumn("member", "org_membership_id"),
@@ -37,6 +39,7 @@ export const ScimGroupMemberTable = mysqlTable(
     index("scim_group_member_user_id").on(table.userId),
     index("scim_group_member_org_membership_id").on(table.orgMembershipId),
     index("scim_group_member_team_member_id").on(table.teamMemberId),
+    index("scim_group_member_provider_org").on(table.providerId, table.organizationId),
   ],
 )
 
@@ -57,3 +60,7 @@ export const ScimUserTombstoneTable = mysqlTable(
     index("scim_user_tombstone_org_email").on(table.organizationId, table.email),
   ],
 )
+
+// Lowercase aliases match the better-auth SCIM model names.
+export const scimGroup = ScimGroupTable
+export const scimGroupMember = ScimGroupMemberTable
