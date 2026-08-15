@@ -249,6 +249,15 @@ nohup env \
 
 wait_for_http "http://127.0.0.1:$DEN_WEB_PORT/api/den/health" "Den Web" 180
 
+echo "==> Prewarming Den Web routes and chunks..."
+for route in / /join-org /install; do
+  PREWARM_HTML="$(curl -sf "http://127.0.0.1:$DEN_WEB_PORT$route" 2>/dev/null || true)"
+  printf '%s' "$PREWARM_HTML" | grep -o 'src="/_next/[^"]*"' | cut -d'"' -f2 | sort -u | while read -r chunk; do
+    [ -n "$chunk" ] && curl -sf "http://127.0.0.1:$DEN_WEB_PORT$chunk" -o /dev/null || true
+  done
+done
+echo "==> Den Web prewarm done"
+
 cat > .openwork-daytona/server-env <<EOF
 DEN_API_URL=$DEN_API_PUBLIC_URL
 DEN_WEB_URL=$DEN_WEB_PUBLIC_URL
