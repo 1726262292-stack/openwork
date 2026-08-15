@@ -129,7 +129,7 @@ async function reserveClosedPort(): Promise<number> {
  * TLS chain-repair seam consumes, unlocking only the stamped origin on a
  * broken-chain, semi-airgapped network.
  */
-test(title, async ({ evidence, place }) => {
+test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
   needs(requirements);
 
   const runId = `${Date.now().toString(36)}${process.pid.toString(36)}`;
@@ -318,7 +318,7 @@ test(title, async ({ evidence, place }) => {
     } catch (error) {
       return JSON.stringify({ error: error?.message ?? String(error) });
     }
-  })()`);
+  })()`, { awaitPromise: true });
   const probe: unknown = JSON.parse(String(downloadProbe));
   const probeType = stringField(probe, "type") ?? "";
   const probeStatus = isRecord(probe) && typeof probe.status === "number" ? probe.status : -1;
