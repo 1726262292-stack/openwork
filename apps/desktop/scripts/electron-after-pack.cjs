@@ -63,7 +63,9 @@ function verifyRuntimeDependencies(context) {
     throw new Error(`Missing packaged app.asar at ${appAsarPath || context.appOutDir}`);
   }
   const packagedFiles = new Set(
-    asar.listPackage(appAsarPath).map((entry) => normalizeAsarEntryPath(entry, path.sep)),
+    asar
+      .listPackage(appAsarPath, { isPack: false })
+      .map((entry) => normalizeAsarEntryPath(entry, path.sep)),
   );
   const stagedNodeModules = path.resolve(__dirname, "..", ".electron-runtime", "node_modules");
   const packageJsonPaths = [];
