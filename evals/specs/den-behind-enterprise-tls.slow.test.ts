@@ -21,6 +21,7 @@ import {
 import {
   app,
   createDesktopHandoffGrant,
+  eventually,
   needs,
   readDenClientState,
   server,
@@ -220,7 +221,13 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 1_200_000 }, async
       expect(configured).toBe("ok");
 
       const preferredModel = process.env.OPENWORK_EVAL_MODEL?.trim() || "";
-      const models = await readAvailableModels(trustedApp);
+      const models = await eventually(() => readAvailableModels(trustedApp), {
+        within: 60_000,
+        label: "Anthropic model catalog after engine reload",
+        until: (candidates) => candidates.some(
+          (model) => model.selectable && (/anthropic/i.test(model.providerName) || /^claude-/i.test(model.id)),
+        ),
+      });
       const selectable = models.filter((model) => model.selectable);
       const anthropicModels = selectable.filter((model) => /anthropic/i.test(model.providerName) || /^claude-/i.test(model.id));
       const chosen = selectable.find((model) => model.id === preferredModel)
