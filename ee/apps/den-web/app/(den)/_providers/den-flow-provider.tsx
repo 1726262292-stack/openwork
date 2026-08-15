@@ -1250,7 +1250,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
         });
         return null;
       }
-      return await finalizeEmailPasswordSignIn(submitMode, trimmedEmail);
+      return await finalizeEmailPasswordSignIn(submitMode, trimmedEmail, payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown network error";
       setAuthError(message);
