@@ -67,6 +67,13 @@ function certificateMatchesHostname(certificate, hostname) {
   }
 }
 
+/** @param {X509Certificate} certificate */
+function certificateAllowsTlsServerAuthentication(certificate) {
+  return certificate.keyUsage?.some((usage) =>
+    usage === "1.3.6.1.5.5.7.3.1" || /server ?auth/i.test(usage)
+  ) === true;
+}
+
 /**
  * @typedef {Object} ElectronCertificate
  * @property {string} data
@@ -95,6 +102,7 @@ function presentedCertificateChain(certificate) {
 function chainEndsAtTrustedAnchor(certificate, hostname, trustedAnchors) {
   const chain = presentedCertificateChain(certificate);
   if (!chain || chain.length === 0 || chain.some((entry) => !certificateIsCurrent(entry))) return false;
+  if (!certificateAllowsTlsServerAuthentication(chain[0])) return false;
   if (!certificateMatchesHostname(chain[0], hostname)) return false;
   for (let index = 0; index < chain.length - 1; index += 1) {
     if (chain[index + 1].ca !== true) return false;

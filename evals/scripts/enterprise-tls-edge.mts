@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { setTimeout } from "node:timers/promises";
@@ -82,6 +83,11 @@ function close(server: http.Server): Promise<void> {
 }
 
 async function serve(manifestPath: string): Promise<void> {
+  const adminToken = process.env.ENTERPRISE_TLS_ADMIN_TOKEN;
+  if (typeof adminToken !== "string" || !/^[a-f0-9]{32,}$/.test(adminToken)) {
+    throw new Error("ENTERPRISE_TLS_ADMIN_TOKEN must be at least 32 hex characters.");
+  }
+  const expectedAuthorizationHash = createHash("sha256").update(`Bearer ${adminToken}`).digest();
   const candidatePort = portOption("--candidate-port", 8443);
   const negativePort = portOption("--negative-port", 9443);
   const adminPort = portOption("--admin-port", 8445);
@@ -101,6 +107,11 @@ async function serve(manifestPath: string): Promise<void> {
   };
   const admin = http.createServer((request, response) => {
     response.setHeader("content-type", "application/json; charset=utf-8");
+    const receivedAuthorizationHash = createHash("sha256").update(request.headers.authorization ?? "").digest();
+    if (!timingSafeEqual(receivedAuthorizationHash, expectedAuthorizationHash)) {
+      response.writeHead(401).end(`${JSON.stringify({ error: "Unauthorized" })}\n`);
+      return;
+    }
     if (request.url === "/health" || request.url === "/manifest") response.end(`${JSON.stringify({ ok: true, ...manifest })}\n`);
     else if (request.url === "/requests") response.end(`${JSON.stringify(edge.requests)}\n`);
     else response.writeHead(404).end(`${JSON.stringify({ error: "not_found" })}\n`);

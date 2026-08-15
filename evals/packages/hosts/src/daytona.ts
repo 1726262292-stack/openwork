@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -310,6 +311,8 @@ export function enterpriseTlsEdgeDaytonaCommands(options: EnterpriseTlsEdgeDayto
   }
   const script = ENTERPRISE_TLS_RUNTIME_SOURCES[0].remote;
   const log = "/tmp/openwork-enterprise-tls-edge.log";
+  const adminToken = randomBytes(32).toString("hex");
+  if (!/^[a-f0-9]{32,}$/.test(adminToken)) throw new Error("Enterprise TLS admin token must be at least 32 hex characters.");
   const remote = (command: string) => {
     const args = ["exec", sandbox, "--", `bash -lc ${shellQuote(command)}`];
     const commandLength = args.join(" ").length;
@@ -361,12 +364,12 @@ export function enterpriseTlsEdgeDaytonaCommands(options: EnterpriseTlsEdgeDayto
     prepare,
     start: remote([
       `rm -f ${shellQuote(manifestPath)}`,
-      `nohup ${serve} >${shellQuote(log)} 2>&1 </dev/null &`,
+      `ENTERPRISE_TLS_ADMIN_TOKEN=${adminToken} nohup ${serve} >${shellQuote(log)} 2>&1 </dev/null &`,
       "attempt=0",
-      `until /usr/bin/curl --fail --silent ${shellQuote(`${adminUrl}/health`)} >/dev/null; do attempt=$((attempt + 1)); if [ "$attempt" -ge 120 ]; then /usr/bin/tail -c 4000 ${shellQuote(log)} >&2; exit 1; fi; sleep 0.25; done`,
+      `until /usr/bin/curl --fail --silent -H "Authorization: Bearer ${adminToken}" ${shellQuote(`${adminUrl}/health`)} >/dev/null; do attempt=$((attempt + 1)); if [ "$attempt" -ge 120 ]; then /usr/bin/tail -c 4000 ${shellQuote(log)} >&2; exit 1; fi; sleep 0.25; done`,
     ].join("\n")),
-    probe: remote(`/usr/bin/curl --fail --silent --show-error ${shellQuote(`${adminUrl}/health`)}`),
-    requests: remote(`/usr/bin/curl --fail --silent --show-error ${shellQuote(`${adminUrl}/requests`)}`),
+    probe: remote(`/usr/bin/curl --fail --silent --show-error -H "Authorization: Bearer ${adminToken}" ${shellQuote(`${adminUrl}/health`)}`),
+    requests: remote(`/usr/bin/curl --fail --silent --show-error -H "Authorization: Bearer ${adminToken}" ${shellQuote(`${adminUrl}/requests`)}`),
     installRoot: action("install"),
     removeRoot: action("remove"),
     stop: remote(`${[

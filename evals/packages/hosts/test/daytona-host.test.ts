@@ -384,6 +384,19 @@ test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbo
   assert.ok(start.includes("</dev/null &\nattempt=0\nuntil /usr/bin/curl"));
   assert.ok(start.includes("/usr/bin/tail -c 4000"));
   assert.ok(start.includes(">&2"));
+  const tokenMatch = /ENTERPRISE_TLS_ADMIN_TOKEN=([a-f0-9]{32,}) nohup/.exec(start);
+  assert.ok(tokenMatch);
+  const adminToken = tokenMatch[1];
+  assert.match(adminToken, /^[a-f0-9]{32,}$/);
+  const serveArgv = start.slice(start.indexOf("enterprise-tls-edge.mts"), start.indexOf(" >"));
+  assert.ok(!serveArgv.includes(adminToken));
+  const authorizationHeader = `-H "Authorization: Bearer ${adminToken}"`;
+  assert.ok(start.includes(authorizationHeader));
+  assert.ok(start.includes("http://127.0.0.1:8445/health"));
+  assert.ok((commands.probe[3] ?? "").includes(authorizationHeader));
+  assert.ok((commands.probe[3] ?? "").includes("http://127.0.0.1:8445/health"));
+  assert.ok((commands.requests[3] ?? "").includes(authorizationHeader));
+  assert.ok((commands.requests[3] ?? "").includes("http://127.0.0.1:8445/requests"));
   const installRoot = commands.installRoot[3] ?? "";
   const removeRoot = commands.removeRoot[3] ?? "";
   assert.ok(installRoot.includes("install"));
@@ -398,6 +411,11 @@ test("enterprise TLS edge commands keep the full lifecycle in one Daytona sandbo
     assert.ok(!command[3]?.includes("sudo -n"));
   }
   const stop = commands.stop[3] ?? "";
+  for (const command of [installRoot, removeRoot, stop]) {
+    assert.ok(!command.includes("ENTERPRISE_TLS_ADMIN_TOKEN"));
+    assert.ok(!command.includes("Authorization: Bearer"));
+    assert.ok(!command.includes(adminToken));
+  }
   assert.ok(stop.includes("stop"));
   assert.ok(stop.includes("&& /usr/bin/rm -rf"));
   assert.ok(stop.indexOf("stop") < stop.indexOf("/usr/bin/rm -rf"));

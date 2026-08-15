@@ -44,10 +44,10 @@ function request(url: string, options: { ca?: string; method?: string; path?: st
   });
 }
 
-function peerCertificatePem(url: string): Promise<string> {
+function peerCertificatePem(url: string, ca: string): Promise<string> {
   const target = new URL(url);
   return new Promise((resolve, reject) => {
-    const socket = tls.connect({ host: target.hostname, port: Number(target.port), rejectUnauthorized: false }, () => {
+    const socket = tls.connect({ host: target.hostname, port: Number(target.port), ca, servername: "localhost" }, () => {
       const raw = socket.getPeerCertificate().raw;
       socket.end();
       if (!raw) reject(new Error("peer did not provide a certificate"));
@@ -121,7 +121,7 @@ test("enterprise TLS privileged trust material is validated and staged", async (
       const manifestPath = path.join(dir, "invalid-manifest.json");
       const rootPemPath = path.join(dir, "invalid-root.pem");
       await writeFile(manifestPath, manifest(rootPemPath), { mode: 0o600 });
-      await writeFile(rootPemPath, await peerCertificatePem(edge.candidateUrl), { mode: 0o600 });
+      await writeFile(rootPemPath, await peerCertificatePem(edge.candidateUrl, edge.rootPem), { mode: 0o600 });
       await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), /certificate is not a CA/u);
       await writeFile(rootPemPath, "not a certificate\n", { mode: 0o600 });
       await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), { name: "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED" });

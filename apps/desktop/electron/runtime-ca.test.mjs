@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { X509Certificate } from "node:crypto";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -37,10 +38,15 @@ async function certificateFixture() {
     const directory = await mkdtemp(path.join(tmpdir(), "openwork-runtime-cert-chain-"));
     const run = (...args) => execFileSync("openssl", args, { cwd: directory, stdio: "ignore" });
     run("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "root.key", "-out", "root.pem", "-subj", "/CN=OpenWork Test Root", "-days", "2", "-sha256");
+    await writeFile(path.join(directory, "server.ext"), "extendedKeyUsage = serverAuth\nsubjectAltName = DNS:enterprise.test\n");
     run("req", "-newkey", "rsa:2048", "-nodes", "-keyout", "leaf.key", "-out", "leaf.csr", "-subj", "/CN=enterprise.test", "-sha256");
-    run("x509", "-req", "-in", "leaf.csr", "-CA", "root.pem", "-CAkey", "root.key", "-set_serial", "2", "-out", "leaf.pem", "-days", "1", "-sha256");
+    run("x509", "-req", "-in", "leaf.csr", "-CA", "root.pem", "-CAkey", "root.key", "-set_serial", "2", "-out", "leaf.pem", "-days", "1", "-sha256", "-extfile", "server.ext");
+    await writeFile(path.join(directory, "client.ext"), "extendedKeyUsage = clientAuth\nsubjectAltName = DNS:enterprise.test\n");
+    run("req", "-newkey", "rsa:2048", "-nodes", "-keyout", "client.key", "-out", "client.csr", "-subj", "/CN=enterprise.test", "-sha256");
+    run("x509", "-req", "-in", "client.csr", "-CA", "root.pem", "-CAkey", "root.key", "-set_serial", "3", "-out", "client.pem", "-days", "1", "-sha256", "-extfile", "client.ext");
     run("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "other.key", "-out", "other.pem", "-subj", "/CN=Unrelated Test Root", "-days", "2", "-sha256");
     return {
+      clientLeaf: await readFile(path.join(directory, "client.pem"), "utf8"),
       leaf: await readFile(path.join(directory, "leaf.pem"), "utf8"),
       root: await readFile(path.join(directory, "root.pem"), "utf8"),
       otherRoot: await readFile(path.join(directory, "other.pem"), "utf8"),
@@ -60,6 +66,8 @@ test("Chromium certificate verification success delegates", async () => {
 
 test("authority-invalid chain anchored by configured CA is accepted", async () => {
   const fixture = await certificateFixture();
+  const keyUsage = new X509Certificate(fixture.leaf).keyUsage;
+  assert.ok(keyUsage?.some((usage) => usage === "1.3.6.1.5.5.7.3.1" || /server ?auth/i.test(usage)));
   const proc = createSystemCaCertificateVerifyProc([fixture.root]);
   assert.equal(await verifyCertificate(proc, {
     verificationResult: "net::ERR_CERT_AUTHORITY_INVALID",
@@ -67,6 +75,20 @@ test("authority-invalid chain anchored by configured CA is accepted", async () =
     hostname: "enterprise.test",
     certificate: { data: fixture.leaf },
   }), 0);
+});
+
+test("authority-invalid chain with clientAuth-only leaf delegates", async () => {
+  const fixture = await certificateFixture();
+  const keyUsage = new X509Certificate(fixture.clientLeaf).keyUsage;
+  assert.ok(keyUsage?.some((usage) => usage === "1.3.6.1.5.5.7.3.2" || /client ?auth/i.test(usage)));
+  assert.ok(!keyUsage.some((usage) => usage === "1.3.6.1.5.5.7.3.1" || /server ?auth/i.test(usage)));
+  const proc = createSystemCaCertificateVerifyProc([fixture.root]);
+  assert.equal(await verifyCertificate(proc, {
+    verificationResult: "net::ERR_CERT_AUTHORITY_INVALID",
+    errorCode: -202,
+    hostname: "enterprise.test",
+    certificate: { data: fixture.clientLeaf },
+  }), -3);
 });
 
 test("authority-invalid chain with an unrelated root delegates", async () => {
