@@ -167,7 +167,7 @@ export async function writeComposerText(
 }
 
 export async function sendComposerMessage(app: Surface, text: string): Promise<ComposerState> {
-  const before = await readComposerState(app);
+  const before = await waitForComposerReady(app, 60_000);
   await writeComposerText(app, text);
   await waitFor(app, `Boolean([...document.querySelectorAll("button")]
     .find((button) => (button.textContent ?? "").trim() === "Run task" && !button.disabled))`, {
