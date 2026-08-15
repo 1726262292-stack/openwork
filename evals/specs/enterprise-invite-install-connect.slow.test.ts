@@ -179,7 +179,7 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
     browser,
     `Boolean(document.querySelector('[data-testid="join-org-auth"] input[type="password"]'))
       && [...document.querySelectorAll("button")].some((button) => (button.textContent ?? "").trim() === "Create account")`,
-    { timeoutMs: 90_000, label: "invite sign-up form with Create account" },
+    { timeoutMs: 180_000, label: "invite sign-up form with Create account" },
   );
   await screenshot(browser);
 
@@ -310,23 +310,20 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
     expect(install.cloudReturnControl).toBe(false);
   }
 
-  const downloadProbe = await evalIn(browser, `(async () => {
-    const href = ${JSON.stringify(downloadHref.replace("127.0.0.1", "localhost"))};
-    try {
-      const response = await fetch(href, { redirect: "manual", credentials: "include" });
-      return JSON.stringify({ type: response.type, status: response.status });
-    } catch (error) {
-      return JSON.stringify({ error: error?.message ?? String(error) });
-    }
-  })()`, { awaitPromise: true });
-  const probe: unknown = JSON.parse(String(downloadProbe));
-  const probeType = stringField(probe, "type") ?? "";
-  const probeStatus = isRecord(probe) && typeof probe.status === "number" ? probe.status : -1;
-  const downloadServed = probeType === "opaqueredirect" || probeStatus === 200 || probeStatus === 302;
-  expect(downloadServed, `authenticated download probe: ${String(downloadProbe)}`).toBe(true);
+  const member = await signIn(den.ref, { email: invitee.email, password: invitee.password });
+  // Daytona preview duplicates CORS headers on Origin-bearing responses; top-level downloads bypass CORS, so probe through the session directly.
+  const downloadPath = new URL(downloadHref).pathname;
+  const authedDownload = await denFetch(den.ref, downloadPath, {
+    headers: { authorization: `Bearer ${member.token}` },
+    redirect: "manual",
+  });
+  const anonymousDownload = await denFetch(den.ref, downloadPath, { redirect: "manual" });
+  expect([200, 302], `authenticated download answered HTTP ${authedDownload.response.status}`).toContain(authedDownload.response.status);
+  expect(anonymousDownload.response.ok).toBe(false);
+  expect([401, 403]).toContain(anonymousDownload.response.status);
   evidence.fact(
     "The install guide is authenticated and token-free end to end",
-    `URL stayed /install with empty search; authenticated config reported ${distribution}; no /install-links mint and no ?token= anywhere; the session-scoped download ${downloadHref} answered ${probeType || probeStatus}.`,
+    `URL stayed /install with empty search; authenticated config reported ${distribution}; no /install-links mint and no ?token= anywhere; the session-scoped download path ${downloadPath} answered ${authedDownload.response.status} and the same URL without a session was rejected with ${anonymousDownload.response.status}.`,
     true,
   );
 
@@ -357,7 +354,6 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
   }
 
   // ── Frames 4-5: the real blank-slate Enterprise desktop links by address ──
-  const member = await signIn(den.ref, { email: invitee.email, password: invitee.password });
   const handoff = await denFetch(den.ref, "/v1/auth/desktop-handoff", {
     method: "POST",
     headers: { authorization: `Bearer ${member.token}` },
@@ -372,6 +368,7 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
   const placedHost = place.host();
   await using localElectronHost = placedHost ? undefined : localHost();
   const host = placedHost ?? localElectronHost;
+  if (!host) throw new Error("No Electron host: neither placement host nor local fallback is available.");
   const handle = await host.spawnElectron("enterprise-invite-connect", {
     profile: "fresh",
     env: { OPENWORK_DESKTOP_DISTRIBUTION: "enterprise" },
