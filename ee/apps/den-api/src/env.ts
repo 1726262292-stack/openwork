@@ -81,6 +81,8 @@ const EnvSchema = z.object({
   OPENWORK_INSTALLER_RELEASE_TAG: z.string().optional(),
   OPENWORK_INSTALLER_RELEASE_REPO: z.string().optional(),
   OPENWORK_INSTALLER_CACHE_DIR: z.string().optional(),
+  DEN_DESKTOP_RELEASES_BASE_URL: z.string().optional(),
+  DEN_DESKTOP_RELEASES_MODE: z.enum(["github", "static"]).optional(),
   DEN_DESKTOP_DEN_BASE_URL: z.string().optional(),
   DEN_MARKETING_URL: z.string().optional(),
   DEN_MCP_CLAIM_NAMESPACE: z.string().optional(),
@@ -609,6 +611,10 @@ export const env = {
   installerReleaseTagExplicit: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_TAG) !== undefined,
   installerReleaseRepo: optionalString(parsed.OPENWORK_INSTALLER_RELEASE_REPO) ?? "different-ai/openwork",
   installerCacheDir: optionalString(parsed.OPENWORK_INSTALLER_CACHE_DIR) ?? path.join(os.tmpdir(), "openwork-desktop-artifacts"),
+  // Desktop-release endpoint overrides for evals/self-host testing. Static mode
+  // keeps air-gapped deployments on the committed release snapshot.
+  desktopReleasesBaseUrl: optionalString(parsed.DEN_DESKTOP_RELEASES_BASE_URL),
+  desktopReleasesMode: parsed.DEN_DESKTOP_RELEASES_MODE ?? "github",
   // Native-provider endpoint overrides for evals/self-host testing. Unset in
   // production so Google, Microsoft Entra, and Graph use their public APIs.
   googleOAuthAuthorizeUrl: optionalString(parsed.DEN_GOOGLE_OAUTH_AUTHORIZE_URL),
