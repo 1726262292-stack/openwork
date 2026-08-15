@@ -21,7 +21,7 @@ import { globalOpencodeConfigDir, workspaceOpencodeConfigCandidates } from "@ope
 
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager } from "./runtime.mjs";
+import { createRuntimeManager, createSystemCaCertificateVerifyProc } from "./runtime.mjs";
 import { registerUpdaterIpc } from "./updater.mjs";
 import {
   checkComputerUsePermissions,
@@ -2655,6 +2655,8 @@ or use: pnpm dev:worktree`);
   });
 
   app.whenReady().then(async () => {
+    const systemCaCertificates = await runtimeManager.systemCaCertificates();
+    session.defaultSession.setCertificateVerifyProc(createSystemCaCertificateVerifyProc(systemCaCertificates));
     installMediaPermissionHandlers(session, () => mainWindow);
     await runPendingNukeCleanup({
       env: process.env,
