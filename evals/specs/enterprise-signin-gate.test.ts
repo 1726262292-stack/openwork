@@ -28,6 +28,13 @@ const workspaceClaimSource = readFileSync(
   )),
   "utf8",
 );
+const forcedSigninSource = readFileSync(
+  fileURLToPath(new URL(
+    "../../apps/app/src/react-app/domains/cloud/forced-signin-page.tsx",
+    import.meta.url,
+  )),
+  "utf8",
+);
 
 test("the enterprise gate is a sign-in door with a server field, not a waiting wall", async ({ evidence }) => {
   // Frame 1: no activation wall — the first screen asks for the organization
@@ -154,6 +161,14 @@ test("enterprise onboarding is workspace-address-first with a silent paste recov
   evidence.fact(
     "Pasted openwork:// URLs recover through the same field with confirmation",
     "parseManualAuthInput runs on the workspace-address input, and a pasted URL's origin reaches the named confirmation before exchangeHandoffAndSignIn.",
+    true,
+  );
+
+  expect(forcedSigninSource).toContain("denOriginComparisonKey");
+  expect(forcedSigninSource).toContain("den.error_signin_link_other_server");
+  evidence.fact(
+    "Pasted links cannot silently switch the forced sign-in control plane",
+    "A pasted link can no longer silently switch the control plane on the forced sign-in page.",
     true,
   );
 });
