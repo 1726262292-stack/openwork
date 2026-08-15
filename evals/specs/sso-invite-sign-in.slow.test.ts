@@ -2,7 +2,7 @@ import { expect } from "vitest";
 import { localMysqlIsRunning, server, test } from "@openwork/testkit";
 import { denFetch, evalIn, provisionOrg, waitFor } from "@openwork/behaviors";
 import { navigate } from "@openwork/cdp";
-import { screenshot } from "@openwork/fraimz";
+import { screenshot, validate } from "@openwork/fraimz";
 import { chrome } from "@openwork/hosts";
 import { startMockIdpLab } from "@openwork/labs";
 
@@ -25,6 +25,10 @@ function readBooleanField(value: unknown, key: string): boolean {
   if (typeof value !== "object" || value === null) return false;
   const record: Record<string, unknown> = { ...value };
   return record[key] === true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -116,7 +120,13 @@ test.skipIf(!localPlacement || !mysqlOpen)(title, async ({ evidence, place }) =>
     timeoutMs: 90_000,
     label: "SSO step on the invite screen",
   });
-  await screenshot(browser);
+  const inviteShot = await screenshot(browser);
+  const inviteSeen = await validate(inviteShot, [
+    "The page shows an invitation to join an organization",
+    "A single sign-on action is offered",
+    "No password field is visible",
+  ]);
+  expect(inviteSeen.ok, inviteSeen.why).toBe(true);
 
   const inviteScreen: unknown = JSON.parse(String(await evalIn(browser, `(() => {
     const scope = document.querySelector('[data-testid="join-org-auth"]');
@@ -164,7 +174,13 @@ test.skipIf(!localPlacement || !mysqlOpen)(title, async ({ evidence, place }) =>
     timeoutMs: 120_000,
     label: "back from the identity provider",
   });
-  await screenshot(browser);
+  const returnShot = await screenshot(browser);
+  const returnSeen = await validate(returnShot, [
+    "The user is back on the invitation page",
+    "The page shows they are signed in as the invited person",
+    "No password prompt is visible",
+  ]);
+  expect(returnSeen.ok, returnSeen.why).toBe(true);
 
   const afterSso: unknown = JSON.parse(String(await evalIn(browser, `(() => {
     const text = document.body.innerText;
@@ -195,28 +211,48 @@ test.skipIf(!localPlacement || !mysqlOpen)(title, async ({ evidence, place }) =>
   })()`));
   expect(joinClicked).toBe("clicked");
 
-  // Where a joined member lands differs by branch, so the durable claim is that
-  // they stop being asked to review an invitation and see no failure.
-  await waitFor(browser, `!/one click away from the team workspace/i.test(document.body?.innerText ?? "")`, {
+  await waitFor(browser, `location.pathname === "/install" && location.search === "" && Boolean(document.querySelector('[data-testid="install-page"]')) && !document.body.textContent?.includes("Loading your install link")`, {
     timeoutMs: 90_000,
-    label: "the invitation resolved after joining",
+    label: "clean authenticated /install after SSO join",
   });
-  await screenshot(browser);
 
-  const joined: unknown = JSON.parse(String(await evalIn(browser, `(() => {
-    const text = document.body.innerText;
-    return JSON.stringify({
-      landedPath: window.location.pathname,
-      stillReviewingAnInvitation: /one click away from the team workspace/i.test(text),
-      failed: /something went wrong|couldn't|could not|error/i.test(text),
-      text: text.replace(/\\s+/g, " ").slice(0, 240),
-    });
-  })()`)));
-  expect(readBooleanField(joined, "stillReviewingAnInvitation")).toBe(false);
-  expect(readBooleanField(joined, "failed")).toBe(false);
+  const install = await evalIn(browser, `(() => {
+    const resources = performance.getEntriesByType("resource").map((entry) => entry.name);
+    const hrefs = [...document.querySelectorAll("a[href]")].map((anchor) => anchor.href);
+    return {
+      pathname: location.pathname,
+      search: location.search,
+      configLoaded: resources.some((url) => url.includes("/v1/me/install-config")),
+      mintedToken: resources.some((url) => url.includes("/install-links") || url.includes("/v1/install-config?token=")),
+      downloadHref: hrefs.find((href) => href.includes("/v1/me/install/")) || "",
+      clipboardGuide: Boolean(document.querySelector('[data-testid="install-connect-copy"]')),
+    };
+  })()`);
+  if (!isRecord(install) || typeof install.pathname !== "string" || typeof install.search !== "string" || typeof install.downloadHref !== "string") {
+    throw new Error(`Authenticated install facts had an unexpected shape: ${JSON.stringify(install)}`);
+  }
+
+  expect(install.pathname).toBe("/install");
+  expect(install.search).toBe("");
+  expect(install.configLoaded).toBe(true);
+  expect(install.mintedToken).toBe(false);
+  expect(install.downloadHref).toContain("/v1/me/install/");
+  expect(install.downloadHref).not.toContain("token=");
   evidence.fact(
-    "Someone who only has SSO can finish joining, without ever setting a password",
-    `After accepting, the browser was on ${readStringField(joined, "landedPath")} showing: ${readStringField(joined, "text")}`,
-    true,
+    "The SSO member lands on clean authenticated installation without minting an installer token",
+    `url=${install.pathname}${install.search}; configLoaded=${String(install.configLoaded)}; download=${install.downloadHref}`,
+    install.pathname === "/install"
+      && install.search === ""
+      && install.configLoaded === true
+      && install.mintedToken === false
+      && install.downloadHref.includes("/v1/me/install/")
+      && !install.downloadHref.includes("token="),
   );
+
+  const installShot = await screenshot(browser);
+  const installSeen = await validate(installShot, [
+    "The page is an OpenWork download or install guide",
+    "Download options for desktop computers are visible",
+  ]);
+  expect(installSeen.ok, installSeen.why).toBe(true);
 });
