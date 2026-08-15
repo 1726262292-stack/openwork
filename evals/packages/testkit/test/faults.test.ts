@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import test from "node:test";
 import { denFetch } from "@openwork/behaviors";
 import { faultProxy } from "../src/faults.ts";
@@ -18,6 +18,20 @@ function listen(server: Server): Promise<number> {
 
 function close(server: Server): Promise<void> {
   return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+function absoluteGet(proxyUrl: string, target: string): Promise<string> {
+  const proxy = new URL(proxyUrl);
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ hostname: proxy.hostname, port: proxy.port, path: target }, (response) => {
+      response.setEncoding("utf8");
+      let body = "";
+      response.on("data", (chunk: string) => body += chunk);
+      response.on("end", () => resolve(body));
+    });
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 test("faultProxy consumes status and latency rules before passing through", async () => {
@@ -88,5 +102,33 @@ test("faultProxy clear removes pending rules", async () => {
     assert.equal(proxy.requests[0]?.faulted, false);
   } finally {
     await close(upstream);
+  }
+});
+
+test("faultProxy pins absolute-form request targets to its upstream", async () => {
+  let attackerRequests = 0;
+  let upstreamRequestUrl: string | undefined;
+  const upstream = createServer((request, response) => {
+    upstreamRequestUrl = request.url;
+    response.end("upstream");
+  });
+  const attacker = createServer((_request, response) => {
+    attackerRequests += 1;
+    response.end("attacker");
+  });
+  const [upstreamPort, attackerPort] = await Promise.all([listen(upstream), listen(attacker)]);
+  try {
+    await using proxy = await faultProxy({
+      apiUrl: `http://127.0.0.1:${upstreamPort}`,
+      webUrl: `http://127.0.0.1:${upstreamPort}`,
+    });
+    assert.equal(
+      await absoluteGet(proxy.ref.webUrl, `http://127.0.0.1:${attackerPort}/steered?x=1`),
+      "upstream",
+    );
+    assert.equal(upstreamRequestUrl, "/steered?x=1");
+    assert.equal(attackerRequests, 0);
+  } finally {
+    await Promise.all([close(upstream), close(attacker)]);
   }
 });

@@ -71,7 +71,7 @@ async function executeControl(app: Surface, action: string, args?: unknown): Pro
 }
 
 async function openModelPicker(app: Surface): Promise<void> {
-  const open = await evalIn(app, `Boolean(document.querySelector(${JSON.stringify(MODEL_SEARCH_INPUT)}))`);
+  const open = await evalIn(app, `Boolean(document.querySelector(${JSON.stringify(MODEL_SEARCH_INPUT)}))`).catch(() => false);
   if (open !== true) {
     await waitFor(app, `window.__openworkControl?.listActions().some((entry) => entry.id === "session.model_picker.open" && entry.disabled === false)`, {
       timeoutMs: 30_000,

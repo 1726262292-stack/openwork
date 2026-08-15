@@ -27,8 +27,112 @@ const MAX_CHAIN_REPAIR_ORIGINS = 3;
 const CHAIN_REPAIR_TOTAL_TIMEOUT_MS = 20000;
 const CHAIN_REPAIR_SOCKET_TIMEOUT_MS = 8000;
 const CHAIN_REPAIR_FETCH_TIMEOUT_MS = 8000;
+const CERTIFICATE_VERIFY_USE_CHROMIUM = -3;
+const CERTIFICATE_VERIFY_OK = 0;
+const ERR_CERT_AUTHORITY_INVALID = -202;
+const MAX_CERTIFICATE_CHAIN_LENGTH = 10;
+const PEM_CERTIFICATE_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g;
 /** @type {Map<string, X509Certificate | null>} */
 const chainRepairRootCache = new Map();
+
+/** @param {unknown} value */
+function parsePemCertificates(value) {
+  return String(value ?? "").match(PEM_CERTIFICATE_PATTERN) ?? [];
+}
+
+/** @param {string} value */
+function parseCertificate(value) {
+  try {
+    return new X509Certificate(value);
+  } catch {
+    return null;
+  }
+}
+
+/** @param {X509Certificate} certificate */
+function certificateIsCurrent(certificate, now = Date.now()) {
+  const validFrom = Date.parse(certificate.validFrom);
+  const validTo = Date.parse(certificate.validTo);
+  return Number.isFinite(validFrom) && Number.isFinite(validTo) && validFrom <= now && now <= validTo;
+}
+
+/** @param {X509Certificate} certificate @param {string | undefined} hostname */
+function certificateMatchesHostname(certificate, hostname) {
+  const value = String(hostname ?? "").trim();
+  if (!value) return false;
+  try {
+    return net.isIP(value) ? certificate.checkIP(value) !== undefined : certificate.checkHost(value) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/** @param {X509Certificate} certificate */
+function certificateAllowsTlsServerAuthentication(certificate) {
+  return certificate.keyUsage?.some((usage) =>
+    usage === "1.3.6.1.5.5.7.3.1" || /server ?auth/i.test(usage)
+  ) === true;
+}
+
+/**
+ * @typedef {Object} ElectronCertificate
+ * @property {string} data
+ * @property {ElectronCertificate} [issuerCert]
+ */
+
+/** @param {ElectronCertificate | undefined} certificate */
+function presentedCertificateChain(certificate) {
+  const chain = [];
+  const seen = new Set();
+  let current = certificate;
+  while (current) {
+    if (chain.length >= MAX_CERTIFICATE_CHAIN_LENGTH || typeof current.data !== "string") return null;
+    const parsed = parseCertificate(current.data);
+    if (!parsed) return null;
+    const key = parsed.raw.toString("base64");
+    if (seen.has(key)) return null;
+    seen.add(key);
+    chain.push(parsed);
+    current = current.issuerCert;
+  }
+  return chain;
+}
+
+/** @param {ElectronCertificate | undefined} certificate @param {string | undefined} hostname @param {X509Certificate[]} trustedAnchors */
+function chainEndsAtTrustedAnchor(certificate, hostname, trustedAnchors) {
+  const chain = presentedCertificateChain(certificate);
+  if (!chain || chain.length === 0 || chain.some((entry) => !certificateIsCurrent(entry))) return false;
+  if (!certificateAllowsTlsServerAuthentication(chain[0])) return false;
+  if (!certificateMatchesHostname(chain[0], hostname)) return false;
+  for (let index = 0; index < chain.length - 1; index += 1) {
+    if (chain[index + 1].ca !== true) return false;
+    if (!chain[index].checkIssued(chain[index + 1]) || !chain[index].verify(chain[index + 1].publicKey)) return false;
+  }
+  const terminal = chain.at(-1);
+  if (!terminal) return false;
+  return trustedAnchors.some((anchor) =>
+    anchor.ca === true && terminal.checkIssued(anchor) && terminal.verify(anchor.publicKey)
+  );
+}
+
+/**
+ * @param {string[]} trustedCertificates
+ * @returns {(request: { verificationResult?: string, errorCode?: number, hostname?: string, certificate?: ElectronCertificate }, callback: (result: number) => void) => void}
+ */
+export function createSystemCaCertificateVerifyProc(trustedCertificates) {
+  const trustedAnchors = trustedCertificates.map(parseCertificate).filter((certificate) => certificate !== null);
+  return (request, callback) => {
+    const authorityInvalid = request.verificationResult
+      ? request.verificationResult === "net::ERR_CERT_AUTHORITY_INVALID"
+        && (request.errorCode === undefined || request.errorCode === ERR_CERT_AUTHORITY_INVALID)
+      : request.errorCode === ERR_CERT_AUTHORITY_INVALID;
+    if (authorityInvalid && chainEndsAtTrustedAnchor(request.certificate, request.hostname, trustedAnchors)) {
+      callback(CERTIFICATE_VERIFY_OK);
+      return;
+    }
+    callback(CERTIFICATE_VERIFY_USE_CHROMIUM);
+  };
+}
 
 function truncateOutput(value, limit = 8000) {
   const text = String(value ?? "");
@@ -1036,9 +1140,9 @@ async function repairIncompleteChains(options) {
 
 /**
  * @param {ResolveSystemCaEnvOptions} options
- * @returns {Promise<NodeJS.ProcessEnv>}
+ * @returns {Promise<{ childEnv: NodeJS.ProcessEnv, trustedCertificates: string[] }>}
  */
-export async function resolveSystemCaEnv({
+async function resolveSystemCa({
   tlsModule = tls,
   userDataDir,
   parentEnv = process.env,
@@ -1053,7 +1157,12 @@ export async function resolveSystemCaEnv({
     if (typeof logInfo === "function") {
       logInfo("OpenWork runtime: NODE_EXTRA_CA_CERTS is already set; skipping system CA bundle export.");
     }
-    return {};
+    try {
+      const configuredPem = await readFile(String(env.NODE_EXTRA_CA_CERTS), "utf8");
+      return { childEnv: {}, trustedCertificates: parsePemCertificates(configuredPem) };
+    } catch {
+      return { childEnv: {}, trustedCertificates: [] };
+    }
   }
 
   try {
@@ -1091,7 +1200,7 @@ export async function resolveSystemCaEnv({
       repairedPems = [];
     }
     const certificates = dedupeCertificates([...bundle.certificates, ...repairedPems]);
-    if (certificates.length === 0) return {};
+    if (certificates.length === 0) return { childEnv: {}, trustedCertificates: bundle.certificates };
     if (typeof tlsModule?.getCACertificates === "function" && typeof tlsModule?.setDefaultCACertificates === "function") {
       try {
         const defaultCerts = tlsModule.getCACertificates("default");
@@ -1101,14 +1210,21 @@ export async function resolveSystemCaEnv({
       }
     }
     const pem = certificates.join("\n");
-    if (!pem) return {};
+    if (!pem) return { childEnv: {}, trustedCertificates: bundle.certificates };
     const bundlePath = path.join(userDataDir, "system-ca-bundle.pem");
     await mkdir(path.dirname(bundlePath), { recursive: true });
     await writeFile(bundlePath, `${pem}\n`, "utf8");
-    return { NODE_EXTRA_CA_CERTS: bundlePath };
+    return {
+      childEnv: { NODE_EXTRA_CA_CERTS: bundlePath },
+      trustedCertificates: bundle.certificates,
+    };
   } catch {
-    return {};
+    return { childEnv: {}, trustedCertificates: [] };
   }
+}
+
+export async function resolveSystemCaEnv(options) {
+  return (await resolveSystemCa(options)).childEnv;
 }
 
 /**
@@ -1158,11 +1274,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     process.resourcesPath ? path.join(process.resourcesPath, "sidecars") : null,
     path.join(path.dirname(app.getPath("exe")), "sidecars"),
   ].filter(Boolean);
-  let systemCaEnvPromise = null;
+  let systemCaPromise = null;
 
-  function systemCaEnv() {
-    systemCaEnvPromise ??= resolveSystemCaEnv({ tlsModule: tls, userDataDir, parentEnv: process.env });
-    return systemCaEnvPromise;
+  function systemCa() {
+    systemCaPromise ??= resolveSystemCa({
+      tlsModule: tls,
+      userDataDir,
+      parentEnv: { ...loadUserEnvFile(process.env), ...process.env },
+    });
+    return systemCaPromise;
   }
 
   function openworkServerTokenStorePath() {
@@ -1330,7 +1450,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       ...process.env,
       BUN_CONFIG_DNS_RESULT_ORDER: "verbatim",
     };
-    const caEnv = Object.prototype.hasOwnProperty.call(baseEnv, "NODE_EXTRA_CA_CERTS") ? {} : await systemCaEnv();
+    const caEnv = Object.prototype.hasOwnProperty.call(baseEnv, "NODE_EXTRA_CA_CERTS") ? {} : (await systemCa()).childEnv;
     // Bun honors Node's NODE_EXTRA_CA_CERTS, so bundled Bun sidecars inherit
     // the exported OS trust store through the same child env variable.
     const env = mergeSystemCaChildEnv(baseEnv, caEnv, extra);
@@ -2050,6 +2170,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   return {
+    systemCaCertificates: async () => (await systemCa()).trustedCertificates,
     engineStart: (projectDir, options) => withRuntimeLifecycle(() => engineStart(projectDir, options)),
     engineStop: () => withRuntimeLifecycle(() => engineStop()),
     engineRestart: (options) => withRuntimeLifecycle(() => engineRestart(options)),
