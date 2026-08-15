@@ -251,28 +251,68 @@ test(title, async ({ evidence, place }) => {
   );
   await screenshot(browser);
 
-  const install = await evalIn(browser, `(() => {
+  const rawInstall = await evalIn(browser, `(async () => {
     const resources = performance.getEntriesByType("resource").map((entry) => entry.name);
     const hrefs = [...document.querySelectorAll("a[href]")].map((anchor) => anchor.href);
-    return {
+    const headers = new Headers({ Accept: "application/json" });
+    const storedToken = localStorage.getItem("openwork:web:auth-token")?.trim();
+    if (storedToken) headers.set("Authorization", "Bearer " + storedToken);
+    const configResponse = await fetch("/api/den/v1/me/install-config", {
+      credentials: "include",
+      headers,
+    });
+    const config = await configResponse.json();
+    return JSON.stringify({
       search: location.search,
       configLoaded: resources.some((url) => url.includes("/v1/me/install-config")),
       mintedToken: resources.some((url) => url.includes("/install-links") || url.includes("/v1/install-config?token=")),
-      downloadHref: hrefs.find((href) => href.includes("/v1/me/install/")) || "",
+      configStatus: configResponse.status,
+      distribution: config?.distribution,
+      downloadHrefs: hrefs.filter((href) => href.includes("/v1/me/install/")),
+      cloudDownloadSurface: [...document.querySelectorAll("h1")]
+        .some((heading) => (heading.textContent ?? "").trim() === "Download OpenWork"),
+      cloudReturnControl: [...document.querySelectorAll("a")]
+        .some((anchor) => (anchor.textContent ?? "").trim() === "I already installed OpenWork"),
+      enterpriseGuide: Boolean(document.querySelector('[data-testid="install-guide"]')),
+      skipControl: Boolean(document.querySelector('[data-testid="install-skip-download"]')),
+      workspaceControl: Boolean(document.querySelector('[data-testid="install-workspace-address"]')),
       text: document.body.innerText.replace(/\\s+/g, " ").slice(0, 400),
-    };
-  })()`);
-  if (!isRecord(install) || typeof install.downloadHref !== "string") {
+    });
+  })()`, { awaitPromise: true });
+  const install: unknown = JSON.parse(String(rawInstall));
+  if (!isRecord(install) || !Array.isArray(install.downloadHrefs) || !install.downloadHrefs.every((href) => typeof href === "string")) {
     throw new Error(`Install facts had an unexpected shape: ${JSON.stringify(install)}`);
   }
+  const distribution = install.distribution;
+  if (distribution !== "cloud" && distribution !== "enterprise") {
+    throw new Error(`Install config returned an invalid distribution: ${JSON.stringify(distribution)}`);
+  }
+  const downloadHref = install.downloadHrefs[0];
+  if (typeof downloadHref !== "string") throw new Error("Install page exposed no authenticated download link");
   expect(install.search).toBe("");
   expect(install.configLoaded).toBe(true);
   expect(install.mintedToken).toBe(false);
-  expect(install.downloadHref).toContain("/v1/me/install/");
-  expect(install.downloadHref).not.toContain("token=");
+  expect(install.configStatus).toBe(200);
+  expect(install.downloadHrefs.length).toBeGreaterThan(0);
+  for (const href of install.downloadHrefs) {
+    expect(href).toContain("/v1/me/install/");
+    expect(href).not.toContain("token=");
+  }
+
+  if (distribution === "cloud") {
+    expect(install.cloudDownloadSurface).toBe(true);
+    expect(install.cloudReturnControl).toBe(true);
+    expect(install.enterpriseGuide).toBe(false);
+    expect(install.skipControl).toBe(false);
+    expect(install.workspaceControl).toBe(false);
+  } else {
+    expect(install.enterpriseGuide).toBe(true);
+    expect(install.skipControl).toBe(true);
+    expect(install.cloudReturnControl).toBe(false);
+  }
 
   const downloadProbe = await evalIn(browser, `(async () => {
-    const href = ${JSON.stringify(String(install.downloadHref).replace("127.0.0.1", "localhost"))};
+    const href = ${JSON.stringify(downloadHref.replace("127.0.0.1", "localhost"))};
     try {
       const response = await fetch(href, { redirect: "manual", credentials: "include" });
       return JSON.stringify({ type: response.type, status: response.status });
@@ -287,33 +327,35 @@ test(title, async ({ evidence, place }) => {
   expect(downloadServed, `authenticated download probe: ${String(downloadProbe)}`).toBe(true);
   evidence.fact(
     "The install guide is authenticated and token-free end to end",
-    `URL stayed /install with empty search; config came from /v1/me/install-config; no /install-links mint and no ?token= anywhere; the session-scoped download ${String(install.downloadHref)} answered ${probeType || probeStatus}.`,
+    `URL stayed /install with empty search; authenticated config reported ${distribution}; no /install-links mint and no ?token= anywhere; the session-scoped download ${downloadHref} answered ${probeType || probeStatus}.`,
     true,
   );
 
   // ── Frame 3: the guide hands over the workspace address ──────────────────
-  const skipped = await evalIn(browser, `(() => {
-    const skip = document.querySelector('[data-testid="install-skip-download"]');
-    if (!(skip instanceof HTMLButtonElement)) return false;
-    skip.click();
-    return true;
-  })()`);
-  expect(skipped).toBe(true);
-  await waitFor(
-    browser,
-    `Boolean(document.querySelector('[data-testid="install-workspace-address"] input'))`,
-    { timeoutMs: 30_000, label: "connect step showing the workspace address" },
-  );
-  const shownAddress = String(await evalIn(
-    browser,
-    `document.querySelector('[data-testid="install-workspace-address"] input')?.value ?? ""`,
-  ));
-  expect(shownAddress).toBe(webOrigin);
-  evidence.fact(
-    "Connect hands the member the exact workspace address",
-    `Step 3 shows ${shownAddress}, exactly the Den web origin the browser is signed in on, with a copy control and no credential.`,
-    shownAddress === webOrigin,
-  );
+  if (distribution === "enterprise") {
+    const skipped = await evalIn(browser, `(() => {
+      const skip = document.querySelector('[data-testid="install-skip-download"]');
+      if (!(skip instanceof HTMLButtonElement)) return false;
+      skip.click();
+      return true;
+    })()`);
+    expect(skipped).toBe(true);
+    await waitFor(
+      browser,
+      `Boolean(document.querySelector('[data-testid="install-workspace-address"] input'))`,
+      { timeoutMs: 30_000, label: "connect step showing the workspace address" },
+    );
+    const shownAddress = String(await evalIn(
+      browser,
+      `document.querySelector('[data-testid="install-workspace-address"] input')?.value ?? ""`,
+    ));
+    expect(shownAddress).toBe(webOrigin);
+    evidence.fact(
+      "Connect hands the member the exact workspace address",
+      `Step 3 shows ${shownAddress}, exactly the Den web origin the browser is signed in on, with a copy control and no credential.`,
+      shownAddress === webOrigin,
+    );
+  }
 
   // ── Frames 4-5: the real blank-slate Enterprise desktop links by address ──
   const member = await signIn(den.ref, { email: invitee.email, password: invitee.password });
@@ -470,9 +512,14 @@ test(title, async ({ evidence, place }) => {
   );
 
   const finalShot = await screenshot(browser);
-  const seen = await validate(finalShot, [
-    "The page is an OpenWork install or setup guide",
-    "A step mentions connecting or a workspace address",
-  ]);
+  const seen = await validate(finalShot, distribution === "cloud"
+    ? [
+        "The page is an OpenWork download guide",
+        "Desktop download choices are visible",
+      ]
+    : [
+        "The page is an OpenWork install or setup guide",
+        "A step mentions connecting or a workspace address",
+      ]);
   expect(seen.ok, seen.why).toBe(true);
 });
